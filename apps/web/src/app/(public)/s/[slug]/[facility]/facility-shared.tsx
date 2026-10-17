@@ -1,6 +1,8 @@
+import { cityFromPageSlug } from '@storageos/shared';
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
+import { buildCityMetadata, CityPageBody } from '../city/city-shared';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from '../i18n/messages';
 import { siteUrl } from '../landing-shared';
 import { priceRangeString } from '../price-format';
@@ -136,6 +138,9 @@ export async function buildFacilityMetadata(
 ): Promise<Metadata> {
   const data = await getFacility(slug, facilitySlug);
   if (!data) {
+    // `trasteros-en-<ciudad>`: página de la ciudad (si el negocio la tiene).
+    const city = await buildCityMetadata(slug, facilitySlug, locale);
+    if (city) return city;
     return {
       title: locale === 'en' ? 'Not found' : 'No encontrado',
       robots: { index: false },
@@ -195,7 +200,12 @@ export async function FacilityPageBody({
   locale: PublicWebLocale;
 }) {
   const raw = await getFacility(slug, facilitySlug);
-  if (!raw) notFound();
+  if (!raw) {
+    if (cityFromPageSlug(facilitySlug)) {
+      return <CityPageBody slug={slug} pageSlug={facilitySlug} locale={locale} />;
+    }
+    notFound();
+  }
   // El color de la plantilla si el negocio no ha elegido uno (como la portada).
   const data = { ...raw, brandColor: themeFor(raw.webTemplate, raw.brandColor).accent };
   const messages = await getPublicWebMessages(locale);

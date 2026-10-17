@@ -226,3 +226,13 @@ export function legalHref(
     ? `https://${customDomain}/${doc}`
     : `/s/${encodeURIComponent(tenantSlug)}/${doc}`;
 }
+
+/** Página de una ciudad (`/trasteros-en-<ciudad>`), con el idioma y el dominio propio. */
+export function cityPageHref(
+  tenantSlug: string,
+  citySlug: string,
+  locale: PublicWebLocale,
+  customDomain?: string | null,
+): string {
+  return facilityHref(tenantSlug, `trasteros-en-${citySlug}`, locale, customDomain);
+}
