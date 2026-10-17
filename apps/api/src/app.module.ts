@@ -124,6 +124,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
               'req.headers["x-device-key"]',
               'req.headers["x-camera-token"]',
               'req.headers["x-inbound-secret"]',
+              'req.headers["x-internal-token"]',
               'res.headers["set-cookie"]',
               '*.password',
               '*.passwordHash',

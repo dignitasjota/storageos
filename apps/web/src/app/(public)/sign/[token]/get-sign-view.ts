@@ -21,7 +21,7 @@ export async function getContractSignView(
   locale: PublicWebLocale,
 ): Promise<{ data: ContractSignViewDto | null; error: string | null }> {
   try {
-    const res = await fetch(`${API_URL}/public/move-in/sign/${encodeURIComponent(token)}`, {
+    const res = await fetch(`${API_URL}/v1/public/move-in/sign/${encodeURIComponent(token)}`, {
       headers: internalApiHeaders(),
       cache: 'no-store',
     });

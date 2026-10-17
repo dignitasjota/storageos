@@ -28,7 +28,7 @@ export async function getBookingAvailability(
 ): Promise<{ data: BookingAvailabilityDto | null; error: string | null }> {
   try {
     const res = await fetch(
-      `${API_URL}/public/move-in/book/${encodeURIComponent(slug)}/availability`,
+      `${API_URL}/v1/public/move-in/book/${encodeURIComponent(slug)}/availability`,
       { headers: internalApiHeaders(), cache: 'no-store' },
     );
     if (res.ok) {

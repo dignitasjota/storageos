@@ -24,7 +24,12 @@ const envSchemaBase = z.object({
    * públicas) lo mandan en `x-internal-token` y no cuentan en los límites por
    * IP (todas salen del mismo servidor). Opcional; mínimo 32 caracteres.
    */
-  INTERNAL_API_TOKEN: z.string().min(32).optional(),
+  // Vacía = sin token: el compose la pasa como `''` si no está definida en
+  // Portainer y, sin esto, el API no arrancaba (no llega a 32 caracteres).
+  INTERNAL_API_TOKEN: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(32).optional(),
+  ),
 
   // --- Postgres ---
   /** URL para el rol restringido `storageos_app` (RLS activo). */

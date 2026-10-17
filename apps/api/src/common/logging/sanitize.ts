@@ -3,7 +3,8 @@
  * o a Sentry. Hay secretos que NO viajan en `Authorization`/cookies:
  *
  *  - cabeceras propias: `x-device-key` (cerraduras), `x-camera-token`
- *    (ingesta de cámaras), `x-inbound-secret` (email entrante);
+ *    (ingesta de cámaras), `x-inbound-secret` (email entrante),
+ *    `x-internal-token` (llamadas del servidor del web);
  *  - query string: `GET /access/verify?key=<DEVICE_KEY>&pin=<PIN>` (terminales
  *    que integran por "URL con placeholders") y `hub.verify_token` de Meta;
  *  - tokens en la RUTA: firma de contrato, valoración NPS, invitación.
@@ -21,6 +22,7 @@ export const SENSITIVE_HEADERS = [
   'x-device-key',
   'x-camera-token',
   'x-inbound-secret',
+  'x-internal-token',
 ] as const;
 
 /** Parámetros de query cuyo valor es un secreto (comparación exacta, sin mayúsculas). */

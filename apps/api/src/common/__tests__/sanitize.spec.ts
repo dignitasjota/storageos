@@ -41,6 +41,9 @@ describe('sanitizeQuery / sanitizeHeaders', () => {
     expect(
       sanitizeHeaders({ 'x-device-key': 'k', 'X-Camera-Token': 't', 'user-agent': 'ua' }),
     ).toEqual({ 'x-device-key': REDACTED, 'X-Camera-Token': REDACTED, 'user-agent': 'ua' });
+    expect(sanitizeHeaders({ 'x-internal-token': 'secreto' })).toEqual({
+      'x-internal-token': REDACTED,
+    });
   });
 });
 
