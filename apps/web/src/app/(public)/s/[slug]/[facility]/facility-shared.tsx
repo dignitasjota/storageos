@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from '../i18n/messages';
 import { siteUrl } from '../landing-shared';
 import { priceRangeString } from '../price-format';
+import { themeFor } from '../promo/promo-theme';
 import { TenantWebChrome } from '../tenant-web-chrome';
 import { WhatsappFloatButton } from '../whatsapp-float-button';
 
@@ -190,8 +191,10 @@ export async function FacilityPageBody({
   facilitySlug: string;
   locale: PublicWebLocale;
 }) {
-  const data = await getFacility(slug, facilitySlug);
-  if (!data) notFound();
+  const raw = await getFacility(slug, facilitySlug);
+  if (!raw) notFound();
+  // El color de la plantilla si el negocio no ha elegido uno (como la portada).
+  const data = { ...raw, brandColor: themeFor(raw.webTemplate, raw.brandColor).accent };
   const messages = await getPublicWebMessages(locale);
 
   return (

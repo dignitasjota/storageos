@@ -128,7 +128,7 @@ export function FacilityBody({
         )}
         onClick={() => trackEvent('cta_reservar_click', { location: 'facility_page' })}
         className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
-        style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
+        style={{ backgroundColor: data.brandColor ?? '#2563EB' }}
       >
         {t('common.reserveNow')}
       </Link>

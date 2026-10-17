@@ -343,6 +343,8 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(res.body.facility.unitTypes.length).toBeGreaterThanOrEqual(1);
     // Sin entradas de blog publicadas -> false (controla el enlace "Blog" del nav).
     expect(res.body.hasBlog).toBe(false);
+    // La ficha toma el aspecto de la plantilla (sin Web Premium, la estándar).
+    expect(res.body.webTemplate).toBe('default');
 
     const missing = await request(app.getHttpServer()).get(
       `/public/landing/${owner.slug}/no-existe`,

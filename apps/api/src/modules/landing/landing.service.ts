@@ -540,6 +540,7 @@ export class LandingService {
       brandColor: full.brandColor,
       logoUrl: full.logoUrl,
       customDomain: full.customDomain,
+      webTemplate: full.webTemplate,
       hasBlog: full.hasBlog,
       googleAnalyticsId: full.googleAnalyticsId,
       whatsappNumber: full.whatsappNumber,
@@ -663,6 +664,7 @@ export class LandingService {
     logoUrl: string | null;
     customDomain: string | null;
     googleAnalyticsId: string | null;
+    webTemplate: string;
   }> {
     const tenant = await this.admin.tenant.findUnique({
       where: { slug },
@@ -676,6 +678,7 @@ export class LandingService {
         customDomain: true,
         customDomainVerifiedAt: true,
         googleAnalyticsId: true,
+        webTemplate: true,
       },
     });
     if (!tenant || tenant.deletedAt) {
@@ -692,6 +695,11 @@ export class LandingService {
       logoUrl: tenant.portalLogoUrl,
       customDomain: tenant.customDomainVerifiedAt ? tenant.customDomain : null,
       googleAnalyticsId: tenant.googleAnalyticsId,
+      // El blog ya exige Web Premium: la plantilla elegida vale tal cual (salvo `external`).
+      webTemplate:
+        isWebTemplate(tenant.webTemplate) && tenant.webTemplate !== 'external'
+          ? tenant.webTemplate
+          : 'default',
     };
   }
 
@@ -760,6 +768,7 @@ export class LandingService {
       brandColor: tenant.brandColor,
       logoUrl: tenant.logoUrl,
       customDomain: tenant.customDomain,
+      webTemplate: tenant.webTemplate,
       googleAnalyticsId: tenant.googleAnalyticsId,
       facilities,
       posts: rows.map((r) => ({
@@ -793,6 +802,7 @@ export class LandingService {
       brandColor: tenant.brandColor,
       logoUrl: tenant.logoUrl,
       customDomain: tenant.customDomain,
+      webTemplate: tenant.webTemplate,
       googleAnalyticsId: tenant.googleAnalyticsId,
       facilities,
       post: {

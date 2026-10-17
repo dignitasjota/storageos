@@ -41,6 +41,7 @@ describe('Blog público de la landing (e2e)', () => {
     expect(empty.status).toBe(200);
     expect(empty.body.posts).toEqual([]);
     expect(empty.body.tenantName).toBeTruthy();
+    expect(empty.body.webTemplate).toBe('default');
     // Sin locales todavía -> enlazado interno vacío.
     expect(empty.body.facilities).toEqual([]);
 

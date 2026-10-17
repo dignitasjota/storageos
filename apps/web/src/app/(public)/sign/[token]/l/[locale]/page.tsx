@@ -29,6 +29,7 @@ export default async function SignLocalePage({
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
       {data ? (
         <TenantWebChrome
+          hideReserve
           data={brandOf(data)}
           locale={locale}
           googleAnalyticsId={data.googleAnalyticsId}
