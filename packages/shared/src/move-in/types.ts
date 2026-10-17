@@ -80,5 +80,12 @@ export interface BookingAvailabilityDto {
 /** Resultado del alta self-service: a dónde ir a firmar. */
 export interface BookingResultDto {
   contractId: string;
-  signingToken: string;
+  /**
+   * Enlace de firma para seguir en esta misma pantalla. `null` cuando el email
+   * ya es de un inquilino: el enlace se envía a ese email (solo sigue quien
+   * tiene acceso a ese buzón) y `signingLinkSentTo` dice a dónde.
+   */
+  signingToken: string | null;
+  /** Email (enmascarado) al que se envió el enlace, o null. */
+  signingLinkSentTo: string | null;
 }

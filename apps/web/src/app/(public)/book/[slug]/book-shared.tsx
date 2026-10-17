@@ -5,7 +5,7 @@ import {
   bookCentroFromPath,
   type FirstPaymentMonths,
 } from '@storageos/shared';
-import { Loader2 } from 'lucide-react';
+import { Loader2, MailCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
@@ -69,6 +69,8 @@ export function BookPageBody({
   const [couponCode, setCouponCode] = useState<string | null>(null);
   const [quote, setQuote] = useState<FirstPaymentQuoteDto | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Email que ya era de un inquilino: el enlace de firma se le envía por correo.
+  const [linkSentTo, setLinkSentTo] = useState<string | null | undefined>(undefined);
   // UTM de la URL (p. ej. desde el enlace corto /g/<code> de una campaña
   // física): se capturan una vez al montar y se reenvían en el lead y en la
   // reserva para que el rendimiento de marketing pueda atribuir la conversión.
@@ -211,7 +213,12 @@ export function BookPageBody({
         },
       });
       trackEvent('book_submitted');
-      router.push(signHref(res.signingToken, locale));
+      if (res.signingToken) {
+        router.push(signHref(res.signingToken, locale));
+      } else {
+        setLinkSentTo(res.signingLinkSentTo);
+        setSubmitting(false);
+      }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : t('submitError'));
       setSubmitting(false);
@@ -226,6 +233,25 @@ export function BookPageBody({
             <CardTitle>{t('notAvailableTitle')}</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">{loadError}</CardContent>
+        </Card>
+      </Centered>
+    );
+  }
+  if (linkSentTo !== undefined) {
+    return (
+      <Centered>
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MailCheck className="size-5" /> {t('linkSentTitle')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              {linkSentTo ? t('linkSentText', { email: linkSentTo }) : t('linkSentTextNoEmail')}
+            </p>
+            <p>{t('linkSentHold')}</p>
+          </CardContent>
         </Card>
       </Centered>
     );

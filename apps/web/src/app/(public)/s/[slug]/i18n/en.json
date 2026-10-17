@@ -429,7 +429,11 @@
       "summaryTotal": "Total due on activation",
       "summaryAfter": "Then: {price}/month (VAT included).",
       "summaryProrated": "The first month is charged from your start date to the end of the month, so it may be less.",
-      "summaryInsurance": "Insurance / protection"
+      "summaryInsurance": "Insurance / protection",
+      "linkSentTitle": "Check your email",
+      "linkSentText": "You already have an account with us, so we've sent the link to sign the contract and pay to {email}.",
+      "linkSentTextNoEmail": "You already have an account with us: we've sent the link to sign the contract and pay to your email.",
+      "linkSentHold": "We'll hold the unit for 72 hours."
     },
     "sign": {
       "invalidTitle": "Invalid link",

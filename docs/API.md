@@ -1749,6 +1749,7 @@ Descuento sobre el pago que se hace al contratar (no sobre las renovaciones). Im
 
 - **Resumen del primer pago** (`FirstPaymentQuoteDto`: meses, alquiler, descuento, meses gratis, IVA, seguro, fianza, total a pagar, `prorated` y el cupón con su motivo si no vale): `POST /public/move-in/book/:slug/quote {facilityId, unitTypeId, months, couponCode?}` (público, 15/min; los motivos que solo dirían si el código existe salen como «Este cupón no es válido» y no se mira si el visitante ya es cliente) y `POST /portal/me/units/:unitId/quote {months, couponCode?}` (portal). La vista de firma lo incluye en `firstPayment`.
 - **Reserva online** `POST /public/move-in/book/:slug` y **portal** `POST /portal/me/contracts` aceptan `months` (1, 3, 6 o 12) y `couponCode`. Errores: 400 `coupon_not_valid` (reserva, con el motivo) y `unit_has_offer` (portal: el trastero ya tiene una oferta).
+- **Reserva online con el email de un inquilino que ya existe** (sin distinguir mayúsculas): `BookingResultDto.signingToken` = `null` y `signingLinkSentTo` = el email enmascarado (`a***a@dominio`); el enlace de firma se envía por correo a ese email (fuente `booking.signing_link`). Antes se devolvía el enlace a quien rellenaba el formulario y, al firmar, recibía la sesión del área de clientes de ese inquilino (con sus códigos de acceso). Lo mismo en las reservas del asistente de WhatsApp.
 
 ### Landings de promoción (`/promo-landings`, extra Web Premium)
 

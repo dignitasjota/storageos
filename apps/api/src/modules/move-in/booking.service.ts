@@ -26,6 +26,13 @@ import type {
   PublicBookingInput,
 } from '@storageos/shared';
 
+/** `ana.garcia@gmail.com` → `a***a@gmail.com` (para decir a dónde se envió el enlace). */
+export function maskEmail(email: string): string {
+  const [user = '', domain = ''] = email.trim().toLowerCase().split('@');
+  const masked = user.length <= 2 ? `${user[0] ?? ''}***` : `${user[0]}***${user[user.length - 1]}`;
+  return domain ? `${masked}@${domain}` : masked;
+}
+
 /** Plazo (horas) para firmar+pagar antes de que el hold de la unidad expire. */
 const BOOKING_HOLD_HOURS = 72;
 
@@ -207,7 +214,11 @@ export class BookingService {
     }
     const customer = input.email
       ? await this.admin.customer.findFirst({
-          where: { tenantId, email: input.email, deletedAt: null },
+          where: {
+            tenantId,
+            email: { equals: input.email.trim(), mode: 'insensitive' },
+            deletedAt: null,
+          },
           select: { id: true, depositExempt: true },
         })
       : null;
@@ -310,8 +321,12 @@ export class BookingService {
           },
         });
         // Reutiliza el cliente por email si ya existe; si no, lo crea.
+        // Sin distinguir mayúsculas: «Ana@…» es el mismo inquilino que «ana@…».
         const existing = await tx.customer.findFirst({
-          where: { email: input.customer.email, deletedAt: null },
+          where: {
+            email: { equals: input.customer.email.trim(), mode: 'insensitive' },
+            deletedAt: null,
+          },
         });
         const customer =
           existing ??
@@ -321,7 +336,7 @@ export class BookingService {
               customerType: 'individual',
               firstName: input.customer.firstName.trim(),
               lastName: input.customer.lastName.trim(),
-              email: input.customer.email,
+              email: input.customer.email.trim().toLowerCase(),
               phone: input.customer.phone?.trim() || null,
               documentNumber: input.customer.documentNumber?.trim() || null,
               country: 'ES',
@@ -389,7 +404,7 @@ export class BookingService {
       await this.prisma.withTenant(async (tx) => {
         const existingLead = await tx.lead.findFirst({
           where: {
-            email: input.customer.email,
+            email: { equals: input.customer.email.trim(), mode: 'insensitive' },
             status: { in: ['new', 'contacted', 'qualified'] },
             deletedAt: null,
           },
@@ -419,7 +434,7 @@ export class BookingService {
             data: {
               tenantId,
               source: 'widget',
-              email: input.customer.email,
+              email: input.customer.email.trim().toLowerCase(),
               firstName: input.customer.firstName.trim(),
               lastName: input.customer.lastName.trim(),
               status: 'won',
@@ -446,12 +461,26 @@ export class BookingService {
       data: { firstPaymentDeadline: holdDeadline },
     });
 
-    const { token } = await this.signatures.generateSigningToken(contract.id);
     this.events.emit(DOMAIN_EVENTS.booking_created, {
       tenantId,
       contractId: contract.id,
       customerId,
     } satisfies BookingCreatedPayload);
-    return { contractId: contract.id, signingToken: token };
+
+    // El email ya era de un inquilino: quien rellena el formulario puede no ser
+    // él (el enlace de firma da acceso a su área de clientes, con sus códigos
+    // de acceso). El enlace se envía solo a su email; aquí no se devuelve.
+    if (!customerCreated) {
+      const sent = await this.signatures.requestSignature(tenantId, contract.id, {
+        selfServiceBooking: true,
+      });
+      return {
+        contractId: contract.id,
+        signingToken: null,
+        signingLinkSentTo: sent.emailed ? maskEmail(input.customer.email) : null,
+      };
+    }
+    const { token } = await this.signatures.generateSigningToken(contract.id);
+    return { contractId: contract.id, signingToken: token, signingLinkSentTo: null };
   }
 }
