@@ -19,6 +19,15 @@ function baseEnv(overrides: Record<string, string> = {}): Record<string, string>
 }
 
 describe('envSchema', () => {
+  it('INTERNAL_API_TOKEN vacía cuenta como no definida; corta da error', () => {
+    const empty = envSchema.safeParse(baseEnv({ INTERNAL_API_TOKEN: '' }));
+    expect(empty.success).toBe(true);
+    if (empty.success) expect(empty.data.INTERNAL_API_TOKEN).toBeUndefined();
+    expect(envSchema.safeParse(baseEnv({ INTERNAL_API_TOKEN: 'corto' })).success).toBe(false);
+    const ok = envSchema.safeParse(baseEnv({ INTERNAL_API_TOKEN: 'e'.repeat(64) }));
+    expect(ok.success && ok.data.INTERNAL_API_TOKEN).toBe('e'.repeat(64));
+  });
+
   it('SUPER_ADMIN_JWT_SECRET es obligatorio: sin la variable, el arranque falla', () => {
     const { SUPER_ADMIN_JWT_SECRET: _omitted, ...rest } = baseEnv();
     const result = envSchema.safeParse(rest);
