@@ -690,3 +690,16 @@ Revisión de Stripe, Stripe Connect, Redsys, GoCardless, remesas SEPA, N43, dunn
 - ✅ **#703** — el dunning no reclama facturas anuladas con rectificativa o reembolsadas ni justificantes de fianza; los reintentos de cobro no se gastan en rechazos previos a la pasarela.
 - ✅ **#704** — aviso al equipo si no se pudo emitir la rectificativa de un reembolso (y un borrador anterior se sustituye); una orden de Redsys pendiente se rehace si cambió lo pendiente; la conciliación N43 automática no toca facturas en remesa o con cobro en curso.
 - Pendiente (no bloqueante): un cobro de GoCardless sin respuesta de su API sigue contando como fallido (sus avisos no traen nuestro id de pago para recuperarlo).
+
+### Revisión de la web pública del tenant (2026-10-17, #705–#712) ✅
+
+Segunda pasada a las webs de los tenants (plantillas, landings, reserva, firma, SEO).
+
+- ✅ **#705** — smoke Playwright que abre las 9 plantillas (portada, ficha, inglés, blog y landing).
+- ✅ **#706** — aviso legal, privacidad y cookies del tenant (generados con sus datos de facturación, editables en Configuración → Textos legales) y GA4 del tenant solo con consentimiento.
+- ✅ **#707** — la valoración y la vuelta del pago con Redsys con la marca del negocio.
+- ✅ **#708** — selector de idioma en todas las plantillas, `lang="en-GB"` y `/l/en/precios|contacto`.
+- ✅ **#709** — las subpáginas (local, blog, landing, reserva, firma) con el aspecto de su plantilla.
+- ✅ **#710** — interruptor de preguntas frecuentes, sitemap con inglés/landings/`lastmod` por entrada y 5xx (no 404) si el API cae.
+- ✅ **#711** — fotos redimensionadas y en AVIF/WebP (`MINIO_PUBLIC_URL` como argumento de build del web).
+- ✅ **#712** — páginas por ciudad `/trasteros-en-<ciudad>` para negocios con varios locales.

@@ -1283,3 +1283,10 @@ Las páginas públicas (webs de los tenants, reserva, firma, landings) se genera
 3. Redesplegar. Comprobar que la web de un tenant y `/book/<slug>` cargan.
 
 Sin la variable todo funciona como antes (URL pública, con límite compartido). Con `docker-compose.prod.yml`, ponerla en `apps/api/.env.production` y en el `.env` del compose.
+
+## 27. Tras desplegar la revisión de la web pública (#705–#712)
+
+- **Migración** `20261028100000_tenant_web_legal` (la aplica el api al arrancar).
+- El web se construye con **`MINIO_PUBLIC_URL`** como argumento de build (fotos optimizadas por `/_next/image`, solo de ese dominio). La variable ya existe en Portainer; basta con redesplegar el web con pull efectivo. Si las fotos de la web salen rotas, el build no la recibió.
+- Comprobar: pie de la web de un tenant con «Aviso legal · Privacidad · Cookies»; con GA4, el aviso de cookies y que Google no carga hasta aceptar; Configuración → Textos legales avisa si faltan NIF o domicilio (Suscripción → Datos de facturación).
+- `/l/en` en una plantilla propia, una ficha de local con el aspecto de su plantilla, `/trasteros-en-<ciudad>` en un tenant con varios locales y `/sitemap.xml` con las versiones en inglés y las landings indexables.
