@@ -99,6 +99,30 @@ const cspHeader = Object.entries(cspDirectives)
   .map(([k, v]) => `${k} ${v.join(' ')}`)
   .join('; ');
 
+/** Configuración de `next/image` según `MINIO_PUBLIC_URL` (ver más abajo). */
+function imagesConfig() {
+  const raw = process.env.MINIO_PUBLIC_URL;
+  if (!raw) return { unoptimized: true };
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { unoptimized: true };
+  }
+  return {
+    formats: ['image/avif', 'image/webp'],
+    minimumCacheTTL: 60 * 60 * 24 * 7,
+    remotePatterns: [
+      {
+        protocol: url.protocol.replace(':', ''),
+        hostname: url.hostname,
+        ...(url.port ? { port: url.port } : {}),
+        pathname: '/**',
+      },
+    ],
+  };
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -128,14 +152,13 @@ const nextConfig = {
   // mas pequenas (solo copiamos esa carpeta + .next/static + public).
   // Ver apps/web/Dockerfile y docs/DEPLOYMENT.md.
   output: 'standalone',
-  // `unoptimized`: las fotos de local/logos vienen de MinIO, cuyo dominio
-  // público (`MINIO_PUBLIC_URL`) varía por despliegue y no se conoce en
-  // build-time del Docker del web (mismo problema que `NEXT_PUBLIC_API_URL`,
-  // ver docs/DEPLOYMENT.md) — sin `remotePatterns` configurado, `next/image`
-  // rechazaría cualquier host externo. En modo `unoptimized` seguimos
-  // ganando `width`/`height` automáticos (sin CLS) y lazy-loading nativo,
-  // solo sin la conversión de formato/tamaño en servidor.
-  images: { unoptimized: true },
+  // Fotos de locales, blog y landings: vienen del almacenamiento público
+  // (MinIO), cuyo dominio (`MINIO_PUBLIC_URL`) cambia por despliegue. Si se
+  // conoce al construir (argumento de build del Dockerfile), `next/image` las
+  // sirve redimensionadas a cada pantalla y en AVIF/WebP; si no, se sirven tal
+  // cual. Los logos (pueden estar en cualquier dominio) van siempre sin
+  // optimizar (`unoptimized` en cada `<Image>`).
+  images: imagesConfig(),
   // En el build de Docker el root del monorepo esta dos niveles arriba
   // de apps/web; lo declaramos explicitamente para que el tracer de
   // archivos del standalone funcione correctamente con pnpm workspaces.

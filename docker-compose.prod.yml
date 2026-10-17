@@ -231,6 +231,8 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         # URL publica del frontend (sitemap/robots/canonicals SEO).
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
+        # Fotos de las webs optimizadas (mismo valor que el del API).
+        MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-}
     image: storageos/web:${RELEASE_TAG:-latest}
     restart: unless-stopped
     # Tope de memoria (auditoría 2026-07): sin límites, el OOM killer del

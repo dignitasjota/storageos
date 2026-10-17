@@ -77,6 +77,10 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 # URL pública del sitio (URLs absolutas de sitemap/robots/canonicals SEO).
 ARG NEXT_PUBLIC_SITE_URL=
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
+# Dominio público de MinIO (el mismo que usa el API): con él, `next/image`
+# sirve las fotos de las webs redimensionadas y en AVIF/WebP. Vacío = sin optimizar.
+ARG MINIO_PUBLIC_URL=
+ENV MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
