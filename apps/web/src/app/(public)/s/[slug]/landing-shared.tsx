@@ -18,13 +18,15 @@ import type { LandingSection, PublicLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
 import { safeJsonLd } from '@/lib/json-ld';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_URL = SERVER_API_URL;
 
 /** Carga la landing del tenant. `null` si no existe (404). Cacheada 5 min (ISR). */
 export async function getLanding(slug: string): Promise<PublicLandingDto | null> {
   try {
     const res = await fetch(`${API_URL}/public/landing/${encodeURIComponent(slug)}`, {
+      headers: internalApiHeaders(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;

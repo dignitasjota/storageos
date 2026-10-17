@@ -1,6 +1,8 @@
 import { DEFAULT_LEGAL_DOCUMENTS, type LegalDocumentDto, type LegalSlug } from '@storageos/shared';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
+const API_URL = SERVER_API_URL;
 
 /**
  * Carga un documento legal desde la API (editable por el super admin). Si la API
@@ -10,6 +12,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 export async function fetchLegalDoc(slug: LegalSlug): Promise<LegalDocumentDto> {
   try {
     const res = await fetch(`${API_URL}/v1/platform-legal/${slug}`, {
+      headers: internalApiHeaders(),
       next: { revalidate: 300 },
     });
     if (res.ok) {

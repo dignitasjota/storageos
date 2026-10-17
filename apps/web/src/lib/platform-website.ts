@@ -4,7 +4,9 @@ import {
   type PlatformWebsiteDto,
 } from '@storageos/shared';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
+const API_URL = SERVER_API_URL;
 
 /**
  * Isotipo blanco de la marca: sin logo subido se pinta con el nombre al lado
@@ -27,7 +29,10 @@ const FALLBACK: PlatformWebsiteDto = {
  */
 export async function fetchPlatformWebsite(): Promise<PlatformWebsiteDto> {
   try {
-    const res = await fetch(`${API_URL}/v1/platform-website`, { next: { revalidate: 60 } });
+    const res = await fetch(`${API_URL}/v1/platform-website`, {
+      headers: internalApiHeaders(),
+      next: { revalidate: 60 },
+    });
     if (res.ok) {
       const data = (await res.json()) as Partial<PlatformWebsiteDto>;
       return {

@@ -1,7 +1,9 @@
 import type { PublicSitemapDto } from '@storageos/shared';
 import type { MetadataRoute } from 'next';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
+const API_URL = SERVER_API_URL;
 
 /** URL pública del sitio (para URLs absolutas en el sitemap). */
 function siteUrl(): string {
@@ -22,7 +24,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = siteUrl();
   let data: PublicSitemapDto = { entries: [] };
   try {
-    const res = await fetch(`${API_URL}/public/landing/sitemap`, { next: { revalidate: 3600 } });
+    const res = await fetch(`${API_URL}/public/landing/sitemap`, {
+      headers: internalApiHeaders(),
+      next: { revalidate: 3600 },
+    });
     if (res.ok) data = (await res.json()) as PublicSitemapDto;
   } catch {
     // Sin API disponible: sitemap mínimo (solo la home).

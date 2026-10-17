@@ -5,6 +5,8 @@ import { ImageResponse } from 'next/og';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
 // `next/og` (Satori) hace un fetch SERVER-SIDE del `<img src>` de abajo para
 // poder embeberlo como píxeles en el PNG — necesita el runtime Node para
 // poder validar por DNS antes (ver `isSafeImageUrl`).
@@ -14,7 +16,7 @@ export const alt = 'Trasteros — reserva tu espacio online';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_URL = SERVER_API_URL;
 
 // Fallback consistente con el resto del sitio (plantilla por defecto, onepage,
 // /book, /sign, /portal/login) cuando el tenant no ha configurado su color.
@@ -23,6 +25,7 @@ const DEFAULT_BRAND_COLOR = '#2563EB';
 async function getLanding(slug: string): Promise<PublicLandingDto | null> {
   try {
     const res = await fetch(`${API_URL}/public/landing/${encodeURIComponent(slug)}`, {
+      headers: internalApiHeaders(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;

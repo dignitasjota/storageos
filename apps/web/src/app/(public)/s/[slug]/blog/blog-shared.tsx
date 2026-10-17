@@ -15,11 +15,14 @@ import { BlogListBody, BlogPostBody } from './blog-body';
 import type { PublicBlogListDto, PublicBlogPostDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
+const API_URL = SERVER_API_URL;
 
 export async function getBlogList(slug: string): Promise<PublicBlogListDto | null> {
   try {
     const res = await fetch(`${API_URL}/public/landing/${encodeURIComponent(slug)}/blog`, {
+      headers: internalApiHeaders(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;
@@ -36,7 +39,7 @@ export async function getBlogPost(
   try {
     const res = await fetch(
       `${API_URL}/public/landing/${encodeURIComponent(slug)}/blog/${encodeURIComponent(postSlug)}`,
-      { next: { revalidate: 60 } },
+      { headers: internalApiHeaders(), next: { revalidate: 60 } },
     );
     if (!res.ok) return null;
     return (await res.json()) as PublicBlogPostDto;

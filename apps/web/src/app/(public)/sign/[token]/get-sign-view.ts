@@ -7,8 +7,9 @@ import {
   intlLocaleFor,
   type PublicWebLocale,
 } from '@/app/(public)/s/[slug]/i18n/messages';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_URL = SERVER_API_URL;
 
 /**
  * Carga la vista de firma EN EL SERVIDOR (`cache: 'no-store'` — el token es
@@ -21,6 +22,7 @@ export async function getContractSignView(
 ): Promise<{ data: ContractSignViewDto | null; error: string | null }> {
   try {
     const res = await fetch(`${API_URL}/public/move-in/sign/${encodeURIComponent(token)}`, {
+      headers: internalApiHeaders(),
       cache: 'no-store',
     });
     if (res.ok) {

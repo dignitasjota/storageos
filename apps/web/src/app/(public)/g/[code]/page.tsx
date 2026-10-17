@@ -1,6 +1,8 @@
 import { notFound, redirect } from 'next/navigation';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
+const API_URL = SERVER_API_URL;
 
 /**
  * Enlace corto de campaña de marketing (impreso en carteles/flyers, o en un
@@ -10,6 +12,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 async function resolveTarget(code: string): Promise<string | null> {
   try {
     const res = await fetch(`${API_URL}/public/marketing/go/${encodeURIComponent(code)}`, {
+      headers: internalApiHeaders(),
       cache: 'no-store',
     });
     if (!res.ok) return null;

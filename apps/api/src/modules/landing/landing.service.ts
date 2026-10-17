@@ -16,6 +16,7 @@ import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 import { LeadsService } from '../leads/leads.service';
+import { promotionUnitId } from '../promotions/promotions.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
@@ -394,12 +395,16 @@ export class LandingService {
       where: {
         tenantId,
         isActive: true,
+        // Nunca las recompensas personales de un referido (código de un solo
+        // uso de otra persona): la web las anunciaría a todo el mundo.
+        referrals: { none: {} },
         AND: [
           { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
           { OR: [{ validUntil: null }, { validUntil: { gte: now } }] },
         ],
       },
       select: {
+        appliesTo: true,
         code: true,
         name: true,
         discountType: true,
@@ -408,9 +413,13 @@ export class LandingService {
         usedCount: true,
       },
       orderBy: { createdAt: 'desc' },
-      take: 5,
+      take: 20,
     });
-    const promo = candidates.find((p) => p.maxUses == null || p.usedCount < p.maxUses);
+    // Tampoco las ofertas de un trastero concreto: solo valen para ese trastero.
+    const promo = candidates.find(
+      (p) =>
+        promotionUnitId(p.appliesTo) === null && (p.maxUses == null || p.usedCount < p.maxUses),
+    );
     if (!promo) return null;
     return {
       code: promo.code,

@@ -1,7 +1,9 @@
 import type { PublicTenantBrandDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
+const API_URL = SERVER_API_URL;
 
 /**
  * Favicon de la web pública de un tenant (lo sube en Configuración → Marca).
@@ -10,6 +12,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 export async function tenantIconsMetadata(slug: string): Promise<Metadata> {
   try {
     const res = await fetch(`${API_URL}/public/landing/brand/${encodeURIComponent(slug)}`, {
+      headers: internalApiHeaders(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return {};
