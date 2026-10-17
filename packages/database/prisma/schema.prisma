@@ -405,6 +405,9 @@ model Tenant {
   /// Título y descripción para Google de la portada, /precios y /contacto
   /// (`homeTitle`, `homeDescription`, `pricesTitle`…). Vacío = generados solos.
   webSeo                       Json                  @default("{}") @map("web_seo")
+  /// Textos legales propios de la web (`legalNotice`, `privacy`, `cookies`, Markdown).
+  /// Vacío = se generan con los datos de facturación del tenant.
+  webLegal                     Json                  @default("{}") @map("web_legal")
   /// SEO técnico de la web pública (`/s/<slug>`), sin gating por `web_premium`
   /// (es la base de cualquier plan): contenido de la etiqueta HTML de
   /// verificación de Google Search Console + Measurement ID de Google

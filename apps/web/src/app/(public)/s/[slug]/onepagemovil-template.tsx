@@ -20,7 +20,7 @@ import { useTranslations } from 'next-intl';
 import { useRef, useState } from 'react';
 
 import { ContactForm } from './contact-form';
-import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
+import { GoogleAnalyticsScript, TenantLegalLinks, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   blogPostHref as buildBlogPostHref,
@@ -174,7 +174,7 @@ export function OnePageMovilTemplate({
 
   return (
     <div className="flex min-h-screen flex-col bg-background pb-20 md:pb-0">
-      <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} />
+      <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} site={data} />
       <Header
         data={data}
         brand={brand}
@@ -546,7 +546,11 @@ export function OnePageMovilTemplate({
               </div>
               {data.contactEnabled && (
                 <div>
-                  <ContactForm slug={data.tenantSlug} brand={brand} />
+                  <ContactForm
+                    slug={data.tenantSlug}
+                    customDomain={data.customDomain}
+                    brand={brand}
+                  />
                 </div>
               )}
             </div>
@@ -638,6 +642,7 @@ export function OnePageMovilTemplate({
             <p>
               © {new Date().getUTCFullYear()} {data.tenantName}
             </p>
+            <TenantLegalLinks site={data} analytics={!!data.googleAnalyticsId} />
             <a
               href={SAAS_URL}
               target="_blank"

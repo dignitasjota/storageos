@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -11,12 +12,18 @@ import {
   VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { PromoVisitSchema, PublicContactSchema } from '@storageos/shared';
+import {
+  isTenantLegalDoc,
+  PromoVisitSchema,
+  PublicContactSchema,
+  type PublicLegalDocDto,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 
 import { LandingService } from './landing.service';
+import { WebLegalService } from './web-legal.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
@@ -52,7 +59,10 @@ function extractMeta(req: Request): RequestMeta {
 @Public()
 @Controller({ path: 'public/landing', version: VERSION_NEUTRAL })
 export class LandingController {
-  constructor(private readonly landing: LandingService) {}
+  constructor(
+    private readonly landing: LandingService,
+    private readonly legal: WebLegalService,
+  ) {}
 
   // `sitemap` y `resolve-domain` se declaran antes que `:slug` para que el
   // param no los capture.
@@ -122,6 +132,16 @@ export class LandingController {
     @Param('postSlug') postSlug: string,
   ): Promise<PublicBlogPostDto> {
     return this.landing.getBlogPost(slug, postSlug);
+  }
+
+  /** Aviso legal, privacidad o cookies de la web del tenant. */
+  @Get(':slug/legal/:doc')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  legalDoc(@Param('slug') slug: string, @Param('doc') doc: string): Promise<PublicLegalDocDto> {
+    if (!isTenantLegalDoc(doc)) {
+      throw new NotFoundException({ code: 'legal_doc_not_found', message: 'No encontrado' });
+    }
+    return this.legal.getPublicDoc(slug, doc);
   }
 
   /** Landing de promoción en vigor (`/promo/<slug>`); 404 si no existe, está apagada o caducó. */

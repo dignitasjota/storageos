@@ -108,7 +108,7 @@
       "emailLabel": "Email",
       "phoneLabel": "Teléfono (opcional)",
       "messageLabel": "Mensaje",
-      "privacyNotice": "Tus datos se usan solo para responder a tu consulta.",
+      "privacyNotice": "Tus datos se usan solo para responder a tu consulta. Más información en la <link>política de privacidad</link>.",
       "marketingConsent": "Quiero recibir ofertas y novedades por email (puedes darte de baja cuando quieras)."
     },
     "calculator": {
@@ -411,7 +411,7 @@
       "errorDocument": "Escribe tu DNI, NIE o pasaporte.",
       "errorFix": "Revisa los datos marcados en rojo.",
       "waitlistPhoneOptional": "Teléfono (opcional)",
-      "privacyNotice": "Tus datos se usan solo para gestionar tu reserva y contactarte.",
+      "privacyNotice": "Tus datos se usan solo para gestionar tu reserva y contactarte. Más información en la <link>política de privacidad</link>.",
       "monthsLabel": "¿Cuántos meses pagas ahora?",
       "monthsOption": "{count, plural, one {# mes} other {# meses}}",
       "monthsHint": "Después se paga cada mes.",
@@ -856,6 +856,17 @@
       "contactTitle": "¿Tienes dudas? Te llamamos",
       "m2": "{value} m²",
       "where": "Dónde estamos"
+    },
+    "legal": {
+      "navLabel": "Información legal",
+      "notice": "Aviso legal",
+      "privacy": "Privacidad",
+      "cookies": "Cookies",
+      "cookieSettings": "Configurar cookies",
+      "bannerText": "Usamos cookies necesarias para que la web funcione y, si lo aceptas, de analítica (Google Analytics) para saber cómo se usa. Más información en la política de",
+      "necessaryOnly": "Solo necesarias",
+      "acceptAll": "Aceptar todas",
+      "privacyPolicy": "política de privacidad"
     }
   }
 }

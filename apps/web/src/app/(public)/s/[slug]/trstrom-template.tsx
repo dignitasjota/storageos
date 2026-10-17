@@ -22,7 +22,7 @@ import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 import { ContactForm } from './contact-form';
-import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
+import { GoogleAnalyticsScript, TenantLegalLinks, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   blogPostHref as buildBlogPostHref,
@@ -147,7 +147,7 @@ export function TrstromTemplate({
 
   return (
     <div className="flex min-h-screen flex-col bg-muted/30 pb-20 text-foreground md:pb-0">
-      <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} />
+      <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} site={data} />
 
       {/* Promoción activa */}
       {promo && promoText && (
@@ -612,7 +612,7 @@ export function TrstromTemplate({
                 title={t('contactTitle')}
                 subtitle={t('contactSubtitle')}
               />
-              <ContactForm slug={data.tenantSlug} brand={brand} />
+              <ContactForm slug={data.tenantSlug} customDomain={data.customDomain} brand={brand} />
             </div>
           </div>
         </section>
@@ -711,6 +711,7 @@ export function TrstromTemplate({
             <p>
               © {new Date().getUTCFullYear()} {data.tenantName}
             </p>
+            <TenantLegalLinks site={data} analytics={!!data.googleAnalyticsId} />
             <a
               href={SAAS_URL}
               target="_blank"

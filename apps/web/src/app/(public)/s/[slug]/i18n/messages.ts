@@ -215,3 +215,14 @@ export function facilityHref(
     ? `/s/${encodedTenant}/${encodedFacility}`
     : `/s/${encodedTenant}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/${encodedFacility}`;
 }
+
+/** Página legal de la web del tenant (aviso legal, privacidad, cookies). */
+export function legalHref(
+  tenantSlug: string,
+  doc: 'aviso-legal' | 'privacidad' | 'cookies',
+  customDomain?: string | null,
+): string {
+  return customDomain
+    ? `https://${customDomain}/${doc}`
+    : `/s/${encodeURIComponent(tenantSlug)}/${doc}`;
+}

@@ -129,6 +129,12 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         permission: 'settings:manage',
       },
       {
+        href: '/settings/legal',
+        label: 'Textos legales',
+        description: 'Aviso legal, privacidad y cookies de tu web (se generan con tus datos).',
+        permission: 'settings:manage',
+      },
+      {
         href: '/settings/branding',
         label: 'Marca y SEO',
         description: 'Logo y color (web, portal y correos) y conexión con Google.',

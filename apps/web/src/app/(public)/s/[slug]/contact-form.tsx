@@ -4,11 +4,20 @@ import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 import { trackEvent } from './google-analytics';
+import { legalHref } from './i18n/messages';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 /** Formulario de contacto de la web pública → crea un lead (Web Premium). */
-export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
+export function ContactForm({
+  slug,
+  brand,
+  customDomain,
+}: {
+  slug: string;
+  brand: string;
+  customDomain?: string | null;
+}) {
   const t = useTranslations('publicWeb.contact');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -128,7 +137,15 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
       >
         {loading ? t('sending') : t('send')}
       </button>
-      <p className="text-center text-xs text-muted-foreground">{t('privacyNotice')}</p>
+      <p className="text-center text-xs text-muted-foreground">
+        {t.rich('privacyNotice', {
+          link: (chunks) => (
+            <a href={legalHref(slug, 'privacidad', customDomain)} className="underline">
+              {chunks}
+            </a>
+          ),
+        })}
+      </p>
     </form>
   );
 }
