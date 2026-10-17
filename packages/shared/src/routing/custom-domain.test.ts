@@ -170,7 +170,19 @@ describe('resolveCustomDomainRoute', () => {
     // que Next.js resuelve esa carpeta estática antes que la dinámica `[facility]`.
     expect(RESERVED_FACILITY_SLUGS.size).toBeGreaterThan(2);
     for (const slug of RESERVED_FACILITY_SLUGS) {
-      if (['l', 'blog', 'contacto', 'precios', 'promo'].includes(slug)) continue;
+      if (
+        [
+          'l',
+          'blog',
+          'contacto',
+          'precios',
+          'promo',
+          'aviso-legal',
+          'privacidad',
+          'cookies',
+        ].includes(slug)
+      )
+        continue;
       const route = resolveCustomDomainRoute(`/${slug}`, SLUG);
       expect(route).not.toEqual({ action: 'rewrite', path: `/s/${SLUG}/${slug}` });
     }

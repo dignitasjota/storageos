@@ -21,7 +21,7 @@ import type {
 import { FirstPaymentSummary } from '@/app/(public)/s/[slug]/first-payment-summary';
 import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
 import { trackEvent } from '@/app/(public)/s/[slug]/google-analytics';
-import { signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
+import { legalHref, signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
 import { grossPrice } from '@/app/(public)/s/[slug]/price-format';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
 import { Button } from '@/components/ui/button';
@@ -553,7 +553,15 @@ export function BookPageBody({
                 {t('submit')}
               </Button>
               <p className="text-center text-xs text-muted-foreground">{t('submitNote')}</p>
-              <p className="text-center text-xs text-muted-foreground">{t('privacyNotice')}</p>
+              <p className="text-center text-xs text-muted-foreground">
+                {t.rich('privacyNotice', {
+                  link: (chunks) => (
+                    <a href={legalHref(slug, 'privacidad')} className="underline">
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
             </>
           )}
         </CardContent>

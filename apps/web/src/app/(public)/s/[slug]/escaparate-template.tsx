@@ -18,7 +18,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
-import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
+import { GoogleAnalyticsScript, TenantLegalLinks, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   bookHrefFor as buildBookHrefFor,
@@ -126,7 +126,7 @@ export function EscaparateTemplate({
 
   return (
     <div className="flex min-h-screen flex-col">
-      <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} />
+      <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} site={data} />
       <OnePageNav
         items={navItems}
         brand={brand}
@@ -426,7 +426,11 @@ export function EscaparateTemplate({
               </div>
               {data.contactEnabled && (
                 <div>
-                  <ContactForm slug={data.tenantSlug} brand={brand} />
+                  <ContactForm
+                    slug={data.tenantSlug}
+                    customDomain={data.customDomain}
+                    brand={brand}
+                  />
                 </div>
               )}
             </div>
@@ -440,6 +444,7 @@ export function EscaparateTemplate({
           <p>
             © {new Date().getUTCFullYear()} {data.tenantName}
           </p>
+          <TenantLegalLinks site={data} analytics={!!data.googleAnalyticsId} />
           <div className="flex items-center gap-4">
             <Link href={portalHref} className="transition hover:text-foreground">
               {tChrome('clientAccess')}

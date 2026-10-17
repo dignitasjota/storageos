@@ -683,7 +683,7 @@ export function ContactSection({ data }: TplProps) {
     <section id="contacto" className="mt-14 scroll-mt-20">
       <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">{t('title')}</h2>
       <p className="mb-6 text-center text-sm text-muted-foreground">{t('subtitle')}</p>
-      <ContactForm slug={data.tenantSlug} brand={brandOf(data)} />
+      <ContactForm slug={data.tenantSlug} customDomain={data.customDomain} brand={brandOf(data)} />
     </section>
   );
 }

@@ -21,7 +21,7 @@ import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 import { ContactForm } from './contact-form';
-import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
+import { GoogleAnalyticsScript, TenantLegalLinks, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   blogPostHref as buildBlogPostHref,
@@ -155,7 +155,7 @@ export function CabeTemplate({
 
   return (
     <div className="flex min-h-screen flex-col bg-neutral-50 pb-20 text-slate-900 antialiased md:pb-0 dark:bg-background dark:text-foreground">
-      <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} />
+      <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} site={data} />
 
       {/* Promoción activa */}
       {promo && promoText && (
@@ -643,7 +643,7 @@ export function CabeTemplate({
                 title={t('contactTitle')}
                 subtitle={t('contactSubtitle')}
               />
-              <ContactForm slug={data.tenantSlug} brand={brand} />
+              <ContactForm slug={data.tenantSlug} customDomain={data.customDomain} brand={brand} />
             </div>
           </div>
         </section>
@@ -752,6 +752,7 @@ export function CabeTemplate({
             <p>
               © {new Date().getUTCFullYear()} {data.tenantName}
             </p>
+            <TenantLegalLinks site={data} analytics={!!data.googleAnalyticsId} />
             <a
               href={SAAS_URL}
               target="_blank"

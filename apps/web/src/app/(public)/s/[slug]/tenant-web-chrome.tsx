@@ -2,7 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { createTranslator } from 'next-intl';
 
-import { GoogleAnalyticsScript } from './google-analytics';
+import { GoogleAnalyticsScript, TenantLegalLinks } from './google-analytics';
 import { LanguageSwitcher } from './i18n/language-switcher';
 import { blogHref, getPublicWebMessages, intlLocaleFor } from './i18n/messages';
 
@@ -80,7 +80,7 @@ export async function TenantWebChrome({
 
   return (
     <div className="flex min-h-screen flex-col">
-      <GoogleAnalyticsScript measurementId={googleAnalyticsId ?? null} />
+      <GoogleAnalyticsScript measurementId={googleAnalyticsId ?? null} site={data} />
       <header className="border-b border-border/60">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-2 font-semibold">
@@ -130,6 +130,7 @@ export async function TenantWebChrome({
           <p>
             © {year} {data.tenantName}
           </p>
+          <TenantLegalLinks site={data} analytics={!!googleAnalyticsId} />
           <div className="flex items-center gap-4">
             <Link href={portalHref} className="transition hover:text-foreground">
               {t('clientAccess')}

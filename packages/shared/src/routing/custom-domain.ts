@@ -74,6 +74,10 @@ export const RESERVED_FACILITY_SLUGS: ReadonlySet<string> = new Set([
   PROMO_PREFIX,
   // Direcciones fijas de la web (`/contacto`, `/precios`) para campañas.
   ...LANDING_SECTION_PATHS,
+  // Textos legales de la web del tenant.
+  'aviso-legal',
+  'privacidad',
+  'cookies',
 ]);
 
 /**

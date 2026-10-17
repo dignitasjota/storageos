@@ -314,7 +314,11 @@ export function PromoBody({ data, locale }: { data: PublicPromoPageDto; locale: 
         {promo.showContact && site.contactEnabled && (
           <section id="contacto" className={`border p-6 ${theme.radius} ${surface}`}>
             <h2 className={`mb-4 text-2xl font-bold ${upper}`}>{t('contactTitle')}</h2>
-            <ContactForm slug={site.tenantSlug} brand={theme.accent} />
+            <ContactForm
+              slug={site.tenantSlug}
+              customDomain={site.customDomain}
+              brand={theme.accent}
+            />
           </section>
         )}
 

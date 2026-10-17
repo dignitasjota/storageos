@@ -108,7 +108,7 @@
       "emailLabel": "Email",
       "phoneLabel": "Phone (optional)",
       "messageLabel": "Message",
-      "privacyNotice": "We only use your details to reply to your enquiry.",
+      "privacyNotice": "We only use your details to reply to your enquiry. More information in our <link>privacy policy</link>.",
       "marketingConsent": "I'd like to receive offers and news by email (you can unsubscribe at any time)."
     },
     "calculator": {
@@ -411,7 +411,7 @@
       "errorDocument": "Enter your ID card or passport number.",
       "errorFix": "Please check the fields marked in red.",
       "waitlistPhoneOptional": "Phone (optional)",
-      "privacyNotice": "We only use your details to manage your booking and contact you.",
+      "privacyNotice": "We only use your details to manage your booking and contact you. More information in our <link>privacy policy</link>.",
       "monthsLabel": "How many months do you pay now?",
       "monthsOption": "{count, plural, one {# month} other {# months}}",
       "monthsHint": "After that you pay monthly.",
@@ -856,6 +856,17 @@
       "contactTitle": "Any questions? We'll call you",
       "m2": "{value} m²",
       "where": "Where we are"
+    },
+    "legal": {
+      "navLabel": "Legal information",
+      "notice": "Legal notice",
+      "privacy": "Privacy",
+      "cookies": "Cookies",
+      "cookieSettings": "Cookie settings",
+      "bannerText": "We use necessary cookies to run the website and, if you agree, analytics cookies (Google Analytics) to understand how it is used. More information in our policy on",
+      "necessaryOnly": "Necessary only",
+      "acceptAll": "Accept all",
+      "privacyPolicy": "privacy policy"
     }
   }
 }
