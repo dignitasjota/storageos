@@ -74,6 +74,7 @@ export function FacilityBody({
 
       {data.logoUrl && (
         <Image
+          unoptimized
           src={data.logoUrl}
           alt={data.tenantName}
           width={170}

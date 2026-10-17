@@ -560,6 +560,7 @@ export function OnePageMovilTemplate({
           <div className="space-y-2">
             {data.logoUrl ? (
               <Image
+                unoptimized
                 src={data.logoUrl}
                 alt={data.tenantName}
                 width={140}
@@ -834,6 +835,7 @@ function Header({
         >
           {data.logoUrl ? (
             <Image
+              unoptimized
               src={data.logoUrl}
               alt={data.tenantName}
               width={130}

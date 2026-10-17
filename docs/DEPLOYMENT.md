@@ -1093,17 +1093,18 @@ propio** (NPM emite un cert por hostname, no wildcard):
 
 ### 19.2 Variables del stack (Portainer)
 
-| Variable               | Valor                                                | Nota                                                                         |
-| ---------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_API_URL`  | `https://api.trasteros.pro`                          | **Origen pelado, SIN `/v1`** (el frontend lo añade). ⚠️ Build-time, ver 19.3 |
-| `NEXT_PUBLIC_SITE_URL` | `https://trasteros.pro`                              | Canonical/OG/sitemap. ⚠️ Build-time                                          |
-| `WEB_BASE_URL`         | `https://trasteros.pro`                              | Enlaces en emails                                                            |
-| `API_BASE_URL`         | `https://api.trasteros.pro`                          | Notificaciones Redsys / URLs absolutas                                       |
-| `ALLOWED_ORIGINS`      | `https://trasteros.pro`                              | CORS del API                                                                 |
-| `COOKIE_DOMAIN`        | `.trasteros.pro`                                     | Cookie de refresh                                                            |
-| `COOKIE_SAMESITE`      | `lax`                                                | Web y API comparten dominio raíz (same-site)                                 |
-| `COOKIE_SECURE`        | `true`                                               | HTTPS                                                                        |
-| `MINIO_PUBLIC_URL`     | `https://files.trasteros.pro` (o el que sirva MinIO) | URLs públicas de ficheros                                                    |
+| Variable                 | Valor                                                | Nota                                                                                                                                                         |
+| ------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_API_URL`    | `https://api.trasteros.pro`                          | **Origen pelado, SIN `/v1`** (el frontend lo añade). ⚠️ Build-time, ver 19.3                                                                                 |
+| `NEXT_PUBLIC_SITE_URL`   | `https://trasteros.pro`                              | Canonical/OG/sitemap. ⚠️ Build-time                                                                                                                          |
+| `MINIO_PUBLIC_URL` (web) | el mismo que el API                                  | Fotos de las webs optimizadas (`next/image`, AVIF/WebP por tamaño de pantalla). El compose se lo pasa al build del web; vacío = sin optimizar. ⚠️ Build-time |
+| `WEB_BASE_URL`           | `https://trasteros.pro`                              | Enlaces en emails                                                                                                                                            |
+| `API_BASE_URL`           | `https://api.trasteros.pro`                          | Notificaciones Redsys / URLs absolutas                                                                                                                       |
+| `ALLOWED_ORIGINS`        | `https://trasteros.pro`                              | CORS del API                                                                                                                                                 |
+| `COOKIE_DOMAIN`          | `.trasteros.pro`                                     | Cookie de refresh                                                                                                                                            |
+| `COOKIE_SAMESITE`        | `lax`                                                | Web y API comparten dominio raíz (same-site)                                                                                                                 |
+| `COOKIE_SECURE`          | `true`                                               | HTTPS                                                                                                                                                        |
+| `MINIO_PUBLIC_URL`       | `https://files.trasteros.pro` (o el que sirva MinIO) | URLs públicas de ficheros                                                                                                                                    |
 
 Tras cambiarlas: **reiniciar api y worker** (las leen en runtime).
 
