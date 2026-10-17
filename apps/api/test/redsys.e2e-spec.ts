@@ -102,6 +102,9 @@ describe('Redsys (e2e)', () => {
     );
     const order = params.DS_MERCHANT_ORDER as string;
     expect(params.DS_MERCHANT_AMOUNT).toBe('12100'); // 100 + 21% IVA
+    // La vuelta del pago lleva el negocio (para mostrar su marca).
+    expect(params.DS_MERCHANT_URLOK).toContain(`/pay/redsys/ok?t=${owner.slug}`);
+    expect(params.DS_MERCHANT_URLKO).toContain(`/pay/redsys/ko?t=${owner.slug}`);
 
     // Simula la notificación servidor-a-servidor de Redsys (pago aprobado).
     const notif = encodeMerchantParameters({

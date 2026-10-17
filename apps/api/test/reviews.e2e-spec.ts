@@ -57,6 +57,10 @@ describe('Reviews / NPS (e2e)', () => {
     expect(ctx.status).toBe(200);
     expect(ctx.body.status).toBe('pending');
     expect(typeof ctx.body.tenantName).toBe('string');
+    // Con la marca del negocio para pintar la página con su aspecto.
+    expect(typeof ctx.body.tenantSlug).toBe('string');
+    expect(ctx.body).toHaveProperty('brandColor');
+    expect(ctx.body).toHaveProperty('logoUrl');
 
     // Enviar valoración
     const submit = await request(app.getHttpServer())

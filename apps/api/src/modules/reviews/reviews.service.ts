@@ -352,7 +352,9 @@ export class ReviewsService {
       where: { token },
       include: {
         customer: { select: { firstName: true, companyName: true, customerType: true } },
-        tenant: { select: { name: true } },
+        tenant: {
+          select: { name: true, slug: true, portalBrandColor: true, portalLogoUrl: true },
+        },
         contract: { select: { unit: { select: { facility: { select: { name: true } } } } } },
       },
     });
@@ -367,6 +369,9 @@ export class ReviewsService {
     return {
       status: status as PublicReviewContextDto['status'],
       tenantName: review.tenant.name,
+      tenantSlug: review.tenant.slug,
+      brandColor: review.tenant.portalBrandColor,
+      logoUrl: review.tenant.portalLogoUrl,
       customerFirstName:
         review.customer.customerType === 'business'
           ? (review.customer.companyName ?? '')

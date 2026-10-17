@@ -49,6 +49,10 @@ export interface RequestReviewResultDto {
 export interface PublicReviewContextDto {
   status: ReviewStatusValue;
   tenantName: string;
+  /** Marca del negocio para pintar la página con su aspecto. */
+  tenantSlug: string;
+  brandColor: string | null;
+  logoUrl: string | null;
   customerFirstName: string;
   facilityName: string | null;
 }

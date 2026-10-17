@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import type { PublicReviewContextDto, SubmitReviewResultDto } from '@storageos/shared';
 
+import { TenantMiniChrome } from '@/components/public/tenant-mini-chrome';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -82,7 +83,7 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
 
   if (done || ctx.status === 'submitted') {
     return (
-      <Shell>
+      <Shell brand={ctx}>
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
             <CheckCircle2 className="size-10 text-green-600" />
@@ -110,7 +111,7 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
 
   if (ctx.status === 'expired') {
     return (
-      <Shell>
+      <Shell brand={ctx}>
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
             Este enlace de valoración ha caducado.
@@ -121,7 +122,7 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
   }
 
   return (
-    <Shell>
+    <Shell brand={ctx}>
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">
@@ -204,10 +205,18 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({
+  children,
+  brand = null,
+}: {
+  children: React.ReactNode;
+  brand?: PublicReviewContextDto | null;
+}) {
   return (
-    <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4 py-10">
-      {children}
-    </div>
+    <TenantMiniChrome brand={brand}>
+      <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-4 py-10">
+        {children}
+      </div>
+    </TenantMiniChrome>
   );
 }
