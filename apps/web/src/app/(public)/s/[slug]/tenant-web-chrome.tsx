@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { createTranslator } from 'next-intl';
 
 import { GoogleAnalyticsScript, TenantLegalLinks } from './google-analytics';
+import { HtmlLang } from './html-lang';
 import { LanguageSwitcher } from './i18n/language-switcher';
 import { blogHref, getPublicWebMessages, intlLocaleFor } from './i18n/messages';
 
@@ -81,6 +82,7 @@ export async function TenantWebChrome({
   return (
     <div className="flex min-h-screen flex-col">
       <GoogleAnalyticsScript measurementId={googleAnalyticsId ?? null} site={data} />
+      <HtmlLang locale={locale} />
       <header className="border-b border-border/60">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-2 font-semibold">
