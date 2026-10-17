@@ -133,6 +133,8 @@ export interface PublicFacilityLandingDto {
   /** Igual que en `PublicLandingDto`. */
   whatsappNumber: string | null;
   facility: PublicLandingFacilityDto;
+  /** Página de la ciudad del local (`/trasteros-en-<ciudad>`), si el negocio tiene varios locales. */
+  cityPage: { name: string; slug: string } | null;
 }
 
 /** Entrada del blog en el listado público (`/s/<slug>/blog`). */
@@ -210,6 +212,8 @@ export interface PublicSitemapEntryDto {
   blogPosts: { slug: string; updatedAt: string }[];
   /** Landings de promoción en vigor marcadas como indexables (`/promo/<slug>`). */
   promoSlugs: string[];
+  /** Ciudades con página propia (`/trasteros-en-<ciudad>`). */
+  citySlugs: string[];
   /**
    * Dominio propio verificado, o null. Con dominio, la web va en el sitemap de
    * su dominio (`https://<dominio>/sitemap.xml`), no en el de la plataforma.
