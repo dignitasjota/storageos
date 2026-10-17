@@ -90,4 +90,46 @@ describe('Reintentos de cobro automático (e2e)', () => {
     expect(after2.autoRetryCount).toBe(1);
     expect(run2.attempted).toBe(0);
   });
+
+  it('una factura con un cobro en curso no gasta reintentos', async () => {
+    const owner = await registerVerifiedUser(app, 'payretryflight');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/billing')
+      .set(auth)
+      .send({ autoChargeOnIssue: true, autoChargeRetryEnabled: true })
+      .expect(200);
+    const customerId = await createCustomer(app, owner.accessToken);
+    await ensureDefaultSeries(app, owner.accessToken);
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId);
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+    const admin = app.get(PrismaAdminService);
+    await admin.invoice.update({ where: { id: invoiceId }, data: { status: 'overdue' } });
+    await admin.paymentMethod.create({
+      data: {
+        tenantId: owner.tenantId,
+        customerId,
+        type: 'sepa_debit',
+        gateway: 'stripe',
+        gatewayTokenEncrypted: 'pm_test',
+        isDefault: true,
+      },
+    });
+    // Un adeudo SEPA anterior aún sin liquidar.
+    await admin.payment.create({
+      data: {
+        tenantId: owner.tenantId,
+        invoiceId,
+        customerId,
+        amount: 10,
+        status: 'processing',
+        methodType: 'sepa_debit',
+        gateway: 'stripe',
+        gatewayPaymentId: `pi_flight_${Date.now()}`,
+      },
+    });
+    await app.get(PaymentRetryService).runRetries();
+    const after = await admin.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    expect(after.autoRetryCount).toBe(0);
+  });
 });

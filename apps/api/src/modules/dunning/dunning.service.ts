@@ -88,6 +88,9 @@ export class DunningService {
         dueDate: { lt: new Date() },
         // Una rectificativa de abono (importe ≤ 0) no se reclama.
         total: { gt: 0 },
+        // Un justificante de fianza no es una factura: se cobra con la suya
+        // (reserva online) o en el local; no lleva recordatorios propios.
+        kind: 'invoice',
       },
       select: {
         id: true,
@@ -156,7 +159,7 @@ export class DunningService {
       where: { id: data.invoiceId },
       select: { dueDate: true, status: true },
     });
-    if (!invoice || invoice.status === 'paid' || invoice.status === 'cancelled') return;
+    if (!invoice || (invoice.status !== 'issued' && invoice.status !== 'overdue')) return;
     if (!invoice.dueDate) return;
     const base = invoice.dueDate;
     const calendar: Array<{ daysAfter: number; type: DunningActionType }> = [
@@ -252,7 +255,9 @@ export class DunningService {
         },
       },
     });
-    if (!invoice || invoice.status === 'paid' || invoice.status === 'cancelled') {
+    // Solo se reclama lo que sigue pendiente: pagada, anulada con una
+    // rectificativa (`rectified`), reembolsada o cancelada → la acción se cancela.
+    if (!invoice || (invoice.status !== 'issued' && invoice.status !== 'overdue')) {
       await this.admin.dunningAction.update({
         where: { id: action.id },
         data: { status: 'cancelled', executedAt: new Date() },
