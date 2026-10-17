@@ -352,6 +352,29 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(missing.status).toBe(404);
   });
 
+  it('páginas por ciudad: con dos locales, la ficha enlaza a su ciudad y va al sitemap', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-city');
+    await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local Uno',
+      unitsCount: 1,
+    });
+    const one = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}/local-uno`);
+    // Con un solo local no hay página de ciudad (sería la portada).
+    expect(one.body.cityPage).toBeNull();
+
+    await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local Dos',
+      unitsCount: 1,
+    });
+    const two = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}/local-uno`);
+    expect(two.body.cityPage).toEqual({ name: 'Madrid', slug: 'madrid' });
+    const sitemap = await request(app.getHttpServer()).get('/public/landing/sitemap');
+    const entry = (sitemap.body.entries as { tenantSlug: string; citySlugs: string[] }[]).find(
+      (e) => e.tenantSlug === owner.slug,
+    );
+    expect(entry?.citySlugs).toEqual(['madrid']);
+  });
+
   it('sitemap: incluye el tenant y los slugs de sus locales', async () => {
     const owner = await registerVerifiedUser(app, 'landing-sitemap');
     await createFacilityWithUnits(app, owner.accessToken, {

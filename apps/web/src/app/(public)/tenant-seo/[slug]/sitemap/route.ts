@@ -37,6 +37,10 @@ export async function GET(
       priority: '0.8',
       en: `/l/en/${encodeURIComponent(f)}`,
     })),
+    ...(entry.citySlugs ?? []).map((c) => ({
+      path: `/trasteros-en-${encodeURIComponent(c)}`,
+      priority: '0.8',
+    })),
     ...(entry.promoSlugs ?? []).map((p) => ({
       path: `/promo/${encodeURIComponent(p)}`,
       priority: '0.7',

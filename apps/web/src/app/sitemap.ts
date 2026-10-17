@@ -62,6 +62,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         alternates: { languages: { es: `${tenantBase}/${f}`, en: `${tenantBase}/l/en/${f}` } },
       });
     }
+    for (const c of entry.citySlugs ?? []) {
+      urls.push({
+        url: `${tenantBase}/trasteros-en-${c}`,
+        lastModified,
+        changeFrequency: 'weekly',
+        priority: 0.7,
+      });
+    }
     for (const p of entry.promoSlugs ?? []) {
       urls.push({
         url: `${tenantBase}/promo/${p}`,
