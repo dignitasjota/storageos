@@ -65,9 +65,24 @@ export interface ChargeParams {
 }
 
 export interface ChargeResult {
+  /** Id del cobro en la pasarela; vacío si no se sabe (`unknown` sin respuesta). */
+  gatewayPaymentId: string;
+  /**
+   * `unknown`: la pasarela no respondió (corte de red, error del servidor) y no
+   * se sabe si cobró. El pago queda en curso hasta que se aclare (webhook,
+   * notificación o el repaso de cobros sin resolver): no es un rechazo y no se
+   * puede volver a cobrar mientras tanto.
+   */
+  status: 'succeeded' | 'processing' | 'failed' | 'requires_action' | 'unknown';
+  failureReason?: string;
+}
+
+/** Estado de un cobro consultado en la pasarela. */
+export interface GatewayChargeLookup {
   gatewayPaymentId: string;
   status: 'succeeded' | 'processing' | 'failed' | 'requires_action';
   failureReason?: string;
+  metadata: Record<string, string>;
 }
 
 export interface RefundParams {
@@ -117,6 +132,23 @@ export abstract class PaymentGateway {
   ): Promise<PaymentMethodDetails>;
   /** Verifica la firma de un webhook + parsea el evento. */
   abstract verifyWebhook(rawBody: Buffer, signatureHeader: string): WebhookEvent;
+
+  /**
+   * Busca un cobro por su id en la pasarela o, si no se llegó a conocer, por
+   * nuestro id de pago (metadato `paymentId`). null si no existe.
+   */
+  findCharge(_args: {
+    paymentId: string;
+    gatewayPaymentId: string | null;
+    stripeAccount?: string;
+  }): Promise<GatewayChargeLookup | null> {
+    return Promise.resolve(null);
+  }
+
+  /** Cancela un cobro que no se completó (p. ej. pendiente de autenticación). */
+  cancelCharge(_args: { gatewayPaymentId: string; stripeAccount?: string }): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 export interface WebhookEvent {

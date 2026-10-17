@@ -412,17 +412,50 @@ export class PaymentsService {
       throw err;
     }
 
+    // Cobro pendiente de autenticación (3D Secure) en un cobro sin el cliente
+    // delante: nadie lo va a completar. Se cancela en la pasarela y cuenta como
+    // fallido (si no, la factura quedaría bloqueada con un pago «en curso»).
+    if (chargeResult.status === 'requires_action') {
+      const intentId = chargeResult.gatewayPaymentId;
+      if (intentId) {
+        await this.gateway
+          .cancelCharge({
+            gatewayPaymentId: intentId,
+            ...(reserved.stripeAccount ? { stripeAccount: reserved.stripeAccount } : {}),
+          })
+          .catch((err: unknown) =>
+            this.logger.warn(
+              `[payments] no se pudo cancelar ${intentId}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            ),
+          );
+      }
+      chargeResult = {
+        gatewayPaymentId: intentId,
+        status: 'failed',
+        failureReason: 'authentication_required',
+      };
+    }
+
     // === FASE 3 (finalización, tx corta) ===
     // Actualiza la reserva con el resultado real + sincroniza la factura si
-    // succeeded (el estado final también llega por el webhook).
+    // succeeded (el estado final también llega por el webhook). Un resultado
+    // `unknown` (la pasarela no respondió) deja el pago en curso: lo aclara el
+    // webhook, la notificación de Redsys o el repaso de cobros sin resolver.
     const status: PaymentStatus =
       chargeResult.status === 'succeeded'
         ? 'succeeded'
-        : chargeResult.status === 'processing'
+        : chargeResult.status === 'processing' || chargeResult.status === 'unknown'
           ? 'processing'
-          : chargeResult.status === 'requires_action'
-            ? 'pending'
-            : 'failed';
+          : 'failed';
+    const gatewayIdData = chargeResult.gatewayPaymentId
+      ? { gatewayPaymentId: chargeResult.gatewayPaymentId }
+      : {};
+    const failureData =
+      chargeResult.failureReason && chargeResult.status !== 'unknown'
+        ? { failureReason: chargeResult.failureReason }
+        : {};
     let invoiceFullyPaid = false;
     const bundledPaidNow: string[] = [];
     const paymentRow = await this.prisma.withTenant(async (tx) => {
@@ -433,9 +466,9 @@ export class PaymentsService {
         where: { id: reserved.paymentId, status: 'processing' },
         data: {
           status,
-          gatewayPaymentId: chargeResult.gatewayPaymentId,
+          ...gatewayIdData,
           ...(chargeResult.status === 'succeeded' ? { paidAt: new Date() } : {}),
-          ...(chargeResult.failureReason ? { failureReason: chargeResult.failureReason } : {}),
+          ...failureData,
         },
       });
       const updated = await tx.payment.findUniqueOrThrow({
@@ -458,9 +491,9 @@ export class PaymentsService {
           where: { id: b.paymentId, status: 'processing' },
           data: {
             status,
-            gatewayPaymentId: chargeResult.gatewayPaymentId,
+            ...gatewayIdData,
             ...(chargeResult.status === 'succeeded' ? { paidAt: new Date() } : {}),
-            ...(chargeResult.failureReason ? { failureReason: chargeResult.failureReason } : {}),
+            ...failureData,
           },
         });
         if (status === 'succeeded' && bMoved.count === 1) {

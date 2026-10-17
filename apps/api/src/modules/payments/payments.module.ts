@@ -16,6 +16,8 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { RedsysCoreModule } from './redsys/redsys-core.module';
 import { ReturnedReceiptsService } from './returned-receipts.service';
+import { StaleChargesCron } from './stale-charges.cron';
+import { StaleChargesService } from './stale-charges.service';
 import { StripeConnectWebhookController } from './stripe-connect/stripe-connect-webhook.controller';
 import { StripeConnectModule } from './stripe-connect/stripe-connect.module';
 import { StripeEventsCleanupCron } from './stripe-events-cleanup.cron';
@@ -51,8 +53,9 @@ import { StripeGateway } from './stripe.gateway';
     // processor de la cola `payments` solo con workers activos.
     AutoChargeService,
     PaymentRetryService,
+    StaleChargesService,
     ...(WORKERS_ENABLED_IN_API
-      ? [StripeEventsCleanupCron, AutoChargeProcessor, PaymentRetryCron]
+      ? [StripeEventsCleanupCron, AutoChargeProcessor, PaymentRetryCron, StaleChargesCron]
       : []),
   ],
   exports: [PAYMENT_GATEWAY, StripeGateway, PaymentMethodsService, PaymentsService],
