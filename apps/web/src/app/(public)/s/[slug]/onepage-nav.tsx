@@ -58,6 +58,7 @@ export function OnePageNav({
         >
           {logoUrl ? (
             <Image
+              unoptimized
               src={logoUrl}
               alt={tenantName}
               width={120}

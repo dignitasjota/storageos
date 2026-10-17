@@ -638,6 +638,7 @@ export function TrstromTemplate({
               <div className="flex items-center gap-3">
                 {data.logoUrl ? (
                   <Image
+                    unoptimized
                     src={data.logoUrl}
                     alt={data.tenantName}
                     width={120}
@@ -1104,6 +1105,7 @@ function Header({
           >
             {data.logoUrl ? (
               <Image
+                unoptimized
                 src={data.logoUrl}
                 alt={data.tenantName}
                 width={120}

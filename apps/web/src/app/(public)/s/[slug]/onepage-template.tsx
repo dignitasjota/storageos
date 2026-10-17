@@ -204,6 +204,7 @@ export function OnePageTemplate({
       >
         {data.logoUrl && (
           <Image
+            unoptimized
             src={data.logoUrl}
             alt={data.tenantName}
             width={220}
