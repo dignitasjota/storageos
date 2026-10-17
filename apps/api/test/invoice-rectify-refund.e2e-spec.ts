@@ -44,7 +44,10 @@ describe('Rectificativas netas y abono por reembolso (e2e)', () => {
     return { owner, auth, issued };
   }
 
-  const today = () => new Date().toISOString().slice(0, 10);
+  // Hoy en hora de España, como fecha la app las facturas (en UTC fallaba
+  // entre las 00:00 y las 02:00).
+  const today = () =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
 
   async function creditNotes(originalId: string, expected: number) {
     for (let i = 0; i < 40; i++) {
