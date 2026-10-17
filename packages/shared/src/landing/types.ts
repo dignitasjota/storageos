@@ -195,6 +195,11 @@ export interface PublicSitemapEntryDto {
   facilitySlugs: string[];
   /** Slugs de las entradas de blog publicadas (`/s/<slug>/blog/<postSlug>`). */
   blogPostSlugs: string[];
+  /**
+   * Dominio propio verificado, o null. Con dominio, la web va en el sitemap de
+   * su dominio (`https://<dominio>/sitemap.xml`), no en el de la plataforma.
+   */
+  customDomain: string | null;
 }
 export interface PublicSitemapDto {
   entries: PublicSitemapEntryDto[];

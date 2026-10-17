@@ -615,7 +615,7 @@ export class LandingService {
   async sitemap(): Promise<PublicSitemapDto> {
     const tenants = await this.admin.tenant.findMany({
       where: { deletedAt: null, status: { in: ['trial', 'active'] } },
-      select: { slug: true, updatedAt: true },
+      select: { slug: true, updatedAt: true, customDomain: true, customDomainVerifiedAt: true },
     });
     if (tenants.length === 0) return { entries: [] };
 
@@ -649,6 +649,7 @@ export class LandingService {
         updatedAt: t.updatedAt.toISOString(),
         facilitySlugs: bySlug.get(t.slug) ?? [],
         blogPostSlugs: blogByTenant.get(t.slug) ?? [],
+        customDomain: t.customDomainVerifiedAt ? t.customDomain : null,
       })),
     };
   }

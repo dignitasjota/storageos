@@ -37,6 +37,11 @@ import { ApiError, apiFetch } from '@/lib/auth/api';
  * `initialData`/`initialError` los precarga el servidor (`get-availability.ts`)
  * para no repetir el fetch en cliente al montar.
  */
+/** Hoy en hora de España (`AAAA-MM-DD`); en UTC, entre las 00:00 y las 02:00 salía el día anterior. */
+function todayInSpain(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
+}
+
 export function BookPageBody({
   slug,
   locale,
@@ -55,7 +60,7 @@ export function BookPageBody({
   const [loadError, setLoadError] = useState<string | null>(initialError);
   const [facilityId, setFacilityId] = useState('');
   const [unitTypeId, setUnitTypeId] = useState('');
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(todayInSpain());
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -442,7 +447,7 @@ export function BookPageBody({
                 <Input
                   id="book-start-date"
                   type="date"
-                  min={new Date().toISOString().slice(0, 10)}
+                  min={todayInSpain()}
                   value={startDate}
                   aria-invalid={!!err('startDate')}
                   className={inputErrorClass(err('startDate'))}

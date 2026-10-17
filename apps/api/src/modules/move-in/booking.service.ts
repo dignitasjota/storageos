@@ -8,6 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { rentTax } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
 import { DOMAIN_EVENTS, type BookingCreatedPayload } from '../automations/domain-events';
 import { ContractsService } from '../contracts/contracts.service';
 import { CouponsService } from '../coupons/coupons.service';
@@ -258,6 +259,15 @@ export class BookingService {
     // Honeypot anti-bot: si viene relleno, rechazamos sin crear nada.
     if (input.website && input.website.trim() !== '') {
       throw new BadRequestException({ code: 'spam_detected', message: 'Solicitud no válida' });
+    }
+    // Como mucho un año vista: el trastero queda retenido desde la reserva.
+    const latestStart = todayInTimezone();
+    latestStart.setUTCFullYear(latestStart.getUTCFullYear() + 1);
+    if (new Date(`${input.startDate}T00:00:00Z`) > latestStart) {
+      throw new BadRequestException({
+        code: 'start_date_too_far',
+        message: 'La fecha de entrada puede ser como mucho dentro de un año',
+      });
     }
     const tenant = await this.admin.tenant.findUnique({ where: { slug } });
     if (!tenant || tenant.deletedAt) {

@@ -1,6 +1,7 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 
 import { BlogPostPageBody, buildBlogPostMetadata } from '../../../../blog/blog-shared';
+import { redirectToDefaultLocale } from '../../../../i18n/default-locale-redirect';
 import { DEFAULT_PUBLIC_WEB_LOCALE, isPublicWebLocale } from '../../../../i18n/messages';
 
 import type { Metadata } from 'next';
@@ -24,6 +25,7 @@ export default async function BlogPostLocalePage({
   if (!isPublicWebLocale(locale)) notFound();
   // El idioma por defecto ya vive en la ruta desnuda — evita contenido
   // duplicado indexable en `/l/es/blog/<postSlug>`.
-  if (locale === DEFAULT_PUBLIC_WEB_LOCALE) redirect(`/s/${slug}/blog/${postSlug}`);
+  if (locale === DEFAULT_PUBLIC_WEB_LOCALE)
+    await redirectToDefaultLocale(slug, `/blog/${postSlug}`);
   return <BlogPostPageBody slug={slug} postSlug={postSlug} locale={locale} />;
 }

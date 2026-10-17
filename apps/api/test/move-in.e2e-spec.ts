@@ -135,6 +135,24 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
         },
       });
     expect(badPhone.status).toBe(400);
+    const tooFar = new Date();
+    tooFar.setUTCFullYear(tooFar.getUTCFullYear() + 2);
+    const farBooking = await request(app.getHttpServer())
+      .post(`/public/move-in/book/${owner.slug}`)
+      .send({
+        facilityId: facility.id,
+        unitTypeId: facility.unitTypes[0].id,
+        startDate: tooFar.toISOString().slice(0, 10),
+        customer: {
+          firstName: 'Bea',
+          lastName: 'López',
+          email: 'bea@e2e.local',
+          phone: '600000000',
+          documentNumber: '12345678Z',
+        },
+      });
+    expect(farBooking.status).toBe(400);
+    expect(farBooking.body.code).toBe('start_date_too_far');
 
     const booking = await request(app.getHttpServer())
       .post(`/public/move-in/book/${owner.slug}`)
