@@ -1,8 +1,11 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+
+import type { AdminTenantDto, AdminTenantsListResponseDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
@@ -15,8 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { adminApiFetch } from '@/lib/admin/api';
 import { useAdminTenants, useAdminTenantTags } from '@/lib/admin/hooks';
 import { tenantStatusLabel } from '@/lib/admin/labels';
+import { downloadCsv } from '@/lib/csv';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   trial: 'secondary',
@@ -26,7 +31,7 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 };
 
 /**
- * Listado de tenants para el super admin.
+ * Listado de tenants para el super admin (exportable a CSV).
  *
  * Para ahorrar el setup del DataTable (que es client-side y no acepta
  * `onRowClick` declarativo), renderizamos un grid de tarjetas
@@ -34,8 +39,6 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
  * `/admin/tenants?search=&status=` filtra en BD). El término de búsqueda se
  * debounce ~300ms para no lanzar una query por tecla.
  *
- * Follow-up: paginación por cursor cuando el nº de tenants crezca (hoy el
- * endpoint devuelve la lista completa filtrada).
  */
 export default function AdminTenantsPage() {
   const router = useRouter();
@@ -43,6 +46,7 @@ export default function AdminTenantsPage() {
   const [tag, setTag] = useState<string | undefined>();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   // Debounce del término de búsqueda antes de mandarlo al backend.
   useEffect(() => {
@@ -62,6 +66,65 @@ export default function AdminTenantsPage() {
   }
 
   const rows = tenants.data?.pages.flatMap((p) => p.items) ?? [];
+
+  // Exporta TODOS los tenants del filtro (no solo las páginas cargadas).
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const all: AdminTenantDto[] = [];
+      let cursor: string | null = null;
+      do {
+        const qs = new URLSearchParams({ limit: '100' });
+        if (status) qs.set('status', status);
+        if (tag) qs.set('tag', tag);
+        if (debouncedSearch) qs.set('search', debouncedSearch);
+        if (cursor) qs.set('cursor', cursor);
+        const page: AdminTenantsListResponseDto = await adminApiFetch(`/admin/tenants?${qs}`);
+        all.push(...page.items);
+        cursor = page.nextCursor;
+      } while (cursor);
+      downloadCsv('tenants.csv', [
+        [
+          'Nombre',
+          'Slug',
+          'Estado',
+          'Plan',
+          'Estado suscripción',
+          'Modo de cobro',
+          'Exenta',
+          'Email facturación',
+          'NIF',
+          'Usuarios',
+          'Locales',
+          'Inquilinos',
+          'Contratos',
+          'Alta',
+          'Fin trial',
+        ],
+        ...all.map((t) => [
+          t.name,
+          t.slug,
+          tenantStatusLabel(t.status),
+          t.subscription?.planName ?? t.subscription?.planSlug ?? '',
+          t.subscription?.status ?? '',
+          t.subscription?.billingMode ?? '',
+          t.billingExempt ? 'Sí' : 'No',
+          t.billingEmail ?? '',
+          t.taxId ?? '',
+          t.userCount,
+          t.facilityCount,
+          t.customerCount,
+          t.contractCount,
+          new Date(t.createdAt).toLocaleDateString('es-ES'),
+          t.trialEndsAt ? new Date(t.trialEndsAt).toLocaleDateString('es-ES') : '',
+        ]),
+      ]);
+    } catch {
+      toast.error('No se pudo exportar.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -113,6 +176,9 @@ export default function AdminTenantsPage() {
           {tenants.isFetching && <Loader2 className="size-3 animate-spin" aria-hidden />}
           {rows.length} {rows.length === 1 ? 'tenant' : 'tenants'}
         </span>
+        <Button variant="outline" size="sm" onClick={() => void exportCsv()} disabled={exporting}>
+          <Download className="mr-1.5 size-4" /> {exporting ? 'Exportando…' : 'Exportar CSV'}
+        </Button>
       </div>
 
       {tenants.isLoading ? (

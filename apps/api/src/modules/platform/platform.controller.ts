@@ -6,8 +6,10 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -35,6 +37,8 @@ import { AdminGuard } from '../admin/admin.guard';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
 import { PlatformService } from './platform.service';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 class UpdateBannerDto extends createZodDto(UpdatePlatformBannerSchema) {}
 class UpdateLegalDto extends createZodDto(UpdateLegalDocumentSchema) {}
@@ -180,6 +184,28 @@ export class PlatformAdminController {
   @Get('notifications')
   listNotifications(): Promise<SuperAdminNotificationDto[]> {
     return this.service.listNotifications();
+  }
+
+  @Get('notifications/page')
+  pageNotifications(
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+    @Query('unread') unread?: string,
+  ): Promise<{ items: SuperAdminNotificationDto[]; nextCursor: string | null }> {
+    if (cursor && !UUID_RE.test(cursor)) {
+      throw new BadRequestException({ code: 'invalid_cursor', message: 'Cursor no válido' });
+    }
+    return this.service.pageNotifications({
+      ...(cursor ? { cursor } : {}),
+      ...(limit ? { limit: Number(limit) || 30 } : {}),
+      unread: unread === 'true',
+    });
+  }
+
+  @Post('notifications/:id/read')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async markRead(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
+    await this.service.markRead(id);
   }
 
   @Get('notifications/unread-count')

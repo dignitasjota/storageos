@@ -487,7 +487,7 @@ function AdminShell({ children }: { children: ReactNode }) {
           </div>
           <div className="flex items-center gap-1">
             <Link
-              href="/admin/platform-banner"
+              href="/admin/notifications"
               className="relative inline-flex size-9 items-center justify-center rounded-full hover:bg-accent"
               aria-label="Notificaciones"
             >

@@ -1645,3 +1645,27 @@ export interface TenantDataExportDto {
     payments: number;
   };
 }
+
+/** Resumen de un vistazo de un tenant para la cabecera de su ficha. */
+export interface AdminTenantSummaryDto {
+  /** Lo que aporta al mes: plan + extras activos (sin IVA si los precios van +IVA). */
+  effectiveMonthly: number;
+  planName: string | null;
+  billingMode: string | null;
+  billingExempt: boolean;
+  /** Fin del periodo pagado (null si es exenta o no tiene suscripción). */
+  nextChargeAt: string | null;
+  lastTeamLoginAt: string | null;
+  activeUsers: number;
+  invoiced30d: number;
+  invoices30d: number;
+  collected30d: number;
+  overdueInvoices: number;
+  overdueAmount: number;
+  activeContracts: number;
+  /** Ocupación de sus trasteros (null sin trasteros). */
+  occupancyPct: number | null;
+  openTickets: number;
+  lastInteractionAt: string | null;
+  nextFollowup: { title: string; dueDate: string } | null;
+}

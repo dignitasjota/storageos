@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowRight, Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useAdminTenantsHealth } from '@/lib/admin/hooks';
+import { downloadCsv } from '@/lib/csv';
 
 const LEVELS: {
   key: AdminTenantHealthLevel;
@@ -57,6 +58,22 @@ export default function AdminHealthPage() {
   const [q, setQ] = useState('');
 
   const all = useMemo(() => health.data ?? [], [health.data]);
+  function exportCsv() {
+    const factorKeys = all[0]?.factors.map((f) => f.label) ?? [];
+    downloadCsv('salud-tenants.csv', [
+      ['Tenant', 'Slug', 'Estado', 'Plan', 'Score', 'Nivel', ...factorKeys, 'Última actividad'],
+      ...all.map((t) => [
+        t.name,
+        t.slug,
+        t.status,
+        t.planName ?? '',
+        t.score,
+        t.level,
+        ...t.factors.map((f) => f.score),
+        t.lastActivityAt ? new Date(t.lastActivityAt).toLocaleDateString('es-ES') : '',
+      ]),
+    ]);
+  }
   const counts = useMemo(() => {
     const m: Record<string, number> = {};
     for (const t of all) m[t.level] = (m[t.level] ?? 0) + 1;
@@ -83,12 +100,17 @@ export default function AdminHealthPage() {
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Salud de tenants</h1>
-        <p className="text-sm text-muted-foreground">
-          Score 0-100 por tenant (actividad del equipo, facturación, suscripción y adopción).
-          Ordenados de más urgente a más sano.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Salud de tenants</h1>
+          <p className="text-sm text-muted-foreground">
+            Score 0-100 por tenant (actividad del equipo, facturación, suscripción y adopción).
+            Ordenados de más urgente a más sano.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={exportCsv} disabled={all.length === 0}>
+          <Download className="mr-1.5 size-4" /> Exportar CSV
+        </Button>
       </div>
 
       {/* Resumen por nivel (clicable para filtrar). */}

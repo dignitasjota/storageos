@@ -4,6 +4,7 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminTenantSummaryDto,
   PlatformPaymentSettingsDto,
   UpdatePlatformPaymentSettingsInput,
   PlatformContactMessageDto,
@@ -2163,6 +2164,45 @@ export function useMarkNotifsRead() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'notifications'] });
     },
+  });
+}
+
+/** Notificaciones del super admin paginadas (página «Notificaciones»). */
+export function useAdminNotificationsPage(unread: boolean) {
+  const token = useAdminAuthStore((s) => s.superAdminToken);
+  return useInfiniteQuery({
+    queryKey: ['admin', 'platform', 'notifications', 'page', { unread }] as const,
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+      const qs = new URLSearchParams({ limit: '30' });
+      if (unread) qs.set('unread', 'true');
+      if (pageParam) qs.set('cursor', pageParam);
+      return adminApiFetch<{ items: SuperAdminNotificationDto[]; nextCursor: string | null }>(
+        `/admin/platform/notifications/page?${qs}`,
+      );
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: Boolean(token),
+  });
+}
+
+export function useMarkNotifRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/platform/notifications/${id}/read`, { method: 'POST' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'notifications'] });
+    },
+  });
+}
+
+/** Resumen de un vistazo de la ficha del tenant. */
+export function useAdminTenantSummary(tenantId: string) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', tenantId, 'summary'] as const,
+    queryFn: () => adminApiFetch<AdminTenantSummaryDto>(`/admin/tenants/${tenantId}/summary`),
+    enabled: Boolean(tenantId),
   });
 }
 
