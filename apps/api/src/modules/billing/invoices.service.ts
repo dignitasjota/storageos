@@ -32,6 +32,7 @@ import {
   subtractAmounts,
   toCents,
 } from '../../common/money';
+import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
 import { HoldedSettingsService } from '../accounting/holded-settings.service';
@@ -128,6 +129,9 @@ interface ListFilters {
   facilityScope?: string[] | null;
   /** Local elegido en el selector de la cabecera. */
   facilityId?: string;
+  /** Nº de factura o inquilino. */
+  search?: string;
+  page?: PageRequest;
 }
 
 /** Motivo de las rectificativas automáticas por reembolso. */
@@ -176,11 +180,25 @@ export class InvoicesService {
     const facility = invoiceFacilityWhere(filters.facilityScope, filters.facilityId);
     if (!facility) return [];
     Object.assign(where, facility);
+    if (filters.search) {
+      const q = { contains: filters.search, mode: 'insensitive' as const };
+      where.AND = [
+        {
+          OR: [
+            { invoiceNumber: q },
+            { customer: { firstName: q } },
+            { customer: { lastName: q } },
+            { customer: { companyName: q } },
+          ],
+        },
+      ];
+    }
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.findMany({
           where,
-          orderBy: [{ updatedAt: 'desc' }],
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          ...pageArgs(filters.page),
           include: this.includeRelations(),
         }),
       tenantId,

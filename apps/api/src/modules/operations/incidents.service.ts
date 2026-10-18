@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { optionalFacilityWhere } from '../../common/facility-scope';
+import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
@@ -42,6 +43,9 @@ interface ListFilters {
   assignedToUserId?: string;
   /** Locales del usuario (null = todos). */
   facilityScope?: string[] | null;
+  /** Título de la incidencia. */
+  search?: string;
+  page?: PageRequest;
 }
 
 type IncidentWithIncludes = Incident & {
@@ -113,13 +117,14 @@ export class IncidentsService {
     if (filters.customerId) where.customerId = filters.customerId;
     if (filters.contractId) where.contractId = filters.contractId;
     if (filters.assignedToUserId) where.assignedToUserId = filters.assignedToUserId;
+    if (filters.search) where.title = { contains: filters.search, mode: 'insensitive' };
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.incident.findMany({
           where,
           include: INCLUDE,
-          orderBy: [{ status: 'asc' }, { severity: 'desc' }, { createdAt: 'desc' }],
-          take: 500,
+          orderBy: [{ status: 'asc' }, { severity: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+          ...(filters.page ? pageArgs(filters.page) : { take: 500 }),
         }),
       tenantId,
     );

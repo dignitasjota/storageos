@@ -28,10 +28,11 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useValidateCoupon } from '@/lib/coupons/hooks';
-import { useCreateContract, useCustomers } from '@/lib/customers/hooks';
+import { useCreateContract } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
 import { useFacilities, useUnitTypes, useUnits } from '@/lib/facilities/hooks';
 import { useInsurancePlans } from '@/lib/insurance/hooks';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useUnitOffers, useValidatePromotion } from '@/lib/promotions/hooks';
 
 type Step = 1 | 2 | 3 | 4;
@@ -213,10 +214,11 @@ export default function NewContractWizardPage() {
 }
 
 function StepCustomer({ onPick }: { onPick: (c: CustomerDto) => void }) {
-  const [search, setSearch] = useState('');
-  const customers = useCustomers(search.length >= 2 ? search : undefined);
-  const all = useCustomers();
-  const list = search.length >= 2 ? (customers.data ?? []) : (all.data ?? []);
+  const [search, debounced, setSearch] = useDebouncedSearch();
+  const customers = usePagedList<CustomerDto>('customers', '/customers', {
+    search: debounced.length >= 2 ? debounced : undefined,
+  });
+  const list = customers.rows;
 
   return (
     <Card>
@@ -249,6 +251,16 @@ function StepCustomer({ onPick }: { onPick: (c: CustomerDto) => void }) {
             </li>
           ))}
         </ul>
+        {customers.loadMore.hasMore && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={customers.loadMore.loading}
+            onClick={customers.loadMore.onLoadMore}
+          >
+            {customers.loadMore.loading ? 'Cargando…' : 'Cargar más'}
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

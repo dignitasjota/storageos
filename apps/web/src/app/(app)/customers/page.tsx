@@ -54,13 +54,16 @@ import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useCreateCustomer,
   useCustomerUnreadSummary,
-  useCustomers,
   useDeleteCustomer,
   useSendPortalAccessEmail,
 } from '@/lib/customers/hooks';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 export default function CustomersPage() {
-  const customers = useCustomers();
+  const [searchText, search, setSearchText] = useDebouncedSearch();
+  const customers = usePagedList<CustomerDto>('customers', '/customers', {
+    search: search || undefined,
+  });
   const unreadByCustomer = useCustomerUnreadSummary().data?.byCustomer ?? {};
   const create = useCreateCustomer();
   const remove = useDeleteCustomer();
@@ -227,9 +230,8 @@ export default function CustomersPage() {
 
       <DataTable
         columns={columns}
-        data={customers.data ?? []}
+        data={customers.rows}
         isLoading={customers.isLoading}
-        searchPlaceholder="Buscar por nombre, email, documento..."
         toolbarRight={
           <>
             {canImport && (
@@ -417,6 +419,12 @@ export default function CustomersPage() {
           </>
         }
         emptyText="No hay inquilinos todavía. Crea el primero para empezar a firmar contratos."
+        serverSearch={{
+          value: searchText,
+          onChange: setSearchText,
+          placeholder: 'Buscar por nombre, email, teléfono o documento…',
+        }}
+        loadMore={customers.loadMore}
       />
     </div>
   );

@@ -33,12 +33,14 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest, toPage } from '../../common/pagination';
 
 import { BillingJobsService } from './billing-jobs.service';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { InvoicesService } from './invoices.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateInvoiceDto extends createZodDto(CreateInvoiceSchema) {}
@@ -68,6 +70,35 @@ export class InvoicesController {
     private readonly pdf: InvoicePdfService,
     private readonly billingJobs: BillingJobsService,
   ) {}
+
+  /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
+  @RequirePermission('invoices:read')
+  @Get('page')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: string,
+    @Query('customerId') customerId?: string,
+    @Query('contractId') contractId?: string,
+    @Query('overdue') overdue?: string,
+    @Query('facilityId') facilityId?: string,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<InvoiceDto>> {
+    const parsedStatus = status ? InvoiceStatusEnum.parse(status) : undefined;
+    const page = parsePageRequest(cursor, limit);
+    const rows = await this.invoices.list(user.tenantId, {
+      ...(search ? { search } : {}),
+      page,
+      ...(facilityId ? { facilityId } : {}),
+      ...(parsedStatus ? { status: parsedStatus } : {}),
+      ...(customerId ? { customerId } : {}),
+      ...(contractId ? { contractId } : {}),
+      ...(overdue === 'true' ? { overdue: true } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+    return toPage(rows, page);
+  }
 
   @RequirePermission('invoices:read')
   @Get()

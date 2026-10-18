@@ -31,10 +31,12 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest, toPage } from '../../common/pagination';
 
 import { LeadsService } from './leads.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateLeadDto extends createZodDto(CreateLeadSchema) {}
@@ -56,6 +58,29 @@ function extractMeta(req: Request): RequestMeta {
 @Controller('leads')
 export class LeadsController {
   constructor(private readonly service: LeadsService) {}
+
+  /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
+  @Get('page')
+  @RequirePermission('leads:read')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: string,
+    @Query('assignedToUserId') assignedToUserId?: string,
+    @Query('source') source?: string,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<LeadDto>> {
+    const page = parsePageRequest(cursor, limit);
+    const rows = await this.service.list(user.tenantId, {
+      page,
+      ...(status ? { status: status as LeadStatusValue } : {}),
+      ...(assignedToUserId ? { assignedToUserId } : {}),
+      ...(source ? { source: source as LeadSourceValue } : {}),
+      ...(search ? { search } : {}),
+    });
+    return toPage(rows, page);
+  }
 
   @Get()
   @RequirePermission('leads:read')

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -30,6 +31,7 @@ function displayName(c: Pick<Customer, 'customerType' | 'firstName' | 'lastName'
 interface ListFilters {
   search?: string;
   includeDeleted?: boolean;
+  page?: PageRequest;
 }
 
 @Injectable()
@@ -46,21 +48,26 @@ export class CustomersService {
     const where: Prisma.CustomerWhereInput = {};
     if (!filters.includeDeleted) where.deletedAt = null;
     if (filters.search) {
-      const q = filters.search;
-      where.OR = [
-        { firstName: { contains: q, mode: 'insensitive' } },
-        { lastName: { contains: q, mode: 'insensitive' } },
-        { companyName: { contains: q, mode: 'insensitive' } },
-        { email: { contains: q, mode: 'insensitive' } },
-        { phone: { contains: q, mode: 'insensitive' } },
-        { documentNumber: { contains: q, mode: 'insensitive' } },
-      ];
+      // Por palabras: «Juan García» encuentra a quien tiene «Juan» en un campo y
+      // «García» en otro (nombre y apellidos van en columnas distintas).
+      const words = filters.search.trim().split(/\s+/).filter(Boolean).slice(0, 5);
+      where.AND = words.map((q) => ({
+        OR: [
+          { firstName: { contains: q, mode: 'insensitive' as const } },
+          { lastName: { contains: q, mode: 'insensitive' as const } },
+          { companyName: { contains: q, mode: 'insensitive' as const } },
+          { email: { contains: q, mode: 'insensitive' as const } },
+          { phone: { contains: q, mode: 'insensitive' as const } },
+          { documentNumber: { contains: q, mode: 'insensitive' as const } },
+        ],
+      }));
     }
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.customer.findMany({
           where,
-          orderBy: [{ updatedAt: 'desc' }],
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          ...pageArgs(filters.page),
           include: {
             _count: {
               select: {

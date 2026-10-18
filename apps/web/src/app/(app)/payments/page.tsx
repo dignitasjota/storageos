@@ -6,8 +6,8 @@ import Link from 'next/link';
 
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
-import { usePayments } from '@/lib/billing/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendiente',
@@ -27,7 +27,11 @@ const METHOD_LABELS: Record<string, string> = {
 
 export default function PaymentsPage() {
   const headerFacilityId = useHeaderFacilityId();
-  const payments = usePayments(headerFacilityId ? { facilityId: headerFacilityId } : {});
+  const [searchText, search, setSearchText] = useDebouncedSearch();
+  const payments = usePagedList<PaymentDto>('payments', '/payments', {
+    facilityId: headerFacilityId,
+    search: search || undefined,
+  });
 
   const columns: ColumnDef<PaymentDto>[] = [
     {
@@ -110,10 +114,15 @@ export default function PaymentsPage() {
       </div>
       <DataTable
         columns={columns}
-        data={payments.data ?? []}
+        data={payments.rows}
         isLoading={payments.isLoading}
-        searchPlaceholder="Buscar..."
         emptyText="Aún no hay pagos registrados."
+        serverSearch={{
+          value: searchText,
+          onChange: setSearchText,
+          placeholder: 'Buscar por factura o inquilino…',
+        }}
+        loadMore={payments.loadMore}
       />
     </div>
   );

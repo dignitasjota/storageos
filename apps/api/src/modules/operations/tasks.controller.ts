@@ -30,10 +30,12 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest, toPage } from '../../common/pagination';
 
 import { TasksService } from './tasks.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateTaskDto extends createZodDto(CreateTaskSchema) {}
@@ -54,6 +56,34 @@ function extractMeta(req: Request): RequestMeta {
 @Controller('tasks')
 export class TasksController {
   constructor(private readonly service: TasksService) {}
+
+  /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
+  @Get('page')
+  @RequirePermission('tasks:read')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: string,
+    @Query('type') type?: string,
+    @Query('facilityId') facilityId?: string,
+    @Query('unitId') unitId?: string,
+    @Query('assignedToUserId') assignedToUserId?: string,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<TaskDto>> {
+    const page = parsePageRequest(cursor, limit);
+    const rows = await this.service.list(user.tenantId, {
+      ...(search ? { search } : {}),
+      page,
+      ...(status ? { status: status as TaskStatusValue } : {}),
+      ...(type ? { type: type as TaskTypeValue } : {}),
+      ...(facilityId ? { facilityId } : {}),
+      ...(unitId ? { unitId } : {}),
+      ...(assignedToUserId ? { assignedToUserId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+    return toPage(rows, page);
+  }
 
   @Get()
   @RequirePermission('tasks:read')

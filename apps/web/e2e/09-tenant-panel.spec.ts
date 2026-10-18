@@ -73,4 +73,78 @@ test.describe('Panel del tenant', () => {
     const deposit = page.locator('label', { hasText: 'Fianza (€)' }).locator('..').locator('input');
     await expect(deposit).toHaveValue('45');
   });
+
+  test('las listas grandes se cargan por páginas y el desplegable busca en el servidor', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const tenant = await seedTestTenant('pages');
+    const { accessToken: token } = await apiLogin(tenant.slug, tenant.email, tenant.password);
+    for (let i = 1; i <= 55; i++) {
+      await apiCreateCustomer(token, {
+        firstName: 'Cliente',
+        lastName: `Num${String(i).padStart(2, '0')}x`,
+      });
+    }
+
+    await page.goto('/login');
+    await page.waitForLoadState('networkidle');
+    await page.getByLabel(/Empresa/i).fill(tenant.slug);
+    await page.getByLabel(/^Email$/i).fill(tenant.email);
+    await page.getByLabel(/Contraseña/i).fill(tenant.password);
+    await page.getByRole('button', { name: /Iniciar sesión/i }).click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+
+    // 50 primeros + «Cargar más» → los 55.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/customers');
+    const rows = page.locator('table tbody tr');
+    await expect(rows).toHaveCount(50, { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Cargar más' }).click();
+    await expect(rows).toHaveCount(55);
+
+    // La búsqueda va al servidor (encuentra uno que no estaba cargado).
+    await page.reload();
+    await page.getByPlaceholder(/Buscar por nombre/).fill('Cliente Num03x');
+    await expect(rows).toHaveCount(1, { timeout: 10_000 });
+
+    // El desplegable de inquilino de Facturas busca en el servidor (antes, los 50 primeros).
+    await page.goto('/invoices');
+    await page.getByPlaceholder('Todos los clientes').click();
+    await page.getByPlaceholder('Todos los clientes').fill('Num55x');
+    await expect(page.getByRole('button', { name: /Cliente Num55x/ })).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test('las listas paginadas abren sin errores', async ({ page }) => {
+    const tenant = await seedTestTenant('lists');
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto('/login');
+    await page.waitForLoadState('networkidle');
+    await page.getByLabel(/Empresa/i).fill(tenant.slug);
+    await page.getByLabel(/^Email$/i).fill(tenant.email);
+    await page.getByLabel(/Contraseña/i).fill(tenant.password);
+    await page.getByRole('button', { name: /Iniciar sesión/i }).click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+    for (const path of [
+      '/customers',
+      '/contracts',
+      '/invoices',
+      '/payments',
+      '/leads',
+      '/tasks',
+      '/incidents',
+      '/expenses',
+      '/products',
+      '/contracts/new',
+    ]) {
+      const res = await page.goto(path);
+      expect(res?.status(), path).toBe(200);
+      await expect(page.locator('h1').first()).toBeVisible();
+      await page.waitForLoadState('networkidle');
+    }
+    expect(errors).toEqual([]);
+  });
 });

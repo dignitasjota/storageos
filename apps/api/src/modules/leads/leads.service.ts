@@ -8,6 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { LEAD_SOURCE_SUGGESTIONS, leadSourceLabel } from '@storageos/shared';
 
+import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
@@ -34,6 +35,7 @@ interface ListFilters {
   assignedToUserId?: string;
   source?: string;
   search?: string;
+  page?: PageRequest;
 }
 
 type LeadWithIncludes = Lead & {
@@ -137,8 +139,8 @@ export class LeadsService {
             preferredUnitType: { select: { name: true } },
             assignedTo: { select: { fullName: true } },
           },
-          orderBy: [{ updatedAt: 'desc' }],
-          take: 500,
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          ...(filters.page ? pageArgs(filters.page) : { take: 500 }),
         }),
       tenantId,
     );
