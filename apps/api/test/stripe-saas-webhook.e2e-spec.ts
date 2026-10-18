@@ -2,6 +2,8 @@ import { PrismaClient } from '@storageos/database';
 import StripeSDK from 'stripe';
 import request from 'supertest';
 
+import { BillingSaasService } from '../src/modules/billing-saas/billing-saas.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -144,5 +146,69 @@ describe('Webhook de Stripe de la suscripción (e2e)', () => {
       where: { tenantId: owner.tenantId },
     });
     expect(sub.planId).toBe(pro.id);
+  });
+
+  it('pasar a pago manual no se deshace con el aviso de la cancelación en Stripe', async () => {
+    const owner = await registerVerifiedUser(app, 'stripewhmode');
+    const stamp = Date.now();
+    const subId = `sub_mode_${stamp}`;
+    const nowSec = Math.floor(Date.now() / 1000);
+    await admin.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: {
+        stripeSubscriptionId: subId,
+        stripeCustomerId: `cus_mode_${stamp}`,
+        billingMode: 'stripe',
+        status: 'active',
+      },
+    });
+    // Lo que hace «Pasar a pago manual» (la cancelación en Stripe es best-effort).
+    const billing = app.get(BillingSaasService, { strict: false });
+    await billing.setBillingMode(owner.tenantId, 'manual');
+
+    // Stripe avisa de la suscripción cancelada (con el tenant en sus metadatos).
+    await sendEvent(
+      subscriptionEvent('customer.subscription.deleted', {
+        id: subId,
+        customer: `cus_mode_${stamp}`,
+        status: 'canceled',
+        cancel_at_period_end: false,
+        items: { data: [{ current_period_start: nowSec, current_period_end: nowSec + 86400 }] },
+        metadata: { tenantId: owner.tenantId },
+      }),
+    );
+    const sub = await admin.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub).toMatchObject({
+      billingMode: 'manual',
+      stripeSubscriptionId: null,
+      status: 'active',
+    });
+  });
+
+  it('la cancelación de la suscripción vigente sí se aplica', async () => {
+    const owner = await registerVerifiedUser(app, 'stripewhcancel');
+    const stamp = Date.now();
+    const subId = `sub_cancel_${stamp}`;
+    const nowSec = Math.floor(Date.now() / 1000);
+    await admin.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { stripeSubscriptionId: subId, billingMode: 'stripe', status: 'active' },
+    });
+    await sendEvent(
+      subscriptionEvent('customer.subscription.deleted', {
+        id: subId,
+        customer: `cus_cancel_${stamp}`,
+        status: 'canceled',
+        cancel_at_period_end: false,
+        items: { data: [{ current_period_start: nowSec, current_period_end: nowSec + 86400 }] },
+        metadata: { tenantId: owner.tenantId },
+      }),
+    );
+    const sub = await admin.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub.status).toBe('cancelled');
   });
 });
