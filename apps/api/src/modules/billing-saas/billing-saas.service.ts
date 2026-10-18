@@ -501,6 +501,12 @@ export class BillingSaasService {
       await this.stripe.subscriptions.update(sub.stripeSubscriptionId, {
         items: [{ id: itemId, price: newPriceId }],
         proration_behavior: 'create_prorations',
+        // Los metadatos quedan con el plan nuevo (Stripe los mezcla con los que hay).
+        metadata: {
+          planId: plan.id,
+          planSlug: plan.slug,
+          billingCycle: yearly ? 'yearly' : 'monthly',
+        },
       });
     } catch (err) {
       if (err instanceof InternalServerErrorException) throw err;
@@ -588,9 +594,15 @@ export class BillingSaasService {
     // Así un pago manual no se pisa con el siguiente cobro de Stripe.
     const current = await this.admin.tenantSubscription.findUnique({
       where: { tenantId },
-      select: { manualExtensionDays: true },
+      select: { manualExtensionDays: true, stripeSubscriptionId: true },
     });
     const manualDays = current?.manualExtensionDays ?? 0;
+    // El plan de los metadatos de Stripe solo vale para una suscripción NUEVA
+    // (la del Checkout). En la que ya tenemos, el plan lo lleva la BD: un cambio
+    // de plan (desde el panel o por el admin) no toca esos metadatos y el
+    // siguiente `subscription.updated` lo devolvía al plan del Checkout.
+    const applyPlanHint =
+      !!args.planIdHint && current?.stripeSubscriptionId !== args.stripeSubscriptionId;
     const periodEnd = manualDays > 0 ? addDays(stripePeriodEnd, manualDays) : stripePeriodEnd;
 
     // Bypass RLS: este flujo nace de webhook publico, sin contexto de tenant
@@ -609,7 +621,7 @@ export class BillingSaasService {
         // se confirma que Stripe procesó de verdad la suscripción (no se
         // puede alcanzar este modo desde `setBillingMode`, ver más abajo).
         billingMode: 'stripe',
-        ...(args.planIdHint ? { planId: args.planIdHint } : {}),
+        ...(applyPlanHint && args.planIdHint ? { planId: args.planIdHint } : {}),
       },
     });
 

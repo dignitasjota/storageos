@@ -84,4 +84,65 @@ describe('Webhook de Stripe de la suscripción (e2e)', () => {
     expect(row).toMatchObject({ tenantId: owner.tenantId, status: 'failed', failedAttempts: 1 });
     expect(Number(row!.amount)).toBe(95.59);
   });
+
+  function subscriptionEvent(type: string, sub: Record<string, unknown>) {
+    const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    return signed({
+      id: `evt_sub_${stamp}`,
+      object: 'event',
+      type,
+      data: { object: { object: 'subscription', ...sub } },
+    });
+  }
+
+  async function sendEvent(e: { payload: string; header: string }) {
+    await request(app.getHttpServer())
+      .post('/webhooks/stripe')
+      .set('stripe-signature', e.header)
+      .set('content-type', 'application/json')
+      .send(e.payload)
+      .expect(200);
+  }
+
+  it('un cambio de plan no se deshace con el siguiente subscription.updated', async () => {
+    const owner = await registerVerifiedUser(app, 'stripewhplan');
+    const stamp = Date.now();
+    const subId = `sub_plan_${stamp}`;
+    const cus = `cus_plan_${stamp}`;
+    const [starter, pro] = await Promise.all([
+      admin.subscriptionPlan.findUniqueOrThrow({ where: { slug: 'starter' } }),
+      admin.subscriptionPlan.findUniqueOrThrow({ where: { slug: 'pro' } }),
+    ]);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const base = {
+      id: subId,
+      customer: cus,
+      status: 'active',
+      cancel_at_period_end: false,
+      items: {
+        data: [{ current_period_start: nowSec, current_period_end: nowSec + 30 * 86400 }],
+      },
+      // Metadatos del Checkout: el plan con el que se suscribió.
+      metadata: { tenantId: owner.tenantId, planId: starter.id },
+    };
+
+    // Suscripción nueva (Checkout): el plan de los metadatos se aplica.
+    await sendEvent(subscriptionEvent('customer.subscription.created', base));
+    let sub = await admin.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub.planId).toBe(starter.id);
+    expect(sub.stripeSubscriptionId).toBe(subId);
+
+    // El tenant (o el admin) cambia a pro; Stripe avisa con los metadatos viejos.
+    await admin.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { planId: pro.id },
+    });
+    await sendEvent(subscriptionEvent('customer.subscription.updated', base));
+    sub = await admin.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub.planId).toBe(pro.id);
+  });
 });
