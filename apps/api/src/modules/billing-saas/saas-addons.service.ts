@@ -76,12 +76,14 @@ export class SaasAddonsService {
         select: { addon: { select: { name: true, feature: true } } },
       }),
     ]);
-    const exempt = (
-      await this.admin.tenant.findUnique({
-        where: { id: tenantId },
-        select: { billingExempt: true },
-      })
-    )?.billingExempt;
+    const tenantRow = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { billingExempt: true, status: true },
+    });
+    const exempt = tenantRow?.billingExempt;
+    // Cuenta suspendida (impago o a mano): el panel queda en solo lectura y sus
+    // inquilinos no pueden entrar al área de clientes hasta que pague.
+    const suspendedAccount = tenantRow?.status === 'suspended';
     // Una cuenta exenta no paga: nunca está «pendiente de pago».
     const pastDue = !exempt && subscription?.status === 'past_due';
     // Plan impagado sin Stripe = pago manual: no hay portal de pago online, el
@@ -99,7 +101,8 @@ export class SaasAddonsService {
       planManual,
       suspendedAddons,
       suspendedFeatures,
-      hasIssue: pastDue || suspendedAddons.length > 0,
+      suspended: suspendedAccount,
+      hasIssue: pastDue || suspendedAccount || suspendedAddons.length > 0,
     };
   }
 

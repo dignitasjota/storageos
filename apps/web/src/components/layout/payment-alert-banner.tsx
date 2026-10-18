@@ -18,6 +18,9 @@ import { useCreateSupportTicket } from '@/lib/support/hooks';
  * - Plan (Stripe): se regulariza online → enlace a la suscripción (portal Stripe).
  * - Add-ons (pago manual/offline): no hay pago online → botón que abre un ticket
  *   de soporte al super admin para avisar del pago; él lo confirma y reactiva.
+ * - Cuenta suspendida: el panel queda en solo lectura (el API responde 403
+ *   `tenant_suspended_read_only` a cualquier cambio salvo pagar y soporte) y los
+ *   inquilinos no entran al área de clientes hasta que se registre el pago.
  */
 export function PaymentAlertBanner() {
   const status = useBillingStatus();
@@ -30,7 +33,9 @@ export function PaymentAlertBanner() {
   const hasSuspendedAddons = data.suspendedAddons.length > 0;
   // Regularización por soporte cuando no hay pago online: add-ons manuales o
   // plan de pago manual impagado.
-  const needsManualNotice = hasSuspendedAddons || data.planManual;
+  // Suspendida sin impago de Stripe (p. ej. a mano o por pago manual): también por soporte.
+  const needsManualNotice =
+    hasSuspendedAddons || data.planManual || (data.suspended && !data.pastDue);
 
   const parts: string[] = [];
   if (data.pastDue) parts.push('tu suscripción está pendiente de pago');
@@ -38,7 +43,9 @@ export function PaymentAlertBanner() {
     const names = data.suspendedAddons.map((a) => a.name).join(', ');
     parts.push(`hay extras suspendidos por impago (${names})`);
   }
-  const message = parts.join(' y ');
+  const message = data.suspended
+    ? 'tu cuenta está suspendida por un pago pendiente: el panel está en solo lectura y tus inquilinos no pueden entrar a su área de clientes'
+    : parts.join(' y ');
 
   async function notifyPayment() {
     const names = data!.suspendedAddons.map((a) => a.name).join(', ');
@@ -71,20 +78,22 @@ export function PaymentAlertBanner() {
           <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
           <span className="first-letter:uppercase">
             {message}.{' '}
-            {data.pastDue && !data.planManual && !hasSuspendedAddons
-              ? 'Actualiza tu método de pago para regularizarla.'
-              : 'Regulariza el pago para reactivar la funcionalidad.'}
+            {data.suspended
+              ? 'Al registrarse el pago, todo vuelve a funcionar solo.'
+              : data.pastDue && !data.planManual && !hasSuspendedAddons
+                ? 'Actualiza tu método de pago para regularizarla.'
+                : 'Regulariza el pago para reactivar la funcionalidad.'}
           </span>
         </span>
 
         <span className="flex items-center gap-3">
           {/* Plan por Stripe: regularización online (portal) */}
-          {data.pastDue && !data.planManual && (
+          {(data.suspended || (data.pastDue && !data.planManual)) && (
             <Link
               href="/settings/saas-billing"
               className="underline underline-offset-2 hover:opacity-80"
             >
-              Actualizar método de pago
+              {data.suspended ? 'Pagar y reactivar' : 'Actualizar método de pago'}
             </Link>
           )}
           {/* Pago manual (plan o add-ons): avisar al proveedor vía ticket */}

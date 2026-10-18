@@ -67,7 +67,7 @@ export class BookingService {
     try {
       if (input.website && input.website.trim() !== '') return { captured: false };
       const tenant = await this.admin.tenant.findUnique({ where: { slug } });
-      if (!tenant || tenant.deletedAt) return { captured: false };
+      if (!tenant || tenant.deletedAt || tenant.status === 'suspended') return { captured: false };
       const tenantId = tenant.id;
 
       await this.prisma.withTenant(async (tx) => {
@@ -121,6 +121,7 @@ export class BookingService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
+    assertBookable(tenant.status);
     const [facilities, unitTypes, grouped] = await Promise.all([
       this.admin.facility.findMany({
         where: { tenantId: tenant.id, deletedAt: null, isActive: true },
@@ -187,6 +188,7 @@ export class BookingService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
+    assertBookable(tenant.status);
     return this.quoteFor(tenant.id, {
       facilityId: input.facilityId,
       unitTypeId: input.unitTypeId,
@@ -273,6 +275,7 @@ export class BookingService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
+    assertBookable(tenant.status);
     const tenantId = tenant.id;
     const couponCode = input.couponCode?.trim() || undefined;
     // El cupón se comprueba antes de reservar el trastero: si no vale, no se
@@ -506,5 +509,18 @@ export class BookingService {
     }
     const { token } = await this.signatures.generateSigningToken(contract.id);
     return { contractId: contract.id, signingToken: token, signingLinkSentTo: null };
+  }
+}
+
+/**
+ * Un negocio suspendido (impago de su suscripción) o dado de baja no acepta
+ * reservas online: el equipo no podría gestionarlas.
+ */
+function assertBookable(status: string): void {
+  if (status === 'suspended' || status === 'cancelled') {
+    throw new ConflictException({
+      code: 'booking_unavailable',
+      message: 'Las reservas online no están disponibles ahora mismo. Contacta con el negocio.',
+    });
   }
 }
