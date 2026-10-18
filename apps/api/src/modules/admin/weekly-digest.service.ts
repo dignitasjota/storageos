@@ -5,6 +5,7 @@ import { EMAIL_PROVIDER, type EmailProvider } from '../email/providers/email-pro
 
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminTenantsService } from './admin-tenants.service';
+import { ChatAlertsService } from './chat-alerts.service';
 import { MrrSnapshotService } from './mrr-snapshot.service';
 import { PlatformAlertsService } from './platform-alerts.service';
 
@@ -45,6 +46,7 @@ export class WeeklyDigestService {
     private readonly alerts: PlatformAlertsService,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
     private readonly platformEmail: PlatformEmailSettingsService,
+    private readonly chat: ChatAlertsService,
   ) {}
 
   /**
@@ -53,7 +55,10 @@ export class WeeklyDigestService {
    */
   async sendWeeklyDigest(): Promise<AdminWeeklyDigestResultDto> {
     const settings = await this.alerts.getSettings();
-    if (!settings.weeklyDigestEnabled || !settings.alertEmail) {
+    const emailOn = settings.weeklyDigestEnabled && Boolean(settings.alertEmail);
+    // También por Telegram/Slack si está activado en «Avisos por chat».
+    const chatOn = await this.chat.weeklyEnabled();
+    if (!emailOn && !chatOn) {
       return { sent: false, reason: 'disabled_or_no_email' };
     }
 
@@ -68,14 +73,17 @@ export class WeeklyDigestService {
       movements.months.length > 0 ? movements.months[movements.months.length - 1]! : null;
     const { html, text } = this.render(overview, lastMovement, atRisk);
 
-    await this.email.send({
-      ...(await this.platformEmail.platformSender()),
-      to: settings.alertEmail,
-      subject: `[TrasterOS] Resumen semanal: MRR ${euro(overview.mrr.total)} · ${overview.tenants.active} activos`,
-      html,
-      text,
-    });
-    this.logger.log(`[weekly-digest] resumen enviado a ${settings.alertEmail}`);
+    if (emailOn && settings.alertEmail) {
+      await this.email.send({
+        ...(await this.platformEmail.platformSender()),
+        to: settings.alertEmail,
+        subject: `[TrasterOS] Resumen semanal: MRR ${euro(overview.mrr.total)} · ${overview.tenants.active} activos`,
+        html,
+        text,
+      });
+      this.logger.log(`[weekly-digest] resumen enviado a ${settings.alertEmail}`);
+    }
+    if (chatOn) await this.chat.send(text);
     return { sent: true, reason: null };
   }
 

@@ -4,6 +4,8 @@ import { Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { ChatAlertsCard } from './chat-alerts-card';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -275,6 +277,8 @@ export default function PlatformAlertsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ChatAlertsCard />
     </div>
   );
 }

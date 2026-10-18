@@ -4,6 +4,9 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  ChatAlertSendResultDto,
+  ChatAlertSettingsDto,
+  UpdateChatAlertSettingsInput,
   AdminTimelineKind,
   AdminTimelinePageDto,
   AdminTenantSummaryDto,
@@ -2351,6 +2354,30 @@ export function useUpdateCoupon() {
 }
 
 /** Extiende el trial de varios tenants a la vez. */
+/** Avisos del panel admin por Telegram y Slack. */
+export function useChatAlertSettings() {
+  return useQuery({
+    queryKey: ['admin', 'chat-alerts'] as const,
+    queryFn: () => adminApiFetch<ChatAlertSettingsDto>('/admin/chat-alerts'),
+  });
+}
+
+export function useUpdateChatAlertSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateChatAlertSettingsInput) =>
+      adminApiFetch<ChatAlertSettingsDto>('/admin/chat-alerts', { method: 'PUT', json: input }),
+    onSuccess: (data) => qc.setQueryData(['admin', 'chat-alerts'], data),
+  });
+}
+
+export function useChatAlertAction(action: 'test' | 'daily/run') {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<ChatAlertSendResultDto>(`/admin/chat-alerts/${action}`, { method: 'POST' }),
+  });
+}
+
 /** Añade o quita etiquetas a varios tenants. */
 export function useBulkTags() {
   const qc = useQueryClient();

@@ -4553,6 +4553,12 @@ model PlatformAlertSettings {
   sendPastDue         Boolean  @default(true) @map("send_past_due")
   /// Resumen semanal de KPIs (MRR/churn/altas) por email al super admin (lunes 08:00).
   weeklyDigestEnabled Boolean  @default(false) @map("weekly_digest_enabled")
+  /// Avisos por chat (Telegram/Slack): token y webhook cifrados (AES-GCM).
+  telegramBotTokenEncrypted String? @map("telegram_bot_token_encrypted")
+  telegramChatId            String? @map("telegram_chat_id")
+  slackWebhookUrlEncrypted  String? @map("slack_webhook_url_encrypted")
+  chatDailyEnabled          Boolean @default(false) @map("chat_daily_enabled")
+  chatWeeklyEnabled         Boolean @default(false) @map("chat_weekly_enabled")
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
