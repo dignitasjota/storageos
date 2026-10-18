@@ -8,6 +8,7 @@ import { emailLocale, formatDateLong, formatEur } from '../../common/format';
 import { subtractAmounts } from '../../common/money';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
+import { hasPaymentInFlight, NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AccessIntegrationsService } from '../access/access-integrations.service';
 import { AuditService } from '../auth/audit.service';
@@ -91,6 +92,9 @@ export class DunningService {
         // Un justificante de fianza no es una factura: se cobra con la suya
         // (reserva online) o en el local; no lleva recordatorios propios.
         kind: 'invoice',
+        // Con un cobro en marcha (adeudo que liquida en días o remesa SEPA sin
+        // confirmar) no se da por vencida: el inquilino ya está pagando.
+        ...NO_PAYMENT_IN_FLIGHT,
       },
       select: {
         id: true,
@@ -262,6 +266,16 @@ export class DunningService {
         where: { id: action.id },
         data: { status: 'cancelled', executedAt: new Date() },
       });
+      return;
+    }
+    // Cobro en marcha: no se reclama, ni se recarga, ni se corta el acceso. La
+    // acción sigue programada y se vuelve a mirar al día siguiente (si el cobro
+    // se confirma, la factura queda pagada y la acción se cancela; si falla, se
+    // ejecuta entonces).
+    if (await hasPaymentInFlight(this.admin, action.invoiceId)) {
+      this.logger.log(
+        `dunning.${action.actionType}: ${invoice.invoiceNumber} tiene un cobro en curso; se aplaza`,
+      );
       return;
     }
 

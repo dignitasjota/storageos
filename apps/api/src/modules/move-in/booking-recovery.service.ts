@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { formatDateLong, formatEur } from '../../common/format';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
+import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -118,7 +119,12 @@ export class BookingRecoveryService {
         customer: { select: { email: true, firstName: true } },
         unit: { select: { code: true, facility: { select: { name: true } } } },
         invoices: {
-          where: { status: { in: ['issued', 'overdue'] } },
+          // Un cobro en marcha (adeudo SEPA, remesa) no es «sin pagar».
+          where: {
+            status: { in: ['issued', 'overdue'] },
+            kind: 'invoice',
+            ...NO_PAYMENT_IN_FLIGHT,
+          },
           select: { total: true, amountPaid: true },
           take: 1,
         },
@@ -127,7 +133,7 @@ export class BookingRecoveryService {
     if (!contract?.customer.email || !contract.firstPaymentDeadline) return false;
     const signed = contract.status === 'active' && !!contract.signedAt;
     const unpaid = contract.invoices[0];
-    // Firmada y sin factura pendiente: ya está pagada, nada que recordar.
+    // Firmada y sin factura pendiente (pagada o con el cobro en marcha): nada que recordar.
     if (signed && !unpaid) return false;
 
     // Se marca ANTES de enviar: con varias réplicas, solo una lo envía.

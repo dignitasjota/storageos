@@ -1105,6 +1105,8 @@ export class InvoicesService {
           status: true,
           customerId: true,
           total: true,
+          amountPaid: true,
+          amountRefunded: true,
           kind: true,
           ownerId: true,
           lateFeeInvoice: { select: { id: true } },
@@ -1144,7 +1146,15 @@ export class InvoicesService {
         where: { id: tenantId },
         select: { lateFeeType: true, lateFeeValue: true },
       });
-      const base = Number(original.total);
+      // El porcentaje se aplica a lo que sigue pendiente, no al total: una
+      // factura pagada a medias solo recarga la parte impagada.
+      const base =
+        Math.max(
+          0,
+          toCents(Number(original.total)) -
+            toCents(Number(original.amountPaid)) -
+            toCents(Number(original.amountRefunded)),
+        ) / 100;
       const value = Number(tenant.lateFeeValue);
       // Cálculo en céntimos enteros: base*% sobre floats arrastra drift al recargo.
       const fee =

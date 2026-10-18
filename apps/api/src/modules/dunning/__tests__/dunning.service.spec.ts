@@ -22,7 +22,12 @@ const ACTION_ID = '019e3d20-dddd-7c2f-bf37-6511065b9fc5';
 
 interface AdminMock {
   dunningAction: { findUnique: jest.Mock; update: jest.Mock; findMany?: jest.Mock };
-  invoice: { findUnique: jest.Mock; findMany?: jest.Mock; updateMany?: jest.Mock };
+  invoice: {
+    findUnique: jest.Mock;
+    findMany?: jest.Mock;
+    updateMany?: jest.Mock;
+    count?: jest.Mock;
+  };
   tenant: { findUnique: jest.Mock };
   automationRule?: { count: jest.Mock };
 }
@@ -81,7 +86,11 @@ describe('DunningService.executeAction (email_reminder)', () => {
         }),
         update: jest.fn().mockResolvedValue(undefined),
       },
-      invoice: { findUnique: jest.fn().mockResolvedValue(overdueInvoice()) },
+      // count = 1 → sin cobro en curso.
+      invoice: {
+        count: jest.fn().mockResolvedValue(1),
+        findUnique: jest.fn().mockResolvedValue(overdueInvoice()),
+      },
       tenant: {
         findUnique: jest.fn().mockResolvedValue({
           name: 'Trasteros SL',
@@ -142,6 +151,7 @@ describe('DunningService.executeAction (email_reminder)', () => {
         update: jest.fn().mockResolvedValue(undefined),
       },
       invoice: {
+        count: jest.fn().mockResolvedValue(1),
         findUnique: jest
           .fn()
           .mockResolvedValue(overdueInvoice({ customerId: null, customer: null })),

@@ -4,6 +4,7 @@ import { whatsappTextLanguage } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
+import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { SignaturesService } from '../move-in/signatures.service';
 
@@ -82,7 +83,12 @@ export class WhatsappBookingRemindersService {
             signedAt: true,
             customer: { select: { firstName: true } },
             invoices: {
-              where: { status: { in: ['issued', 'overdue'] } },
+              // Un cobro en marcha (adeudo SEPA, remesa) no es «sin pagar».
+              where: {
+                status: { in: ['issued', 'overdue'] },
+                kind: 'invoice',
+                ...NO_PAYMENT_IN_FLIGHT,
+              },
               select: { id: true },
               take: 1,
             },

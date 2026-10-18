@@ -272,14 +272,27 @@ export class AccessIntegrationsService {
     const customerId = payload.customerId;
     try {
       // 1. Reactiva SOLO las credenciales suspendidas por impago (no las que el
-      //    staff suspendió por seguridad). Idempotente si no hay ninguna.
-      await this.credentials.resume({
-        tenantId: payload.tenantId,
-        userId: null,
-        customerId,
-        onlyIfReasonStartsWith: 'dunning:',
-        meta: {},
-      });
+      //    staff suspendió por seguridad), y solo si ya no le queda ninguna otra
+      //    factura impagada por la que se le cortó el acceso. Idempotente.
+      const stillBlocked = await this.prisma.withTenant(
+        (tx) =>
+          tx.dunningAction.count({
+            where: {
+              actionType: 'access_block',
+              status: 'executed',
+              invoice: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+            },
+          }),
+        payload.tenantId,
+      );
+      if (stillBlocked === 0)
+        await this.credentials.resume({
+          tenantId: payload.tenantId,
+          userId: null,
+          customerId,
+          onlyIfReasonStartsWith: 'dunning:',
+          meta: {},
+        });
       // 2. Auto-emisión al primer pago: solo si el inquilino aún no tiene
       //    NINGÚN acceso propio (p. ej. reserva online «pago primero»). Un
       //    acceso suspendido por el staff, una tarjeta o una cara cuentan: no se
