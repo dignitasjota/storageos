@@ -45,6 +45,9 @@ import { AdminUsageService } from './admin-usage.service';
 import { AdminGuard } from './admin.guard';
 import { AeatCertExpiryCron } from './aeat-cert-expiry.cron';
 import { AeatCertExpiryService } from './aeat-cert-expiry.service';
+import { ChatAlertsController } from './chat-alerts.controller';
+import { ChatAlertsCron } from './chat-alerts.cron';
+import { ChatAlertsService } from './chat-alerts.service';
 import { ImpersonationService } from './impersonation.service';
 import { MrrModule } from './mrr.module';
 import { PlatformAlertsController } from './platform-alerts.controller';
@@ -115,6 +118,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SuperAdminAuditController,
     AdminSuperAdminsController,
     PlatformAlertsController,
+    ChatAlertsController,
     AdminEmailSettingsController,
     AdminEmailLogController,
     AdminImpersonationAuditController,
@@ -136,6 +140,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     { provide: APP_INTERCEPTOR, useClass: AdminAuditInterceptor },
     PlatformAlertsService,
     PlatformAlertsCron,
+    ChatAlertsService,
+    ChatAlertsCron,
     WeeklyDigestService,
     WeeklyDigestCron,
     TenantLifecycleEmailsService,

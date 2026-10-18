@@ -1702,3 +1702,24 @@ export interface AdminTimelinePageDto {
   /** ISO: pasa como `before` para la página siguiente. */
   nextBefore: string | null;
 }
+
+/** Avisos por chat del panel admin (sin secretos). */
+export interface ChatAlertSettingsDto {
+  telegramConfigured: boolean;
+  telegramChatId: string | null;
+  slackConfigured: boolean;
+  /** Cada mañana, lo urgente del «Hoy» (si hay algo). */
+  dailyEnabled: boolean;
+  /** Los lunes, el resumen semanal de KPIs. */
+  weeklyEnabled: boolean;
+}
+
+export type ChatChannelResult = 'sent' | 'failed' | 'off';
+
+export interface ChatAlertSendResultDto {
+  sent: boolean;
+  telegram: ChatChannelResult;
+  slack: ChatChannelResult;
+  /** Motivo si no se envió nada (`nothing_urgent`, `disabled`, `no_channel`). */
+  reason: string | null;
+}

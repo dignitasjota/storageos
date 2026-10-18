@@ -477,6 +477,34 @@ export const UpdatePlatformAlertSettingsSchema = z.object({
 });
 export type UpdatePlatformAlertSettingsInput = z.infer<typeof UpdatePlatformAlertSettingsSchema>;
 
+/**
+ * Avisos por chat del panel admin. Token y webhook: `''` los quita y sin
+ * enviar no cambian (no se devuelven nunca).
+ */
+export const UpdateChatAlertSettingsSchema = z.object({
+  telegramBotToken: z
+    .string()
+    .trim()
+    .regex(/^\d{5,}:[A-Za-z0-9_-]{30,}$/, 'Token de bot no válido')
+    .or(z.literal(''))
+    .optional(),
+  telegramChatId: z
+    .string()
+    .trim()
+    .regex(/^(-?\d{3,20}|@[A-Za-z0-9_]{5,32})$/, 'Chat no válido (número o @canal)')
+    .or(z.literal(''))
+    .optional(),
+  slackWebhookUrl: z
+    .string()
+    .trim()
+    .regex(/^https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/_-]+$/, 'Webhook de Slack no válido')
+    .or(z.literal(''))
+    .optional(),
+  dailyEnabled: z.boolean().optional(),
+  weeklyEnabled: z.boolean().optional(),
+});
+export type UpdateChatAlertSettingsInput = z.infer<typeof UpdateChatAlertSettingsSchema>;
+
 /** Datos fiscales del emisor (TrasterOS) para las facturas de suscripción. */
 export const UpdatePlatformBillingSettingsSchema = z.object({
   legalName: z.string().trim().max(200).default(''),
