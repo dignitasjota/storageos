@@ -614,10 +614,15 @@ pain.008, pero sin API de banco: fichero que se sube a mano.
   collection_date, status generated/confirmed/cancelled, item_count,
   total_amount céntimos, xml); item = **tenant + periodo** (no factura,
   a diferencia de `sepa_remittance_items`) — `mandate_id`, amount céntimos,
-  sequence_type, end_to_end_id, **`period_covered` @db.Date +
-  `@@unique(tenant_id, period_covered)`** (la clave anti-doble-cobro, ya que
-  no hay invoice al que colgar el unique), `item_status`
-  (pending/collected/bounced), bounced_at, bounce_reason.
+  sequence_type, end_to_end_id, **`period_covered` @db.Date + índice único
+  parcial `platform_sepa_remittance_items_live_period` (tenant_id,
+  period_covered) WHERE item_status IN (pending, collected)** (la clave
+  anti-doble-cobro, ya que no hay invoice al que colgar el unique; solo en SQL
+  desde la migración `20261030100000_platform_sepa_retry_bounced`: un adeudo
+  devuelto se vuelve a domiciliar por el mismo periodo con EndToEndId
+  `…-R<n>`), `item_status` (pending/collected/bounced), bounced_at,
+  bounce_reason. Marcar un adeudo como devuelto retira de la suscripción el
+  periodo que pagaba (y la pasa a `past_due` si ya venció).
 - **Importe**: plan + add-ons NO suspendidos y NO ya cobrados por su propio
   subscription item de Stripe (evita el doble cobro de un add-on en
   `billing_mode='stripe'` individual).

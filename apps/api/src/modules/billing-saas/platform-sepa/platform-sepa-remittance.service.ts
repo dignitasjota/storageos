@@ -48,6 +48,22 @@ interface EligibleCandidate {
   periodCovered: Date;
   amount: number;
   mandate: MandateRow;
+  /** Adeudos ya devueltos de este periodo: el reintento lleva otro EndToEndId. */
+  retries: number;
+}
+
+/**
+ * EndToEndId del adeudo (máx. 35 caracteres SEPA). Un reintento tras una
+ * devolución lleva `-R<n>`: así no se confunde con el cobro devuelto al
+ * reanudar una confirmación.
+ */
+export function platformEndToEndId(slug: string, periodCovered: Date, retries: number): string {
+  const date = periodCovered.toISOString().slice(0, 10);
+  const suffix = retries > 0 ? `-R${retries}` : '';
+  const prefix = 'E2E-SAAS-';
+  const cleanSlug = slug.replace(/[^A-Za-z0-9-]/g, '');
+  const room = 35 - prefix.length - 1 - date.length - suffix.length;
+  return `${prefix}${cleanSlug.slice(0, Math.max(0, room))}-${date}${suffix}`;
 }
 
 /**
@@ -105,14 +121,23 @@ export class PlatformSepaRemittanceService {
         where: { tenantId: { in: tenantIds }, status: 'active' },
       }),
       this.admin.platformSepaRemittanceItem.findMany({
-        where: { tenantId: { in: tenantIds }, itemStatus: { in: ['pending', 'collected'] } },
-        select: { tenantId: true, periodCovered: true },
+        where: { tenantId: { in: tenantIds } },
+        select: { tenantId: true, periodCovered: true, itemStatus: true },
       }),
     ]);
     const mandateByTenant = new Map(mandates.map((m) => [m.tenantId, m]));
+    const keyOf = (tenantId: string, d: Date) => `${tenantId}:${d.toISOString().slice(0, 10)}`;
     const blockedKey = new Set(
-      existingItems.map((i) => `${i.tenantId}:${i.periodCovered.toISOString().slice(0, 10)}`),
+      existingItems
+        .filter((i) => i.itemStatus === 'pending' || i.itemStatus === 'collected')
+        .map((i) => keyOf(i.tenantId, i.periodCovered)),
     );
+    const bouncedByKey = new Map<string, number>();
+    for (const i of existingItems) {
+      if (i.itemStatus !== 'bounced') continue;
+      const k = keyOf(i.tenantId, i.periodCovered);
+      bouncedByKey.set(k, (bouncedByKey.get(k) ?? 0) + 1);
+    }
 
     const candidates: EligibleCandidate[] = [];
     const withoutMandate: { tenantId: string; tenantName: string }[] = [];
@@ -123,7 +148,7 @@ export class PlatformSepaRemittanceService {
         continue;
       }
       const periodCovered = toDateOnly(sub.currentPeriodEnd);
-      const key = `${sub.tenantId}:${periodCovered.toISOString().slice(0, 10)}`;
+      const key = keyOf(sub.tenantId, periodCovered);
       if (blockedKey.has(key)) continue;
       const amount = await this.eligibleAmount(sub.tenantId);
       if (amount <= 0) continue;
@@ -134,6 +159,7 @@ export class PlatformSepaRemittanceService {
         periodCovered,
         amount,
         mandate,
+        retries: bouncedByKey.get(key) ?? 0,
       });
     }
     return { candidates, withoutMandate };
@@ -201,9 +227,7 @@ export class PlatformSepaRemittanceService {
             mandateId: c.mandate.id,
             amount: toCents(c.amount),
             sequenceType: c.mandate.sequenceType,
-            endToEndId: `E2E-SAAS-${c.tenantSlug}-${c.periodCovered.toISOString().slice(0, 10)}`
-              .replace(/[^A-Za-z0-9-]/g, '')
-              .slice(0, 35),
+            endToEndId: platformEndToEndId(c.tenantSlug, c.periodCovered, c.retries),
             periodCovered: c.periodCovered,
           },
         });
@@ -224,9 +248,7 @@ export class PlatformSepaRemittanceService {
 
     const creditorIban = this.crypto.decryptString(settings.creditorIbanEncrypted, CREDITOR_AAD);
     const txs: Pain008Transaction[] = committed.map((c) => ({
-      endToEndId: `E2E-SAAS-${c.tenantSlug}-${c.periodCovered.toISOString().slice(0, 10)}`
-        .replace(/[^A-Za-z0-9-]/g, '')
-        .slice(0, 35),
+      endToEndId: platformEndToEndId(c.tenantSlug, c.periodCovered, c.retries),
       amountCents: toCents(c.amount),
       mandateReference: c.mandate.reference,
       mandateSignedDate: c.mandate.signedAt.toISOString().slice(0, 10),
@@ -399,36 +421,59 @@ export class PlatformSepaRemittanceService {
   }
 
   /**
-   * Marca un item ya cobrado como devuelto por el banco (R-transaction) y
-   * fuerza `past_due` en la suscripción del tenant. Es el único punto sin
-   * webhook: `recordManualPayment` ya adelantó `currentPeriodEnd` al
-   * confirmar, así que el cron `markLapsedManualPastDue` no lo detectaría
-   * hasta el SIGUIENTE vencimiento (semanas después). No se revierte el
-   * periodo/pago ya registrado — el bounce solo comunica "ahora está
-   * retroactivamente al día"; `PlatformDunningService.run()` recoge el
-   * `past_due` sin ningún cambio en ese servicio (ya es agnóstico del
-   * origen del impago).
+   * Marca un item ya cobrado como devuelto por el banco (R-transaction): el
+   * dinero no llegó, así que se deshace lo que hizo la confirmación. El periodo
+   * que pagaba ese adeudo se retira de la suscripción (la siguiente remesa lo
+   * vuelve a domiciliar), el cobro queda devuelto y su factura, abonada. Si con
+   * eso el periodo ya venció, la suscripción pasa a `past_due` y entra en el
+   * cobro de morosos.
    */
   async markBounced(itemId: string, reason?: string): Promise<void> {
-    const item = await this.admin.platformSepaRemittanceItem.findUnique({
-      where: { id: itemId },
-    });
-    if (!item) {
-      throw new NotFoundException({ code: 'item_not_found', message: 'Item no encontrado' });
-    }
-    if (item.itemStatus !== 'collected') {
-      throw new BadRequestException({
-        code: 'item_not_collected',
-        message: 'Solo se puede marcar como devuelto un item ya cobrado',
+    const now = new Date();
+    const item = await this.admin.$transaction(async (tx) => {
+      // Fila bloqueada: dos «Marcar como devuelto» a la vez no retiran dos meses.
+      await tx.$queryRaw`SELECT id FROM platform_sepa_remittance_items WHERE id = ${itemId}::uuid FOR UPDATE`;
+      const row = await tx.platformSepaRemittanceItem.findUnique({
+        where: { id: itemId },
+        include: { payment: { select: { periodStart: true, periodEnd: true } } },
       });
-    }
-    await this.admin.platformSepaRemittanceItem.update({
-      where: { id: itemId },
-      data: { itemStatus: 'bounced', bouncedAt: new Date(), bounceReason: reason ?? null },
-    });
-    await this.admin.tenantSubscription.update({
-      where: { tenantId: item.tenantId },
-      data: { status: 'past_due' },
+      if (!row) {
+        throw new NotFoundException({ code: 'item_not_found', message: 'Item no encontrado' });
+      }
+      if (row.itemStatus !== 'collected') {
+        throw new BadRequestException({
+          code: 'item_not_collected',
+          message: 'Solo se puede marcar como devuelto un item ya cobrado',
+        });
+      }
+      await tx.platformSepaRemittanceItem.update({
+        where: { id: itemId },
+        data: { itemStatus: 'bounced', bouncedAt: now, bounceReason: reason ?? null },
+      });
+      const sub = await tx.tenantSubscription.findUniqueOrThrow({
+        where: { tenantId: row.tenantId },
+        select: { currentPeriodEnd: true },
+      });
+      // Lo que el cobro sumó al periodo. Si después no se pagó nada más, el fin
+      // vuelve exactamente a donde estaba; si hubo pagos posteriores, se resta
+      // solo lo de este.
+      const paidStart = row.payment?.periodStart;
+      const paidEnd = row.payment?.periodEnd;
+      let periodEnd = sub.currentPeriodEnd;
+      if (paidStart && paidEnd && paidEnd > paidStart) {
+        periodEnd =
+          sub.currentPeriodEnd.getTime() === paidEnd.getTime()
+            ? paidStart
+            : new Date(sub.currentPeriodEnd.getTime() - (paidEnd.getTime() - paidStart.getTime()));
+      }
+      await tx.tenantSubscription.update({
+        where: { tenantId: row.tenantId },
+        data: {
+          currentPeriodEnd: periodEnd,
+          ...(periodEnd <= now ? { status: 'past_due' as const } : {}),
+        },
+      });
+      return row;
     });
     // El dinero no llegó: el cobro queda devuelto y su factura, abonada.
     if (item.paymentId) {

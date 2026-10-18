@@ -4878,8 +4878,9 @@ model PlatformSepaRemittanceItem {
   sequenceType  String    @map("sequence_type")
   endToEndId    String    @map("end_to_end_id")
   /// Periodo de suscripción que este cargo cubre (= currentPeriodEnd del
-  /// tenant al generar la remesa). Único junto a tenantId: evita que un
-  /// mismo tenant se dombicilie dos veces por el mismo periodo.
+  /// tenant al generar la remesa). Único junto a tenantId entre los adeudos
+  /// pendientes o cobrados (índice parcial `platform_sepa_remittance_items_live_period`,
+  /// solo en SQL): un adeudo devuelto se puede volver a domiciliar.
   periodCovered DateTime  @map("period_covered") @db.Date
   /// pending | collected | bounced — estado de ESTE item; confirmar la
   /// remesa pasa los no-bounced a collected. bounced lo pone un admin a
@@ -4895,7 +4896,6 @@ model PlatformSepaRemittanceItem {
   tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   mandate    PlatformSepaMandate    @relation(fields: [mandateId], references: [id], onDelete: Restrict)
 
-  @@unique([tenantId, periodCovered])
   @@index([remittanceId])
   @@index([tenantId])
   @@map("platform_sepa_remittance_items")

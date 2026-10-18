@@ -85,9 +85,10 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
       .set(adminAuth())
       .send({ mode: 'sepa' })
       .expect(200);
+    const periodBefore = new Date(Date.now() + 2 * 24 * 3600 * 1000);
     await adminClient.tenantSubscription.update({
       where: { tenantId: owner.tenantId },
-      data: { currentPeriodEnd: new Date(Date.now() + 2 * 24 * 3600 * 1000), status: 'active' },
+      data: { currentPeriodEnd: periodBefore, status: 'active' },
     });
 
     const created = await request(app.getHttpServer())
@@ -129,8 +130,9 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
     expect(alreadyBounced.status).toBe(400);
     expect(alreadyBounced.body.code).toBe('item_not_collected');
 
-    // El item queda `bounced` con el motivo, el periodo/pago no se revierte,
-    // y la suscripción pasa a `past_due` EXPLÍCITAMENTE.
+    // El item queda `bounced` con el motivo y el periodo que pagaba se retira:
+    // el fin vuelve a donde estaba antes de confirmar (aún no ha vencido, así
+    // que la suscripción sigue activa hasta entonces).
     const itemAfter = await adminClient.platformSepaRemittanceItem.findUniqueOrThrow({
       where: { id: item.id },
     });
@@ -138,37 +140,63 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
     expect(itemAfter.bounceReason).toBe('Cuenta cerrada');
     expect(itemAfter.bouncedAt).not.toBeNull();
 
-    const subAfterBounce = await adminClient.tenantSubscription.findUnique({
+    const subAfterBounce = await adminClient.tenantSubscription.findUniqueOrThrow({
       where: { tenantId: owner.tenantId },
     });
-    expect(subAfterBounce!.status).toBe('past_due');
-    // El periodo NO se revierte (recordManualPayment ya lo adelantó al confirmar).
-    expect(subAfterBounce!.currentPeriodEnd.getTime()).toBe(
+    expect(subAfterBounce.currentPeriodEnd.getTime()).toBe(periodBefore.getTime());
+    expect(subAfterBounce.currentPeriodEnd.getTime()).toBeLessThan(
       subAfterConfirm!.currentPeriodEnd.getTime(),
     );
+    expect(subAfterBounce.status).toBe('active');
 
-    // --- El dunning YA EXISTENTE (sin cambios) recoge el past_due. ---
-    // Simula que, además, el periodo (ya adelantado al confirmar) venció
-    // hace tiempo — así `run()` lo evalúa sin depender de la fecha exacta
-    // de la extensión.
+    // --- La siguiente remesa vuelve a domiciliar el mismo periodo. ---
+    const retry = await request(app.getHttpServer())
+      .post('/admin/platform-sepa/remittances')
+      .set(adminAuth())
+      .send({ name: 'Reintento', collectionDate: '2026-09-30', tenantIds: [owner.tenantId] });
+    expect(retry.status).toBe(201);
+    const retryItem = await adminClient.platformSepaRemittanceItem.findFirstOrThrow({
+      where: { tenantId: owner.tenantId, itemStatus: 'pending' },
+    });
+    expect(retryItem.periodCovered.toISOString().slice(0, 10)).toBe(
+      item.periodCovered.toISOString().slice(0, 10),
+    );
+    expect(retryItem.endToEndId).not.toBe(item.endToEndId);
+    expect(retryItem.endToEndId.endsWith('-R1')).toBe(true);
+
+    // --- Con el periodo vencido y el adeudo aún en el banco no se suspende. ---
     await adminClient.tenantSubscription.update({
       where: { tenantId: owner.tenantId },
-      data: { currentPeriodEnd: new Date(Date.now() - 25 * 24 * 3600 * 1000) },
+      data: {
+        currentPeriodEnd: new Date(Date.now() - 25 * 24 * 3600 * 1000),
+        status: 'past_due',
+      },
     });
     await request(app.getHttpServer())
       .put('/admin/platform-dunning/settings')
       .set(adminAuth())
       .send({ enabled: true, reminder1Days: 3, reminder2Days: 10, suspendDays: 21 })
       .expect(200);
+    await request(app.getHttpServer())
+      .post('/admin/platform-dunning/run')
+      .set(adminAuth())
+      .expect(201);
+    let tenantDetail = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}`)
+      .set(adminAuth());
+    expect(tenantDetail.body.status).not.toBe('suspended');
 
+    // --- Sin adeudo en curso, el cobro de morosos sí lo recoge. ---
+    await adminClient.platformSepaRemittance.update({
+      where: { id: retry.body.id },
+      data: { status: 'cancelled' },
+    });
     const run = await request(app.getHttpServer())
       .post('/admin/platform-dunning/run')
       .set(adminAuth());
     expect(run.status).toBe(201);
-    expect(run.body.evaluated).toBeGreaterThanOrEqual(1);
     expect(run.body.suspended).toBeGreaterThanOrEqual(1);
-
-    const tenantDetail = await request(app.getHttpServer())
+    tenantDetail = await request(app.getHttpServer())
       .get(`/admin/tenants/${owner.tenantId}`)
       .set(adminAuth());
     expect(tenantDetail.body.status).toBe('suspended');
