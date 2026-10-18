@@ -87,20 +87,8 @@ export class PlatformDunningService {
     if (lapsed.length === 0) return 0;
     // Domiciliación SEPA con el adeudo ya en una remesa: el cobro está en el
     // banco (se confirma al liquidarse), no es un impago.
-    const sepaTenants = lapsed.filter((s) => s.billingMode === 'sepa').map((s) => s.tenantId);
-    const inRemittance = new Set(
-      sepaTenants.length === 0
-        ? []
-        : (
-            await this.admin.platformSepaRemittanceItem.findMany({
-              where: {
-                tenantId: { in: sepaTenants },
-                itemStatus: 'pending',
-                remittance: { status: { not: 'cancelled' } },
-              },
-              select: { tenantId: true },
-            })
-          ).map((i) => i.tenantId),
+    const inRemittance = await this.tenantsWithPendingSepa(
+      lapsed.filter((s) => s.billingMode === 'sepa').map((s) => s.tenantId),
     );
     const due = lapsed.filter((s) => !inRemittance.has(s.tenantId));
     if (due.length === 0) return 0;
@@ -110,6 +98,20 @@ export class PlatformDunningService {
     });
     this.logger.log(`Enforcement manual: ${due.length} suscripciones a past_due por impago`);
     return due.length;
+  }
+
+  /** Tenants con un adeudo SEPA de plataforma pendiente en una remesa viva. */
+  private async tenantsWithPendingSepa(tenantIds: string[]): Promise<Set<string>> {
+    if (tenantIds.length === 0) return new Set();
+    const items = await this.admin.platformSepaRemittanceItem.findMany({
+      where: {
+        tenantId: { in: tenantIds },
+        itemStatus: 'pending',
+        remittance: { status: { not: 'cancelled' } },
+      },
+      select: { tenantId: true },
+    });
+    return new Set(items.map((i) => i.tenantId));
   }
 
   /** Evalúa las suscripciones morosas y ejecuta los pasos que toquen. */
@@ -122,8 +124,14 @@ export class PlatformDunningService {
       where: { status: 'past_due', tenant: { billingExempt: false } },
       include: { plan: { select: { name: true } }, tenant: true },
     });
+    // Domiciliación SEPA con el adeudo ya en una remesa: el cobro está en el
+    // banco; no se recuerda ni se suspende mientras se resuelve.
+    const inRemittance = await this.tenantsWithPendingSepa(
+      subs.filter((s) => s.billingMode === 'sepa').map((s) => s.tenantId),
+    );
 
     for (const sub of subs) {
+      if (inRemittance.has(sub.tenantId)) continue;
       // `currentPeriodEnd` YA incluye el crédito manual acumulado (lo suman tanto
       // `recordManualPayment` como `syncSubscriptionFromStripe`); NO se vuelve a
       // sumar aquí o el dunning tardaría el doble en actuar sobre morosos con
