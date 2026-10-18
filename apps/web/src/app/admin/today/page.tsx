@@ -16,6 +16,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { ApprovalsSection } from './approvals-section';
+
 import type { AdminAddonChargeDueDto, SaasPaymentProviderValue } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
@@ -74,7 +76,8 @@ export default function AdminTodayPage() {
     data.certificatesExpiring.length === 0 &&
     data.holdedReview.length === 0 &&
     data.devicesOffline.length === 0 &&
-    data.overdueCrons.length === 0;
+    data.overdueCrons.length === 0 &&
+    data.pendingApprovals.length === 0;
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
@@ -93,6 +96,8 @@ export default function AdminTodayPage() {
           </CardContent>
         </Card>
       )}
+
+      {data && <ApprovalsSection items={data.pendingApprovals} />}
 
       {/* Cobros de add-ons pendientes */}
       {data && data.addonCharges.length > 0 && (

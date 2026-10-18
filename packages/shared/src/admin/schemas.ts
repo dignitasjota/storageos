@@ -1051,3 +1051,61 @@ export const DEFAULT_PLATFORM_SEO: UpdatePlatformSeoInput = {
   indexable: true,
   organizationName: '',
 };
+
+// ============================================================================
+// Cola de aprobación (rol soporte → super admin)
+// ============================================================================
+
+/** Acciones sobre un tenant que el rol soporte puede pedir. */
+export const ApprovalActionEnum = z.enum([
+  'suspend',
+  'change_plan',
+  'extend_trial',
+  'manual_payment',
+  'set_features',
+  'update_tenant',
+  'assign_addon',
+  'remove_addon',
+]);
+export type ApprovalAction = z.infer<typeof ApprovalActionEnum>;
+
+/** La acción y sus datos: los mismos que pide el endpoint de cada acción. */
+export const ApprovalRequestBodySchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('suspend'), payload: SuspendTenantSchema }),
+  z.object({ action: z.literal('change_plan'), payload: ChangePlanSchema }),
+  z.object({ action: z.literal('extend_trial'), payload: ExtendTrialSchema }),
+  z.object({ action: z.literal('manual_payment'), payload: CreateManualSaasPaymentSchema }),
+  z.object({ action: z.literal('set_features'), payload: SetTenantFeaturesSchema }),
+  z.object({ action: z.literal('update_tenant'), payload: AdminUpdateTenantSchema }),
+  z.object({ action: z.literal('assign_addon'), payload: AssignAddonSchema }),
+  z.object({
+    action: z.literal('remove_addon'),
+    payload: z.object({ assignmentId: z.string().uuid() }),
+  }),
+]);
+export type ApprovalRequestBody = z.infer<typeof ApprovalRequestBodySchema>;
+
+export const CreateApprovalRequestSchema = z.object({
+  tenantId: z.string().uuid(),
+  /** Por qué hace falta (lo lee quien aprueba). */
+  reason: z.string().trim().min(3).max(500),
+  request: ApprovalRequestBodySchema,
+});
+export type CreateApprovalRequestInput = z.infer<typeof CreateApprovalRequestSchema>;
+
+export const DecideApprovalRequestSchema = z.object({
+  note: z.string().trim().max(500).optional(),
+});
+export type DecideApprovalRequestInput = z.infer<typeof DecideApprovalRequestSchema>;
+
+/** Texto corto de cada acción (para listas y avisos). */
+export const APPROVAL_ACTION_LABELS: Record<ApprovalAction, string> = {
+  suspend: 'Suspender el tenant',
+  change_plan: 'Cambiar de plan',
+  extend_trial: 'Ampliar la prueba',
+  manual_payment: 'Registrar un pago manual',
+  set_features: 'Cambiar funciones',
+  update_tenant: 'Editar datos del tenant',
+  assign_addon: 'Añadir un extra',
+  remove_addon: 'Quitar un extra',
+};

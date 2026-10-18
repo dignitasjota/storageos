@@ -1,5 +1,6 @@
 import type { TenantFeature } from '../features';
 import type {
+  ApprovalAction,
   PlatformCouponDiscountTypeValue,
   PlatformEmailKind,
   PlatformSenderCategory,
@@ -1138,6 +1139,8 @@ export interface AdminTodayDto {
   /** Tareas programadas que no se han ejecutado cuando tocaba. */
   overdueCrons: AdminCronStatusDto[];
   /** Nº de acciones accionables hoy (cobros + renovaciones + past_due + seguimientos + tickets + colas + incidencias). */
+  /** Solicitudes del rol soporte pendientes de aprobar. */
+  pendingApprovals: AdminApprovalRequestDto[];
   urgentCount: number;
 }
 
@@ -1722,4 +1725,26 @@ export interface ChatAlertSendResultDto {
   slack: ChatChannelResult;
   /** Motivo si no se envió nada (`nothing_urgent`, `disabled`, `no_channel`). */
   reason: string | null;
+}
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'failed';
+
+/** Solicitud de la cola de aprobación. */
+export interface AdminApprovalRequestDto {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  action: ApprovalAction;
+  /** Resumen legible de lo que se pide («Plan: pro», «30 días»…). */
+  summary: string;
+  payload: unknown;
+  reason: string;
+  status: ApprovalStatus;
+  requestedByName: string | null;
+  decidedByName: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  /** Error al ejecutar la acción aprobada (status `failed`). */
+  error: string | null;
+  createdAt: string;
 }

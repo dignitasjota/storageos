@@ -18,9 +18,11 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { AccountActivationBanner } from './account-activation-banner';
+import { ApprovalRequestsCard } from './approval-requests-card';
 import { FeatureOverridesCard } from './feature-overrides-card';
 import { OnboardingCard } from './onboarding-card';
 import { PlatformInvoicesCard } from './platform-invoices-card';
+import { RequestApprovalDialog } from './request-approval-dialog';
 import { SaasPaymentsCard } from './saas-payments-card';
 import { TenantAddonsCard } from './tenant-addons-card';
 import { TenantConfigCard } from './tenant-config-card';
@@ -114,6 +116,7 @@ export default function AdminTenantDetailPage() {
   const dataExport = useTenantDataExport(id);
   // El rol `support` no edita, suspende, impersona ni toca la suscripción (403 en el API).
   const canEdit = useIsSuperadmin();
+  const [approvalOpen, setApprovalOpen] = useState(false);
 
   const [dialog, setDialog] = useState<
     'suspend' | 'reactivate' | 'extendTrial' | 'endTrial' | 'impersonate' | 'anonymize' | null
@@ -185,6 +188,11 @@ export default function AdminTenantDetailPage() {
           >
             <Mail className="size-4" />
           </Button>
+          {!canEdit && (
+            <Button variant="outline" onClick={() => setApprovalOpen(true)}>
+              Pedir aprobación
+            </Button>
+          )}
           {canEdit && t.status !== 'suspended' && (
             <Button variant="destructive" onClick={() => setDialog('suspend')}>
               Suspender
@@ -244,6 +252,8 @@ export default function AdminTenantDetailPage() {
       )}
 
       <TenantSummaryCard tenantId={t.id} />
+      <ApprovalRequestsCard tenantId={t.id} />
+      <RequestApprovalDialog tenantId={t.id} open={approvalOpen} onOpenChange={setApprovalOpen} />
 
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="w-full sm:w-auto">
