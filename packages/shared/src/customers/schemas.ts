@@ -338,6 +338,12 @@ export const ChangeUnitSchema = z.object({
 });
 export type ChangeUnitInput = z.infer<typeof ChangeUnitSchema>;
 
+/** Baja pedida desde el panel. Sin fecha: hoy + los días de preaviso del contrato. */
+export const RequestContractEndSchema = z.object({
+  endDate: dateOnly.optional(),
+});
+export type RequestContractEndInput = z.infer<typeof RequestContractEndSchema>;
+
 export const CancelContractSchema = z.object({
   reason: optionalText(500),
 });

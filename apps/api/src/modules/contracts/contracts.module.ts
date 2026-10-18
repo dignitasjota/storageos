@@ -8,6 +8,7 @@ import { PromotionsModule } from '../promotions/promotions.module';
 
 import { AnniversaryUpdatesController } from './anniversary-updates.controller';
 import { AnniversaryUpdatesService } from './anniversary-updates.service';
+import { ContractAutoEndCron } from './contract-auto-end.cron';
 import { ContractEndingSoonCron } from './contract-ending-soon.cron';
 import { ContractPdfController } from './contract-pdf.controller';
 import { ContractPdfService } from './contract-pdf.service';
@@ -41,7 +42,9 @@ import { ReservationsService } from './reservations.service';
     ContractPdfService,
     InspectionPhotosService,
     // Los crons solo se montan donde corren los workers (worker en prod).
-    ...(WORKERS_ENABLED_IN_API ? [ContractEndingSoonCron, ReservationExpiryCron] : []),
+    ...(WORKERS_ENABLED_IN_API
+      ? [ContractEndingSoonCron, ContractAutoEndCron, ReservationExpiryCron]
+      : []),
   ],
   exports: [ContractsService],
 })

@@ -8,6 +8,7 @@ import type {
   UpdateDepositRegistryInput,
   AddContractNoteInput,
   CancelContractInput,
+  RequestContractEndInput,
   CancelReservationInput,
   ChangeContractPriceInput,
   ContractDto,
@@ -297,7 +298,7 @@ function makeContractAction<T>(action: string) {
 }
 
 export const useSignContract = makeContractAction<SignContractInput | undefined>('sign');
-export const useRequestEndContract = makeContractAction<undefined>('request-end');
+export const useRequestEndContract = makeContractAction<RequestContractEndInput>('request-end');
 export const useEndContract = makeContractAction<undefined>('end');
 export const useCancelContract = makeContractAction<CancelContractInput>('cancel');
 export const useChangeContractPrice = makeContractAction<ChangeContractPriceInput>('change-price');

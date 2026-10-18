@@ -425,6 +425,8 @@ model Tenant {
   contractClauses              String?               @map("contract_clauses")
   /// Cláusulas del contrato de vivienda (LAU); null = la base de la aplicación.
   housingContractClauses String? @map("housing_contract_clauses")
+  /// Un contrato en baja se finaliza solo el día siguiente a su fecha de fin.
+  autoEndContracts Boolean @default(true) @map("auto_end_contracts")
   customDomain                 String?               @unique @map("custom_domain")
   customDomainVerifiedAt       DateTime?             @map("custom_domain_verified_at") @db.Timestamptz(6)
   nightPassEnabled             Boolean               @default(false) @map("night_pass_enabled")

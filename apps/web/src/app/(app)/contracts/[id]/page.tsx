@@ -62,6 +62,7 @@ import {
   useRequestSignature,
   useSignContract,
 } from '@/lib/customers/hooks';
+import { localDateString } from '@/lib/dates';
 import { useUnits } from '@/lib/facilities/hooks';
 import { useInsurancePlans, useSetContractInsurance } from '@/lib/insurance/hooks';
 
@@ -101,6 +102,8 @@ export default function ContractDetailPage() {
   const [priceOpen, setPriceOpen] = useState(false);
   const [priceValue, setPriceValue] = useState(0);
   const [priceReason, setPriceReason] = useState('');
+  const [endOpen, setEndOpen] = useState(false);
+  const [endDate, setEndDate] = useState('');
   const [renewOpen, setRenewOpen] = useState(false);
   const [renewMonths, setRenewMonths] = useState(12);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -204,9 +207,12 @@ export default function ContractDetailPage() {
             {c.status === 'active' && canManageC && (
               <Button
                 variant="outline"
-                onClick={() =>
-                  handle(() => requestEnd.mutateAsync({ id: c.id }), 'Baja solicitada.')
-                }
+                onClick={() => {
+                  const d = new Date();
+                  d.setDate(d.getDate() + c.cancellationNoticeDays);
+                  setEndDate(localDateString(d));
+                  setEndOpen(true);
+                }}
               >
                 <Pause className="mr-1 h-4 w-4" /> Solicitar baja
               </Button>
@@ -491,6 +497,47 @@ export default function ContractDetailPage() {
       </Dialog>
 
       {/* Renovar: extiende el fin del contrato N meses. */}
+      <Dialog open={endOpen} onOpenChange={setEndOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Solicitar baja</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="end-date">Último día del contrato</Label>
+              <Input
+                id="end-date"
+                type="date"
+                min={c.startDate}
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Se propone hoy más el preaviso del contrato ({c.cancellationNoticeDays} días). No se
+                facturará más allá de esta fecha y, si está activada la finalización automática, el
+                contrato se cerrará solo al día siguiente.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEndOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={!endDate}
+              onClick={() =>
+                handle(async () => {
+                  await requestEnd.mutateAsync({ id: c.id, body: { endDate } });
+                  setEndOpen(false);
+                }, 'Baja solicitada.')
+              }
+            >
+              Solicitar baja
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={renewOpen} onOpenChange={setRenewOpen}>
         <DialogContent>
           <DialogHeader>

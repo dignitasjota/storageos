@@ -40,6 +40,9 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** Tiempo que tiene quien recibe el aviso para responder antes de pasar al siguiente. */
+const NOTICE_TTL_MS = 48 * 60 * 60 * 1000;
+
 @Injectable()
 export class WaitlistService {
   private readonly logger = new Logger(WaitlistService.name);
@@ -484,6 +487,50 @@ export class WaitlistService {
     }
   }
 
+  /**
+   * Avisos sin respuesta: pasadas 48 h desde que se avisó a alguien, su turno
+   * caduca y, si sigue libre un trastero de ese tamaño en el local, se avisa al
+   * siguiente de la cola (antes solo se avisaba al primero y el resto esperaba
+   * a que se liberara otro). Cross-tenant; lo lanza el cron horario.
+   */
+  async expireStaleNotifications(now = new Date()): Promise<{ expired: number }> {
+    const stale = await this.admin.waitlistEntry.findMany({
+      where: { status: 'notified', notifiedAt: { lt: new Date(now.getTime() - NOTICE_TTL_MS) } },
+      select: { id: true, tenantId: true, facilityId: true, unitTypeId: true },
+      take: 500,
+    });
+    let expired = 0;
+    for (const e of stale) {
+      // Reclamo atómico: con varias réplicas, una sola lo caduca.
+      const { count } = await this.admin.waitlistEntry.updateMany({
+        where: { id: e.id, status: 'notified' },
+        data: { status: 'expired' },
+      });
+      if (count === 0) continue;
+      expired += 1;
+      const unit = await this.admin.unit.findFirst({
+        where: {
+          tenantId: e.tenantId,
+          facilityId: e.facilityId,
+          unitTypeId: e.unitTypeId,
+          status: 'available',
+        },
+        select: { id: true },
+      });
+      if (!unit) continue;
+      try {
+        await this.notifyNext(e.tenantId, unit.id);
+      } catch (err) {
+        this.logger.warn(
+          `[waitlist] no se pudo avisar al siguiente (entrada ${e.id}): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    return { expired };
+  }
+
   private async notifyNext(tenantId: string, unitId: string): Promise<void> {
     const entry = await this.prisma.withTenant(async (tx) => {
       const unit = await tx.unit.findUnique({ where: { id: unitId } });
@@ -514,8 +561,8 @@ export class WaitlistService {
       entry.unitType.name,
     )}</strong> en <strong>${escapeHtml(
       entry.facility.name,
-    )}</strong>, que estabas esperando. Contáctanos para reservarlo antes de que lo haga otra persona.</p>`;
-    const text = `Hola ${entry.contactName}, se ha liberado un ${entry.unitType.name} en ${entry.facility.name}, que estabas esperando. Contáctanos para reservarlo.`;
+    )}</strong>, que estabas esperando. Contáctanos para reservarlo en las próximas 48 horas; después avisaremos a la siguiente persona de la lista.</p>`;
+    const text = `Hola ${entry.contactName}, se ha liberado un ${entry.unitType.name} en ${entry.facility.name}, que estabas esperando. Contáctanos para reservarlo en las próximas 48 horas; después avisaremos a la siguiente persona de la lista.`;
     // Por el outbox: queda en Comunicaciones (y en la ficha del inquilino).
     await this.communications.enqueue({
       tenantId,

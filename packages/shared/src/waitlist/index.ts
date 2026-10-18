@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-export type WaitlistStatus = 'waiting' | 'notified' | 'converted' | 'cancelled';
+/** `expired` = se le avisó y no respondió a tiempo: el hueco pasó al siguiente. */
+export type WaitlistStatus = 'waiting' | 'notified' | 'converted' | 'cancelled' | 'expired';
 
 /** Alta en la lista de espera de un tipo de trastero de un local. */
 export const CreateWaitlistEntrySchema = z.object({

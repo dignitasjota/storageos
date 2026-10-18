@@ -19,6 +19,7 @@ import {
 } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
+import { todayInTimezone } from '../../common/format';
 import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
@@ -26,6 +27,7 @@ import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CouponsService, type RedeemedCoupon } from '../coupons/coupons.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { PromotionsService } from '../promotions/promotions.service';
@@ -136,6 +138,7 @@ export class ContractsService {
     private readonly firstInvoice: FirstInvoiceService,
     private readonly invoices: InvoicesService,
     private readonly files: FilesService,
+    private readonly admin: PrismaAdminService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<ContractDto[]> {
@@ -966,15 +969,31 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
+    /** Último día del contrato (YYYY-MM-DD). Sin ella: hoy + días de preaviso. */
+    endDate?: string;
     facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'ending');
+    // Sin fecha de fin la recurrente seguía facturando y la baja no salía en «Hoy».
+    const endDate = args.endDate
+      ? new Date(`${args.endDate}T00:00:00Z`)
+      : (() => {
+          const d = todayInTimezone();
+          d.setUTCDate(d.getUTCDate() + existing.cancellationNoticeDays);
+          return d;
+        })();
+    if (endDate < new Date(existing.startDate)) {
+      throw new BadRequestException({
+        code: 'invalid_end_date',
+        message: 'La fecha de baja no puede ser anterior al inicio del contrato',
+      });
+    }
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
-        data: { status: 'ending', endingRequestedAt: new Date() },
+        data: { status: 'ending', endingRequestedAt: new Date(), endDate },
         include: {
           customer: {
             select: {
@@ -1003,7 +1022,7 @@ export class ContractsService {
           tenantId: args.tenantId,
           contractId: args.contractId,
           eventType: 'ending_requested',
-          payload: {},
+          payload: { endDate: endDate.toISOString().slice(0, 10) },
           createdByUserId: args.userId,
         },
       });
@@ -1293,7 +1312,8 @@ export class ContractsService {
 
   async end(args: {
     tenantId: string;
-    userId: string;
+    /** null = lo finaliza el sistema (baja que llegó a su fecha). */
+    userId: string | null;
     contractId: string;
     facilityScope?: string[] | null;
     meta: RequestMeta;
@@ -1386,6 +1406,56 @@ export class ContractsService {
   }
 
   /**
+   * Bajas que ya llegaron a su fecha: el día siguiente a la fecha de fin el
+   * contrato se finaliza solo (libera el trastero, revoca el acceso si no le
+   * queda otro contrato y avisa a la lista de espera), si el tenant no lo ha
+   * desactivado. Se avisa al equipo para que haga el check-out y liquide la
+   * fianza. Cross-tenant; lo lanza el cron diario.
+   */
+  async autoEndDue(now = new Date()): Promise<{ ended: number }> {
+    const today = todayInTimezone('Europe/Madrid', now);
+    const due = await this.admin.contract.findMany({
+      where: {
+        status: 'ending',
+        deletedAt: null,
+        endDate: { lt: today },
+        tenant: { autoEndContracts: true, deletedAt: null },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        contractNumber: true,
+        unit: { select: { facilityId: true } },
+      },
+      take: 500,
+    });
+    let ended = 0;
+    for (const c of due) {
+      try {
+        await this.end({ tenantId: c.tenantId, userId: null, contractId: c.id, meta: {} });
+        ended += 1;
+        await this.admin.notification
+          .create({
+            data: {
+              tenantId: c.tenantId,
+              type: 'contract.auto_ended',
+              title: `Contrato ${c.contractNumber} finalizado`,
+              body: 'Ha llegado la fecha de la baja: el trastero ya está libre y el acceso del inquilino, revocado. Haz el check-out y liquida la fianza.',
+              link: `/contracts/${c.id}`,
+              facilityId: c.unit.facilityId,
+            },
+          })
+          .catch(() => undefined);
+      } catch (err) {
+        this.logger.warn(
+          `[auto-end] contrato ${c.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { ended };
+  }
+
+  /**
    * Genera la rectificativa (R1, por diferencias, en BORRADOR) que abona los
    * meses completos no consumidos de la factura prepagada que cubre la fecha
    * de baja. El staff la revisa, la emite y devuelve el importe a mano (no se
@@ -1394,7 +1464,7 @@ export class ContractsService {
    */
   private async createPrepayCreditNote(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     contractId: string;
     interval: number;
     endDate: Date;
