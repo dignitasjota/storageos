@@ -612,6 +612,14 @@ export class BillingSaasService {
       );
       return;
     }
+    // Fin de la suscripción vigente (el tenant la canceló en el portal de
+    // Stripe, o Stripe la dio por perdida tras los reintentos): deja de ser de
+    // Stripe y baja al plan Free. Antes quedaba «cancelada» con su id puesto y
+    // ningún control la tocaba: el tenant seguía con su plan sin pagar.
+    if (TERMINAL_STRIPE_STATUSES.has(args.status)) {
+      await this.endStripeSubscription(tenantId, args.stripeSubscriptionId, args.status);
+      return;
+    }
     const manualDays = current?.manualExtensionDays ?? 0;
     // El plan de los metadatos de Stripe solo vale para una suscripción NUEVA
     // (la del Checkout). En la que ya tenemos, el plan lo lleva la BD: un cambio
@@ -666,6 +674,62 @@ export class BillingSaasService {
       ipAddress: null,
       userAgent: null,
     });
+  }
+
+  /**
+   * La suscripción de Stripe del tenant ha terminado: se desvincula (el cliente
+   * de Stripe se conserva para que pueda volver a suscribirse) y baja al plan
+   * Free, activo. Una prueba que nunca llegó a pagar (el primer cobro del
+   * Checkout caducó) sigue en prueba con su plan.
+   */
+  private async endStripeSubscription(
+    tenantId: string,
+    stripeSubscriptionId: string,
+    stripeStatus: string,
+  ): Promise<void> {
+    const [tenant, freePlan] = await Promise.all([
+      this.admin.tenant.findUnique({ where: { id: tenantId }, select: { status: true } }),
+      this.admin.subscriptionPlan.findFirst({ where: { slug: 'free' } }),
+    ]);
+    const stillTrial = tenant?.status === 'trial';
+    const updated = await this.admin.tenantSubscription.update({
+      where: { tenantId },
+      data: {
+        stripeSubscriptionId: null,
+        cancelAtPeriodEnd: false,
+        billingMode: 'manual',
+        manualExtensionDays: 0,
+        ...(stillTrial
+          ? { status: 'trial' as const }
+          : { status: 'active' as const, ...(freePlan ? { planId: freePlan.id } : {}) }),
+      },
+    });
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: 'saas_billing.subscription_ended',
+      entityType: 'TenantSubscription',
+      entityId: updated.id,
+      changes: {
+        stripeSubscriptionId,
+        stripeStatus,
+        newPlan: stillTrial ? null : 'free',
+      },
+      ipAddress: null,
+      userAgent: null,
+    });
+    await this.admin.superAdminNotification
+      .create({
+        data: {
+          type: 'saas_billing.subscription_ended',
+          title: 'Suscripción de Stripe terminada',
+          body: stillTrial
+            ? 'Un tenant en prueba no completó el primer pago de su suscripción; sigue en prueba.'
+            : 'Un tenant ha terminado su suscripción de Stripe y ha pasado al plan Free.',
+          link: `/admin/tenants/${tenantId}`,
+        },
+      })
+      .catch(() => undefined);
   }
 
   /**
