@@ -25,11 +25,13 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest, toPage } from '../../common/pagination';
 
 import { PaymentsService } from './payments.service';
 import { ReturnedReceiptsService } from './returned-receipts.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class ChargeInvoiceDto extends createZodDto(ChargeInvoiceSchema) {}
@@ -71,6 +73,30 @@ export class PaymentsController {
       ...(facilityId ? { facilityId } : {}),
       facilityScope: user.facilityScope ?? null,
     });
+  }
+
+  /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
+  @RequirePermission('payments:read')
+  @Get('page')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('invoiceId') invoiceId?: string,
+    @Query('customerId') customerId?: string,
+    @Query('facilityId') facilityId?: string,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<PaymentDto>> {
+    const page = parsePageRequest(cursor, limit);
+    const rows = await this.payments.list(user.tenantId, {
+      ...(search ? { search } : {}),
+      page,
+      ...(facilityId ? { facilityId } : {}),
+      ...(invoiceId ? { invoiceId } : {}),
+      ...(customerId ? { customerId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+    return toPage(rows, page);
   }
 
   @RequirePermission('payments:read')

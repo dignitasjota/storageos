@@ -10,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
+import { pageArgs, type PageRequest } from '../../common/pagination';
 import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
 import { AuditService } from '../auth/audit.service';
 import {
@@ -57,6 +58,9 @@ export class PaymentsService {
       customerId?: string;
       facilityId?: string;
       facilityScope?: string[] | null;
+      /** Nº de factura o inquilino. */
+      search?: string;
+      page?: PageRequest;
     },
   ): Promise<PaymentDto[]> {
     const where: Prisma.PaymentWhereInput = {};
@@ -67,11 +71,21 @@ export class PaymentsService {
     const facility = invoiceFacilityWhere(filters.facilityScope, filters.facilityId);
     if (!facility) return [];
     if (Object.keys(facility).length > 0) where.invoice = facility as Prisma.InvoiceWhereInput;
+    if (filters.search) {
+      const q = { contains: filters.search, mode: 'insensitive' as const };
+      where.OR = [
+        { invoice: { invoiceNumber: q } },
+        { customer: { firstName: q } },
+        { customer: { lastName: q } },
+        { customer: { companyName: q } },
+      ];
+    }
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.payment.findMany({
           where,
-          orderBy: [{ createdAt: 'desc' }],
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          ...pageArgs(filters.page),
           include: {
             invoice: { select: { invoiceNumber: true } },
             customer: {

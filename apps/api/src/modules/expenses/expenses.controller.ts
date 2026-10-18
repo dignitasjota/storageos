@@ -21,11 +21,12 @@ import { createZodDto } from 'nestjs-zod';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest, toPage } from '../../common/pagination';
 
 import { ExpensesService } from './expenses.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
-import type { ExpenseDto, ProfitLossDto, RecurringExpenseDto } from '@storageos/shared';
+import type { ExpenseDto, ProfitLossDto, RecurringExpenseDto, PageDto } from '@storageos/shared';
 
 class CreateExpenseDto extends createZodDto(CreateExpenseSchema) {}
 class UpdateExpenseDto extends createZodDto(UpdateExpenseSchema) {}
@@ -35,6 +36,32 @@ class UpdateRecurringExpenseDto extends createZodDto(UpdateRecurringExpenseSchem
 @Controller('expenses')
 export class ExpensesController {
   constructor(private readonly expenses: ExpensesService) {}
+
+  /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
+  @RequirePermission('expenses:read')
+  @Get('page')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+    @Query('category') category?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<ExpenseDto>> {
+    const page = parsePageRequest(cursor, limit);
+    const rows = await this.expenses.list(user.tenantId, {
+      ...(search ? { search } : {}),
+      page,
+      ...(facilityId ? { facilityId } : {}),
+      ...(category ? { category } : {}),
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+    return toPage(rows, page);
+  }
 
   @RequirePermission('expenses:read')
   @Get()

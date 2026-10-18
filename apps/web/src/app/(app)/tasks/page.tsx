@@ -54,10 +54,10 @@ import {
   useCreateTask,
   useTask,
   useTaskComments,
-  useTasks,
   useTransitionTask,
   useUpdateChecklistItem,
 } from '@/lib/operations/hooks';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useUsers } from '@/lib/users/hooks';
 
 const TYPE_LABELS: Record<TaskTypeValue, string> = {
@@ -111,11 +111,13 @@ export default function TasksPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
 
-  const tasks = useTasks({
-    ...(status ? { status } : {}),
-    ...(type ? { type } : {}),
-    ...(facilityId ? { facilityId } : {}),
-    ...(assignedToUserId ? { assignedToUserId } : {}),
+  const [searchText, search, setSearchText] = useDebouncedSearch();
+  const tasks = usePagedList<TaskDto>('tasks', '/tasks', {
+    status,
+    type,
+    facilityId,
+    assignedToUserId,
+    search: search || undefined,
   });
   const facilities = useFacilities();
   const users = useUsers();
@@ -298,9 +300,8 @@ export default function TasksPage() {
 
       <DataTable
         columns={columns}
-        data={tasks.data ?? []}
+        data={tasks.rows}
         isLoading={tasks.isLoading}
-        searchPlaceholder="Buscar por título..."
         emptyText="No hay tareas. Crea la primera para empezar."
         toolbarRight={
           <Can permission="tasks:write">
@@ -478,6 +479,12 @@ export default function TasksPage() {
             </Dialog>
           </Can>
         }
+        serverSearch={{
+          value: searchText,
+          onChange: setSearchText,
+          placeholder: 'Buscar por título…',
+        }}
+        loadMore={tasks.loadMore}
       />
 
       {detailId && <TaskDetailDialog id={detailId} onClose={() => setDetailId(null)} />}

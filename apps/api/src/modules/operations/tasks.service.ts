@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { optionalFacilityWhere } from '../../common/facility-scope';
+import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -27,6 +28,9 @@ interface ListFilters {
   unitId?: string;
   /** Locales del usuario (null = todos). */
   facilityScope?: string[] | null;
+  /** Título de la tarea. */
+  search?: string;
+  page?: PageRequest;
 }
 
 type TaskWithIncludes = Task & {
@@ -58,6 +62,7 @@ export class TasksService {
     Object.assign(where, facility);
     if (filters.unitId) where.unitId = filters.unitId;
     if (filters.assignedToUserId) where.assignedToUserId = filters.assignedToUserId;
+    if (filters.search) where.title = { contains: filters.search, mode: 'insensitive' };
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.task.findMany({
@@ -67,8 +72,8 @@ export class TasksService {
             unit: { select: { code: true } },
             assignedTo: { select: { fullName: true } },
           },
-          orderBy: [{ status: 'asc' }, { priority: 'desc' }, { dueDate: 'asc' }],
-          take: 500,
+          orderBy: [{ status: 'asc' }, { priority: 'desc' }, { dueDate: 'asc' }, { id: 'asc' }],
+          ...(filters.page ? pageArgs(filters.page) : { take: 500 }),
         }),
       tenantId,
     );

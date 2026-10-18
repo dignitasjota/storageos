@@ -27,10 +27,12 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest, toPage } from '../../common/pagination';
 
 import { CustomersService } from './customers.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateCustomerDto extends createZodDto(CreateCustomerSchema) {}
@@ -50,6 +52,23 @@ function extractMeta(req: Request): RequestMeta {
 @Controller('customers')
 export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
+
+  /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
+  @RequirePermission('customers:read')
+  @Get('page')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<CustomerDto>> {
+    const page = parsePageRequest(cursor, limit);
+    const rows = await this.customers.list(user.tenantId, {
+      page,
+      ...(search ? { search } : {}),
+    });
+    return toPage(rows, page);
+  }
 
   @RequirePermission('customers:read')
   @Get()

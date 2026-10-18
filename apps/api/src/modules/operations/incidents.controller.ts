@@ -31,10 +31,12 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest, toPage } from '../../common/pagination';
 
 import { IncidentsService } from './incidents.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateIncidentDto extends createZodDto(CreateIncidentSchema) {}
@@ -66,6 +68,40 @@ function parseSeverity(value: string | undefined): IncidentSeverityValue | undef
 @Controller('incidents')
 export class IncidentsController {
   constructor(private readonly incidents: IncidentsService) {}
+
+  /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
+  @RequirePermission('incidents:read')
+  @Get('page')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: string,
+    @Query('severity') severity?: string,
+    @Query('facilityId') facilityId?: string,
+    @Query('unitId') unitId?: string,
+    @Query('customerId') customerId?: string,
+    @Query('contractId') contractId?: string,
+    @Query('assignedToUserId') assignedToUserId?: string,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<IncidentDto>> {
+    const parsedStatus = parseStatus(status);
+    const parsedSeverity = parseSeverity(severity);
+    const page = parsePageRequest(cursor, limit);
+    const rows = await this.incidents.list(user.tenantId, {
+      ...(search ? { search } : {}),
+      page,
+      ...(parsedStatus ? { status: parsedStatus } : {}),
+      ...(parsedSeverity ? { severity: parsedSeverity } : {}),
+      ...(facilityId ? { facilityId } : {}),
+      ...(unitId ? { unitId } : {}),
+      ...(customerId ? { customerId } : {}),
+      ...(contractId ? { contractId } : {}),
+      ...(assignedToUserId ? { assignedToUserId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+    return toPage(rows, page);
+  }
 
   @RequirePermission('incidents:read')
   @Get()

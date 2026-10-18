@@ -16,6 +16,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
+import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,7 +48,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCameraEventsByIncident } from '@/lib/cameras/hooks';
-import { useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import {
@@ -55,9 +55,9 @@ import {
   useCreateIncident,
   useIncident,
   useIncidentComments,
-  useIncidents,
   useTransitionIncident,
 } from '@/lib/operations/hooks';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 const SEVERITY_LABELS: Record<IncidentSeverityValue, { label: string; className: string }> = {
   low: {
@@ -102,13 +102,14 @@ export default function IncidentsPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
 
   const headerFacilityId = useHeaderFacilityId();
-  const incidents = useIncidents({
-    ...(headerFacilityId ? { facilityId: headerFacilityId } : {}),
-    ...(status ? { status } : {}),
-    ...(severity ? { severity } : {}),
+  const [searchText, search, setSearchText] = useDebouncedSearch();
+  const incidents = usePagedList<IncidentDto>('incidents', '/incidents', {
+    facilityId: headerFacilityId,
+    status,
+    severity,
+    search: search || undefined,
   });
   const facilities = useFacilities();
-  const customers = useCustomers();
   const create = useCreateIncident();
 
   const form = useForm<CreateIncidentInput>({
@@ -263,9 +264,8 @@ export default function IncidentsPage() {
 
       <DataTable
         columns={columns}
-        data={incidents.data ?? []}
+        data={incidents.rows}
         isLoading={incidents.isLoading}
-        searchPlaceholder="Buscar por título..."
         emptyText="No hay incidencias registradas."
         toolbarRight={
           <Can permission="incidents:write">
@@ -353,24 +353,11 @@ export default function IncidentsPage() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Inquilino</FormLabel>
-                            <Select
-                              onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
-                              value={field.value ?? 'none'}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="(sin inquilino)" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="none">(sin inquilino)</SelectItem>
-                                {(customers.data ?? []).map((c) => (
-                                  <SelectItem key={c.id} value={c.id}>
-                                    {c.displayName}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <CustomerSearchSelect
+                              value={field.value ?? undefined}
+                              onChange={(id) => field.onChange(id)}
+                              clearLabel="(sin inquilino)"
+                            />
                           </FormItem>
                         )}
                       />
@@ -402,6 +389,12 @@ export default function IncidentsPage() {
             </Dialog>
           </Can>
         }
+        serverSearch={{
+          value: searchText,
+          onChange: setSearchText,
+          placeholder: 'Buscar por título…',
+        }}
+        loadMore={incidents.loadMore}
       />
 
       {detailId && <IncidentDetailDialog id={detailId} onClose={() => setDetailId(null)} />}

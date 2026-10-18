@@ -41,13 +41,13 @@ import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useConvertLead,
   useCreateLead,
-  useLeads,
   useLeadSources,
   useSetLeadMarketing,
   useTransitionLead,
   useUpdateLead,
 } from '@/lib/communications/hooks';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
+import { usePagedList } from '@/lib/pagination';
 
 const COLUMNS: { status: LeadStatusValue; label: string }[] = [
   { status: 'new', label: 'Nuevos' },
@@ -58,7 +58,6 @@ const COLUMNS: { status: LeadStatusValue; label: string }[] = [
 ];
 
 export default function LeadsPage() {
-  const leads = useLeads();
   const transition = useTransitionLead();
   const convert = useConvertLead();
   const router = useRouter();
@@ -86,16 +85,6 @@ export default function LeadsPage() {
     }
   }
 
-  if (leads.isLoading) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  const byStatus = (s: LeadStatusValue) => (leads.data ?? []).filter((l) => l.status === s);
-
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -118,50 +107,103 @@ export default function LeadsPage() {
       {losing && <LostReasonDialog leadId={losing} onClose={() => setLosing(null)} />}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
-        {COLUMNS.map((col) => {
-          const items = byStatus(col.status);
-          return (
-            <Card
-              key={col.status}
-              className="min-h-[320px]"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (!dragging) return;
-                if (col.status === 'lost') {
-                  setLosing(dragging);
-                } else {
-                  transition.mutate({ id: dragging, input: { status: col.status } });
-                }
-                setDragging(null);
-              }}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center justify-between text-sm font-normal text-muted-foreground">
-                  <span>{col.label}</span>
-                  <Badge variant="secondary">{items.length}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {items.map((lead) => (
-                  <LeadCard
-                    key={lead.id}
-                    lead={lead}
-                    canWrite={canWrite}
-                    onDragStart={() => setDragging(lead.id)}
-                    onEdit={() => setEditing(lead)}
-                    onConvert={() => onConvert(lead)}
-                  />
-                ))}
-                {items.length === 0 && (
-                  <p className="text-xs text-muted-foreground">— Sin leads —</p>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+        {COLUMNS.map((col) => (
+          <LeadsColumn
+            key={col.status}
+            status={col.status}
+            label={col.label}
+            canWrite={canWrite}
+            onDrop={() => {
+              if (!dragging) return;
+              if (col.status === 'lost') {
+                setLosing(dragging);
+              } else {
+                transition.mutate({ id: dragging, input: { status: col.status } });
+              }
+              setDragging(null);
+            }}
+            onDragStart={setDragging}
+            onEdit={setEditing}
+            onConvert={(lead) => void onConvert(lead)}
+          />
+        ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * Columna del pipeline: carga sus contactos por páginas (los ganados y perdidos
+ * se acumulan sin límite con el tiempo).
+ */
+function LeadsColumn({
+  status,
+  label,
+  canWrite,
+  onDrop,
+  onDragStart,
+  onEdit,
+  onConvert,
+}: {
+  status: LeadStatusValue;
+  label: string;
+  canWrite: boolean;
+  onDrop: () => void;
+  onDragStart: (id: string) => void;
+  onEdit: (lead: LeadDto) => void;
+  onConvert: (lead: LeadDto) => void;
+}) {
+  const leads = usePagedList<LeadDto>('leads', '/leads', { status });
+  const items = leads.rows;
+  return (
+    <Card
+      className="min-h-[320px]"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDrop();
+      }}
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center justify-between text-sm font-normal text-muted-foreground">
+          <span>{label}</span>
+          <Badge variant="secondary">
+            {items.length}
+            {leads.loadMore.hasMore ? '+' : ''}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {leads.isLoading ? (
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        ) : (
+          <>
+            {items.map((lead) => (
+              <LeadCard
+                key={lead.id}
+                lead={lead}
+                canWrite={canWrite}
+                onDragStart={() => onDragStart(lead.id)}
+                onEdit={() => onEdit(lead)}
+                onConvert={() => onConvert(lead)}
+              />
+            ))}
+            {items.length === 0 && <p className="text-xs text-muted-foreground">— Sin leads —</p>}
+            {leads.loadMore.hasMore && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                disabled={leads.loadMore.loading}
+                onClick={leads.loadMore.onLoadMore}
+              >
+                {leads.loadMore.loading ? 'Cargando…' : 'Cargar más'}
+              </Button>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

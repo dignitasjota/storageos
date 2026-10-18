@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
+import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { DataTable } from '@/components/data-table';
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Badge } from '@/components/ui/badge';
@@ -42,10 +43,9 @@ import {
   useBulkIssueInvoices,
   useBulkRemindInvoices,
   useCreateInvoice,
-  useInvoices,
 } from '@/lib/billing/hooks';
-import { useCustomers } from '@/lib/customers/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 const SIMPLIFIED_JUSTIFICATION_LABELS: Record<SimplifiedJustificationValue, string> = {
   reparation: 'Reparacion',
@@ -108,20 +108,21 @@ export default function InvoicesPage() {
   ]);
 
   const headerFacilityId = useHeaderFacilityId();
-  const invoices = useInvoices({
-    ...(headerFacilityId ? { facilityId: headerFacilityId } : {}),
-    ...(status ? { status } : {}),
-    ...(customerId ? { customerId } : {}),
-    ...(overdueOnly ? { overdue: 'true' as const } : {}),
+  const [searchText, search, setSearchText] = useDebouncedSearch();
+  const invoices = usePagedList<InvoiceDto>('invoices', '/invoices', {
+    facilityId: headerFacilityId,
+    status,
+    customerId,
+    overdue: overdueOnly ? 'true' : undefined,
+    search: search || undefined,
   });
-  const customers = useCustomers();
   const createInvoice = useCreateInvoice();
   const bulkIssue = useBulkIssueInvoices();
   const bulkCharge = useBulkChargeInvoices();
   const bulkRemind = useBulkRemindInvoices();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const rows = invoices.data ?? [];
+  const rows = invoices.rows;
   const selectableDraft = rows.filter((i) => i.status === 'draft').map((i) => i.id);
   const selectableChargeable = rows
     .filter((i) => i.status === 'issued' || i.status === 'overdue')
@@ -324,22 +325,12 @@ export default function InvoicesPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select
-          value={customerId ?? 'all'}
-          onValueChange={(v) => setCustomerId(v === 'all' ? undefined : v)}
-        >
-          <SelectTrigger className="w-[240px]">
-            <SelectValue placeholder="Cliente" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los clientes</SelectItem>
-            {(customers.data ?? []).slice(0, 50).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.displayName}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <CustomerSearchSelect
+          value={customerId}
+          onChange={setCustomerId}
+          clearLabel="Todos los clientes"
+          className="w-[240px]"
+        />
         <Button
           variant={overdueOnly ? 'default' : 'outline'}
           onClick={() => setOverdueOnly((v) => !v)}
@@ -389,9 +380,14 @@ export default function InvoicesPage() {
 
       <DataTable
         columns={columns}
-        data={invoices.data ?? []}
+        data={rows}
         isLoading={invoices.isLoading}
-        searchPlaceholder="Buscar..."
+        serverSearch={{
+          value: searchText,
+          onChange: setSearchText,
+          placeholder: 'Buscar por número o inquilino…',
+        }}
+        loadMore={invoices.loadMore}
         emptyText="No hay facturas que coincidan."
       />
 
@@ -425,18 +421,11 @@ export default function InvoicesPage() {
               {newType === 'F1' ? (
                 <div>
                   <Label>Cliente *</Label>
-                  <Select value={newCustomerId} onValueChange={setNewCustomerId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecciona cliente" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(customers.data ?? []).slice(0, 100).map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <CustomerSearchSelect
+                    value={newCustomerId || undefined}
+                    onChange={(id) => setNewCustomerId(id ?? '')}
+                    placeholder="Busca el cliente…"
+                  />
                 </div>
               ) : (
                 <div>

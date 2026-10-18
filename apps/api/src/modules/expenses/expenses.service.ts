@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
 import { optionalFacilityWhere } from '../../common/facility-scope';
+import { pageArgs, type PageRequest } from '../../common/pagination';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -78,12 +79,19 @@ export class ExpensesService {
       from?: string;
       to?: string;
       facilityScope?: string[] | null;
+      /** Descripción o proveedor. */
+      search?: string;
+      page?: PageRequest;
     },
   ): Promise<ExpenseDto[]> {
     const facility = optionalFacilityWhere(filters.facilityScope, filters.facilityId);
     if (!facility) return [];
     return this.prisma.withTenant(async (tx) => {
       const where: Prisma.ExpenseWhereInput = { ...facility };
+      if (filters.search) {
+        const q = { contains: filters.search, mode: 'insensitive' as const };
+        where.OR = [{ description: q }, { vendor: q }];
+      }
       if (filters.category) where.category = filters.category;
       if (filters.from || filters.to) {
         where.expenseDate = {};
@@ -93,8 +101,8 @@ export class ExpensesService {
       const rows = await tx.expense.findMany({
         where,
         include: EXPENSE_INCLUDE,
-        orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }],
-        take: 500,
+        orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        ...(filters.page ? pageArgs(filters.page) : { take: 500 }),
       });
       return rows.map((r) => this.toDto(r));
     }, tenantId);

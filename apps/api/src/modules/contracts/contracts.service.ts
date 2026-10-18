@@ -20,6 +20,7 @@ import {
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
+import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
@@ -116,6 +117,9 @@ interface ListFilters {
   includeDeleted?: boolean;
   /** Permisos por local: si está, solo contratos de unidades de esos locales. */
   facilityScope?: string[] | null;
+  /** Nº de contrato, inquilino o trastero. */
+  search?: string;
+  page?: PageRequest;
 }
 
 @Injectable()
@@ -143,11 +147,22 @@ export class ContractsService {
     const facFilter = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
     if (facFilter === null) return []; // local pedido fuera del scope del usuario
     if (facFilter) where.unit = { facilityId: { in: facFilter } };
+    if (filters.search) {
+      const q = { contains: filters.search, mode: 'insensitive' as const };
+      where.OR = [
+        { contractNumber: q },
+        { customer: { firstName: q } },
+        { customer: { lastName: q } },
+        { customer: { companyName: q } },
+        { unit: { code: q } },
+      ];
+    }
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findMany({
           where,
-          orderBy: [{ updatedAt: 'desc' }],
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          ...pageArgs(filters.page),
           include: {
             customer: {
               select: {

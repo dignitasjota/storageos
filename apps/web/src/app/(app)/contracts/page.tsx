@@ -8,6 +8,7 @@ import { useState } from 'react';
 
 import { Can } from '@/components/auth/can';
 import { ContractStatusBadge } from '@/components/contract-status-badge';
+import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { DataTable } from '@/components/data-table';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,9 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useContracts, useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 const STATUS_LABELS: Record<ContractStatusValue, string> = {
   draft: 'Borrador',
@@ -35,11 +36,12 @@ export default function ContractsPage() {
   const [facilityId, setFacilityId] = useFacilityFilterState();
 
   const facilities = useFacilities();
-  const customers = useCustomers();
-  const contracts = useContracts({
-    ...(status ? { status } : {}),
-    ...(customerId ? { customerId } : {}),
-    ...(facilityId ? { facilityId } : {}),
+  const [searchText, search, setSearchText] = useDebouncedSearch();
+  const contracts = usePagedList<ContractDto>('contracts', '/contracts', {
+    status,
+    customerId,
+    facilityId,
+    search: search || undefined,
   });
 
   const columns: ColumnDef<ContractDto>[] = [
@@ -135,29 +137,18 @@ export default function ContractsPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select
-          value={customerId ?? 'all'}
-          onValueChange={(v) => setCustomerId(v === 'all' ? undefined : v)}
-        >
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Inquilino" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los inquilinos</SelectItem>
-            {(customers.data ?? []).slice(0, 50).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.displayName}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <CustomerSearchSelect
+          value={customerId}
+          onChange={setCustomerId}
+          clearLabel="Todos los inquilinos"
+          className="w-[220px]"
+        />
       </div>
 
       <DataTable
         columns={columns}
-        data={contracts.data ?? []}
+        data={contracts.rows}
         isLoading={contracts.isLoading}
-        searchPlaceholder="Buscar..."
         toolbarRight={
           <>
             <Can permission="imports:manage">
@@ -177,6 +168,12 @@ export default function ContractsPage() {
           </>
         }
         emptyText="No hay contratos que coincidan con los filtros."
+        serverSearch={{
+          value: searchText,
+          onChange: setSearchText,
+          placeholder: 'Buscar por número, inquilino o trastero…',
+        }}
+        loadMore={contracts.loadMore}
       />
     </div>
   );

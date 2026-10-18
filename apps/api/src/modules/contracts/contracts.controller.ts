@@ -40,10 +40,12 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest, toPage } from '../../common/pagination';
 
 import { ContractsService } from './contracts.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateContractDto extends createZodDto(CreateContractSchema) {}
@@ -73,6 +75,33 @@ function extractMeta(req: Request): RequestMeta {
 @Controller('contracts')
 export class ContractsController {
   constructor(private readonly contracts: ContractsService) {}
+
+  /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
+  @RequirePermission('contracts:read')
+  @Get('page')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: string,
+    @Query('customerId') customerId?: string,
+    @Query('facilityId') facilityId?: string,
+    @Query('unitId') unitId?: string,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<ContractDto>> {
+    const parsedStatus = status ? ContractStatusEnum.parse(status) : undefined;
+    const page = parsePageRequest(cursor, limit);
+    const rows = await this.contracts.list(user.tenantId, {
+      ...(search ? { search } : {}),
+      page,
+      ...(parsedStatus ? { status: parsedStatus } : {}),
+      ...(customerId ? { customerId } : {}),
+      ...(facilityId ? { facilityId } : {}),
+      ...(unitId ? { unitId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+    return toPage(rows, page);
+  }
 
   @RequirePermission('contracts:read')
   @Get()

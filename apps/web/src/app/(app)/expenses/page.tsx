@@ -37,7 +37,6 @@ import {
   useCreateRecurringExpense,
   useDeleteExpense,
   useDeleteRecurringExpense,
-  useExpenses,
   useProfitLoss,
   useRecurringExpenses,
   useRunRecurringExpenses,
@@ -47,6 +46,7 @@ import {
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { useMarketingChannels } from '@/lib/marketing/hooks';
+import { usePagedList } from '@/lib/pagination';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const CATEGORIES = ExpenseCategoryEnum.options;
@@ -105,9 +105,9 @@ export default function ExpensesPage() {
   const [creating, setCreating] = useState(false);
 
   const pnl = useProfitLoss(range.from, range.to);
-  const expenses = useExpenses({
-    ...(facilityFilter !== ALL ? { facilityId: facilityFilter } : {}),
-    ...(categoryFilter !== ALL ? { category: categoryFilter } : {}),
+  const expenses = usePagedList<ExpenseDto>('expenses', '/expenses', {
+    facilityId: facilityFilter !== ALL ? facilityFilter : undefined,
+    category: categoryFilter !== ALL ? categoryFilter : undefined,
     from: range.from,
     to: range.to,
   });
@@ -292,7 +292,7 @@ export default function ExpensesPage() {
             <div className="flex h-24 items-center justify-center">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
-          ) : (expenses.data ?? []).length === 0 ? (
+          ) : expenses.rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               Sin gastos en este periodo.
             </p>
@@ -310,7 +310,7 @@ export default function ExpensesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(expenses.data ?? []).map((e) => (
+                  {expenses.rows.map((e) => (
                     <tr key={e.id} className="border-t">
                       <td className="p-2 tabular-nums">{e.expenseDate}</td>
                       <td className="p-2">{EXPENSE_CATEGORY_LABELS[e.category]}</td>
@@ -350,6 +350,18 @@ export default function ExpensesPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {expenses.loadMore.hasMore && (
+            <div className="mt-3 flex justify-center">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={expenses.loadMore.loading}
+                onClick={expenses.loadMore.onLoadMore}
+              >
+                {expenses.loadMore.loading ? 'Cargando…' : 'Cargar más'}
+              </Button>
             </div>
           )}
         </CardContent>

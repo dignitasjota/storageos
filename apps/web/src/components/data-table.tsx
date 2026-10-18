@@ -51,6 +51,13 @@ interface DataTableProps<TData, TValue> {
   emptyText?: string;
   /** Estado loading: muestra skeleton-like text. */
   isLoading?: boolean;
+  /**
+   * Búsqueda en el servidor (listas paginadas): el campo de búsqueda filtra en
+   * el API en vez de solo entre las filas cargadas.
+   */
+  serverSearch?: { value: string; onChange: (value: string) => void; placeholder: string };
+  /** Lista paginada en el servidor: muestra todo lo cargado y «Cargar más». */
+  loadMore?: { hasMore: boolean; loading: boolean; onLoadMore: () => void };
 }
 
 /**
@@ -67,6 +74,8 @@ export function DataTable<TData, TValue>({
   pageSize = 25,
   emptyText = 'No hay datos para mostrar.',
   isLoading,
+  serverSearch,
+  loadMore,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -85,20 +94,30 @@ export function DataTable<TData, TValue>({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize } },
+    // Con paginación en el servidor se ven todas las filas cargadas.
+    initialState: { pagination: { pageSize: loadMore ? 100_000 : pageSize } },
   });
 
   return (
     <div className="space-y-3">
-      {(searchPlaceholder || toolbarRight) && (
+      {(searchPlaceholder || toolbarRight || serverSearch) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          {searchPlaceholder && (
+          {serverSearch ? (
             <Input
-              value={globalFilter}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              placeholder={searchPlaceholder}
+              value={serverSearch.value}
+              onChange={(e) => serverSearch.onChange(e.target.value)}
+              placeholder={serverSearch.placeholder}
               className="max-w-sm"
             />
+          ) : (
+            searchPlaceholder && (
+              <Input
+                value={globalFilter}
+                onChange={(e) => setGlobalFilter(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="max-w-sm"
+              />
+            )
           )}
           {toolbarRight && <div className="ml-auto flex items-center gap-2">{toolbarRight}</div>}
         </div>
@@ -228,6 +247,18 @@ export function DataTable<TData, TValue>({
               Siguiente
             </Button>
           </div>
+        </div>
+      )}
+      {loadMore?.hasMore && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadMore.onLoadMore}
+            disabled={loadMore.loading}
+          >
+            {loadMore.loading ? 'Cargando…' : 'Cargar más'}
+          </Button>
         </div>
       )}
     </div>

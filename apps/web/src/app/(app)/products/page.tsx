@@ -18,6 +18,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
+import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,7 +51,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import {
   useCancelProductSale,
@@ -474,7 +474,6 @@ function SalesTab() {
 
 function NewSaleForm({ onDone }: { onDone: () => void }) {
   const facilities = useFacilities();
-  const customers = useCustomers();
   const products = useProducts({ isActive: true });
   const create = useCreateProductSale();
 
@@ -551,24 +550,11 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Inquilino (opcional)</FormLabel>
-                <Select
-                  onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
-                  value={field.value ?? 'none'}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="(venta libre)" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="none">(venta libre)</SelectItem>
-                    {(customers.data ?? []).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.displayName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <CustomerSearchSelect
+                  value={field.value ?? undefined}
+                  onChange={(id) => field.onChange(id)}
+                  clearLabel="(venta libre)"
+                />
               </FormItem>
             )}
           />

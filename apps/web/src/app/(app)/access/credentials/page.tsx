@@ -35,6 +35,7 @@ import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -83,7 +84,6 @@ import {
 import { useAccessSettings, useUpdateAccessSettings } from '@/lib/access/settings-hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
-import { useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 
 const METHOD_LABELS: Record<AccessMethodValue, { label: string; Icon: React.ElementType }> = {
@@ -131,7 +131,6 @@ export default function CredentialsPage() {
     ...(method ? { method } : {}),
     ...(customerId ? { customerId } : {}),
   });
-  const customers = useCustomers();
   const resume = useResumeCredential();
 
   async function handleResume(cred: AccessCredentialDto) {
@@ -317,22 +316,12 @@ export default function CredentialsPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select
-          value={customerId ?? 'all'}
-          onValueChange={(v) => setCustomerId(v === 'all' ? undefined : v)}
-        >
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Inquilino" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los inquilinos</SelectItem>
-            {(customers.data ?? []).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.displayName}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <CustomerSearchSelect
+          value={customerId}
+          onChange={setCustomerId}
+          clearLabel="Todos los inquilinos"
+          className="w-[220px]"
+        />
       </div>
 
       <DataTable
@@ -411,7 +400,6 @@ function CreateCredentialDialog({
   onRevealed: (dto: AccessCredentialWithSecretDto) => void;
 }) {
   const create = useCreateCredential();
-  const customers = useCustomers();
   const facilities = useFacilities();
 
   const form = useForm<CreateCredentialInput>({
@@ -478,20 +466,11 @@ function CreateCredentialDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Inquilino</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value ?? ''}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecciona inquilino" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {(customers.data ?? []).map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <CustomerSearchSelect
+                    value={field.value || undefined}
+                    onChange={(id) => field.onChange(id ?? '')}
+                    placeholder="Busca el inquilino…"
+                  />
                   <FormMessage />
                 </FormItem>
               )}
@@ -666,7 +645,6 @@ function CreateCredentialDialog({
 
 function FacialCredentialDialog({ onClose }: { onClose: () => void }) {
   const create = useCreateFacialCredential();
-  const customers = useCustomers();
   const [customerId, setCustomerId] = useState('');
   const [label, setLabel] = useState('');
   const [preview, setPreview] = useState<string | null>(null);
@@ -727,18 +705,11 @@ function FacialCredentialDialog({ onClose }: { onClose: () => void }) {
           </p>
           <div className="space-y-1.5">
             <Label>Inquilino</Label>
-            <Select onValueChange={setCustomerId} value={customerId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona inquilino" />
-              </SelectTrigger>
-              <SelectContent>
-                {(customers.data ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.displayName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <CustomerSearchSelect
+              value={customerId || undefined}
+              onChange={(id) => setCustomerId(id ?? '')}
+              placeholder="Busca el inquilino…"
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Etiqueta (opcional)</Label>
