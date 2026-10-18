@@ -36,6 +36,7 @@ import { ReportsModule } from '../../api/src/modules/reports/reports.module';
 import { RetentionModule } from '../../api/src/modules/retention/retention.module';
 import { ReviewsModule } from '../../api/src/modules/reviews/reviews.module';
 import { SecurityEventsModule } from '../../api/src/modules/security-events/security-events.module';
+import { SuspensionHoldsModule } from '../../api/src/modules/suspension-holds/suspension-holds.module';
 import { WaitlistModule } from '../../api/src/modules/waitlist/waitlist.module';
 import { WhatsappBusinessModule } from '../../api/src/modules/whatsapp-business/whatsapp-business.module';
 
@@ -124,6 +125,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     FilesModule,
     SecurityEventsModule,
     DataRetentionModule,
+    SuspensionHoldsModule,
     EmailModule,
     QueuesModule,
     AuthModule,

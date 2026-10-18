@@ -43,8 +43,12 @@ export function PaymentAlertBanner() {
     const names = data.suspendedAddons.map((a) => a.name).join(', ');
     parts.push(`hay extras suspendidos por impago (${names})`);
   }
+  const held =
+    data.heldAmount > 0
+      ? `. Tienes ${data.heldAmount.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} de cobros a tus inquilinos retenidos y sus correos en espera hasta que regularices el pago`
+      : '. Los cobros y los correos a tus inquilinos están en espera hasta que regularices el pago';
   const message = data.suspended
-    ? 'tu cuenta está suspendida por un pago pendiente: el panel está en solo lectura y tus inquilinos no pueden entrar a su área de clientes'
+    ? `tu cuenta está suspendida por un pago pendiente: el panel está en solo lectura y tus inquilinos no pueden entrar a su área de clientes${held}`
     : parts.join(' y ');
 
   async function notifyPayment() {

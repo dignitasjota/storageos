@@ -96,12 +96,33 @@ export class SaasAddonsService {
     const suspendedFeatures = suspendedAddons
       .map((a) => a.feature)
       .filter((f): f is string => f !== null);
+    // Lo que sus inquilinos deben y no se les está cobrando hasta que pague.
+    let heldAmount = 0;
+    if (suspendedAccount) {
+      const agg = await this.admin.invoice.aggregate({
+        where: {
+          tenantId,
+          kind: 'invoice',
+          deletedAt: null,
+          status: { in: ['issued', 'overdue'] },
+          total: { gt: 0 },
+        },
+        _sum: { total: true, amountPaid: true, amountRefunded: true },
+      });
+      const cents = (v: unknown) => Math.round(Number(v ?? 0) * 100);
+      heldAmount =
+        Math.max(
+          0,
+          cents(agg._sum.total) - cents(agg._sum.amountPaid) - cents(agg._sum.amountRefunded),
+        ) / 100;
+    }
     return {
       pastDue,
       planManual,
       suspendedAddons,
       suspendedFeatures,
       suspended: suspendedAccount,
+      heldAmount,
       hasIssue: pastDue || suspendedAccount || suspendedAddons.length > 0,
     };
   }

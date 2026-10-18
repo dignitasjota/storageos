@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
+import { RELEASABLE_TENANT } from '../../common/tenant-suspension';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_PAYMENTS_AUTO_CHARGE, QUEUE_PAYMENTS } from '../queues/queues.module';
@@ -70,10 +71,19 @@ export class AutoChargeService {
     // Re-chequear el flag: pudo apagarse entre el encolado y el proceso.
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { autoChargeOnIssue: true },
+      select: { autoChargeOnIssue: true, status: true },
     });
     if (!tenant?.autoChargeOnIssue) {
       return this.skip(invoiceId, 'flag_disabled');
+    }
+    // Con el tenant suspendido no se cobra a sus inquilinos: queda en espera
+    // y `releaseHeld` lo intenta cuando vuelve a estar al día.
+    if (tenant.status === 'suspended') {
+      await this.admin.invoice.updateMany({
+        where: { id: invoiceId, tenantId, chargeHeldAt: null },
+        data: { chargeHeldAt: new Date() },
+      });
+      return this.skip(invoiceId, 'tenant_suspended');
     }
     const invoice = await this.admin.invoice.findFirst({
       where: { id: invoiceId, tenantId, deletedAt: null },
@@ -110,6 +120,33 @@ export class AutoChargeService {
       `[auto-charge] invoice ${invoiceId} -> payment ${payment.id} (${payment.status})`,
     );
     return { charged: true };
+  }
+
+  /**
+   * Cobros retenidos de tenants que ya pagaron su suscripción: se vuelven a
+   * encolar (el proceso re-comprueba todo). Cada factura se reclama de forma
+   * atómica para no encolarla dos veces entre réplicas.
+   */
+  async releaseHeld(): Promise<number> {
+    const held = await this.admin.invoice.findMany({
+      where: { chargeHeldAt: { not: null }, tenant: RELEASABLE_TENANT },
+      select: { id: true, tenantId: true },
+      take: 500,
+    });
+    let released = 0;
+    for (const inv of held) {
+      const claimed = await this.admin.invoice.updateMany({
+        where: { id: inv.id, chargeHeldAt: { not: null } },
+        data: { chargeHeldAt: null },
+      });
+      if (claimed.count === 0) continue;
+      await this.queue.add(JOB_PAYMENTS_AUTO_CHARGE, {
+        tenantId: inv.tenantId,
+        invoiceId: inv.id,
+      } satisfies AutoChargeJobData);
+      released += 1;
+    }
+    return released;
   }
 
   private skip(invoiceId: string, reason: string): { charged: false; reason: string } {

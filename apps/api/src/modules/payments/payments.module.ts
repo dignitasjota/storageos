@@ -58,6 +58,12 @@ import { StripeGateway } from './stripe.gateway';
       ? [StripeEventsCleanupCron, AutoChargeProcessor, PaymentRetryCron, StaleChargesCron]
       : []),
   ],
-  exports: [PAYMENT_GATEWAY, StripeGateway, PaymentMethodsService, PaymentsService],
+  exports: [
+    PAYMENT_GATEWAY,
+    StripeGateway,
+    PaymentMethodsService,
+    PaymentsService,
+    AutoChargeService,
+  ],
 })
 export class PaymentsModule {}

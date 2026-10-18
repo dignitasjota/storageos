@@ -43,7 +43,7 @@ function buildService(
   const invoices = { createLateFee: jest.fn() } as unknown as InvoicesService;
   return new DunningService(
     queue as unknown as Queue,
-    admin as unknown as PrismaAdminService,
+    { $executeRaw: jest.fn().mockResolvedValue(0), ...admin } as unknown as PrismaAdminService,
     audit,
     communications as unknown as CommunicationsService,
     events as unknown as EventEmitter2,

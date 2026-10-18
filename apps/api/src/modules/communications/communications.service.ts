@@ -23,6 +23,11 @@ import {
   tenantEmailShell,
   textToHtml,
 } from '../../common/tenant-email-layout';
+import {
+  HELD_COMMUNICATION_MAX_AGE_MS,
+  RELEASABLE_TENANT,
+  isTenantSuspended,
+} from '../../common/tenant-suspension';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmailSuppressionsService } from '../email/email-suppressions.service';
@@ -335,6 +340,47 @@ export class CommunicationsService {
     return this.toDto({ ...created, templateName });
   }
 
+  /**
+   * Envíos en espera de tenants que ya pagaron: salen ahora; los que llevan
+   * más de 30 días se omiten (una «nueva factura» de hace dos meses confunde).
+   */
+  async releaseHeld(): Promise<{ released: number; expired: number }> {
+    const held = await this.admin.communication.findMany({
+      where: { heldAt: { not: null }, status: 'pending', tenant: RELEASABLE_TENANT },
+      select: { id: true, tenantId: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+      take: 500,
+    });
+    let released = 0;
+    let expired = 0;
+    const cutoff = Date.now() - HELD_COMMUNICATION_MAX_AGE_MS;
+    for (const c of held) {
+      if (c.createdAt.getTime() < cutoff) {
+        const r = await this.admin.communication.updateMany({
+          where: { id: c.id, heldAt: { not: null }, status: 'pending' },
+          data: {
+            heldAt: null,
+            status: 'skipped',
+            errorMessage: 'No se envió: la cuenta estuvo suspendida más de 30 días',
+          },
+        });
+        expired += r.count;
+        continue;
+      }
+      const r = await this.admin.communication.updateMany({
+        where: { id: c.id, heldAt: { not: null }, status: 'pending' },
+        data: { heldAt: null },
+      });
+      if (r.count === 0) continue;
+      await this.queue.add(JOB_COMMUNICATIONS_DISPATCH, {
+        tenantId: c.tenantId,
+        communicationId: c.id,
+      } satisfies DispatchJobData);
+      released += 1;
+    }
+    return { released, expired };
+  }
+
   /** Llamado por el worker (BullMQ) o por retry manual. */
   async dispatch(tenantId: string, communicationId: string): Promise<void> {
     const comm = await this.admin.communication.findFirst({
@@ -342,6 +388,15 @@ export class CommunicationsService {
     });
     if (!comm) {
       this.logger.warn(`dispatch: communication ${communicationId} no existe`);
+      return;
+    }
+    // Tenant suspendido: no se escribe a sus inquilinos. El envío queda en
+    // espera (`heldAt`) y `releaseHeld` lo manda cuando pague.
+    if (comm.status === 'pending' && (await isTenantSuspended(this.admin, tenantId))) {
+      await this.admin.communication.updateMany({
+        where: { id: comm.id, status: 'pending', heldAt: null },
+        data: { heldAt: new Date() },
+      });
       return;
     }
     // Reclamo ATÓMICO: solo un worker pasa de pending/failed a processing. Sin
