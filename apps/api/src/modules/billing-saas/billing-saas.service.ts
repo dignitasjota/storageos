@@ -125,6 +125,9 @@ type BillingPortalSession = Awaited<
  * Stripe usa: incomplete | incomplete_expired | trialing | active |
  * past_due | canceled | unpaid | paused.
  */
+/** Estados de Stripe de una suscripción que ya no cobra. */
+const TERMINAL_STRIPE_STATUSES = new Set(['canceled', 'incomplete_expired']);
+
 function mapStripeStatus(stripeStatus: string): SubscriptionStatus {
   switch (stripeStatus) {
     case 'trialing':
@@ -596,6 +599,19 @@ export class BillingSaasService {
       where: { tenantId },
       select: { manualExtensionDays: true, stripeSubscriptionId: true },
     });
+    // Aviso de una suscripción que ya no es la nuestra y está terminada (p. ej.
+    // la que se canceló al pasar el tenant a pago manual o SEPA, o una anterior
+    // sustituida por otro Checkout): no toca nada. Antes volvía a escribir sus
+    // datos y dejaba al tenant otra vez «en Stripe», cancelado.
+    if (
+      current?.stripeSubscriptionId !== args.stripeSubscriptionId &&
+      TERMINAL_STRIPE_STATUSES.has(args.status)
+    ) {
+      this.logger.log(
+        `Webhook de la suscripción ${args.stripeSubscriptionId} ignorado: ya no es la del tenant ${tenantId} (${args.status})`,
+      );
+      return;
+    }
     const manualDays = current?.manualExtensionDays ?? 0;
     // El plan de los metadatos de Stripe solo vale para una suscripción NUEVA
     // (la del Checkout). En la que ya tenemos, el plan lo lleva la BD: un cambio
