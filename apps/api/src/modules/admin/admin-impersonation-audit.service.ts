@@ -46,6 +46,7 @@ export class AdminImpersonationAuditService {
       tenantName: r.tenant.name,
       tenantSlug: r.tenant.slug,
       reason: r.reason,
+      readOnly: r.readOnly,
       ipAddress: r.ipAddress,
       createdAt: r.createdAt.toISOString(),
       expiresAt: r.expiresAt.toISOString(),

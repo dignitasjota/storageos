@@ -3709,6 +3709,7 @@ model ImpersonationLog {
   superAdminId String    @map("super_admin_id") @db.Uuid
   tenantId     String    @map("tenant_id") @db.Uuid
   reason       String
+  readOnly     Boolean   @default(false) @map("read_only")
   ipAddress    String?   @map("ip_address")
   userAgent    String?   @map("user_agent")
   expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)

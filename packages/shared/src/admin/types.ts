@@ -381,6 +381,8 @@ export interface ImpersonationTokenDto {
   tenantName: string;
   tenantSlug: string;
   expiresIn: number;
+  /** Sesión de solo lectura (permisos de `readonly`, sin escrituras). */
+  readOnly: boolean;
 }
 
 /** Distribución de tenants por plan (para el gráfico de tarta + MRR por plan). */
@@ -797,6 +799,8 @@ export interface AdminImpersonationSessionDto {
   tenantName: string;
   tenantSlug: string;
   reason: string;
+  /** Sesión de solo lectura. */
+  readOnly: boolean;
   ipAddress: string | null;
   createdAt: string;
   expiresAt: string;

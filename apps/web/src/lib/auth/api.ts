@@ -1,5 +1,6 @@
 import { env } from '../env';
 
+import { getImpersonation, leaveImpersonation } from './impersonation';
 import { useAuthStore } from './store';
 
 export interface ApiErrorBody {
@@ -67,6 +68,13 @@ let refreshInFlight: Promise<string | null> | null = null;
  * token (y, fuera del margen de gracia, revocan todas las sesiones).
  */
 export async function performRefresh(): Promise<string | null> {
+  // Una sesión de soporte (impersonación) no se renueva con la cookie: sería
+  // la sesión de otra persona en este navegador. Al caducar, se termina.
+  if (getImpersonation()) {
+    useAuthStore.getState().clear();
+    leaveImpersonation();
+    return null;
+  }
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {

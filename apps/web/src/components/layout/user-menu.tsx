@@ -15,6 +15,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useLogout, useLogoutAll, useMe } from '@/lib/auth/hooks';
+import { leaveImpersonation } from '@/lib/auth/impersonation';
+import { useAuthStore } from '@/lib/auth/store';
 
 function initials(name: string | undefined): string {
   if (!name) return '·';
@@ -45,6 +47,7 @@ export function UserMenu() {
 
   const fullName = me.data?.user.fullName;
   const email = me.data?.user.email;
+  const impersonating = !!me.data?.impersonation;
 
   return (
     <DropdownMenu>
@@ -61,14 +64,30 @@ export function UserMenu() {
           <p className="truncate text-xs font-normal text-muted-foreground">{email ?? ''}</p>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={onLogout}>
-          <LogOut className="mr-2 size-4" aria-hidden />
-          {t('logout')}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={onLogoutAll}>
-          <ShieldOff className="mr-2 size-4" aria-hidden />
-          {t('logoutAll')}
-        </DropdownMenuItem>
+        {impersonating ? (
+          // Sesión de soporte: salir solo cierra esta pestaña; no toca la sesión
+          // de nadie (la cookie del navegador puede ser de otra cuenta).
+          <DropdownMenuItem
+            onClick={() => {
+              useAuthStore.getState().clear();
+              leaveImpersonation();
+            }}
+          >
+            <LogOut className="mr-2 size-4" aria-hidden />
+            Salir de la sesión de soporte
+          </DropdownMenuItem>
+        ) : (
+          <>
+            <DropdownMenuItem onClick={onLogout}>
+              <LogOut className="mr-2 size-4" aria-hidden />
+              {t('logout')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onLogoutAll}>
+              <ShieldOff className="mr-2 size-4" aria-hidden />
+              {t('logoutAll')}
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

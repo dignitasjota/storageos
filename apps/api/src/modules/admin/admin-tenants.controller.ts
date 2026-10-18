@@ -898,6 +898,7 @@ export class AdminTenantsController {
       superAdminId: admin.sub,
       tenantId: id,
       reason: input.reason,
+      readOnly: input.readOnly,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });

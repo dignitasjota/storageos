@@ -79,6 +79,18 @@ export interface MeResponse {
   features: TenantFeature[];
   /** Locales (facility IDs) a los que el usuario está restringido; null = todos. */
   facilityScope: string[] | null;
+  /**
+   * Presente solo si la sesión es una impersonación del soporte de TrasterOS:
+   * el panel muestra un aviso con la hora de fin y no deja salir a otra sesión.
+   */
+  impersonation?: ImpersonationSessionDto;
+}
+
+export interface ImpersonationSessionDto {
+  /** Fin de la sesión (ISO). */
+  expiresAt: string;
+  /** Solo lectura: el API rechaza cualquier cambio. */
+  readOnly: boolean;
 }
 
 /**

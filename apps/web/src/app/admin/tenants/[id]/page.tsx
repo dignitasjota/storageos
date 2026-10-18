@@ -41,6 +41,7 @@ import { SupportTicketList } from '@/components/admin/support-ticket-list';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -95,9 +96,7 @@ import {
 import { subscriptionStatusLabel, tenantStatusLabel } from '@/lib/admin/labels';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
-
-/** Clave en localStorage para registrar la sesion de impersonacion activa. */
-const IMPERSONATION_KEY = 'storageos:impersonation';
+import { IMPERSONATION_HANDOFF_KEY, IMPERSONATION_URL_PARAM } from '@/lib/auth/impersonation';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   trial: 'secondary',
@@ -823,29 +822,28 @@ function ImpersonateDialog({
   const impersonate = useImpersonateTenant();
   const form = useForm<ImpersonateInput>({
     resolver: zodResolver(ImpersonateSchema),
-    defaultValues: { reason: '' },
+    defaultValues: { reason: '', readOnly: true },
   });
 
   async function onSubmit(values: ImpersonateInput) {
     try {
       const session = await impersonate.mutateAsync({ id: tenantId, input: values });
-      // Guardamos la sesion de impersonacion en localStorage para que el panel
-      // del tenant (a abrir en nueva pestaña) pueda detectarla. La consume
-      // sera responsabilidad del modulo de auth del tenant (out of scope).
-      if (typeof window !== 'undefined') {
-        const expiresAt = Date.now() + session.expiresIn * 1000;
-        window.localStorage.setItem(
-          'storageos:impersonation',
-          JSON.stringify({
-            accessToken: session.accessToken,
-            tenantName: session.tenantName,
-            tenantSlug: session.tenantSlug,
-            expiresAt,
-          }),
-        );
-      }
-      toast.success(`Impersonando ${session.tenantName} en nueva pestaña.`);
-      window.open('/dashboard', '_blank', 'noopener');
+      // El panel del tenant (pestaña nueva, mismo origen) recoge el token solo
+      // si la URL trae este código de un solo uso; luego lo borra de aquí.
+      const nonce = crypto.randomUUID();
+      window.localStorage.setItem(
+        IMPERSONATION_HANDOFF_KEY,
+        JSON.stringify({
+          accessToken: session.accessToken,
+          tenantName: session.tenantName,
+          tenantSlug: session.tenantSlug,
+          expiresAt: Date.now() + session.expiresIn * 1000,
+          readOnly: session.readOnly,
+          nonce,
+        }),
+      );
+      window.open(`/dashboard?${IMPERSONATION_URL_PARAM}=${nonce}`, '_blank', 'noopener');
+      toast.success(`Abierto ${session.tenantName} en una pestaña nueva.`);
       form.reset();
       onClose();
     } catch (err) {
@@ -860,12 +858,33 @@ function ImpersonateDialog({
         <DialogHeader>
           <DialogTitle>Impersonar tenant</DialogTitle>
           <DialogDescription>
-            Se generará un token temporal con tu id de admin como auditoría. Úsalo solo para
-            soporte.
+            Abre el panel del tenant en una pestaña nueva durante un tiempo limitado, con tu nombre
+            en el registro de auditoría. Úsalo solo para soporte.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <FormField
+              control={form.control}
+              name="readOnly"
+              render={({ field }) => (
+                <FormItem className="flex items-start gap-2 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(v) => field.onChange(v === true)}
+                    />
+                  </FormControl>
+                  <div className="space-y-0.5">
+                    <FormLabel className="font-normal">Solo lectura</FormLabel>
+                    <p className="text-xs text-muted-foreground">
+                      Ves lo mismo que el propietario pero no puedes cambiar nada. Desmárcalo solo
+                      si necesitas hacer un cambio por él.
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="reason"
@@ -998,10 +1017,6 @@ function AnonymizeDialog({
     </Dialog>
   );
 }
-
-// Silenciar warning de variable no usada: la constante se exporta de forma
-// implicita a traves del dialog; la mantenemos como documentacion.
-void IMPERSONATION_KEY;
 
 const BILLING_MODE_LABELS: Record<string, string> = {
   stripe: 'Stripe',

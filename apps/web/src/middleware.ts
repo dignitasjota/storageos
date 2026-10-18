@@ -126,6 +126,15 @@ function platformProtection(req: NextRequest): NextResponse {
 
   const refresh = req.cookies.get('refresh_token');
   if (refresh && refresh.value) return NextResponse.next();
+  // Sesión de soporte abierta desde el panel admin: el token vive en la pestaña
+  // (sessionStorage), no en cookie. Esta marca solo evita mandar al login; sin
+  // token válido, la propia página lleva al login.
+  if (
+    req.cookies.get('storageos_impersonation')?.value ||
+    req.nextUrl.searchParams.has('impersonation')
+  ) {
+    return NextResponse.next();
+  }
 
   const url = req.nextUrl.clone();
   url.pathname = '/login';

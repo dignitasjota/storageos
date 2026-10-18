@@ -124,6 +124,11 @@ export default function ImpersonationPage() {
                         <span className="ml-auto truncate text-xs text-muted-foreground">
                           {s.reason}
                         </span>
+                        {s.readOnly && (
+                          <Badge variant="outline" className="text-[10px]">
+                            solo lectura
+                          </Badge>
+                        )}
                         {s.revokedAt && (
                           <Badge variant="secondary" className="text-[10px]">
                             revocada

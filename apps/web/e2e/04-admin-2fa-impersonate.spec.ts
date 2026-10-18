@@ -72,15 +72,24 @@ test.describe('Super admin + impersonación', () => {
     await expect(page.getByRole('heading', { name: /Impersonar tenant/i })).toBeVisible();
     await page.getByPlaceholder(/Investigación|Investigacion/i).fill('Smoke test impersonación');
 
-    // El submit abre nueva pestaña con window.open: capturamos el popup.
+    // «Solo lectura» viene marcado: la pestaña nueva entra en el panel del
+    // tenant con el token de soporte (sin pasar por el login).
+    await expect(page.getByRole('checkbox', { name: /Solo lectura/i })).toBeChecked();
     const popupPromise = page.waitForEvent('popup');
     await page.getByRole('button', { name: /Iniciar impersonación/i }).click();
     const popup = await popupPromise;
-    // El popup hace window.open('/dashboard'). La consumición del token de
-    // impersonación (desde localStorage) NO está cubierta por este smoke, así
-    // que el guard del panel puede redirigir a /login?next=%2Fdashboard antes
-    // de que se establezca la sesión. Nos basta con verificar que el popup se
-    // abrió apuntando al dashboard (ruta directa o vía el parámetro `next`).
-    expect(popup.url()).toMatch(/dashboard/i);
+    await expect(popup).toHaveURL(/\/dashboard$/, { timeout: 15_000 });
+    await expect(popup.getByText(/Sesión de soporte en/)).toBeVisible({ timeout: 15_000 });
+    await expect(popup.getByText(/solo lectura/)).toBeVisible();
+    // Recargar y navegar dentro de la pestaña mantiene la sesión de soporte.
+    await popup.goto('/customers');
+    await expect(popup).toHaveURL(/\/customers$/);
+    await expect(popup.getByText(/Sesión de soporte en/)).toBeVisible({ timeout: 15_000 });
+
+    // Salir cierra la sesión en esa pestaña y no deja entrar otra vez sin el admin.
+    await popup.getByRole('button', { name: 'Salir' }).click();
+    await expect(popup).toHaveURL(/\/impersonation-ended/);
+    await popup.goto('/dashboard');
+    await expect(popup).toHaveURL(/\/login/, { timeout: 15_000 });
   });
 });
