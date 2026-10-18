@@ -19,6 +19,8 @@ import type { Env } from '../../config/env.schema';
  */
 /** Origen de los preavisos SEPA en `communications`. */
 const SEPA_PRENOTICE_SOURCE = 'customer_email.sepa_prenotification';
+/** Las exportaciones de datos del tenant se borran a los 2 días (el enlace dura 1 h). */
+const EXPORT_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class DataRetentionService {
@@ -29,6 +31,43 @@ export class DataRetentionService {
     private readonly config: ConfigService<Env, true>,
     private readonly files: FilesService,
   ) {}
+
+  /**
+   * Ficheros de informes y exportaciones de datos ya caducados: el enlace de
+   * descarga dura poco (informes 7 días, exportaciones 1 h), pero el fichero se
+   * quedaba en MinIO para siempre — y una exportación lleva datos personales de
+   * todos los inquilinos del tenant.
+   */
+  async cleanupExpiredFiles(): Promise<{ reports: number; exports: number }> {
+    const now = new Date();
+    const expired = await this.admin.reportRun.findMany({
+      where: { expiresAt: { lt: now }, downloadUrl: { not: null } },
+      select: { id: true, downloadUrl: true },
+      take: 1000,
+    });
+    const keys = expired
+      .map((r) => this.files.keyFromPublicUrl('reports', r.downloadUrl!))
+      .filter((k): k is string => !!k);
+    await this.files.deleteObjects('reports', keys);
+    if (expired.length > 0) {
+      await this.admin.reportRun.updateMany({
+        where: { id: { in: expired.map((r) => r.id) } },
+        data: { status: 'expired', downloadUrl: null },
+      });
+    }
+    // `<tenant>/exports/…`: se conservan 2 días por si hay que repetir la descarga.
+    const exports = await this.files.deleteOlderThan(
+      'reports',
+      new Date(now.getTime() - EXPORT_RETENTION_MS),
+      (key) => key.split('/')[1] === 'exports',
+    );
+    if (expired.length + exports > 0) {
+      this.logger.log(
+        `data-retention: ficheros caducados borrados (informes=${expired.length}, exportaciones=${exports})`,
+      );
+    }
+    return { reports: expired.length, exports };
+  }
 
   /** Borra las filas más antiguas que el plazo de retención de cada tabla. */
   async runCleanup(): Promise<{

@@ -18,6 +18,7 @@ export class DataRetentionCron {
   async dailyCleanup(): Promise<void> {
     try {
       await this.service.runCleanup();
+      await this.service.cleanupExpiredFiles();
     } catch (err) {
       this.logger.error(
         `data-retention cleanup falló: ${(err as Error).message}`,
