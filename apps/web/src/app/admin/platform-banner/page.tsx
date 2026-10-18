@@ -22,9 +22,11 @@ import {
   useMarkNotifsRead,
   useUpdatePlatformBanner,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 export default function PlatformBannerPage() {
+  const canEdit = useIsSuperadmin();
   const { data } = useAdminPlatformBanner();
   const update = useUpdatePlatformBanner();
   const notifs = useAdminNotifications();
@@ -91,7 +93,11 @@ export default function PlatformBannerPage() {
                   />
                   Activado
                 </label>
-                <Button className="ml-auto" onClick={onSave} disabled={update.isPending}>
+                <Button
+                  className="ml-auto"
+                  onClick={onSave}
+                  disabled={update.isPending || !canEdit}
+                >
                   Guardar
                 </Button>
               </div>

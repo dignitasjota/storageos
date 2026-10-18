@@ -43,6 +43,7 @@ import {
   useCreatePlatformSepaRemittance,
   usePlatformSepaRemittancePreview,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 const eur = (n: number) =>
@@ -58,6 +59,7 @@ const STATUS: Record<
 };
 
 export default function PlatformSepaRemittancesPage() {
+  const canEdit = useIsSuperadmin();
   const list = useAdminPlatformSepaRemittances();
   const settings = useAdminPlatformSepaSettings();
   const confirmMut = useConfirmPlatformSepaRemittance();
@@ -121,12 +123,12 @@ export default function PlatformSepaRemittancesPage() {
           >
             <Download className="mr-1 h-4 w-4" /> XML
           </Button>
-          {row.original.status === 'generated' && (
+          {canEdit && row.original.status === 'generated' && (
             <Button variant="outline" size="sm" onClick={() => handleConfirm(row.original.id)}>
               <CheckCircle2 className="mr-1 h-4 w-4" /> Confirmar cobro
             </Button>
           )}
-          {row.original.status === 'confirmed' && row.original.pendingCount > 0 && (
+          {canEdit && row.original.status === 'confirmed' && row.original.pendingCount > 0 && (
             <Button variant="outline" size="sm" onClick={() => handleConfirm(row.original.id)}>
               <CheckCircle2 className="mr-1 h-4 w-4" /> Terminar de confirmar
             </Button>
@@ -176,6 +178,7 @@ export default function PlatformSepaRemittancesPage() {
 
 /** Detalle de una remesa confirmada: items por tenant + marcar devuelto. */
 function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const canEdit = useIsSuperadmin();
   const detail = useAdminPlatformSepaRemittance(id ?? '', id !== null);
   const bounce = useBouncePlatformSepaRemittanceItem();
 
@@ -239,7 +242,7 @@ function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: (
                           variant="outline"
                           size="sm"
                           onClick={() => void handleBounce(item)}
-                          disabled={bounce.isPending}
+                          disabled={bounce.isPending || !canEdit}
                         >
                           <Undo2 className="mr-1 h-4 w-4" /> Marcar como devuelto
                         </Button>
@@ -262,6 +265,7 @@ function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: (
 }
 
 function CreateRemittanceDialog() {
+  const canEdit = useIsSuperadmin();
   const [open, setOpen] = useState(false);
   const preview = usePlatformSepaRemittancePreview();
   const create = useCreatePlatformSepaRemittance();
@@ -320,7 +324,7 @@ function CreateRemittanceDialog() {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button>
+        <Button disabled={!canEdit}>
           <Plus className="mr-1 h-4 w-4" /> Nueva remesa
         </Button>
       </DialogTrigger>

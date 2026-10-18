@@ -12,6 +12,7 @@ import {
   useRunDunning,
   useUpdatePlatformDunningSettings,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 type Form = {
@@ -22,6 +23,7 @@ type Form = {
 };
 
 export default function PlatformDunningPage() {
+  const canEdit = useIsSuperadmin();
   const { data } = useAdminPlatformDunningSettings();
   const update = useUpdatePlatformDunningSettings();
   const run = useRunDunning();
@@ -108,10 +110,10 @@ export default function PlatformDunningPage() {
             suspensión. Cada paso se ejecuta una sola vez por ciclo de impago.
           </p>
           <div className="flex justify-between">
-            <Button variant="outline" onClick={onRun} disabled={run.isPending}>
+            <Button variant="outline" onClick={onRun} disabled={run.isPending || !canEdit}>
               Ejecutar ahora
             </Button>
-            <Button onClick={onSave} disabled={update.isPending}>
+            <Button onClick={onSave} disabled={update.isPending || !canEdit}>
               Guardar
             </Button>
           </div>

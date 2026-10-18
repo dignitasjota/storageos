@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -23,6 +22,7 @@ import { Public } from '../../common/decorators/public.decorator';
 
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
+import { RequireSuperadmin } from './require-superadmin.decorator';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 import { SuperAdminService } from './super-admin.service';
 
@@ -49,13 +49,13 @@ export class AdminSuperAdminsController {
     return this.admins.list();
   }
 
+  @RequireSuperadmin()
   @Post()
   async create(
     @CurrentSuperAdmin() actor: AuthenticatedSuperAdmin,
     @Body() input: CreateSuperAdminDto,
     @Req() req: Request,
   ): Promise<SuperAdminDto> {
-    this.assertSuperadmin(actor);
     const created = await this.admins.create({
       email: input.email,
       fullName: input.fullName,
@@ -74,6 +74,7 @@ export class AdminSuperAdminsController {
     return created;
   }
 
+  @RequireSuperadmin()
   @Patch(':id/active')
   @HttpCode(HttpStatus.OK)
   async setActive(
@@ -82,7 +83,6 @@ export class AdminSuperAdminsController {
     @Body() input: SetSuperAdminActiveDto,
     @Req() req: Request,
   ): Promise<SuperAdminDto> {
-    this.assertSuperadmin(actor);
     const updated = await this.admins.setActive({
       actorId: actor.sub,
       targetId: id,
@@ -98,15 +98,5 @@ export class AdminSuperAdminsController {
       changes: { isActive: input.isActive },
     });
     return updated;
-  }
-
-  /** Solo el rol `superadmin` gestiona otros super admins. */
-  private assertSuperadmin(actor: AuthenticatedSuperAdmin): void {
-    if (actor.role !== 'superadmin') {
-      throw new ForbiddenException({
-        code: 'insufficient_super_admin_role',
-        message: 'Solo un super admin puede gestionar super admins',
-      });
-    }
   }
 }

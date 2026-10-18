@@ -24,7 +24,9 @@ import {
   QUEUE_WEBHOOKS,
 } from '../queues/queues.module';
 
+import { AdminAudit } from './admin-audit.decorator';
 import { AdminGuard } from './admin.guard';
+import { RequireSuperadmin } from './require-superadmin.decorator';
 
 export interface AdminQueueStatusDto {
   name: string;
@@ -115,6 +117,8 @@ export class AdminQueuesController {
   }
 
   /** Reintenta todos los jobs fallidos de una cola. */
+  @RequireSuperadmin()
+  @AdminAudit('admin.queue.failed_retried')
   @Post(':name/retry-failed')
   @HttpCode(HttpStatus.OK)
   async retryFailed(@Param('name') name: string): Promise<{ retried: number }> {
@@ -133,6 +137,8 @@ export class AdminQueuesController {
   }
 
   /** Elimina los jobs fallidos de una cola. */
+  @RequireSuperadmin()
+  @AdminAudit('admin.queue.failed_cleaned')
   @Post(':name/clean-failed')
   @HttpCode(HttpStatus.OK)
   async cleanFailed(@Param('name') name: string): Promise<{ cleaned: number }> {

@@ -157,6 +157,57 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
     expect(superSusp.status).toBe(200);
   });
 
+  it('support tampoco toca la configuración de cobro, la web ni las colas; los cambios quedan auditados', async () => {
+    const owner = await registerVerifiedUser(app, 'rolesepcfg');
+    const blocked: Array<[method: 'post' | 'put' | 'patch', path: string]> = [
+      ['put', '/admin/platform-sepa/settings'],
+      ['post', '/admin/platform-sepa/remittances'],
+      ['post', '/admin/platform-sepa/remittances/00000000-0000-0000-0000-000000000000/confirm'],
+      ['post', '/admin/platform-sepa/remittance-items/00000000-0000-0000-0000-000000000000/bounce'],
+      ['put', '/admin/platform-dunning/settings'],
+      ['post', '/admin/platform-dunning/run'],
+      ['put', '/admin/platform-billing/settings'],
+      ['post', '/admin/platform-invoices/issue'],
+      ['put', '/admin/platform/banner'],
+      ['put', '/admin/platform/legal/terms'],
+      ['put', '/admin/platform-alerts'],
+      ['post', '/admin/queues/email/clean-failed'],
+      ['post', '/admin/queues/email/retry-failed'],
+      ['post', '/admin/webhooks-cleanup/run'],
+      ['post', '/admin/super-admins'],
+      ['patch', `/admin/tenants/${owner.tenantId}`],
+    ];
+    for (const [method, path] of blocked) {
+      const res = await request(app.getHttpServer())
+        [method](path)
+        .set('Authorization', `Bearer ${supportToken}`)
+        .send({});
+      expect({ path, status: res.status, code: res.body.code }).toEqual({
+        path,
+        status: 403,
+        code: 'insufficient_super_admin_role',
+      });
+    }
+
+    // El superadmin sí; y el cambio queda en el registro (sin valores, solo campos).
+    const since = new Date();
+    await request(app.getHttpServer())
+      .put('/admin/platform/banner')
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ message: 'Prueba', level: 'info', enabled: false })
+      .expect(200);
+    let row = null;
+    for (let i = 0; i < 20 && !row; i++) {
+      row = await adminClient.superAdminAuditLog.findFirst({
+        where: { action: 'admin.platform.banner_updated', occurredAt: { gte: since } },
+        include: { superAdmin: { select: { email: true } } },
+      });
+      if (!row) await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(row?.superAdmin?.email).toBe(SUPER_EMAIL);
+    expect(row?.changes).toEqual({ fields: ['message', 'level', 'enabled'] });
+  });
+
   it('desactivar un super admin invalida su access token vivo de inmediato', async () => {
     // El token del support funciona para leer ahora.
     const before = await request(app.getHttpServer())

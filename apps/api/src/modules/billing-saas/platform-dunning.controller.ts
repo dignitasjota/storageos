@@ -7,7 +7,9 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { AdminAudit } from '../admin/admin-audit.decorator';
 import { AdminGuard } from '../admin/admin.guard';
+import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
 import { PlatformDunningService } from './platform-dunning.service';
 
@@ -25,11 +27,15 @@ export class PlatformDunningController {
     return this.service.getSettings();
   }
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform_dunning.settings_updated')
   @Put('settings')
   updateSettings(@Body() body: UpdateDunningDto): Promise<PlatformDunningSettingsDto> {
     return this.service.updateSettings(body);
   }
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform_dunning.run')
   @Post('run')
   run(): Promise<DunningRunResultDto> {
     return this.service.run();

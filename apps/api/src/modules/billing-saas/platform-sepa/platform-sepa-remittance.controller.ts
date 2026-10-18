@@ -24,6 +24,7 @@ import {
   type AuthenticatedSuperAdmin,
   CurrentSuperAdmin,
 } from '../../admin/current-super-admin.decorator';
+import { RequireSuperadmin } from '../../admin/require-superadmin.decorator';
 import { SuperAdminAuditService } from '../../admin/super-admin-audit.service';
 
 import { PlatformSepaRemittanceService } from './platform-sepa-remittance.service';
@@ -69,6 +70,7 @@ export class PlatformSepaRemittanceController {
     return this.remittances.getRemittance(id);
   }
 
+  @RequireSuperadmin()
   @Post()
   async create(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
@@ -95,6 +97,7 @@ export class PlatformSepaRemittanceController {
     return this.remittances.getXml(id);
   }
 
+  @RequireSuperadmin()
   @Post(':id/confirm')
   @HttpCode(HttpStatus.OK)
   async confirm(
@@ -129,6 +132,7 @@ export class PlatformSepaRemittanceItemController {
   ) {}
 
   /** El banco devolvió un adeudo ya cobrado (R-transaction). */
+  @RequireSuperadmin()
   @Post(':id/bounce')
   @HttpCode(HttpStatus.OK)
   async bounce(

@@ -18,6 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAdminWebhooksCleanupRun, useAdminWebhooksCleanupStats } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -40,6 +41,7 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 };
 
 export default function WebhooksCleanupPage() {
+  const canEdit = useIsSuperadmin();
   const [olderThanInput, setOlderThanInput] = useState<string>('');
   const olderThanNum = olderThanInput ? Number(olderThanInput) : undefined;
   const validOverride = olderThanNum !== undefined && olderThanNum > 0 ? olderThanNum : undefined;
@@ -173,7 +175,7 @@ export default function WebhooksCleanupPage() {
                 <DialogTrigger asChild>
                   <Button
                     variant="destructive"
-                    disabled={stats.data.eligibleForCleanup === 0 || run.isPending}
+                    disabled={stats.data.eligibleForCleanup === 0 || run.isPending || !canEdit}
                   >
                     {run.isPending ? (
                       <>

@@ -6,7 +6,9 @@ import { z } from 'zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { WebhooksService, type WebhookCleanupStats } from '../integrations/webhooks.service';
 
+import { AdminAudit } from './admin-audit.decorator';
 import { AdminGuard } from './admin.guard';
+import { RequireSuperadmin } from './require-superadmin.decorator';
 
 import type { Env } from '../../config/env.schema';
 
@@ -46,6 +48,8 @@ export class WebhooksCleanupController {
     return this.webhooks.getCleanupStats(olderThanDays);
   }
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.webhooks_cleanup.run')
   @Post('run')
   @HttpCode(200)
   async run(@Body() body: RunCleanupDto): Promise<{ deleted: number; olderThanDays: number }> {

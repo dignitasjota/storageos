@@ -22,6 +22,7 @@ import {
   useAdminPlatformBillingSettings,
   useUpdatePlatformBillingSettings,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 type Form = {
@@ -40,6 +41,7 @@ type Form = {
 };
 
 export default function PlatformBillingPage() {
+  const canEdit = useIsSuperadmin();
   const { data } = useAdminPlatformBillingSettings();
   const update = useUpdatePlatformBillingSettings();
   const [form, setForm] = useState<Form | null>(null);
@@ -215,7 +217,7 @@ export default function PlatformBillingPage() {
             Facturación del SaaS activada (se emiten facturas al registrar un pago cobrado)
           </label>
           <div className="flex justify-end">
-            <Button onClick={onSave} disabled={update.isPending}>
+            <Button onClick={onSave} disabled={update.isPending || !canEdit}>
               Guardar
             </Button>
           </div>
