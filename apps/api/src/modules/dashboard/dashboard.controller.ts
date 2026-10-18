@@ -4,6 +4,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { OnboardingService } from './onboarding.service';
 import { TodayService } from './today.service';
@@ -20,6 +21,7 @@ export class DashboardController {
     private readonly onboarding: OnboardingService,
   ) {}
 
+  @RequirePermission('contracts:read')
   @Get('today')
   async getToday(
     @CurrentUser() user: AuthenticatedUser,
@@ -28,10 +30,11 @@ export class DashboardController {
     if (facilityId && !UUID_RE.test(facilityId)) {
       throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
     }
-    return this.today.getToday(user.tenantId, facilityId || undefined);
+    return this.today.getToday(user.tenantId, facilityId || undefined, user.facilityScope ?? null);
   }
 
   /** Checklist de primeros pasos del operador. */
+  @RequirePermission('settings:read')
   @Get('onboarding')
   async getOnboarding(@CurrentUser() user: AuthenticatedUser): Promise<OnboardingDto> {
     return this.onboarding.getOnboarding(user.tenantId);

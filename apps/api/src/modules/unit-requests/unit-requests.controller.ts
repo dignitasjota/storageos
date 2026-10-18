@@ -32,8 +32,12 @@ export class UnitRequestsController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('status') status?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<UnitRequestDto[]> {
-    return this.service.list(user.tenantId, status);
+    return this.service.list(user.tenantId, status, {
+      ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   /** Nº de solicitudes pendientes — para el badge del menú. */

@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
+import { optionalFacilityWhere } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -24,6 +25,8 @@ interface ListFilters {
   facilityId?: string;
   assignedToUserId?: string;
   unitId?: string;
+  /** Locales del usuario (null = todos). */
+  facilityScope?: string[] | null;
 }
 
 type TaskWithIncludes = Task & {
@@ -50,7 +53,9 @@ export class TasksService {
     const where: Prisma.TaskWhereInput = { deletedAt: null };
     if (filters.status) where.status = filters.status as TaskStatus;
     if (filters.type) where.type = filters.type as TaskType;
-    if (filters.facilityId) where.facilityId = filters.facilityId;
+    const facility = optionalFacilityWhere(filters.facilityScope, filters.facilityId);
+    if (!facility) return [];
+    Object.assign(where, facility);
     if (filters.unitId) where.unitId = filters.unitId;
     if (filters.assignedToUserId) where.assignedToUserId = filters.assignedToUserId;
     const rows = await this.prisma.withTenant(

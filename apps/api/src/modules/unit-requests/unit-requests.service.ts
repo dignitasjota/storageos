@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { rentTax } from '@storageos/shared';
 
+import { optionalFacilityWhere } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { toActiveUnitOffer } from '../promotions/promotions.service';
@@ -177,11 +178,17 @@ export class UnitRequestsService {
     );
   }
 
-  async list(tenantId: string, status?: string): Promise<UnitRequestDto[]> {
+  async list(
+    tenantId: string,
+    status?: string,
+    filters: { facilityId?: string; facilityScope?: string[] | null } = {},
+  ): Promise<UnitRequestDto[]> {
+    const facility = optionalFacilityWhere(filters.facilityScope, filters.facilityId);
+    if (!facility) return [];
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.unitRequest.findMany({
-          where: { tenantId, ...(status ? { status } : {}) },
+          where: { tenantId, ...(status ? { status } : {}), ...facility },
           orderBy: { createdAt: 'desc' },
           include: this.staffInclude(),
         }),

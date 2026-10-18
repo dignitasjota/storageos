@@ -4,6 +4,8 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { invoiceFacilityWhere } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 
 import type { DunningActionDto } from '@storageos/shared';
@@ -12,17 +14,23 @@ import type { DunningActionDto } from '@storageos/shared';
 export class DunningController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @RequirePermission('invoices:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('status') status?: string,
   ): Promise<DunningActionDto[]> {
+    // Solo los avisos de facturas de los locales del usuario.
+    const invoice = invoiceFacilityWhere(user.facilityScope ?? null) ?? {};
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.dunningAction.findMany({
-          where: status
-            ? { status: status as 'scheduled' | 'executed' | 'failed' | 'cancelled' }
-            : {},
+          where: {
+            ...(status
+              ? { status: status as 'scheduled' | 'executed' | 'failed' | 'cancelled' }
+              : {}),
+            ...(Object.keys(invoice).length ? { invoice } : {}),
+          },
           orderBy: { scheduledFor: 'desc' },
           include: { invoice: { select: { invoiceNumber: true } } },
           take: 200,

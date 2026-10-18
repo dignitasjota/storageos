@@ -31,8 +31,12 @@ export class UnitChangesController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('status') status?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<UnitChangeRequestDto[]> {
-    return this.service.list(user.tenantId, status);
+    return this.service.list(user.tenantId, status, {
+      ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   /** Nº de solicitudes pendientes — para el badge del menú. */

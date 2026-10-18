@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { CASE_FILE_MIME_TYPES, CLOSED_CASE_STATUSES } from '@storageos/shared';
 
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { InvoicesService } from '../billing/invoices.service';
@@ -182,13 +183,15 @@ export class CollectionsService {
 
   async list(
     tenantId: string,
-    opts: { status?: DelinquencyCaseStatus; facilityScope: string[] | null },
+    opts: { status?: DelinquencyCaseStatus; facilityScope: string[] | null; facilityId?: string },
   ): Promise<DelinquencyCaseDto[]> {
+    const ids = resolveFacilityFilter(opts.facilityScope, opts.facilityId);
+    if (ids === null) return [];
     return this.prisma.withTenant(async (tx) => {
       const where: Prisma.DelinquencyCaseWhereInput = {
         tenantId,
         ...(opts.status ? { status: opts.status } : {}),
-        ...(opts.facilityScope ? { facilityId: { in: opts.facilityScope } } : {}),
+        ...(ids ? { facilityId: { in: ids } } : {}),
       };
       const rows = await tx.delinquencyCase.findMany({
         where,

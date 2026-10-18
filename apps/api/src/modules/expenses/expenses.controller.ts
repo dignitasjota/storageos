@@ -50,6 +50,7 @@ export class ExpensesController {
       ...(category ? { category } : {}),
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

@@ -96,8 +96,14 @@ export class ContractsController {
   /** Contratos que vencen pronto (renovación) — declarado antes de @Get(':id'). */
   @RequirePermission('contracts:read')
   @Get('renewals')
-  async renewals(@CurrentUser() user: AuthenticatedUser): Promise<ContractDto[]> {
-    return this.contracts.listRenewals(user.tenantId);
+  async renewals(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<ContractDto[]> {
+    return this.contracts.listRenewals(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('contracts:read')

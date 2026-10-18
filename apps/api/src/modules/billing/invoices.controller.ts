@@ -77,9 +77,11 @@ export class InvoicesController {
     @Query('customerId') customerId?: string,
     @Query('contractId') contractId?: string,
     @Query('overdue') overdue?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<InvoiceDto[]> {
     const parsedStatus = status ? InvoiceStatusEnum.parse(status) : undefined;
     return this.invoices.list(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
       ...(parsedStatus ? { status: parsedStatus } : {}),
       ...(customerId ? { customerId } : {}),
       ...(contractId ? { contractId } : {}),

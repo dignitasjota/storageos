@@ -12,6 +12,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 
 import type { AccessDevice, AccessLog, Customer, CustomerType, Prisma } from '@storageos/database';
@@ -79,8 +80,12 @@ export class AccessLogsController {
     @Query('result') result?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<AccessLogDto[]> {
-    const where: Prisma.AccessLogWhereInput = {};
+    // Local del dispositivo (el elegido en la cabecera, dentro de los del usuario).
+    const ids = resolveFacilityFilter(user.facilityScope ?? null, facilityId);
+    if (ids === null) return [];
+    const where: Prisma.AccessLogWhereInput = ids ? { device: { facilityId: { in: ids } } } : {};
     if (customerId) where.customerId = customerId;
     if (deviceId) where.deviceId = deviceId;
     const parsedResult = parseResult(result);

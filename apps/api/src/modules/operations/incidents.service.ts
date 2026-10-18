@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { optionalFacilityWhere } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
@@ -39,6 +40,8 @@ interface ListFilters {
   customerId?: string;
   contractId?: string;
   assignedToUserId?: string;
+  /** Locales del usuario (null = todos). */
+  facilityScope?: string[] | null;
 }
 
 type IncidentWithIncludes = Incident & {
@@ -103,7 +106,9 @@ export class IncidentsService {
     const where: Prisma.IncidentWhereInput = { deletedAt: null };
     if (filters.status) where.status = filters.status as IncidentStatus;
     if (filters.severity) where.severity = filters.severity as IncidentSeverity;
-    if (filters.facilityId) where.facilityId = filters.facilityId;
+    const facility = optionalFacilityWhere(filters.facilityScope, filters.facilityId);
+    if (!facility) return [];
+    Object.assign(where, facility);
     if (filters.unitId) where.unitId = filters.unitId;
     if (filters.customerId) where.customerId = filters.customerId;
     if (filters.contractId) where.contractId = filters.contractId;

@@ -71,6 +71,7 @@ export class TasksController {
       ...(facilityId ? { facilityId } : {}),
       ...(unitId ? { unitId } : {}),
       ...(assignedToUserId ? { assignedToUserId } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

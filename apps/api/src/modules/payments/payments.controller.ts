@@ -79,8 +79,10 @@ export class PaymentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('invoiceId') invoiceId?: string,
     @Query('customerId') customerId?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<PaymentDto[]> {
     return this.payments.list(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
       ...(invoiceId ? { invoiceId } : {}),
       ...(customerId ? { customerId } : {}),
       facilityScope: user.facilityScope ?? null,

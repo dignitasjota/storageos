@@ -11,6 +11,7 @@ import {
   type UpdateMaintenancePlanInput,
 } from '@storageos/shared';
 
+import { optionalFacilityWhere } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -62,10 +63,16 @@ export class MaintenanceService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(tenantId: string): Promise<MaintenancePlanDto[]> {
+  async list(
+    tenantId: string,
+    filters: { facilityId?: string; facilityScope?: string[] | null } = {},
+  ): Promise<MaintenancePlanDto[]> {
+    const facility = optionalFacilityWhere(filters.facilityScope, filters.facilityId);
+    if (!facility) return [];
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.maintenancePlan.findMany({
+          where: facility,
           orderBy: [{ isActive: 'desc' }, { nextRunDate: 'asc' }],
           include: INCLUDE,
         }),

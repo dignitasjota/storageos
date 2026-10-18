@@ -37,3 +37,54 @@ export function resolveFacilityFilter(
   }
   return scope ?? undefined;
 }
+
+/**
+ * Filtro por local para entidades con `facilityId` propio y OPCIONAL (tareas,
+ * incidencias, gastos, mantenimiento, solicitudes…; sin local = de toda la
+ * empresa):
+ * - con un local elegido: solo ese (`null` si está fuera del alcance → sin resultados);
+ * - sin local elegido pero con alcance: sus locales + lo que es de toda la empresa;
+ * - sin nada: `{}` (sin filtro).
+ */
+export function optionalFacilityWhere(
+  scope: FacilityScope,
+  requestedFacilityId?: string,
+):
+  | Record<string, never>
+  | { facilityId: string }
+  | { OR: [{ facilityId: { in: string[] } }, { facilityId: null }] }
+  | null {
+  if (requestedFacilityId) {
+    return isFacilityAllowed(scope, requestedFacilityId)
+      ? { facilityId: requestedFacilityId }
+      : null;
+  }
+  if (scope) return { OR: [{ facilityId: { in: scope } }, { facilityId: null }] };
+  return {};
+}
+
+/**
+ * Filtro por local de una factura: su local es el del trastero del contrato, o
+ * el que lleva la propia factura (pase nocturno) o su venta de producto. Con
+ * alcance y sin local elegido se incluyen las facturas sin contrato (F2, ventas
+ * sin local), como hasta ahora. `null` = local fuera del alcance.
+ */
+export function invoiceFacilityWhere(
+  scope: FacilityScope,
+  requestedFacilityId?: string,
+): Record<string, unknown> | null {
+  if (requestedFacilityId) {
+    if (!isFacilityAllowed(scope, requestedFacilityId)) return null;
+    return {
+      OR: [
+        { contract: { unit: { facilityId: requestedFacilityId } } },
+        { facilityId: requestedFacilityId },
+        { productSale: { facilityId: requestedFacilityId } },
+      ],
+    };
+  }
+  if (scope) {
+    return { OR: [{ contract: { unit: { facilityId: { in: scope } } } }, { contractId: null }] };
+  }
+  return {};
+}

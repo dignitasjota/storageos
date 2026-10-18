@@ -84,8 +84,10 @@ export class CollectionsController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('status') status?: DelinquencyCaseStatus,
+    @Query('facilityId') facilityId?: string,
   ): Promise<DelinquencyCaseDto[]> {
     return this.service.list(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
       ...(status ? { status } : {}),
       facilityScope: user.facilityScope ?? null,
     });

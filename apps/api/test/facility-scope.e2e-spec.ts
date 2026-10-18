@@ -183,6 +183,57 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     const ownerInvoices = await request(app.getHttpServer()).get('/invoices').set(ownerAuth);
     const ownerInvoiceIds = (ownerInvoices.body as { id: string }[]).map((i) => i.id);
     expect(ownerInvoiceIds).toEqual(expect.arrayContaining([invA, invB]));
+
+    // === Selector de local de la cabecera: `?facilityId=` en las listas ===
+    const ownerInvB = await request(app.getHttpServer())
+      .get(`/invoices?facilityId=${facB.facilityId}`)
+      .set(ownerAuth);
+    const ownerInvBIds = (ownerInvB.body as { id: string }[]).map((i) => i.id);
+    expect(ownerInvBIds).toContain(invB);
+    expect(ownerInvBIds).not.toContain(invA);
+    // Un local fuera de su alcance no devuelve nada (ni las facturas sin local).
+    const staffInvB = await request(app.getHttpServer())
+      .get(`/invoices?facilityId=${facB.facilityId}`)
+      .set(staffAuth);
+    expect(staffInvB.body).toEqual([]);
+
+    // === Búsqueda global: no encuentra el trastero de otro local ===
+    const unitBCode = (await request(app.getHttpServer()).get(`/units/${unitB}`).set(ownerAuth))
+      .body.code as string;
+    const ownerSearch = await request(app.getHttpServer())
+      .get(`/search?q=${encodeURIComponent(unitBCode)}`)
+      .set(ownerAuth);
+    expect((ownerSearch.body.results as { id: string }[]).map((r) => r.id)).toContain(unitB);
+    const staffSearch = await request(app.getHttpServer())
+      .get(`/search?q=${encodeURIComponent(unitBCode)}`)
+      .set(staffAuth);
+    expect((staffSearch.body.results as { id: string }[]).map((r) => r.id)).not.toContain(unitB);
+
+    // === Tareas: las de su local y las de toda la empresa, no las de otro local ===
+    const mkTask = async (title: string, facilityId?: string): Promise<string> => {
+      const t = await request(app.getHttpServer())
+        .post('/tasks')
+        .set(ownerAuth)
+        .send({ title, type: 'other', ...(facilityId ? { facilityId } : {}) })
+        .expect(201);
+      return t.body.id as string;
+    };
+    const taskA = await mkTask('Revisar A', facA.facilityId);
+    const taskB = await mkTask('Revisar B', facB.facilityId);
+    const taskAll = await mkTask('Revisar todo');
+    const staffTasks = (
+      (await request(app.getHttpServer()).get('/tasks').set(staffAuth)).body as { id: string }[]
+    ).map((t) => t.id);
+    expect(staffTasks).toEqual(expect.arrayContaining([taskA, taskAll]));
+    expect(staffTasks).not.toContain(taskB);
+    const ownerTasksB = (
+      (
+        await request(app.getHttpServer())
+          .get(`/tasks?facilityId=${facB.facilityId}`)
+          .set(ownerAuth)
+      ).body as { id: string }[]
+    ).map((t) => t.id);
+    expect(ownerTasksB).toEqual([taskB]);
   });
 
   it('un manager restringido a un local no ve ni gestiona credenciales de acceso de otro local', async () => {

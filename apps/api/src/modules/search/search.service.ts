@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { invoiceFacilityWhere } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 
 import type { SearchResultDto } from '@storageos/shared';
@@ -25,10 +26,18 @@ function customerName(c: {
 export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async search(tenantId: string, query: string): Promise<SearchResultDto[]> {
+  async search(
+    tenantId: string,
+    query: string,
+    facilityScope: string[] | null = null,
+  ): Promise<SearchResultDto[]> {
     const q = query.trim();
     if (q.length < 2) return [];
     const contains = { contains: q, mode: 'insensitive' as const };
+    // Un usuario limitado a unos locales solo encuentra contratos, trasteros y
+    // facturas de esos locales (los inquilinos son de toda la empresa).
+    const unitScope = facilityScope ? { facilityId: { in: facilityScope } } : {};
+    const invoiceScope = invoiceFacilityWhere(facilityScope) ?? {};
 
     return this.prisma.withTenant(async (tx) => {
       const [customers, contracts, units, invoices] = await Promise.all([
@@ -54,7 +63,7 @@ export class SearchService {
           },
         }),
         tx.contract.findMany({
-          where: { contractNumber: contains },
+          where: { contractNumber: contains, ...(facilityScope ? { unit: unitScope } : {}) },
           take: PER_TYPE,
           select: {
             id: true,
@@ -63,12 +72,12 @@ export class SearchService {
           },
         }),
         tx.unit.findMany({
-          where: { code: contains },
+          where: { code: contains, ...unitScope },
           take: PER_TYPE,
           select: { id: true, code: true, facility: { select: { name: true } } },
         }),
         tx.invoice.findMany({
-          where: { invoiceNumber: contains },
+          where: { invoiceNumber: contains, ...invoiceScope },
           take: PER_TYPE,
           select: { id: true, invoiceNumber: true, total: true },
         }),
