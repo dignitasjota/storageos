@@ -42,6 +42,8 @@ export const UpdateContractTemplateSchema = z.object({
   clauses: z.string().max(20000).optional().or(z.literal('')),
   /** Cláusulas de vivienda (extra «Viviendas»). '' = volver a la base LAU. */
   housingClauses: z.string().max(20000).optional().or(z.literal('')),
+  /** Finalizar solo los contratos en baja el día después de su fecha de fin. */
+  autoEndContracts: z.boolean().optional(),
 });
 export type UpdateContractTemplateInput = z.infer<typeof UpdateContractTemplateSchema>;
 
@@ -50,6 +52,8 @@ export interface ContractTemplateDto {
   clauses: string | null;
   /** Cláusulas de vivienda del tenant; null = base LAU (`DEFAULT_HOUSING_CLAUSES`). */
   housingClauses: string | null;
+  /** Los contratos en baja se finalizan solos el día después de su fecha de fin. */
+  autoEndContracts: boolean;
 }
 
 /**

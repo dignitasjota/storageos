@@ -452,10 +452,19 @@ export class TenantSettingsService {
   async getContractTemplate(tenantId: string): Promise<ContractTemplateDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { contractClauses: true, housingContractClauses: true, deletedAt: true },
+      select: {
+        contractClauses: true,
+        housingContractClauses: true,
+        autoEndContracts: true,
+        deletedAt: true,
+      },
     });
     if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
-    return { clauses: tenant.contractClauses, housingClauses: tenant.housingContractClauses };
+    return {
+      clauses: tenant.contractClauses,
+      housingClauses: tenant.housingContractClauses,
+      autoEndContracts: tenant.autoEndContracts,
+    };
   }
 
   async updateContractTemplate(args: {
@@ -468,7 +477,14 @@ export class TenantSettingsService {
     if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
     // Cada plantilla solo cambia si viene; '' = volver a la de por defecto (null).
     const norm = (v: string | undefined) => (v?.trim() ? v : null);
-    const data: { contractClauses?: string | null; housingContractClauses?: string | null } = {};
+    const data: {
+      contractClauses?: string | null;
+      housingContractClauses?: string | null;
+      autoEndContracts?: boolean;
+    } = {};
+    if (args.input.autoEndContracts !== undefined) {
+      data.autoEndContracts = args.input.autoEndContracts;
+    }
     if (args.input.clauses !== undefined) data.contractClauses = norm(args.input.clauses);
     if (args.input.housingClauses !== undefined) {
       data.housingContractClauses = norm(args.input.housingClauses);
@@ -476,7 +492,7 @@ export class TenantSettingsService {
     const updated = await this.admin.tenant.update({
       where: { id: args.tenantId },
       data,
-      select: { contractClauses: true, housingContractClauses: true },
+      select: { contractClauses: true, housingContractClauses: true, autoEndContracts: true },
     });
     const clauses = updated.contractClauses;
     await this.audit.write({
@@ -488,11 +504,16 @@ export class TenantSettingsService {
       changes: {
         hasCustomClauses: clauses !== null,
         hasHousingClauses: updated.housingContractClauses !== null,
+        autoEndContracts: updated.autoEndContracts,
       },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return { clauses, housingClauses: updated.housingContractClauses };
+    return {
+      clauses,
+      housingClauses: updated.housingContractClauses,
+      autoEndContracts: updated.autoEndContracts,
+    };
   }
 
   async getWebSettings(tenantId: string): Promise<WebSettingsResponse> {

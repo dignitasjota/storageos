@@ -48,6 +48,7 @@ const STATUS: Record<
   notified: { label: 'Avisado', variant: 'default' },
   converted: { label: 'Convertido', variant: 'outline' },
   cancelled: { label: 'Cancelado', variant: 'outline' },
+  expired: { label: 'Aviso caducado', variant: 'outline' },
 };
 
 export default function WaitlistPage() {

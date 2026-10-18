@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature } from '@/lib/auth/hooks';
@@ -55,6 +56,8 @@ export default function ContractTemplatePage() {
         </p>
       </div>
 
+      <AutoEndCard enabled={data.autoEndContracts} />
+
       {hasHousing || data.housingClauses ? (
         <Tabs defaultValue="storage">
           <TabsList>
@@ -83,6 +86,42 @@ export default function ContractTemplatePage() {
         storageEditor
       )}
     </div>
+  );
+}
+
+/** Las bajas que llegan a su fecha se cierran solas (o se dejan para cerrarlas a mano). */
+function AutoEndCard({ enabled }: { enabled: boolean }) {
+  const update = useUpdateContractTemplate();
+  async function toggle(next: boolean) {
+    try {
+      await update.mutateAsync({ autoEndContracts: next });
+      toast.success(next ? 'Las bajas se cerrarán solas.' : 'Cerrarás las bajas a mano.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Bajas</CardTitle>
+        <CardDescription>
+          Cuando un contrato en baja llega a su fecha de fin, al día siguiente se finaliza solo: el
+          trastero queda libre, se revoca el acceso del inquilino (si no tiene otro contrato) y se
+          avisa a la lista de espera. Te avisaremos para que hagas el check-out y liquides la
+          fianza.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={enabled}
+            disabled={update.isPending}
+            onCheckedChange={(v) => void toggle(v === true)}
+          />
+          Finalizar automáticamente los contratos al llegar su fecha de baja
+        </label>
+      </CardContent>
+    </Card>
   );
 }
 

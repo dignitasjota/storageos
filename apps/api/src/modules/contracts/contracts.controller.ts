@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -16,6 +17,7 @@ import {
   AddContractNoteSchema,
   ChangeUnitSchema,
   RenewContractSchema,
+  RequestContractEndSchema,
   SettleDepositSchema,
   SetDepositPaymentMethodSchema,
   CollectDepositSchema,
@@ -251,12 +253,19 @@ export class ContractsController {
   async requestEnd(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown,
     @Req() req: Request,
   ): Promise<ContractDto> {
+    // Cuerpo opcional (las llamadas antiguas no lo envían).
+    const parsed = RequestContractEndSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({ code: 'invalid_end_date', message: 'Fecha no válida' });
+    }
     return this.contracts.requestEnd({
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      ...(parsed.data.endDate ? { endDate: parsed.data.endDate } : {}),
       facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
