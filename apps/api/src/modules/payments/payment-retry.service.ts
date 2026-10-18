@@ -29,6 +29,8 @@ export class PaymentRetryService {
         autoChargeRetryEnabled: true,
         // El reintento presupone que el cobro automático está activo.
         autoChargeOnIssue: true,
+        // Suspendido: sus cobros esperan a que pague (ver `chargeHeldAt`).
+        status: { not: 'suspended' },
       },
       select: { id: true, autoChargeRetryMax: true, autoChargeRetryIntervalDays: true },
     });

@@ -16,6 +16,7 @@ import { CommunicationsModule } from '../../api/src/modules/communications/commu
 import { ContractsModule } from '../../api/src/modules/contracts/contracts.module';
 import { CustomerEmailsModule } from '../../api/src/modules/customer-emails/customer-emails.module';
 import { DataRetentionModule } from '../../api/src/modules/data-retention/data-retention.module';
+import { SuspensionHoldsModule } from '../../api/src/modules/suspension-holds/suspension-holds.module';
 import { DatabaseModule } from '../../api/src/modules/database/database.module';
 import { DunningModule } from '../../api/src/modules/dunning/dunning.module';
 import { EmailModule } from '../../api/src/modules/email/email.module';
@@ -124,6 +125,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     FilesModule,
     SecurityEventsModule,
     DataRetentionModule,
+    SuspensionHoldsModule,
     EmailModule,
     QueuesModule,
     AuthModule,

@@ -1683,6 +1683,8 @@ model Invoice {
   withholdingAmount   Decimal           @default(0) @map("withholding_amount") @db.Decimal(12, 2)
   autoRetryCount      Int               @default(0) @map("auto_retry_count")
   autoRetryLastAt     DateTime?         @map("auto_retry_last_at") @db.Timestamptz(6)
+  /// Cobro automático retenido porque el tenant estaba suspendido; se intenta al reactivarse.
+  chargeHeldAt        DateTime?         @map("charge_held_at") @db.Timestamptz(6)
   currency            String            @default("EUR") @db.Char(3)
   pdfUrl              String?           @map("pdf_url")
   notes               String?
@@ -2861,6 +2863,8 @@ model Communication {
   errorMessage             String?                @map("error_message")
   retryCount               Int                    @default(0) @map("retry_count")
   scheduledFor             DateTime?              @map("scheduled_for") @db.Timestamptz(6)
+  /// Envío en espera porque el tenant estaba suspendido; sale al reactivarse (o se omite pasados 30 días).
+  heldAt                   DateTime?              @map("held_at") @db.Timestamptz(6)
   sentAt                   DateTime?              @map("sent_at") @db.Timestamptz(6)
   deliveredAt              DateTime?              @map("delivered_at") @db.Timestamptz(6)
   failedAt                 DateTime?              @map("failed_at") @db.Timestamptz(6)

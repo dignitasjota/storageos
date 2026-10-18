@@ -52,7 +52,9 @@ export class BillingJobsService {
     const tenants = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
-        status: { in: ['trial', 'active'] },
+        // Un tenant suspendido sigue facturando a sus inquilinos (no se pierde
+        // ningún mes); lo que no se hace es cobrarles ni escribirles.
+        status: { in: ['trial', 'active', 'suspended'] },
       },
       select: { id: true, slug: true },
     });

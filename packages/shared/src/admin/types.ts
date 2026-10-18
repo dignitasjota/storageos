@@ -1224,6 +1224,8 @@ export interface TenantBillingStatusDto {
   suspendedFeatures: string[];
   /** Cuenta suspendida: el panel queda en solo lectura y los inquilinos no entran al área de clientes. */
   suspended: boolean;
+  /** Con la cuenta suspendida: lo que sus inquilinos deben y no se les cobra hasta que pague (€). */
+  heldAmount: number;
   /** Hay algo pendiente de pagar (plan o algún add-on). */
   hasIssue: boolean;
 }

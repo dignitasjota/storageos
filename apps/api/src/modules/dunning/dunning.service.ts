@@ -83,6 +83,14 @@ export class DunningService {
    * desde el cron diario 06:00 UTC.
    */
   async dailyTick(): Promise<void> {
+    // Tenant suspendido: el reloj de los impagos de sus inquilinos se para (cada
+    // día se aplazan sus acciones un día, conservando el espacio entre ellas).
+    // Al reactivarse sigue donde estaba, sin disparar todo de golpe.
+    await this.admin.$executeRaw`
+      UPDATE dunning_actions
+         SET scheduled_for = scheduled_for + interval '1 day'
+       WHERE status = 'scheduled'
+         AND tenant_id IN (SELECT id FROM tenants WHERE status = 'suspended')`;
     const justOverdue = await this.admin.invoice.findMany({
       where: {
         status: 'issued',
@@ -219,6 +227,7 @@ export class DunningService {
       where: {
         status: 'scheduled',
         scheduledFor: { lte: new Date() },
+        tenant: { status: { not: 'suspended' } },
       },
       select: { id: true, tenantId: true },
       take: 200,
