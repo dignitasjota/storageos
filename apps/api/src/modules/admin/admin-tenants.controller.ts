@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -29,6 +30,8 @@ import {
   SetTenantFeaturesSchema,
   type AdminTenantHealthDto,
   type AdminTenantSummaryDto,
+  type AdminTimelineKind,
+  type AdminTimelinePageDto,
   type AdminTenantInvoicingDto,
   type AdminTenantUnitDto,
   type AdminChangePlanPreviewDto,
@@ -66,6 +69,7 @@ import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { AdminTenantSummaryService } from './admin-tenant-summary.service';
+import { AdminTenantTimelineService } from './admin-tenant-timeline.service';
 import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
@@ -119,6 +123,7 @@ export class AdminTenantsController {
     private readonly config: AdminTenantConfigService,
     private readonly dataExporter: TenantDataExportService,
     private readonly summaryService: AdminTenantSummaryService,
+    private readonly timelineService: AdminTenantTimelineService,
   ) {}
 
   /** Edita datos básicos y fiscales del tenant (salen en sus facturas de suscripción). */
@@ -645,6 +650,38 @@ export class AdminTenantsController {
   @Get(':id')
   async detail(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantDto> {
     return this.tenants.detail(id);
+  }
+
+  /** Historial unificado del tenant (paginado por fecha: `before` = ISO). */
+  @Get(':id/timeline')
+  timeline(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('before') before?: string,
+    @Query('limit') limit?: string,
+    @Query('kinds') kinds?: string,
+  ): Promise<AdminTimelinePageDto> {
+    const beforeDate = before ? new Date(before) : undefined;
+    if (beforeDate && Number.isNaN(beforeDate.getTime())) {
+      throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
+    }
+    const allowed = new Set<AdminTimelineKind>([
+      'interaction',
+      'admin_action',
+      'impersonation',
+      'payment',
+      'invoice',
+      'ticket',
+      'email',
+      'followup',
+    ]);
+    const kindList = (kinds ?? '')
+      .split(',')
+      .filter((k): k is AdminTimelineKind => allowed.has(k as AdminTimelineKind));
+    return this.timelineService.page(id, {
+      ...(beforeDate ? { before: beforeDate } : {}),
+      ...(limit ? { limit: Number(limit) || 40 } : {}),
+      ...(kindList.length ? { kinds: kindList } : {}),
+    });
   }
 
   /** Resumen de un vistazo para la cabecera de la ficha del tenant. */

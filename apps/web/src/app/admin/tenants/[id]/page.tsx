@@ -34,6 +34,7 @@ import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
 import { TenantNotesCard } from './tenant-notes-card';
 import { TenantSummaryCard } from './tenant-summary-card';
+import { TenantTimelineCard } from './tenant-timeline-card';
 import { TenantUsersDialog } from './tenant-users-dialog';
 import { WhatsappAiCard } from './whatsapp-ai-card';
 
@@ -247,6 +248,7 @@ export default function AdminTenantDetailPage() {
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="timeline">Historial</TabsTrigger>
           <TabsTrigger value="config">Configuración</TabsTrigger>
           <TabsTrigger value="payments">Pagos</TabsTrigger>
           <TabsTrigger value="conversations">Conversaciones</TabsTrigger>
@@ -388,6 +390,10 @@ export default function AdminTenantDetailPage() {
             <WhatsappAiCard tenantId={id} />
             <TenantNotesCard tenantId={id} />
           </div>
+        </TabsContent>
+
+        <TabsContent value="timeline" className="mt-4">
+          <TenantTimelineCard tenantId={id} />
         </TabsContent>
 
         <TabsContent value="payments" className="mt-4 space-y-4">
