@@ -74,6 +74,19 @@ export class FirstInvoiceService {
       const series = await this.series.getDefault(tenantId);
       if (!series) {
         this.logger.warn(`[first-invoice] tenant ${tenantId} sin serie; no se emite 1ª factura`);
+        // Sin factura el inquilino no puede pagar y la reserva caducaría sola:
+        // se avisa al equipo para que cree la serie y emita la factura.
+        await this.admin.notification
+          .create({
+            data: {
+              tenantId,
+              type: 'invoice.first_invoice_missing_series',
+              title: 'No se pudo emitir la primera factura',
+              body: 'Hay un contrato nuevo sin su primera factura porque no tienes una serie de facturación por defecto. Crea la serie en Configuración → Facturación y emite la factura desde el contrato; si no, el inquilino no puede pagar.',
+              link: `/contracts/${contractId}`,
+            },
+          })
+          .catch(() => undefined);
         return;
       }
       const contract = await this.admin.contract.findUniqueOrThrow({

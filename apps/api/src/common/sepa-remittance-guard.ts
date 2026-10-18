@@ -22,3 +22,24 @@ export async function assertNotInSepaRemittance(
     });
   }
 }
+
+/**
+ * Filtro Prisma de facturas que NO tienen un cobro en marcha: ni un pago por
+ * pasarela en curso (`pending`/`processing`, p. ej. un adeudo SEPA que liquida
+ * en días) ni un adeudo en una remesa SEPA sin confirmar. Lo usan el control de
+ * impagos y la caducidad de las reservas online para no reclamar, recargar,
+ * cortar el acceso ni cancelar algo que el inquilino ya está pagando.
+ */
+export const NO_PAYMENT_IN_FLIGHT = {
+  payments: { none: { status: { in: ['pending', 'processing'] } } },
+  sepaRemittanceItems: { none: { status: 'pending' } },
+} satisfies Prisma.InvoiceWhereInput;
+
+/** ¿Tiene la factura un cobro en marcha (pasarela en curso o remesa SEPA pendiente)? */
+export async function hasPaymentInFlight(
+  db: Pick<Prisma.TransactionClient, 'invoice'>,
+  invoiceId: string,
+): Promise<boolean> {
+  const settled = await db.invoice.count({ where: { id: invoiceId, ...NO_PAYMENT_IN_FLIGHT } });
+  return settled === 0;
+}

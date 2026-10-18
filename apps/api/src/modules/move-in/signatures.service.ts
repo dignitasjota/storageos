@@ -20,6 +20,7 @@ import {
 } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
+import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -637,6 +638,20 @@ export class SignaturesService {
         });
         continue;
       }
+      // Pago en marcha (adeudo SEPA que liquida en días, remesa sin confirmar):
+      // no se cancela. Se vuelve a mirar en la siguiente pasada; si el cobro
+      // falla, la reserva caduca entonces.
+      const inFlight = await this.admin.invoice.count({
+        where: {
+          tenantId: c.tenantId,
+          contractId: c.id,
+          kind: 'invoice',
+          status: { in: ['issued', 'overdue'] },
+          deletedAt: null,
+          NOT: NO_PAYMENT_IN_FLIGHT,
+        },
+      });
+      if (inFlight > 0) continue;
       try {
         await this.contracts.cancel({
           tenantId: c.tenantId,
