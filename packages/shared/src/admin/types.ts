@@ -1222,6 +1222,8 @@ export interface TenantBillingStatusDto {
   suspendedAddons: { name: string; feature: string | null }[];
   /** Features desactivadas por un add-on suspendido (para el FeatureGate). */
   suspendedFeatures: string[];
+  /** Cuenta suspendida: el panel queda en solo lectura y los inquilinos no entran al área de clientes. */
+  suspended: boolean;
   /** Hay algo pendiente de pagar (plan o algún add-on). */
   hasIssue: boolean;
 }
