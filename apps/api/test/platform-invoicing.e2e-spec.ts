@@ -1,4 +1,7 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
+
+import { BillingSaasService } from '../src/modules/billing-saas/billing-saas.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { cleanupSuperAdmins, seedSuperAdmin } from './helpers/super-admin';
@@ -16,6 +19,15 @@ describe('Facturación del SaaS (e2e)', () => {
   let app: INestApplication;
   let auth: { Authorization: string };
   let tenantId: string;
+  const prisma = new PrismaClient({
+    datasources: {
+      db: {
+        url:
+          process.env.DATABASE_ADMIN_URL ??
+          'postgresql://storageos:storageos@localhost:5433/storageos?schema=public',
+      },
+    },
+  });
 
   beforeAll(async () => {
     await cleanupSuperAdmins();
@@ -33,6 +45,7 @@ describe('Facturación del SaaS (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.$disconnect();
     await app.close();
     await cleanupSuperAdmins();
     await cleanupTestTenants();
@@ -88,6 +101,43 @@ describe('Facturación del SaaS (e2e)', () => {
       .get(`/admin/tenants/${tenantId}/platform-invoices`)
       .set(auth);
     expect(after.body.length).toBe(1);
+  });
+
+  it('un cobro de Stripe que falló y luego se cobra también lleva factura', async () => {
+    const billing = app.get(BillingSaasService, { strict: false });
+    const stamp = Date.now();
+    const cus = `cus_rec_${stamp}`;
+    await prisma.tenantSubscription.update({
+      where: { tenantId },
+      data: { stripeCustomerId: cus },
+    });
+    const invoiceId = `in_rec_${stamp}`;
+    await billing.recordInvoicePaymentFailed({
+      id: invoiceId,
+      customer: cus,
+      currency: 'eur',
+      amount_due: 12100,
+      metadata: { tenantId },
+      lines: { data: [] },
+    } as unknown as Parameters<typeof billing.recordInvoicePaymentFailed>[0]);
+    await billing.recordStripeInvoiceFromWebhook({
+      id: invoiceId,
+      customer: cus,
+      currency: 'eur',
+      status: 'paid',
+      amount_paid: 12100,
+      metadata: { tenantId },
+      lines: { data: [] },
+      status_transitions: { paid_at: Math.floor(Date.now() / 1000) },
+    } as unknown as Parameters<typeof billing.recordStripeInvoiceFromWebhook>[0]);
+
+    const payment = await prisma.tenantSubscriptionPayment.findFirstOrThrow({
+      where: { externalId: invoiceId },
+    });
+    expect(payment.status).toBe('paid');
+    const invoice = await prisma.platformInvoice.findUnique({ where: { paymentId: payment.id } });
+    expect(invoice).not.toBeNull();
+    expect(Number(invoice!.total)).toBe(121);
   });
 
   it('sin facturación activada no emite pero se puede emitir a mano', async () => {

@@ -604,7 +604,13 @@ export class SaasAddonsService {
         billingMode: { not: 'stripe' }, // manual (o legacy null); los de Stripe no
         suspendedAt: null,
         nextChargeAt: { lt: cutoff },
-        tenant: { deletedAt: null, billingExempt: false },
+        // Con la cuota domiciliada por SEPA los extras van en la misma remesa:
+        // su impago es el de la suscripción (lo lleva el cobro de morosos).
+        tenant: {
+          deletedAt: null,
+          billingExempt: false,
+          NOT: { subscription: { billingMode: 'sepa' } },
+        },
       },
       select: { id: true, tenantId: true },
     });
