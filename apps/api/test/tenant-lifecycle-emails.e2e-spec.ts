@@ -125,4 +125,55 @@ describe('Tenant lifecycle emails (e2e)', () => {
     const noAuth = await request(app.getHttpServer()).post('/admin/tenant-lifecycle/run');
     expect(noAuth.status).toBe(401);
   });
+
+  it('una prueba vencida sin pagar pasa al plan Free (y una pagada solo sale de prueba)', async () => {
+    const auth = { Authorization: `Bearer ${token}` };
+    const unpaid = await registerVerifiedUser(app, 'lifecycle-expired');
+    const paid = await registerVerifiedUser(app, 'lifecycle-paid');
+    const past = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    for (const t of [unpaid, paid]) {
+      await adminClient.tenant.update({
+        where: { id: t.tenantId },
+        data: { status: 'trial', trialEndsAt: past },
+      });
+    }
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: paid.tenantId },
+      data: { status: 'active' },
+    });
+
+    const run = await request(app.getHttpServer()).post('/admin/tenant-lifecycle/run').set(auth);
+    expect(run.status).toBe(200);
+    expect(run.body.trialsEnded).toBeGreaterThanOrEqual(2);
+
+    const a = await adminClient.tenant.findUniqueOrThrow({
+      where: { id: unpaid.tenantId },
+      include: { subscription: { include: { plan: true } } },
+    });
+    expect(a.status).toBe('active');
+    expect(a.trialEndsAt).toBeNull();
+    expect(a.subscription?.plan.slug).toBe('free');
+    expect(a.subscription?.status).toBe('active');
+    expect(
+      await adminClient.tenantLifecycleEmail.count({
+        where: { tenantId: unpaid.tenantId, type: 'trial_ended' },
+      }),
+    ).toBe(1);
+
+    const b = await adminClient.tenant.findUniqueOrThrow({
+      where: { id: paid.tenantId },
+      include: { subscription: { include: { plan: true } } },
+    });
+    expect(b.status).toBe('active');
+    expect(b.subscription?.plan.slug).toBe('starter');
+
+    // Una segunda ejecución no vuelve a tocarlas.
+    const run2 = await request(app.getHttpServer()).post('/admin/tenant-lifecycle/run').set(auth);
+    expect(
+      await adminClient.tenantLifecycleEmail.count({
+        where: { tenantId: unpaid.tenantId, type: 'trial_ended' },
+      }),
+    ).toBe(1);
+    expect(run2.status).toBe(200);
+  });
 });

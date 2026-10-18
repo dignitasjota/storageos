@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 
+import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
@@ -51,6 +52,7 @@ export class TenantLifecycleEmailsService {
     private readonly admin: PrismaAdminService,
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
     config: ConfigService<Env, true>,
+    private readonly audit: AuditService,
   ) {
     this.billingUrl = `${config.get('WEB_BASE_URL', { infer: true })}/settings/saas-billing`;
   }
@@ -63,8 +65,15 @@ export class TenantLifecycleEmailsService {
    */
   async run(): Promise<TenantLifecycleRunResultDto> {
     const settings = await this.admin.platformAlertSettings.findFirst();
-    const result: TenantLifecycleRunResultDto = { welcome: 0, trialReminders: 0, pastDue: 0 };
-    if (!settings || !settings.lifecycleEnabled) return result;
+    const emailsOn = !!settings?.lifecycleEnabled;
+    const result: TenantLifecycleRunResultDto = {
+      welcome: 0,
+      trialReminders: 0,
+      pastDue: 0,
+      // La prueba vence aunque los correos estén apagados.
+      trialsEnded: await this.expireTrials(emailsOn && !!settings?.sendTrialReminders),
+    };
+    if (!settings || !emailsOn) return result;
 
     if (settings.sendWelcome) result.welcome = await this.runWelcome();
     if (settings.sendTrialReminders) result.trialReminders = await this.runTrialReminders();
@@ -76,6 +85,70 @@ export class TenantLifecycleEmailsService {
       );
     }
     return result;
+  }
+
+  /**
+   * Pruebas vencidas sin pagar: pasan al plan Free (como «Finalizar prueba» del
+   * panel admin). El tenant sigue entrando y conserva sus datos, pero pierde las
+   * funciones de pago hasta que contrate un plan. Una prueba que ya pagó (su
+   * suscripción está activa) solo sale de `trial`.
+   */
+  async expireTrials(sendEmail: boolean, now = new Date()): Promise<number> {
+    const tenants = await this.admin.tenant.findMany({
+      where: {
+        deletedAt: null,
+        billingExempt: false,
+        status: 'trial',
+        trialEndsAt: { lt: now },
+      },
+      select: {
+        id: true,
+        name: true,
+        subscription: { select: { status: true, plan: { select: { slug: true } } } },
+      },
+      take: 500,
+    });
+    if (tenants.length === 0) return 0;
+    const freePlan = await this.admin.subscriptionPlan.findFirst({ where: { slug: 'free' } });
+    let ended = 0;
+    for (const t of tenants) {
+      const paid = t.subscription?.status === 'active';
+      // Solo la primera ejecución cambia el estado (otra réplica ve count 0).
+      const { count } = await this.admin.tenant.updateMany({
+        where: { id: t.id, status: 'trial' },
+        data: { status: 'active', trialEndsAt: null },
+      });
+      if (count === 0) continue;
+      if (!paid && freePlan) {
+        await this.admin.tenantSubscription.updateMany({
+          where: { tenantId: t.id },
+          data: { planId: freePlan.id, status: 'active' },
+        });
+      }
+      ended += 1;
+      await this.audit
+        .write({
+          tenantId: t.id,
+          userId: null,
+          action: 'tenant.trial_expired',
+          entityType: 'Tenant',
+          entityId: t.id,
+          changes: {
+            previousPlan: t.subscription?.plan.slug ?? null,
+            newPlan: paid ? (t.subscription?.plan.slug ?? null) : 'free',
+          },
+          ipAddress: null,
+          userAgent: null,
+        })
+        .catch(() => undefined);
+      if (sendEmail && !paid) {
+        await this.dispatch(t.id, 'trial_ended', this.trialEndedTemplate(t.name)).catch(
+          () => false,
+        );
+      }
+    }
+    if (ended > 0) this.logger.log(`tenant-lifecycle: ${ended} pruebas vencidas pasan a Free`);
+    return ended;
   }
 
   /** Bienvenida a tenants dados de alta en las últimas 48h, sin email previo. */
@@ -237,6 +310,24 @@ export class TenantLifecycleEmailsService {
       subject: `Tu prueba de TrasterOS termina en ${daysLabel}`,
       ...renderEmail(body),
     };
+  }
+
+  private trialEndedTemplate(tenantName: string): EmailTemplate {
+    const body = [
+      `Hola, ${tenantName}:`,
+      '',
+      'Tu periodo de prueba de TrasterOS ha terminado y tu cuenta ha pasado al plan gratuito.',
+      'Tus datos siguen ahí y puedes seguir entrando, pero las funciones de pago quedan',
+      'desactivadas hasta que contrates un plan:',
+      '',
+      this.billingUrl,
+      '',
+      '¿Necesitas más tiempo para probar? Responde a este correo y lo vemos.',
+      '',
+      'Un saludo,',
+      'El equipo de TrasterOS',
+    ].join('\n');
+    return { subject: 'Tu prueba de TrasterOS ha terminado', ...renderEmail(body) };
   }
 
   private pastDueTemplate(tenantName: string): EmailTemplate {

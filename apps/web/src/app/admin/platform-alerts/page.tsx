@@ -104,11 +104,14 @@ export default function PlatformAlertsPage() {
     try {
       const res = await runLifecycle.mutateAsync();
       const total = res.welcome + res.trialReminders + res.pastDue;
+      if (res.trialsEnded > 0) {
+        toast.info(`${res.trialsEnded} pruebas vencidas han pasado al plan Free.`);
+      }
       if (total > 0) {
         toast.success(
           `Emails encolados: ${res.welcome} bienvenida, ${res.trialReminders} trial, ${res.pastDue} pago fallido.`,
         );
-      } else {
+      } else if (res.trialsEnded === 0) {
         toast.info('No hay emails de ciclo de vida pendientes ahora mismo.');
       }
     } catch (err) {

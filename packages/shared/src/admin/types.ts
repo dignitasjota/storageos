@@ -788,6 +788,8 @@ export interface TenantLifecycleRunResultDto {
   welcome: number;
   trialReminders: number;
   pastDue: number;
+  /** Pruebas vencidas que han pasado al plan Free en esta ejecución. */
+  trialsEnded: number;
 }
 
 /** Una sesión de impersonación (super admin entrando como un tenant). */

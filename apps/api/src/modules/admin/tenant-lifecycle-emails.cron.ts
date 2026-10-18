@@ -26,9 +26,9 @@ export class TenantLifecycleEmailsCron {
       // Con varias réplicas del API, solo una debe disparar los emails del día.
       if (!(await claimDailyCronRun(this.admin, 'tenant-lifecycle.daily'))) return;
       const res = await this.lifecycle.run();
-      if (res.welcome + res.trialReminders + res.pastDue > 0) {
+      if (res.welcome + res.trialReminders + res.pastDue + res.trialsEnded > 0) {
         this.logger.log(
-          `tenant-lifecycle.daily: welcome=${res.welcome}, trial=${res.trialReminders}, pastDue=${res.pastDue}`,
+          `tenant-lifecycle.daily: welcome=${res.welcome}, trial=${res.trialReminders}, pastDue=${res.pastDue}, trialsEnded=${res.trialsEnded}`,
         );
       }
     } catch (err) {
