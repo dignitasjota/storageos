@@ -1,6 +1,11 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  SUSPENSION_NOTICE_DAYS,
+  SUSPENSION_WEB_OFFLINE_DAYS,
+  suspensionDays,
+} from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { AuditService } from '../auth/audit.service';
@@ -72,7 +77,11 @@ export class TenantLifecycleEmailsService {
       pastDue: 0,
       // La prueba vence aunque los correos estén apagados.
       trialsEnded: await this.expireTrials(emailsOn && !!settings?.sendTrialReminders),
+      suspensionNotices: 0,
     };
+    // Avisos de suspensión: siempre (son los que hacen que pague), aunque el
+    // resto de correos de ciclo de vida estén apagados.
+    result.suspensionNotices = await this.runSuspensionNotices();
     if (!settings || !emailsOn) return result;
 
     if (settings.sendWelcome) result.welcome = await this.runWelcome();
@@ -149,6 +158,99 @@ export class TenantLifecycleEmailsService {
     }
     if (ended > 0) this.logger.log(`tenant-lifecycle: ${ended} pruebas vencidas pasan a Free`);
     return ended;
+  }
+
+  /**
+   * Tenant suspendido: avisos al propietario el día de la suspensión, a los 7 y
+   * a los 14 días (el último, que mañana deja de verse su web). Uno por hito y
+   * episodio (`suspension_d<días>:<fecha de suspensión>`); si el cron no corrió
+   * un día, solo se manda el hito más reciente alcanzado.
+   */
+  async runSuspensionNotices(now = new Date()): Promise<number> {
+    const tenants = await this.admin.tenant.findMany({
+      where: { deletedAt: null, billingExempt: false, status: 'suspended' },
+      select: { id: true, name: true, canceledAt: true, updatedAt: true },
+      take: 500,
+    });
+    let count = 0;
+    for (const t of tenants) {
+      const since = t.canceledAt ?? t.updatedAt;
+      const days = suspensionDays(since, now);
+      const milestone = [...SUSPENSION_NOTICE_DAYS].reverse().find((d) => days >= d);
+      if (milestone === undefined) continue;
+      const type = `suspension_d${milestone}:${since.toISOString().slice(0, 10)}`;
+      const sent = await this.admin.tenantLifecycleEmail.findUnique({
+        where: { tenantId_type: { tenantId: t.id, type } },
+        select: { id: true },
+      });
+      if (sent) continue;
+      const held = await this.heldAmount(t.id);
+      if (await this.dispatch(t.id, type, this.suspensionTemplate(t.name, milestone, held))) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  /** Lo que sus inquilinos deben y no se les está cobrando (€). */
+  private async heldAmount(tenantId: string): Promise<number> {
+    const agg = await this.admin.invoice.aggregate({
+      where: {
+        tenantId,
+        kind: 'invoice',
+        deletedAt: null,
+        status: { in: ['issued', 'overdue'] },
+        total: { gt: 0 },
+      },
+      _sum: { total: true, amountPaid: true, amountRefunded: true },
+    });
+    const cents = (v: unknown) => Math.round(Number(v ?? 0) * 100);
+    return (
+      Math.max(
+        0,
+        cents(agg._sum.total) - cents(agg._sum.amountPaid) - cents(agg._sum.amountRefunded),
+      ) / 100
+    );
+  }
+
+  private suspensionTemplate(tenantName: string, day: number, held: number): EmailTemplate {
+    const money = held.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+    const offlineIn = SUSPENSION_WEB_OFFLINE_DAYS - day;
+    const subject =
+      day === 0
+        ? `Tu cuenta de TrasterOS está suspendida (${tenantName})`
+        : day >= SUSPENSION_WEB_OFFLINE_DAYS - 1
+          ? `Mañana tu web dejará de verse (${tenantName})`
+          : `Tu cuenta sigue suspendida: ${money} sin cobrar a tus inquilinos`;
+    const lines = [
+      `Hola,`,
+      ``,
+      day === 0
+        ? `La cuenta de ${tenantName} en TrasterOS se ha suspendido por un pago pendiente de la suscripción.`
+        : `La cuenta de ${tenantName} lleva ${day} días suspendida por un pago pendiente de la suscripción.`,
+      ``,
+      `Mientras no se regularice:`,
+      `• El panel está en solo lectura: puedes consultar, pero no trabajar.`,
+      held > 0
+        ? `• No se cobra a tus inquilinos: tienes ${money} retenidos.`
+        : `• No se cobra a tus inquilinos.`,
+      `• Los correos a tus inquilinos (facturas, avisos) están en espera.`,
+      `• Tus inquilinos no pueden entrar a su área de clientes ni reservar online.`,
+      offlineIn > 1
+        ? `• Dentro de ${offlineIn} días tu web pública dejará de verse.`
+        : offlineIn === 1
+          ? `• Mañana tu web pública dejará de verse.`
+          : `• Tu web pública ya no se ve.`,
+      ``,
+      `Tus inquilinos siguen pudiendo entrar a sus trasteros: el acceso no se corta.`,
+      ``,
+      `Al pagar, todo vuelve solo: se reactiva el panel, se cobran los recibos retenidos y salen los correos en espera.`,
+      ``,
+      `Pagar y reactivar: ${this.billingUrl}`,
+      ``,
+      `El equipo de TrasterOS`,
+    ];
+    return { subject, ...renderEmail(lines.join('\n')) };
   }
 
   /** Bienvenida a tenants dados de alta en las últimas 48h, sin email previo. */

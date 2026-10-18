@@ -156,7 +156,33 @@ export function PortalLoginClient({
             <CardDescription>{t('subtitle')}</CardDescription>
           </CardHeader>
           <CardContent>
-            {sent ? (
+            {brand?.portalUnavailable ? (
+              <div className="space-y-3 text-center text-sm">
+                <p className="font-medium">{t('unavailableTitle')}</p>
+                <p className="text-muted-foreground">
+                  {t('unavailableBody', { tenantName: brand.tenantName })}
+                </p>
+                {(brand.contactPhone || brand.contactEmail) && (
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground">{t('unavailableContact')}</p>
+                    {brand.contactPhone && (
+                      <p>
+                        <a className="font-medium underline" href={`tel:${brand.contactPhone}`}>
+                          {brand.contactPhone}
+                        </a>
+                      </p>
+                    )}
+                    {brand.contactEmail && (
+                      <p>
+                        <a className="font-medium underline" href={`mailto:${brand.contactEmail}`}>
+                          {brand.contactEmail}
+                        </a>
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : sent ? (
               <div className="space-y-3 text-center text-sm">
                 <p>{t('sentTo', { email })}</p>
                 <p className="text-muted-foreground">{t('sentExpiry')}</p>

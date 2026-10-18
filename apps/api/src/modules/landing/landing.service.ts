@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  SUSPENSION_WEB_OFFLINE_DAYS,
+  suspensionDays,
   cityPages,
   couponSummary,
   effectiveFeaturesFromList,
@@ -498,6 +500,11 @@ export class LandingService {
    * del inquilino para verse con el aspecto white-label del tenant. El color y el
    * logo NO se gatean por `web_premium` (son parte del white-label base).
    */
+  /** Suspendido desde hace 15 días o más: su web deja de verse. */
+  private webOffline(t: { canceledAt: Date | null; updatedAt: Date }): boolean {
+    return suspensionDays(t.canceledAt ?? t.updatedAt) >= SUSPENSION_WEB_OFFLINE_DAYS;
+  }
+
   async getBrand(slug: string): Promise<PublicTenantBrandDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { slug },
@@ -508,12 +515,33 @@ export class LandingService {
         portalLogoUrl: true,
         webFaviconKey: true,
         deletedAt: true,
+        id: true,
+        status: true,
+        canceledAt: true,
+        updatedAt: true,
       },
     });
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
+    const suspended = tenant.status === 'suspended';
+    const contact = suspended
+      ? await this.admin.facility.findFirst({
+          where: {
+            tenantId: tenant.id,
+            deletedAt: null,
+            isActive: true,
+            OR: [{ contactPhone: { not: null } }, { contactEmail: { not: null } }],
+          },
+          select: { contactPhone: true, contactEmail: true },
+          orderBy: { createdAt: 'asc' },
+        })
+      : null;
     return {
+      portalUnavailable: suspended,
+      webUnavailable: suspended && this.webOffline(tenant),
+      contactPhone: contact?.contactPhone ?? null,
+      contactEmail: contact?.contactEmail ?? null,
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
       brandColor: tenant.portalBrandColor,
@@ -591,11 +619,20 @@ export class LandingService {
   async getExternalSite(slug: string): Promise<ExternalSiteDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { slug },
-      select: { id: true, webTemplate: true, externalSiteUrl: true, deletedAt: true },
+      select: {
+        id: true,
+        webTemplate: true,
+        externalSiteUrl: true,
+        deletedAt: true,
+        status: true,
+        canceledAt: true,
+        updatedAt: true,
+      },
     });
     if (
       !tenant ||
       tenant.deletedAt ||
+      (tenant.status === 'suspended' && this.webOffline(tenant)) ||
       tenant.webTemplate !== 'external' ||
       !tenant.externalSiteUrl
     ) {

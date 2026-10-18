@@ -790,6 +790,8 @@ export interface TenantLifecycleRunResultDto {
   pastDue: number;
   /** Pruebas vencidas que han pasado al plan Free en esta ejecución. */
   trialsEnded: number;
+  /** Avisos de cuenta suspendida enviados (días 0, 7 y 14). */
+  suspensionNotices: number;
 }
 
 /** Una sesión de impersonación (super admin entrando como un tenant). */

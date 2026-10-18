@@ -26,7 +26,10 @@
       "genericError": "Error",
       "wrongCredentials": "Email o contraseña incorrectos",
       "missingFields": "Indica la empresa y el email.",
-      "forgotSuccess": "Si ese email es el de un cliente, te hemos enviado un enlace para crear o cambiar tu contraseña. Revisa también la carpeta de spam."
+      "forgotSuccess": "Si ese email es el de un cliente, te hemos enviado un enlace para crear o cambiar tu contraseña. Revisa también la carpeta de spam.",
+      "unavailableTitle": "Área de clientes desactivada temporalmente",
+      "unavailableBody": "El área de clientes de {tenantName} no está disponible ahora mismo. Tu acceso a los trasteros sigue funcionando con normalidad.",
+      "unavailableContact": "Para cualquier gestión, contacta directamente con el negocio:"
     },
     "reset": {
       "title": "Nueva contraseña",
