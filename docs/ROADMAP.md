@@ -703,3 +703,29 @@ Segunda pasada a las webs de los tenants (plantillas, landings, reserva, firma, 
 - ✅ **#710** — interruptor de preguntas frecuentes, sitemap con inglés/landings/`lastmod` por entrada y 5xx (no 404) si el API cae.
 - ✅ **#711** — fotos redimensionadas y en AVIF/WebP (`MINIO_PUBLIC_URL` como argumento de build del web).
 - ✅ **#712** — páginas por ciudad `/trasteros-en-<ciudad>` para negocios con varios locales.
+
+### Revisión del portal del inquilino (2026-10-17, #714) ✅
+
+- ✅ La web descartaba el `code` de los errores del API (`apiFetch` y el cliente admin): ninguna comprobación por código funcionaba (avisos de método de pago, trastero repetido, 2FA…).
+- ✅ Portal: lo pendiente con retención de IRPF, fecha local al contratar un trastero adicional, aviso al equipo al anular la baja o aceptar una oferta de retención, vuelta de GoCardless sin el token en la URL, sesión que deja de valer con el negocio suspendido, cambiar la contraseña pide la actual, IVA real (vivienda 0 %) en «Contratar trastero» y lista de espera.
+
+### Revisión del panel del tenant (2026-10-18, #715–#716) ✅
+
+- ✅ La lista de trasteros se cortaba en 50 (trasteros, local, editor y visor de planos, alta de contrato, traslado).
+- ✅ Alcance por local en búsqueda, calendario, «Hoy», impagos, tareas, incidencias, gastos, mantenimiento y solicitudes; el selector de local de la cabecera filtra ya facturas, pagos, caja, tareas, incidencias, gastos, accesos, impagos, lista de espera, solicitudes, renovaciones, mantenimiento, calendario y «Hoy».
+- ✅ Fianza prerrellenada desde el tipo de trastero, fechas locales y botones de la ficha de factura según el caso.
+
+### Listas paginadas del panel (2026-10-18, #717) ✅
+
+- ✅ Inquilinos, contratos, facturas, pagos, contactos, tareas, incidencias y gastos con «Cargar más» y búsqueda en el servidor; los desplegables de inquilino buscan en el servidor (antes solo ofrecían los 50-100 primeros).
+
+### Revisión y mejoras del panel super admin (2026-10-18, #718–#725) ✅
+
+- ✅ **#718** — el rol soporte ya no toca cobros ni configuración global; los cambios del admin quedan auditados (solo nombres de campos).
+- ✅ **#719** — la impersonación entra de verdad en el panel del tenant (antes no funcionaba), en **solo lectura** por defecto, con banner y «Salir de la sesión de soporte».
+- ✅ **#720** — diálogos propios en vez de los del navegador; «Hoy» con los seguimientos de hoy o vencidos y la espera de los tickets desde la última respuesta del cliente; botones prohibidos ocultos para soporte.
+- ✅ **#721** — página de notificaciones, resumen del tenant en la cabecera de su ficha y exportar CSV en Tenants, Salud y Adopción.
+- ✅ **#722** — pestaña «Historial» del tenant (conversaciones, acciones del admin, impersonaciones, pagos, facturas, tickets, correos y seguimientos en una línea de tiempo).
+- ✅ **#723** — selección múltiple en Tenants: etiquetar, ampliar la prueba y enviar un correo a los seleccionados.
+- ✅ **#724** — avisos por Telegram y Slack: lo urgente de «Hoy» cada mañana y el resumen semanal.
+- ✅ **#725** — cola de aprobación: soporte pide la acción con su motivo y el super admin la aprueba en «Hoy» (se aplica tal cual) o la rechaza.

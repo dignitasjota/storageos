@@ -753,7 +753,7 @@ Variable de entorno booleana (default `true`).
 - `tenants.transfer_iban` (2026-10-04, migración `20261004100000_tenant_transfer_iban`): IBAN para transferencias que sale en el correo de la factura cuando se paga a mano.
 - `contracts.booking_reminder_sent_at` (2026-10-04, migración `20261004120000_contract_booking_reminder`): recordatorio único de una reserva online enviada sin firmar o sin pagar.
 
-## 17. Novedades de octubre de 2026 (migraciones `20261007100000` → `20261022100000`)
+## 17. Novedades de octubre de 2026 (migraciones `20261007100000` → `20261029140000`)
 
 > Las tablas **globales** (sin `tenant_id` o leídas solo por el super admin) llevan `REVOKE ALL … FROM storageos_app`; las de tenant, RLS `tenant_isolation`.
 
@@ -825,3 +825,34 @@ Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la g
 - **`whatsapp_messages`**: `direction` in/out, `sender` contact/staff/assistant, `body`, `wa_message_id` (único: deduplica y casa los avisos de estado), `status`, `error`, `sent_by_user_id`, `ai_key_source` (platform/own: el límite mensual se cuenta con estas filas, por eso al anonimizar se vacían y no se borran); archivos: `media_type` (image/audio/video/document/sticker), `media_key` (bucket privado `uploads`, `<tenant>/whatsapp/<conversación>/…`), `media_mime`, `media_filename`, `media_size`.
 - **`platform_whatsapp_ai_settings`** (global, un registro, REVOKE): IA de WhatsApp de la plataforma — proveedor (anthropic/openai/minimax/openai_compatible), modelo, URL, clave cifrada (AAD `platform-whatsapp-ai`), `monthly_reply_limit` (300), `enabled`.
 - **RGPD**: anonimizar a un inquilino o un tenant vacía sus mensajes, quita el número y borra sus archivos; la limpieza diaria borra las conversaciones sin movimiento en `RETENTION_WHATSAPP_DAYS` (365) y sus archivos.
+- **App de Meta propia** (`20261023100000_whatsapp_own_app`): `tenant_whatsapp_settings.app_secret_encrypted`, `webhook_verify_token_encrypted` y `webhook_verify_token_hash` (único) para números conectados con la app de Meta del propio tenant.
+
+### Cobro con tarjeta (`20261024100000` – `20261024140000`)
+
+- **`platform_payment_settings`** (global, un registro, REVOKE): `application_fee_pct` (comisión de la plataforma sobre los cobros con tarjeta por Stripe Connect, 2 % por defecto).
+- **`tenant_stripe_accounts`** (RLS, una por tenant): `stripe_account_id` (único), `charges_enabled`, `payouts_enabled`, `details_submitted`, `requirements_due`, `disabled_reason`.
+- `tenants.card_provider` (`redsys`|`stripe`, null = Redsys si está activo).
+- `payment_methods.stripe_account_id` y `network_txn_id` (pago por referencia de Redsys); `payments.stripe_account_id` + `application_fee_amount`.
+- `redsys_settings.card_on_file_enabled`, `redsys_orders.save_card`.
+
+### Cupones (`20261025100000` – `20261026100000`)
+
+- **`coupons`** (RLS): código, tipo (porcentaje / importe fijo / meses gratis con mínimo de meses), condiciones (tipos, locales, meses mínimos, importe mínimo, solo clientes nuevos, `once_per_customer`), fechas y usos.
+- **`coupon_redemptions`** (RLS): un uso por contrato.
+- `contracts.first_payment_months` (1, 3, 6 o 12; meses que cubre la primera factura).
+
+### Landings de promoción (`20261026120000` – `20261026140000`)
+
+- **`promo_landings`** (RLS): `/promo/<nombre>` con textos, foto, ventajas, condiciones, cupón opcional, locales y tamaños, secciones, fechas, SEO e `indexable` (false por defecto).
+- **`promo_landing_visits`** (RLS, sin datos personales): id aleatorio del navegador + UTM.
+- `marketing_channels.promo_landing_id` (FK SET NULL): enlaces y QR de cada origen.
+
+### Web del tenant (`20261027100000` – `20261028100000`)
+
+- `tenants.web_favicon_key` (favicon de la web pública) y `tenants.web_legal` (aviso legal, privacidad y cookies).
+
+### Panel super admin (`20261029100000` – `20261029140000`)
+
+- `impersonation_logs.read_only` (`20261029100000_impersonation_read_only`): la sesión de soporte solo puede leer; el token lleva rol `readonly`.
+- `platform_alert_settings` (`20261029120000_platform_chat_alerts`): `telegram_bot_token_encrypted`, `telegram_chat_id`, `slack_webhook_url_encrypted` (cifrados AES-GCM), `chat_daily_enabled`, `chat_weekly_enabled`.
+- **`admin_approval_requests`** (`20261029140000`, global, REVOKE): `tenant_id`, `requested_by_id`/`decided_by_id` (FK a `super_admins`, SET NULL), `action` (suspend, change_plan, extend_trial, manual_payment, set_features, update_tenant, assign_addon, remove_addon), `payload` jsonb (los mismos datos que el endpoint de cada acción), `reason`, `status` (pending/approved/rejected/failed), `decision_note`, `error`, `decided_at`.

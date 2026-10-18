@@ -1290,3 +1290,10 @@ Sin la variable todo funciona como antes (URL pública, con límite compartido).
 - El web se construye con **`MINIO_PUBLIC_URL`** como argumento de build (fotos optimizadas por `/_next/image`, solo de ese dominio). La variable ya existe en Portainer; basta con redesplegar el web con pull efectivo. Si las fotos de la web salen rotas, el build no la recibió.
 - Comprobar: pie de la web de un tenant con «Aviso legal · Privacidad · Cookies»; con GA4, el aviso de cookies y que Google no carga hasta aceptar; Configuración → Textos legales avisa si faltan NIF o domicilio (Suscripción → Datos de facturación).
 - `/l/en` en una plantilla propia, una ficha de local con el aspecto de su plantilla, `/trasteros-en-<ciudad>` en un tenant con varios locales y `/sitemap.xml` con las versiones en inglés y las landings indexables.
+
+## 28. Tras desplegar las mejoras del panel super admin (#718–#725)
+
+- **Migraciones** `20261029100000_impersonation_read_only`, `20261029120000_platform_chat_alerts` y `20261029140000_admin_approval_requests` (las aplica el api al arrancar). Redesplegar **api y web** con pull efectivo.
+- Comprobar con un super admin de rol `support`: los botones de cobros y configuración global aparecen desactivados y en la ficha de un tenant sale «Pedir aprobación»; la solicitud aparece en «Hoy» del super admin con Aprobar / Rechazar.
+- Impersonación: abrir un tenant → ⋮ → Impersonar (solo lectura marcado) → entra en el panel del tenant con el banner; «Salir de la sesión de soporte» vuelve a la pantalla de fin.
+- **Avisos por chat (opcional)**: panel admin → Comunicación → Alertas → «Avisos por Telegram y Slack». Telegram: crear un bot con @BotFather, añadirlo al grupo o canal y pegar su token y el id del chat. Slack: crear un webhook entrante y pegar su URL. «Enviar prueba» y activar el aviso diario y/o el resumen semanal. No necesita variables de entorno.
