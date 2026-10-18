@@ -2067,3 +2067,9 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `AvailableUnitDto.taxRate` y `PortalWaitlistDto.options[].unitTypes[].taxRate`: IVA del alquiler (21 % trastero, 0 % vivienda).
 - `POST /portal/me/unit-requests`: 404 si `facilityId`/`unitTypeId` no son del negocio.
 - Evento interno `domain.contract_move_out_cancelled` (anular la baja en el portal o aceptar una oferta de retención con la baja en curso) → notificación `contract.move_out_cancelled` al equipo.
+
+### Panel del tenant: alcance por local y filtro de la cabecera (2026-10-18)
+
+- `facilityId` (local elegido en el selector de la cabecera) en `GET /invoices`, `/payments`, `/collections`, `/contracts/renewals`, `/access/logs` (local del dispositivo), `/maintenance-plans`, `/unit-requests`, `/unit-change-requests` y `/calendar` (ya existía en tareas, incidencias, gastos, reservas y contratos). Un local fuera de los del usuario devuelve una lista vacía.
+- Respetan los locales del usuario (`facilityScope`): búsqueda global (contratos, trasteros y facturas; los inquilinos son de toda la empresa), calendario, `/dashboard/today`, `/dunning`, tareas, incidencias, gastos, mantenimiento y solicitudes/cambios de trastero. En lo que puede no tener local (tareas, incidencias, gastos, mantenimiento, solicitudes), sin local elegido se incluye lo de toda la empresa.
+- Permisos que faltaban: `/search` `customers:read`, `/calendar` `tasks:read`, `/dashboard/today` `contracts:read`, `/dashboard/onboarding` `settings:read`, `/dashboard/occupancy` `units:read`, `/dunning` `invoices:read` (los cuatro roles base ya los tienen).

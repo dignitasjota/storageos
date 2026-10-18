@@ -22,7 +22,7 @@ import {
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
-import { assertFacilityAllowed } from '../../common/facility-scope';
+import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
 import {
   addAmounts,
@@ -126,6 +126,8 @@ interface ListFilters {
   overdue?: boolean;
   /** Locales a los que el usuario está restringido; null/undefined = todos. */
   facilityScope?: string[] | null;
+  /** Local elegido en el selector de la cabecera. */
+  facilityId?: string;
 }
 
 /** Motivo de las rectificativas automáticas por reembolso. */
@@ -171,12 +173,9 @@ export class InvoicesService {
     // Alcance por local: un usuario restringido solo ve las facturas de contratos
     // de sus locales. Las facturas SIN contrato (F2/ventas de producto) no están
     // ancladas a un local → se incluyen (no son "la caja" de un local ajeno).
-    if (filters.facilityScope) {
-      where.OR = [
-        { contract: { unit: { facilityId: { in: filters.facilityScope } } } },
-        { contractId: null },
-      ];
-    }
+    const facility = invoiceFacilityWhere(filters.facilityScope, filters.facilityId);
+    if (!facility) return [];
+    Object.assign(where, facility);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.findMany({

@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
@@ -47,8 +48,14 @@ export class MaintenanceController {
 
   @RequirePermission('tasks:read')
   @Get()
-  list(@CurrentUser() user: AuthenticatedUser): Promise<MaintenancePlanDto[]> {
-    return this.service.list(user.tenantId);
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<MaintenancePlanDto[]> {
+    return this.service.list(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('tasks:manage')

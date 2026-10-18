@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { assertFacilityAllowed } from '../../common/facility-scope';
+import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
 import { AuditService } from '../auth/audit.service';
@@ -52,21 +52,21 @@ export class PaymentsService {
 
   async list(
     tenantId: string,
-    filters: { invoiceId?: string; customerId?: string; facilityScope?: string[] | null },
+    filters: {
+      invoiceId?: string;
+      customerId?: string;
+      facilityId?: string;
+      facilityScope?: string[] | null;
+    },
   ): Promise<PaymentDto[]> {
     const where: Prisma.PaymentWhereInput = {};
     if (filters.invoiceId) where.invoiceId = filters.invoiceId;
     if (filters.customerId) where.customerId = filters.customerId;
-    // Alcance por local: solo los pagos de facturas de contratos de sus locales.
-    // Los pagos de facturas sin contrato (sin local) se incluyen.
-    if (filters.facilityScope) {
-      where.invoice = {
-        OR: [
-          { contract: { unit: { facilityId: { in: filters.facilityScope } } } },
-          { contractId: null },
-        ],
-      };
-    }
+    // Alcance por local: los pagos de las facturas de ese local (las facturas
+    // sin contrato se incluyen cuando no se elige un local concreto).
+    const facility = invoiceFacilityWhere(filters.facilityScope, filters.facilityId);
+    if (!facility) return [];
+    if (Object.keys(facility).length > 0) where.invoice = facility as Prisma.InvoiceWhereInput;
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.payment.findMany({

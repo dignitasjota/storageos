@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { DOMAIN_EVENTS, type CustomerNotifyPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
+import type { Prisma } from '@storageos/database';
 import type {
   PortalUnitChangeRequestInput,
   PortalUnitChangeRequestDto,
@@ -118,11 +120,23 @@ export class UnitChangesService {
     );
   }
 
-  async list(tenantId: string, status?: string): Promise<UnitChangeRequestDto[]> {
+  async list(
+    tenantId: string,
+    status?: string,
+    filters: { facilityId?: string; facilityScope?: string[] | null } = {},
+  ): Promise<UnitChangeRequestDto[]> {
+    const ids = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (ids === null) return [];
+    // El local es el del trastero del contrato; sin contrato indicado es de toda la empresa.
+    const facility: Prisma.UnitChangeRequestWhereInput = !ids
+      ? {}
+      : filters.facilityId
+        ? { contract: { unit: { facilityId: { in: ids } } } }
+        : { OR: [{ contract: { unit: { facilityId: { in: ids } } } }, { contractId: null }] };
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.unitChangeRequest.findMany({
-          where: { tenantId, ...(status ? { status } : {}) },
+          where: { tenantId, ...(status ? { status } : {}), ...facility },
           orderBy: { createdAt: 'desc' },
           include: {
             customer: {

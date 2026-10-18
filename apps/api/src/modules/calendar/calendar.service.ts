@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
+import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 
 import type { CalendarEventDto } from '@storageos/shared';
@@ -27,7 +28,18 @@ function customerName(
 export class CalendarService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getEvents(tenantId: string, fromStr: string, toStr: string): Promise<CalendarEventDto[]> {
+  async getEvents(
+    tenantId: string,
+    fromStr: string,
+    toStr: string,
+    filters: { facilityId?: string; facilityScope?: string[] | null } = {},
+  ): Promise<CalendarEventDto[]> {
+    // Local elegido / locales del usuario: tareas y mantenimiento sin local son
+    // de toda la empresa; contratos y reservas, del local de su trastero.
+    const own = optionalFacilityWhere(filters.facilityScope, filters.facilityId);
+    const ids = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (!own || ids === null) return [];
+    const byUnit = ids ? { unit: { facilityId: { in: ids } } } : {};
     const from = new Date(fromStr);
     const to = new Date(toStr);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
@@ -41,15 +53,15 @@ export class CalendarService {
     return this.prisma.withTenant(async (tx) => {
       const [tasks, maintenance, contracts, reservations] = await Promise.all([
         tx.task.findMany({
-          where: { status: { in: ['open', 'in_progress'] }, dueDate: range },
+          where: { status: { in: ['open', 'in_progress'] }, dueDate: range, ...own },
           select: { id: true, title: true, dueDate: true },
         }),
         tx.maintenancePlan.findMany({
-          where: { isActive: true, nextRunDate: range },
+          where: { isActive: true, nextRunDate: range, ...own },
           select: { id: true, title: true, nextRunDate: true },
         }),
         tx.contract.findMany({
-          where: { status: { in: ['active', 'ending'] }, endDate: range },
+          where: { status: { in: ['active', 'ending'] }, endDate: range, ...byUnit },
           select: {
             id: true,
             endDate: true,
@@ -60,7 +72,7 @@ export class CalendarService {
           },
         }),
         tx.reservation.findMany({
-          where: { status: 'pending', validUntil: range },
+          where: { status: 'pending', validUntil: range, ...byUnit },
           select: {
             id: true,
             validUntil: true,

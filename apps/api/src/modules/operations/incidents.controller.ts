@@ -89,6 +89,7 @@ export class IncidentsController {
       ...(customerId ? { customerId } : {}),
       ...(contractId ? { contractId } : {}),
       ...(assignedToUserId ? { assignedToUserId } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

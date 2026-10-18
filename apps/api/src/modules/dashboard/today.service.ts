@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 
 import type { TodayDto, TodayItemDto } from '@storageos/shared';
@@ -28,7 +29,15 @@ function customerName(c: {
 export class TodayService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getToday(tenantId: string, facilityId?: string): Promise<TodayDto> {
+  async getToday(
+    tenantId: string,
+    facilityId?: string,
+    facilityScope: string[] | null = null,
+  ): Promise<TodayDto> {
+    // Local elegido dentro de los del usuario (un local ajeno no devuelve nada).
+    const ids = resolveFacilityFilter(facilityScope, facilityId);
+    const fac = ids === null ? { in: [] as string[] } : ids ? { in: ids } : undefined;
+    const facOwn = optionalFacilityWhere(facilityScope, facilityId) ?? { facilityId: { in: [] } };
     const now = new Date();
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
@@ -50,9 +59,9 @@ export class TodayService {
     // cambios) se dejan a nivel tenant. `contract → unit.facilityId`,
     // `reservation → unit.facilityId`, `invoice → contract.unit.facilityId`,
     // y task/incident tienen `facilityId` propio.
-    const facContract = facilityId ? { unit: { is: { facilityId } } } : {};
-    const facTaskIncident = facilityId ? { facilityId } : {};
-    const facInvoice = facilityId ? { contract: { is: { unit: { is: { facilityId } } } } } : {};
+    const facContract = fac ? { unit: { is: { facilityId: fac } } } : {};
+    const facTaskIncident = facOwn;
+    const facInvoice = fac ? { contract: { is: { unit: { is: { facilityId: fac } } } } } : {};
     const depositToRegisterWhere = {
       status: { in: ['active', 'ending'] as ('active' | 'ending')[] },
       deletedAt: null,
@@ -62,7 +71,7 @@ export class TodayService {
       unit: {
         is: {
           unitType: { is: { propertyKind: 'housing' } },
-          ...(facilityId ? { facilityId } : {}),
+          ...(fac ? { facilityId: fac } : {}),
         },
       },
     };
@@ -74,7 +83,7 @@ export class TodayService {
       contract: {
         is: {
           status: { in: ['draft' as const, 'active' as const, 'ending' as const] },
-          ...(facilityId ? { unit: { is: { facilityId } } } : {}),
+          ...(fac ? { unit: { is: { facilityId: fac } } } : {}),
         },
       },
     };
@@ -256,7 +265,7 @@ export class TodayService {
           where: {
             status: 'final_notice',
             finalNoticeDeadline: { lte: now },
-            ...(facilityId ? { facilityId } : {}),
+            ...(fac ? { facilityId: fac } : {}),
           },
           orderBy: [{ finalNoticeDeadline: 'asc' }],
           take: TAKE,
@@ -266,7 +275,7 @@ export class TodayService {
           where: {
             status: 'final_notice',
             finalNoticeDeadline: { lte: now },
-            ...(facilityId ? { facilityId } : {}),
+            ...(fac ? { facilityId: fac } : {}),
           },
         }),
         // Fianzas retenidas sin liquidar de contratos ya finalizados/cancelados.
@@ -329,7 +338,7 @@ export class TodayService {
           where: {
             status: 'pending',
             OR: [{ validUntil: null }, { validUntil: { gte: now } }],
-            ...(facilityId ? { contract: { is: { unit: { is: { facilityId } } } } } : {}),
+            ...(fac ? { contract: { is: { unit: { is: { facilityId: fac } } } } } : {}),
           },
           orderBy: [{ validUntil: 'asc' }],
           take: TAKE,
@@ -342,7 +351,7 @@ export class TodayService {
           where: {
             status: 'pending',
             OR: [{ validUntil: null }, { validUntil: { gte: now } }],
-            ...(facilityId ? { contract: { is: { unit: { is: { facilityId } } } } } : {}),
+            ...(fac ? { contract: { is: { unit: { is: { facilityId: fac } } } } } : {}),
           },
         }),
         // Viviendas con la fianza cobrada y aún sin depositar en el organismo.

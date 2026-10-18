@@ -177,13 +177,20 @@ export class ContractsService {
   }
 
   /** Contratos activos/en baja que vencen en los próximos `days` (renovación). */
-  async listRenewals(tenantId: string, days = 60): Promise<ContractDto[]> {
+  async listRenewals(
+    tenantId: string,
+    filters: { facilityId?: string; facilityScope?: string[] | null } = {},
+    days = 60,
+  ): Promise<ContractDto[]> {
+    const ids = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (ids === null) return [];
     const now = new Date();
     const limit = new Date(now.getTime() + days * 86_400_000);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findMany({
           where: {
+            ...(ids ? { unit: { facilityId: { in: ids } } } : {}),
             deletedAt: null,
             status: { in: ['active', 'ending'] as ContractStatus[] },
             endDate: { not: null, gte: now, lte: limit },

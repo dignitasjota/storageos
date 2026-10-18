@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
+import { optionalFacilityWhere } from '../../common/facility-scope';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -71,11 +72,18 @@ export class ExpensesService {
 
   async list(
     tenantId: string,
-    filters: { facilityId?: string; category?: string; from?: string; to?: string },
+    filters: {
+      facilityId?: string;
+      category?: string;
+      from?: string;
+      to?: string;
+      facilityScope?: string[] | null;
+    },
   ): Promise<ExpenseDto[]> {
+    const facility = optionalFacilityWhere(filters.facilityScope, filters.facilityId);
+    if (!facility) return [];
     return this.prisma.withTenant(async (tx) => {
-      const where: Prisma.ExpenseWhereInput = {};
-      if (filters.facilityId) where.facilityId = filters.facilityId;
+      const where: Prisma.ExpenseWhereInput = { ...facility };
       if (filters.category) where.category = filters.category;
       if (filters.from || filters.to) {
         where.expenseDate = {};
