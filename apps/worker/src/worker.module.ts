@@ -16,7 +16,6 @@ import { CommunicationsModule } from '../../api/src/modules/communications/commu
 import { ContractsModule } from '../../api/src/modules/contracts/contracts.module';
 import { CustomerEmailsModule } from '../../api/src/modules/customer-emails/customer-emails.module';
 import { DataRetentionModule } from '../../api/src/modules/data-retention/data-retention.module';
-import { SuspensionHoldsModule } from '../../api/src/modules/suspension-holds/suspension-holds.module';
 import { DatabaseModule } from '../../api/src/modules/database/database.module';
 import { DunningModule } from '../../api/src/modules/dunning/dunning.module';
 import { EmailModule } from '../../api/src/modules/email/email.module';
@@ -37,6 +36,7 @@ import { ReportsModule } from '../../api/src/modules/reports/reports.module';
 import { RetentionModule } from '../../api/src/modules/retention/retention.module';
 import { ReviewsModule } from '../../api/src/modules/reviews/reviews.module';
 import { SecurityEventsModule } from '../../api/src/modules/security-events/security-events.module';
+import { SuspensionHoldsModule } from '../../api/src/modules/suspension-holds/suspension-holds.module';
 import { WaitlistModule } from '../../api/src/modules/waitlist/waitlist.module';
 import { WhatsappBusinessModule } from '../../api/src/modules/whatsapp-business/whatsapp-business.module';
 
