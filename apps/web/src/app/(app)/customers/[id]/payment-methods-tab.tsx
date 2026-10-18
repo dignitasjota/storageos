@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import type { PaymentMethodDto, SetupIntentResponseDto } from '@storageos/shared';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,6 +33,7 @@ import { useGoCardlessSettings, useStartGoCardlessMandate } from '@/lib/payments
 import { useCancelSepaMandate, useCreateSepaMandate, useSepaMandates } from '@/lib/sepa/hooks';
 
 export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }) {
+  const ask = useConfirm();
   const methods = useCustomerPaymentMethods(customerId);
   const createSetupIntent = useCreateSetupIntent();
   const paymentOptions = usePaymentOptions();
@@ -67,7 +69,8 @@ export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }
   }
 
   async function handleRemove(pm: PaymentMethodDto) {
-    if (!window.confirm(`¿Eliminar el método ${formatLabel(pm)}?`)) return;
+    if (!(await ask({ title: `¿Eliminar el método ${formatLabel(pm)}?`, destructive: true })))
+      return;
     try {
       await remove.mutateAsync({ id: pm.id, customerId });
       toast.success('Método de pago eliminado.');
@@ -189,6 +192,7 @@ export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }
 }
 
 function SepaMandateCard({ customerId }: { customerId: string }) {
+  const ask = useConfirm();
   const mandates = useSepaMandates(customerId);
   const create = useCreateSepaMandate();
   const cancel = useCancelSepaMandate();
@@ -219,7 +223,7 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
   }
 
   async function revoke(id: string) {
-    if (!confirm('¿Cancelar el mandato SEPA?')) return;
+    if (!(await ask({ title: '¿Cancelar el mandato SEPA?', destructive: true }))) return;
     try {
       await cancel.mutateAsync(id);
       toast.success('Mandato cancelado.');

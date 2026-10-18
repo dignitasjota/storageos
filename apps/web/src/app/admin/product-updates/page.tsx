@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { AdminError } from '@/components/admin/admin-error';
-import { useConfirm } from '@/components/admin/confirm-provider';
+import { useConfirm } from '@/components/confirm-provider';
 import { MarkdownView } from '@/components/public/markdown-view';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

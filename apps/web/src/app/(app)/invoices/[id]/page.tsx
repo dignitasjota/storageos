@@ -23,6 +23,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -94,6 +95,7 @@ interface RectifyDraftItem {
 }
 
 export default function InvoiceDetailPage() {
+  const ask = useConfirm();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const id = params?.id;
@@ -181,7 +183,10 @@ export default function InvoiceDetailPage() {
   }
 
   async function handleLateFee(): Promise<void> {
-    if (!confirm('¿Emitir una factura de recargo por mora para esta factura vencida?')) return;
+    if (
+      !(await ask({ title: '¿Emitir una factura de recargo por mora para esta factura vencida?' }))
+    )
+      return;
     try {
       const fee = await lateFee.mutateAsync({ id: i.id });
       toast.success(`Recargo emitido: ${fee.invoiceNumber ?? fee.id} (${fee.total.toFixed(2)} €).`);
@@ -349,13 +354,15 @@ export default function InvoiceDetailPage() {
               (i.invoiceType === 'F1' || i.invoiceType === 'F2' || i.status === 'draft') && (
                 <Button
                   variant="destructive"
-                  onClick={() => {
+                  onClick={async () => {
                     // Una emitida no se borra: se anula con una rectificativa de abono.
                     if (
                       i.status !== 'draft' &&
-                      !window.confirm(
-                        'La factura ya está emitida: se anulará emitiendo una rectificativa de abono por el total (queda registrada en Veri*Factu y en la contabilidad). ¿Continuar?',
-                      )
+                      !(await ask({
+                        title: '¿Seguro?',
+                        description:
+                          'La factura ya está emitida: se anulará emitiendo una rectificativa de abono por el total (queda registrada en Veri*Factu y en la contabilidad). ¿Continuar?',
+                      }))
                     ) {
                       return;
                     }

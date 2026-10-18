@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import type { BankTransactionDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -151,6 +152,7 @@ export default function BankReconciliationPage() {
 }
 
 function StatementDetail({ statementId, canManage }: { statementId: string; canManage: boolean }) {
+  const ask = useConfirm();
   const detail = useBankStatement(statementId);
   const match = useMatchTransaction(statementId);
   const markReturn = useMarkReturnTransaction(statementId);
@@ -158,7 +160,13 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
   const undo = useUndoAutoMatch(statementId);
 
   async function doUndo(transactionId: string) {
-    if (!window.confirm('¿Deshacer la conciliación? La factura volverá a estar pendiente.')) return;
+    if (
+      !(await ask({
+        title: '¿Deshacer la conciliación? La factura volverá a estar pendiente.',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await undo.mutateAsync(transactionId);
       toast.success('Conciliación deshecha.');
@@ -189,7 +197,12 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
   }
 
   async function doReturn(transactionId: string, invoiceId: string) {
-    if (!window.confirm('¿Marcar como devolución? La factura volverá a estar pendiente (vencida).'))
+    if (
+      !(await ask({
+        title: '¿Marcar como devolución? La factura volverá a estar pendiente (vencida).',
+        destructive: true,
+      }))
+    )
       return;
     try {
       await markReturn.mutateAsync({ transactionId, invoiceId });

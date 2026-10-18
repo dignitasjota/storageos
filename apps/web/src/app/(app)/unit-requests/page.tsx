@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import type { UnitRequestDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,16 +25,23 @@ const STATUS: Record<
 };
 
 export default function UnitRequestsPage() {
+  const ask = useConfirm();
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const list = useUnitRequests(statusFilter || undefined);
   const resolve = useResolveUnitRequest();
   const canResolve = useHasPermission('contracts:write');
 
   async function doResolve(id: string, status: 'handled' | 'rejected') {
-    const resolutionNote =
-      status === 'handled'
-        ? (window.prompt('Nota de resolución (opcional):') ?? undefined)
-        : undefined;
+    let resolutionNote: string | undefined;
+    if (status === 'handled') {
+      const res = await ask({
+        title: 'Marcar como gestionada',
+        input: { label: 'Nota de resolución (opcional)' },
+        confirmLabel: 'Gestionada',
+      });
+      if (!res) return;
+      resolutionNote = res.value || undefined;
+    }
     try {
       await resolve.mutateAsync({
         id,

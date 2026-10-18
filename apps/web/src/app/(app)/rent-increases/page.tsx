@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import type { RentIncreaseDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -63,6 +64,7 @@ const STATUS: Record<
 };
 
 export default function RentIncreasesPage() {
+  const ask = useConfirm();
   const list = useRentIncreases();
   const apply = useApplyRentIncrease();
   const cancel = useCancelRentIncrease();
@@ -70,7 +72,7 @@ export default function RentIncreasesPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
 
   async function handleApply(id: string) {
-    if (!confirm('¿Aplicar ya la subida a todos los contratos de la tanda?')) return;
+    if (!(await ask({ title: '¿Aplicar ya la subida a todos los contratos de la tanda?' }))) return;
     try {
       const r = await apply.mutateAsync(id);
       toast.success(`Subida aplicada a ${r.appliedCount} contratos.`);
@@ -79,7 +81,7 @@ export default function RentIncreasesPage() {
     }
   }
   async function handleCancel(id: string) {
-    if (!confirm('¿Cancelar la tanda programada?')) return;
+    if (!(await ask({ title: '¿Cancelar la tanda programada?', destructive: true }))) return;
     try {
       await cancel.mutateAsync(id);
       toast.success('Tanda cancelada.');

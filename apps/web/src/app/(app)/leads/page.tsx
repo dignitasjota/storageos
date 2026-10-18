@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 
 import { LeadConversation } from './lead-conversation';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,6 +59,7 @@ const COLUMNS: { status: LeadStatusValue; label: string }[] = [
 ];
 
 export default function LeadsPage() {
+  const ask = useConfirm();
   const transition = useTransitionLead();
   const convert = useConvertLead();
   const router = useRouter();
@@ -70,9 +72,10 @@ export default function LeadsPage() {
 
   async function onConvert(lead: LeadDto) {
     if (
-      !window.confirm(
-        `¿Convertir a «${lead.displayName}» en cliente? Se creará una ficha de inquilino con sus datos y el lead pasará a «Ganados».`,
-      )
+      !(await ask({
+        title: '¿Seguro?',
+        description: `¿Convertir a «${lead.displayName}» en cliente? Se creará una ficha de inquilino con sus datos y el lead pasará a «Ganados».`,
+      }))
     ) {
       return;
     }

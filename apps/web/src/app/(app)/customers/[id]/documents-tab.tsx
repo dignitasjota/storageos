@@ -5,6 +5,7 @@ import { File, Loader2, Trash2, Upload } from 'lucide-react';
 import { useRef } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -29,6 +30,7 @@ const DOC_TYPES: Array<{ value: CustomerDocumentTypeValue; label: string }> = [
 ];
 
 export function CustomerDocumentsTab({ customerId }: { customerId: string }) {
+  const ask = useConfirm();
   const docs = useCustomerDocuments(customerId);
   const requestUpload = useRequestCustomerDocumentUpload();
   const register = useRegisterCustomerDocument();
@@ -79,7 +81,7 @@ export function CustomerDocumentsTab({ customerId }: { customerId: string }) {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Borrar este documento?')) return;
+    if (!(await ask({ title: '¿Borrar este documento?', destructive: true }))) return;
     try {
       await remove.mutateAsync(id);
       toast.success('Documento borrado.');

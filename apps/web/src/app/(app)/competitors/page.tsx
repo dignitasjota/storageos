@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 
 import { CompetitorFormDialog } from './competitor-form-dialog';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,6 +59,7 @@ import { useFacilities } from '@/lib/facilities/hooks';
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 export default function CompetitorsPage() {
+  const ask = useConfirm();
   const canManage = useHasPermission('units:manage');
   const { data: facilities } = useCompetitorFacilities();
   const myFacilities = useFacilities();
@@ -76,7 +78,13 @@ export default function CompetitorsPage() {
   }
 
   async function onDeleteFacility(id: string, name: string) {
-    if (!window.confirm(`¿Borrar el competidor «${name}» y todos sus trasteros?`)) return;
+    if (
+      !(await ask({
+        title: `¿Borrar el competidor «${name}» y todos sus trasteros?`,
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await deleteFacility.mutateAsync(id);
       if (selected === id) setSelected(null);

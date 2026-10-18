@@ -17,6 +17,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -645,6 +646,7 @@ function ChecklistSection({
   facilityId: string | null;
   checklist: ChecklistItemDto[];
 }) {
+  const ask = useConfirm();
   const updateItem = useUpdateChecklistItem(taskId);
   const createIncident = useCreateIncident();
   const doneCount = checklist.filter((it) => it.status !== 'pending').length;
@@ -652,7 +654,12 @@ function ChecklistSection({
   async function mark(item: ChecklistItemDto, status: 'ok' | 'issue') {
     let note: string | undefined;
     if (status === 'issue') {
-      note = window.prompt('Describe la incidencia (opcional):') ?? undefined;
+      const res = await ask({
+        title: 'Marcar como incidencia',
+        input: { label: 'Describe la incidencia (opcional)' },
+      });
+      if (!res) return;
+      note = res.value || undefined;
     }
     try {
       await updateItem.mutateAsync({ itemId: item.id, status, ...(note ? { note } : {}) });

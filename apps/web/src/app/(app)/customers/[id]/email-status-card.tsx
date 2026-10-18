@@ -4,6 +4,7 @@ import { AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
@@ -15,6 +16,7 @@ import { useClearCustomerEmailBlock, useCustomerEmailStatus } from '@/lib/custom
  * campañas). Solo se muestra si hay algún bloqueo.
  */
 export function EmailStatusCard({ customerId }: { customerId: string }) {
+  const ask = useConfirm();
   const { data } = useCustomerEmailStatus(customerId);
   const clear = useClearCustomerEmailBlock();
   if (!data || data.length === 0) return null;
@@ -22,9 +24,11 @@ export function EmailStatusCard({ customerId }: { customerId: string }) {
 
   async function onClear() {
     if (
-      !window.confirm(
-        'Desbloquéalo solo si el inquilino te confirma que su buzón funciona. Si vuelve a rebotar, se bloqueará otra vez.',
-      )
+      !(await ask({
+        title: '¿Seguro?',
+        description:
+          'Desbloquéalo solo si el inquilino te confirma que su buzón funciona. Si vuelve a rebotar, se bloqueará otra vez.',
+      }))
     ) {
       return;
     }

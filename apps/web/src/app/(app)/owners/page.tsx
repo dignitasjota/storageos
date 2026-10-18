@@ -9,6 +9,7 @@ import { OwnerStatementDialog } from './statement-dialog';
 import type { OwnerDto } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -281,6 +282,7 @@ function OwnerDialog({ owner, onClose }: { owner: OwnerDto | null; onClose: () =
  * apoderado por él en la AEAT).
  */
 function OwnerCertificateRow({ ownerId }: { ownerId: string }) {
+  const ask = useConfirm();
   const canSee = useHasPermission('invoices:manage');
   const canEdit = useHasPermission('billing:configure');
   const cert = useOwnerCertificate(ownerId, canSee);
@@ -321,8 +323,13 @@ function OwnerCertificateRow({ ownerId }: { ownerId: string }) {
               size="sm"
               variant="ghost"
               disabled={remove.isPending}
-              onClick={() => {
-                if (window.confirm('¿Quitar su certificado? Se usará el tuyo.')) {
+              onClick={async () => {
+                if (
+                  await ask({
+                    title: '¿Quitar su certificado? Se usará el tuyo.',
+                    destructive: true,
+                  })
+                ) {
                   remove.mutate();
                 }
               }}

@@ -5,7 +5,7 @@ import { ShieldQuestion } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
-import { useConfirm } from '@/components/admin/confirm-provider';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useDecideApproval } from '@/lib/admin/hooks';

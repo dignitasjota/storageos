@@ -3,6 +3,7 @@
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
@@ -19,13 +20,16 @@ export function MarketingPreferenceCard({
   customerId: string;
   optOutAt: string | null;
 }) {
+  const ask = useConfirm();
   const set = useSetCustomerMarketing();
 
   async function toggle() {
     const subscribed = !!optOutAt;
     if (
       subscribed &&
-      !window.confirm('Vuelve a darle de alta solo si el cliente te lo ha pedido. ¿Continuar?')
+      !(await ask({
+        title: 'Vuelve a darle de alta solo si el cliente te lo ha pedido. ¿Continuar?',
+      }))
     ) {
       return;
     }

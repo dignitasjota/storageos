@@ -23,6 +23,7 @@ import { PromoStatsDialog } from './promo-stats-dialog';
 
 import type { PromoLandingDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +40,7 @@ import {
 const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
 
 export default function PromoLandingsPage() {
+  const ask = useConfirm();
   const landings = usePromoLandings();
   const update = useUpdatePromoLanding();
   const duplicate = useDuplicatePromoLanding();
@@ -209,8 +211,14 @@ export default function PromoLandingsPage() {
                       size="icon"
                       title="Borrar"
                       aria-label="Borrar"
-                      onClick={() => {
-                        if (!window.confirm(`¿Borrar «${p.name}»? No se puede deshacer.`)) return;
+                      onClick={async () => {
+                        if (
+                          !(await ask({
+                            title: `¿Borrar «${p.name}»? No se puede deshacer.`,
+                            destructive: true,
+                          }))
+                        )
+                          return;
                         void run(() => remove.mutateAsync(p.id), 'Landing borrada.');
                       }}
                     >

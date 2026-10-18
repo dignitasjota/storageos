@@ -32,6 +32,7 @@ import type {
   SeoChecklistItemDto,
 } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -702,6 +703,7 @@ const PRICING_BADGE: Record<PricingAction, { label: string; className: string }>
 };
 
 function PricingSuggestionsPanel() {
+  const ask = useConfirm();
   const pricing = usePricingSuggestions();
   const apply = useApplyPricing();
   const canApply = useHasPermission('units:manage');
@@ -714,9 +716,10 @@ function PricingSuggestionsPanel() {
 
   async function applySuggestion(unitTypeId: string, name: string, price: number) {
     if (
-      !window.confirm(
-        `¿Fijar el precio de catálogo de "${name}" en ${formatCurrency(price)}? Afecta a los nuevos contratos; los activos no cambian.`,
-      )
+      !(await ask({
+        title: '¿Seguro?',
+        description: `¿Fijar el precio de catálogo de "${name}" en ${formatCurrency(price)}? Afecta a los nuevos contratos; los activos no cambian.`,
+      }))
     )
       return;
     try {

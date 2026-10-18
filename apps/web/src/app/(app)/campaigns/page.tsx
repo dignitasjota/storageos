@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 import type { CampaignDto, CampaignSegmentInput } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,12 +55,13 @@ const STATUS: Record<
 };
 
 export default function CampaignsPage() {
+  const ask = useConfirm();
   const campaigns = useCampaigns();
   const send = useSendCampaign();
   const canSend = useHasPermission('communications:send');
 
   async function handleSend(id: string) {
-    if (!confirm('¿Enviar la campaña ahora a toda la audiencia?')) return;
+    if (!(await ask({ title: '¿Enviar la campaña ahora a toda la audiencia?' }))) return;
     try {
       const res = await send.mutateAsync(id);
       toast.success(

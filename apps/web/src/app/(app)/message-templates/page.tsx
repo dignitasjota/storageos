@@ -9,6 +9,7 @@ import { TemplateFormDialog } from './template-form-dialog';
 import type { MessageTemplateDto } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +18,7 @@ import { useHasPermission } from '@/lib/auth/hooks';
 import { useDeleteMessageTemplate, useMessageTemplates } from '@/lib/communications/hooks';
 
 export default function MessageTemplatesPage() {
+  const ask = useConfirm();
   const canManage = useHasPermission('templates:manage');
   const templates = useMessageTemplates();
   const remove = useDeleteMessageTemplate();
@@ -24,7 +26,7 @@ export default function MessageTemplatesPage() {
   const [editing, setEditing] = useState<MessageTemplateDto | null>(null);
 
   async function handleDelete(t: MessageTemplateDto) {
-    if (!confirm(`¿Borrar la plantilla "${t.name}"?`)) return;
+    if (!(await ask({ title: `¿Borrar la plantilla "${t.name}"?`, destructive: true }))) return;
     try {
       await remove.mutateAsync(t.id);
       toast.success('Plantilla borrada.');

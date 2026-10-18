@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import type { CardProvider } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,6 +38,7 @@ function errorMessage(err: unknown): string {
  * de Stripe del propio tenant (Stripe Connect).
  */
 export function StripeConnectCard() {
+  const ask = useConfirm();
   const status = useStripeConnect();
   const onboarding = useStripeConnectOnboarding();
   const dashboard = useStripeConnectDashboard();
@@ -92,9 +94,11 @@ export function StripeConnectCard() {
 
   async function doDisconnect() {
     if (
-      !window.confirm(
-        'Se desconecta la cuenta de Stripe de la app (sigue existiendo en Stripe). Los inquilinos dejarán de poder pagar con tarjeta por Stripe. ¿Continuar?',
-      )
+      !(await ask({
+        title: '¿Seguro?',
+        description:
+          'Se desconecta la cuenta de Stripe de la app (sigue existiendo en Stripe). Los inquilinos dejarán de poder pagar con tarjeta por Stripe. ¿Continuar?',
+      }))
     )
       return;
     try {

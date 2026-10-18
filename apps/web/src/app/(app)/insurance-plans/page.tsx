@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import type { InsurancePlanDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,13 +35,20 @@ const eur = (n: number) =>
   new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
 
 export default function InsurancePlansPage() {
+  const ask = useConfirm();
   const plans = useInsurancePlans();
   const del = useDeleteInsurancePlan();
   const canManage = useHasPermission('insurance:manage');
   const [edit, setEdit] = useState<InsurancePlanDto | null>(null);
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Eliminar el plan? Los contratos vinculados conservan su prima ya facturada.'))
+    if (
+      !(await ask({
+        title: '¿Seguro?',
+        description: '¿Eliminar el plan? Los contratos vinculados conservan su prima ya facturada.',
+        destructive: true,
+      }))
+    )
       return;
     try {
       await del.mutateAsync(id);

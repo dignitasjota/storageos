@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-import { useConfirm } from '@/components/admin/confirm-provider';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';

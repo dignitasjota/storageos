@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,6 +61,7 @@ import {
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 export default function CustomersPage() {
+  const ask = useConfirm();
   const [searchText, search, setSearchText] = useDebouncedSearch();
   const customers = usePagedList<CustomerDto>('customers', '/customers', {
     search: search || undefined,
@@ -115,7 +117,13 @@ export default function CustomersPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Borrar este inquilino? Es un soft delete: el histórico se mantiene.')) return;
+    if (
+      !(await ask({
+        title: '¿Borrar este inquilino? Es un soft delete: el histórico se mantiene.',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await remove.mutateAsync(id);
       toast.success('Inquilino borrado.');

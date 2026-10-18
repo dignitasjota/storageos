@@ -12,6 +12,7 @@ import type {
 } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -116,6 +117,7 @@ const RUN_STATUS: Record<
 };
 
 export default function AutomationsPage() {
+  const ask = useConfirm();
   const automations = useAutomations();
   const edit = useEditAutomation();
   const remove = useDeleteAutomation();
@@ -132,7 +134,7 @@ export default function AutomationsPage() {
   }
 
   async function onDelete(a: AutomationRuleDto) {
-    if (!window.confirm(`¿Borrar la regla «${a.name}»?`)) return;
+    if (!(await ask({ title: `¿Borrar la regla «${a.name}»?`, destructive: true }))) return;
     try {
       await remove.mutateAsync(a.id);
       toast.success('Regla borrada.');

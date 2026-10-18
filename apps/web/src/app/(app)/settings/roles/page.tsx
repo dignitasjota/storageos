@@ -5,6 +5,7 @@ import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -57,6 +58,7 @@ const PERMISSION_GROUPS: { resource: string; items: Permission[] }[] = (() => {
 })();
 
 export default function RolesPage() {
+  const ask = useConfirm();
   const roles = useTenantRoles();
   const del = useDeleteTenantRole();
   const [editing, setEditing] = useState<TenantRoleDto | null>(null);
@@ -123,11 +125,13 @@ export default function RolesPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          confirm(
-                            `¿Borrar el rol "${r.name}"? Los ${r.userCount} usuario(s) volverán a su rol base.`,
-                          )
+                          await ask({
+                            title: '¿Seguro?',
+                            description: `¿Borrar el rol "${r.name}"? Los ${r.userCount} usuario(s) volverán a su rol base.`,
+                            destructive: true,
+                          })
                         ) {
                           del.mutate(r.id, {
                             onSuccess: () => toast.success('Rol borrado'),

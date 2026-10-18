@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { MonthlyDigestCard } from '../billing/monthly-digest-card';
 import { SettingsHeader } from '../settings-header';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -135,6 +136,7 @@ function CustomerEmailsCard() {
 }
 
 function DomainForm({ current, canEdit }: { current: EmailDomainDto | null; canEdit: boolean }) {
+  const ask = useConfirm();
   const save = useSaveEmailDomain();
   const remove = useRemoveEmailDomain();
   const [form, setForm] = useState({
@@ -178,7 +180,12 @@ function DomainForm({ current, canEdit }: { current: EmailDomainDto | null; canE
   }
 
   async function onRemove() {
-    if (!window.confirm('¿Quitar el dominio? Tus correos volverán a salir desde TrasterOS.'))
+    if (
+      !(await ask({
+        title: '¿Quitar el dominio? Tus correos volverán a salir desde TrasterOS.',
+        destructive: true,
+      }))
+    )
       return;
     try {
       await remove.mutateAsync();

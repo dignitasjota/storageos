@@ -10,6 +10,7 @@ import { BlogPostDialog } from './blog-post-dialog';
 
 import type { BlogPostDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +18,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useBlogPosts, useDeleteBlogPost, useUpdateBlogPost } from '@/lib/blog/hooks';
 
 export default function BlogSettingsPage() {
+  const ask = useConfirm();
   const posts = useBlogPosts();
   const update = useUpdateBlogPost();
   const remove = useDeleteBlogPost();
@@ -44,7 +46,10 @@ export default function BlogSettingsPage() {
   }
 
   async function onDelete(post: BlogPostDto) {
-    if (!window.confirm(`¿Borrar «${post.title}»? No se puede deshacer.`)) return;
+    if (
+      !(await ask({ title: `¿Borrar «${post.title}»? No se puede deshacer.`, destructive: true }))
+    )
+      return;
     try {
       await remove.mutateAsync(post.id);
       toast.success('Entrada borrada.');
