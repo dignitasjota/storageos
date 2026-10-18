@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 
 import type { AdminTenantUserDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -34,6 +35,7 @@ import {
   useTenantUserAction,
   type TenantUserActionName,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -70,12 +72,13 @@ export function TenantUsersDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const confirm = useConfirm();
   const users = useAdminTenantUsers(tenantId, open);
   const action = useTenantUserAction(tenantId);
   const rows = users.data ?? [];
 
   async function runAction(user: AdminTenantUserDto, def: ActionDef) {
-    if (def.confirm && !window.confirm(def.confirm)) return;
+    if (def.confirm && !(await confirm({ title: def.confirm, destructive: true }))) return;
     try {
       await action.mutateAsync({ userId: user.id, action: def.action });
       toast.success(def.success);
@@ -181,6 +184,7 @@ function UserActions({
   user: AdminTenantUserDto;
   onRun: (def: ActionDef) => void;
 }) {
+  const canEdit = useIsSuperadmin();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -189,7 +193,7 @@ function UserActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {!u.emailVerified && (
+        {canEdit && !u.emailVerified && (
           <DropdownMenuItem
             onClick={() =>
               onRun({
@@ -226,19 +230,21 @@ function UserActions({
         >
           Enviar reset de contraseña
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() =>
-            onRun({
-              action: 'revoke-sessions',
-              label: 'Cerrar sesiones',
-              success: 'Sesiones cerradas.',
-              confirm: '¿Cerrar todas las sesiones de este usuario?',
-            })
-          }
-        >
-          Cerrar sesiones
-        </DropdownMenuItem>
-        {u.twoFactorEnabled && (
+        {canEdit && (
+          <DropdownMenuItem
+            onClick={() =>
+              onRun({
+                action: 'revoke-sessions',
+                label: 'Cerrar sesiones',
+                success: 'Sesiones cerradas.',
+                confirm: '¿Cerrar todas las sesiones de este usuario?',
+              })
+            }
+          >
+            Cerrar sesiones
+          </DropdownMenuItem>
+        )}
+        {canEdit && u.twoFactorEnabled && (
           <DropdownMenuItem
             onClick={() =>
               onRun({
@@ -253,8 +259,8 @@ function UserActions({
             Quitar 2FA
           </DropdownMenuItem>
         )}
-        <DropdownMenuSeparator />
-        {u.isActive ? (
+        {canEdit && <DropdownMenuSeparator />}
+        {!canEdit ? null : u.isActive ? (
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             onClick={() =>

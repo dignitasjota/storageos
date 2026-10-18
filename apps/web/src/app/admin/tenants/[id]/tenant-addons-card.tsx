@@ -25,10 +25,12 @@ import {
   useTenantBillingSummary,
   useTenantLimits,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
+  const canEdit = useIsSuperadmin();
   const summary = useTenantBillingSummary(tenantId);
   const limits = useTenantLimits(tenantId);
   const catalog = useAdminAddons();
@@ -166,7 +168,8 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                       >
                         {eur(a.lineTotal)}/mes
                       </span>
-                      {!a.suspended &&
+                      {canEdit &&
+                        !a.suspended &&
                         (a.billingMode === 'stripe' ? (
                           <Button
                             variant="ghost"
@@ -188,7 +191,7 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                             Cobrar por Stripe
                           </Button>
                         ))}
-                      {a.suspended ? (
+                      {!canEdit ? null : a.suspended ? (
                         <Button
                           variant="outline"
                           size="sm"
@@ -212,6 +215,7 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                       <Button
                         variant="ghost"
                         size="icon"
+                        hidden={!canEdit}
                         className="size-7 text-muted-foreground hover:text-red-600"
                         aria-label="Quitar"
                         onClick={() => doRemove(a.id)}
@@ -288,7 +292,7 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button onClick={doAssign} disabled={!selected || assign.isPending}>
+                <Button onClick={doAssign} disabled={!selected || assign.isPending || !canEdit}>
                   <Plus className="mr-1 size-4" /> Añadir
                 </Button>
               </div>

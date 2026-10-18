@@ -14,6 +14,7 @@ import { CheckCircle2, ChevronDown, Loader2, Trash2, XCircle } from 'lucide-reac
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -256,6 +257,7 @@ export default function AdminEmailPage() {
 }
 
 function EmailSuppressionsCard() {
+  const confirm = useConfirm();
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const { data, isLoading } = useEmailSuppressions(query);
@@ -267,7 +269,13 @@ function EmailSuppressionsCard() {
   }, [search]);
 
   async function onRemove(id: string, email: string) {
-    if (!window.confirm(`¿Quitar ${email} de la lista? Volverá a recibir correos.`)) return;
+    if (
+      !(await confirm({
+        title: `¿Quitar ${email} de la lista? Volverá a recibir correos.`,
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await remove.mutateAsync(id);
       toast.success(`${email} desbloqueada.`);
@@ -330,14 +338,16 @@ function EmailSuppressionsCard() {
 }
 
 function UnusedBrevoDomainsCard() {
+  const confirm = useConfirm();
   const { data, isLoading, error } = useUnusedBrevoDomains();
   const remove = useDeleteBrevoDomain();
 
   async function onDelete(domain: string) {
     if (
-      !window.confirm(
-        `¿Borrar ${domain} de la cuenta de Brevo? Si alguien vuelve a usarlo tendrá que rehacer los DNS.`,
-      )
+      !(await confirm({
+        title: `¿Borrar ${domain} de la cuenta de Brevo? Si alguien vuelve a usarlo tendrá que rehacer los DNS.`,
+        destructive: true,
+      }))
     )
       return;
     try {

@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 
 import type { TenantInteractionDto, TenantInteractionTypeValue } from '@storageos/shared';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -72,6 +73,7 @@ function fmtDateTime(iso: string): string {
 }
 
 export function TenantInteractionsCard({ tenantId }: { tenantId: string }) {
+  const confirm = useConfirm();
   const interactions = useAdminTenantInteractions(tenantId);
   const create = useCreateTenantInteraction(tenantId);
   const remove = useDeleteTenantInteraction(tenantId);
@@ -100,7 +102,8 @@ export function TenantInteractionsCard({ tenantId }: { tenantId: string }) {
   }
 
   async function onDelete(id: string) {
-    if (!window.confirm('¿Borrar esta conversación del histórico?')) return;
+    if (!(await confirm({ title: '¿Borrar esta conversación del histórico?', destructive: true })))
+      return;
     try {
       await remove.mutateAsync(id);
       toast.success('Conversación borrada.');

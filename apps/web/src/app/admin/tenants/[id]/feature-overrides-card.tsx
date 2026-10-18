@@ -11,9 +11,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAdminTenantFeatures, useSetTenantFeatures } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 export function FeatureOverridesCard({ tenantId }: { tenantId: string }) {
+  const canEdit = useIsSuperadmin();
   const { data } = useAdminTenantFeatures(tenantId);
   const save = useSetTenantFeatures(tenantId);
   // Estado deseado por feature (checked = activa para el tenant).
@@ -84,7 +86,7 @@ export function FeatureOverridesCard({ tenantId }: { tenantId: string }) {
           })}
         </ul>
         <div className="flex justify-end">
-          <Button size="sm" onClick={onSave} disabled={!dirty || save.isPending}>
+          <Button size="sm" onClick={onSave} disabled={!dirty || save.isPending || !canEdit}>
             Guardar
           </Button>
         </div>

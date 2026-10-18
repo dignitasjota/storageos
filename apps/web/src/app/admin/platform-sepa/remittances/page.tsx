@@ -12,6 +12,7 @@ import type {
   PlatformSepaRemittancePreviewDto,
 } from '@storageos/shared';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,7 @@ const STATUS: Record<
 };
 
 export default function PlatformSepaRemittancesPage() {
+  const confirm = useConfirm();
   const canEdit = useIsSuperadmin();
   const list = useAdminPlatformSepaRemittances();
   const settings = useAdminPlatformSepaSettings();
@@ -66,12 +68,15 @@ export default function PlatformSepaRemittancesPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
 
   async function handleConfirm(id: string) {
-    if (
-      !window.confirm(
-        '¿Confirmar el cobro? Se registrará el pago y se extenderá el periodo de cada tenant.',
-      )
-    )
-      return;
+    const row = list.data?.find((r) => r.id === id);
+    const ok = await confirm({
+      title: 'Confirmar el cobro de la remesa',
+      description: row
+        ? `Se registrará el pago de ${row.itemCount} cuota(s) por ${Number(row.total).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} y se extenderá el periodo de cada tenant. Hazlo solo cuando el banco haya abonado la remesa.`
+        : 'Se registrará el pago y se extenderá el periodo de cada tenant.',
+      confirmLabel: 'Confirmar cobro',
+    });
+    if (!ok) return;
     try {
       await confirmMut.mutateAsync(id);
       toast.success('Remesa confirmada: periodos extendidos.');
@@ -178,18 +183,21 @@ export default function PlatformSepaRemittancesPage() {
 
 /** Detalle de una remesa confirmada: items por tenant + marcar devuelto. */
 function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const confirm = useConfirm();
   const canEdit = useIsSuperadmin();
   const detail = useAdminPlatformSepaRemittance(id ?? '', id !== null);
   const bounce = useBouncePlatformSepaRemittanceItem();
 
   async function handleBounce(item: PlatformSepaRemittanceItemDto) {
-    if (
-      !window.confirm(
-        `¿Marcar como devuelto el adeudo de ${item.tenantName}? El tenant pasará a "pago pendiente".`,
-      )
-    )
-      return;
-    const reason = window.prompt('Motivo de la devolución (opcional):') ?? undefined;
+    const ok = await confirm({
+      title: `Devolución del adeudo de ${item.tenantName}`,
+      description: 'El tenant pasará a «pago pendiente».',
+      confirmLabel: 'Marcar como devuelto',
+      destructive: true,
+      input: { label: 'Motivo (opcional)', placeholder: 'MD06, cuenta cancelada…' },
+    });
+    if (!ok) return;
+    const reason = ok.value || undefined;
     try {
       await bounce.mutateAsync({ itemId: item.id, remittanceId: id!, reason });
       toast.success('Item marcado como devuelto. El tenant queda en pago pendiente.');

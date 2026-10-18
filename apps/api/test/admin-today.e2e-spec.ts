@@ -204,6 +204,46 @@ describe('Admin «Hoy» (e2e)', () => {
     expect(typeof row.lastFailedAt).toBe('string');
   });
 
+  it('solo cuenta los seguimientos que tocan hoy y la espera del ticket desde el último mensaje del tenant', async () => {
+    const owner = await registerVerifiedUser(app, 'today-followups');
+    const auth = { Authorization: `Bearer ${adminToken}` };
+    const madrid = (d: Date) =>
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
+    const today = madrid(new Date());
+    const future = madrid(new Date(Date.now() + 10 * 86_400_000));
+    await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/followups`)
+      .set(auth)
+      .send({ title: 'Llamar hoy', dueDate: today })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/followups`)
+      .set(auth)
+      .send({ title: 'Llamar dentro de 10 días', dueDate: future })
+      .expect(201);
+
+    const ticket = await request(app.getHttpServer())
+      .post('/support/tickets')
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .send({ subject: 'Duda con una factura', body: 'Hola', priority: 'normal' })
+      .expect(201);
+    // Abierto hace 5 días, último mensaje del tenant hace 2 y un cambio de
+    // hoy (p. ej. de prioridad): espera 2 días, no 0 ni 5.
+    const ticketId = ticket.body.id as string;
+    await admin.$executeRaw`UPDATE support_tickets SET created_at = now() - interval '5 days', updated_at = now() WHERE id = ${ticketId}::uuid`;
+    await admin.$executeRaw`UPDATE support_ticket_messages SET created_at = now() - interval '2 days' WHERE ticket_id = ${ticketId}::uuid`;
+
+    const res = await request(app.getHttpServer()).get('/admin/today').set(auth).expect(200);
+    const mine = (res.body.followupsDue as Array<{ tenantId: string; title: string }>).filter(
+      (f) => f.tenantId === owner.tenantId,
+    );
+    expect(mine.map((f) => f.title)).toEqual(['Llamar hoy']);
+    const t = (res.body.openTickets as Array<{ id: string; waitingDays: number }>).find(
+      (x) => x.id === ticketId,
+    );
+    expect(t?.waitingDays).toBe(2);
+  });
+
   it('sin token → 401', async () => {
     await request(app.getHttpServer()).get('/admin/today').expect(401);
   });
