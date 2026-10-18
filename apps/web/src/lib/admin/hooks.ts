@@ -4,6 +4,8 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminTimelineKind,
+  AdminTimelinePageDto,
   AdminTenantSummaryDto,
   PlatformPaymentSettingsDto,
   UpdatePlatformPaymentSettingsInput,
@@ -2194,6 +2196,22 @@ export function useMarkNotifRead() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'notifications'] });
     },
+  });
+}
+
+/** Historial unificado del tenant, paginado por fecha. */
+export function useAdminTenantTimeline(tenantId: string, kinds: AdminTimelineKind[]) {
+  return useInfiniteQuery({
+    queryKey: ['admin', 'tenants', tenantId, 'timeline', kinds] as const,
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+      const qs = new URLSearchParams({ limit: '40' });
+      if (kinds.length) qs.set('kinds', kinds.join(','));
+      if (pageParam) qs.set('before', pageParam);
+      return adminApiFetch<AdminTimelinePageDto>(`/admin/tenants/${tenantId}/timeline?${qs}`);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextBefore ?? undefined,
+    enabled: Boolean(tenantId),
   });
 }
 

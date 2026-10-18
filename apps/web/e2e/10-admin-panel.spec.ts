@@ -62,6 +62,14 @@ test('borrar un seguimiento del tenant pide confirmación en un diálogo', async
   await page.getByRole('dialog').getByRole('button', { name: 'Confirmar' }).click();
   await expect(page.getByText('Llamar para renovar')).toHaveCount(0);
 
+  // El historial junta el seguimiento creado (aunque ya se haya borrado no;
+  // se crea otro para verlo) con el resto de eventos.
+  await page.getByPlaceholder(/Recordatorio/).fill('Revisar el uso');
+  await page.getByRole('button', { name: /Añadir recordatorio/ }).click();
+  await page.getByRole('tab', { name: 'Historial' }).click();
+  await expect(page.getByText('Seguimiento: Revisar el uso')).toBeVisible();
+  await page.screenshot({ path: 'test-results/admin-timeline.png', fullPage: true });
+
   // La campana lleva a la página propia de notificaciones.
   await page.getByRole('link', { name: 'Notificaciones' }).click();
   await expect(page).toHaveURL(/\/admin\/notifications$/);

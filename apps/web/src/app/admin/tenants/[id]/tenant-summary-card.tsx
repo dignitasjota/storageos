@@ -44,7 +44,7 @@ export function TenantSummaryCard({ tenantId }: { tenantId: string }) {
 
   return (
     <Card>
-      <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 py-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
+      <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 py-4 text-sm sm:grid-cols-3 2xl:grid-cols-6">
         <Item label="Aporta al mes">
           {s.billingExempt ? (
             <span className="text-violet-700 dark:text-violet-300">Exenta</span>
@@ -118,5 +118,5 @@ function Item({
 }
 
 function Sub({ children }: { children: ReactNode }) {
-  return <div className="truncate text-xs font-normal text-muted-foreground">{children}</div>;
+  return <div className="text-xs font-normal text-muted-foreground">{children}</div>;
 }

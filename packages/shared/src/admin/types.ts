@@ -1669,3 +1669,36 @@ export interface AdminTenantSummaryDto {
   lastInteractionAt: string | null;
   nextFollowup: { title: string; dueDate: string } | null;
 }
+
+/** Tipos de evento del historial unificado de un tenant. */
+export type AdminTimelineKind =
+  | 'interaction'
+  | 'admin_action'
+  | 'impersonation'
+  | 'payment'
+  | 'invoice'
+  | 'ticket'
+  | 'email'
+  | 'followup';
+
+/** Un evento del historial del tenant (de cualquier origen). */
+export interface AdminTimelineItemDto {
+  /** Id estable: `<tipo>:<id>`. */
+  id: string;
+  kind: AdminTimelineKind;
+  at: string;
+  title: string;
+  detail: string | null;
+  /** Quién lo hizo (super admin), si aplica. */
+  actor: string | null;
+  /** Enlace interno del panel admin, si lo hay. */
+  link: string | null;
+  /** Para colorear: ok / aviso / problema. */
+  tone: 'neutral' | 'positive' | 'warning' | 'negative';
+}
+
+export interface AdminTimelinePageDto {
+  items: AdminTimelineItemDto[];
+  /** ISO: pasa como `before` para la página siguiente. */
+  nextBefore: string | null;
+}
