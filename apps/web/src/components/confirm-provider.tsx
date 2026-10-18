@@ -32,7 +32,7 @@ type ConfirmFn = (options: ConfirmOptions) => Promise<ConfirmResult>;
 const ConfirmContext = createContext<ConfirmFn | null>(null);
 
 /**
- * Diálogo de confirmación del panel admin (sustituye a `window.confirm` y
+ * Diálogo de confirmación de los paneles (sustituye a `window.confirm` y
  * `window.prompt`, que el navegador puede bloquear y no siguen el tema).
  */
 export function ConfirmProvider({ children }: { children: ReactNode }) {

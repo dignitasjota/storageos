@@ -5,6 +5,7 @@ import { Bot, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -32,6 +33,7 @@ import {
  * y pasa la conversación al equipo cuando hace falta.
  */
 export function AssistantCard() {
+  const ask = useConfirm();
   const assistant = useWhatsappAssistant();
   const templates = useWhatsappTemplates(true);
   const update = useUpdateWhatsappAssistant();
@@ -102,7 +104,7 @@ export function AssistantCard() {
   }
 
   async function removeKey() {
-    if (!window.confirm('¿Quitar tu clave de IA?')) return;
+    if (!(await ask({ title: '¿Quitar tu clave de IA?', destructive: true }))) return;
     try {
       await update.mutateAsync({ removeOwnKey: true });
       setModel('');

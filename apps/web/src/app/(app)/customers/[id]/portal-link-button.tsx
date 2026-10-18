@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import type { PortalMagicLinkDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -43,6 +44,7 @@ export function PortalLinkButton({
   portalAccessEnabled?: boolean;
   className?: string;
 }) {
+  const ask = useConfirm();
   const createLink = useCreatePortalLink(customerId);
   const createReset = useCreatePasswordResetLink(customerId);
   const disable = useDisablePortalPassword(customerId);
@@ -85,7 +87,13 @@ export function PortalLinkButton({
   }
 
   async function disablePwd() {
-    if (!confirm('¿Desactivar el acceso por contraseña de este inquilino?')) return;
+    if (
+      !(await ask({
+        title: '¿Desactivar el acceso por contraseña de este inquilino?',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await disable.mutateAsync();
       toast.success('Acceso por contraseña desactivado.');
@@ -96,9 +104,11 @@ export function PortalLinkButton({
 
   async function revokeSessions() {
     if (
-      !confirm(
-        '¿Cerrar la sesión del portal de este inquilino en todos sus dispositivos? Tendrá que volver a entrar.',
-      )
+      !(await ask({
+        title: '¿Seguro?',
+        description:
+          '¿Cerrar la sesión del portal de este inquilino en todos sus dispositivos? Tendrá que volver a entrar.',
+      }))
     )
       return;
     try {

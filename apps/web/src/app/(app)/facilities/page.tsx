@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -50,6 +51,7 @@ function barColor(pct: number): string {
 }
 
 export default function FacilitiesPage() {
+  const ask = useConfirm();
   const facilities = useFacilities();
   const canManage = useHasPermission('facilities:manage');
   const [open, setOpen] = useState(false);
@@ -94,7 +96,13 @@ export default function FacilitiesPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Borrar este local? Sus trasteros y plantas dejarán de ser accesibles.')) return;
+    if (
+      !(await ask({
+        title: '¿Borrar este local? Sus trasteros y plantas dejarán de ser accesibles.',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await remove.mutateAsync(id);
       toast.success('Local borrado.');

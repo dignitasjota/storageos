@@ -10,6 +10,7 @@ import { CalendarClock, Loader2, Pause, Play, Plus, Trash2, Wrench } from 'lucid
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -74,6 +75,7 @@ function formatDate(iso: string): string {
 }
 
 export default function MaintenancePage() {
+  const ask = useConfirm();
   const canManage = useHasPermission('tasks:manage');
   const plans = useMaintenancePlans();
   const run = useRunMaintenancePlan();
@@ -166,8 +168,13 @@ export default function MaintenancePage() {
                         size="sm"
                         variant="ghost"
                         className="text-destructive"
-                        onClick={() => {
-                          if (window.confirm(`¿Eliminar el plan "${p.title}"?`))
+                        onClick={async () => {
+                          if (
+                            await ask({
+                              title: `¿Eliminar el plan "${p.title}"?`,
+                              destructive: true,
+                            })
+                          )
                             void action(() => del.mutateAsync(p.id), 'Plan eliminado.');
                         }}
                         aria-label="Eliminar"

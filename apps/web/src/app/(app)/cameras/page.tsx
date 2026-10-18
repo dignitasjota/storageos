@@ -13,15 +13,11 @@ import { toast } from 'sonner';
 import type { CameraDeviceWithTokenDto } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -42,8 +38,8 @@ import {
 } from '@/lib/cameras/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 
-
 export default function CamerasPage() {
+  const ask = useConfirm();
   const devices = useCameraDevices();
   const [kindFilter, setKindFilter] = useState<'all' | 'camera' | 'alarm'>('all');
   const events = useCameraEvents(undefined, kindFilter === 'all' ? undefined : kindFilter);
@@ -168,8 +164,14 @@ export default function CamerasPage() {
                         variant="ghost"
                         size="icon"
                         aria-label="Eliminar"
-                        onClick={() => {
-                          if (window.confirm(`¿Eliminar la cámara «${d.name}»?`)) del.mutate(d.id);
+                        onClick={async () => {
+                          if (
+                            await ask({
+                              title: `¿Eliminar la cámara «${d.name}»?`,
+                              destructive: true,
+                            })
+                          )
+                            del.mutate(d.id);
                         }}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
@@ -236,7 +238,9 @@ export default function CamerasPage() {
                           className="flex items-center gap-1 text-xs text-primary hover:underline"
                         >
                           <ShieldAlert className="h-3 w-3" />
-                          <span className="truncate">{e.incidentTitle ?? 'Incidencia vinculada'}</span>
+                          <span className="truncate">
+                            {e.incidentTitle ?? 'Incidencia vinculada'}
+                          </span>
                         </Link>
                       ) : (
                         <Button
@@ -345,7 +349,11 @@ function CreateCameraDialog({
           </div>
           <div className="space-y-1">
             <Label>Nombre</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cámara pasillo 1" />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Cámara pasillo 1"
+            />
           </div>
           <div className="space-y-1">
             <Label>Marca del equipo</Label>

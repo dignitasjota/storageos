@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 
 import type { AdminTenantUserDto } from '@storageos/shared';
 
-import { useConfirm } from '@/components/admin/confirm-provider';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {

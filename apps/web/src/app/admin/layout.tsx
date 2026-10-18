@@ -45,7 +45,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import type { SuperAdminDto, SuperAdminRefreshResponse } from '@storageos/shared';
 
-import { ConfirmProvider } from '@/components/admin/confirm-provider';
+import { ConfirmProvider } from '@/components/confirm-provider';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';

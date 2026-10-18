@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 
 import type { TenantInteractionDto, TenantInteractionTypeValue } from '@storageos/shared';
 
-import { useConfirm } from '@/components/admin/confirm-provider';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';

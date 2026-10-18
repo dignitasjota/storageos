@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 
 import type { UnitPricingSuggestionDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -62,6 +63,7 @@ export const CONFIDENCE: Record<
 };
 
 export function UnitPricingPanel() {
+  const ask = useConfirm();
   const [facilityId, setFacilityId] = useState<string | undefined>();
   const [includeCompetition, setIncludeCompetition] = useState(true);
   const { data, isLoading } = useUnitPricingSuggestions(facilityId, includeCompetition);
@@ -73,7 +75,8 @@ export function UnitPricingPanel() {
   const [offerFor, setOfferFor] = useState<UnitPricingSuggestionDto | null>(null);
 
   async function onCancelOffer(s: UnitPricingSuggestionDto) {
-    if (!window.confirm(`¿Quitar la oferta del trastero ${s.code}?`)) return;
+    if (!(await ask({ title: `¿Quitar la oferta del trastero ${s.code}?`, destructive: true })))
+      return;
     try {
       await cancelOffer.mutateAsync(s.unitId);
       toast.success('Oferta retirada');

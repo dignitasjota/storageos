@@ -3,7 +3,7 @@
 import { CheckCircle2, Loader2, RotateCw, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { useConfirm } from '@/components/admin/confirm-provider';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

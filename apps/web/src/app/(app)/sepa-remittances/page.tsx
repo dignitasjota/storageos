@@ -16,6 +16,7 @@ import { ConfirmRemittanceDialog } from './confirm-dialog';
 import { PrenoticesDialog } from './prenotices-dialog';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -62,6 +63,7 @@ const STATUS: Record<
 };
 
 export default function SepaRemittancesPage() {
+  const ask = useConfirm();
   const list = useSepaRemittances();
   const settings = useSepaSettings();
   const cancelMut = useCancelRemittance();
@@ -72,9 +74,12 @@ export default function SepaRemittancesPage() {
 
   async function handleCancel(id: string) {
     if (
-      !window.confirm(
-        '¿Cancelar la remesa? Hazlo solo si NO la has subido al banco (o el banco la rechazó entera): sus facturas volverán a poder cobrarse.',
-      )
+      !(await ask({
+        title: '¿Seguro?',
+        description:
+          '¿Cancelar la remesa? Hazlo solo si NO la has subido al banco (o el banco la rechazó entera): sus facturas volverán a poder cobrarse.',
+        destructive: true,
+      }))
     ) {
       return;
     }

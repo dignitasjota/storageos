@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -56,6 +57,7 @@ function discountLabel(p: PromotionDto): string {
 }
 
 export default function PromotionsPage() {
+  const ask = useConfirm();
   const promotions = usePromotions();
   const update = useUpdatePromotion();
   const remove = useDeletePromotion();
@@ -70,7 +72,13 @@ export default function PromotionsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Eliminar esta promoción? No afecta a contratos que ya la usaron.')) return;
+    if (
+      !(await ask({
+        title: '¿Eliminar esta promoción? No afecta a contratos que ya la usaron.',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await remove.mutateAsync(id);
       toast.success('Promoción eliminada.');

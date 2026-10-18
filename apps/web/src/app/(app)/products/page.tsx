@@ -18,6 +18,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -109,6 +110,7 @@ export default function ProductsPage() {
 // ============================================================================
 
 function CatalogTab() {
+  const ask = useConfirm();
   const products = useProducts();
   const create = useCreateProduct();
   const remove = useDeleteProduct();
@@ -149,7 +151,7 @@ function CatalogTab() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Desactivar este producto?')) return;
+    if (!(await ask({ title: '¿Desactivar este producto?', destructive: true }))) return;
     try {
       await remove.mutateAsync(id);
       toast.success('Producto desactivado.');
@@ -370,13 +372,20 @@ function CatalogTab() {
 // ============================================================================
 
 function SalesTab() {
+  const ask = useConfirm();
   const sales = useProductSales();
   const cancel = useCancelProductSale();
   const canSell = useHasPermission('products:write');
   const [createOpen, setCreateOpen] = useState(false);
 
   async function handleCancel(id: string) {
-    if (!confirm('¿Cancelar esta venta? El stock se devolverá al inventario.')) return;
+    if (
+      !(await ask({
+        title: '¿Cancelar esta venta? El stock se devolverá al inventario.',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await cancel.mutateAsync(id);
       toast.success('Venta cancelada.');

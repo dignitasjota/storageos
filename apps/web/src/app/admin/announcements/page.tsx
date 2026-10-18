@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 
 import type { AdminBroadcastAudienceValue } from '@storageos/shared';
 
-import { useConfirm } from '@/components/admin/confirm-provider';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';

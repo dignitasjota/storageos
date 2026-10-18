@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import type { SupportCannedResponseDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
-import { useConfirm } from '@/components/admin/confirm-provider';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {

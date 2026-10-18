@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { CASE_EVENT_LABELS, CASE_STATUS_CLASSES, CASE_STATUS_LABELS, eur } from '../status';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -45,6 +46,7 @@ const FILE_KINDS = [
 ] as const;
 
 export default function CollectionsDetailPage() {
+  const ask = useConfirm();
   const { id } = useParams<{ id: string }>();
   const detail = useCollectionsCase(id);
   const action = useCaseAction(id);
@@ -293,10 +295,18 @@ export default function CollectionsDetailPage() {
                   size="sm"
                   variant="ghost"
                   className="text-muted-foreground"
-                  onClick={() => {
-                    const reason = window.prompt('Motivo de la cancelación:');
-                    if (reason) {
-                      void run({ action: 'cancel', input: { reason } }, 'Expediente cancelado');
+                  onClick={async () => {
+                    const res = await ask({
+                      title: 'Cancelar el expediente',
+                      input: { label: 'Motivo de la cancelación' },
+                      confirmLabel: 'Cancelar expediente',
+                      destructive: true,
+                    });
+                    if (res && res.value) {
+                      void run(
+                        { action: 'cancel', input: { reason: res.value } },
+                        'Expediente cancelado',
+                      );
                     }
                   }}
                 >

@@ -8,6 +8,7 @@ import { SettingsHeader } from '../settings-header';
 
 import type { FaqEntryDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +24,7 @@ import {
 } from '@/lib/faq/hooks';
 
 export default function FaqSettingsPage() {
+  const ask = useConfirm();
   const entries = useFaqEntries();
   const create = useCreateFaqEntry();
   const update = useUpdateFaqEntry();
@@ -106,8 +108,9 @@ export default function FaqSettingsPage() {
                   onToggle={() =>
                     update.mutate({ id: f.id, input: { isPublished: !f.isPublished } })
                   }
-                  onDelete={() => {
-                    if (window.confirm('¿Borrar esta pregunta?')) remove.mutate(f.id);
+                  onDelete={async () => {
+                    if (await ask({ title: '¿Borrar esta pregunta?', destructive: true }))
+                      remove.mutate(f.id);
                   }}
                   busy={update.isPending || remove.isPending}
                 />

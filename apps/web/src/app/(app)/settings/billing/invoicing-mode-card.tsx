@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 
 import type { InvoicingModeValue } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useInvoicingMode, useUpdateInvoicingMode } from '@/lib/accounting/hooks';
 import { ApiError } from '@/lib/auth/api';
@@ -28,6 +29,7 @@ function formatDate(iso: string): string {
  * registra). No se cambia en mitad del año.
  */
 export function InvoicingModeCard() {
+  const ask = useConfirm();
   const q = useInvoicingMode();
   const update = useUpdateInvoicingMode();
   const data = q.data;
@@ -42,7 +44,7 @@ export function InvoicingModeCard() {
       : mode === data.mode
         ? `¿Anular el cambio programado y seguir con ${LABELS[mode]}?`
         : `A partir de ahora tus facturas se emitirán en ${LABELS[mode]}. No podrás cambiarlo hasta el año que viene una vez emitas la primera. ¿Continuar?`;
-    if (!window.confirm(msg)) return;
+    if (!(await ask({ title: msg }))) return;
     try {
       await update.mutateAsync(mode);
       toast.success('Guardado.');

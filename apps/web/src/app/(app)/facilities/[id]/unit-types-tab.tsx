@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,7 @@ import {
 } from '@/lib/facilities/hooks';
 
 export function FacilityUnitTypesTab() {
+  const ask = useConfirm();
   const types = useUnitTypes();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<UnitTypeDto | null>(null);
@@ -118,7 +120,13 @@ export function FacilityUnitTypesTab() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Borrar este tipo? Si tiene trasteros asignados, se desactivará.')) return;
+    if (
+      !(await ask({
+        title: '¿Borrar este tipo? Si tiene trasteros asignados, se desactivará.',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await remove.mutateAsync(id);
       toast.success('Tipo eliminado.');

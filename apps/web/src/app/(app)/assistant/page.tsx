@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 import type { AiMessageDto, AiPendingActionDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -50,6 +51,7 @@ const SUGGESTIONS = [
 ];
 
 export default function AssistantPage() {
+  const ask = useConfirm();
   const conversations = useAiConversations();
   const [activeId, setActiveId] = useState<string | null>(null);
   const detail = useAiConversation(activeId);
@@ -121,7 +123,7 @@ export default function AssistantPage() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm('¿Borrar esta conversación?')) return;
+    if (!(await ask({ title: '¿Borrar esta conversación?', destructive: true }))) return;
     await del.mutateAsync(id);
     if (activeId === id) setActiveId(null);
   }

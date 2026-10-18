@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 
 import { GoogleAdsCard, MetaAdsCard } from './ad-platform-cards';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -76,6 +77,7 @@ const AD_DRAFT_PLATFORMS = ['google_ads', 'meta_ads'] as const;
 type AdDraftPlatform = (typeof AD_DRAFT_PLATFORMS)[number];
 
 export default function MarketingChannelsPage() {
+  const ask = useConfirm();
   const canManage = useHasPermission('marketing:manage');
   const hasAi = useHasFeature('ai_assistant');
   const channels = useMarketingChannels();
@@ -96,7 +98,12 @@ export default function MarketingChannelsPage() {
   const promotionOptions = promotions.data ?? [];
 
   async function remove(id: string) {
-    if (!window.confirm('¿Eliminar este canal? El histórico de gasto/rendimiento se conserva.'))
+    if (
+      !(await ask({
+        title: '¿Eliminar este canal? El histórico de gasto/rendimiento se conserva.',
+        destructive: true,
+      }))
+    )
       return;
     try {
       await del.mutateAsync(id);

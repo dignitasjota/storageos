@@ -20,6 +20,7 @@ import type {
   InteractionTypeValue,
 } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -106,6 +107,7 @@ type TimelineItem =
   | { kind: 'note'; date: string; note: CustomerInteractionDto };
 
 export function CustomerCommunicationsTab({ customerId }: { customerId: string }) {
+  const ask = useConfirm();
   const commsQ = useCommunications({ customerId });
   const notesQ = useCustomerInteractions(customerId);
   const canWrite = useHasPermission('customers:write');
@@ -144,7 +146,7 @@ export function CustomerCommunicationsTab({ customerId }: { customerId: string }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Borrar esta interacción?')) return;
+    if (!(await ask({ title: '¿Borrar esta interacción?', destructive: true }))) return;
     try {
       await deleteNote.mutateAsync(id);
       toast.success('Interacción borrada.');

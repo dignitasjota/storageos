@@ -11,6 +11,7 @@ import { Loader2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -94,6 +95,7 @@ function MarketingChannelField({
 }
 
 export default function ExpensesPage() {
+  const ask = useConfirm();
   const canManage = useHasPermission('expenses:manage');
   const facilities = useFacilities();
   const [range, setRange] = useState(monthRange);
@@ -116,7 +118,7 @@ export default function ExpensesPage() {
   const facilityOptions = facilities.data ?? [];
 
   async function remove(id: string) {
-    if (!window.confirm('¿Eliminar este gasto?')) return;
+    if (!(await ask({ title: '¿Eliminar este gasto?', destructive: true }))) return;
     try {
       await del.mutateAsync(id);
       toast.success('Gasto eliminado.');
@@ -512,6 +514,7 @@ function ExpenseDialog({
 }
 
 function RecurringExpensesCard({ facilities }: { facilities: { id: string; name: string }[] }) {
+  const ask = useConfirm();
   const list = useRecurringExpenses();
   const run = useRunRecurringExpenses();
   const del = useDeleteRecurringExpense();
@@ -532,7 +535,7 @@ function RecurringExpensesCard({ facilities }: { facilities: { id: string; name:
     }
   }
   async function remove(id: string) {
-    if (!window.confirm('¿Eliminar esta plantilla recurrente?')) return;
+    if (!(await ask({ title: '¿Eliminar esta plantilla recurrente?', destructive: true }))) return;
     try {
       await del.mutateAsync(id);
       toast.success('Plantilla eliminada.');

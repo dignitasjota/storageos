@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,6 +55,7 @@ function errorMessage(err: unknown): string {
 }
 
 export default function CouponsPage() {
+  const ask = useConfirm();
   const coupons = useCoupons();
   const unitTypes = useUnitTypes();
   const facilities = useFacilities();
@@ -88,7 +90,7 @@ export default function CouponsPage() {
   }
 
   async function handleDelete(c: CouponDto) {
-    if (!window.confirm(`¿Borrar el cupón ${c.code}?`)) return;
+    if (!(await ask({ title: `¿Borrar el cupón ${c.code}?`, destructive: true }))) return;
     try {
       await remove.mutateAsync(c.id);
       toast.success('Cupón borrado.');

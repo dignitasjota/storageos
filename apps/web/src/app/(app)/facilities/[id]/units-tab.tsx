@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -51,6 +52,7 @@ interface Props {
 }
 
 export function FacilityUnitsTab({ facilityId }: Props) {
+  const ask = useConfirm();
   const units = useUnits({ facilityId });
   const types = useUnitTypes();
   const router = useRouter();
@@ -93,7 +95,7 @@ export function FacilityUnitsTab({ facilityId }: Props) {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Borrar este trastero?')) return;
+    if (!(await ask({ title: '¿Borrar este trastero?', destructive: true }))) return;
     try {
       await remove.mutateAsync(id);
       toast.success('Trastero borrado.');

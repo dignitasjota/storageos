@@ -3,6 +3,7 @@ import { ThemeProvider } from 'next-themes';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
+import { ConfirmProvider } from '@/components/confirm-provider';
 import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { ImpersonationBanner } from '@/components/layout/impersonation-banner';
@@ -33,17 +34,19 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <PwaRegister />
       <AuthBootstrap>
-        <SidebarProvider>
-          <AppSidebar />
-          <SidebarInset className="bg-app">
-            <ImpersonationBanner />
-            <AppHeader />
-            <PlatformBanner />
-            <PaymentAlertBanner />
-            <TrialBanner />
-            <div className="flex-1">{children}</div>
-          </SidebarInset>
-        </SidebarProvider>
+        <ConfirmProvider>
+          <SidebarProvider>
+            <AppSidebar />
+            <SidebarInset className="bg-app">
+              <ImpersonationBanner />
+              <AppHeader />
+              <PlatformBanner />
+              <PaymentAlertBanner />
+              <TrialBanner />
+              <div className="flex-1">{children}</div>
+            </SidebarInset>
+          </SidebarProvider>
+        </ConfirmProvider>
       </AuthBootstrap>
     </ThemeProvider>
   );

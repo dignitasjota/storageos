@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,6 +36,7 @@ const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString('es-
  * pactado). El sistema propone; el gestor aplica o descarta.
  */
 export function AnniversaryCard() {
+  const ask = useConfirm();
   const settings = useAnniversarySettings();
   const save = useUpdateAnniversarySettings();
   const canManage = useHasPermission('contracts:manage');
@@ -74,9 +76,10 @@ export function AnniversaryCard() {
     if (ids.length === 0) return;
     if (
       action === 'apply' &&
-      !window.confirm(
-        `¿Actualizar la renta de ${ids.length} contrato(s)? Se aplica a las próximas facturas.`,
-      )
+      !(await ask({
+        title: '¿Seguro?',
+        description: `¿Actualizar la renta de ${ids.length} contrato(s)? Se aplica a las próximas facturas.`,
+      }))
     )
       return;
     try {
