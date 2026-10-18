@@ -104,6 +104,27 @@ describe('Admin «Hoy» (e2e)', () => {
     expect(payments.body.some((p: { amount: number }) => p.amount === 12)).toBe(true);
   });
 
+  it('los extras de un tenant domiciliado por SEPA no salen para cobrar aparte', async () => {
+    const owner = await registerVerifiedUser(app, 'today-sepa-addon');
+    const auth = { Authorization: `Bearer ${adminToken}` };
+    const tenant = await admin.tenant.findUniqueOrThrow({ where: { slug: owner.slug } });
+    await admin.tenantSubscription.update({
+      where: { tenantId: tenant.id },
+      data: { billingMode: 'sepa' },
+    });
+    const assign = await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenant.id}/addons`)
+      .set(auth)
+      .send({ addonId, quantity: 1 });
+    expect(assign.status).toBe(201);
+
+    const today = await request(app.getHttpServer()).get('/admin/today').set(auth);
+    expect(today.status).toBe(200);
+    expect(
+      today.body.addonCharges.find((c: { tenantId: string }) => c.tenantId === tenant.id),
+    ).toBeUndefined();
+  });
+
   it('lista renovaciones manuales por expirar y add-ons suspendidos hace tiempo', async () => {
     const owner = await registerVerifiedUser(app, 'today-renew');
     const auth = { Authorization: `Bearer ${adminToken}` };

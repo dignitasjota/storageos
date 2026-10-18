@@ -319,7 +319,13 @@ export class AdminTodayService {
         nextChargeAt: { lte: now },
         suspendedAt: null, // los suspendidos por impago no se cobran
         billingMode: { not: 'stripe' }, // manual (o legacy null); los de Stripe no
-        tenant: { deletedAt: null, billingExempt: false },
+        // Con la cuota domiciliada por SEPA los extras ya van en la remesa: no
+        // se cobran aparte (se cobrarían dos veces).
+        tenant: {
+          deletedAt: null,
+          billingExempt: false,
+          NOT: { subscription: { billingMode: 'sepa' } },
+        },
       },
       include: {
         addon: { select: { name: true } },

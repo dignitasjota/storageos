@@ -1338,7 +1338,7 @@ export class BillingSaasService {
 
     const existing = await this.admin.tenantSubscriptionPayment.findFirst({
       where: { provider: 'stripe', externalId },
-      select: { id: true, firstFailedAt: true, recoveredAt: true },
+      select: { id: true, status: true, firstFailedAt: true, recoveredAt: true },
     });
     if (existing) {
       // Si esta factura había fallado antes y ahora se cobra, marca la
@@ -1351,6 +1351,11 @@ export class BillingSaasService {
         where: { id: existing.id },
         data: { ...data, ...recovered },
       });
+      // Cobrada tras un intento fallido: ahora sí lleva su factura (la emisión
+      // es idempotente por pago).
+      if (data.status === 'paid' && existing.status !== 'paid') {
+        await this.platformInvoices.issueForPaymentBestEffort(existing.id);
+      }
       return;
     }
     try {
