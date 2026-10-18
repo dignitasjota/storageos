@@ -129,6 +129,7 @@ export class ChatAlertsService {
   /** Texto del aviso diario (se exporta para tests). */
   dailyText(t: AdminTodayDto): string {
     const lines: [number, string][] = [
+      [t.pendingApprovals.length, 'solicitudes de soporte por aprobar'],
       [t.openTickets.length, 'tickets sin responder'],
       [t.pastDue.length, 'tenants con pago pendiente'],
       [t.addonCharges.length, 'cobros de extras por registrar'],

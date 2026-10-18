@@ -13,6 +13,8 @@ import { StripeConnectModule } from '../payments/stripe-connect/stripe-connect.m
 import { PlatformModule } from '../platform/platform.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 
+import { AdminApprovalsController } from './admin-approvals.controller';
+import { AdminApprovalsService } from './admin-approvals.service';
 import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
@@ -119,6 +121,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminSuperAdminsController,
     PlatformAlertsController,
     ChatAlertsController,
+    AdminApprovalsController,
     AdminEmailSettingsController,
     AdminEmailLogController,
     AdminImpersonationAuditController,
@@ -141,6 +144,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     PlatformAlertsService,
     PlatformAlertsCron,
     ChatAlertsService,
+    AdminApprovalsService,
     ChatAlertsCron,
     WeeklyDigestService,
     WeeklyDigestCron,

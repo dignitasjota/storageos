@@ -307,6 +307,7 @@ enum DataSubjectRequestStatus {
 
 /// Empresas clientes del SaaS.
 model Tenant {
+  approvalRequests AdminApprovalRequest[]
   id                           String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   name                         String
   slug                         String                @unique
@@ -3585,6 +3586,8 @@ enum SupportTicketPriority {
 /// nivel global. Su autenticacion es independiente de la de tenant users
 /// (JWT con purpose='superadmin', SUPER_ADMIN_JWT_SECRET).
 model SuperAdmin {
+  approvalsRequested AdminApprovalRequest[] @relation("ApprovalRequester")
+  approvalsDecided   AdminApprovalRequest[] @relation("ApprovalDecider")
   id                              String         @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   email                           String         @unique
   passwordHash                    String         @map("password_hash")
@@ -4899,6 +4902,33 @@ model PlatformSepaRemittanceItem {
 }
 
 /// Feed de notificaciones del super admin (eventos de plataforma). Global.
+/// Cola de aprobación: acciones sobre un tenant pedidas por el rol soporte
+/// que un super admin aprueba (se ejecutan) o rechaza. Tabla global (REVOKE).
+model AdminApprovalRequest {
+  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  requestedById String?   @map("requested_by_id") @db.Uuid
+  /// suspend | change_plan | extend_trial | manual_payment | set_features | update_tenant | assign_addon | remove_addon
+  action        String
+  payload       Json
+  reason        String
+  /// pending | approved | rejected | failed
+  status        String    @default("pending")
+  decidedById   String?   @map("decided_by_id") @db.Uuid
+  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(6)
+  decisionNote  String?   @map("decision_note")
+  error         String?
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  requestedBy SuperAdmin? @relation("ApprovalRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  decidedBy   SuperAdmin? @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("admin_approval_requests")
+}
+
 model SuperAdminNotification {
   id        String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   type      String

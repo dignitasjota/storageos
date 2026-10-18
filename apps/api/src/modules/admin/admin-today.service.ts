@@ -18,6 +18,7 @@ import {
   QUEUE_WEBHOOKS,
 } from '../queues/queue-names';
 
+import { AdminApprovalsService } from './admin-approvals.service';
 import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
@@ -58,6 +59,7 @@ export class AdminTodayService {
   private readonly queues: Queue[];
 
   constructor(
+    private readonly approvals: AdminApprovalsService,
     private readonly admin: PrismaAdminService,
     private readonly tenants: AdminTenantsService,
     private readonly followups: AdminTenantFollowupsService,
@@ -102,6 +104,7 @@ export class AdminTodayService {
       holdedReview,
       devicesOffline,
       crons,
+      pendingApprovals,
     ] = await Promise.all([
       this.addonChargesDue(now),
       this.manualRenewalsDue(now),
@@ -116,6 +119,7 @@ export class AdminTodayService {
       this.ops.holdedReview(),
       this.ops.devicesOffline(now),
       this.ops.crons(now),
+      this.approvals.pending(),
     ]);
     const overdueCrons = crons.filter((c) => c.overdue);
     // Solo los que tocan hoy o ya pasaron (antes salían todos los pendientes,
@@ -135,7 +139,8 @@ export class AdminTodayService {
       certificatesExpiring.filter((c) => c.daysLeft <= 15).length +
       holdedReview.length +
       devicesOffline.length +
-      overdueCrons.length;
+      overdueCrons.length +
+      pendingApprovals.length;
     return {
       date: now.toISOString(),
       addonCharges,
@@ -152,6 +157,7 @@ export class AdminTodayService {
       holdedReview,
       devicesOffline,
       overdueCrons,
+      pendingApprovals,
       urgentCount,
     };
   }

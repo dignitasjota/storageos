@@ -4,6 +4,9 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminApprovalRequestDto,
+  ApprovalStatus,
+  CreateApprovalRequestInput,
   ChatAlertSendResultDto,
   ChatAlertSettingsDto,
   UpdateChatAlertSettingsInput,
@@ -2354,6 +2357,44 @@ export function useUpdateCoupon() {
 }
 
 /** Extiende el trial de varios tenants a la vez. */
+/** Cola de aprobación (el rol soporte pide, el super admin decide). */
+export function useApprovals(filter: { status?: ApprovalStatus; tenantId?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (filter.status) qs.set('status', filter.status);
+  if (filter.tenantId) qs.set('tenantId', filter.tenantId);
+  return useQuery({
+    queryKey: ['admin', 'approvals', filter] as const,
+    queryFn: () => adminApiFetch<AdminApprovalRequestDto[]>(`/admin/approvals?${qs}`),
+  });
+}
+
+export function useCreateApproval() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateApprovalRequestInput) =>
+      adminApiFetch<AdminApprovalRequestDto>('/admin/approvals', { method: 'POST', json: input }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'approvals'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
+    },
+  });
+}
+
+export function useDecideApproval() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; decision: 'approve' | 'reject'; note?: string }) =>
+      adminApiFetch<AdminApprovalRequestDto>(`/admin/approvals/${input.id}/${input.decision}`, {
+        method: 'POST',
+        json: input.note ? { note: input.note } : {},
+      }),
+    onSuccess: () => {
+      // La acción aprobada puede cambiar casi cualquier dato del tenant.
+      void qc.invalidateQueries({ queryKey: ['admin'] });
+    },
+  });
+}
+
 /** Avisos del panel admin por Telegram y Slack. */
 export function useChatAlertSettings() {
   return useQuery({
