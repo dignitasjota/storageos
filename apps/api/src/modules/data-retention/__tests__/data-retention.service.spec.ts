@@ -76,3 +76,38 @@ describe('DataRetentionService', () => {
     });
   });
 });
+
+describe('DataRetentionService.cleanupExpiredFiles', () => {
+  it('borra los ficheros de informes caducados y las exportaciones antiguas', async () => {
+    const admin = {
+      reportRun: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { id: 'r1', downloadUrl: 'https://files/storageos-reports/t/aging/r1.pdf' },
+          ]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const files = {
+      keyFromPublicUrl: jest.fn().mockReturnValue('t/aging/r1.pdf'),
+      deleteObjects: jest.fn().mockResolvedValue(undefined),
+      deleteOlderThan: jest.fn().mockResolvedValue(2),
+    };
+    const service = new DataRetentionService(
+      admin as unknown as PrismaAdminService,
+      { get: jest.fn() } as never,
+      files as never,
+    );
+    const result = await service.cleanupExpiredFiles();
+    expect(result).toEqual({ reports: 1, exports: 2 });
+    expect(files.deleteObjects).toHaveBeenCalledWith('reports', ['t/aging/r1.pdf']);
+    expect(admin.reportRun.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['r1'] } },
+      data: { status: 'expired', downloadUrl: null },
+    });
+    const filter = files.deleteOlderThan.mock.calls[0]![2] as (k: string) => boolean;
+    expect(filter('t/exports/x.xlsx')).toBe(true);
+    expect(filter('t/aging/r1.pdf')).toBe(false);
+  });
+});

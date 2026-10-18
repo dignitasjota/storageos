@@ -226,10 +226,44 @@ export class FilesService implements OnModuleInit {
     publicUrl: string,
     expiresIn = 300,
   ): Promise<string | null> {
+    const key = this.keyFromPublicUrl(bucket, publicUrl);
+    return key ? this.getPresignedGetUrl(bucket, key, expiresIn) : null;
+  }
+
+  /** Key de un objeto a partir de la URL construida con `buildPublicUrl` (null si no es de ese bucket). */
+  keyFromPublicUrl(bucket: PresignArgs['bucket'], publicUrl: string): string | null {
     const prefix = `${this.publicUrl}/${this.bucketMap[bucket]}/`;
-    if (!publicUrl.startsWith(prefix)) return null;
-    const key = publicUrl.slice(prefix.length);
-    return this.getPresignedGetUrl(bucket, key, expiresIn);
+    return publicUrl.startsWith(prefix) ? publicUrl.slice(prefix.length) : null;
+  }
+
+  /**
+   * Borra los objetos de un bucket modificados antes de `before` cuya key pasa
+   * el filtro (p. ej. las exportaciones de datos ya caducadas). Devuelve cuántos.
+   */
+  async deleteOlderThan(
+    bucket: PresignArgs['bucket'],
+    before: Date,
+    keyFilter: (key: string) => boolean,
+  ): Promise<number> {
+    let token: string | undefined;
+    let deleted = 0;
+    do {
+      const page = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucketMap[bucket],
+          ContinuationToken: token,
+          MaxKeys: 1000,
+        }),
+      );
+      for (const obj of page.Contents ?? []) {
+        if (!obj.Key || !obj.LastModified || obj.LastModified >= before) continue;
+        if (!keyFilter(obj.Key)) continue;
+        await this.deleteObjectQuietly(bucket, obj.Key);
+        deleted += 1;
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return deleted;
   }
 
   /**

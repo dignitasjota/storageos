@@ -33,6 +33,7 @@ import { PushModule } from '../../api/src/modules/push/push.module';
 import { QueuesModule } from '../../api/src/modules/queues/queues.module';
 import { RentIncreasesModule } from '../../api/src/modules/rent-increases/rent-increases.module';
 import { ReportsModule } from '../../api/src/modules/reports/reports.module';
+import { RetentionModule } from '../../api/src/modules/retention/retention.module';
 import { ReviewsModule } from '../../api/src/modules/reviews/reviews.module';
 import { SecurityEventsModule } from '../../api/src/modules/security-events/security-events.module';
 import { WaitlistModule } from '../../api/src/modules/waitlist/waitlist.module';
@@ -159,6 +160,9 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     // WaitlistModule: listener unit_available (contract_ended del cron de bookings
     // impagados + reservas caducadas corren aquí en prod) → avisa a la lista de espera.
     WaitlistModule,
+    // RetentionModule: cron diario que retira los descuentos de las ofertas de
+    // retención cuando vencen sus meses.
+    RetentionModule,
   ],
 })
 export class WorkerModule {}
