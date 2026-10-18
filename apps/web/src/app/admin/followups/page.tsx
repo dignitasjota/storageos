@@ -5,13 +5,15 @@ import Link from 'next/link';
 
 import type { TenantFollowupDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminFollowupsPending, useDeleteFollowup, useUpdateFollowup } from '@/lib/admin/hooks';
+import { localDateString } from '@/lib/dates';
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDateString();
 }
 
 /** Etiqueta + color según el vencimiento del recordatorio. */
@@ -31,6 +33,7 @@ function dueMeta(due: string): { label: string; className: string } {
 }
 
 export default function AdminFollowupsPage() {
+  const confirm = useConfirm();
   const q = useAdminFollowupsPending();
   const update = useUpdateFollowup();
   const remove = useDeleteFollowup();
@@ -71,8 +74,9 @@ export default function AdminFollowupsPage() {
                   key={f.id}
                   f={f}
                   onDone={() => update.mutate({ followupId: f.id, status: 'done' })}
-                  onDelete={() => {
-                    if (window.confirm('¿Borrar este seguimiento?')) remove.mutate(f.id);
+                  onDelete={async () => {
+                    if (await confirm({ title: '¿Borrar este seguimiento?', destructive: true }))
+                      remove.mutate(f.id);
                   }}
                   busy={update.isPending || remove.isPending}
                 />

@@ -31,6 +31,7 @@ import {
   useAdminTenantPlatformInvoices,
   useRectifyPlatformInvoice,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
@@ -53,6 +54,7 @@ const STATUS: Record<string, { label: string; className: string }> = {
  * con un abono parcial o total.
  */
 export function PlatformInvoicesCard({ tenantId }: { tenantId: string }) {
+  const canEdit = useIsSuperadmin();
   const { data, isLoading } = useAdminTenantPlatformInvoices(tenantId);
   const [target, setTarget] = useState<PlatformInvoiceDto | null>(null);
 
@@ -128,7 +130,7 @@ export function PlatformInvoicesCard({ tenantId }: { tenantId: string }) {
                   </div>
                   <div className="flex items-center gap-2">
                     {!rect && <Badge className={status.className}>{status.label}</Badge>}
-                    {canRectify && (
+                    {canEdit && canRectify && (
                       <Button size="sm" variant="outline" onClick={() => setTarget(inv)}>
                         Rectificar
                       </Button>

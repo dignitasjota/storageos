@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import type { SupportCannedResponseDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -29,12 +30,14 @@ import { ApiError } from '@/lib/auth/api';
 
 /** Respuestas guardadas para contestar rápido a las preguntas frecuentes. */
 export default function SupportCannedPage() {
+  const confirm = useConfirm();
   const canned = useSupportCannedResponses();
   const remove = useDeleteCannedResponse();
   const [editing, setEditing] = useState<SupportCannedResponseDto | 'new' | null>(null);
 
   async function onDelete(r: SupportCannedResponseDto) {
-    if (!window.confirm(`¿Borrar la respuesta «${r.title}»?`)) return;
+    if (!(await confirm({ title: `¿Borrar la respuesta «${r.title}»?`, destructive: true })))
+      return;
     try {
       await remove.mutateAsync(r.id);
       toast.success('Respuesta borrada.');

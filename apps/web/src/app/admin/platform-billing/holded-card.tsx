@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -33,6 +34,7 @@ const NONE = '__none__';
  * Desactivada hasta que se contrate Holded.
  */
 export function PlatformHoldedCard() {
+  const confirm = useConfirm();
   const { data } = usePlatformHolded();
   const series = usePlatformHoldedSeries(!!data?.hasApiKey);
   const update = useUpdatePlatformHolded();
@@ -86,7 +88,13 @@ export function PlatformHoldedCard() {
   ) {
     let holdedDocumentId: string | undefined;
     if (action === 'already_in_holded' && kind !== 'payment') {
-      holdedDocumentId = window.prompt('Id del documento en Holded')?.trim() || undefined;
+      const ok = await confirm({
+        title: 'Ya está en Holded',
+        description: 'Indica el id del documento de Holded para enlazarlo.',
+        input: { label: 'Id del documento en Holded' },
+        confirmLabel: 'Enlazar',
+      });
+      holdedDocumentId = ok ? ok.value || undefined : undefined;
       if (!holdedDocumentId) return;
     }
     try {

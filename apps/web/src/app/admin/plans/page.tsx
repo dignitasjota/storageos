@@ -12,6 +12,7 @@ import { Ban, Loader2, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -89,6 +90,7 @@ function toForm(p: SubscriptionPlanDto): FormState {
 }
 
 export default function PlansPage() {
+  const confirm = useConfirm();
   const { data, isLoading } = useAdminAllPlans();
   const create = useCreatePlan();
   const update = useUpdatePlan();
@@ -150,7 +152,7 @@ export default function PlansPage() {
   }
 
   async function onDeactivate(p: SubscriptionPlanDto) {
-    if (!window.confirm(`¿Desactivar el plan «${p.name}»?`)) return;
+    if (!(await confirm({ title: `¿Desactivar el plan «${p.name}»?`, destructive: true }))) return;
     try {
       await deactivate.mutateAsync(p.id);
       toast.success('Plan desactivado.');

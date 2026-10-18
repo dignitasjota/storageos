@@ -8,6 +8,7 @@ import type { AdminTenantOwnerDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { useTenantUserAction } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 
 /**
  * Aviso en el detalle del tenant cuando el propietario aún no ha activado su
@@ -22,6 +23,7 @@ export function AccountActivationBanner({
   owner: AdminTenantOwnerDto;
 }) {
   const action = useTenantUserAction(tenantId);
+  const canEdit = useIsSuperadmin();
   const [busy, setBusy] = useState<'verify' | 'resend' | null>(null);
 
   if (owner.emailVerified) return null;
@@ -59,10 +61,12 @@ export function AccountActivationBanner({
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <Button size="sm" onClick={() => run('verify')} disabled={busy !== null}>
-            <MailCheck className="mr-1.5 size-4" />
-            Activar cuenta ahora
-          </Button>
+          {canEdit && (
+            <Button size="sm" onClick={() => run('verify')} disabled={busy !== null}>
+              <MailCheck className="mr-1.5 size-4" />
+              Activar cuenta ahora
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"

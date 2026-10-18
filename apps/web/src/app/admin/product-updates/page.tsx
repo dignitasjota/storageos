@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { MarkdownView } from '@/components/public/markdown-view';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -56,12 +57,19 @@ const EMPTY: FormState = { title: '', body: '', category: 'new', feature: null, 
 
 /** «Novedades» que ven todos los tenants en su panel. */
 export default function AdminProductUpdatesPage() {
+  const confirm = useConfirm();
   const updates = useAdminProductUpdates();
   const remove = useDeleteProductUpdate();
   const [editing, setEditing] = useState<AdminProductUpdateDto | 'new' | null>(null);
 
   async function onDelete(u: AdminProductUpdateDto) {
-    if (!window.confirm(`¿Borrar «${u.title}»? Desaparece del panel de los tenants.`)) return;
+    if (
+      !(await confirm({
+        title: `¿Borrar «${u.title}»? Desaparece del panel de los tenants.`,
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await remove.mutateAsync(u.id);
       toast.success('Novedad borrada.');

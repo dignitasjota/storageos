@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 
 import type { AdminBroadcastAudienceValue } from '@storageos/shared';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,7 @@ const AUDIENCE_OPTIONS: { value: AdminBroadcastAudienceValue; label: string }[] 
 ];
 
 export default function AdminAnnouncementsPage() {
+  const confirm = useConfirm();
   const broadcast = useAdminBroadcast();
   const tags = useAdminTenantTags();
   const [audience, setAudience] = useState<AdminBroadcastAudienceValue>('active');
@@ -42,7 +44,7 @@ export default function AdminAnnouncementsPage() {
     }
     const audienceLabel = AUDIENCE_OPTIONS.find((o) => o.value === audience)?.label ?? audience;
     const target = tag ? `${audienceLabel} con la etiqueta «${tag}»` : audienceLabel;
-    if (!window.confirm(`¿Enviar este anuncio a «${target}»?`)) return;
+    if (!(await confirm({ title: `¿Enviar este anuncio a «${target}»?` }))) return;
     try {
       const res = await broadcast.mutateAsync({
         audience,

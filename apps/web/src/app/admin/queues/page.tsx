@@ -3,6 +3,7 @@
 import { CheckCircle2, Loader2, RotateCw, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,6 +31,7 @@ function formatDate(iso: string | null): string {
 }
 
 export default function AdminQueuesPage() {
+  const confirm = useConfirm();
   const canEdit = useIsSuperadmin();
   const queues = useAdminQueues();
   const health = useAdminSystemHealth();
@@ -46,7 +48,13 @@ export default function AdminQueuesPage() {
   }
 
   async function onClean(name: string) {
-    if (!window.confirm(`¿Eliminar los jobs fallidos de «${name}»? No se puede deshacer.`)) return;
+    if (
+      !(await confirm({
+        title: `¿Eliminar los jobs fallidos de «${name}»? No se puede deshacer.`,
+        destructive: true,
+      }))
+    )
+      return;
     try {
       const res = await clean.mutateAsync(name);
       toast.success(`${res.cleaned ?? 0} job(s) eliminados de «${name}».`);

@@ -4,6 +4,7 @@ import { Check, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,14 +17,16 @@ import {
   useUpdateFollowup,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { localDateString } from '@/lib/dates';
 
 function defaultDue(): string {
   const d = new Date();
   d.setDate(d.getDate() + 7);
-  return d.toISOString().slice(0, 10);
+  return localDateString(d);
 }
 
 export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
+  const confirm = useConfirm();
   const list = useAdminTenantFollowups(tenantId);
   const create = useCreateFollowup(tenantId);
   const update = useUpdateFollowup();
@@ -127,8 +130,9 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
                     variant="ghost"
                     size="icon"
                     aria-label="Borrar"
-                    onClick={() => {
-                      if (window.confirm('¿Borrar este seguimiento?')) remove.mutate(f.id);
+                    onClick={async () => {
+                      if (await confirm({ title: '¿Borrar este seguimiento?', destructive: true }))
+                        remove.mutate(f.id);
                     }}
                   >
                     <Trash2 className="size-4 text-muted-foreground" />

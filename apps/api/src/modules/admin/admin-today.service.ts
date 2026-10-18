@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
+import { todayInTimezone } from '../../common/format';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -41,6 +42,8 @@ function addMonths(date: Date, months: number): Date {
   return d;
 }
 
+/** Orden de prioridad de los tickets (mayor = antes). */
+const PRIORITY_ORDER: Record<string, number> = { urgent: 3, high: 2, normal: 1, low: 0 };
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -90,7 +93,7 @@ export class AdminTodayService {
       manualRenewalsDue,
       staleSuspendedAddons,
       atRisk,
-      followupsDue,
+      pendingFollowups,
       openTickets,
       failedJobs,
       failedWebhooks,
@@ -115,6 +118,10 @@ export class AdminTodayService {
       this.ops.crons(now),
     ]);
     const overdueCrons = crons.filter((c) => c.overdue);
+    // Solo los que tocan hoy o ya pasaron (antes salían todos los pendientes,
+    // también los de dentro de semanas, como «vencidos» y urgentes).
+    const todayIso = todayInTimezone('Europe/Madrid', now).toISOString().slice(0, 10);
+    const followupsDue = pendingFollowups.filter((f) => f.dueDate <= todayIso);
 
     const urgentCount =
       addonCharges.length +
@@ -158,19 +165,39 @@ export class AdminTodayService {
         tenantId: true,
         subject: true,
         priority: true,
-        updatedAt: true,
+        createdAt: true,
         tenant: { select: { name: true } },
+        // Lo que espera el admin cuenta desde el último mensaje del tenant
+        // (`updatedAt` cambia también con un cambio de prioridad o una nota).
+        messages: {
+          where: { authorUserId: { not: null } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { createdAt: true },
+        },
       },
-      orderBy: [{ priority: 'desc' }, { updatedAt: 'asc' }],
     });
-    return rows.map((r) => ({
-      id: r.id,
-      tenantId: r.tenantId,
-      tenantName: r.tenant.name,
-      subject: r.subject,
-      priority: r.priority,
-      waitingDays: Math.floor((now.getTime() - r.updatedAt.getTime()) / MS_PER_DAY),
-    }));
+    return rows
+      .map((r) => {
+        const since = r.messages[0]?.createdAt ?? r.createdAt;
+        return {
+          since,
+          dto: {
+            id: r.id,
+            tenantId: r.tenantId,
+            tenantName: r.tenant.name,
+            subject: r.subject,
+            priority: r.priority,
+            waitingDays: Math.floor((now.getTime() - since.getTime()) / MS_PER_DAY),
+          },
+        };
+      })
+      .sort((a, b) => {
+        const pa = PRIORITY_ORDER[a.dto.priority] ?? 0;
+        const pb = PRIORITY_ORDER[b.dto.priority] ?? 0;
+        return pb - pa || a.since.getTime() - b.since.getTime();
+      })
+      .map((x) => x.dto);
   }
 
   /**

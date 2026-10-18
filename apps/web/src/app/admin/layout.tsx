@@ -45,6 +45,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import type { SuperAdminDto, SuperAdminRefreshResponse } from '@storageos/shared';
 
+import { ConfirmProvider } from '@/components/admin/confirm-provider';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -191,13 +192,15 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       disableTransitionOnChange
       storageKey="storageos-admin-theme"
     >
-      {pathname === '/admin/login' ? (
-        <div className="min-h-screen bg-background">{children}</div>
-      ) : (
-        <AdminGuard>
-          <AdminShell>{children}</AdminShell>
-        </AdminGuard>
-      )}
+      <ConfirmProvider>
+        {pathname === '/admin/login' ? (
+          <div className="min-h-screen bg-background">{children}</div>
+        ) : (
+          <AdminGuard>
+            <AdminShell>{children}</AdminShell>
+          </AdminGuard>
+        )}
+      </ConfirmProvider>
     </ThemeProvider>
   );
 }
@@ -211,6 +214,9 @@ function AdminGuard({ children }: { children: ReactNode }) {
   const setBootstrapping = useAdminAuthStore((s) => s.setBootstrapping);
   const clear = useAdminAuthStore((s) => s.clear);
   const isBootstrapping = useAdminAuthStore((s) => s.isBootstrapping);
+  // Fallo que no es «sesión caducada» (API caída, red): sin esto el panel se
+  // quedaba en «Cargando panel…» para siempre.
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -225,6 +231,12 @@ function AdminGuard({ children }: { children: ReactNode }) {
             credentials: 'include',
           });
           if (cancelled) return;
+          // Sin sesión (401/403) → login; un 5xx (API caída) no es motivo
+          // para echar al admin: se ofrece reintentar.
+          if (res.status >= 500) {
+            setFailed(true);
+            return;
+          }
           if (!res.ok) {
             clear();
             router.replace('/admin/login');
@@ -250,7 +262,8 @@ function AdminGuard({ children }: { children: ReactNode }) {
           router.replace('/admin/login');
           return;
         }
-        // Otros errores: no rompemos la app, dejamos al usuario reintentar.
+        // Otros errores: aviso con «Reintentar».
+        setFailed(true);
       } finally {
         if (!cancelled) setBootstrapping(false);
       }
@@ -262,6 +275,19 @@ function AdminGuard({ children }: { children: ReactNode }) {
     // Solo al montar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  if (failed && !token) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-4 text-center text-sm">
+        <p className="text-muted-foreground">
+          No hemos podido conectar con el servidor. Comprueba la conexión y vuelve a intentarlo.
+        </p>
+        <Button variant="outline" onClick={() => window.location.reload()}>
+          Reintentar
+        </Button>
+      </div>
+    );
+  }
 
   if (isBootstrapping || !token) {
     return (

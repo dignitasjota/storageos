@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import {
   useAdminTenantWhatsappAi,
   useUpdateAdminTenantWhatsappAi,
@@ -25,6 +26,7 @@ import { ApiError } from '@/lib/auth/api';
 
 /** IA del asistente de WhatsApp del tenant: modo, límite y uso del mes. */
 export function WhatsappAiCard({ tenantId }: { tenantId: string }) {
+  const canEdit = useIsSuperadmin();
   const data = useAdminTenantWhatsappAi(tenantId);
   const update = useUpdateAdminTenantWhatsappAi(tenantId);
   const [mode, setMode] = useState<WhatsappAiMode>('platform');
@@ -98,7 +100,7 @@ export function WhatsappAiCard({ tenantId }: { tenantId: string }) {
             />
           </div>
         </div>
-        <Button onClick={save} disabled={update.isPending}>
+        <Button onClick={save} disabled={update.isPending || !canEdit}>
           {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
           Guardar
         </Button>

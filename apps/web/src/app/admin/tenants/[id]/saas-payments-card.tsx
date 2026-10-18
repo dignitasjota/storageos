@@ -34,6 +34,7 @@ import {
   useIssuePlatformInvoice,
   useSyncTenantSaasPayments,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 function fmtDate(iso: string | null): string {
@@ -80,6 +81,7 @@ const PROVIDER_OPTIONS: { value: SaasPaymentProviderValue; label: string }[] = [
 ];
 
 export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
+  const canEdit = useIsSuperadmin();
   const payments = useAdminTenantSaasPayments(tenantId);
   const sync = useSyncTenantSaasPayments();
   const platformInvoices = useAdminTenantPlatformInvoices(tenantId);
@@ -127,7 +129,7 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
           <Button variant="outline" size="sm" onClick={onSync} disabled={sync.isPending}>
             {sync.isPending ? 'Sincronizando…' : 'Sincronizar con Stripe'}
           </Button>
-          <Button size="sm" onClick={() => setManualOpen(true)}>
+          <Button size="sm" onClick={() => setManualOpen(true)} disabled={!canEdit}>
             Añadir pago manual
           </Button>
         </div>

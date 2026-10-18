@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/admin/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,12 +56,19 @@ function SessionActivity({ id }: { id: string }) {
 }
 
 export default function ImpersonationPage() {
+  const confirm = useConfirm();
   const { data, isLoading } = useAdminImpersonationLogs();
   const revoke = useRevokeImpersonation();
   const [open, setOpen] = useState<string | null>(null);
 
-  function onRevoke(id: string, tenantName: string) {
-    if (!window.confirm(`¿Revocar la sesión de impersonación de «${tenantName}»?`)) return;
+  async function onRevoke(id: string, tenantName: string) {
+    if (
+      !(await confirm({
+        title: `¿Revocar la sesión de impersonación de «${tenantName}»?`,
+        destructive: true,
+      }))
+    )
+      return;
     revoke.mutate(id, {
       onSuccess: () => toast.success('Sesión revocada.'),
       onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
