@@ -168,6 +168,7 @@ export async function apiFetch<T = unknown>(
 
   if (!res.ok) {
     const body = (await parseJsonOrThrow(res).catch(() => ({}))) as Partial<ApiErrorBody>;
+    leaveIfTenantGone(body, options);
     throw new ApiError({
       statusCode: body.statusCode ?? res.status,
       error: body.error ?? res.statusText,
@@ -206,6 +207,7 @@ export async function apiFetchBlob(path: string, options: ApiFetchOptions = {}):
 
   if (!res.ok) {
     const body = (await parseJsonOrThrow(res).catch(() => ({}))) as Partial<ApiErrorBody>;
+    leaveIfTenantGone(body, options);
     throw new ApiError({
       statusCode: body.statusCode ?? res.status,
       error: body.error ?? res.statusText,
@@ -244,6 +246,7 @@ export async function apiFetchResponse(
 
   if (!res.ok) {
     const body = (await parseJsonOrThrow(res).catch(() => ({}))) as Partial<ApiErrorBody>;
+    leaveIfTenantGone(body, options);
     throw new ApiError({
       statusCode: body.statusCode ?? res.status,
       error: body.error ?? res.statusText,
@@ -255,4 +258,17 @@ export async function apiFetchResponse(
     });
   }
   return res;
+}
+
+/**
+ * La empresa se dio de baja o se borró (403 `tenant_unavailable`): la sesión
+ * ya no sirve. Se cierra y se vuelve al login en vez de dejar el panel lleno
+ * de errores sueltos.
+ */
+function leaveIfTenantGone(body: Partial<ApiErrorBody>, options: ApiFetchOptions): void {
+  if (body.code !== 'tenant_unavailable' || options.requiresAuth === false) return;
+  useAuthStore.getState().clear();
+  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    window.location.assign('/login?reason=unavailable');
+  }
 }

@@ -415,6 +415,7 @@
         "resendVerification": "Reenviar"
       },
       "sessionExpiredNotice": "Tu sesión ha caducado. Vuelve a iniciar sesión.",
+      "accountUnavailableNotice": "La cuenta de esta empresa ya no está disponible.",
       "passwordChangedNotice": "Tu contraseña se ha cambiado. Inicia sesión con la nueva.",
       "emailVerifiedNotice": "Email verificado. Bienvenido."
     },
