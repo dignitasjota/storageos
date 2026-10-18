@@ -9,6 +9,7 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { AsyncContextModule } from './common/async-context/async-context.module';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { FeatureGuard } from './common/guards/feature.guard';
+import { ImpersonationGuard } from './common/guards/impersonation.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { SecurityThrottlerGuard } from './common/guards/security-throttler.guard';
@@ -272,6 +273,8 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     // se retiro al completarse la migracion a permisos en RBAC v2).
     { provide: APP_GUARD, useClass: SecurityThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Límites de las sesiones de impersonación del soporte (solo lectura, datos de acceso).
+    { provide: APP_GUARD, useClass: ImpersonationGuard },
     // Revalida por request que el tenant del token sigue vivo (no borrado):
     // cierra la ventana en que un token de staff opera tras borrar el tenant.
     { provide: APP_GUARD, useClass: TenantStatusGuard },

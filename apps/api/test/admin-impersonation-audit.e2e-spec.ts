@@ -99,4 +99,87 @@ describe('Admin: auditoría de impersonación (e2e)', () => {
         .expect(404);
     },
   );
+
+  it('solo lectura: el panel recibe permisos de lectura y el API rechaza cualquier cambio', async () => {
+    const admin = await seedSuperAdmin('imp-ro');
+    const login = await request(app.getHttpServer())
+      .post('/admin/auth/login')
+      .send({ email: admin.email, password: admin.password });
+    const auth = { Authorization: `Bearer ${login.body.accessToken}` };
+    const owner = await registerVerifiedUser(app, 'imp-ro-tenant');
+
+    const imp = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/impersonate`)
+      .set(auth)
+      .send({ reason: 'revisar facturas', readOnly: true })
+      .expect(200);
+    expect(imp.body.readOnly).toBe(true);
+    const impAuth = { Authorization: `Bearer ${imp.body.accessToken as string}` };
+
+    const me = await request(app.getHttpServer()).get('/auth/me').set(impAuth).expect(200);
+    expect(me.body.impersonation.readOnly).toBe(true);
+    expect(typeof me.body.impersonation.expiresAt).toBe('string');
+    expect(me.body.permissions).toContain('customers:read');
+    expect(me.body.permissions).not.toContain('customers:write');
+
+    await request(app.getHttpServer()).get('/customers').set(impAuth).expect(200);
+    const write = await request(app.getHttpServer())
+      .post('/customers')
+      .set(impAuth)
+      .send({ customerType: 'individual', firstName: 'No', lastName: 'Debe' });
+    expect(write.status).toBe(403);
+    expect(write.body.code).toBe('impersonation_read_only');
+
+    const sessions = await request(app.getHttpServer())
+      .get(`/admin/impersonation-logs?tenantId=${owner.tenantId}`)
+      .set(auth)
+      .expect(200);
+    expect(sessions.body[0].readOnly).toBe(true);
+
+    // La sesión del propietario de verdad no lleva `impersonation`.
+    const ownerMe = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .expect(200);
+    expect(ownerMe.body.impersonation).toBeUndefined();
+  });
+
+  it('con permiso de cambios, sigue sin poder tocar la contraseña, el perfil ni el 2FA', async () => {
+    const admin = await seedSuperAdmin('imp-rw');
+    const login = await request(app.getHttpServer())
+      .post('/admin/auth/login')
+      .send({ email: admin.email, password: admin.password });
+    const auth = { Authorization: `Bearer ${login.body.accessToken}` };
+    const owner = await registerVerifiedUser(app, 'imp-rw-tenant');
+
+    const imp = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/impersonate`)
+      .set(auth)
+      .send({ reason: 'corregir un contrato', readOnly: false })
+      .expect(200);
+    const impAuth = { Authorization: `Bearer ${imp.body.accessToken as string}` };
+
+    const me = await request(app.getHttpServer()).get('/auth/me').set(impAuth).expect(200);
+    expect(me.body.impersonation.readOnly).toBe(false);
+
+    for (const [method, path, body] of [
+      ['post', '/me/change-password', { currentPassword: 'x', newPassword: 'NuevaClave!123' }],
+      ['patch', '/me', { fullName: 'Otro nombre' }],
+      ['post', '/auth/2fa/setup', {}],
+      ['post', '/auth/logout-all', {}],
+    ] as const) {
+      const res = await request(app.getHttpServer())[method](path).set(impAuth).send(body);
+      expect({ path, status: res.status, code: res.body.code }).toEqual({
+        path,
+        status: 403,
+        code: 'not_allowed_while_impersonating',
+      });
+    }
+    // El resto del panel sí admite cambios.
+    await request(app.getHttpServer())
+      .post('/customers')
+      .set(impAuth)
+      .send({ customerType: 'individual', firstName: 'Ana', lastName: 'Prueba' })
+      .expect(201);
+  });
 });

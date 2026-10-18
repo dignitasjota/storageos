@@ -106,6 +106,8 @@ export type SetBillingExemptInput = z.infer<typeof SetBillingExemptSchema>;
 
 export const ImpersonateSchema = z.object({
   reason: z.string().trim().min(1).max(500),
+  /** Solo lectura: el panel del tenant se ve pero no se puede cambiar nada. */
+  readOnly: z.boolean().default(false),
 });
 export type ImpersonateInput = z.infer<typeof ImpersonateSchema>;
 

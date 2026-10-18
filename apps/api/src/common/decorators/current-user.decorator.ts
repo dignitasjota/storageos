@@ -18,6 +18,8 @@ export interface AuthenticatedUser {
    * local). `null` o ausente = sin restricción (ve todos los locales).
    */
   facilityScope?: string[] | null;
+  /** Solo si el token es una impersonación del soporte de TrasterOS. */
+  impersonation?: { id: string; readOnly: boolean; expiresAt: Date };
 }
 
 /**

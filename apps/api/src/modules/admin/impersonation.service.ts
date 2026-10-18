@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { permissionsForRole, type ImpersonationTokenDto } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -10,12 +11,13 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { Env } from '../../config/env.schema';
-import type { ImpersonationTokenDto } from '@storageos/shared';
 
 interface ImpersonateArgs {
   superAdminId: string;
   tenantId: string;
   reason: string;
+  /** Solo lectura: permisos de `readonly` y el API rechaza las escrituras. */
+  readOnly?: boolean;
   ipAddress?: string | null;
   userAgent?: string | null;
 }
@@ -70,6 +72,7 @@ export class ImpersonationService {
         superAdminId: args.superAdminId,
         tenantId: args.tenantId,
         reason: args.reason,
+        readOnly: args.readOnly ?? false,
         ipAddress: args.ipAddress ?? null,
         userAgent: args.userAgent ?? null,
         expiresAt,
@@ -96,7 +99,11 @@ export class ImpersonationService {
     const accessToken = await this.jwt.signAsync(
       {
         tenantId: tenant.id,
-        role: 'owner',
+        // En solo lectura, los permisos de `readonly` (lo que gatea el panel y
+        // `PermissionsGuard`); si no, los del propietario (sin claim → su rol).
+        ...(args.readOnly
+          ? { role: 'readonly', permissions: permissionsForRole('readonly') }
+          : { role: 'owner' }),
         purpose: 'impersonation',
         superAdminId: args.superAdminId,
         // Ata el JWT a su fila de `ImpersonationLog`: `JwtStrategy` la
@@ -120,6 +127,7 @@ export class ImpersonationService {
       changes: {
         superAdminId: args.superAdminId,
         reason: args.reason,
+        readOnly: args.readOnly ?? false,
         expiresAt: expiresAt.toISOString(),
       },
       ipAddress: args.ipAddress ?? null,
@@ -139,6 +147,7 @@ export class ImpersonationService {
       userAgent: args.userAgent ?? null,
       changes: {
         reason: args.reason,
+        readOnly: args.readOnly ?? false,
         expiresAt: expiresAt.toISOString(),
       },
     });
@@ -148,6 +157,7 @@ export class ImpersonationService {
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
       expiresIn: ttl,
+      readOnly: args.readOnly ?? false,
     };
   }
 }

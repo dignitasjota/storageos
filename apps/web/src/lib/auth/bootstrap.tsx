@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect } from 'react';
 
 import { performRefresh } from './api';
+import { claimImpersonation } from './impersonation';
 import { useAuthStore } from './store';
 
 /**
@@ -37,6 +38,13 @@ export function AuthBootstrap({ children }: { children: ReactNode }) {
     (async () => {
       // Refresh deduplicado (comparte promesa con `apiFetch`): nunca dos
       // `/auth/refresh` en paralelo con la misma cookie.
+      // Sesión de soporte abierta desde el panel admin: usa su token tal cual.
+      const impersonation = claimImpersonation();
+      if (impersonation) {
+        setAccessToken(impersonation.accessToken);
+        setBootstrapping(false);
+        return;
+      }
       try {
         const token = await performRefresh();
         if (cancelled) return;

@@ -192,7 +192,18 @@ export class AuthController {
 
   @Get('me')
   async me(@CurrentUser() user: AuthenticatedUser): Promise<MeResponse> {
-    return this.authService.me({ tenantId: user.tenantId, userId: user.sub });
+    const me = await this.authService.me({ tenantId: user.tenantId, userId: user.sub });
+    if (!user.impersonation) return me;
+    // Impersonación: el panel ve lo que permite el token (en solo lectura,
+    // los permisos de `readonly`), no los del propietario.
+    return {
+      ...me,
+      ...(user.permissions ? { permissions: user.permissions } : {}),
+      impersonation: {
+        expiresAt: user.impersonation.expiresAt.toISOString(),
+        readOnly: user.impersonation.readOnly,
+      },
+    };
   }
 
   // -------------------------- helpers privados -----------------------------

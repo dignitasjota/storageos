@@ -50,10 +50,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    * emitido de verdad, no solo el registro.
    */
   async validate(payload: RawAccessPayload): Promise<AuthenticatedUser> {
+    let impersonation: AuthenticatedUser['impersonation'];
     if (payload.purpose === 'impersonation' && payload.impersonationId) {
       const log = await this.admin.impersonationLog.findUnique({
         where: { id: payload.impersonationId },
-        select: { revokedAt: true },
+        select: { revokedAt: true, readOnly: true, expiresAt: true },
       });
       if (!log || log.revokedAt) {
         throw new UnauthorizedException({
@@ -61,6 +62,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
           message: 'La sesión de impersonación fue revocada',
         });
       }
+      impersonation = {
+        id: payload.impersonationId,
+        readOnly: log.readOnly,
+        expiresAt: log.expiresAt,
+      };
     }
     return {
       sub: payload.sub,
@@ -68,6 +74,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       role: payload.role,
       ...(payload.permissions ? { permissions: payload.permissions } : {}),
       facilityScope: payload.facilityScope ?? null,
+      ...(impersonation ? { impersonation } : {}),
     };
   }
 }
