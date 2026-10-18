@@ -149,6 +149,30 @@ describe('Admin SaaS manual payment (e2e)', () => {
     expect(periodEnd).toBeGreaterThan(periodEndBefore);
   });
 
+  it('dos cobros del mismo importe con distinto concepto (dos extras) no se confunden', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-smp-two');
+    const billing = app.get(BillingSaasService, { strict: false });
+    const a = await billing.recordManualPayment({
+      tenantId: owner.tenantId,
+      provider: 'cash',
+      amount: 12,
+      currency: 'EUR',
+      durationMonths: 1,
+      extendsPeriod: false,
+      description: 'Add-on: Asistente IA',
+    });
+    const b = await billing.recordManualPayment({
+      tenantId: owner.tenantId,
+      provider: 'cash',
+      amount: 12,
+      currency: 'EUR',
+      durationMonths: 1,
+      extendsPeriod: false,
+      description: 'Add-on: Seguros',
+    });
+    expect(b.id).not.toBe(a.id);
+  });
+
   it('dos pagos IDÉNTICOS CONCURRENTES (doble clic real) no duplican ni extienden el periodo dos veces', async () => {
     const owner = await registerVerifiedUser(app, 'admin-smp-race');
     const before = await request(app.getHttpServer())

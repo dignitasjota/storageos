@@ -120,6 +120,51 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
     expect(trialEndsAfter).toBeGreaterThan(trialEndsBefore);
   });
 
+  it('extend-trial no devuelve a prueba a un tenant que ya paga', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-extend-paid');
+    await adminClient.tenant.update({
+      where: { id: owner.tenantId },
+      data: { status: 'active', trialEndsAt: null },
+    });
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { status: 'active' },
+    });
+    const r = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/extend-trial`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ days: 7, reason: 'por error' });
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe('tenant_has_paid_plan');
+    const t = await adminClient.tenant.findUnique({ where: { id: owner.tenantId } });
+    expect(t!.status).toBe('active');
+  });
+
+  it('extend-trial a una prueba vencida (en Free) la vuelve a abrir con el plan de prueba', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-extend-free');
+    const free = await adminClient.subscriptionPlan.findUniqueOrThrow({ where: { slug: 'free' } });
+    await adminClient.tenant.update({
+      where: { id: owner.tenantId },
+      data: { status: 'active', trialEndsAt: null },
+    });
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { planId: free.id, status: 'active' },
+    });
+    const r = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/extend-trial`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ days: 14, reason: 'más tiempo para probar' });
+    expect([200, 201]).toContain(r.status);
+    const t = await adminClient.tenant.findUnique({
+      where: { id: owner.tenantId },
+      include: { subscription: { include: { plan: true } } },
+    });
+    expect(t!.status).toBe('trial');
+    expect(t!.subscription?.plan.slug).toBe('starter');
+    expect(t!.subscription?.status).toBe('trial');
+  });
+
   it('tenant action: end-trial pasa el tenant a active y limpia trialEndsAt', async () => {
     const owner = await registerVerifiedUser(app, 'admin-endtrial');
     await adminClient.tenant.update({
