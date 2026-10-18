@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 
 import { AccountingModule } from '../accounting/accounting.module';
@@ -12,6 +13,7 @@ import { StripeConnectModule } from '../payments/stripe-connect/stripe-connect.m
 import { PlatformModule } from '../platform/platform.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 
+import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
 import { AdminEmailLogController } from './admin-email-log.controller';
@@ -128,6 +130,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
   ],
   providers: [
     AdminGuard,
+    // Auditoría de los endpoints marcados con @AdminAudit (solo actúa con esa marca).
+    { provide: APP_INTERCEPTOR, useClass: AdminAuditInterceptor },
     PlatformAlertsService,
     PlatformAlertsCron,
     WeeklyDigestService,

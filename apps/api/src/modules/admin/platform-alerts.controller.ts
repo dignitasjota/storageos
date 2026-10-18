@@ -8,8 +8,10 @@ import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 
+import { AdminAudit } from './admin-audit.decorator';
 import { AdminGuard } from './admin.guard';
 import { PlatformAlertsService } from './platform-alerts.service';
+import { RequireSuperadmin } from './require-superadmin.decorator';
 
 class UpdatePlatformAlertSettingsDto extends createZodDto(UpdatePlatformAlertSettingsSchema) {}
 
@@ -25,6 +27,8 @@ export class PlatformAlertsController {
     return this.alerts.getSettings();
   }
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform_alerts.settings_updated')
   @Put()
   @HttpCode(HttpStatus.OK)
   async update(@Body() input: UpdatePlatformAlertSettingsDto): Promise<PlatformAlertSettingsDto> {

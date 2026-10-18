@@ -9,9 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useAdminPlatformSepaSettings, useUpdatePlatformSepaSettings } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 export default function PlatformSepaPage() {
+  const canEdit = useIsSuperadmin();
   const settings = useAdminPlatformSepaSettings();
   const update = useUpdatePlatformSepaSettings();
 
@@ -121,13 +123,13 @@ export default function PlatformSepaPage() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button onClick={() => save(s.enabled)} disabled={update.isPending}>
+            <Button onClick={() => save(s.enabled)} disabled={update.isPending || !canEdit}>
               Guardar
             </Button>
             <Button
               variant={s.enabled ? 'destructive' : 'outline'}
               onClick={() => save(!s.enabled)}
-              disabled={update.isPending}
+              disabled={update.isPending || !canEdit}
             >
               {s.enabled ? 'Desactivar' : 'Activar'}
             </Button>

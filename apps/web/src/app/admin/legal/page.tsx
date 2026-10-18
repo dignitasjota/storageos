@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAdminLegalDoc, useUpdateLegalDoc } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 
 const SLUG_LABEL: Record<LegalSlug, string> = {
   terms: 'Términos y Condiciones',
@@ -50,6 +51,7 @@ export default function AdminLegalPage() {
 }
 
 function LegalEditor({ slug }: { slug: LegalSlug }) {
+  const canEdit = useIsSuperadmin();
   const doc = useAdminLegalDoc(slug);
   const update = useUpdateLegalDoc(slug);
   const [title, setTitle] = useState('');
@@ -85,7 +87,7 @@ function LegalEditor({ slug }: { slug: LegalSlug }) {
           <Button variant="outline" size="sm" onClick={() => setPreview((p) => !p)}>
             {preview ? 'Editar' : 'Vista previa'}
           </Button>
-          <Button size="sm" onClick={save} disabled={update.isPending || !title.trim()}>
+          <Button size="sm" onClick={save} disabled={update.isPending || !title.trim() || !canEdit}>
             {update.isPending ? 'Guardando…' : 'Guardar'}
           </Button>
         </div>

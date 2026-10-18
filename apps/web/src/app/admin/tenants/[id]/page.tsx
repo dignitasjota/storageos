@@ -93,6 +93,7 @@ import {
   useSuspendTenant,
 } from '@/lib/admin/hooks';
 import { subscriptionStatusLabel, tenantStatusLabel } from '@/lib/admin/labels';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 /** Clave en localStorage para registrar la sesion de impersonacion activa. */
@@ -110,6 +111,8 @@ export default function AdminTenantDetailPage() {
   const id = params.id;
   const tenant = useAdminTenant(id);
   const dataExport = useTenantDataExport(id);
+  // El rol `support` no edita, suspende, impersona ni toca la suscripción (403 en el API).
+  const canEdit = useIsSuperadmin();
 
   const [dialog, setDialog] = useState<
     'suspend' | 'reactivate' | 'extendTrial' | 'endTrial' | 'impersonate' | 'anonymize' | null
@@ -161,15 +164,17 @@ export default function AdminTenantDetailPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Acciones frecuentes: Editar y Email como icono (aria-label + title). */}
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Editar"
-            title="Editar"
-            onClick={() => setEditOpen(true)}
-          >
-            <Pencil className="size-4" />
-          </Button>
+          {canEdit && (
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label="Editar"
+              title="Editar"
+              onClick={() => setEditOpen(true)}
+            >
+              <Pencil className="size-4" />
+            </Button>
+          )}
           <Button
             variant="outline"
             size="icon"
@@ -179,50 +184,57 @@ export default function AdminTenantDetailPage() {
           >
             <Mail className="size-4" />
           </Button>
-          {t.status !== 'suspended' && (
+          {canEdit && t.status !== 'suspended' && (
             <Button variant="destructive" onClick={() => setDialog('suspend')}>
               Suspender
             </Button>
           )}
-          {t.status === 'suspended' && (
+          {canEdit && t.status === 'suspended' && (
             <Button onClick={() => setDialog('reactivate')}>Reactivar</Button>
           )}
           {/* Extender/Finalizar trial se movieron a la card «Suscripción» (acción
               contextual junto al estado del trial). */}
           {/* Acciones poco frecuentes / sensibles bajo un menú (Anonimizar es
               irreversible: mejor que no esté a un clic accidental). */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" aria-label="Más acciones" title="Más acciones">
-                <MoreVertical className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setDialog('impersonate')}>
-                Impersonar
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={dataExport.isPending}
-                onClick={() =>
-                  dataExport.mutate(undefined, {
-                    onSuccess: (r) => {
-                      toast.success('Exportación lista. Se descarga el Excel.');
-                      window.location.href = r.url;
-                    },
-                    onError: () => toast.error('No se pudo generar la exportación.'),
-                  })
-                }
-              >
-                {dataExport.isPending ? 'Exportando datos…' : 'Exportar datos (Excel)'}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={() => setDialog('anonymize')}
-              >
-                Anonimizar (RGPD)
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {canEdit && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Más acciones"
+                  title="Más acciones"
+                >
+                  <MoreVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setDialog('impersonate')}>
+                  Impersonar
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={dataExport.isPending}
+                  onClick={() =>
+                    dataExport.mutate(undefined, {
+                      onSuccess: (r) => {
+                        toast.success('Exportación lista. Se descarga el Excel.');
+                        window.location.href = r.url;
+                      },
+                      onError: () => toast.error('No se pudo generar la exportación.'),
+                    })
+                  }
+                >
+                  {dataExport.isPending ? 'Exportando datos…' : 'Exportar datos (Excel)'}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => setDialog('anonymize')}
+                >
+                  Anonimizar (RGPD)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
@@ -298,18 +310,25 @@ export default function AdminTenantDetailPage() {
                         </Badge>
                       }
                     />
-                    <ChangePlanControl
-                      tenantId={id}
-                      currentSlug={t.subscription.planSlug ?? null}
-                    />
-                    <BillingModeControl tenantId={id} billingMode={t.subscription.billingMode} />
+                    {canEdit && (
+                      <>
+                        <ChangePlanControl
+                          tenantId={id}
+                          currentSlug={t.subscription.planSlug ?? null}
+                        />
+                        <BillingModeControl
+                          tenantId={id}
+                          billingMode={t.subscription.billingMode}
+                        />
+                      </>
+                    )}
                   </>
                 ) : (
                   <p className="text-muted-foreground">Sin suscripción activa.</p>
                 )}
                 {/* Acciones de trial: solo tienen sentido mientras el tenant
                     está en periodo de prueba. */}
-                {t.status === 'trial' && (
+                {canEdit && t.status === 'trial' && (
                   <div className="flex flex-wrap gap-2 border-t pt-3">
                     <Button variant="outline" size="sm" onClick={() => setDialog('extendTrial')}>
                       Extender trial
@@ -327,11 +346,13 @@ export default function AdminTenantDetailPage() {
                   </p>
                 )}
                 {/* Exención de facturación (cuenta interna): fuera de las métricas. */}
-                <BillingExemptControl
-                  tenantId={id}
-                  exempt={t.billingExempt}
-                  onStripe={!!t.subscription?.stripeSubscriptionId}
-                />
+                {canEdit && (
+                  <BillingExemptControl
+                    tenantId={id}
+                    exempt={t.billingExempt}
+                    onStripe={!!t.subscription?.stripeSubscriptionId}
+                  />
+                )}
               </CardContent>
             </Card>
 

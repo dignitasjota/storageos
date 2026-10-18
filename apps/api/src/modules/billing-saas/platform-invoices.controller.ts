@@ -34,6 +34,7 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { AdminAudit } from '../admin/admin-audit.decorator';
 import { AdminGuard } from '../admin/admin.guard';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
@@ -113,6 +114,8 @@ export class PlatformInvoicesController {
     return this.service.getSettings();
   }
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform_billing.settings_updated')
   @Put('platform-billing/settings')
   updateSettings(@Body() body: UpdateSettingsDto): Promise<PlatformBillingSettingsDto> {
     return this.service.updateSettings(body);
@@ -193,6 +196,8 @@ export class PlatformInvoicesController {
     res.send(csv);
   }
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform_invoice.issued')
   @Post('platform-invoices/issue')
   issue(@Body() body: IssueDto): Promise<PlatformInvoiceDto> {
     return this.service.issueForPayment(body.paymentId);
@@ -213,6 +218,7 @@ export class PlatformInvoicesController {
     return this.service.getPdfUrl(id);
   }
 
+  @AdminAudit('admin.platform_invoice.resent')
   @Post('platform-invoices/:id/resend')
   @HttpCode(HttpStatus.NO_CONTENT)
   async resend(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {

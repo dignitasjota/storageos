@@ -21,6 +21,7 @@ import {
   useQueueFailedAction,
   type AdminQueueStatus,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 function formatDate(iso: string | null): string {
@@ -29,6 +30,7 @@ function formatDate(iso: string | null): string {
 }
 
 export default function AdminQueuesPage() {
+  const canEdit = useIsSuperadmin();
   const queues = useAdminQueues();
   const health = useAdminSystemHealth();
   const retry = useQueueFailedAction('retry-failed');
@@ -158,7 +160,7 @@ export default function AdminQueuesPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={retry.isPending}
+                                disabled={retry.isPending || !canEdit}
                                 onClick={() => onRetry(q.name)}
                               >
                                 <RotateCw className="mr-1 size-3.5" /> Reintentar
@@ -166,7 +168,7 @@ export default function AdminQueuesPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                disabled={clean.isPending}
+                                disabled={clean.isPending || !canEdit}
                                 onClick={() => onClean(q.name)}
                                 className="text-muted-foreground hover:text-destructive"
                               >

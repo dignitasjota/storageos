@@ -3,7 +3,9 @@ import { UpdatePlatformSepaSettingsSchema, type PlatformSepaSettingsDto } from '
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../../common/decorators/public.decorator';
+import { AdminAudit } from '../../admin/admin-audit.decorator';
 import { AdminGuard } from '../../admin/admin.guard';
+import { RequireSuperadmin } from '../../admin/require-superadmin.decorator';
 
 import { PlatformSepaSettingsService } from './platform-sepa-settings.service';
 
@@ -21,6 +23,8 @@ export class PlatformSepaController {
     return this.settings.getSettings();
   }
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform_sepa.settings_updated')
   @Put('settings')
   updateSettings(@Body() body: UpdatePlatformSepaSettingsDto): Promise<PlatformSepaSettingsDto> {
     return this.settings.updateSettings(body);

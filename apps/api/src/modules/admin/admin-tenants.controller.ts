@@ -118,7 +118,8 @@ export class AdminTenantsController {
     private readonly dataExporter: TenantDataExportService,
   ) {}
 
-  /** Edita datos básicos del tenant (soporte). */
+  /** Edita datos básicos y fiscales del tenant (salen en sus facturas de suscripción). */
+  @RequireSuperadmin()
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
   async update(

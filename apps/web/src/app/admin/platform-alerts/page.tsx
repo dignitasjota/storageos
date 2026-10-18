@@ -16,9 +16,11 @@ import {
   useRunWeeklyDigest,
   useUpdatePlatformAlerts,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 export default function PlatformAlertsPage() {
+  const canEdit = useIsSuperadmin();
   const { data, isLoading } = useAdminPlatformAlerts();
   const update = useUpdatePlatformAlerts();
   const run = useRunPlatformAlerts();
@@ -179,7 +181,7 @@ export default function PlatformAlertsPage() {
             />
           </div>
           <div className="flex gap-2">
-            <Button onClick={onSave} disabled={update.isPending}>
+            <Button onClick={onSave} disabled={update.isPending || !canEdit}>
               Guardar
             </Button>
             <Button variant="outline" onClick={onRun} disabled={run.isPending}>
@@ -207,10 +209,14 @@ export default function PlatformAlertsPage() {
             Resumen semanal de KPIs por email
           </label>
           <div className="flex gap-2">
-            <Button onClick={onSave} disabled={update.isPending}>
+            <Button onClick={onSave} disabled={update.isPending || !canEdit}>
               Guardar
             </Button>
-            <Button variant="outline" onClick={onRunDigest} disabled={runDigest.isPending}>
+            <Button
+              variant="outline"
+              onClick={onRunDigest}
+              disabled={runDigest.isPending || !canEdit}
+            >
               Enviar ahora
             </Button>
           </div>
@@ -256,10 +262,14 @@ export default function PlatformAlertsPage() {
             Aviso de pago fallido (past_due)
           </label>
           <div className="flex gap-2">
-            <Button onClick={onSave} disabled={update.isPending}>
+            <Button onClick={onSave} disabled={update.isPending || !canEdit}>
               Guardar
             </Button>
-            <Button variant="outline" onClick={onRunLifecycle} disabled={runLifecycle.isPending}>
+            <Button
+              variant="outline"
+              onClick={onRunLifecycle}
+              disabled={runLifecycle.isPending || !canEdit}
+            >
               Ejecutar ahora
             </Button>
           </div>

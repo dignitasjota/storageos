@@ -65,6 +65,7 @@ import {
   useAdminOpenTicketsCount,
   useAdminToday,
 } from '@/lib/admin/hooks';
+import { SUPERADMIN_ONLY_PATHS, useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { env } from '@/lib/env';
 import { cn } from '@/lib/utils';
@@ -508,8 +509,30 @@ function AdminShell({ children }: { children: ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="min-w-0 flex-1">
+          <SupportReadOnlyNotice pathname={pathname} />
+          {children}
+        </main>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Aviso para el rol `support` en las secciones que solo puede consultar: el
+ * API le responde 403 al guardar o cobrar, así que se lo decimos antes.
+ */
+function SupportReadOnlyNotice({ pathname }: { pathname: string }) {
+  const isSuperadmin = useIsSuperadmin();
+  const admin = useAdminAuthStore((s) => s.superAdmin);
+  if (!admin || isSuperadmin) return null;
+  const readOnly = SUPERADMIN_ONLY_PATHS.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+  if (!readOnly) return null;
+  return (
+    <div className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 sm:mx-6 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+      Con el rol de soporte puedes consultar esta sección, pero los cambios los hace un super admin.
     </div>
   );
 }

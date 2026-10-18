@@ -30,6 +30,7 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { AdminAudit } from '../admin/admin-audit.decorator';
 import { AdminGuard } from '../admin/admin.guard';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
@@ -110,6 +111,8 @@ export class PlatformAdminController {
     return this.service.getBanner();
   }
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform.banner_updated')
   @Put('banner')
   updateBanner(@Body() body: UpdateBannerDto): Promise<PlatformBannerDto> {
     return this.service.updateBanner(body);
@@ -121,6 +124,7 @@ export class PlatformAdminController {
   }
 
   @RequireSuperadmin()
+  @AdminAudit('admin.platform.founder_offer_updated')
   @Put('founder-offer')
   updateFounderOffer(@Body() body: UpdateFounderOfferDto): Promise<PlatformFounderOfferDto> {
     return this.service.updateFounderOffer(body);
@@ -139,6 +143,7 @@ export class PlatformAdminController {
   }
 
   @RequireSuperadmin()
+  @AdminAudit('admin.platform.website_seo_updated')
   @Put('website/seo')
   updateSeo(@Body() body: UpdateSeoDto): Promise<PlatformWebsiteDto> {
     return this.service.updateSeo(body);
@@ -152,18 +157,21 @@ export class PlatformAdminController {
   }
 
   @RequireSuperadmin()
+  @AdminAudit('admin.platform.website_og_image_updated')
   @Put('website/og-image')
   setOgImage(@Body() body: SetLogoDto): Promise<PlatformWebsiteDto> {
     return this.service.setOgImage(body.key);
   }
 
   @RequireSuperadmin()
+  @AdminAudit('admin.platform.website_footer_updated')
   @Put('website/footer')
   updateFooter(@Body() body: UpdateFooterDto): Promise<PlatformWebsiteDto> {
     return this.service.updateFooter(body);
   }
 
   @RequireSuperadmin()
+  @AdminAudit('admin.platform.website_logo_updated')
   @Put('website/logo')
   setLogo(@Body() body: SetLogoDto): Promise<PlatformWebsiteDto> {
     return this.service.setLogo(body.key);
@@ -190,6 +198,8 @@ export class PlatformAdminController {
     return this.service.getLegal(parseSlug(slug));
   }
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform.legal_updated')
   @Put('legal/:slug')
   updateLegal(
     @Param('slug') slug: string,
