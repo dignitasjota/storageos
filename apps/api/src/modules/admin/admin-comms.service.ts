@@ -153,11 +153,16 @@ export class AdminCommsService {
 
   async broadcast(input: AdminBroadcastInput, meta: ActionMeta): Promise<AdminBroadcastResultDto> {
     const where: Prisma.TenantWhereInput = { deletedAt: null };
-    if (input.audience === 'active') where.status = 'active';
-    else if (input.audience === 'trial') where.status = 'trial';
-    else where.status = { in: ['active', 'trial'] };
-    // Segmentación por etiqueta: AND con el público (mismo filtro que la lista).
-    if (input.tag) where.tags = { has: input.tag };
+    if (input.tenantIds?.length) {
+      // Selección concreta desde la lista de tenants.
+      where.id = { in: input.tenantIds };
+    } else {
+      if (input.audience === 'active') where.status = 'active';
+      else if (input.audience === 'trial') where.status = 'trial';
+      else where.status = { in: ['active', 'trial'] };
+      // Segmentación por etiqueta: AND con el público (mismo filtro que la lista).
+      if (input.tag) where.tags = { has: input.tag };
+    }
 
     // Resolvemos los destinatarios de TODOS los tenants en 2 queries (no 2·N):
     // los tenants del público + sus owners verificados activos en bloque.

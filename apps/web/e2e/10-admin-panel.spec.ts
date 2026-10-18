@@ -38,6 +38,18 @@ test('borrar un seguimiento del tenant pide confirmación en un diálogo', async
   await page.getByRole('button', { name: /Exportar CSV/ }).click();
   expect((await download).suggestedFilename()).toBe('tenants.csv');
 
+  // Acción masiva: seleccionar y etiquetar.
+  await page
+    .getByRole('checkbox', { name: new RegExp(`Seleccionar E2E admpanel`) })
+    .first()
+    .check();
+  await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
+  await page.getByRole('button', { name: 'Etiquetar' }).click();
+  await page.getByLabel('Añadir').fill('piloto');
+  await page.getByRole('dialog').getByRole('button', { name: 'Guardar' }).click();
+  await expect(page.getByText(/Etiquetas actualizadas en 1 tenant/)).toBeVisible();
+  await page.getByRole('button', { name: /Quitar selección/ }).click();
+
   await page.locator('button', { hasText: tenant.slug }).first().click();
   await expect(page).toHaveURL(/\/admin\/tenants\/[a-f0-9-]+/);
   await expect(page.getByText('Aporta al mes')).toBeVisible();

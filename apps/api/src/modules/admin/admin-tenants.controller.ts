@@ -49,6 +49,7 @@ import {
   type TenantFollowupDto,
   ExtendTrialSchema,
   ExtendTrialsBatchSchema,
+  AdminBulkTagsSchema,
   SetBillingExemptSchema,
   type ExtendTrialsBatchResultDto,
   type ImpersonationTokenDto,
@@ -84,6 +85,7 @@ class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
 class SuspendTenantDto extends createZodDto(SuspendTenantSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
 class ExtendTrialsBatchDto extends createZodDto(ExtendTrialsBatchSchema) {}
+class AdminBulkTagsDto extends createZodDto(AdminBulkTagsSchema) {}
 class SetBillingExemptDto extends createZodDto(SetBillingExemptSchema) {}
 class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
 class UpdateTenantNotesDto extends createZodDto(UpdateTenantNotesSchema) {}
@@ -571,6 +573,22 @@ export class AdminTenantsController {
    * Extiende el trial de VARIOS tenants a la vez (retención por lote).
    * DECLARADA ANTES de `@Get(':id')` y las rutas con param para no colisionar.
    */
+  /** Etiquetas en bloque (declarada antes de las rutas con `:id`). */
+  @Post('bulk-tags')
+  @HttpCode(HttpStatus.OK)
+  async bulkTags(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Body() input: AdminBulkTagsDto,
+    @Req() req: Request,
+  ): Promise<{ updated: number }> {
+    const meta = extractMeta(req);
+    return this.tenants.bulkTags(input, {
+      superAdminId: admin.sub,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  }
+
   @RequireSuperadmin()
   @Post('extend-trials')
   @HttpCode(HttpStatus.OK)

@@ -139,6 +139,11 @@ export const AdminBroadcastSchema = z.object({
   body: z.string().trim().min(1).max(10_000),
   /** Segmentación opcional: restringe (AND con `audience`) a los tenants con esta etiqueta. */
   tag: z.string().trim().min(1).max(40).optional(),
+  /**
+   * Tenants concretos (acción masiva desde la lista). Si viene, manda sobre
+   * `audience` y `tag`: se envía a esos, estén en el estado que estén.
+   */
+  tenantIds: z.array(z.string().uuid()).min(1).max(500).optional(),
 });
 export type AdminBroadcastInput = z.infer<typeof AdminBroadcastSchema>;
 
@@ -354,6 +359,16 @@ export const ExtendTrialsBatchSchema = z.object({
   reason: z.string().trim().min(1).max(500).optional(),
 });
 export type ExtendTrialsBatchInput = z.infer<typeof ExtendTrialsBatchSchema>;
+
+/** Añadir o quitar etiquetas a varios tenants a la vez. */
+export const AdminBulkTagsSchema = z
+  .object({
+    tenantIds: z.array(z.string().uuid()).min(1).max(500),
+    add: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
+    remove: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
+  })
+  .refine((v) => v.add.length + v.remove.length > 0, { message: 'Indica alguna etiqueta' });
+export type AdminBulkTagsInput = z.infer<typeof AdminBulkTagsSchema>;
 
 // ============================================================================
 // Security events (Fase 11A.1)
