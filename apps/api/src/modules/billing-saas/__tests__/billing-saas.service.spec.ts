@@ -360,7 +360,10 @@ describe('BillingSaasService', () => {
   it('es idempotente: si el external_id ya existe, actualiza en vez de crear (y no re-factura)', async () => {
     const admin = buildAdmin();
     withResolvableTenant(admin);
-    admin.tenantSubscriptionPayment.findFirst.mockResolvedValue({ id: 'pay-existing' });
+    admin.tenantSubscriptionPayment.findFirst.mockResolvedValue({
+      id: 'pay-existing',
+      status: 'paid',
+    });
     const { service, issueBestEffort } = buildService(admin);
 
     await service.recordStripeInvoiceFromWebhook(stripeInvoice());
@@ -370,6 +373,22 @@ describe('BillingSaasService', () => {
     );
     expect(admin.tenantSubscriptionPayment.create).not.toHaveBeenCalled();
     expect(issueBestEffort).not.toHaveBeenCalled();
+  });
+
+  it('un cobro que había fallado y ahora se cobra sí se factura', async () => {
+    const admin = buildAdmin();
+    withResolvableTenant(admin);
+    admin.tenantSubscriptionPayment.findFirst.mockResolvedValue({
+      id: 'pay-failed',
+      status: 'failed',
+      firstFailedAt: new Date(),
+      recoveredAt: null,
+    });
+    const { service, issueBestEffort } = buildService(admin);
+
+    await service.recordStripeInvoiceFromWebhook(stripeInvoice());
+
+    expect(issueBestEffort).toHaveBeenCalledWith('pay-failed');
   });
 
   it('con tenant no resoluble no registra nada', async () => {
