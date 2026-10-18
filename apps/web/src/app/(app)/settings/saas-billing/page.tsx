@@ -86,10 +86,15 @@ export default function SaasBillingPage() {
   // Con suscripción Stripe viva puede cambiar de plan in-app; si no (pago
   // manual) el cambio lo gestiona soporte.
   const hasStripeSub = sub.stripeSubscriptionId !== null;
-  // En prueba, cancelada o caducada y sin Stripe: puede suscribirse él mismo.
+  // En prueba, cancelada, caducada o en el plan gratuito (prueba vencida o
+  // suscripción terminada) y sin Stripe: puede suscribirse él mismo.
   const canSubscribe =
     !hasStripeSub &&
-    (sub.status === 'trial' || sub.status === 'cancelled' || sub.status === 'expired');
+    sub.billingMode !== 'sepa' &&
+    (sub.status === 'trial' ||
+      sub.status === 'cancelled' ||
+      sub.status === 'expired' ||
+      sub.plan.slug === 'free');
 
   function originUrl() {
     if (typeof window === 'undefined') return '';

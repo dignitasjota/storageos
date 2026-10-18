@@ -187,20 +187,64 @@ describe('Webhook de Stripe de la suscripción (e2e)', () => {
     });
   });
 
-  it('la cancelación de la suscripción vigente sí se aplica', async () => {
+  it('la suscripción vigente cancelada en Stripe baja al plan Free', async () => {
     const owner = await registerVerifiedUser(app, 'stripewhcancel');
     const stamp = Date.now();
     const subId = `sub_cancel_${stamp}`;
+    const cus = `cus_cancel_${stamp}`;
     const nowSec = Math.floor(Date.now() / 1000);
+    await admin.tenant.update({
+      where: { id: owner.tenantId },
+      data: { status: 'active', trialEndsAt: null },
+    });
     await admin.tenantSubscription.update({
       where: { tenantId: owner.tenantId },
-      data: { stripeSubscriptionId: subId, billingMode: 'stripe', status: 'active' },
+      data: {
+        stripeSubscriptionId: subId,
+        stripeCustomerId: cus,
+        billingMode: 'stripe',
+        status: 'active',
+        cancelAtPeriodEnd: true,
+      },
     });
     await sendEvent(
       subscriptionEvent('customer.subscription.deleted', {
         id: subId,
-        customer: `cus_cancel_${stamp}`,
+        customer: cus,
         status: 'canceled',
+        cancel_at_period_end: true,
+        items: { data: [{ current_period_start: nowSec, current_period_end: nowSec + 86400 }] },
+        metadata: { tenantId: owner.tenantId },
+      }),
+    );
+    const sub = await admin.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+      include: { plan: true },
+    });
+    expect(sub).toMatchObject({
+      status: 'active',
+      stripeSubscriptionId: null,
+      stripeCustomerId: cus,
+      billingMode: 'manual',
+      cancelAtPeriodEnd: false,
+    });
+    expect(sub.plan.slug).toBe('free');
+  });
+
+  it('una prueba cuyo primer cobro caducó sigue en prueba con su plan', async () => {
+    const owner = await registerVerifiedUser(app, 'stripewhincomplete');
+    const stamp = Date.now();
+    const subId = `sub_inc_${stamp}`;
+    const nowSec = Math.floor(Date.now() / 1000);
+    await admin.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { stripeSubscriptionId: subId, billingMode: 'stripe', status: 'expired' },
+    });
+    await sendEvent(
+      subscriptionEvent('customer.subscription.updated', {
+        id: subId,
+        customer: `cus_inc_${stamp}`,
+        status: 'incomplete_expired',
         cancel_at_period_end: false,
         items: { data: [{ current_period_start: nowSec, current_period_end: nowSec + 86400 }] },
         metadata: { tenantId: owner.tenantId },
@@ -208,7 +252,10 @@ describe('Webhook de Stripe de la suscripción (e2e)', () => {
     );
     const sub = await admin.tenantSubscription.findUniqueOrThrow({
       where: { tenantId: owner.tenantId },
+      include: { plan: true },
     });
-    expect(sub.status).toBe('cancelled');
+    expect(sub.status).toBe('trial');
+    expect(sub.stripeSubscriptionId).toBeNull();
+    expect(sub.plan.slug).toBe('starter');
   });
 });
