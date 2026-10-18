@@ -1297,3 +1297,10 @@ Sin la variable todo funciona como antes (URL pública, con límite compartido).
 - Comprobar con un super admin de rol `support`: los botones de cobros y configuración global aparecen desactivados y en la ficha de un tenant sale «Pedir aprobación»; la solicitud aparece en «Hoy» del super admin con Aprobar / Rechazar.
 - Impersonación: abrir un tenant → ⋮ → Impersonar (solo lectura marcado) → entra en el panel del tenant con el banner; «Salir de la sesión de soporte» vuelve a la pantalla de fin.
 - **Avisos por chat (opcional)**: panel admin → Comunicación → Alertas → «Avisos por Telegram y Slack». Telegram: crear un bot con @BotFather, añadirlo al grupo o canal y pegar su token y el id del chat. Slack: crear un webhook entrante y pegar su URL. «Enviar prueba» y activar el aviso diario y/o el resumen semanal. No necesita variables de entorno.
+
+## 29. Tras desplegar la revisión de pagos y suscripciones (#727–#732)
+
+- **Migración** `20261030100000_platform_sepa_retry_bounced` (la aplica el api al arrancar). Redesplegar **api y web** con pull efectivo.
+- **Pruebas vencidas**: al día siguiente del despliegue, el cron `tenant-lifecycle.daily` (08:00) pasa al plan Free todas las pruebas ya vencidas que no pagan (antes nadie lo hacía). Si alguna debe seguir probando, ampliarle la prueba **antes** desde su ficha. Con «Recordatorios de prueba» activados en Alertas, sus propietarios reciben el correo «Tu prueba de TrasterOS ha terminado».
+- **Suscripciones de Stripe ya canceladas**: las que quedaron `cancelled` antes de este cambio no se tocan solas (el arreglo actúa al llegar el aviso). Revisar en Tenants las de estado de suscripción «Cancelada» y pasarlas a Free con «Cambiar plan».
+- **Comprobación**: con Stripe live, cambiar de plan desde Ajustes → Suscripción y, tras unos segundos, confirmar en la ficha del tenant que el plan sigue siendo el nuevo.

@@ -719,6 +719,16 @@ Segunda pasada a las webs de los tenants (plantillas, landings, reserva, firma, 
 
 - ✅ Inquilinos, contratos, facturas, pagos, contactos, tareas, incidencias y gastos con «Cargar más» y búsqueda en el servidor; los desplegables de inquilino buscan en el servidor (antes solo ofrecían los 50-100 primeros).
 
+### Revisión de pagos y suscripciones del SaaS (2026-10-18, #727–#732) ✅
+
+- ✅ **#727** — un cambio de plan ya no se deshace con el siguiente aviso de Stripe.
+- ✅ **#728** — pasar a pago manual o SEPA ya no se deshace con el aviso de la cancelación en Stripe.
+- ✅ **#729** — un adeudo SEPA de plataforma devuelto se vuelve a cobrar (el periodo que pagaba se retira) y el cobro de morosos espera mientras el reintento está en el banco.
+- ✅ **#730** — la prueba gratuita vence sola y pasa al plan Free (correo al propietario).
+- ✅ **PR 5** — una suscripción de Stripe cancelada en el portal o perdida tras los reintentos pasa al plan Free; un tenant en Free puede volver a suscribirse.
+- ✅ **#731** — el cobro recuperado tras un fallo lleva factura; los extras de un tenant en SEPA no se cobran aparte ni se suspenden solos.
+- ✅ **#732** — el pago manual no confunde dos extras del mismo precio; «Ampliar prueba» no toca a quien ya paga.
+
 ### Revisión y mejoras del panel super admin (2026-10-18, #718–#725) ✅
 
 - ✅ **#718** — el rol soporte ya no toca cobros ni configuración global; los cambios del admin quedan auditados (solo nombres de campos).
