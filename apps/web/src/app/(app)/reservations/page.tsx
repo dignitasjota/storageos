@@ -40,8 +40,9 @@ import {
   useConvertReservation,
   useReservations,
 } from '@/lib/customers/hooks';
+import { localDateString } from '@/lib/dates';
 import { useFacilities } from '@/lib/facilities/hooks';
-import { useFacilityStore } from '@/lib/facilities/store';
+import { useFacilityFilterState } from '@/lib/facilities/store';
 
 const STATUS_LABELS: Record<ReservationStatusValue, string> = {
   pending: 'Pendiente',
@@ -52,9 +53,8 @@ const STATUS_LABELS: Record<ReservationStatusValue, string> = {
 };
 
 export default function ReservationsPage() {
-  const switcherFacility = useFacilityStore((s) => s.currentFacilityId);
   const [status, setStatus] = useState<ReservationStatusValue | undefined>();
-  const [facilityId, setFacilityId] = useState<string | undefined>(switcherFacility ?? undefined);
+  const [facilityId, setFacilityId] = useFacilityFilterState();
 
   const facilities = useFacilities();
   const reservations = useReservations({
@@ -71,7 +71,7 @@ export default function ReservationsPage() {
   const [convertOpen, setConvertOpen] = useState(false);
   const [price, setPrice] = useState(0);
   const [deposit, setDeposit] = useState(0);
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(localDateString());
 
   const columns: ColumnDef<ReservationDto>[] = [
     {
@@ -153,7 +153,7 @@ export default function ReservationsPage() {
                     setTarget(r);
                     setPrice(0);
                     setDeposit(r.depositAmount);
-                    setStartDate(new Date(r.validFrom).toISOString().slice(0, 10));
+                    setStartDate(localDateString(new Date(r.validFrom)));
                     setConvertOpen(true);
                   }}
                 >

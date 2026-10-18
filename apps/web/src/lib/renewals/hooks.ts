@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { useHeaderFacilityId } from '../facilities/store';
 
 import type {
   AnniversarySettingsDto,
@@ -11,9 +12,13 @@ import type {
 
 /** Contratos que vencen pronto (renovación). */
 export function useRenewals() {
+  const facilityId = useHeaderFacilityId();
   return useQuery({
-    queryKey: ['contracts', 'renewals'] as const,
-    queryFn: () => apiFetch<ContractDto[]>('/contracts/renewals'),
+    queryKey: ['contracts', 'renewals', facilityId ?? 'all'] as const,
+    queryFn: () =>
+      apiFetch<ContractDto[]>(
+        `/contracts/renewals${facilityId ? `?facilityId=${facilityId}` : ''}`,
+      ),
   });
 }
 

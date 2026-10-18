@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
+import { localDateString } from '@/lib/dates';
 import {
   useCancelAddon,
   useCancelSaasSepaMandate,
@@ -359,7 +360,7 @@ function SepaMandateSection({ billingMode }: { billingMode: string }) {
       await createMandate.mutateAsync({
         iban: iban.trim(),
         bic: bic.trim(),
-        signedAt: new Date().toISOString().slice(0, 10),
+        signedAt: localDateString(),
       });
       setIban('');
       setBic('');

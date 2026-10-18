@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  InvoiceStatusEnum,
   type CreatableInvoiceTypeValue,
   type InvoiceDto,
   type InvoiceStatusValue,
@@ -10,7 +11,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
@@ -44,6 +45,7 @@ import {
   useInvoices,
 } from '@/lib/billing/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const SIMPLIFIED_JUSTIFICATION_LABELS: Record<SimplifiedJustificationValue, string> = {
   reparation: 'Reparacion',
@@ -86,6 +88,14 @@ export default function InvoicesPage() {
   const [status, setStatus] = useState<InvoiceStatusValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [overdueOnly, setOverdueOnly] = useState(false);
+  // Enlaces con filtro (`/invoices?status=overdue` desde «Hoy» o las sugerencias).
+  useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get('status');
+    const parsed = InvoiceStatusEnum.safeParse(s);
+    if (parsed.success) {
+      setStatus(parsed.data);
+    }
+  }, []);
 
   // Estado del dialog "Nueva factura". Soporta F1 (cliente obligatorio)
   // y F2 (simplificada sin destinatario, limite 400€/3000€ con motivo).
@@ -97,7 +107,9 @@ export default function InvoicesPage() {
     { description: '', quantity: 1, unitPrice: 0, taxRate: 21, zeroCategory: 'N1' },
   ]);
 
+  const headerFacilityId = useHeaderFacilityId();
   const invoices = useInvoices({
+    ...(headerFacilityId ? { facilityId: headerFacilityId } : {}),
     ...(status ? { status } : {}),
     ...(customerId ? { customerId } : {}),
     ...(overdueOnly ? { overdue: 'true' as const } : {}),

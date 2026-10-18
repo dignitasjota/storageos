@@ -11,10 +11,11 @@ import type {
 
 const redsysKey = ['redsys-settings'] as const;
 
-export function useRedsysSettings() {
+export function useRedsysSettings(enabled = true) {
   return useQuery({
     queryKey: redsysKey,
     queryFn: () => apiFetch<RedsysSettingsDto>('/settings/redsys'),
+    enabled,
   });
 }
 

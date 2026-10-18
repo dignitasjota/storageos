@@ -27,6 +27,7 @@ import {
   useRegisterPaymentMethod,
   useRemovePaymentMethod,
 } from '@/lib/billing/hooks';
+import { localDateString } from '@/lib/dates';
 import { useGoCardlessSettings, useStartGoCardlessMandate } from '@/lib/payments/gocardless';
 import { useCancelSepaMandate, useCreateSepaMandate, useSepaMandates } from '@/lib/sepa/hooks';
 
@@ -193,7 +194,7 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
   const cancel = useCancelSepaMandate();
   const [iban, setIban] = useState('');
   const [bic, setBic] = useState('');
-  const [signedAt, setSignedAt] = useState(new Date().toISOString().slice(0, 10));
+  const [signedAt, setSignedAt] = useState(localDateString());
 
   const active = (mandates.data ?? []).find((m) => m.status === 'active');
 

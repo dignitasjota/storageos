@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { localDateString, localMonthStart } from '@/lib/dates';
 import {
   useCreateExpense,
   useCreateRecurringExpense,
@@ -44,6 +45,7 @@ import {
   useUpdateRecurringExpense,
 } from '@/lib/expenses/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilityFilterState } from '@/lib/facilities/store';
 import { useMarketingChannels } from '@/lib/marketing/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
@@ -53,10 +55,8 @@ const NONE = '__none__';
 
 function monthRange(): { from: string; to: string } {
   const now = new Date();
-  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-    .toISOString()
-    .slice(0, 10);
-  const to = now.toISOString().slice(0, 10);
+  const from = localMonthStart(0, now);
+  const to = localDateString(now);
   return { from, to };
 }
 
@@ -97,7 +97,9 @@ export default function ExpensesPage() {
   const canManage = useHasPermission('expenses:manage');
   const facilities = useFacilities();
   const [range, setRange] = useState(monthRange);
-  const [facilityFilter, setFacilityFilter] = useState<string>(ALL);
+  const [facilityFilterId, setFacilityFilterId] = useFacilityFilterState();
+  const facilityFilter = facilityFilterId ?? ALL;
+  const setFacilityFilter = (v: string) => setFacilityFilterId(v === ALL ? undefined : v);
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL);
   const [editing, setEditing] = useState<ExpenseDto | null>(null);
   const [creating, setCreating] = useState(false);
@@ -382,9 +384,7 @@ function ExpenseDialog({
   const [category, setCategory] = useState<ExpenseCategory>(expense?.category ?? 'other');
   const [description, setDescription] = useState(expense?.description ?? '');
   const [amount, setAmount] = useState(String(expense?.amount ?? ''));
-  const [expenseDate, setExpenseDate] = useState(
-    expense?.expenseDate ?? new Date().toISOString().slice(0, 10),
-  );
+  const [expenseDate, setExpenseDate] = useState(expense?.expenseDate ?? localDateString());
   const [vendor, setVendor] = useState(expense?.vendor ?? '');
   const [marketingChannelId, setMarketingChannelId] = useState(expense?.marketingChannelId ?? NONE);
   const busy = create.isPending || update.isPending;

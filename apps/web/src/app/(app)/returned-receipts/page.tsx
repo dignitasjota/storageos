@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { useReturnedReceipts } from '@/lib/billing/hooks';
 import { downloadCsv } from '@/lib/csv';
+import { localDateString } from '@/lib/dates';
 import { useFacilities } from '@/lib/facilities/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
@@ -41,9 +42,9 @@ const PERIODS = [
 
 function periodRange(value: string): { from: string; to: string } {
   const now = new Date();
-  const to = now.toISOString().slice(0, 10);
+  const to = localDateString(now);
   if (value === 'year') return { from: `${now.getFullYear()}-01-01`, to };
-  const from = new Date(now.getTime() - Number(value) * 86_400_000).toISOString().slice(0, 10);
+  const from = localDateString(new Date(now.getTime() - Number(value) * 86_400_000));
   return { from, to };
 }
 

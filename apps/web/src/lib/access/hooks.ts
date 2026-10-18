@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { useHeaderFacilityId } from '../facilities/store';
 
 import type {
   NightPassListDto,
@@ -263,7 +264,9 @@ export function useAccessLogs(params?: {
   from?: string;
   to?: string;
 }) {
+  const facilityId = useHeaderFacilityId();
   const flat: Record<string, string | undefined> = {
+    facilityId,
     customerId: params?.customerId,
     deviceId: params?.deviceId,
     result: params?.result,

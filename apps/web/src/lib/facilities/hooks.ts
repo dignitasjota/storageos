@@ -208,15 +208,26 @@ interface UnitFilters {
 export function useUnits(filters: UnitFilters = {}) {
   return useQuery({
     queryKey: unitsKey(filters as Record<string, string | undefined>),
-    queryFn: () => {
-      const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(filters)) {
-        if (v) params.set(k, v);
+    // El API pagina (máx. 200 por página): se piden todas para que listas,
+    // planos y selectores no se queden en los 50 primeros trasteros.
+    queryFn: async () => {
+      const items: UnitDto[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 50; page++) {
+        const params = new URLSearchParams();
+        for (const [k, v] of Object.entries(filters)) {
+          if (v) params.set(k, v);
+        }
+        params.set('limit', '200');
+        if (cursor) params.set('cursor', cursor);
+        const res: { items: UnitDto[]; nextCursor: string | null } = await apiFetch(
+          `/units?${params.toString()}`,
+        );
+        items.push(...res.items);
+        cursor = res.nextCursor;
+        if (!cursor) break;
       }
-      const qs = params.toString();
-      return apiFetch<{ items: UnitDto[]; nextCursor: string | null }>(
-        `/units${qs ? `?${qs}` : ''}`,
-      );
+      return { items, nextCursor: null };
     },
     staleTime: 15_000,
   });

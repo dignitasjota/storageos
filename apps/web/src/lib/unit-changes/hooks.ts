@@ -1,16 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { useHeaderFacilityId } from '../facilities/store';
 
 import type { ResolveUnitChangeRequestInput, UnitChangeRequestDto } from '@storageos/shared';
 
 const key = ['unit-change-requests'] as const;
 
 export function useUnitChangeRequests(status?: string) {
+  const facilityId = useHeaderFacilityId();
+  const qs = new URLSearchParams({
+    ...(status ? { status } : {}),
+    ...(facilityId ? { facilityId } : {}),
+  }).toString();
   return useQuery({
-    queryKey: [...key, status ?? 'all'] as const,
-    queryFn: () =>
-      apiFetch<UnitChangeRequestDto[]>(`/unit-change-requests${status ? `?status=${status}` : ''}`),
+    queryKey: [...key, status ?? 'all', facilityId ?? 'all'] as const,
+    queryFn: () => apiFetch<UnitChangeRequestDto[]>(`/unit-change-requests${qs ? `?${qs}` : ''}`),
   });
 }
 

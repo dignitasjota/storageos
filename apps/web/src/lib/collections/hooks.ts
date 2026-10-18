@@ -19,14 +19,19 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { useHeaderFacilityId } from '../facilities/store';
 
 const key = ['collections'] as const;
 
 export function useCollectionsCases(status?: DelinquencyCaseStatus) {
+  const facilityId = useHeaderFacilityId();
+  const qs = new URLSearchParams({
+    ...(status ? { status } : {}),
+    ...(facilityId ? { facilityId } : {}),
+  }).toString();
   return useQuery({
-    queryKey: [...key, 'list', status ?? 'all'] as const,
-    queryFn: () =>
-      apiFetch<DelinquencyCaseDto[]>(`/collections${status ? `?status=${status}` : ''}`),
+    queryKey: [...key, 'list', status ?? 'all', facilityId ?? 'all'] as const,
+    queryFn: () => apiFetch<DelinquencyCaseDto[]>(`/collections${qs ? `?${qs}` : ''}`),
   });
 }
 

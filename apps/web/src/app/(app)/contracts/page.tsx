@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/select';
 import { useContracts, useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
-import { useFacilityStore } from '@/lib/facilities/store';
+import { useFacilityFilterState } from '@/lib/facilities/store';
 
 const STATUS_LABELS: Record<ContractStatusValue, string> = {
   draft: 'Borrador',
@@ -30,10 +30,9 @@ const STATUS_LABELS: Record<ContractStatusValue, string> = {
 };
 
 export default function ContractsPage() {
-  const switcherFacility = useFacilityStore((s) => s.currentFacilityId);
   const [status, setStatus] = useState<ContractStatusValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
-  const [facilityId, setFacilityId] = useState<string | undefined>(switcherFacility ?? undefined);
+  const [facilityId, setFacilityId] = useFacilityFilterState();
 
   const facilities = useFacilities();
   const customers = useCustomers();

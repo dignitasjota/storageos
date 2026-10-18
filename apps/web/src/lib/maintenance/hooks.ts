@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { useHeaderFacilityId } from '../facilities/store';
 
 import type {
   CreateMaintenancePlanInput,
@@ -11,9 +12,13 @@ import type {
 const key = ['maintenance-plans'] as const;
 
 export function useMaintenancePlans() {
+  const facilityId = useHeaderFacilityId();
   return useQuery({
-    queryKey: key,
-    queryFn: () => apiFetch<MaintenancePlanDto[]>('/maintenance-plans'),
+    queryKey: [...key, facilityId ?? 'all'],
+    queryFn: () =>
+      apiFetch<MaintenancePlanDto[]>(
+        `/maintenance-plans${facilityId ? `?facilityId=${facilityId}` : ''}`,
+      ),
   });
 }
 

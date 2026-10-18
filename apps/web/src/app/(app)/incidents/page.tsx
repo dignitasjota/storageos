@@ -49,6 +49,7 @@ import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCameraEventsByIncident } from '@/lib/cameras/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 import {
   useAddIncidentComment,
   useCreateIncident,
@@ -100,7 +101,9 @@ export default function IncidentsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
 
+  const headerFacilityId = useHeaderFacilityId();
   const incidents = useIncidents({
+    ...(headerFacilityId ? { facilityId: headerFacilityId } : {}),
     ...(status ? { status } : {}),
     ...(severity ? { severity } : {}),
   });
@@ -551,7 +554,11 @@ function CameraEventsSection({ incidentId }: { incidentId: string }) {
           <div key={e.id} className="overflow-hidden rounded-md border">
             {e.snapshotUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={e.snapshotUrl} alt={e.eventType} className="h-20 w-full bg-muted object-cover" />
+              <img
+                src={e.snapshotUrl}
+                alt={e.eventType}
+                className="h-20 w-full bg-muted object-cover"
+              />
             ) : (
               <div className="flex h-20 w-full items-center justify-center bg-muted text-muted-foreground">
                 <span className="text-xs">sin imagen</span>

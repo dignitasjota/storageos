@@ -32,6 +32,7 @@ import {
   useCustomers,
   useReservations,
 } from '@/lib/customers/hooks';
+import { localDateString } from '@/lib/dates';
 
 /** Fecha (YYYY-MM-DD) → ISO al final de ese día, para que la reserva cubra el día completo. */
 function endOfDayIso(date: string): string {
@@ -195,7 +196,7 @@ export function UnitReservationCard({
               <Label>Reservar hasta</Label>
               <Input
                 type="date"
-                min={new Date().toISOString().slice(0, 10)}
+                min={localDateString()}
                 value={until}
                 onChange={(e) => setUntil(e.target.value)}
               />

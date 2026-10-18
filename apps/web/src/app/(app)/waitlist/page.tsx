@@ -37,6 +37,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { useCreateWaitlistEntry, useUpdateWaitlistEntry, useWaitlist } from '@/lib/waitlist/hooks';
 
 const STATUS: Record<
@@ -50,7 +51,8 @@ const STATUS: Record<
 };
 
 export default function WaitlistPage() {
-  const { data, isLoading } = useWaitlist();
+  const headerFacilityId = useHeaderFacilityId();
+  const { data, isLoading } = useWaitlist(headerFacilityId ? { facilityId: headerFacilityId } : {});
   const facilities = useFacilities();
   const unitTypes = useUnitTypes();
   const create = useCreateWaitlistEntry();
