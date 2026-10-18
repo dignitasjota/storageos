@@ -1316,6 +1316,28 @@ export class AdminTenantsService {
         : new Date();
     const newTrialEndsAt = new Date(base.getTime() + args.days * 24 * 60 * 60 * 1000);
 
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: {
+        status: true,
+        stripeSubscriptionId: true,
+        plan: { select: { slug: true, priceMonthly: true } },
+      },
+    });
+    // Un tenant que ya paga no vuelve a prueba (perdería su estado de cliente
+    // de pago y saldría en «pruebas por expirar»).
+    const onFree = !sub || sub.plan.slug === 'free';
+    const paying =
+      tenant.status !== 'trial' &&
+      sub?.status !== 'trial' &&
+      (!!sub?.stripeSubscriptionId || (!onFree && Number(sub?.plan.priceMonthly ?? 0) > 0));
+    if (paying) {
+      throw new BadRequestException({
+        code: 'tenant_has_paid_plan',
+        message: 'Este tenant ya tiene un plan de pago; no se le puede ampliar la prueba.',
+      });
+    }
+
     await this.admin.tenant.update({
       where: { id: tenantId },
       data: {
@@ -1323,6 +1345,19 @@ export class AdminTenantsService {
         ...(tenant.status === 'cancelled' ? {} : { status: 'trial' }),
       },
     });
+    // Prueba ya vencida (pasó al plan Free): vuelve a probar con el plan de la
+    // prueba, como al registrarse.
+    if (onFree && sub && tenant.status !== 'cancelled') {
+      const trialPlan = await this.admin.subscriptionPlan.findFirst({
+        where: { slug: 'starter', isActive: true },
+      });
+      if (trialPlan) {
+        await this.admin.tenantSubscription.update({
+          where: { tenantId },
+          data: { planId: trialPlan.id, status: 'trial', currentPeriodEnd: newTrialEndsAt },
+        });
+      }
+    }
     await this.audit.write({
       tenantId,
       userId: null,

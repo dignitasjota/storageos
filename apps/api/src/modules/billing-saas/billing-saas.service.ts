@@ -1090,6 +1090,8 @@ export class BillingSaasService {
           tenantId: args.tenantId,
           provider: args.provider,
           amount: args.amount,
+          // Dos extras del mismo precio cobrados seguidos son pagos distintos.
+          description: args.description ?? null,
           status: 'paid',
           createdAt: { gte: dedupeWindow },
         },
