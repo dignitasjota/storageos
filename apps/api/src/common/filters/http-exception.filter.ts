@@ -123,6 +123,32 @@ export class HttpExceptionFilter implements ExceptionFilter {
       };
     }
 
+    // Errores de Prisma que son de la petición, no del servidor (un registro que
+    // otro usa, uno que ya no existe): 409/404 en vez de un 500 crudo.
+    const prismaCode = (exception as { code?: unknown } | null)?.code;
+    if (
+      exception instanceof Error &&
+      exception.constructor.name === 'PrismaClientKnownRequestError' &&
+      typeof prismaCode === 'string'
+    ) {
+      if (prismaCode === 'P2003') {
+        return {
+          statusCode: HttpStatus.CONFLICT,
+          error: statusText(HttpStatus.CONFLICT),
+          message: 'No se puede borrar o cambiar: hay otros datos que dependen de este registro',
+          code: 'record_in_use',
+        };
+      }
+      if (prismaCode === 'P2025') {
+        return {
+          statusCode: HttpStatus.NOT_FOUND,
+          error: statusText(HttpStatus.NOT_FOUND),
+          message: 'No encontrado',
+          code: 'not_found',
+        };
+      }
+    }
+
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       error: statusText(HttpStatus.INTERNAL_SERVER_ERROR),

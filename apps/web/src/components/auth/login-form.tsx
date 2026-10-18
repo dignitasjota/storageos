@@ -36,6 +36,8 @@ export function LoginForm() {
   useEffect(() => {
     if (reason === 'expired') {
       toast.info(t('sessionExpiredNotice'));
+    } else if (reason === 'unavailable') {
+      toast.error(t('accountUnavailableNotice'));
     } else if (reason === 'password_changed') {
       toast.success(t('passwordChangedNotice'));
     } else if (reason === 'email_verified') {

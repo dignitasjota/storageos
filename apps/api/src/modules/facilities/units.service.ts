@@ -370,6 +370,23 @@ export class UnitsService {
         message: 'No se puede borrar un trastero ocupado',
       });
     }
+    // Un trastero con contratos (aunque estén finalizados) es historia de
+    // facturas y accesos: no se borra; se puede bloquear para no alquilarlo.
+    const history = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.contract.count({ where: { unitId: args.unitId } }),
+          tx.reservation.count({ where: { unitId: args.unitId } }),
+        ]),
+      args.tenantId,
+    );
+    if (history[0] + history[1] > 0) {
+      throw new ConflictException({
+        code: 'unit_has_history',
+        message:
+          'Este trastero tiene contratos o reservas: no se puede borrar. Si ya no se alquila, cámbialo a «Bloqueado».',
+      });
+    }
     await this.prisma.withTenant(
       (tx) => tx.unit.delete({ where: { id: args.unitId } }),
       args.tenantId,

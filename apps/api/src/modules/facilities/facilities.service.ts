@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -379,6 +380,23 @@ export class FacilitiesService {
     );
     if (!existing) {
       throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
+    const live = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.count({
+          where: {
+            status: { in: ['active', 'ending'] },
+            deletedAt: null,
+            unit: { facilityId: args.facilityId },
+          },
+        }),
+      args.tenantId,
+    );
+    if (live > 0) {
+      throw new ConflictException({
+        code: 'facility_has_live_contracts',
+        message: `El local tiene ${live} contrato(s) en vigor: finalízalos o trasládalos antes de borrarlo.`,
+      });
     }
     await this.prisma.withTenant(
       (tx) =>

@@ -6,7 +6,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/shared';
+import { effectiveFeaturesFromList, rentTax, resolvePlanFeatures } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -417,7 +417,7 @@ Redacta la respuesta al inquilino:`;
         }),
         tx.unitType.findMany({
           where: { tenantId, isActive: true },
-          select: { id: true, name: true, defaultPriceMonthly: true },
+          select: { id: true, name: true, defaultPriceMonthly: true, propertyKind: true },
         }),
         tx.unit.groupBy({
           by: ['facilityId', 'unitTypeId'],
@@ -445,8 +445,10 @@ Redacta la respuesta al inquilino:`;
       if (g._count._all === 0) continue;
       const type = unitTypeById.get(g.unitTypeId);
       if (!type) continue;
-      const price = Math.round(Number(type.defaultPriceMonthly) * 1.21);
-      const entry = `${type.name} desde ${price} €/mes (IVA incl.)`;
+      // Vivienda: exenta de IVA; trastero: 21 %.
+      const { taxRate } = rentTax(type.propertyKind);
+      const price = Math.round(Number(type.defaultPriceMonthly) * (1 + taxRate / 100));
+      const entry = `${type.name} desde ${price} €/mes${taxRate > 0 ? ' (IVA incl.)' : ''}`;
       const list = availableByFacility.get(g.facilityId) ?? [];
       list.push(entry);
       availableByFacility.set(g.facilityId, list);
