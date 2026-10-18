@@ -5,11 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { TenantsBulkBar } from './tenants-bulk-bar';
+
 import type { AdminTenantDto, AdminTenantsListResponseDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -47,12 +50,18 @@ export default function AdminTenantsPage() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // Debounce del término de búsqueda antes de mandarlo al backend.
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => clearTimeout(t);
   }, [search]);
+
+  // Al cambiar el filtro, la selección anterior deja de tener sentido.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [status, tag, debouncedSearch]);
 
   const tags = useAdminTenantTags();
   const tenants = useAdminTenants({
@@ -66,6 +75,15 @@ export default function AdminTenantsPage() {
   }
 
   const rows = tenants.data?.pages.flatMap((p) => p.items) ?? [];
+  const allSelected = rows.length > 0 && rows.every((t) => selected.has(t.id));
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   // Exporta TODOS los tenants del filtro (no solo las páginas cargadas).
   async function exportCsv() {
@@ -181,6 +199,26 @@ export default function AdminTenantsPage() {
         </Button>
       </div>
 
+      {rows.length > 0 && (
+        <div className="flex items-center gap-2 text-sm">
+          <Checkbox
+            id="select-all"
+            checked={allSelected ? true : selected.size > 0 ? 'indeterminate' : false}
+            onCheckedChange={() =>
+              setSelected(allSelected ? new Set() : new Set(rows.map((t) => t.id)))
+            }
+          />
+          <label htmlFor="select-all" className="text-muted-foreground">
+            Seleccionar los {rows.length} cargados
+          </label>
+        </div>
+      )}
+      <TenantsBulkBar
+        selected={[...selected]}
+        trialCount={rows.filter((t) => selected.has(t.id) && t.status === 'trial').length}
+        onClear={() => setSelected(new Set())}
+      />
+
       {tenants.isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -192,31 +230,38 @@ export default function AdminTenantsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
           {rows.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => router.push(`/admin/tenants/${t.id}`)}
-              className="rounded-md border bg-card p-3 text-left text-sm shadow-sm transition-colors hover:bg-accent/40"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-medium">{t.name}</span>
-                <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'}>
-                  {tenantStatusLabel(t.status)}
-                </Badge>
-              </div>
-              <div className="truncate text-xs text-muted-foreground">{t.slug}</div>
-              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs text-muted-foreground">
-                <span>Usuarios: {t.userCount}</span>
-                <span>Inquilinos: {t.customerCount}</span>
-                <span>Contratos: {t.contractCount}</span>
-                <span>Plan: {t.subscription?.planName ?? t.subscription?.planSlug ?? '—'}</span>
-              </div>
-              {t.trialEndsAt && (
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Fin trial: {new Date(t.trialEndsAt).toLocaleDateString('es-ES')}
+            <div key={t.id} className="relative">
+              <Checkbox
+                className="absolute left-3 top-3.5 z-[1]"
+                checked={selected.has(t.id)}
+                onCheckedChange={() => toggle(t.id)}
+                aria-label={`Seleccionar ${t.name}`}
+              />
+              <button
+                type="button"
+                onClick={() => router.push(`/admin/tenants/${t.id}`)}
+                className={`w-full rounded-md border bg-card p-3 pl-10 text-left text-sm shadow-sm transition-colors hover:bg-accent/40 ${selected.has(t.id) ? 'border-primary' : ''}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-medium">{t.name}</span>
+                  <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'}>
+                    {tenantStatusLabel(t.status)}
+                  </Badge>
                 </div>
-              )}
-            </button>
+                <div className="truncate text-xs text-muted-foreground">{t.slug}</div>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs text-muted-foreground">
+                  <span>Usuarios: {t.userCount}</span>
+                  <span>Inquilinos: {t.customerCount}</span>
+                  <span>Contratos: {t.contractCount}</span>
+                  <span>Plan: {t.subscription?.planName ?? t.subscription?.planSlug ?? '—'}</span>
+                </div>
+                {t.trialEndsAt && (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Fin trial: {new Date(t.trialEndsAt).toLocaleDateString('es-ES')}
+                  </div>
+                )}
+              </button>
+            </div>
           ))}
         </div>
       )}

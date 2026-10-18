@@ -1381,6 +1381,37 @@ export class AdminTenantsService {
     return { updated };
   }
 
+  /** Añade o quita etiquetas a varios tenants (acción masiva de la lista). */
+  async bulkTags(
+    input: { tenantIds: string[]; add: string[]; remove: string[] },
+    meta: { superAdminId: string; ipAddress: string | null; userAgent: string | null },
+  ): Promise<{ updated: number }> {
+    const remove = new Set(input.remove);
+    const rows = await this.admin.tenant.findMany({
+      where: { id: { in: [...new Set(input.tenantIds)] }, deletedAt: null },
+      select: { id: true, tags: true },
+    });
+    let updated = 0;
+    for (const t of rows) {
+      const next = [...new Set([...t.tags.filter((x) => !remove.has(x)), ...input.add])].slice(
+        0,
+        20,
+      );
+      if (next.length === t.tags.length && next.every((x, i) => x === t.tags[i])) continue;
+      await this.admin.tenant.update({ where: { id: t.id }, data: { tags: next } });
+      updated += 1;
+    }
+    await this.superAdminAudit.record({
+      superAdminId: meta.superAdminId,
+      action: 'admin.tenants.bulk_tagged',
+      targetType: 'tenant',
+      changes: { tenants: rows.length, updated, add: input.add, remove: input.remove },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return { updated };
+  }
+
   /**
    * Cambia el plan de suscripcion de un tenant (super admin). Util para
    * mover un tenant entre planes (free/starter/pro) — controla, vía

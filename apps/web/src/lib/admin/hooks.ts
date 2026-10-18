@@ -2351,6 +2351,21 @@ export function useUpdateCoupon() {
 }
 
 /** Extiende el trial de varios tenants a la vez. */
+/** Añade o quita etiquetas a varios tenants. */
+export function useBulkTags() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { tenantIds: string[]; add: string[]; remove: string[] }) =>
+      adminApiFetch<{ updated: number }>('/admin/tenants/bulk-tags', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
+  });
+}
+
 export function useExtendTrialsBatch() {
   const qc = useQueryClient();
   return useMutation({
