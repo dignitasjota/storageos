@@ -247,6 +247,44 @@ export class PlatformService {
     }));
   }
 
+  /**
+   * Notificaciones paginadas por cursor (de la más nueva a la más antigua),
+   * todas o solo las sin leer.
+   */
+  async pageNotifications(args: {
+    cursor?: string;
+    limit?: number;
+    unread?: boolean;
+  }): Promise<{ items: SuperAdminNotificationDto[]; nextCursor: string | null }> {
+    const limit = Math.min(Math.max(args.limit ?? 30, 1), 100);
+    const rows = await this.admin.superAdminNotification.findMany({
+      where: args.unread ? { readAt: null } : {},
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(args.cursor ? { cursor: { id: args.cursor }, skip: 1 } : {}),
+    });
+    const items = rows.slice(0, limit).map((r) => ({
+      id: r.id,
+      type: r.type,
+      title: r.title,
+      body: r.body,
+      link: r.link,
+      readAt: r.readAt?.toISOString() ?? null,
+      createdAt: r.createdAt.toISOString(),
+    }));
+    return {
+      items,
+      nextCursor: rows.length > limit ? (items[items.length - 1]?.id ?? null) : null,
+    };
+  }
+
+  async markRead(id: string): Promise<void> {
+    await this.admin.superAdminNotification.updateMany({
+      where: { id, readAt: null },
+      data: { readAt: new Date() },
+    });
+  }
+
   async unreadCount(): Promise<{ count: number }> {
     const count = await this.admin.superAdminNotification.count({ where: { readAt: null } });
     return { count };

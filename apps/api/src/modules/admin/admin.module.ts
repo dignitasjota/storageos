@@ -35,6 +35,7 @@ import { AdminSystemController } from './admin-system.controller';
 import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
+import { AdminTenantSummaryService } from './admin-tenant-summary.service';
 import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
 import { AdminTodayController } from './admin-today.controller';
@@ -143,6 +144,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SuperAdminSessionsService,
     SuperAdminTwoFactorService,
     AdminTenantsService,
+    AdminTenantSummaryService,
     AdminTenantInteractionsService,
     AdminTenantFollowupsService,
     AdminTodayService,

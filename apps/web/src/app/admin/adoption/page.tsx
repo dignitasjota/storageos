@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Loader2, TrendingUp } from 'lucide-react';
+import { ArrowRight, Download, Loader2, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
@@ -11,6 +11,43 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminAdoption } from '@/lib/admin/hooks';
+import { downloadCsv } from '@/lib/csv';
+
+function exportCsv(tenants: AdminTenantAdoptionDto[]) {
+  const limit = (used: number, max: number | null) => (max === null ? `${used}` : `${used}/${max}`);
+  downloadCsv('adopcion-tenants.csv', [
+    [
+      'Tenant',
+      'Slug',
+      'Plan',
+      'Funciones que usa',
+      'Fuera de su plan',
+      'Trasteros',
+      'Locales',
+      'Usuarios',
+      'Candidato',
+      'Plan recomendado',
+    ],
+    ...tenants.map((t) => [
+      t.name,
+      t.slug,
+      t.planName ?? t.planSlug ?? '',
+      t.features
+        .filter((f) => f.used)
+        .map((f) => f.label)
+        .join(', '),
+      t.features
+        .filter((f) => f.used && !f.inPlan && !f.viaOverride)
+        .map((f) => f.label)
+        .join(', '),
+      limit(t.usage.units, t.usage.maxUnits),
+      limit(t.usage.facilities, t.usage.maxFacilities),
+      limit(t.usage.users, t.usage.maxUsers),
+      t.isCandidate ? 'Sí' : 'No',
+      t.recommendedPlanName ?? '',
+    ]),
+  ]);
+}
 
 export default function AdminAdoptionPage() {
   const q = useAdminAdoption();
@@ -36,12 +73,17 @@ export default function AdminAdoptionPage() {
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Adopción y upsell</h1>
-        <p className="text-sm text-muted-foreground">
-          Qué features premium usa cada tenant y quién es candidato a subir de plan (usa features
-          fuera de su plan o topa sus límites).
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Adopción y upsell</h1>
+          <p className="text-sm text-muted-foreground">
+            Qué features premium usa cada tenant y quién es candidato a subir de plan (usa features
+            fuera de su plan o topa sus límites).
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => exportCsv(d.tenants)}>
+          <Download className="mr-1.5 size-4" /> Exportar CSV
+        </Button>
       </div>
 
       {/* Adopción global por feature. */}

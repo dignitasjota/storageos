@@ -28,6 +28,7 @@ import {
   type AdminTenantFeaturesDto,
   SetTenantFeaturesSchema,
   type AdminTenantHealthDto,
+  type AdminTenantSummaryDto,
   type AdminTenantInvoicingDto,
   type AdminTenantUnitDto,
   type AdminChangePlanPreviewDto,
@@ -64,6 +65,7 @@ import { AdminSupportService } from './admin-support.service';
 import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
+import { AdminTenantSummaryService } from './admin-tenant-summary.service';
 import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
@@ -116,6 +118,7 @@ export class AdminTenantsController {
     private readonly sepaMandate: PlatformSepaMandateService,
     private readonly config: AdminTenantConfigService,
     private readonly dataExporter: TenantDataExportService,
+    private readonly summaryService: AdminTenantSummaryService,
   ) {}
 
   /** Edita datos básicos y fiscales del tenant (salen en sus facturas de suscripción). */
@@ -642,6 +645,12 @@ export class AdminTenantsController {
   @Get(':id')
   async detail(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantDto> {
     return this.tenants.detail(id);
+  }
+
+  /** Resumen de un vistazo para la cabecera de la ficha del tenant. */
+  @Get(':id/summary')
+  summary(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantSummaryDto> {
+    return this.summaryService.get(id);
   }
 
   /** Health score de un tenant concreto (desglose por factor). */

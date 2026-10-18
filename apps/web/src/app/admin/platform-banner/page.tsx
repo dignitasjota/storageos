@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -16,12 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  useAdminNotifications,
-  useAdminPlatformBanner,
-  useMarkNotifsRead,
-  useUpdatePlatformBanner,
-} from '@/lib/admin/hooks';
+import { useAdminPlatformBanner, useUpdatePlatformBanner } from '@/lib/admin/hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
@@ -29,8 +25,6 @@ export default function PlatformBannerPage() {
   const canEdit = useIsSuperadmin();
   const { data } = useAdminPlatformBanner();
   const update = useUpdatePlatformBanner();
-  const notifs = useAdminNotifications();
-  const markRead = useMarkNotifsRead();
   const [form, setForm] = useState<PlatformBannerDto | null>(null);
 
   useEffect(() => {
@@ -106,33 +100,13 @@ export default function PlatformBannerPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base">Notificaciones</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => markRead.mutate()}>
-            Marcar todas leídas
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {(notifs.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sin notificaciones.</p>
-          ) : (
-            <ul className="divide-y">
-              {(notifs.data ?? []).map((n) => (
-                <li key={n.id} className={`py-2 ${n.readAt ? 'opacity-60' : ''}`}>
-                  <a href={n.link ?? '#'} className="block hover:underline">
-                    <p className="text-sm font-medium">{n.title}</p>
-                    {n.body && <p className="text-xs text-muted-foreground">{n.body}</p>}
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(n.createdAt).toLocaleString('es-ES')}
-                    </p>
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+      <p className="text-sm text-muted-foreground">
+        Las notificaciones de la plataforma están ahora en{' '}
+        <Link href="/admin/notifications" className="font-medium text-primary hover:underline">
+          Notificaciones
+        </Link>{' '}
+        (la campana de arriba).
+      </p>
     </div>
   );
 }

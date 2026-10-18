@@ -33,6 +33,7 @@ import { TenantHealthCard } from './tenant-health-card';
 import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
 import { TenantNotesCard } from './tenant-notes-card';
+import { TenantSummaryCard } from './tenant-summary-card';
 import { TenantUsersDialog } from './tenant-users-dialog';
 import { WhatsappAiCard } from './whatsapp-ai-card';
 
@@ -240,6 +241,8 @@ export default function AdminTenantDetailPage() {
       {t.owner && !t.owner.emailVerified && (
         <AccountActivationBanner tenantId={t.id} owner={t.owner} />
       )}
+
+      <TenantSummaryCard tenantId={t.id} />
 
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="w-full sm:w-auto">

@@ -33,8 +33,14 @@ test('borrar un seguimiento del tenant pide confirmación en un diálogo', async
     await page.getByRole('button', { name: 'Tenants' }).click();
   }
   await tenantsLink.click();
+  // El CSV recorre todos los tenants del filtro.
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: /Exportar CSV/ }).click();
+  expect((await download).suggestedFilename()).toBe('tenants.csv');
+
   await page.locator('button', { hasText: tenant.slug }).first().click();
   await expect(page).toHaveURL(/\/admin\/tenants\/[a-f0-9-]+/);
+  await expect(page.getByText('Aporta al mes')).toBeVisible();
 
   await page.getByRole('tab', { name: 'Seguimientos' }).click();
   const now = new Date();
@@ -55,4 +61,9 @@ test('borrar un seguimiento del tenant pide confirmación en un diálogo', async
   await page.getByRole('button', { name: 'Borrar' }).first().click();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirmar' }).click();
   await expect(page.getByText('Llamar para renovar')).toHaveCount(0);
+
+  // La campana lleva a la página propia de notificaciones.
+  await page.getByRole('link', { name: 'Notificaciones' }).click();
+  await expect(page).toHaveURL(/\/admin\/notifications$/);
+  await expect(page.getByRole('heading', { name: 'Notificaciones' })).toBeVisible();
 });
