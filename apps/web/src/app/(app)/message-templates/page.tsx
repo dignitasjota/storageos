@@ -8,13 +8,16 @@ import { TemplateFormDialog } from './template-form-dialog';
 
 import type { MessageTemplateDto } from '@storageos/shared';
 
+import { Can } from '@/components/auth/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useDeleteMessageTemplate, useMessageTemplates } from '@/lib/communications/hooks';
 
 export default function MessageTemplatesPage() {
+  const canManage = useHasPermission('templates:manage');
   const templates = useMessageTemplates();
   const remove = useDeleteMessageTemplate();
   const [createOpen, setCreateOpen] = useState(false);
@@ -48,9 +51,11 @@ export default function MessageTemplatesPage() {
             son editables.
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="mr-1 h-4 w-4" /> Nueva plantilla
-        </Button>
+        <Can permission="templates:manage">
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" /> Nueva plantilla
+          </Button>
+        </Can>
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -64,7 +69,7 @@ export default function MessageTemplatesPage() {
                     {t.kind}
                   </Badge>
                   <Badge variant="outline">{t.channel}</Badge>
-                  {t.kind !== 'system' && (
+                  {t.kind !== 'system' && canManage && (
                     <>
                       <Button
                         variant="ghost"

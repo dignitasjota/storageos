@@ -29,7 +29,8 @@ import {
 import { ApiError } from '@/lib/auth/api';
 import { useValidateCoupon } from '@/lib/coupons/hooks';
 import { useCreateContract, useCustomers } from '@/lib/customers/hooks';
-import { useFacilities, useUnits } from '@/lib/facilities/hooks';
+import { localDateString } from '@/lib/dates';
+import { useFacilities, useUnitTypes, useUnits } from '@/lib/facilities/hooks';
 import { useInsurancePlans } from '@/lib/insurance/hooks';
 import { useUnitOffers, useValidatePromotion } from '@/lib/promotions/hooks';
 
@@ -40,7 +41,7 @@ export default function NewContractWizardPage() {
   const [step, setStep] = useState<Step>(1);
   const [customer, setCustomer] = useState<CustomerDto | null>(null);
   const [unit, setUnit] = useState<UnitDto | null>(null);
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(localDateString());
   const [endDate, setEndDate] = useState('');
   const [priceMonthly, setPriceMonthly] = useState(0);
   const [discountAmount, setDiscountAmount] = useState(0);
@@ -55,6 +56,7 @@ export default function NewContractWizardPage() {
   const [prepayDiscountPct, setPrepayDiscountPct] = useState(0);
 
   const create = useCreateContract();
+  const unitTypes = useUnitTypes();
 
   async function submit() {
     if (!customer || !unit) return;
@@ -138,6 +140,10 @@ export default function NewContractWizardPage() {
           onPick={(u) => {
             setUnit(u);
             setPriceMonthly(u.basePriceMonthly);
+            // Fianza del tipo de trastero (como en la reserva online); se puede cambiar.
+            setDepositAmount(
+              unitTypes.data?.find((t) => t.id === u.unitTypeId)?.defaultDepositAmount ?? 0,
+            );
             setStep(3);
           }}
         />

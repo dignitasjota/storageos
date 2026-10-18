@@ -47,6 +47,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilityFilterState } from '@/lib/facilities/store';
 import {
   useAddTaskComment,
   useCreateIncident,
@@ -105,7 +106,7 @@ const NEXT_STATUS: Record<TaskStatusValue, TaskStatusValue[]> = {
 export default function TasksPage() {
   const [status, setStatus] = useState<TaskStatusValue | undefined>();
   const [type, setType] = useState<TaskTypeValue | undefined>();
-  const [facilityId, setFacilityId] = useState<string | undefined>();
+  const [facilityId, setFacilityId] = useFacilityFilterState();
   const [assignedToUserId, setAssignedToUserId] = useState<string | undefined>();
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);

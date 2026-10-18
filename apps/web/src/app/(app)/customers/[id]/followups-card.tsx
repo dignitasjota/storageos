@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
+import { localDateString } from '@/lib/dates';
 import {
   useCreateFollowup,
   useCustomerFollowups,
@@ -18,7 +19,7 @@ import {
 function todayPlus(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return localDateString(d);
 }
 
 export function FollowupsCard({ customerId }: { customerId: string }) {

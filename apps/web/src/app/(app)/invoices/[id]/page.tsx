@@ -61,7 +61,7 @@ import {
   useRectifyInvoice,
   useRefundInvoice,
 } from '@/lib/billing/hooks';
-import { fetchRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
+import { fetchRedsysRedirect, submitRedsysForm, useRedsysSettings } from '@/lib/payments/redsys';
 
 /**
  * Etiquetas explicativas para cada tipo de factura rectificativa (RD
@@ -113,6 +113,11 @@ export default function InvoiceDetailPage() {
   const canManageInv = useHasPermission('invoices:manage');
   const canWriteInv = useHasPermission('invoices:write');
   const canCharge = useHasPermission('payments:charge');
+  // «Pagar con Redsys» solo si el negocio lo tiene activo (sin permiso para leer
+  // los ajustes no se sabe: se muestra y el API responde).
+  const canReadSettings = useHasPermission('settings:read');
+  const redsys = useRedsysSettings(canReadSettings);
+  const redsysAvailable = !canReadSettings || !!redsys.data?.enabled;
 
   const [paidOpen, setPaidOpen] = useState(false);
   const [paidAmount, setPaidAmount] = useState(0);
@@ -281,7 +286,7 @@ export default function InvoiceDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {i.status === 'draft' && canManageInv && (
+            {i.status === 'draft' && canManageInv && i.issuedBy !== 'holded' && (
               <Button
                 onClick={() => safe(() => issue.mutateAsync({ id: i.id }), 'Factura emitida.')}
               >
@@ -290,7 +295,7 @@ export default function InvoiceDetailPage() {
             )}
             {(i.status === 'issued' || i.status === 'overdue') && (
               <>
-                {canCharge && (
+                {canCharge && i.customerId && (
                   <Button
                     variant="outline"
                     onClick={() => void handleCharge()}
@@ -413,7 +418,7 @@ export default function InvoiceDetailPage() {
                 Descargar
               </Button>
             )}
-            {canCharge && (i.status === 'issued' || i.status === 'overdue') && (
+            {canCharge && redsysAvailable && (i.status === 'issued' || i.status === 'overdue') && (
               <Button
                 variant="outline"
                 onClick={async () => {

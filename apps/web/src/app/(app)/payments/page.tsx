@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { usePayments } from '@/lib/billing/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendiente',
@@ -25,7 +26,8 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 export default function PaymentsPage() {
-  const payments = usePayments();
+  const headerFacilityId = useHeaderFacilityId();
+  const payments = usePayments(headerFacilityId ? { facilityId: headerFacilityId } : {});
 
   const columns: ColumnDef<PaymentDto>[] = [
     {

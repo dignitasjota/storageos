@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { openDepositRegistryReceipt, useUpdateDepositRegistry } from '@/lib/customers/hooks';
+import { localDateString } from '@/lib/dates';
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '—');
 
@@ -26,9 +27,7 @@ export function DepositRegistryCard({ contract }: { contract: ContractDto }) {
   const save = useUpdateDepositRegistry(contract.id);
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(r.body ?? '');
-  const [registeredAt, setRegisteredAt] = useState(
-    r.registeredAt ?? new Date().toISOString().slice(0, 10),
-  );
+  const [registeredAt, setRegisteredAt] = useState(r.registeredAt ?? localDateString());
   const [reference, setReference] = useState(r.reference ?? '');
   const [recoveredAt, setRecoveredAt] = useState(r.recoveredAt ?? '');
   const [file, setFile] = useState<File | null>(null);

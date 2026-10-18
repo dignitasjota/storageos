@@ -20,7 +20,6 @@ import {
   UserPlus,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
 import { toast } from 'sonner';
 
 import type { TodayItemDto } from '@storageos/shared';
@@ -39,6 +38,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useToday } from '@/lib/dashboard/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilityFilterState } from '@/lib/facilities/store';
 import { useUpdateFollowup } from '@/lib/followups/hooks';
 import { useTransitionTask } from '@/lib/operations/hooks';
 
@@ -172,7 +172,9 @@ function StatTile({
 }
 
 export default function TodayPage() {
-  const [facilityId, setFacilityId] = useState<string>('all');
+  const [facilityFilterId, setFacilityFilterId] = useFacilityFilterState();
+  const facilityId = facilityFilterId ?? 'all';
+  const setFacilityId = (v: string) => setFacilityFilterId(v === 'all' ? undefined : v);
   const facilities = useFacilities();
   const { data, isLoading } = useToday(facilityId === 'all' ? undefined : facilityId);
   const canTasks = useHasPermission('tasks:write');

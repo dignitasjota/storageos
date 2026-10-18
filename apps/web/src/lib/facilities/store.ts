@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
@@ -16,3 +17,19 @@ export const useFacilityStore = create<FacilityState>()(
     { name: 'storageos.facility' },
   ),
 );
+
+/** Local elegido en el selector de la cabecera (`undefined` = todos). */
+export function useHeaderFacilityId(): string | undefined {
+  return useFacilityStore((s) => s.currentFacilityId) ?? undefined;
+}
+
+/**
+ * Filtro de local de una página: empieza con el de la cabecera y lo sigue
+ * cuando cambia (la página puede elegir otro sin tocar la cabecera).
+ */
+export function useFacilityFilterState(): [string | undefined, (id: string | undefined) => void] {
+  const header = useHeaderFacilityId();
+  const [value, setValue] = useState<string | undefined>(header);
+  useEffect(() => setValue(header), [header]);
+  return [value, setValue];
+}

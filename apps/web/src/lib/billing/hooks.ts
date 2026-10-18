@@ -80,6 +80,8 @@ interface InvoiceFilters {
   customerId?: string;
   contractId?: string;
   overdue?: 'true';
+  /** Local de la cabecera (lista de facturas). */
+  facilityId?: string;
 }
 
 export function useInvoices(filters: InvoiceFilters = {}) {
@@ -184,6 +186,7 @@ export function useInvoiceSignedPdfUrl() {
 interface PaymentFilters {
   invoiceId?: string;
   customerId?: string;
+  facilityId?: string;
 }
 
 export function usePayments(filters: PaymentFilters = {}) {

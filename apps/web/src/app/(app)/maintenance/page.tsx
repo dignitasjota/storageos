@@ -33,6 +33,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { localDateString } from '@/lib/dates';
 import { useFacilities } from '@/lib/facilities/hooks';
 import {
   useCreateMaintenancePlan,
@@ -209,7 +210,7 @@ function CreatePlanDialog({ onDone }: { onDone: () => void }) {
   const [interval, setIntervalValue] = useState('1');
   const [weekdays, setWeekdays] = useState<number[]>([1]);
   const [dayOfMonth, setDayOfMonth] = useState('1');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateString();
   const [startDate, setStartDate] = useState(today);
   const [checklist, setChecklist] = useState<string[]>([]);
 

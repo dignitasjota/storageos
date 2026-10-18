@@ -3,6 +3,7 @@
 import { Check, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
+import { Can } from '@/components/auth/can';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -64,26 +65,28 @@ export default function FollowupsPage() {
                       </p>
                     </div>
                     <span className={`shrink-0 text-xs ${due.tone}`}>{due.text}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0 text-muted-foreground hover:text-emerald-600"
-                      title="Marcar hecho"
-                      onClick={() => update.mutate({ id: f.id, status: 'done' })}
-                      aria-label="Marcar como hecho"
-                    >
-                      <Check className="size-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
-                      title="Borrar"
-                      onClick={() => remove.mutate(f.id)}
-                      aria-label="Eliminar"
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                    <Can permission="customers:write">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0 text-muted-foreground hover:text-emerald-600"
+                        title="Marcar hecho"
+                        onClick={() => update.mutate({ id: f.id, status: 'done' })}
+                        aria-label="Marcar como hecho"
+                      >
+                        <Check className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                        title="Borrar"
+                        onClick={() => remove.mutate(f.id)}
+                        aria-label="Eliminar"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </Can>
                   </li>
                 );
               })}

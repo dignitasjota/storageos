@@ -4,6 +4,7 @@ import { Loader2, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { Can } from '@/components/auth/can';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -11,13 +12,18 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useCashClosures, useCashSummary, useCloseCash } from '@/lib/cash/hooks';
+import { localDateString } from '@/lib/dates';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilityFilterState } from '@/lib/facilities/store';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 export default function CashPage() {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [facilityId, setFacilityId] = useState(''); // '' = caja global
+  const [date, setDate] = useState(localDateString());
+  // '' = caja global; empieza con el local de la cabecera.
+  const [facilityFilterId, setFacilityFilterId] = useFacilityFilterState();
+  const facilityId = facilityFilterId ?? '';
+  const setFacilityId = (v: string) => setFacilityFilterId(v || undefined);
   const facilities = useFacilities();
   const summary = useCashSummary(date, facilityId || undefined);
   const closures = useCashClosures();
@@ -179,9 +185,11 @@ export default function CashPage() {
                     <Label className="text-xs">Notas (opcional)</Label>
                     <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
                   </div>
-                  <Button onClick={onClose} disabled={close.isPending || counted === ''}>
-                    Cerrar caja del día
-                  </Button>
+                  <Can permission="payments:charge">
+                    <Button onClick={onClose} disabled={close.isPending || counted === ''}>
+                      Cerrar caja del día
+                    </Button>
+                  </Can>
                 </>
               )}
             </CardContent>

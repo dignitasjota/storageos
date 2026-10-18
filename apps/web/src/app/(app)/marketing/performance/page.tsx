@@ -5,16 +5,15 @@ import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { localDateString, localMonthStart } from '@/lib/dates';
 import { useMarketingPerformance } from '@/lib/marketing/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 function monthRange(monthsBack: number): { from: string; to: string } {
   const now = new Date();
-  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (monthsBack - 1), 1))
-    .toISOString()
-    .slice(0, 10);
-  const to = now.toISOString().slice(0, 10);
+  const from = localMonthStart(monthsBack - 1, now);
+  const to = localDateString(now);
   return { from, to };
 }
 

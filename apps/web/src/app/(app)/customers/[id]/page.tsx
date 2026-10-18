@@ -117,15 +117,17 @@ export default function CustomerDetailPage() {
               className="w-full justify-center sm:w-auto"
             />
           </Can>
-          <Button
-            variant="outline"
-            onClick={toggleKyc}
-            disabled={setKyc.isPending}
-            className="w-full justify-center sm:w-auto"
-          >
-            <BadgeCheck className="mr-1 h-4 w-4" />
-            {c.kycVerified ? 'Revocar KYC' : 'Marcar KYC verificado'}
-          </Button>
+          <Can permission="customers:write">
+            <Button
+              variant="outline"
+              onClick={toggleKyc}
+              disabled={setKyc.isPending}
+              className="w-full justify-center sm:w-auto"
+            >
+              <BadgeCheck className="mr-1 h-4 w-4" />
+              {c.kycVerified ? 'Revocar KYC' : 'Marcar KYC verificado'}
+            </Button>
+          </Can>
         </div>
       </div>
 
