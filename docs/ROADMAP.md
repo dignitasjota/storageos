@@ -719,6 +719,19 @@ Segunda pasada a las webs de los tenants (plantillas, landings, reserva, firma, 
 
 - ✅ Inquilinos, contratos, facturas, pagos, contactos, tareas, incidencias y gastos con «Cargar más» y búsqueda en el servidor; los desplegables de inquilino buscan en el servidor (antes solo ofrecían los 50-100 primeros).
 
+### Análisis completo de la aplicación (2026-10-18, #735–#744) ✅
+
+- ✅ **#735** — un cobro en marcha (adeudo SEPA que liquida en días o remesa sin confirmar) ya no es un impago: no vence la factura, ni se reclama, ni se recarga, ni se corta el acceso, ni caduca la reserva online. Pagar una factura solo devuelve el acceso si no queda otra impagada por la que se cortó. Recargo por mora sobre lo pendiente. Aviso al equipo si falta la serie y no se puede emitir la 1.ª factura.
+- ✅ **#736** — el cron que retira los descuentos de retención no corría en producción (faltaba en el worker); test que lo impide en adelante. Los ficheros de informes y exportaciones caducados se borran de MinIO.
+- ✅ **#737** — un tenant suspendido queda en **solo lectura** (puede pagar, pedir ayuda y gestionar su cuenta); su web no acepta reservas y sus inquilinos no entran al área de clientes. El pago lo reactiva solo. _Decisión de Jota._
+- ✅ **#738** — la supresión RGPD del inquilino borra todo lo que lleva sus datos (accesos revocados, mensajes, notas, correos, su contacto previo, solicitudes, lista de espera, valoraciones, fotos de inspección); se conservan facturas, firma, preavisos SEPA y el mandato (dado de baja) como prueba.
+- ✅ **#739** — la baja desde el panel lleva fecha (hoy + preaviso por defecto) y el contrato se finaliza solo al día siguiente (desactivable en Plantilla de contrato). La lista de espera da 48 h a cada aviso y luego pasa al siguiente.
+- ✅ **#740** — borrar un trastero con historia o un local con contratos en vigor da 409 claro (no 500); el asistente IA cotiza las viviendas sin IVA; la web cierra la sesión de una empresa dada de baja.
+- ✅ **#741** — diálogos propios en todo el panel del tenant (52 confirmaciones y 4 textos).
+- ✅ **#743** — tenant suspendido: no se cobra a sus inquilinos (cobro automático y reintentos retenidos), el reloj de sus impagos se para, las facturas se siguen emitiendo y los correos a inquilinos quedan en espera (los de más de 30 días se omiten); al pagar, todo sale solo en menos de una hora. El banner muestra lo retenido. _Decisión de Jota: incentivar el pago sin cortar el acceso físico._
+- ✅ **#744** — escalado: correos al propietario los días 0, 7 y 14; desde el día 15 su web pública muestra «temporalmente no disponible»; la reserva online y el área de clientes avisan desde el primer día con el contacto del negocio.
+- **Pendiente (propuesto, no hecho)**: remesa SEPA automática, portal del propietario, API pública con lecturas reales y más eventos de webhook, «descargar mis datos» desde el portal, Sentry en el web, e2e Playwright de la reserva con pago por adeudo. Decidido: el acceso físico de los inquilinos de un tenant suspendido no se corta nunca (#743–#744 presionan por otras vías).
+
 ### Revisión de pagos y suscripciones del SaaS (2026-10-18, #727–#732) ✅
 
 - ✅ **#727** — un cambio de plan ya no se deshace con el siguiente aviso de Stripe.

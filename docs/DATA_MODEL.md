@@ -758,7 +758,7 @@ Variable de entorno booleana (default `true`).
 - `tenants.transfer_iban` (2026-10-04, migración `20261004100000_tenant_transfer_iban`): IBAN para transferencias que sale en el correo de la factura cuando se paga a mano.
 - `contracts.booking_reminder_sent_at` (2026-10-04, migración `20261004120000_contract_booking_reminder`): recordatorio único de una reserva online enviada sin firmar o sin pagar.
 
-## 17. Novedades de octubre de 2026 (migraciones `20261007100000` → `20261029140000`)
+## 17. Novedades de octubre de 2026 (migraciones `20261007100000` → `20261031120000`)
 
 > Las tablas **globales** (sin `tenant_id` o leídas solo por el super admin) llevan `REVOKE ALL … FROM storageos_app`; las de tenant, RLS `tenant_isolation`.
 
@@ -861,3 +861,9 @@ Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la g
 - `impersonation_logs.read_only` (`20261029100000_impersonation_read_only`): la sesión de soporte solo puede leer; el token lleva rol `readonly`.
 - `platform_alert_settings` (`20261029120000_platform_chat_alerts`): `telegram_bot_token_encrypted`, `telegram_chat_id`, `slack_webhook_url_encrypted` (cifrados AES-GCM), `chat_daily_enabled`, `chat_weekly_enabled`.
 - **`admin_approval_requests`** (`20261029140000`, global, REVOKE): `tenant_id`, `requested_by_id`/`decided_by_id` (FK a `super_admins`, SET NULL), `action` (suspend, change_plan, extend_trial, manual_payment, set_features, update_tenant, assign_addon, remove_addon), `payload` jsonb (los mismos datos que el endpoint de cada acción), `reason`, `status` (pending/approved/rejected/failed), `decision_note`, `error`, `decided_at`.
+
+### Pagos del SaaS y análisis completo (`20261030100000` – `20261031120000`)
+
+- `platform_sepa_remittance_items` (`20261030100000_platform_sepa_retry_bounced`): el único `(tenant, periodo)` pasa a índice parcial sobre `pending`/`collected` (un adeudo devuelto se puede reintentar).
+- `tenants.auto_end_contracts` (`20261031100000`, por defecto `true`): el contrato en baja se finaliza solo el día siguiente a su fecha de fin.
+- `invoices.charge_held_at` y `communications.held_at` (`20261031120000_suspension_holds`, índices parciales): cobro automático y envío retenidos mientras el tenant estaba suspendido; el cron `suspension-holds.release` los libera al reactivarse (envíos de más de 30 días → `skipped`).
