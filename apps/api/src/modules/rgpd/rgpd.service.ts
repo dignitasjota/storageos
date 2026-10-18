@@ -26,6 +26,8 @@ import type { CreateDataSubjectRequestInput, DataSubjectRequestDto } from '@stor
  * sus facturas intactas (`invoices.customer_id` queda apuntando a un
  * customer anonimo). La anonimizacion es irreversible.
  */
+const ANON = '*** ANONIMIZADO ***';
+
 @Injectable()
 export class RgpdService {
   constructor(
@@ -135,7 +137,7 @@ export class RgpdService {
     requestId?: string;
     meta: RequestMeta;
   }): Promise<void> {
-    const whatsappMedia = await this.prisma.withTenant(async (tx) => {
+    const filesToDelete = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findUnique({
         where: { id: args.customerId },
       });
@@ -157,9 +159,9 @@ export class RgpdService {
       await tx.customer.update({
         where: { id: args.customerId },
         data: {
-          firstName: '*** ANONIMIZADO ***',
+          firstName: ANON,
           lastName: '',
-          companyName: customer.companyName ? '*** ANONIMIZADO ***' : null,
+          companyName: customer.companyName ? ANON : null,
           email: null,
           phone: null,
           address: null,
@@ -172,13 +174,116 @@ export class RgpdService {
           tags: [],
           portalAccessEnabled: false,
           portalPasswordHash: null,
+          // Cierra las sesiones del área de clientes que siguieran abiertas.
+          portalSessionVersion: { increment: 1 },
+          referralCode: null,
           deletedAt: new Date(),
         },
       });
+      const customerId = args.customerId;
       // Borrar documentos del cliente (no son obligatorios fiscalmente).
-      await tx.customerDocument.deleteMany({ where: { customerId: args.customerId } });
+      await tx.customerDocument.deleteMany({ where: { customerId } });
       // Borrar metodos de pago.
-      await tx.paymentMethod.deleteMany({ where: { customerId: args.customerId } });
+      await tx.paymentMethod.deleteMany({ where: { customerId } });
+
+      // Accesos: revocados y sin secreto, tarjeta ni cara (el PIN no debe abrir
+      // nada y la foto es un dato biométrico).
+      const faces = await tx.accessCredential.findMany({
+        where: { customerId, facePhotoKey: { not: null } },
+        select: { facePhotoKey: true },
+      });
+      await tx.accessCredential.updateMany({
+        where: { customerId },
+        data: {
+          status: 'revoked',
+          revokedAt: new Date(),
+          secretHash: null,
+          secretPreview: null,
+          secretEncrypted: null,
+          rfidUid: null,
+          facePhotoKey: null,
+          label: null,
+          metadata: {},
+        },
+      });
+      await tx.pushSubscription.deleteMany({ where: { customerId } });
+
+      // Lo que el inquilino escribió o lo que el equipo anotó sobre él.
+      await tx.customerMessage.updateMany({ where: { customerId }, data: { body: ANON } });
+      await tx.customerInteraction.updateMany({ where: { customerId }, data: { content: ANON } });
+      await tx.customerFollowup.updateMany({
+        where: { customerId },
+        data: { title: ANON, note: null },
+      });
+      await tx.review.updateMany({
+        where: { customerId },
+        data: { comment: null, ip: null, userAgent: null },
+      });
+      await tx.unitChangeRequest.updateMany({
+        where: { customerId },
+        data: { note: ANON, resolutionNote: null },
+      });
+      await tx.unitRequest.updateMany({
+        where: { customerId },
+        data: { note: ANON, resolutionNote: null },
+      });
+      await tx.waitlistEntry.updateMany({
+        where: { customerId },
+        data: { contactName: ANON, contactEmail: ANON, contactPhone: null, notes: null },
+      });
+
+      // Correos y mensajes que se le enviaron (el texto lleva sus datos).
+      await tx.communication.updateMany({
+        where: { customerId },
+        data: {
+          recipient: ANON,
+          subject: ANON,
+          bodyText: ANON,
+          bodyHtml: null,
+          variables: {},
+          secretsEncrypted: null,
+          errorMessage: null,
+        },
+      });
+      // Su ficha de contacto (lead) de antes de ser cliente.
+      if (customer.email) {
+        await tx.lead.updateMany({
+          where: {
+            OR: [
+              { convertedCustomerId: customerId },
+              { email: { equals: customer.email, mode: 'insensitive' } },
+            ],
+          },
+          data: {
+            firstName: ANON,
+            lastName: null,
+            companyName: null,
+            email: null,
+            phone: null,
+            message: null,
+            metadata: {},
+            deletedAt: new Date(),
+          },
+        });
+      }
+
+      // Fotos de inspección del trastero (entrada/salida).
+      const photos = await tx.contractInspectionPhoto.findMany({
+        where: { contract: { customerId } },
+        select: { id: true, key: true },
+      });
+      await tx.contractInspectionPhoto.deleteMany({
+        where: { id: { in: photos.map((p) => p.id) } },
+      });
+      // Mandatos SEPA: se dan de baja. Se conservan referencia, fecha y cuenta
+      // (cifrada) porque son la prueba ante una reclamación de un adeudo ya
+      // cobrado (el banco la admite hasta 13 meses después), igual que la firma
+      // del contrato y los preavisos de las remesas.
+      await tx.sepaMandate.updateMany({
+        where: { customerId, status: 'active' },
+        data: { status: 'cancelled' },
+      });
+      const fileKeys = [...faces.map((f) => f.facePhotoKey!), ...photos.map((p) => p.key)];
       // Conversaciones de WhatsApp: sin texto ni número.
       const whatsapp = await anonymizeWhatsappConversations(
         tx,
@@ -190,9 +295,9 @@ export class RgpdService {
           data: { status: 'fulfilled', fulfilledAt: new Date() },
         });
       }
-      return whatsapp.mediaKeys;
+      return [...whatsapp.mediaKeys, ...fileKeys];
     }, args.tenantId);
-    await this.files.deleteObjects('uploads', whatsappMedia);
+    await this.files.deleteObjects('uploads', filesToDelete);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
