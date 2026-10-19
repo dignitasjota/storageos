@@ -291,6 +291,16 @@ export interface PortalInvoiceDto {
    */
   bundledReceiptPending: number;
   paidWithInvoiceId: string | null;
+  /** Trastero y periodo que cubre (facturas del alquiler). */
+  unitCode: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  /** Es un recargo por retraso de otra factura (su número). */
+  lateFeeForNumber: string | null;
+  /** Líneas de la factura (concepto e importe con IVA). */
+  lines: { description: string; total: number }[];
+  /** Último cobro rechazado mientras siga pendiente (motivo legible). */
+  lastFailure: { at: string; reason: string | null } | null;
 }
 
 /** Factura o justificante de fianza (no es factura: fuera de IVA y Veri*Factu). */

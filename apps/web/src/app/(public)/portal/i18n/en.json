@@ -228,7 +228,21 @@
         "saveError": "Couldn't save it.",
         "gocardlessStartError": "Couldn't start the direct debit.",
         "addDialogTitle": "Add payment method",
-        "addDialogDescription": "Your IBAN for SEPA direct debit (you'll accept the mandate in this form) or a card."
+        "addDialogDescription": "Your IBAN for SEPA direct debit (you'll accept the mandate in this form) or a card.",
+        "conceptDeposit": "Deposit (receipt, not an invoice)",
+        "conceptLateFee": "Late payment fee for invoice {number}",
+        "conceptRentUnit": "Unit {unit} · {period}",
+        "conceptRent": "Rent · {period}",
+        "conceptOther": "Invoice",
+        "alreadyPaid": "Already paid",
+        "lastFailureReason": "The charge on {date} failed: {reason}.",
+        "lastFailure": "The charge on {date} failed.",
+        "retry": "Retry payment",
+        "payAmount": "Pay {amount}",
+        "pendingTitle": "To pay",
+        "payAll": "Pay all ({amount})",
+        "yearSummary": "{count, plural, one {# invoice} other {# invoices}} · {total}",
+        "payAllResult": "{ok} paid and {failed, plural, one {# could not be charged} other {# could not be charged}}."
       },
       "access": {
         "title": "Your access",

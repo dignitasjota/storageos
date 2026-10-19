@@ -58,6 +58,7 @@ import { DocumentsCard } from './documents-card';
 import { DoorOpenCard } from './door-open-card';
 import { FaqCard } from './faq-card';
 import { InsuranceCard } from './insurance-card';
+import { InvoicesList } from './invoices-list';
 import { NightAccessCard } from './night-access-card';
 import { OverviewCard } from './overview-card';
 import { ProfileCard } from './profile-card';
@@ -83,7 +84,6 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
-import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
 
 /**
  * La sesión del portal se persiste en localStorage tras consumir el magic link
@@ -242,22 +242,6 @@ function PortalBottomItem({
       )}
     </button>
   );
-}
-
-/** Estado de una factura legible para el inquilino, en su idioma. */
-function invoiceStatusLabel(
-  status: string,
-  t: ReturnType<typeof useTranslations<'portal.consume.invoices'>>,
-): string {
-  if (status === 'draft') return t('statusDraft');
-  if (status === 'issued') return t('statusIssued');
-  if (status === 'paid') return t('statusPaid');
-  if (status === 'overdue') return t('statusOverdue');
-  if (status === 'cancelled') return t('statusCancelled');
-  if (status === 'refunded') return t('statusRefunded');
-  if (status === 'partially_refunded') return t('statusPartiallyRefunded');
-  if (status === 'rectified') return t('statusRectified');
-  return status;
 }
 
 function paymentStatusLabel(
@@ -853,6 +837,42 @@ function PortalConsumeContent() {
     }
   }
 
+  /** Paga todas las facturas pendientes con el método guardado, una a una. */
+  async function handlePayAll(list: PortalInvoiceDto[]) {
+    if (!session) return;
+    let ok = 0;
+    let processing = 0;
+    let failed = 0;
+    for (const invoice of list) {
+      setPayingId(invoice.id);
+      try {
+        const r = await portalFetch<PortalChargeResultDto>(
+          session,
+          `/portal/me/invoices/${invoice.id}/charge`,
+          { method: 'POST' },
+        );
+        if (r.status === 'succeeded') ok += 1;
+        else if (r.status === 'processing') processing += 1;
+        else failed += 1;
+      } catch (err) {
+        if (err instanceof ApiError && err.body.code === 'no_payment_method') {
+          toast.message(
+            cardPaymentsEnabled
+              ? tInvoices('addPaymentMethodFirst')
+              : tInvoices('noAutomaticPayment'),
+          );
+          break;
+        }
+        failed += 1;
+      }
+    }
+    setPayingId(null);
+    await reloadInvoices();
+    if (failed > 0) toast.error(tInvoices('payAllResult', { ok: ok + processing, failed }));
+    else if (processing > 0) toast.info(tInvoices('chargeProcessing'));
+    else if (ok > 0) toast.success(tInvoices('chargeSuccess'));
+  }
+
   if (loading) {
     return (
       <div className="container flex justify-center py-12">
@@ -1210,149 +1230,18 @@ function PortalConsumeContent() {
                       {tInvoices('saveCard')}
                     </label>
                   )}
-                {invoices.length === 0 && (
-                  <p className="text-sm text-muted-foreground">{tInvoices('empty')}</p>
-                )}
-                {invoices.length > 0 && (
-                  <ul className="divide-y rounded-md border">
-                    {invoices.map((i) => (
-                      <li
-                        key={i.id}
-                        className="flex flex-wrap items-center justify-between gap-3 px-3 py-3"
-                      >
-                        <div>
-                          <p className="font-mono text-sm font-medium">{i.invoiceNumber}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {tInvoices('issuedDue', {
-                              issueDate: i.issueDate ?? '—',
-                              dueDate: i.dueDate ?? '—',
-                            })}
-                          </p>
-                          {i.kind === 'deposit_receipt' && (
-                            <p className="text-xs text-muted-foreground">
-                              {tInvoices('depositReceipt')}
-                              {i.paidWithInvoiceId &&
-                                ` · ${tInvoices('paidWithInvoice', {
-                                  number:
-                                    invoices.find((x) => x.id === i.paidWithInvoiceId)
-                                      ?.invoiceNumber ?? '',
-                                })}`}
-                            </p>
-                          )}
-                          {i.bundledReceiptPending > 0 && i.amountPending > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              {tInvoices('includesDeposit', {
-                                total: (i.amountPending + i.bundledReceiptPending).toLocaleString(
-                                  intlLocaleForPortal(locale),
-                                  { style: 'currency', currency: 'EUR' },
-                                ),
-                              })}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          <span className="text-sm tabular-nums">
-                            {i.total.toLocaleString(intlLocaleForPortal(locale), {
-                              style: 'currency',
-                              currency: 'EUR',
-                            })}
-                          </span>
-                          <Badge
-                            variant={
-                              i.status === 'paid'
-                                ? 'default'
-                                : i.status === 'overdue'
-                                  ? 'destructive'
-                                  : 'secondary'
-                            }
-                          >
-                            {invoiceStatusLabel(i.status, tInvoices)}
-                          </Badge>
-                          {i.paymentInProgress && (
-                            <Badge variant="outline" className="gap-1">
-                              <Loader2 className="h-3 w-3 animate-spin" />{' '}
-                              {tInvoices('paymentInProgress')}
-                            </Badge>
-                          )}
-                          {canChargeAutomatically &&
-                            i.amountPending > 0 &&
-                            !i.paymentInProgress &&
-                            !i.paidWithInvoiceId && (
-                              <Button
-                                onClick={() => void handlePay(i)}
-                                disabled={payingId !== null}
-                              >
-                                {payingId === i.id && (
-                                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                                )}
-                                {tInvoices('pay')}
-                              </Button>
-                            )}
-                          {redsysEnabled &&
-                            i.amountPending > 0 &&
-                            !i.paymentInProgress &&
-                            !i.paidWithInvoiceId && (
-                              <Button
-                                variant="outline"
-                                onClick={async () => {
-                                  try {
-                                    submitRedsysForm(
-                                      await fetchPortalRedsysRedirect(
-                                        session.accessToken,
-                                        i.id,
-                                        bizumEnabled ? 'card' : undefined,
-                                        cardOnFileEnabled && saveCard,
-                                      ),
-                                    );
-                                  } catch (err) {
-                                    toast.error(
-                                      err instanceof ApiError
-                                        ? err.body.message
-                                        : tInvoices('redsysUnavailable'),
-                                    );
-                                  }
-                                }}
-                              >
-                                {tInvoices('payWithCard')}
-                              </Button>
-                            )}
-                          {bizumEnabled &&
-                            i.amountPending > 0 &&
-                            !i.paymentInProgress &&
-                            !i.paidWithInvoiceId && (
-                              <Button
-                                variant="outline"
-                                onClick={async () => {
-                                  try {
-                                    submitRedsysForm(
-                                      await fetchPortalRedsysRedirect(
-                                        session.accessToken,
-                                        i.id,
-                                        'bizum',
-                                      ),
-                                    );
-                                  } catch (err) {
-                                    toast.error(
-                                      err instanceof ApiError
-                                        ? err.body.message
-                                        : tInvoices('bizumUnavailable'),
-                                    );
-                                  }
-                                }}
-                              >
-                                {tInvoices('payWithBizum')}
-                              </Button>
-                            )}
-                          {i.hasPdf && (
-                            <Button variant="outline" onClick={() => downloadInvoicePdf(i.id)}>
-                              <Download className="mr-1 h-4 w-4" /> {tInvoices('pdf')}
-                            </Button>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <InvoicesList
+                  invoices={invoices}
+                  accessToken={session.accessToken}
+                  canChargeAutomatically={canChargeAutomatically}
+                  redsysEnabled={redsysEnabled}
+                  bizumEnabled={bizumEnabled}
+                  saveCard={cardOnFileEnabled && saveCard}
+                  payingId={payingId}
+                  onPay={(i) => void handlePay(i)}
+                  onPayAll={(list) => void handlePayAll(list)}
+                  onDownload={(id) => void downloadInvoicePdf(id)}
+                />
               </CardContent>
             </Card>
 
@@ -1373,16 +1262,19 @@ function PortalConsumeContent() {
                       >
                         <div>
                           <p className="font-medium tabular-nums">
-                            {p.amount.toFixed(2)} {p.currency}
+                            {p.amount.toLocaleString(intlLocaleForPortal(locale), {
+                              style: 'currency',
+                              currency: p.currency || 'EUR',
+                            })}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {paymentMethodLabel(p.methodType, tInvoices)}
                             {p.invoiceNumber
                               ? tInvoices('paymentInvoiceSuffix', { number: p.invoiceNumber })
                               : ''}
-                            {p.paidAt
-                              ? ` · ${new Date(p.paidAt).toLocaleDateString(intlLocaleForPortal(locale))}`
-                              : ''}
+                            {` · ${new Date(p.paidAt ?? p.createdAt).toLocaleDateString(
+                              intlLocaleForPortal(locale),
+                            )}`}
                           </p>
                         </div>
                         <Badge variant={p.status === 'succeeded' ? 'secondary' : 'outline'}>
