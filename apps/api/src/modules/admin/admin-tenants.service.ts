@@ -12,6 +12,8 @@ import {
 } from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
+import { zonedNextDayStart } from '../../common/format';
+import { liveOverrideWhere } from '../../common/tenant-features';
 import { anonymizeWhatsappConversations } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -1535,12 +1537,27 @@ export class AdminTenantsService {
         include: { plan: { select: { slug: true, tenantFeatures: true } } },
       }),
       this.admin.tenantFeatureOverride.findMany({
-        where: { tenantId },
-        select: { feature: true, enabled: true },
+        where: { tenantId, ...liveOverrideWhere() },
+        select: {
+          feature: true,
+          enabled: true,
+          source: true,
+          expiresAt: true,
+          trialAddon: { select: { name: true } },
+        },
       }),
     ]);
     const planSlug = subscription?.plan.slug ?? null;
-    const overrides = rows as { feature: TenantFeature; enabled: boolean }[];
+    const overrides = rows.map((r) => ({
+      feature: r.feature as TenantFeature,
+      enabled: r.enabled,
+      source: (r.source === 'addon' || r.source === 'trial' ? r.source : 'manual') as
+        | 'manual'
+        | 'addon'
+        | 'trial',
+      expiresAt: r.expiresAt?.toISOString() ?? null,
+      trialAddonName: r.trialAddon?.name ?? null,
+    }));
     const planFeatures = subscription ? resolvePlanFeatures(subscription.plan) : [];
     return {
       planSlug,
@@ -1553,17 +1570,31 @@ export class AdminTenantsService {
   /** Reescribe los overrides de feature del tenant (los redundantes se descartan). */
   async setFeatures(
     tenantId: string,
-    args: { overrides: { feature: TenantFeature; enabled: boolean }[] } & ActionMeta,
+    args: {
+      overrides: {
+        feature: TenantFeature;
+        enabled: boolean;
+        expiresAt?: string | null | undefined;
+      }[];
+    } & ActionMeta,
   ): Promise<AdminTenantFeaturesDto> {
     await this.findOrThrow(tenantId);
-    const subscription = await this.admin.tenantSubscription.findUnique({
-      where: { tenantId },
-      include: { plan: { select: { slug: true, tenantFeatures: true } } },
-    });
+    const [subscription, managed] = await Promise.all([
+      this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        include: { plan: { select: { slug: true, tenantFeatures: true } } },
+      }),
+      // Las de un extra contratado o en prueba las gestiona el motor de extras.
+      this.admin.tenantFeatureOverride.findMany({
+        where: { tenantId, source: { in: ['addon', 'trial'] } },
+        select: { feature: true },
+      }),
+    ]);
     const planFeatures = new Set(subscription ? resolvePlanFeatures(subscription.plan) : []);
+    const managedSet = new Set(managed.map((m) => m.feature));
     // Solo guardamos los overrides que cambian algo respecto al plan.
     const effectiveOverrides = args.overrides.filter(
-      (o) => o.enabled !== planFeatures.has(o.feature),
+      (o) => o.enabled !== planFeatures.has(o.feature) && !managedSet.has(o.feature),
     );
     // Solo gestiona los overrides de cortesía (`source='manual'`); NO toca los
     // activados por add-ons (`source='addon'`), que gestiona el motor de add-ons.
@@ -1577,6 +1608,8 @@ export class AdminTenantsService {
                 feature: o.feature,
                 enabled: o.enabled,
                 source: 'manual',
+                // Hasta el final de ese día (hora de Madrid).
+                expiresAt: o.expiresAt ? zonedNextDayStart(o.expiresAt) : null,
               })),
             }),
           ]

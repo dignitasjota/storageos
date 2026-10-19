@@ -24,6 +24,7 @@ import {
   TENANT_FAVICON_MIME_TYPES,
 } from '@storageos/shared';
 
+import { liveOverrideWhere } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
@@ -352,7 +353,7 @@ export class TenantSettingsService {
         include: { plan: { select: { slug: true, tenantFeatures: true } } },
       }),
       this.admin.tenantFeatureOverride.findMany({
-        where: { tenantId },
+        where: { tenantId, ...liveOverrideWhere() },
         select: { feature: true, enabled: true },
       }),
     ]);

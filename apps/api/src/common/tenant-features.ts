@@ -30,7 +30,7 @@ export async function tenantFeatures(
       include: { plan: { select: { slug: true, tenantFeatures: true } } },
     }),
     admin.tenantFeatureOverride.findMany({
-      where: { tenantId },
+      where: { tenantId, ...liveOverrideWhere() },
       select: { feature: true, enabled: true },
     }),
   ]);
@@ -39,4 +39,12 @@ export async function tenantFeatures(
     base,
     overrides as { feature: TenantFeature; enabled: boolean }[],
   );
+}
+
+/**
+ * Overrides vigentes: sin caducidad o que aún no han caducado. La tarea diaria
+ * de caducidades los borra, pero entre ejecuciones no deben contar.
+ */
+export function liveOverrideWhere(now = new Date()) {
+  return { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
 }

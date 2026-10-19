@@ -13,6 +13,7 @@ import {
 import {
   AssignAddonSchema,
   SetAddonBillingModeSchema,
+  StartAddonTrialSchema,
   UpsertSaasAddonSchema,
   type AdminAddonAnalyticsDto,
   type SaasAddonDto,
@@ -37,6 +38,7 @@ import type { Request } from 'express';
 class UpsertSaasAddonDto extends createZodDto(UpsertSaasAddonSchema) {}
 class AssignAddonDto extends createZodDto(AssignAddonSchema) {}
 class SetAddonBillingModeDto extends createZodDto(SetAddonBillingModeSchema) {}
+class StartAddonTrialDto extends createZodDto(StartAddonTrialSchema) {}
 
 /** Extrae IP + user-agent del request para dejar rastro en la auditoría. */
 function extractMeta(req: Request): { ipAddress: string | null; userAgent: string | null } {
@@ -159,6 +161,29 @@ export class SaasAddonsController {
       ...extractMeta(req),
     });
     return summary;
+  }
+
+  /** Prueba gratis de un extra durante unos días (activa su función con fecha de fin). */
+  @RequireSuperadmin()
+  @Post('tenants/:id/addon-trials/:addonId')
+  async startTrial(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('addonId', new ParseUUIDPipe()) addonId: string,
+    @Body() body: StartAddonTrialDto,
+    @Req() req: Request,
+  ): Promise<{ feature: string; expiresAt: string }> {
+    const result = await this.service.startTrial(id, addonId, body.days);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.saas_addon.trial_started',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { addonId, days: body.days, expiresAt: result.expiresAt },
+      ...extractMeta(req),
+    });
+    return result;
   }
 
   @RequireSuperadmin()

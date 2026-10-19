@@ -729,12 +729,35 @@ export interface TenantFollowupDto {
 }
 
 /** Features de un tenant en el panel admin: plan + overrides + efectivas. */
+/** Una función activada o quitada a mano, por un extra o por una prueba gratis. */
+export interface AdminFeatureOverrideDto {
+  feature: TenantFeature;
+  enabled: boolean;
+  /** `manual` (cortesía), `addon` (extra contratado) o `trial` (prueba gratis de un extra). */
+  source: 'manual' | 'addon' | 'trial';
+  /** Fin de la cortesía o de la prueba, o null. */
+  expiresAt: string | null;
+  /** Extra en prueba (solo `trial`). */
+  trialAddonName: string | null;
+}
+
+/** Cortesía o prueba gratis que vence pronto (bandeja «Hoy»). */
+export interface AdminExpiringOverrideDto {
+  tenantId: string;
+  tenantName: string;
+  feature: TenantFeature;
+  source: 'manual' | 'trial';
+  expiresAt: string;
+  daysLeft: number;
+  trialAddonName: string | null;
+}
+
 export interface AdminTenantFeaturesDto {
   planSlug: string | null;
   /** Features incluidas en el plan actual. */
   planFeatures: TenantFeature[];
-  /** Overrides activos (el super admin las añadió/quitó manualmente). */
-  overrides: { feature: TenantFeature; enabled: boolean }[];
+  /** Overrides vigentes: cortesías del super admin, extras contratados y pruebas gratis. */
+  overrides: AdminFeatureOverrideDto[];
   /** Features efectivas (plan + overrides). */
   effective: TenantFeature[];
 }
@@ -1060,6 +1083,8 @@ export interface TenantSelfAddonsDto {
   includedInPlan: SaasAddonDto[];
   /** Cuenta exenta: los extras no se le cobran. */
   billingExempt: boolean;
+  /** Extras en prueba gratis, con su fin (para contratarlos antes de perderlos). */
+  trials: { addonId: string; expiresAt: string }[];
 }
 
 /** Un add-on cuyo cobro manual toca (bandeja «Hoy» del super admin). */
@@ -1145,6 +1170,8 @@ export interface AdminTodayDto {
   /** Nº de acciones accionables hoy (cobros + renovaciones + past_due + seguimientos + tickets + colas + incidencias). */
   /** Solicitudes del rol soporte pendientes de aprobar. */
   pendingApprovals: AdminApprovalRequestDto[];
+  /** Cortesías y pruebas gratis que vencen en 7 días. */
+  expiringOverrides: AdminExpiringOverrideDto[];
   urgentCount: number;
 }
 

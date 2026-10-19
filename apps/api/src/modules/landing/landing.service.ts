@@ -16,7 +16,7 @@ import {
   waMeNumber,
 } from '@storageos/shared';
 
-import { tenantHasFeature } from '../../common/tenant-features';
+import { tenantHasFeature, liveOverrideWhere } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 import { LeadsService } from '../leads/leads.service';
@@ -359,7 +359,7 @@ export class LandingService {
         include: { plan: { select: { slug: true, tenantFeatures: true } } },
       }),
       this.admin.tenantFeatureOverride.findMany({
-        where: { tenantId },
+        where: { tenantId, ...liveOverrideWhere() },
         select: { feature: true, enabled: true },
       }),
     ]);

@@ -1523,13 +1523,32 @@ export function useAdminTenantFeatures(id: string, enabled = true) {
 export function useSetTenantFeatures(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (overrides: { feature: TenantFeature; enabled: boolean }[]) =>
+    mutationFn: (
+      overrides: { feature: TenantFeature; enabled: boolean; expiresAt?: string | null }[],
+    ) =>
       adminApiFetch<AdminTenantFeaturesDto>(`/admin/tenants/${id}/features`, {
         method: 'PUT',
         json: { overrides },
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'tenant', id, 'features'] });
+    },
+  });
+}
+
+/** Prueba gratis de un extra durante unos días (activa su función con fecha de fin). */
+export function useStartAddonTrial(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { addonId: string; days: number }) =>
+      adminApiFetch<{ feature: string; expiresAt: string }>(
+        `/admin/tenants/${tenantId}/addon-trials/${args.addonId}`,
+        { method: 'POST', json: { days: args.days } },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
     },
   });
 }

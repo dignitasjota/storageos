@@ -54,6 +54,8 @@ import { AeatCertExpiryService } from './aeat-cert-expiry.service';
 import { ChatAlertsController } from './chat-alerts.controller';
 import { ChatAlertsCron } from './chat-alerts.cron';
 import { ChatAlertsService } from './chat-alerts.service';
+import { FeatureExpiryCron } from './feature-expiry.cron';
+import { FeatureExpiryService } from './feature-expiry.service';
 import { ImpersonationService } from './impersonation.service';
 import { MrrModule } from './mrr.module';
 import { PlatformAlertsController } from './platform-alerts.controller';
@@ -147,6 +149,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminGuard,
     AdminTenantsOverviewService,
     AdminBillingOpsService,
+    FeatureExpiryService,
+    FeatureExpiryCron,
     // Auditoría de los endpoints marcados con @AdminAudit (solo actúa con esa marca).
     { provide: APP_INTERCEPTOR, useClass: AdminAuditInterceptor },
     PlatformAlertsService,

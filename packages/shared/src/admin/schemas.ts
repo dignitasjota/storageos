@@ -442,8 +442,25 @@ export type UpsertSubscriptionPlanFormInput = z.infer<typeof UpsertSubscriptionP
 
 // --- Overrides de feature por tenant (super admin) ---
 export const SetTenantFeaturesSchema = z.object({
-  overrides: z.array(z.object({ feature: z.enum(TenantFeatures), enabled: z.boolean() })),
+  overrides: z.array(
+    z.object({
+      feature: z.enum(TenantFeatures),
+      enabled: z.boolean(),
+      /** Último día de la cortesía (YYYY-MM-DD, hora de Madrid); null/ausente = sin fecha. */
+      expiresAt: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .nullable()
+        .optional(),
+    }),
+  ),
 });
+
+/** Prueba gratis de un extra durante unos días (activa su función). */
+export const StartAddonTrialSchema = z.object({
+  days: z.number().int().min(1).max(60),
+});
+export type StartAddonTrialInput = z.infer<typeof StartAddonTrialSchema>;
 export type SetTenantFeaturesInput = z.infer<typeof SetTenantFeaturesSchema>;
 
 // --- Gestión de super admins (CRUD) ---

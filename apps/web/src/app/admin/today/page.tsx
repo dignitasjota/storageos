@@ -1,6 +1,8 @@
 'use client';
 
+import { FEATURE_LABELS } from '@storageos/shared';
 import {
+  Hourglass,
   AlertTriangle,
   CalendarClock,
   Clock,
@@ -77,7 +79,8 @@ export default function AdminTodayPage() {
     data.holdedReview.length === 0 &&
     data.devicesOffline.length === 0 &&
     data.overdueCrons.length === 0 &&
-    data.pendingApprovals.length === 0;
+    data.pendingApprovals.length === 0 &&
+    data.expiringOverrides.length === 0;
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
@@ -365,6 +368,28 @@ export default function AdminTodayPage() {
       )}
 
       {/* Add-ons suspendidos hace mucho (candidatos a quitar) */}
+      {data && data.expiringOverrides.length > 0 && (
+        <SimpleCard
+          title={`Pruebas gratis y cortesías que vencen (${data.expiringOverrides.length})`}
+          icon={<Hourglass className="size-4 text-amber-500" />}
+        >
+          {data.expiringOverrides.map((o) => (
+            <TenantRow
+              key={`${o.tenantId}-${o.feature}`}
+              id={o.tenantId}
+              name={`${o.tenantName} · ${o.trialAddonName ?? FEATURE_LABELS[o.feature] ?? o.feature}`}
+              detail={`${o.source === 'trial' ? 'Prueba gratis' : 'Cortesía'} · ${
+                o.daysLeft <= 0
+                  ? 'vence hoy'
+                  : o.daysLeft === 1
+                    ? 'vence mañana'
+                    : `quedan ${o.daysLeft} d`
+              }`}
+            />
+          ))}
+        </SimpleCard>
+      )}
+
       {data && data.staleSuspendedAddons.length > 0 && (
         <SimpleCard
           title={`Add-ons suspendidos hace tiempo (${data.staleSuspendedAddons.length})`}

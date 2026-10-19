@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { effectiveFeaturesFromList, rentTax, resolvePlanFeatures } from '@storageos/shared';
 
+import { liveOverrideWhere } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -540,7 +541,10 @@ Redacta el borrador de campaña:`;
           where: { tenantId },
           include: { plan: { select: { slug: true, tenantFeatures: true } } },
         }),
-        tx.tenantFeatureOverride.findMany({ select: { feature: true, enabled: true } }),
+        tx.tenantFeatureOverride.findMany({
+          where: liveOverrideWhere(),
+          select: { feature: true, enabled: true },
+        }),
       ]);
       const base = subscription ? resolvePlanFeatures(subscription.plan) : [];
       const features = effectiveFeaturesFromList(

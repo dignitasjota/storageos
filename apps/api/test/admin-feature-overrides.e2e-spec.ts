@@ -59,7 +59,9 @@ describe('Admin: overrides de feature por tenant (e2e)', () => {
       .send({ overrides: [{ feature: 'ai_assistant', enabled: true }] });
     expect(put.status).toBe(200);
     expect(put.body.effective).toContain('ai_assistant');
-    expect(put.body.overrides).toEqual([{ feature: 'ai_assistant', enabled: true }]);
+    expect(put.body.overrides).toEqual([
+      expect.objectContaining({ feature: 'ai_assistant', enabled: true, source: 'manual' }),
+    ]);
 
     // Ahora /auth/me la incluye y el FeatureGuard deja pasar.
     const me1 = await request(app.getHttpServer()).get('/auth/me').set(tenantAuth);
