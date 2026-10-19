@@ -719,6 +719,16 @@ Segunda pasada a las webs de los tenants (plantillas, landings, reserva, firma, 
 
 - ✅ Inquilinos, contratos, facturas, pagos, contactos, tareas, incidencias y gastos con «Cargar más» y búsqueda en el servidor; los desplegables de inquilino buscan en el servidor (antes solo ofrecían los 50-100 primeros).
 
+### Panel admin: visión de los tenants, pagos y venta de extras (2026-10-19, #747–#752) ✅
+
+- ✅ **#747** — Tenants en tabla con columnas de negocio (aporta/mes, extras, modo de cobro, próximo cobro o deuda, salud, último acceso, seguimiento, uso, propietario), orden, columnas elegibles, filtros, vistas rápidas y guardadas, CSV; búsqueda global ⌘K.
+- ✅ **#748** — Estado de cuenta en la ficha (deuda y escalado, próximo cargo desglosado, extras aparte, historial único), «Cobros pendientes» y «Calendario de cobros».
+- ✅ **#749** — Cortesías con fecha de fin y prueba gratis de un extra (7/14/30 días; al contratarlo se queda sin fecha; avisos al tenant y al super admin; salen en «Hoy»).
+- ✅ **#750** — Señales de interés (el tenant entra en una función que no tiene), «Oportunidades» por extra (interés + reglas de uso) y «Proponer» en un clic (correo, prueba gratis, conversación y seguimiento).
+- ✅ **#751** — «Hoy» con cifras (MRR, cobrado 7 días, pendiente, pruebas, suspendidos, altas) y pestañas Negocio / Operación / Actividad; avisos comerciales por Telegram/Slack cada hora.
+- ✅ **#752** — Simulador de cuota (plan + extras + ciclo + cupón, con IVA) que se envía como propuesta; ayuda para arrancar en la prueba según el uso (días 3, 7 y 12).
+- Otros de la sesión: #745 (m² al editar un trastero y precios «sin IVA» en el panel) y #746 (cabecera de la web pública con el color de la marca).
+
 ### Análisis completo de la aplicación (2026-10-18, #735–#744) ✅
 
 - ✅ **#735** — un cobro en marcha (adeudo SEPA que liquida en días o remesa sin confirmar) ya no es un impago: no vence la factura, ni se reclama, ni se recarga, ni se corta el acceso, ni caduca la reserva online. Pagar una factura solo devuelve el acceso si no queda otra impagada por la que se cortó. Recargo por mora sobre lo pendiente. Aviso al equipo si falta la serie y no se puede emitir la 1.ª factura.
