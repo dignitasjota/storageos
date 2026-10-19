@@ -4,12 +4,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   type CreateCustomerInput,
   CreateCustomerSchema,
-  type CustomerDto,
+  type CustomerOverviewDto,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { MoreHorizontal, Plus, Upload } from 'lucide-react';
+import { Columns3, MoreHorizontal, Plus, Save, Trash2, Upload } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -28,8 +28,11 @@ import {
 } from '@/components/ui/dialog';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -54,18 +57,142 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useCreateCustomer,
+  useCustomersOverview,
   useCustomerUnreadSummary,
   useDeleteCustomer,
   useSendPortalAccessEmail,
 } from '@/lib/customers/hooks';
-import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
+import { useFacilities } from '@/lib/facilities/hooks';
 
+type Row = CustomerOverviewDto;
+
+const PAY_VIA: Record<string, string> = {
+  card: 'Tarjeta',
+  sepa_debit: 'Adeudo',
+  sepa_mandate: 'Remesa SEPA',
+};
+
+const COLUMN_LABELS = [
+  ['units', 'Trastero'],
+  ['monthly', 'Cuota/mes'],
+  ['payVia', 'Cobro'],
+  ['debt', 'Deuda'],
+  ['contract', 'Contrato'],
+  ['insurance', 'Seguro'],
+  ['portal', 'Portal'],
+  ['lastContact', 'Último contacto'],
+  ['followup', 'Seguimiento'],
+  ['kyc', 'KYC'],
+] as const;
+type ColumnKey = (typeof COLUMN_LABELS)[number][0];
+const DEFAULT_COLUMNS: ColumnKey[] = [
+  'units',
+  'monthly',
+  'payVia',
+  'debt',
+  'contract',
+  'insurance',
+  'followup',
+];
+
+interface Filters {
+  facilityId: string;
+  overdue: boolean;
+  noPayVia: boolean;
+  noInsurance: boolean;
+  endingSoon: boolean;
+  ending: boolean;
+  noKyc: boolean;
+  noContract: boolean;
+}
+const EMPTY: Filters = {
+  facilityId: 'all',
+  overdue: false,
+  noPayVia: false,
+  noInsurance: false,
+  endingSoon: false,
+  ending: false,
+  noKyc: false,
+  noContract: false,
+};
+const TOGGLES: { key: Exclude<keyof Filters, 'facilityId'>; label: string }[] = [
+  { key: 'overdue', label: 'Con deuda' },
+  { key: 'noPayVia', label: 'Sin método de pago' },
+  { key: 'noInsurance', label: 'Sin seguro' },
+  { key: 'endingSoon', label: 'Vence en 30 días' },
+  { key: 'ending', label: 'En baja' },
+  { key: 'noKyc', label: 'Sin KYC' },
+  { key: 'noContract', label: 'Sin contrato' },
+];
+interface View {
+  name: string;
+  filters: Filters;
+}
+const PRESET_VIEWS: View[] = [
+  { name: 'Morosos', filters: { ...EMPTY, overdue: true } },
+  { name: 'Activos sin seguro', filters: { ...EMPTY, noInsurance: true } },
+  { name: 'Sin método de pago', filters: { ...EMPTY, noPayVia: true } },
+  { name: 'Contratos que vencen pronto', filters: { ...EMPTY, endingSoon: true } },
+  { name: 'Ex inquilinos y contactos', filters: { ...EMPTY, noContract: true } },
+];
+const VIEWS_KEY = 'storageos.customers.views';
+const COLUMNS_KEY = 'storageos.customers.columns';
+
+function readStorage<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writeStorage(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* sin almacenamiento */
+  }
+}
+
+const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '—');
+function daysUntil(isoDate: string): number {
+  return Math.ceil((new Date(isoDate).getTime() - Date.now()) / 86_400_000);
+}
+
+function matches(c: Row, f: Filters): boolean {
+  const live = c.contractStatus !== 'none';
+  if (f.facilityId !== 'all' && !c.facilityIds.includes(f.facilityId)) return false;
+  if (f.overdue && c.overdue <= 0) return false;
+  if (f.noPayVia && (c.payVia || !live)) return false;
+  if (f.noInsurance && (c.contractStatus !== 'active' || c.insurance.length > 0)) return false;
+  if (f.endingSoon && (!c.endsOn || daysUntil(c.endsOn) > 30)) return false;
+  if (f.ending && c.contractStatus !== 'ending') return false;
+  if (f.noKyc && c.kycVerified) return false;
+  if (f.noContract && live) return false;
+  return true;
+}
+
+/**
+ * Inquilinos: una fila por inquilino con su trastero, lo que paga, cómo, si
+ * debe algo, el seguro, el contrato y el último contacto. Filtros, columnas y
+ * vistas en el navegador; la búsqueda filtra todas las columnas.
+ */
 export default function CustomersPage() {
   const ask = useConfirm();
-  const [searchText, search, setSearchText] = useDebouncedSearch();
-  const customers = usePagedList<CustomerDto>('customers', '/customers', {
-    search: search || undefined,
-  });
+  const overview = useCustomersOverview();
+  const facilities = useFacilities();
+  const [filters, setFilters] = useState<Filters>(EMPTY);
+  const [columnsOn, setColumnsOn] = useState<ColumnKey[]>(DEFAULT_COLUMNS);
+  const [views, setViews] = useState<View[]>([]);
+  useEffect(() => {
+    setViews(readStorage<View[]>(VIEWS_KEY, []));
+    setColumnsOn(readStorage<ColumnKey[]>(COLUMNS_KEY, DEFAULT_COLUMNS));
+  }, []);
+  const rows = useMemo(
+    () => (overview.data ?? []).filter((c) => matches(c, filters)),
+    [overview.data, filters],
+  );
   const unreadByCustomer = useCustomerUnreadSummary().data?.byCustomer ?? {};
   const create = useCreateCustomer();
   const remove = useDeleteCustomer();
@@ -132,23 +259,131 @@ export default function CustomersPage() {
     }
   }
 
-  const columns: ColumnDef<CustomerDto>[] = [
+  const show = (k: ColumnKey) => columnsOn.includes(k);
+  const allColumns: (ColumnDef<CustomerOverviewDto> & { key?: ColumnKey })[] = [
     {
-      accessorKey: 'displayName',
-      header: 'Nombre',
+      id: 'name',
+      accessorFn: (c) => c.displayName,
+      header: 'Inquilino',
       cell: ({ row }) => {
-        const unread = unreadByCustomer[row.original.id] ?? 0;
+        const c = row.original;
+        const unread = unreadByCustomer[c.id] ?? 0;
         return (
-          <span className="flex items-center gap-2">
-            <Link href={`/customers/${row.original.id}`} className="font-medium hover:underline">
-              {row.original.displayName}
-            </Link>
-            {unread > 0 && (
-              <span
-                title={`${unread} mensaje(s) sin leer`}
-                className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1.5 text-xs font-medium text-white"
+          <div className="min-w-0">
+            <span className="flex items-center gap-2">
+              <Link href={`/customers/${c.id}`} className="font-medium hover:underline">
+                {c.displayName}
+              </Link>
+              {unread > 0 && (
+                <span
+                  title={`${unread} mensaje(s) sin leer`}
+                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1.5 text-xs font-medium text-white"
+                >
+                  {unread}
+                </span>
+              )}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {c.email ?? c.phone ?? (c.customerType === 'business' ? 'Empresa' : 'Particular')}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'units',
+      id: 'units',
+      accessorFn: (c) => c.units.map((u) => u.code).join(', '),
+      header: 'Trastero',
+      cell: ({ row }) =>
+        row.original.units.length === 0 ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : (
+          <span className="text-xs">
+            {row.original.units.map((u) => u.code).join(', ')}
+            <span className="block text-muted-foreground">
+              {[...new Set(row.original.units.map((u) => u.facilityName))].join(', ')}
+            </span>
+          </span>
+        ),
+    },
+    {
+      key: 'monthly',
+      id: 'monthly',
+      accessorFn: (c) => c.monthly,
+      header: 'Cuota/mes',
+      cell: ({ row }) =>
+        row.original.monthly > 0 ? (
+          <span className="tabular-nums">{eur(row.original.monthly)}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
+    {
+      key: 'payVia',
+      id: 'payVia',
+      accessorFn: (c) => c.payVia ?? '',
+      header: 'Cobro',
+      cell: ({ row }) => {
+        const c = row.original;
+        if (c.payVia) return <span className="text-xs">{PAY_VIA[c.payVia]}</span>;
+        return c.contractStatus === 'none' ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : (
+          <span className="text-xs text-amber-600 dark:text-amber-400">Sin método</span>
+        );
+      },
+    },
+    {
+      key: 'debt',
+      id: 'debt',
+      accessorFn: (c) => c.overdue,
+      header: 'Deuda',
+      cell: ({ row }) => {
+        const c = row.original;
+        if (c.overdue > 0) {
+          return (
+            <span className="text-xs font-medium text-destructive">
+              {eur(c.overdue)}
+              <span className="block font-normal">desde {day(c.overdueSince)}</span>
+            </span>
+          );
+        }
+        return c.pendingNotDue > 0 ? (
+          <span className="text-xs text-muted-foreground">{eur(c.pendingNotDue)} por vencer</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">Al día</span>
+        );
+      },
+    },
+    {
+      key: 'contract',
+      id: 'contract',
+      accessorFn: (c) => c.endsOn ?? (c.contractStatus === 'none' ? 'zzzz' : 'zzz'),
+      header: 'Contrato',
+      cell: ({ row }) => {
+        const c = row.original;
+        if (c.contractStatus === 'none') {
+          return <span className="text-xs text-muted-foreground">Sin contrato</span>;
+        }
+        const days = c.endsOn ? daysUntil(c.endsOn) : null;
+        return (
+          <span className="text-xs">
+            {c.contractStatus === 'ending' ? (
+              <Badge
+                variant="outline"
+                className="border-amber-400 text-amber-700 dark:text-amber-400"
               >
-                {unread}
+                En baja
+              </Badge>
+            ) : (
+              'Activo'
+            )}
+            {c.endsOn && (
+              <span
+                className={`block ${days !== null && days <= 30 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
+              >
+                hasta {day(c.endsOn)}
               </span>
             )}
           </span>
@@ -156,42 +391,60 @@ export default function CustomersPage() {
       },
     },
     {
-      accessorKey: 'customerType',
-      header: 'Tipo',
-      cell: ({ row }) => (
-        <Badge variant="outline">
-          {row.original.customerType === 'business' ? 'Empresa' : 'Particular'}
-        </Badge>
-      ),
-    },
-    {
-      accessorKey: 'documentNumber',
-      header: 'Documento',
+      key: 'insurance',
+      id: 'insurance',
+      accessorFn: (c) => c.insurance.join(', '),
+      header: 'Seguro',
       cell: ({ row }) =>
-        row.original.documentNumber ? (
-          <span className="font-mono text-xs">
-            {row.original.documentType} {row.original.documentNumber}
-          </span>
+        row.original.insurance.length ? (
+          <span className="text-xs">{row.original.insurance.join(', ')}</span>
         ) : (
-          '—'
+          <span className="text-xs text-muted-foreground">—</span>
         ),
     },
     {
-      accessorKey: 'email',
-      header: 'Email',
-      cell: ({ row }) => row.original.email ?? '—',
-    },
-    {
-      id: 'activity',
-      header: 'Actividad',
+      key: 'portal',
+      id: 'portal',
+      accessorFn: (c) => (c.portalAccessEnabled ? 1 : 0),
+      header: 'Portal',
       cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">
-          {row.original.activeContracts} contratos · {row.original.pendingReservations} reservas
+        <span className="text-xs">
+          {row.original.portalAccessEnabled ? 'Con contraseña' : 'Por enlace'}
         </span>
       ),
     },
     {
-      accessorKey: 'kycVerified',
+      key: 'lastContact',
+      id: 'lastContact',
+      accessorFn: (c) => c.lastContactAt ?? '',
+      header: 'Último contacto',
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">
+          {row.original.lastContactAt ? day(row.original.lastContactAt) : 'Nunca'}
+        </span>
+      ),
+    },
+    {
+      key: 'followup',
+      id: 'followup',
+      accessorFn: (c) => c.nextFollowup?.dueDate ?? 'zzzz',
+      header: 'Seguimiento',
+      cell: ({ row }) => {
+        const f = row.original.nextFollowup;
+        if (!f) return <span className="text-xs text-muted-foreground">—</span>;
+        const due = daysUntil(f.dueDate) <= 0;
+        return (
+          <span className="text-xs">
+            <span className={due ? 'font-medium text-destructive' : ''}>{day(f.dueDate)}</span>
+            <span className="block max-w-[160px] truncate text-muted-foreground">{f.title}</span>
+          </span>
+        );
+      },
+    },
+    {
+      key: 'kyc',
+      id: 'kyc',
+      accessorFn: (c) => (c.kycVerified ? 1 : 0),
       header: 'KYC',
       cell: ({ row }) => (
         <Badge variant={row.original.kycVerified ? 'default' : 'outline'}>
@@ -202,6 +455,7 @@ export default function CustomersPage() {
     {
       id: 'actions',
       header: '',
+      enableSorting: false,
       cell: ({ row }) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -226,22 +480,162 @@ export default function CustomersPage() {
       ),
     },
   ];
+  const columns = allColumns.filter((c) => !c.key || show(c.key));
+  const set = <K extends keyof Filters>(k: K, v: Filters[K]) =>
+    setFilters((f) => ({ ...f, [k]: v }));
+  const activeFilters = JSON.stringify(filters) !== JSON.stringify(EMPTY);
+  const debtTotal = rows.reduce((sum, c) => sum + c.overdue, 0);
+  const monthlyTotal = rows.reduce((sum, c) => sum + c.monthly, 0);
+
+  function toggleColumn(k: ColumnKey) {
+    const next = show(k) ? columnsOn.filter((c) => c !== k) : [...columnsOn, k];
+    setColumnsOn(next);
+    writeStorage(COLUMNS_KEY, next);
+  }
+  async function saveView() {
+    const res = await ask({
+      title: 'Guardar vista',
+      description: 'Se guarda en este navegador con los filtros actuales.',
+      input: { label: 'Nombre de la vista', placeholder: 'p. ej. Morosos del local Norte' },
+      confirmLabel: 'Guardar',
+    });
+    const name = res ? res.value.trim() : '';
+    if (!name) return;
+    const next = [...views.filter((v) => v.name !== name), { name, filters }];
+    setViews(next);
+    writeStorage(VIEWS_KEY, next);
+    toast.success('Vista guardada en este navegador.');
+  }
+  function deleteView(name: string) {
+    const next = views.filter((v) => v.name !== name);
+    setViews(next);
+    writeStorage(VIEWS_KEY, next);
+  }
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Inquilinos</h1>
         <p className="text-sm text-muted-foreground">
-          Gestiona los clientes finales que alquilan trasteros.
+          {rows.length} {rows.length === 1 ? 'inquilino' : 'inquilinos'} · cuotas{' '}
+          <span className="font-medium text-foreground">{eur(monthlyTotal)}/mes</span>
+          {debtTotal > 0 && (
+            <>
+              {' '}
+              · deben <span className="font-medium text-destructive">{eur(debtTotal)}</span>
+            </>
+          )}
         </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {(facilities.data?.length ?? 0) > 1 && (
+          <Select value={filters.facilityId} onValueChange={(v) => set('facilityId', v)}>
+            <SelectTrigger className="h-9 w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los locales</SelectItem>
+              {(facilities.data ?? []).map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {TOGGLES.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => set(t.key, !filters[t.key])}
+            aria-pressed={filters[t.key]}
+            className={`h-9 rounded-md border px-3 text-sm transition-colors ${
+              filters[t.key]
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:bg-accent'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+        {activeFilters && (
+          <Button variant="ghost" size="sm" onClick={() => setFilters(EMPTY)}>
+            Quitar filtros
+          </Button>
+        )}
       </div>
 
       <DataTable
         columns={columns}
-        data={customers.rows}
-        isLoading={customers.isLoading}
+        data={rows}
+        isLoading={overview.isLoading}
+        searchPlaceholder="Buscar por nombre, email, teléfono, trastero o etiqueta…"
+        pageSize={50}
         toolbarRight={
           <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">Vistas</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>Vistas rápidas</DropdownMenuLabel>
+                {PRESET_VIEWS.map((v) => (
+                  <DropdownMenuItem key={v.name} onSelect={() => setFilters(v.filters)}>
+                    {v.name}
+                  </DropdownMenuItem>
+                ))}
+                {views.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Mis vistas</DropdownMenuLabel>
+                    {views.map((v) => (
+                      <DropdownMenuItem
+                        key={v.name}
+                        onSelect={() => setFilters({ ...EMPTY, ...v.filters })}
+                        className="justify-between"
+                      >
+                        <span className="truncate">{v.name}</span>
+                        <button
+                          type="button"
+                          aria-label={`Borrar la vista ${v.name}`}
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteView(v.name);
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => void saveView()} disabled={!activeFilters}>
+                  <Save className="mr-2 size-4" /> Guardar los filtros actuales
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" aria-label="Columnas">
+                  <Columns3 className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {COLUMN_LABELS.map(([k, label]) => (
+                  <DropdownMenuCheckboxItem
+                    key={k}
+                    checked={show(k)}
+                    onCheckedChange={() => toggleColumn(k)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             {canImport && (
               <Button asChild variant="outline">
                 <Link href="/customers/import">
@@ -426,13 +820,11 @@ export default function CustomersPage() {
             </Dialog>
           </>
         }
-        emptyText="No hay inquilinos todavía. Crea el primero para empezar a firmar contratos."
-        serverSearch={{
-          value: searchText,
-          onChange: setSearchText,
-          placeholder: 'Buscar por nombre, email, teléfono o documento…',
-        }}
-        loadMore={customers.loadMore}
+        emptyText={
+          activeFilters
+            ? 'Ningún inquilino cumple estos filtros.'
+            : 'No hay inquilinos todavía. Crea el primero para empezar a firmar contratos.'
+        }
       />
     </div>
   );

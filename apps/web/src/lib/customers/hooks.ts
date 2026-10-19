@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  CustomerAccountDto,
+  CustomerOverviewDto,
   ActivateImportedContractsInput,
   ActivateImportedContractsResultDto,
   UpdateDepositRegistryInput,
@@ -668,5 +670,23 @@ export function useSetIrpfRetention(contractId: string) {
         json: { pct },
       }),
     onSuccess: (data) => qc.setQueryData(contractKey(contractId), data),
+  });
+}
+
+/** Visión de todos los inquilinos (cuota, cobro, deuda, extras, contacto). */
+export function useCustomersOverview() {
+  return useQuery({
+    queryKey: ['customers', 'overview'] as const,
+    queryFn: () => apiFetch<CustomerOverviewDto[]>('/customers/overview'),
+    staleTime: 30_000,
+  });
+}
+
+/** Estado de cuenta de un inquilino (cuota, cómo paga, próximo cargo, deuda). */
+export function useCustomerAccount(id: string | undefined) {
+  return useQuery({
+    queryKey: ['customers', id, 'account'] as const,
+    queryFn: () => apiFetch<CustomerAccountDto>(`/customers/${id}/account`),
+    enabled: !!id,
   });
 }

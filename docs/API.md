@@ -645,18 +645,20 @@ reason }`.
 
 ### Endpoints — Customers
 
-| Metodo | Ruta                                  | Auth | Roles                 | Descripcion                                            |
-| ------ | ------------------------------------- | ---- | --------------------- | ------------------------------------------------------ |
-| GET    | `/customers`                          | SI   | cualquiera            | Lista con `?search=` por nombre/email/doc              |
-| GET    | `/customers/:id`                      | SI   | cualquiera            | Detalle + counts (activeContracts/pendingReservations) |
-| POST   | `/customers`                          | SI   | owner, manager, staff | Crea customer (individual o business)                  |
-| PATCH  | `/customers/:id`                      | SI   | owner, manager, staff | Actualiza                                              |
-| DELETE | `/customers/:id`                      | SI   | owner, manager        | Soft delete                                            |
-| POST   | `/customers/:id/kyc`                  | SI   | owner, manager        | Marca/desmarca KYC verificado                          |
-| GET    | `/customers/:id/documents`            | SI   | cualquiera            | Lista documentos                                       |
-| POST   | `/customers/:id/documents/upload-url` | SI   | owner, manager, staff | Signed URL PUT para MinIO                              |
-| POST   | `/customers/:id/documents`            | SI   | owner, manager, staff | Registra el documento tras subirlo                     |
-| DELETE | `/documents/:id`                      | SI   | owner, manager        | Borra documento                                        |
+| Metodo | Ruta                                  | Auth | Roles                 | Descripcion                                                                                                                                      |
+| ------ | ------------------------------------- | ---- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/customers`                          | SI   | cualquiera            | Lista con `?search=` por nombre/email/doc                                                                                                        |
+| GET    | `/customers/:id`                      | SI   | cualquiera            | Detalle + counts (activeContracts/pendingReservations)                                                                                           |
+| GET    | `/customers/overview`                 | SI   | `customers:read`      | Una fila por inquilino: trasteros, cuota/mes, cómo paga, deuda vencida y desde cuándo, seguro, contrato, último contacto y siguiente seguimiento |
+| GET    | `/customers/:id/account`              | SI   | `customers:read`      | Estado de cuenta: cuota por contrato, método de cobro, próxima factura, deuda con los pasos del escalado, pagado en 12 meses                     |
+| POST   | `/customers`                          | SI   | owner, manager, staff | Crea customer (individual o business)                                                                                                            |
+| PATCH  | `/customers/:id`                      | SI   | owner, manager, staff | Actualiza                                                                                                                                        |
+| DELETE | `/customers/:id`                      | SI   | owner, manager        | Soft delete                                                                                                                                      |
+| POST   | `/customers/:id/kyc`                  | SI   | owner, manager        | Marca/desmarca KYC verificado                                                                                                                    |
+| GET    | `/customers/:id/documents`            | SI   | cualquiera            | Lista documentos                                                                                                                                 |
+| POST   | `/customers/:id/documents/upload-url` | SI   | owner, manager, staff | Signed URL PUT para MinIO                                                                                                                        |
+| POST   | `/customers/:id/documents`            | SI   | owner, manager, staff | Registra el documento tras subirlo                                                                                                               |
+| DELETE | `/documents/:id`                      | SI   | owner, manager        | Borra documento                                                                                                                                  |
 
 ### Endpoints — Contracts
 

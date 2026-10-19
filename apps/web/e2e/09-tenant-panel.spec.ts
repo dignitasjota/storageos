@@ -95,16 +95,15 @@ test.describe('Panel del tenant', () => {
     await page.getByRole('button', { name: /Iniciar sesión/i }).click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
 
-    // 50 primeros + «Cargar más» → los 55.
+    // Se cargan los 55: 50 en la primera página y 5 en la segunda.
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/customers');
     const rows = page.locator('table tbody tr');
     await expect(rows).toHaveCount(50, { timeout: 15_000 });
-    await page.getByRole('button', { name: 'Cargar más' }).click();
-    await expect(rows).toHaveCount(55);
+    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await expect(rows).toHaveCount(5);
 
-    // La búsqueda va al servidor (encuentra uno que no estaba cargado).
-    await page.reload();
+    // La búsqueda encuentra a cualquiera de los 55.
     await page.getByPlaceholder(/Buscar por nombre/).fill('Cliente Num03x');
     await expect(rows).toHaveCount(1, { timeout: 10_000 });
 

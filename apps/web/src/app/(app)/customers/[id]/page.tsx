@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { CustomerAccountCard } from './account-card';
 import { CustomerChatTab } from './chat-tab';
 import { CustomerCommunicationsTab } from './communications-tab';
 import { CustomerContractsTab } from './contracts-tab';
@@ -130,6 +131,8 @@ export default function CustomerDetailPage() {
           </Can>
         </div>
       </div>
+
+      <CustomerAccountCard customerId={c.id} onGoTo={setTab} />
 
       <Tabs value={tab} onValueChange={setTab}>
         {/* Móvil: desplegable (9 pestañas no caben cómodas en una tira). */}
