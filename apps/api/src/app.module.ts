@@ -34,6 +34,7 @@ import { CamerasModule } from './modules/cameras/cameras.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { CashModule } from './modules/cash/cash.module';
 import { CollectionsModule } from './modules/collections/collections.module';
+import { CollectionsOpsModule } from './modules/collections-ops/collections-ops.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
 import { CompetitorsModule } from './modules/competitors/competitors.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
@@ -221,6 +222,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     WidgetModule,
     OperationsModule,
     FollowupsModule,
+    CollectionsOpsModule,
     ProductsModule,
     AnalyticsModule,
     AuditLogModule,

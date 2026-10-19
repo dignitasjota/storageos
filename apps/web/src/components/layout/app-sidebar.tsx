@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BarChart3,
+  CalendarCheck,
   Bot,
   Boxes,
   Building2,
@@ -17,6 +18,7 @@ import {
   FileSpreadsheet,
   FileText,
   Gift,
+  HandCoins,
   Inbox,
   KeyRound,
   Cctv,
@@ -218,6 +220,13 @@ const GROUPS: NavGroup[] = [
     labelKey: 'billing',
     items: [
       { href: '/invoices', labelKey: 'invoices', icon: CreditCard, permission: 'invoices:read' },
+      {
+        href: '/collections-month',
+        labelKey: 'collectionsMonth',
+        icon: CalendarCheck,
+        permission: 'payments:read',
+      },
+      { href: '/arrears', labelKey: 'arrears', icon: HandCoins, permission: 'payments:read' },
       { href: '/cash', labelKey: 'cash', icon: Wallet, permission: 'payments:read' },
       { href: '/expenses', labelKey: 'expenses', icon: Receipt, permission: 'expenses:read' },
       {

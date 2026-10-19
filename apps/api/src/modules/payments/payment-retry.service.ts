@@ -1,5 +1,6 @@
 import { HttpException, Injectable, Logger } from '@nestjs/common';
 
+import { invoiceInActivePlan } from '../../common/payment-plan-guard';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { PaymentsService } from './payments.service';
@@ -60,6 +61,8 @@ export class PaymentRetryService {
 
       for (const inv of candidates) {
         if (!inv.customerId) continue;
+        // En un plan de pago activo: se paga por cuotas, no se reintenta entera.
+        if (await invoiceInActivePlan(this.admin, inv.id)) continue;
         if (Number(inv.total) - Number(inv.amountPaid) <= 0) continue;
         // Algún método cobrable (card/SEPA; el cobro elige el de por defecto si
         // se puede usar); sin él no se cuenta el intento.
