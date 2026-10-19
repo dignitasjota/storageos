@@ -1833,3 +1833,33 @@ export interface AdminSearchResultDto {
   tenants: { id: string; name: string; slug: string; status: string; match: string | null }[];
   tickets: { id: string; subject: string; status: string; tenantId: string; tenantName: string }[];
 }
+
+/** Un tenant candidato a un extra, con por qué. */
+export interface AdminOpportunityCandidateDto {
+  tenantId: string;
+  tenantName: string;
+  tenantStatus: string;
+  planName: string | null;
+  /** Motivos legibles («Ha entrado 4 veces en Remesas SEPA», «82 inquilinos»…). */
+  reasons: string[];
+  /** Veces que su equipo entró en la función sin tenerla (30 días). */
+  interestCount: number;
+  lastInterestAt: string | null;
+  /** Fecha de la última propuesta de este extra, o null. */
+  lastOfferAt: string | null;
+}
+
+/** Oportunidades de venta de un extra (`GET /admin/opportunities`). */
+export interface AdminAddonOpportunityDto {
+  addonId: string;
+  addonName: string;
+  feature: string | null;
+  priceMonthly: number;
+  candidates: AdminOpportunityCandidateDto[];
+}
+
+export interface AdminProposeAddonResultDto {
+  recipients: number;
+  trialExpiresAt: string | null;
+  followupId: string | null;
+}

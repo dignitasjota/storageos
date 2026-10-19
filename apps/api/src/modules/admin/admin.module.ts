@@ -29,6 +29,8 @@ import { AdminImpersonationAuditController } from './admin-impersonation-audit.c
 import { AdminImpersonationAuditService } from './admin-impersonation-audit.service';
 import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
+import { AdminOpportunitiesController } from './admin-opportunities.controller';
+import { AdminOpportunitiesService } from './admin-opportunities.service';
 import { AdminOpsHealthController } from './admin-ops-health.controller';
 import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminPaymentSettingsController } from './admin-payment-settings.controller';
@@ -116,6 +118,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
   controllers: [
     AdminTenantsOverviewController,
     AdminBillingOpsController,
+    AdminOpportunitiesController,
     AdminPaymentSettingsController,
     AdminCommsController,
     SuperAdminAuthController,
@@ -149,6 +152,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminGuard,
     AdminTenantsOverviewService,
     AdminBillingOpsService,
+    AdminOpportunitiesService,
     FeatureExpiryService,
     FeatureExpiryCron,
     // Auditoría de los endpoints marcados con @AdminAudit (solo actúa con esa marca).

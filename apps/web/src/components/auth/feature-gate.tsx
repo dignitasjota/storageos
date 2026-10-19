@@ -3,12 +3,36 @@
 import { FEATURE_LABELS, type TenantFeature } from '@storageos/shared';
 import { Lock, Sparkles } from 'lucide-react';
 import Link from 'next/link';
+import { useEffect } from 'react';
 
 import type { ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { apiFetch } from '@/lib/auth/api';
 import { useBillingStatus, useFeatures, useMe } from '@/lib/auth/hooks';
+
+/**
+ * Apunta que el usuario entró en una función que su plan no incluye (una vez
+ * por sesión y función): así TrasterOS sabe a quién ofrecérsela. Si falla (p.
+ * ej. en una sesión de soporte de solo lectura), no pasa nada.
+ */
+function useRecordInterest(feature: TenantFeature, active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const key = `storageos.interest.${feature}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch {
+      /* sin almacenamiento: se apunta igualmente */
+    }
+    void apiFetch('/feature-interest', {
+      method: 'POST',
+      json: { feature, path: window.location.pathname },
+    }).catch(() => undefined);
+  }, [feature, active]);
+}
 
 /**
  * Gatea una página por **feature del plan del tenant**. Si el plan no la
@@ -26,11 +50,13 @@ export function FeatureGate({
   const features = useFeatures();
   const billing = useBillingStatus();
 
-  if (me.isLoading || !me.data) return null;
-  if (features.includes(feature)) return <>{children}</>;
-
+  const has = features.includes(feature);
   // ¿La feature está suspendida por impago de un add-on? (mensaje específico)
   const suspendedByPayment = billing.data?.suspendedFeatures.includes(feature) ?? false;
+  useRecordInterest(feature, !!me.data && !has && !suspendedByPayment);
+
+  if (me.isLoading || !me.data) return null;
+  if (has) return <>{children}</>;
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">

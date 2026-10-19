@@ -52,6 +52,7 @@ import { EmailEventsModule } from './modules/email-events/email-events.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { FaqModule } from './modules/faq/faq.module';
+import { FeatureInterestModule } from './modules/feature-interest/feature-interest.module';
 import { FilesModule } from './modules/files/files.module';
 import { FiscalModule } from './modules/fiscal/fiscal.module';
 import { FollowupsModule } from './modules/followups/followups.module';
@@ -185,6 +186,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     DatabaseModule,
     SecurityEventsModule,
     DataRetentionModule,
+    FeatureInterestModule,
     SuspensionHoldsModule,
     EmailModule,
     HealthModule,

@@ -584,6 +584,7 @@ model Tenant {
   @@map("tenants")
   aiUsageEvents       AiUsageEvent[]
   storageUsage        TenantStorageUsage?
+  featureInterestEvents FeatureInterestEvent[]
 }
 
 /// Staff interno del tenant.
@@ -663,6 +664,7 @@ model User {
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
+  featureInterestEvents FeatureInterestEvent[]
 }
 
 /// Permisos por local: a qué facilities está restringido un usuario. Sin filas
@@ -5532,3 +5534,21 @@ model TenantStripeAccount {
 
   @@map("tenant_stripe_accounts")
 }
+
+/// Señal de interés: un usuario del tenant entró en una función que su plan no incluye.
+model FeatureInterestEvent {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  feature   String
+  path      String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, feature, createdAt])
+  @@index([createdAt])
+  @@map("feature_interest_events")
+}
+

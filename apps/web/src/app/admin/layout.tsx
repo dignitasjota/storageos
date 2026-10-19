@@ -103,6 +103,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/finance', label: 'Finanzas', icon: Wallet },
       { href: '/admin/health', label: 'Salud', icon: HeartPulse },
       { href: '/admin/adoption', label: 'Adopción', icon: TrendingUp },
+      { href: '/admin/opportunities', label: 'Oportunidades', icon: Sparkles },
       { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
       { href: '/admin/trials', label: 'Trials', icon: Hourglass },
     ],

@@ -1126,3 +1126,22 @@ export const APPROVAL_ACTION_LABELS: Record<ApprovalAction, string> = {
   assign_addon: 'Añadir un extra',
   remove_addon: 'Quitar un extra',
 };
+
+/** Un usuario del tenant entra en una función que su plan no incluye. */
+export const RecordFeatureInterestSchema = z.object({
+  feature: z.enum(TenantFeatures),
+  path: z.string().trim().max(200).optional(),
+});
+export type RecordFeatureInterestInput = z.infer<typeof RecordFeatureInterestSchema>;
+
+/** Proponer un extra a un tenant por correo (con prueba gratis opcional). */
+export const ProposeAddonSchema = z.object({
+  addonId: z.string().uuid(),
+  /** Mensaje propio que encabeza el correo (opcional). */
+  message: z.string().trim().max(2000).optional(),
+  /** Además, activar una prueba gratis de estos días. */
+  trialDays: z.number().int().min(1).max(60).optional(),
+  /** Seguimiento para llamarle a los N días (0 = sin seguimiento). */
+  followupDays: z.number().int().min(0).max(60).default(7),
+});
+export type ProposeAddonInput = z.infer<typeof ProposeAddonSchema>;
