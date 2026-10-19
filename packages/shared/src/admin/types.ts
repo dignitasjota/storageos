@@ -1756,3 +1756,53 @@ export interface AdminApprovalRequestDto {
   error: string | null;
   createdAt: string;
 }
+
+/** Un extra contratado, en la visión general de tenants. */
+export interface AdminOverviewAddonDto {
+  slug: string;
+  name: string;
+  /** Suspendido por impago. */
+  suspended: boolean;
+}
+
+/** Una fila de la visión general de tenants (`GET /admin/tenants/overview`). */
+export interface AdminTenantOverviewDto {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  billingExempt: boolean;
+  createdAt: string;
+  trialEndsAt: string | null;
+  tags: string[];
+  ltvTier: string | null;
+  planSlug: string | null;
+  planName: string | null;
+  /** Estado de la suscripción (`trial`, `active`, `past_due`…). */
+  subscriptionStatus: string | null;
+  /** 'manual' | 'stripe' | 'sepa'. */
+  billingMode: string | null;
+  /** Lo que aporta al mes: plan + extras activos (0 si es exenta). */
+  monthly: number;
+  addons: AdminOverviewAddonDto[];
+  /** Próximo cobro (fin del periodo pagado); null si es exenta, está en prueba o no tiene suscripción. */
+  nextChargeAt: string | null;
+  /** Debe la suscripción (past_due): desde cuándo, o null. */
+  overdueSince: string | null;
+  /** Salud 0-100 y nivel (solo tenants activos y en prueba). */
+  healthScore: number | null;
+  healthLevel: AdminTenantHealthLevel | null;
+  lastTeamLoginAt: string | null;
+  nextFollowup: { title: string; dueDate: string } | null;
+  facilities: number;
+  units: number;
+  activeContracts: number;
+  ownerEmail: string | null;
+  ownerPhone: string | null;
+}
+
+/** Resultado de la búsqueda global del panel admin (⌘K). */
+export interface AdminSearchResultDto {
+  tenants: { id: string; name: string; slug: string; status: string; match: string | null }[];
+  tickets: { id: string; subject: string; status: string; tenantId: string; tenantName: string }[];
+}

@@ -57,9 +57,12 @@ test.describe('Super admin + impersonación', () => {
     }
     await tenantsLink.click();
     await expect(page).toHaveURL(/\/admin\/tenants$/, { timeout: 10_000 });
-    const tenantCard = page.locator('button', { hasText: tenant.slug });
-    await expect(tenantCard.first()).toBeVisible({ timeout: 10_000 });
-    await tenantCard.first().click();
+    const tenantLink = page
+      .getByRole('row', { name: new RegExp(tenant.slug) })
+      .getByRole('link')
+      .first();
+    await expect(tenantLink).toBeVisible({ timeout: 10_000 });
+    await tenantLink.click();
 
     // "Impersonar" vive ahora dentro del menú "⋮ Más" (acciones poco frecuentes).
     await expect(page).toHaveURL(/\/admin\/tenants\/[a-f0-9-]+/);
