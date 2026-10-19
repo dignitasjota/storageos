@@ -184,6 +184,8 @@ export interface TenantMonthlyDigestResultDto {
 
 export interface TenantBrandingResponse {
   portalBrandColor: string | null;
+  /** Cabecera de la web pública con el color de la marca (botón «Reservar» en blanco). */
+  webHeaderBranded: boolean;
   portalLogoUrl: string | null;
   /** Dominio propio configurado (white-label), o null. */
   customDomain: string | null;

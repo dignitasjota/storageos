@@ -45,19 +45,26 @@ export function LanguageSwitcher({
   currentLocale,
   otherLocaleHref,
   customDomain,
+  onBrand = false,
 }: {
   tenantSlug: string;
   facilitySlug?: string;
   currentLocale: PublicWebLocale;
   otherLocaleHref?: string;
   customDomain?: string | null;
+  /** Sobre una cabecera del color de la marca (texto blanco). */
+  onBrand?: boolean;
 }) {
   const t = useTranslations('publicWeb.languageSwitcher');
   const other: PublicWebLocale = currentLocale === 'es' ? 'en' : 'es';
   return (
     <Link
       href={otherLocaleHref ?? hrefFor(other, tenantSlug, facilitySlug, customDomain)}
-      className="inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+      className={`inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium transition-colors ${
+        onBrand
+          ? 'border-white/40 text-white/90 hover:text-white'
+          : 'text-muted-foreground hover:text-foreground'
+      }`}
       aria-label={t('label')}
     >
       {LOCALE_LABEL[other]}

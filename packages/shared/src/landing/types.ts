@@ -63,6 +63,8 @@ export interface PublicLandingDto {
    * `headline`/`about` a null y las secciones vacías.
    */
   webTemplate: string;
+  /** Cabecera con el color de la marca (y el botón «Reservar» en blanco). */
+  webHeaderBranded: boolean;
   webHeadline: string | null;
   webAbout: string | null;
   /**
@@ -127,6 +129,8 @@ export interface PublicFacilityLandingDto {
   customDomain: string | null;
   /** Plantilla de la web (las subpáginas toman su aspecto). */
   webTemplate: string;
+  /** Cabecera con el color de la marca (y el botón «Reservar» en blanco). */
+  webHeaderBranded: boolean;
   hasBlog: boolean;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
@@ -168,6 +172,8 @@ export interface PublicBlogListDto {
   customDomain: string | null;
   /** Plantilla de la web (las subpáginas toman su aspecto). */
   webTemplate: string;
+  /** Cabecera con el color de la marca (y el botón «Reservar» en blanco). */
+  webHeaderBranded: boolean;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
   posts: PublicBlogPostSummaryDto[];
@@ -195,6 +201,8 @@ export interface PublicBlogPostDto {
   customDomain: string | null;
   /** Plantilla de la web (las subpáginas toman su aspecto). */
   webTemplate: string;
+  /** Cabecera con el color de la marca (y el botón «Reservar» en blanco). */
+  webHeaderBranded: boolean;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
   post: PublicBlogPostContentDto;

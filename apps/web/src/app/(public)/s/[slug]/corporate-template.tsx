@@ -141,6 +141,7 @@ export function CorporateTemplate({
             tenantSlug={data.tenantSlug}
             currentLocale={locale}
             customDomain={data.customDomain}
+            onBrand={data.webHeaderBranded}
           />
         }
         items={navItems}
@@ -149,6 +150,7 @@ export function CorporateTemplate({
         logoUrl={data.logoUrl}
         portalHref={portalHref}
         blogHref={blogHref}
+        onBrand={data.webHeaderBranded}
       />
 
       {/* Hero */}

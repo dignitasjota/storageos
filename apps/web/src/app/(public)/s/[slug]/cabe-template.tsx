@@ -197,6 +197,7 @@ export function CabeTemplate({
             tenantSlug={data.tenantSlug}
             currentLocale={locale}
             customDomain={data.customDomain}
+            onBrand={data.webHeaderBranded}
           />
         }
         blogHref={blogHref}
@@ -1145,6 +1146,11 @@ function Header({
 }) {
   const t = useTranslations('publicWeb.cabe');
   const [open, setOpen] = useState(false);
+  // Cabecera del color de la marca: textos en blanco y el botón de reservar en blanco.
+  const onBrand = data.webHeaderBranded;
+  const reserveStyle = onBrand
+    ? { backgroundColor: '#ffffff', color: brand }
+    : { backgroundColor: brand, color: '#ffffff' };
 
   function go(id: string) {
     setOpen(false);
@@ -1152,7 +1158,10 @@ function Header({
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-md dark:border-border dark:bg-background/95">
+    <header
+      className={`sticky top-0 z-40 border-b backdrop-blur-md ${onBrand ? 'border-black/10 text-white' : 'border-slate-200 bg-white/95 dark:border-border dark:bg-background/95'}`}
+      style={onBrand ? { backgroundColor: brand } : undefined}
+    >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-20 items-center justify-between gap-3">
           <button
@@ -1174,7 +1183,9 @@ function Header({
             )}
           </button>
 
-          <nav className="hidden items-center gap-6 text-sm font-bold text-slate-600 dark:text-muted-foreground xl:flex xl:gap-8">
+          <nav
+            className={`hidden items-center gap-6 text-sm font-bold xl:flex xl:gap-8 ${onBrand ? 'text-white/85' : 'text-slate-600 dark:text-muted-foreground'}`}
+          >
             {navItems.map((it) => (
               <button
                 key={it.id}
@@ -1196,15 +1207,16 @@ function Header({
             {languageSwitcher}
             <Link
               href={portalHref}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-bold text-slate-700 transition hover:bg-slate-200 dark:bg-muted dark:text-foreground"
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${onBrand ? 'bg-white/15 text-white hover:bg-white/25' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-muted dark:text-foreground'}`}
             >
-              <Lock className="h-4 w-4 text-slate-500" /> {t('clientArea')}
+              <Lock className={`h-4 w-4 ${onBrand ? 'text-white/80' : 'text-slate-500'}`} />{' '}
+              {t('clientArea')}
             </Link>
             <Link
               href={bookHref}
               onClick={() => trackEvent('cta_reservar_click', { location: 'header_cabe' })}
               className={`${PRIMARY_BTN} px-5 py-2.5 shadow-sm`}
-              style={{ backgroundColor: brand }}
+              style={reserveStyle}
             >
               {t('reserve')}
             </Link>
@@ -1213,7 +1225,7 @@ function Header({
           <div className="flex items-center gap-3 xl:hidden">
             <Link
               href={portalHref}
-              className="p-2 text-slate-700 dark:text-foreground md:hidden"
+              className={`p-2 md:hidden ${onBrand ? 'text-white' : 'text-slate-700 dark:text-foreground'}`}
               aria-label={t('clientArea')}
             >
               <User className="h-6 w-6" />
@@ -1223,7 +1235,7 @@ function Header({
               aria-label={open ? t('closeMenu') : t('openMenu')}
               aria-expanded={open}
               onClick={() => setOpen((v) => !v)}
-              className="p-2 text-slate-800 dark:text-foreground"
+              className={`p-2 ${onBrand ? 'text-white' : 'text-slate-800 dark:text-foreground'}`}
             >
               {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </button>
@@ -1232,7 +1244,9 @@ function Header({
       </div>
 
       {open && (
-        <nav className="border-t border-slate-200 dark:border-border xl:hidden">
+        <nav
+          className={`border-t border-slate-200 dark:border-border xl:hidden ${onBrand ? 'bg-white text-slate-900 dark:bg-background dark:text-foreground' : ''}`}
+        >
           <div className="mx-auto flex max-w-7xl flex-col px-2 py-2">
             {navItems.map((it) => (
               <button

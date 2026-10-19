@@ -267,6 +267,8 @@ export const UpdateTenantBrandingSchema = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, 'Color hex (#RRGGBB)')
     .optional()
     .or(z.literal('')),
+  /** Cabecera de la web pública con el color de la marca. */
+  webHeaderBranded: z.boolean().optional(),
   /** URL pública del logo; '' lo quita. */
   portalLogoUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
   /** Dominio propio (white-label); '' lo quita. Requiere el plan/feature. */
