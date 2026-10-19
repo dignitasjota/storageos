@@ -151,6 +151,9 @@ describe('Portal: mi cuenta (e2e)', () => {
       },
     });
 
+    const before = await http().get('/dashboard/today/summary').set(auth).expect(200);
+    expect(before.body.kpis.debtorsWithoutPortal).toBe(1);
+
     const link = await http()
       .post(`/customers/${customer.body.id}/portal-link`)
       .set(auth)
@@ -209,6 +212,17 @@ describe('Portal: mi cuenta (e2e)', () => {
       value: null,
       suspension: { unpaid: true, invoiceNumber: 'PA-1', pending: 60.5 },
     });
+
+    // Queda anotada la visita y deja de contar como «sin portal».
+    await new Promise((r) => setTimeout(r, 300));
+    const seen = await db.customer.findUniqueOrThrow({ where: { id: customer.body.id } });
+    expect(seen.portalLastSeenAt).not.toBeNull();
+    const after = await http().get('/dashboard/today/summary').set(auth).expect(200);
+    expect(after.body.kpis.debtorsWithoutPortal).toBe(0);
+    const overview = await http().get('/customers/overview').set(auth).expect(200);
+    expect(
+      overview.body.find((r: { id: string }) => r.id === customer.body.id).portalLastSeenAt,
+    ).toBeTruthy();
 
     await http().get('/portal/me/account').expect(401);
   });

@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -92,6 +93,7 @@ const DEFAULT_COLUMNS: ColumnKey[] = [
   'debt',
   'contract',
   'insurance',
+  'portal',
   'followup',
 ];
 
@@ -104,6 +106,7 @@ interface Filters {
   ending: boolean;
   noKyc: boolean;
   noContract: boolean;
+  noPortal: boolean;
 }
 const EMPTY: Filters = {
   facilityId: 'all',
@@ -114,6 +117,7 @@ const EMPTY: Filters = {
   ending: false,
   noKyc: false,
   noContract: false,
+  noPortal: false,
 };
 const TOGGLES: { key: Exclude<keyof Filters, 'facilityId'>; label: string }[] = [
   { key: 'overdue', label: 'Con deuda' },
@@ -123,6 +127,7 @@ const TOGGLES: { key: Exclude<keyof Filters, 'facilityId'>; label: string }[] = 
   { key: 'ending', label: 'En baja' },
   { key: 'noKyc', label: 'Sin KYC' },
   { key: 'noContract', label: 'Sin contrato' },
+  { key: 'noPortal', label: 'No usa el portal' },
 ];
 interface View {
   name: string;
@@ -134,6 +139,7 @@ const PRESET_VIEWS: View[] = [
   { name: 'Sin método de pago', filters: { ...EMPTY, noPayVia: true } },
   { name: 'Contratos que vencen pronto', filters: { ...EMPTY, endingSoon: true } },
   { name: 'Ex inquilinos y contactos', filters: { ...EMPTY, noContract: true } },
+  { name: 'Con deuda y sin portal', filters: { ...EMPTY, overdue: true, noPortal: true } },
 ];
 const VIEWS_KEY = 'storageos.customers.views';
 const COLUMNS_KEY = 'storageos.customers.columns';
@@ -170,6 +176,9 @@ function matches(c: Row, f: Filters): boolean {
   if (f.ending && c.contractStatus !== 'ending') return false;
   if (f.noKyc && c.kycVerified) return false;
   if (f.noContract && live) return false;
+  // Inquilinos activos que nunca han entrado o no entran desde hace 90 días.
+  if (f.noPortal && (!live || (c.portalLastSeenAt && -daysUntil(c.portalLastSeenAt) < 90)))
+    return false;
   return true;
 }
 
@@ -186,6 +195,13 @@ export default function CustomersPage() {
   const [columnsOn, setColumnsOn] = useState<ColumnKey[]>(DEFAULT_COLUMNS);
   const [views, setViews] = useState<View[]>([]);
   useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('f');
+    if (fromUrl) {
+      const keys = fromUrl
+        .split(',')
+        .filter((k): k is (typeof TOGGLES)[number]['key'] => TOGGLES.some((t) => t.key === k));
+      if (keys.length) setFilters({ ...EMPTY, ...Object.fromEntries(keys.map((k) => [k, true])) });
+    }
     setViews(readStorage<View[]>(VIEWS_KEY, []));
     setColumnsOn(readStorage<ColumnKey[]>(COLUMNS_KEY, DEFAULT_COLUMNS));
   }, []);
@@ -197,6 +213,30 @@ export default function CustomersPage() {
   const create = useCreateCustomer();
   const remove = useDeleteCustomer();
   const sendAccess = useSendPortalAccessEmail();
+  const [sendingAll, setSendingAll] = useState(false);
+  /** Envía por email el enlace de acceso a todos los inquilinos filtrados que tienen email. */
+  async function sendAccessToAll() {
+    const target = rows.filter((r) => r.email);
+    const ok = await ask({
+      title: `¿Enviar el acceso al portal a ${target.length} inquilinos?`,
+      description:
+        'Cada uno recibirá por email un enlace para entrar en su área de clientes (válido 7 días).',
+      confirmLabel: 'Enviar',
+    });
+    if (!ok) return;
+    setSendingAll(true);
+    let sent = 0;
+    for (const r of target) {
+      try {
+        await sendAccess.mutateAsync(r.id);
+        sent += 1;
+      } catch {
+        /* sigue con los demás */
+      }
+    }
+    setSendingAll(false);
+    toast.success(`Enviado a ${sent} de ${target.length}.`);
+  }
   // Marcada por defecto: al crear, el inquilino recibe por email su acceso al portal.
   const [sendAccessEmail, setSendAccessEmail] = useState(true);
   // RBAC v2 (PR1): borrar inquilinos es owner-only (`customers:delete`).
@@ -405,13 +445,26 @@ export default function CustomersPage() {
     {
       key: 'portal',
       id: 'portal',
-      accessorFn: (c) => (c.portalAccessEnabled ? 1 : 0),
+      accessorFn: (c) => c.portalLastSeenAt ?? '',
       header: 'Portal',
-      cell: ({ row }) => (
-        <span className="text-xs">
-          {row.original.portalAccessEnabled ? 'Con contraseña' : 'Por enlace'}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const seen = row.original.portalLastSeenAt;
+        const days = seen ? Math.max(0, -daysUntil(seen)) : null;
+        return (
+          <span className="text-xs">
+            {days === null ? (
+              <span className="text-amber-700 dark:text-amber-400">Nunca ha entrado</span>
+            ) : days === 0 ? (
+              'Hoy'
+            ) : (
+              `Hace ${days} ${days === 1 ? 'día' : 'días'}`
+            )}
+            {row.original.portalAccessEnabled && (
+              <span className="block text-muted-foreground">con contraseña</span>
+            )}
+          </span>
+        );
+      },
     },
     {
       key: 'lastContact',
@@ -563,6 +616,18 @@ export default function CustomersPage() {
           <Button variant="ghost" size="sm" onClick={() => setFilters(EMPTY)}>
             Quitar filtros
           </Button>
+        )}
+        {filters.noPortal && rows.some((r) => r.email) && (
+          <Can permission="customers:write">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={sendingAll}
+              onClick={() => void sendAccessToAll()}
+            >
+              Enviar el acceso al portal a los {rows.filter((r) => r.email).length}
+            </Button>
+          </Can>
         )}
       </div>
 
