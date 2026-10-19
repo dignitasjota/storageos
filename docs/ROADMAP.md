@@ -719,6 +719,15 @@ Segunda pasada a las webs de los tenants (plantillas, landings, reserva, firma, 
 
 - ✅ Inquilinos, contratos, facturas, pagos, contactos, tareas, incidencias y gastos con «Cargar más» y búsqueda en el servidor; los desplegables de inquilino buscan en el servidor (antes solo ofrecían los 50-100 primeros).
 
+### Panel del tenant: cuenta del inquilino, cobros del mes y venta (2026-10-19, #754–#759) ✅
+
+- ✅ **#754** — Inquilinos en tabla con cuota, cómo paga, deuda, próximo cargo, último pago y último contacto; filtros, columnas y vistas guardadas. Estado de cuenta en la ficha (deuda y escalado, próximo cargo desglosado, historial único).
+- ✅ **#755** — «Cobros del mes» (lo que se espera cobrar, cobrado y pendiente por forma de pago), «Deudores» (deuda por inquilino con antigüedad) y planes de pago (cuotas; mientras se cumplen, no se reclama, no se reintenta el cobro ni entra en remesa).
+- ✅ **#756** — Señales del portal (el inquilino mira el seguro, otro trastero o el pase nocturno y no contrata) y «Oportunidades» por tipo con el motivo; proponer por correo o WhatsApp en un clic (nunca se aplica solo).
+- ✅ **#757** — «Hoy» con cifras del mes y pestañas Cobros / Operación / Comercial / Actividad (lo ocurrido en 48 h).
+- ✅ **#758** — Presupuesto a un contacto (tamaño, meses, cupón y seguro, con IVA) con el enlace a la reserva online ya rellenada.
+- ✅ **#759** — Extras por inquilino («a quién le falta» el seguro, el cobro automático…) y, en la ficha, llamar, WhatsApp y nota rápida.
+
 ### Panel admin: visión de los tenants, pagos y venta de extras (2026-10-19, #747–#752) ✅
 
 - ✅ **#747** — Tenants en tabla con columnas de negocio (aporta/mes, extras, modo de cobro, próximo cobro o deuda, salud, último acceso, seguimiento, uso, propietario), orden, columnas elegibles, filtros, vistas rápidas y guardadas, CSV; búsqueda global ⌘K.
