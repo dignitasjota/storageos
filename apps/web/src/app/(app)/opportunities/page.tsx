@@ -5,6 +5,7 @@ import {
   type OpportunityDto,
   type OpportunityKind,
   OpportunityKindEnum,
+  type CustomerOfferStatus,
 } from '@storageos/shared';
 import { MessageCircle, Send } from 'lucide-react';
 import Link from 'next/link';
@@ -49,6 +50,14 @@ function waNumber(phone: string | null): string | null {
  * pase nocturno, domiciliar) y por qué. El sistema redacta la propuesta; nada
  * se contrata ni se cambia hasta que el inquilino lo hace.
  */
+/** Qué hizo el inquilino con la propuesta en su área de clientes. */
+const OFFER_STATUS: Partial<Record<CustomerOfferStatus, { label: string; cls: string }>> = {
+  open: { label: 'En su área de clientes', cls: 'text-muted-foreground' },
+  interested: { label: '«Me interesa»: contactar', cls: 'text-emerald-700 dark:text-emerald-400' },
+  declined: { label: '«No, gracias»', cls: 'text-muted-foreground' },
+  accepted: { label: 'Contratado', cls: 'text-emerald-700 dark:text-emerald-400' },
+};
+
 export default function OpportunitiesPage() {
   const opps = useOpportunities();
   const [kind, setKind] = useState<OpportunityKind | 'all'>('all');
@@ -127,6 +136,11 @@ export default function OpportunitiesPage() {
                     <p className="text-xs text-muted-foreground">
                       {o.lastProposedAt ? `Propuesto el ${day(o.lastProposedAt)}` : 'Sin proponer'}
                     </p>
+                    {o.lastOfferStatus && OFFER_STATUS[o.lastOfferStatus] && (
+                      <p className={`text-xs font-medium ${OFFER_STATUS[o.lastOfferStatus]!.cls}`}>
+                        {OFFER_STATUS[o.lastOfferStatus]!.label}
+                      </p>
+                    )}
                   </div>
                   {canSend && (
                     <Button size="sm" onClick={() => setOpen(o)}>
@@ -186,7 +200,8 @@ function ProposeDialog({ opp, onClose }: { opp: OpportunityDto; onClose: () => v
           <DialogTitle>Proponer a {opp.customerName}</DialogTitle>
           <DialogDescription>
             {OPPORTUNITY_LABELS[opp.kind]}: {opp.offer}. Es solo una propuesta: no cambia nada hasta
-            que el inquilino lo contrate.
+            que el inquilino lo contrate. También le saldrá en su área de clientes con «Me interesa»
+            (te avisamos si lo pulsa).
           </DialogDescription>
         </DialogHeader>
         {draft.isLoading ? (

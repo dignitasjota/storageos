@@ -80,6 +80,8 @@ import {
   type SetupIntentResponseDto,
   PortalInterestSchema,
   type PortalAccountDto,
+  type PortalOfferDto,
+  PortalRespondOfferSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -95,6 +97,7 @@ import { CustomerDocumentsService } from '../customers/customer-documents.servic
 import { FaqService } from '../faq/faq.service';
 import { SignaturesService } from '../move-in/signatures.service';
 import { IncidentsService } from '../operations/incidents.service';
+import { CustomerOffersService } from '../opportunities/customer-offers.service';
 import { OpportunitiesService } from '../opportunities/opportunities.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { PushService } from '../push/push.service';
@@ -159,6 +162,7 @@ export class PortalController {
     private readonly messages: CustomerMessagesService,
     private readonly faq: FaqService,
     private readonly opportunities: OpportunitiesService,
+    private readonly offers: CustomerOffersService,
     private readonly documents: CustomerDocumentsService,
     private readonly retention: RetentionService,
     private readonly ai: AiService,
@@ -266,6 +270,32 @@ export class PortalController {
    * El inquilino miró una opción (seguro, otro trastero, uno mayor, pase
    * nocturno) sin contratarla: señal para el equipo. Nunca falla al cliente.
    */
+  /** Propuestas del negocio para el inquilino («Ofertas para ti»). */
+  @Public()
+  @Get('me/offers')
+  async myOffers(@Headers('authorization') auth: string | undefined): Promise<PortalOfferDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.offers.listForPortal(tenantId, customerId);
+  }
+
+  /** «Me interesa» (avisa al equipo) o «No, gracias». */
+  @Public()
+  @Post('me/offers/:id/respond')
+  @HttpCode(HttpStatus.OK)
+  @ThrottleLogin()
+  async respondOffer(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown,
+  ): Promise<PortalOfferDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    const parsed = PortalRespondOfferSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({ code: 'invalid_response', message: 'Respuesta no válida' });
+    }
+    return this.offers.respond(tenantId, customerId, id, parsed.data);
+  }
+
   @Public()
   @Post('me/interest')
   @HttpCode(HttpStatus.NO_CONTENT)

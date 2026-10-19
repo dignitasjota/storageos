@@ -43,6 +43,9 @@ const firstNameOf = (c: NameRow) =>
  * de lo que tienen contratado y de lo que miran en su área de clientes. El
  * sistema solo sugiere y redacta la propuesta: no cambia nada del contrato.
  */
+
+import { CustomerOffersService } from './customer-offers.service';
+
 @Injectable()
 export class OpportunitiesService {
   constructor(
@@ -51,6 +54,7 @@ export class OpportunitiesService {
     private readonly audit: AuditService,
     private readonly communications: CommunicationsService,
     private readonly config: ConfigService,
+    private readonly offers: CustomerOffersService,
   ) {}
 
   /** Lo registra el área de clientes (una vez por hora y tipo). */
@@ -201,6 +205,7 @@ export class OpportunitiesService {
       const chargeable = new Set(methods.map((m) => m.customerId));
       const mandate = new Set(mandates.map((m) => m.customerId));
       const wantsChange = new Set(changeRequests.map((r) => r.customerId));
+      const offerStatus = await this.offers.lastStatusByCustomerKind(tenantId);
       const proposedBy = new Map<string, Date>();
       for (const p of proposed) {
         if (p.customerId && p._max.createdAt) {
@@ -241,6 +246,7 @@ export class OpportunitiesService {
           score:
             last && now.getTime() - last.getTime() < 30 * DAY ? Math.round(o.score / 3) : o.score,
           lastProposedAt: last?.toISOString() ?? null,
+          lastOfferStatus: offerStatus.get(`${c.customerId}:${kind}`) ?? null,
         });
       };
 
@@ -410,6 +416,7 @@ export class OpportunitiesService {
       body: `${hello}\n\n${p.line}\n\nPuedes verlo en tu área de clientes: ${portalUrl}\n\nCualquier duda, responde a este correo.\n\n${tenant.name}`,
       whatsappText: `${hello} ${p.line} ${portalUrl}`,
       portalUrl,
+      offerText: p.line,
     };
   }
 
@@ -448,6 +455,18 @@ export class OpportunitiesService {
       });
       emailSent = true;
     }
+    // También le sale en su área de clientes, con «Me interesa».
+    const opp = (await this.list(tenantId, scope)).items.find(
+      (i) => i.customerId === input.customerId && i.kind === input.kind,
+    );
+    await this.offers.create({
+      tenantId,
+      customerId: input.customerId,
+      kind: input.kind,
+      message: draft.offerText,
+      priceGross: opp?.priceMonthlyGross ?? null,
+      userId,
+    });
     let followupId: string | null = null;
     if (input.followupInDays > 0) {
       const due = new Date(Date.now() + input.followupInDays * DAY).toISOString().slice(0, 10);
