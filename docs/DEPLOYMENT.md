@@ -1321,3 +1321,10 @@ Sin la variable todo funciona como antes (URL pública, con límite compartido).
 - **Ayuda para arrancar**: viene **activada** dentro de los correos de ciclo de vida. Si los correos de ciclo de vida están encendidos, la primera mañana los tenants en prueba sin locales, inquilinos o facturas recibirán un correo (uno por tenant). Desactivarla en Alertas si no se quiere.
 - **Avisos comerciales por chat**: apagados por defecto; se activan en Alertas → Telegram y Slack (empiezan desde ese momento).
 - **Interés**: las señales empiezan a contar al desplegar el web (las pantallas «no está en tu plan» las envían).
+
+## 32. Tras desplegar las mejoras del panel del tenant (#754–#759)
+
+- **Migraciones** (las aplica el api al arrancar): `payment_plans` y `customer_interest_events` (las dos con RLS). Redesplegar **api, worker y web** con pull efectivo.
+- **Tarea nueva en el API**: `payment-plans.daily` (07:00, una réplica por día) cierra los planes de pago cumplidos y marca como rotos los que llevan una cuota vencida más de los días de gracia.
+- **Señales del portal**: empiezan a contar al desplegar el web (cuando el inquilino abre el seguro, otro trastero o el pase nocturno sin contratar).
+- Nada se envía solo: los presupuestos y las propuestas salen cuando el equipo pulsa «Enviar».
