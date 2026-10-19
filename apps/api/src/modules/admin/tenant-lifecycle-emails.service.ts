@@ -289,6 +289,59 @@ export class TenantLifecycleEmailsService {
     return this.dispatch(tenantId, type, { subject, ...renderEmail(body) });
   }
 
+  /**
+   * Propuesta de un extra: qué es, precio, prueba gratis si se ha activado y
+   * enlace para contratarlo. Devuelve a cuántos propietarios se envía.
+   */
+  async sendAddonOffer(
+    tenantId: string,
+    args: {
+      tenantName: string;
+      addonName: string;
+      description: string | null;
+      priceMonthly: number;
+      pricesIncludeVat: boolean;
+      message: string | null;
+      trialUntil: Date | null;
+    },
+  ): Promise<number> {
+    const recipients = await this.recipientsFor(tenantId);
+    if (recipients.length === 0) return 0;
+    const price = `${args.priceMonthly.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}/mes${
+      args.pricesIncludeVat ? ' (IVA incluido)' : ' + IVA'
+    }`;
+    const until = args.trialUntil?.toLocaleDateString('es-ES', {
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'Europe/Madrid',
+    });
+    const body = [
+      'Hola,',
+      '',
+      ...(args.message ? [args.message, ''] : []),
+      `Te proponemos ${args.addonName} para ${args.tenantName}.`,
+      ...(args.description ? ['', args.description] : []),
+      '',
+      `Precio: ${price}. Se activa al momento y lo puedes cancelar cuando quieras.`,
+      ...(until
+        ? ['', `Te lo hemos activado gratis hasta el ${until} para que lo pruebes sin compromiso.`]
+        : []),
+      '',
+      `Contratar: ${this.billingUrl}`,
+      '',
+      'Si tienes dudas, responde a este correo.',
+      '',
+      'El equipo de TrasterOS',
+    ].join('\n');
+    const sent = await this.dispatch(tenantId, `addon_offer:${Date.now()}`, {
+      subject: until
+        ? `Prueba gratis de ${args.addonName} hasta el ${until}`
+        : `${args.addonName} para ${args.tenantName}`,
+      ...renderEmail(body),
+    });
+    return sent ? recipients.length : 0;
+  }
+
   /** Bienvenida a tenants dados de alta en las últimas 48h, sin email previo. */
   private async runWelcome(): Promise<number> {
     const since = new Date(Date.now() - 2 * DAY_MS);
@@ -489,7 +542,10 @@ export class TenantLifecycleEmailsService {
 }
 
 /** Correo de la plataforma de cada aviso del ciclo de vida (remitente y `{tipo}`). */
-function lifecycleKind(type: string): 'welcome' | 'trial_ending' | 'payment_pending' {
+function lifecycleKind(
+  type: string,
+): 'welcome' | 'trial_ending' | 'payment_pending' | 'admin_message' {
+  if (type.startsWith('addon_offer')) return 'admin_message';
   if (type === 'welcome') return 'welcome';
   if (type === 'past_due') return 'payment_pending';
   if (type.startsWith('feature_trial')) return 'trial_ending';

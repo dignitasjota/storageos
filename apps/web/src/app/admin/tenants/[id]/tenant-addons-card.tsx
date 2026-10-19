@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import type { SaasAddonDto } from '@storageos/shared';
 
+import { ProposeAddonDialog } from '@/components/admin/propose-addon-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,7 +38,13 @@ import { ApiError } from '@/lib/auth/api';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
-export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
+export function TenantAddonsCard({
+  tenantId,
+  tenantName,
+}: {
+  tenantId: string;
+  tenantName: string;
+}) {
   const canEdit = useIsSuperadmin();
   const summary = useTenantBillingSummary(tenantId);
   const limits = useTenantLimits(tenantId);
@@ -94,6 +101,7 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
   );
 
   const selectedAddon = available.find((a) => a.id === selected);
+  const [proposeOpen, setProposeOpen] = useState(false);
 
   async function doTrial(days: number) {
     if (!selected) return;
@@ -319,6 +327,13 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                 <Button onClick={doAssign} disabled={!selected || assign.isPending || !canEdit}>
                   <Plus className="mr-1 size-4" /> Añadir
                 </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setProposeOpen(true)}
+                  disabled={!selectedAddon || !canEdit}
+                >
+                  Proponer
+                </Button>
                 {selectedAddon?.feature && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -346,6 +361,25 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
           </>
         )}
       </CardContent>
+      <ProposeAddonDialog
+        tenantId={tenantId}
+        tenantName={tenantName}
+        addon={
+          selectedAddon
+            ? {
+                id: selectedAddon.id,
+                name: selectedAddon.name,
+                priceMonthly: selectedAddon.priceMonthly,
+              }
+            : null
+        }
+        canTrial={!!selectedAddon?.feature}
+        open={proposeOpen}
+        onOpenChange={(v) => {
+          setProposeOpen(v);
+          if (!v) setSelected('');
+        }}
+      />
     </Card>
   );
 }

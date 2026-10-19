@@ -418,7 +418,7 @@ export default function AdminTenantDetailPage() {
 
         <TabsContent value="payments" className="mt-4 space-y-4">
           <TenantAccountCard tenantId={id} />
-          <TenantAddonsCard tenantId={id} />
+          <TenantAddonsCard tenantId={id} tenantName={t.name} />
           <SaasPaymentsCard tenantId={id} />
           <PlatformInvoicesCard tenantId={id} />
         </TabsContent>

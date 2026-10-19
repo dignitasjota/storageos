@@ -9,6 +9,9 @@ import type {
   AdminBillingCalendarDto,
   AdminReceivablesDto,
   AdminTenantAccountDto,
+  AdminAddonOpportunityDto,
+  AdminProposeAddonResultDto,
+  ProposeAddonInput,
   AdminApprovalRequestDto,
   ApprovalStatus,
   CreateApprovalRequestInput,
@@ -2661,5 +2664,34 @@ export function useAdminBillingCalendar(days: number, pastDays: number) {
       adminApiFetch<AdminBillingCalendarDto>(
         `/admin/billing/calendar?days=${days}&pastDays=${pastDays}`,
       ),
+  });
+}
+
+// --- Oportunidades de extras ----------------------------------------------
+
+/** Candidatos a cada extra (interés en la función o uso que lo pide). */
+export function useAdminOpportunities() {
+  return useQuery({
+    queryKey: ['admin', 'opportunities'] as const,
+    queryFn: () => adminApiFetch<AdminAddonOpportunityDto[]>('/admin/opportunities'),
+    staleTime: 60_000,
+  });
+}
+
+/** Propone un extra a un tenant por correo (con prueba gratis opcional). */
+export function useProposeAddon(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ProposeAddonInput) =>
+      adminApiFetch<AdminProposeAddonResultDto>(`/admin/tenants/${tenantId}/addon-offers`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'opportunities'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'followups'] });
+    },
   });
 }
