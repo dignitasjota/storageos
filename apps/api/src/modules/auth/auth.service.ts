@@ -16,6 +16,7 @@ import {
 } from '@storageos/shared';
 
 import { verifyAgainstDummyHash } from '../../common/security/dummy-password';
+import { liveOverrideWhere } from '../../common/tenant-features';
 import { BUILTIN_TEMPLATES } from '../communications/builtin-templates';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -662,7 +663,7 @@ export class AuthService {
         throw new InternalServerErrorException('Suscripcion no encontrada');
       }
       const overrides = await tx.tenantFeatureOverride.findMany({
-        where: { tenantId: args.tenantId },
+        where: { tenantId: args.tenantId, ...liveOverrideWhere() },
         select: { feature: true, enabled: true },
       });
       return {

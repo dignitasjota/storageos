@@ -10,6 +10,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -22,10 +28,12 @@ import {
   useAssignAddon,
   useRemoveAddon,
   useSetAddonBillingMode,
+  useStartAddonTrial,
   useTenantBillingSummary,
   useTenantLimits,
 } from '@/lib/admin/hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
+import { ApiError } from '@/lib/auth/api';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
@@ -35,6 +43,7 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
   const limits = useTenantLimits(tenantId);
   const catalog = useAdminAddons();
   const assign = useAssignAddon(tenantId);
+  const trial = useStartAddonTrial(tenantId);
   const remove = useRemoveAddon(tenantId);
   const suspend = useAddonSuspension(tenantId, 'suspend');
   const reactivate = useAddonSuspension(tenantId, 'reactivate');
@@ -83,6 +92,21 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
   const available = (catalog.data ?? []).filter(
     (a: SaasAddonDto) => a.isActive && !assignedIds.has(a.id),
   );
+
+  const selectedAddon = available.find((a) => a.id === selected);
+
+  async function doTrial(days: number) {
+    if (!selected) return;
+    try {
+      const res = await trial.mutateAsync({ addonId: selected, days });
+      toast.success(
+        `Prueba activada hasta el ${new Date(res.expiresAt).toLocaleDateString('es-ES')}.`,
+      );
+      setSelected('');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo activar la prueba.');
+    }
+  }
 
   async function doAssign() {
     if (!selected) return;
@@ -295,7 +319,29 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                 <Button onClick={doAssign} disabled={!selected || assign.isPending || !canEdit}>
                   <Plus className="mr-1 size-4" /> Añadir
                 </Button>
+                {selectedAddon?.feature && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" disabled={trial.isPending || !canEdit}>
+                        Prueba gratis
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {[7, 14, 30].map((d) => (
+                        <DropdownMenuItem key={d} onSelect={() => void doTrial(d)}>
+                          {d} días
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
+            )}
+            {selectedAddon?.feature && (
+              <p className="text-xs text-muted-foreground">
+                La prueba gratis activa la función sin cobrar; al terminar se desactiva sola y se le
+                avisa para que la contrate.
+              </p>
             )}
           </>
         )}

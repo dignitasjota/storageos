@@ -4,6 +4,7 @@ import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/share
 
 import { PrismaAdminService } from '../../modules/database/prisma-admin.service';
 import { FEATURE_KEY } from '../decorators/require-feature.decorator';
+import { liveOverrideWhere } from '../tenant-features';
 
 import type { AuthenticatedUser } from '../decorators/current-user.decorator';
 import type { TenantFeature } from '@storageos/shared';
@@ -39,7 +40,7 @@ export class FeatureGuard implements CanActivate {
         include: { plan: { select: { slug: true, tenantFeatures: true } } },
       }),
       this.admin.tenantFeatureOverride.findMany({
-        where: { tenantId },
+        where: { tenantId, ...liveOverrideWhere() },
         select: { feature: true, enabled: true },
       }),
     ]);

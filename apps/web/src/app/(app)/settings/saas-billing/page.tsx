@@ -657,6 +657,11 @@ function SelfAddonsSection() {
   const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
   const owned = data.data?.summary.addons ?? [];
   const available = data.data?.available ?? [];
+  const trials = data.data?.trials ?? [];
+  const trialUntil = (addonId: string) => {
+    const t = trials.find((x) => x.addonId === addonId);
+    return t ? new Date(t.expiresAt).toLocaleDateString('es-ES') : null;
+  };
   const includedInPlan = data.data?.includedInPlan ?? [];
   const exempt = data.data?.billingExempt ?? false;
   const price = (n: number) => (exempt ? 'Sin coste' : `${eur(n)}/mes`);
@@ -715,6 +720,11 @@ function SelfAddonsSection() {
                   >
                     <div>
                       <span className="font-medium">{a.name}</span>
+                      {trialUntil(a.id) && (
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                          En prueba hasta el {trialUntil(a.id)}
+                        </span>
+                      )}
                       {a.description && (
                         <p className="text-xs text-muted-foreground">{a.description}</p>
                       )}
@@ -726,7 +736,7 @@ function SelfAddonsSection() {
                         onClick={() => doContract(a.id)}
                         disabled={contract.isPending}
                       >
-                        Contratar
+                        {trialUntil(a.id) ? 'Contratar y quedármelo' : 'Contratar'}
                       </Button>
                     </div>
                   </div>

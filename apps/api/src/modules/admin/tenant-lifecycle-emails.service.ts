@@ -253,6 +253,42 @@ export class TenantLifecycleEmailsService {
     return { subject, ...renderEmail(lines.join('\n')) };
   }
 
+  /**
+   * Prueba gratis de un extra: aviso de que quedan pocos días o de que ha
+   * terminado, con el enlace para contratarlo. Uno por prueba y momento
+   * (`type` lo deduplica).
+   */
+  sendFeatureTrialNotice(
+    tenantId: string,
+    type: string,
+    args: { tenantName: string; addonName: string; expiresAt: Date; ended: boolean },
+  ): Promise<boolean> {
+    const date = args.expiresAt.toLocaleDateString('es-ES', {
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'Europe/Madrid',
+    });
+    const subject = args.ended
+      ? `Tu prueba de ${args.addonName} ha terminado`
+      : `Tu prueba de ${args.addonName} termina el ${date}`;
+    const body = [
+      'Hola,',
+      '',
+      args.ended
+        ? `La prueba gratis de ${args.addonName} en ${args.tenantName} ha terminado y la función se ha desactivado. Tus datos siguen ahí.`
+        : `La prueba gratis de ${args.addonName} en ${args.tenantName} termina el ${date}.`,
+      '',
+      args.ended
+        ? 'Si quieres seguir usándola, contrátala desde Configuración → Suscripción y se activa al momento.'
+        : 'Para no perderla, contrátala antes desde Configuración → Suscripción; se mantiene sin cortes.',
+      '',
+      `Contratar: ${this.billingUrl}`,
+      '',
+      'El equipo de TrasterOS',
+    ].join('\n');
+    return this.dispatch(tenantId, type, { subject, ...renderEmail(body) });
+  }
+
   /** Bienvenida a tenants dados de alta en las últimas 48h, sin email previo. */
   private async runWelcome(): Promise<number> {
     const since = new Date(Date.now() - 2 * DAY_MS);
@@ -456,5 +492,6 @@ export class TenantLifecycleEmailsService {
 function lifecycleKind(type: string): 'welcome' | 'trial_ending' | 'payment_pending' {
   if (type === 'welcome') return 'welcome';
   if (type === 'past_due') return 'payment_pending';
+  if (type.startsWith('feature_trial')) return 'trial_ending';
   return 'trial_ending';
 }

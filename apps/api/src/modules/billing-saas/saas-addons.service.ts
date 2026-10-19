@@ -349,7 +349,87 @@ export class SaasAddonsService {
       ...summary,
       addons: summary.addons.map((a) => ({ ...a, notes: null })),
     };
-    return { summary: tenantSummary, available, includedInPlan, billingExempt };
+    const trialRows = await this.admin.tenantFeatureOverride.findMany({
+      where: {
+        tenantId,
+        source: 'trial',
+        trialAddonId: { not: null },
+        expiresAt: { gt: new Date() },
+      },
+      select: { trialAddonId: true, expiresAt: true },
+    });
+    const trials = trialRows.map((t) => ({
+      addonId: t.trialAddonId!,
+      expiresAt: t.expiresAt!.toISOString(),
+    }));
+    return { summary: tenantSummary, available, includedInPlan, billingExempt, trials };
+  }
+
+  /**
+   * Prueba gratis de un extra durante `days` días: activa su función con fecha
+   * de fin. Al contratarlo pasa a ser el extra de siempre; si no, la tarea de
+   * caducidades lo quita y avisa al tenant.
+   */
+  async startTrial(
+    tenantId: string,
+    addonId: string,
+    days: number,
+  ): Promise<{ feature: string; expiresAt: string }> {
+    const addon = await this.findAddon(addonId);
+    if (!addon.feature || !(TenantFeatures as readonly string[]).includes(addon.feature)) {
+      throw new BadRequestException({
+        code: 'addon_without_feature',
+        message: 'Este extra no activa ninguna función: no tiene prueba gratis.',
+      });
+    }
+    const [owned, existing, ctx] = await Promise.all([
+      this.admin.tenantSubscriptionAddon.count({
+        where: { tenantId, addonId, suspendedAt: null },
+      }),
+      this.admin.tenantFeatureOverride.findUnique({
+        where: { tenantId_feature: { tenantId, feature: addon.feature } },
+        select: { source: true, enabled: true },
+      }),
+      this.planContext(tenantId),
+    ]);
+    if (owned > 0 || existing?.source === 'addon') {
+      throw new BadRequestException({
+        code: 'addon_already_assigned',
+        message: 'El tenant ya tiene este extra contratado.',
+      });
+    }
+    if (ctx.planFeatures.includes(addon.feature as TenantFeature)) {
+      throw new BadRequestException({
+        code: 'feature_in_plan',
+        message: 'Su plan ya incluye esta función.',
+      });
+    }
+    if (existing?.source === 'manual' && existing.enabled) {
+      throw new BadRequestException({
+        code: 'feature_already_enabled',
+        message: 'Ya la tiene activada como cortesía.',
+      });
+    }
+    const expiresAt = new Date(Date.now() + days * 86_400_000);
+    await this.admin.tenantFeatureOverride.upsert({
+      where: { tenantId_feature: { tenantId, feature: addon.feature } },
+      create: {
+        tenantId,
+        feature: addon.feature,
+        enabled: true,
+        source: 'trial',
+        expiresAt,
+        trialAddonId: addon.id,
+      },
+      update: {
+        enabled: true,
+        source: 'trial',
+        expiresAt,
+        trialAddonId: addon.id,
+        expiryNotifiedAt: null,
+      },
+    });
+    return { feature: addon.feature, expiresAt: expiresAt.toISOString() };
   }
 
   /** Funciones que incluye el plan del tenant y si su cuenta está exenta. */
@@ -854,10 +934,24 @@ export class SaasAddonsService {
       where: { tenantId, suspendedAt: null, addon: { feature } },
     });
     if (activeWithFeature > 0) {
+      const existing = await this.admin.tenantFeatureOverride.findUnique({
+        where: { tenantId_feature: { tenantId, feature } },
+        select: { source: true },
+      });
+      // Una prueba gratis se convierte en el extra contratado (sin caducidad).
+      const fromTrial = existing?.source === 'trial';
       await this.admin.tenantFeatureOverride.upsert({
         where: { tenantId_feature: { tenantId, feature } },
         create: { tenantId, feature, enabled: true, source: 'addon' },
-        update: { enabled: true },
+        update: fromTrial
+          ? {
+              enabled: true,
+              source: 'addon',
+              expiresAt: null,
+              trialAddonId: null,
+              expiryNotifiedAt: null,
+            }
+          : { enabled: true },
       });
     } else {
       await this.admin.tenantFeatureOverride.deleteMany({

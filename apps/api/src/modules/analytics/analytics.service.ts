@@ -6,6 +6,7 @@ import {
 } from '@storageos/shared';
 
 import { resolveFacilityFilter } from '../../common/facility-scope';
+import { liveOverrideWhere } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -746,7 +747,7 @@ export class AnalyticsService {
         include: { plan: { select: { slug: true, tenantFeatures: true } } },
       }),
       this.admin.tenantFeatureOverride.findMany({
-        where: { tenantId },
+        where: { tenantId, ...liveOverrideWhere() },
         select: { feature: true, enabled: true },
       }),
     ]);

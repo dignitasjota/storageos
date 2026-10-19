@@ -4595,17 +4595,25 @@ model TenantLifecycleEmail {
 /// Override de feature premium por tenant (el super admin activa/desactiva una
 /// feature concreta sin cambiar el plan). `enabled=true` la añade, `false` la quita.
 model TenantFeatureOverride {
-  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  feature   String
-  enabled   Boolean  @default(true)
-  source    String   @default("manual")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  feature          String
+  enabled          Boolean   @default(true)
+  source           String    @default("manual")
+  /// Caduca (cortesía o prueba gratis); null = sin fecha.
+  expiresAt        DateTime? @map("expires_at") @db.Timestamptz(6)
+  /// Prueba gratis de este extra (`source = 'trial'`).
+  trialAddonId     String?   @map("trial_addon_id") @db.Uuid
+  /// Aviso de «quedan pocos días» ya enviado.
+  expiryNotifiedAt DateTime? @map("expiry_notified_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  trialAddon SubscriptionAddon? @relation(fields: [trialAddonId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, feature])
+  @@index([expiresAt])
   @@map("tenant_feature_overrides")
 }
 
@@ -5179,7 +5187,8 @@ model SubscriptionAddon {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenantAddons TenantSubscriptionAddon[]
+  tenantAddons  TenantSubscriptionAddon[]
+  featureTrials TenantFeatureOverride[]
 
   @@map("subscription_addons")
 }

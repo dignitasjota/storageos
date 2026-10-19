@@ -22,6 +22,7 @@ import { AdminApprovalsService } from './admin-approvals.service';
 import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
+import { FeatureExpiryService } from './feature-expiry.service';
 
 import type {
   AdminAddonChargeDueDto,
@@ -65,6 +66,7 @@ export class AdminTodayService {
     private readonly followups: AdminTenantFollowupsService,
     private readonly billing: BillingSaasService,
     private readonly ops: AdminOpsHealthService,
+    private readonly featureExpiry: FeatureExpiryService,
     @InjectQueue(QUEUE_BILLING) billingQueue: Queue,
     @InjectQueue(QUEUE_DUNNING) dunningQueue: Queue,
     @InjectQueue(QUEUE_PAYMENTS) paymentsQueue: Queue,
@@ -105,6 +107,7 @@ export class AdminTodayService {
       devicesOffline,
       crons,
       pendingApprovals,
+      expiringOverrides,
     ] = await Promise.all([
       this.addonChargesDue(now),
       this.manualRenewalsDue(now),
@@ -120,6 +123,7 @@ export class AdminTodayService {
       this.ops.devicesOffline(now),
       this.ops.crons(now),
       this.approvals.pending(),
+      this.featureExpiry.expiringSoon(now),
     ]);
     const overdueCrons = crons.filter((c) => c.overdue);
     // Solo los que tocan hoy o ya pasaron (antes salían todos los pendientes,
@@ -140,7 +144,8 @@ export class AdminTodayService {
       holdedReview.length +
       devicesOffline.length +
       overdueCrons.length +
-      pendingApprovals.length;
+      pendingApprovals.length +
+      expiringOverrides.filter((o) => o.daysLeft <= 1).length;
     return {
       date: now.toISOString(),
       addonCharges,
@@ -158,6 +163,7 @@ export class AdminTodayService {
       devicesOffline,
       overdueCrons,
       pendingApprovals,
+      expiringOverrides,
       urgentCount,
     };
   }
