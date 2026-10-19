@@ -255,4 +255,11 @@ export interface PublicTenantBrandDto {
   logoUrl: string | null;
   /** Favicon de su web, o null (se usa el de TrasterOS). */
   faviconUrl: string | null;
+  /** Cuenta suspendida: ni reserva online ni área de clientes. */
+  portalUnavailable: boolean;
+  /** Suspendida desde hace 15 días o más: su web pública deja de verse. */
+  webUnavailable: boolean;
+  /** Contacto del negocio para el aviso (del primer local que lo tenga). */
+  contactPhone: string | null;
+  contactEmail: string | null;
 }

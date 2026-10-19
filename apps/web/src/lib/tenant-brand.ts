@@ -10,7 +10,7 @@ export async function fetchTenantBrand(
   try {
     const res = await fetch(`${SERVER_API_URL}/public/landing/brand/${encodeURIComponent(slug)}`, {
       headers: internalApiHeaders(),
-      next: { revalidate: 300 },
+      next: { revalidate: 60 },
     });
     if (!res.ok) return null;
     return (await res.json()) as PublicTenantBrandDto;

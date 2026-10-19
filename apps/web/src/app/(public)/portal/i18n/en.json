@@ -26,7 +26,10 @@
       "genericError": "Error",
       "wrongCredentials": "Wrong email or password",
       "missingFields": "Enter the company and email.",
-      "forgotSuccess": "If that email belongs to a customer, we've sent you a link to set or change your password. Check your spam folder too."
+      "forgotSuccess": "If that email belongs to a customer, we've sent you a link to set or change your password. Check your spam folder too.",
+      "unavailableTitle": "Customer area temporarily unavailable",
+      "unavailableBody": "{tenantName}'s customer area is not available right now. Your access to the storage units keeps working as usual.",
+      "unavailableContact": "For anything you need, please contact the business directly:"
     },
     "reset": {
       "title": "New password",
