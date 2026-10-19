@@ -724,6 +724,65 @@ export class AccessCredentialsService {
   }
 
   /**
+   * Accesos del inquilino para su portal: los activos con su código y los
+   * suspendidos con el motivo (si es un impago, la factura y lo pendiente),
+   * para que sepa por qué no entra y cómo recuperarlo.
+   */
+  async listForPortal(tenantId: string, customerId: string): Promise<PortalAccessCredentialDto[]> {
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.accessCredential.findMany({
+        where: {
+          customerId,
+          status: { in: ['active', 'suspended'] as AccessCredentialStatus[] },
+          method: { in: ['pin', 'qr'] as AccessMethod[] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const invoiceIds = rows
+        .map((r) => /^dunning:invoice-([0-9a-f-]{36})$/.exec(r.suspendReason ?? '')?.[1])
+        .filter((id): id is string => !!id);
+      const invoices = invoiceIds.length
+        ? await tx.invoice.findMany({
+            where: { id: { in: invoiceIds } },
+            select: { id: true, invoiceNumber: true, total: true, amountPaid: true, status: true },
+          })
+        : [];
+      const byId = new Map(invoices.map((i) => [i.id, i]));
+      return rows.map((r) => {
+        const suspended = r.status === 'suspended';
+        const invoiceId =
+          /^dunning:invoice-([0-9a-f-]{36})$/.exec(r.suspendReason ?? '')?.[1] ?? null;
+        const inv = invoiceId ? byId.get(invoiceId) : undefined;
+        return {
+          id: r.id,
+          method: r.method as 'pin' | 'qr',
+          label: r.label,
+          status: r.status,
+          // Un acceso suspendido no abre: no se enseña el código.
+          value:
+            !suspended && r.secretEncrypted
+              ? this.crypto.decryptString(r.secretEncrypted, tenantId)
+              : null,
+          expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
+          lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
+          suspension: suspended
+            ? {
+                unpaid: !!invoiceId,
+                invoiceId: inv?.id ?? null,
+                invoiceNumber: inv?.invoiceNumber ?? null,
+                pending:
+                  inv && ['issued', 'overdue'].includes(inv.status)
+                    ? Math.round(Math.max(0, Number(inv.total) - Number(inv.amountPaid)) * 100) /
+                      100
+                    : null,
+              }
+            : null,
+        };
+      });
+    }, tenantId);
+  }
+
+  /**
    * Historial de accesos del inquilino (sus entradas, para transparencia y
    * seguridad). Devuelve un DTO slim: NO expone valores intentados ni IPs.
    */

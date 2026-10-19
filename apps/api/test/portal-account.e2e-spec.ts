@@ -140,6 +140,17 @@ describe('Portal: mi cuenta (e2e)', () => {
       ],
     });
 
+    await db.accessCredential.create({
+      data: {
+        tenantId: owner.tenantId,
+        customerId: customer.body.id,
+        method: 'pin',
+        status: 'suspended',
+        suspendReason: `dunning:invoice-${overdue.id}`,
+        suspendedAt: new Date(),
+      },
+    });
+
     const link = await http()
       .post(`/customers/${customer.body.id}/portal-link`)
       .set(auth)
@@ -190,6 +201,14 @@ describe('Portal: mi cuenta (e2e)', () => {
 
     const contracts = await http().get('/portal/me/contracts').set(pAuth).expect(200);
     expect(contracts.body[0]).toMatchObject({ effectivePrice: 50, effectivePriceWithVat: 60.5 });
+
+    // El acceso suspendido sale con el motivo y sin el código.
+    const access = await http().get('/portal/me/access').set(pAuth).expect(200);
+    const blocked = access.body.find((c: { status: string }) => c.status === 'suspended');
+    expect(blocked).toMatchObject({
+      value: null,
+      suspension: { unpaid: true, invoiceNumber: 'PA-1', pending: 60.5 },
+    });
 
     await http().get('/portal/me/account').expect(401);
   });
