@@ -35,6 +35,8 @@ interface TenantBrand {
   customDomain?: string | null;
   /** Plantilla de la web: las subpáginas toman su color, esquinas y tono. */
   webTemplate?: string;
+  /** Cabecera del color de la marca (y el botón «Reservar» en blanco). */
+  webHeaderBranded?: boolean;
 }
 
 /** Sección de trasteros y precios de la portada de cada plantilla. */
@@ -99,13 +101,16 @@ export async function TenantWebChrome({
   const theme = themeFor(template, data.brandColor);
   const brand = theme.accent;
   const darkHeader = theme.dark;
+  const branded = !!data.webHeaderBranded;
   const darkFooter = DARK_FOOTER.has(template);
   const home = landingHref(data.tenantSlug, locale, data.customDomain);
   const pricesHref = `${home}#${PRICES_ANCHOR[template] ?? 'precios'}`;
   const reserveHref = bookHref(data.tenantSlug, locale, undefined, data.customDomain);
-  const muted = darkHeader
-    ? 'text-neutral-300 hover:text-white'
-    : 'text-muted-foreground hover:text-foreground';
+  const muted = branded
+    ? 'text-white/80 hover:text-white'
+    : darkHeader
+      ? 'text-neutral-300 hover:text-white'
+      : 'text-muted-foreground hover:text-foreground';
   // Resuelto AQUÍ (servidor) en vez de pasar `languageHrefBuilder` tal cual a
   // `LanguageSwitcher` (cliente) — una función no puede cruzar la frontera
   // Server → Client.
@@ -120,10 +125,13 @@ export async function TenantWebChrome({
       <HtmlLang locale={locale} />
       <header
         className={
-          darkHeader
-            ? 'border-b border-neutral-800 bg-neutral-950 text-neutral-100'
-            : 'border-b border-border/60 bg-background'
+          branded
+            ? 'border-b border-black/10 text-white'
+            : darkHeader
+              ? 'border-b border-neutral-800 bg-neutral-950 text-neutral-100'
+              : 'border-b border-border/60 bg-background'
         }
+        style={branded ? { backgroundColor: brand } : undefined}
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
           <Link href={home} className="flex items-center gap-2 font-semibold">
@@ -163,11 +171,16 @@ export async function TenantWebChrome({
               currentLocale={locale}
               otherLocaleHref={otherLocaleHref}
               customDomain={data.customDomain}
+              onBrand={branded}
             />
             <Link
               href={portalHref}
               className={`hidden h-9 items-center border px-3 text-sm font-medium transition-colors sm:inline-flex ${theme.button} ${
-                darkHeader ? 'border-neutral-700 hover:bg-neutral-800' : 'hover:bg-accent'
+                branded
+                  ? 'border-white/40 hover:bg-white/10'
+                  : darkHeader
+                    ? 'border-neutral-700 hover:bg-neutral-800'
+                    : 'hover:bg-accent'
               }`}
             >
               {t('clientAccess')}
@@ -177,8 +190,12 @@ export async function TenantWebChrome({
                 href={reserveHref}
                 className={`inline-flex h-9 items-center px-4 text-sm font-medium shadow-sm transition-opacity hover:opacity-90 ${theme.button} ${
                   theme.upper ? 'uppercase tracking-wide' : ''
-                } ${darkHeader ? 'text-neutral-950' : 'text-white'}`}
-                style={{ backgroundColor: brand }}
+                } ${branded ? '' : darkHeader ? 'text-neutral-950' : 'text-white'}`}
+                style={
+                  branded
+                    ? { backgroundColor: '#ffffff', color: brand }
+                    : { backgroundColor: brand }
+                }
               >
                 {t('reserve')}
               </Link>

@@ -189,6 +189,7 @@ export function TrstromTemplate({
             tenantSlug={data.tenantSlug}
             currentLocale={locale}
             customDomain={data.customDomain}
+            onBrand={data.webHeaderBranded}
           />
         }
         blogHref={blogHref}
@@ -1088,6 +1089,11 @@ function Header({
 }) {
   const t = useTranslations('publicWeb.trstrom');
   const [open, setOpen] = useState(false);
+  // Cabecera del color de la marca: textos en blanco y el botón de reservar en blanco.
+  const onBrand = data.webHeaderBranded;
+  const reserveStyle = onBrand
+    ? { backgroundColor: '#ffffff', color: brand }
+    : { backgroundColor: brand, color: '#ffffff' };
 
   function go(id: string) {
     setOpen(false);
@@ -1095,7 +1101,10 @@ function Header({
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
+    <header
+      className={`sticky top-0 z-40 border-b backdrop-blur ${onBrand ? 'border-black/10 text-white' : 'bg-background/95'}`}
+      style={onBrand ? { backgroundColor: brand } : undefined}
+    >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-20 items-center justify-between gap-3">
           <button
@@ -1119,19 +1128,24 @@ function Header({
             )}
           </button>
 
-          <nav className="hidden items-center gap-7 text-sm font-semibold text-muted-foreground lg:flex">
+          <nav
+            className={`hidden items-center gap-7 text-sm font-semibold lg:flex ${onBrand ? 'text-white/85' : 'text-muted-foreground'}`}
+          >
             {navItems.map((it) => (
               <button
                 key={it.id}
                 type="button"
                 onClick={() => go(it.id)}
-                className="transition-colors hover:text-foreground"
+                className={`transition-colors ${onBrand ? 'hover:text-white' : 'hover:text-foreground'}`}
               >
                 {it.label}
               </button>
             ))}
             {blogHref && (
-              <Link href={blogHref} className="transition-colors hover:text-foreground">
+              <Link
+                href={blogHref}
+                className={`transition-colors ${onBrand ? 'hover:text-white' : 'hover:text-foreground'}`}
+              >
                 {t('nav.blog')}
               </Link>
             )}
@@ -1141,15 +1155,16 @@ function Header({
             {languageSwitcher}
             <Link
               href={portalHref}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-muted px-3.5 py-2 text-sm font-semibold transition-colors hover:bg-muted/70"
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors ${onBrand ? 'bg-white/15 hover:bg-white/25' : 'bg-muted hover:bg-muted/70'}`}
             >
-              <User className="h-4 w-4 text-muted-foreground" /> {t('clientArea')}
+              <User className={`h-4 w-4 ${onBrand ? 'text-white/80' : 'text-muted-foreground'}`} />{' '}
+              {t('clientArea')}
             </Link>
             <Link
               href={bookHref}
               onClick={() => trackEvent('cta_reservar_click', { location: 'header_trstrom' })}
-              className="inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:brightness-95 active:scale-95"
-              style={{ backgroundColor: brand }}
+              className="inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-bold shadow-sm transition hover:brightness-95 active:scale-95"
+              style={reserveStyle}
             >
               {t('reserveNow')}
             </Link>
@@ -1158,7 +1173,7 @@ function Header({
           <div className="flex items-center gap-2 lg:hidden">
             <Link
               href={portalHref}
-              className="p-2 text-muted-foreground hover:text-foreground md:hidden"
+              className={`p-2 md:hidden ${onBrand ? 'text-white/85 hover:text-white' : 'text-muted-foreground hover:text-foreground'}`}
               aria-label={t('clientArea')}
             >
               <User className="h-6 w-6" />
@@ -1177,7 +1192,7 @@ function Header({
       </div>
 
       {open && (
-        <nav className="border-t lg:hidden">
+        <nav className={`border-t lg:hidden ${onBrand ? 'bg-background text-foreground' : ''}`}>
           <div className="mx-auto flex max-w-7xl flex-col px-2 py-2">
             {navItems.map((it) => (
               <button

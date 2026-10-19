@@ -134,6 +134,7 @@ export function EscaparateTemplate({
             tenantSlug={data.tenantSlug}
             currentLocale={locale}
             customDomain={data.customDomain}
+            onBrand={data.webHeaderBranded}
           />
         }
         items={navItems}
@@ -142,6 +143,7 @@ export function EscaparateTemplate({
         logoUrl={data.logoUrl}
         portalHref={portalHref}
         blogHref={blogHref}
+        onBrand={data.webHeaderBranded}
       />
 
       {/* Hero moderado con imagen de fondo (o gradiente de marca si no hay) */}

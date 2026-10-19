@@ -282,6 +282,7 @@ export class LandingService {
       googleSiteVerification: tenant.googleSiteVerification,
       googleAnalyticsId: tenant.googleAnalyticsId,
       webTemplate,
+      webHeaderBranded: tenant.webHeaderBranded,
       webHeadline: hasWebPremium ? tenant.webHeadline : null,
       webAbout: hasWebPremium ? tenant.webAbout : null,
       webContent: hasWebPremium ? parseWebContent(tenant.webContent) : null,
@@ -571,6 +572,7 @@ export class LandingService {
       logoUrl: full.logoUrl,
       customDomain: full.customDomain,
       webTemplate: full.webTemplate,
+      webHeaderBranded: full.webHeaderBranded,
       hasBlog: full.hasBlog,
       googleAnalyticsId: full.googleAnalyticsId,
       whatsappNumber: full.whatsappNumber,
@@ -743,6 +745,7 @@ export class LandingService {
     customDomain: string | null;
     googleAnalyticsId: string | null;
     webTemplate: string;
+    webHeaderBranded: boolean;
   }> {
     const tenant = await this.admin.tenant.findUnique({
       where: { slug },
@@ -757,6 +760,7 @@ export class LandingService {
         customDomainVerifiedAt: true,
         googleAnalyticsId: true,
         webTemplate: true,
+        webHeaderBranded: true,
       },
     });
     if (!tenant || tenant.deletedAt) {
@@ -778,6 +782,7 @@ export class LandingService {
         isWebTemplate(tenant.webTemplate) && tenant.webTemplate !== 'external'
           ? tenant.webTemplate
           : 'default',
+      webHeaderBranded: tenant.webHeaderBranded,
     };
   }
 
@@ -847,6 +852,7 @@ export class LandingService {
       logoUrl: tenant.logoUrl,
       customDomain: tenant.customDomain,
       webTemplate: tenant.webTemplate,
+      webHeaderBranded: tenant.webHeaderBranded,
       googleAnalyticsId: tenant.googleAnalyticsId,
       facilities,
       posts: rows.map((r) => ({
@@ -881,6 +887,7 @@ export class LandingService {
       logoUrl: tenant.logoUrl,
       customDomain: tenant.customDomain,
       webTemplate: tenant.webTemplate,
+      webHeaderBranded: tenant.webHeaderBranded,
       googleAnalyticsId: tenant.googleAnalyticsId,
       facilities,
       post: {

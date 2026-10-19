@@ -190,6 +190,7 @@ export function OnePageMovilTemplate({
             tenantSlug={data.tenantSlug}
             currentLocale={locale}
             customDomain={data.customDomain}
+            onBrand={data.webHeaderBranded}
           />
         }
         blogHref={blogHref}
@@ -837,6 +838,11 @@ function Header({
   const tChrome = useTranslations('publicWeb.chrome');
   const tBlog = useTranslations('publicWeb.blog');
   const [open, setOpen] = useState(false);
+  // Cabecera del color de la marca: textos en blanco y el botón de reservar en blanco.
+  const onBrand = data.webHeaderBranded;
+  const reserveStyle = onBrand
+    ? { backgroundColor: '#ffffff', color: brand }
+    : { backgroundColor: brand, color: '#ffffff' };
 
   function go(id: string) {
     setOpen(false);
@@ -844,7 +850,10 @@ function Header({
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
+    <header
+      className={`sticky top-0 z-50 border-b backdrop-blur ${onBrand ? 'border-black/10 text-white' : 'bg-background/95'}`}
+      style={onBrand ? { backgroundColor: brand } : undefined}
+    >
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
         <button
           type="button"
@@ -869,10 +878,12 @@ function Header({
         <nav className="hidden items-center gap-1 lg:flex">
           {data.facilities.length > 1 && (
             <details className="relative">
-              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground marker:content-none">
+              <summary
+                className={`flex cursor-pointer list-none items-center gap-1 rounded-md px-3 py-2 text-sm font-medium marker:content-none ${onBrand ? 'text-white/85 hover:text-white' : 'text-muted-foreground hover:text-foreground'}`}
+              >
                 {t('centersMenu')} <ChevronDown className="h-4 w-4" />
               </summary>
-              <div className="absolute left-0 top-full mt-1 w-56 rounded-lg border bg-popover p-1 shadow-lg">
+              <div className="absolute left-0 top-full mt-1 w-56 rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg">
                 {data.facilities.map((f) => (
                   <Link
                     key={f.id}
@@ -892,7 +903,7 @@ function Header({
                 key={it.id}
                 type="button"
                 onClick={() => go(it.id)}
-                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+                className={`rounded-md px-3 py-2 text-sm font-medium ${onBrand ? 'text-white/85 hover:text-white' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 {it.label}
               </button>
@@ -900,7 +911,7 @@ function Header({
           {blogHref && (
             <Link
               href={blogHref}
-              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+              className={`rounded-md px-3 py-2 text-sm font-medium ${onBrand ? 'text-white/85 hover:text-white' : 'text-muted-foreground hover:text-foreground'}`}
             >
               {tBlog('title')}
             </Link>
@@ -912,7 +923,7 @@ function Header({
             <a
               href={`tel:${phone}`}
               aria-label={t('call')}
-              className="hidden h-10 w-10 items-center justify-center rounded-full border sm:flex"
+              className={`hidden h-10 w-10 items-center justify-center rounded-full border sm:flex ${onBrand ? 'border-white/40' : ''}`}
             >
               <Phone className="h-4 w-4" />
             </a>
@@ -920,15 +931,15 @@ function Header({
           {languageSwitcher}
           <Link
             href={portalHref}
-            className="hidden h-10 items-center rounded-full border px-4 text-sm font-medium md:inline-flex"
+            className={`hidden h-10 items-center rounded-full border px-4 text-sm font-medium md:inline-flex ${onBrand ? 'border-white/40' : ''}`}
           >
             {tChrome('clientAccess')}
           </Link>
           <Link
             href={bookHref}
             onClick={() => trackEvent('cta_reservar_click', { location: 'header_onepagemovil' })}
-            className="hidden h-10 items-center rounded-full px-5 text-sm font-semibold text-white sm:inline-flex"
-            style={{ backgroundColor: brand }}
+            className="hidden h-10 items-center rounded-full px-5 text-sm font-semibold sm:inline-flex"
+            style={reserveStyle}
           >
             {t('rentNow')}
           </Link>
@@ -937,7 +948,7 @@ function Header({
             aria-label={t('openMenu')}
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
-            className="flex h-10 w-10 items-center justify-center rounded-full border lg:hidden"
+            className={`flex h-10 w-10 items-center justify-center rounded-full border lg:hidden ${onBrand ? 'border-white/40' : ''}`}
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -945,7 +956,7 @@ function Header({
       </div>
 
       {open && (
-        <nav className="border-t lg:hidden">
+        <nav className={`border-t lg:hidden ${onBrand ? 'bg-background text-foreground' : ''}`}>
           <div className="mx-auto flex max-w-6xl flex-col px-2 py-2">
             {navItems.map((it) => (
               <button

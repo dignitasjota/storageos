@@ -390,6 +390,8 @@ model Tenant {
   extraAccessLimit             Int                   @default(2) @map("extra_access_limit")
   /// White-label del portal del inquilino: color de marca (hex) y URL del logo.
   portalBrandColor             String?               @map("portal_brand_color")
+  /// Cabecera de la web pública con el color de la marca (y el botón «Reservar» en blanco).
+  webHeaderBranded             Boolean               @default(false) @map("web_header_branded")
   portalLogoUrl                String?               @map("portal_logo_url")
   webFaviconKey                String?               @map("web_favicon_key")
   /// Web «Premium» (feature `web_premium`): plantilla de diseño de la web pública

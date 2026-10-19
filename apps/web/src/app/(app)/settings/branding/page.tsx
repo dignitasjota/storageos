@@ -18,6 +18,7 @@ export default function BrandingSettingsPage() {
   const update = useUpdateTenantBranding();
 
   const [color, setColor] = useState('#2563eb');
+  const [headerBranded, setHeaderBranded] = useState(false);
   const [logoUrl, setLogoUrl] = useState('');
   const [siteVerification, setSiteVerification] = useState('');
   const [analyticsId, setAnalyticsId] = useState('');
@@ -25,6 +26,7 @@ export default function BrandingSettingsPage() {
   useEffect(() => {
     if (branding.data) {
       setColor(branding.data.portalBrandColor ?? '#2563eb');
+      setHeaderBranded(branding.data.webHeaderBranded);
       setLogoUrl(branding.data.portalLogoUrl ?? '');
       setSiteVerification(branding.data.googleSiteVerification ?? '');
       setAnalyticsId(branding.data.googleAnalyticsId ?? '');
@@ -33,7 +35,11 @@ export default function BrandingSettingsPage() {
 
   async function saveBranding() {
     try {
-      await update.mutateAsync({ portalBrandColor: color, portalLogoUrl: logoUrl });
+      await update.mutateAsync({
+        portalBrandColor: color,
+        portalLogoUrl: logoUrl,
+        webHeaderBranded: headerBranded,
+      });
       toast.success('Marca del portal actualizada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
@@ -93,6 +99,46 @@ export default function BrandingSettingsPage() {
                 className="w-32 font-mono"
                 placeholder="#2563eb"
               />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4"
+                checked={headerBranded}
+                onChange={(e) => setHeaderBranded(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">Cabecera de la web con el color de marca</span>
+                <span className="block text-xs text-muted-foreground">
+                  El menú de tu web pública se pinta con tu color y el botón «Reservar» pasa a
+                  blanco para que destaque.
+                </span>
+              </span>
+            </label>
+            <div
+              className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+              style={headerBranded ? { backgroundColor: color, color: '#fff' } : undefined}
+              aria-hidden
+            >
+              <span className="font-semibold">Tu negocio</span>
+              <span className="flex items-center gap-3">
+                <span className={headerBranded ? 'opacity-80' : 'text-muted-foreground'}>
+                  Precios
+                </span>
+                <span
+                  className="rounded px-3 py-1 text-xs font-medium"
+                  style={
+                    headerBranded
+                      ? { backgroundColor: '#fff', color }
+                      : { backgroundColor: color, color: '#fff' }
+                  }
+                >
+                  Reservar
+                </span>
+              </span>
             </div>
           </div>
 

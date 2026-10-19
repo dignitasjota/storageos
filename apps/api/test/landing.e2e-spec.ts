@@ -320,6 +320,18 @@ describe('Landing pública por tenant (e2e)', () => {
     const after = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
     expect(after.body.brandColor).toBe('#ff6600');
     expect(after.body.logoUrl).toBe('https://93.184.216.34/logo.png');
+    expect(after.body.webHeaderBranded).toBe(false);
+
+    // Cabecera con el color de la marca.
+    const branded = await request(app.getHttpServer())
+      .patch('/settings/tenant/branding')
+      .set(auth)
+      .send({ webHeaderBranded: true })
+      .expect(200);
+    expect(branded.body.webHeaderBranded).toBe(true);
+    expect(branded.body.portalBrandColor).toBe('#ff6600');
+    const withHeader = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(withHeader.body.webHeaderBranded).toBe(true);
 
     // También en la página por local.
     const fac = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}/local-marca`);

@@ -275,6 +275,7 @@ export class TenantSettingsService {
 
   private toBrandingResponse(tenant: {
     portalBrandColor: string | null;
+    webHeaderBranded: boolean;
     portalLogoUrl: string | null;
     customDomain: string | null;
     customDomainVerifiedAt: Date | null;
@@ -284,6 +285,7 @@ export class TenantSettingsService {
   }): TenantBrandingResponse {
     return {
       portalBrandColor: tenant.portalBrandColor,
+      webHeaderBranded: tenant.webHeaderBranded,
       portalLogoUrl: tenant.portalLogoUrl,
       customDomain: tenant.customDomain,
       customDomainVerifiedAt: tenant.customDomainVerifiedAt?.toISOString() ?? null,
@@ -376,6 +378,7 @@ export class TenantSettingsService {
     const data: Prisma.TenantUpdateInput = {};
     if (input.portalBrandColor !== undefined)
       data.portalBrandColor = input.portalBrandColor || null;
+    if (input.webHeaderBranded !== undefined) data.webHeaderBranded = input.webHeaderBranded;
     if (input.portalLogoUrl !== undefined) {
       const raw = input.portalLogoUrl.trim();
       if (raw === '') {
