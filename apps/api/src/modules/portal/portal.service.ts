@@ -846,10 +846,16 @@ export class PortalService {
     const now = Date.now();
     if (!customer.portalLastSeenAt || now - customer.portalLastSeenAt.getTime() > 3_600_000) {
       // SQL directo: una visita no debe cambiar el `updated_at` del inquilino.
-      void this.admin
-        .$executeRaw`UPDATE customers SET portal_last_seen_at = now() WHERE id = ${payload.customerId}::uuid`.catch(
-        () => undefined,
-      );
+      // En segundo plano y sin que un fallo afecte a la petición.
+      const customerId = payload.customerId;
+      void (async () => {
+        try {
+          await this.admin
+            .$executeRaw`UPDATE customers SET portal_last_seen_at = now() WHERE id = ${customerId}::uuid`;
+        } catch {
+          /* no es crítico */
+        }
+      })();
     }
     return { customerId: payload.customerId, tenantId: payload.tenantId };
   }
