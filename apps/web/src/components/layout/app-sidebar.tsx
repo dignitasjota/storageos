@@ -23,6 +23,7 @@ import {
   KeyRound,
   Cctv,
   Landmark,
+  Lightbulb,
   Undo2,
   Lock,
   LayoutDashboard,
@@ -307,6 +308,12 @@ const GROUPS: NavGroup[] = [
   {
     labelKey: 'crm',
     items: [
+      {
+        href: '/opportunities',
+        labelKey: 'opportunities',
+        icon: Lightbulb,
+        permission: 'customers:read',
+      },
       {
         href: 'crm-acquisition',
         labelKey: 'crmAcquisition',

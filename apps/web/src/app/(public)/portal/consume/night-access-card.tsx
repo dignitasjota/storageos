@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react';
 import { intlLocaleForPortal } from '../i18n/messages';
 import { usePortalLocale } from '../i18n/provider';
 
+import { reportInterest } from './portal-interest';
+
 import type { PortalFacilityDto, PortalNightPassDto, PortalSessionDto } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
@@ -52,6 +54,10 @@ export function NightAccessCard({
   const t = useTranslations('portal.consume.nightAccess');
   const { locale } = usePortalLocale();
   const [passes, setPasses] = useState<PortalNightPassDto[]>([]);
+
+  useEffect(() => {
+    reportInterest(session.accessToken, 'night_pass');
+  }, [session.accessToken]);
 
   useEffect(() => {
     let cancelled = false;

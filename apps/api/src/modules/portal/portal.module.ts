@@ -11,6 +11,7 @@ import { CustomerDocumentsService } from '../customers/customer-documents.servic
 import { FaqModule } from '../faq/faq.module';
 import { MoveInModule } from '../move-in/move-in.module';
 import { OperationsModule } from '../operations/operations.module';
+import { OpportunitiesModule } from '../opportunities/opportunities.module';
 import { GoCardlessModule } from '../payments/gocardless/gocardless.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { RedsysModule } from '../payments/redsys/redsys.module';
@@ -34,6 +35,7 @@ import { PortalService } from './portal.service';
   // ReferralsModule: el inquilino ve su código de referido + sus referidos.
   imports: [
     AuthModule,
+    OpportunitiesModule,
     RetentionModule,
     JwtModule.register({}),
     PaymentsModule,

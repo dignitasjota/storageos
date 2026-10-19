@@ -2096,3 +2096,10 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 ### Listas paginadas del panel (2026-10-18)
 
 `GET /customers/page`, `/contracts/page`, `/invoices/page`, `/payments/page`, `/leads/page`, `/tasks/page`, `/incidents/page` y `/expenses/page` → `PageDto<T>` `{ items, nextCursor }`, por cursor (`?cursor=<id de la última fila>&limit=` 1-100, 50 por defecto; 400 `invalid_cursor` si no es un id). Aceptan los mismos filtros que su lista y `search` (inquilinos: nombre, email, teléfono o documento, **por palabras**; contratos: número, inquilino o trastero; facturas y pagos: número de factura o inquilino; contactos: nombre, email o teléfono; tareas e incidencias: título; gastos: descripción o proveedor). Las listas sin `/page` se mantienen para las fichas (filtradas por inquilino, contrato…).
+
+### Oportunidades sobre los inquilinos
+
+- `POST /portal/me/interest {kind, unitTypeId?}` (sesión del área de clientes, 204, silencioso): el inquilino ha mirado el seguro, otro trastero, uno mayor o el pase nocturno sin contratarlo; una señal por hora y tipo (`customer_interest_events`, RLS).
+- `GET /opportunities` (`customers:read`, alcance por local): por inquilino con contrato activo, qué ofrecer — seguro (contratos sin protección; más fuerte si miró el seguro), trastero mayor (lo miró o pidió cambio y hay uno libre más grande en su local), otro trastero (lo miró en 30 días), pase nocturno (intentos de entrar fuera de horario o lo miró; solo con el pase activo) y domiciliar el pago (sin tarjeta, adeudo ni mandato) — con motivo, oferta con precio con IVA, valor mensual y última propuesta (lo propuesto en 30 días baja en el orden).
+- `GET /opportunities/draft?customerId=&kind=` (404 `opportunity_not_found` si ya no aplica): asunto, texto del correo y texto para WhatsApp con el enlace al área de clientes.
+- `POST /opportunities/propose {customerId, kind, subject?, body?, followupInDays}` (`communications:send`): envía el correo (Comunicaciones, `source: opportunity:<kind>`), crea el seguimiento y audita `opportunity.proposed`. Solo propone: no cambia el contrato.

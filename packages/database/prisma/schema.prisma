@@ -454,6 +454,7 @@ model Tenant {
   tenantLifecycleEmails   TenantLifecycleEmail[]
   customerFollowups       CustomerFollowup[]
   paymentPlans            PaymentPlan[]
+  customerInterestEvents  CustomerInterestEvent[]
   cashClosures            CashClosure[]
   featureOverrides        TenantFeatureOverride[]
   tenantFollowups         TenantFollowup[]
@@ -1044,6 +1045,7 @@ model UnitType {
 
   tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   units           Unit[]
+  interestEvents  CustomerInterestEvent[]
   unitRequests    UnitRequest[]
   waitlistEntries WaitlistEntry[]
   leadsPreferred  Lead[]          @relation("LeadPreferredUnitType")
@@ -1203,6 +1205,7 @@ model Customer {
   messages           CustomerMessage[]
   followups          CustomerFollowup[]
   paymentPlans       PaymentPlan[]
+  interestEvents     CustomerInterestEvent[]
   delinquencyCases   DelinquencyCase[]
   retentionOffers    RetentionOffer[]
   winbackSends       WinbackSend[]
@@ -4656,6 +4659,24 @@ model PaymentPlan {
   @@index([tenantId, status])
   @@index([customerId])
   @@map("payment_plans")
+}
+
+/// Señal del área de clientes: el inquilino miró una opción y no contrató.
+model CustomerInterestEvent {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  /// insurance | additional_unit | larger_unit | night_pass
+  kind       String
+  unitTypeId String?  @map("unit_type_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  unitType UnitType? @relation(fields: [unitTypeId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, customerId, createdAt(sort: Desc)])
+  @@map("customer_interest_events")
 }
 
 /// Seguimiento/recordatorio del staff sobre un inquilino (CRM): fecha + estado.
