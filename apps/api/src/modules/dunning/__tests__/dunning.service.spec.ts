@@ -29,6 +29,7 @@ interface AdminMock {
     count?: jest.Mock;
   };
   tenant: { findUnique: jest.Mock };
+  paymentPlan?: { findFirst: jest.Mock };
   automationRule?: { count: jest.Mock };
 }
 
@@ -86,6 +87,8 @@ describe('DunningService.executeAction (email_reminder)', () => {
         }),
         update: jest.fn().mockResolvedValue(undefined),
       },
+      // Sin plan de pago activo.
+      paymentPlan: { findFirst: jest.fn().mockResolvedValue(null) },
       // count = 1 → sin cobro en curso.
       invoice: {
         count: jest.fn().mockResolvedValue(1),
@@ -150,6 +153,7 @@ describe('DunningService.executeAction (email_reminder)', () => {
         }),
         update: jest.fn().mockResolvedValue(undefined),
       },
+      paymentPlan: { findFirst: jest.fn().mockResolvedValue(null) },
       invoice: {
         count: jest.fn().mockResolvedValue(1),
         findUnique: jest

@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 
 import { emailLocale, formatDateLong, formatEur } from '../../common/format';
 import { subtractAmounts } from '../../common/money';
+import { invoiceInActivePlan } from '../../common/payment-plan-guard';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { hasPaymentInFlight, NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
@@ -284,6 +285,15 @@ export class DunningService {
     if (await hasPaymentInFlight(this.admin, action.invoiceId)) {
       this.logger.log(
         `dunning.${action.actionType}: ${invoice.invoiceNumber} tiene un cobro en curso; se aplaza`,
+      );
+      return;
+    }
+
+    // Plan de pago activo y al día: el escalado se pausa (la acción sigue
+    // programada; si el plan se rompe o se cancela, se ejecuta entonces).
+    if (await invoiceInActivePlan(this.admin, action.invoiceId)) {
+      this.logger.log(
+        `dunning.${action.actionType}: ${invoice.invoiceNumber} está en un plan de pago; se aplaza`,
       );
       return;
     }

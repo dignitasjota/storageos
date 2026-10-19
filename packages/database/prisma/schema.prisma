@@ -453,6 +453,7 @@ model Tenant {
   tenantInteractions      TenantInteraction[]
   tenantLifecycleEmails   TenantLifecycleEmail[]
   customerFollowups       CustomerFollowup[]
+  paymentPlans            PaymentPlan[]
   cashClosures            CashClosure[]
   featureOverrides        TenantFeatureOverride[]
   tenantFollowups         TenantFollowup[]
@@ -649,6 +650,7 @@ model User {
   customerMessages         CustomerMessage[]         @relation("CustomerMessageSender")
   whatsappMessagesSent     WhatsappMessage[]         @relation("WhatsappMessageSender")
   customerFollowups        CustomerFollowup[]        @relation("CustomerFollowupAuthor")
+  paymentPlansCreated      PaymentPlan[]             @relation("PaymentPlanAuthor")
   cashClosures             CashClosure[]             @relation("CashClosureAuthor")
   delinquencyCasesOpened   DelinquencyCase[]         @relation("DelinquencyCaseOpenedBy")
   retentionOffers          RetentionOffer[]
@@ -1198,6 +1200,7 @@ model Customer {
   interactions       CustomerInteraction[]
   messages           CustomerMessage[]
   followups          CustomerFollowup[]
+  paymentPlans       PaymentPlan[]
   delinquencyCases   DelinquencyCase[]
   retentionOffers    RetentionOffer[]
   winbackSends       WinbackSend[]
@@ -4615,6 +4618,37 @@ model TenantFeatureOverride {
   @@unique([tenantId, feature])
   @@index([expiresAt])
   @@map("tenant_feature_overrides")
+}
+
+/// Plan de pago: la deuda de un inquilino fraccionada en cuotas. Mientras está
+/// activo y al día, el escalado y los reintentos de sus facturas se pausan.
+model PaymentPlan {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  customerId      String    @map("customer_id") @db.Uuid
+  /// active | completed | broken | cancelled
+  status          String    @default("active")
+  invoiceIds      String[]  @default([]) @map("invoice_ids") @db.Uuid
+  totalAmount     Decimal   @map("total_amount") @db.Decimal(10, 2)
+  paidAtStart     Decimal   @default(0) @map("paid_at_start") @db.Decimal(10, 2)
+  /// [{ dueDate: "YYYY-MM-DD", amount: number }]
+  installments    Json
+  graceDays       Int       @default(7) @map("grace_days")
+  notes           String?
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz(6)
+  brokenAt        DateTime? @map("broken_at") @db.Timestamptz(6)
+  cancelledAt     DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("PaymentPlanAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([customerId])
+  @@map("payment_plans")
 }
 
 /// Seguimiento/recordatorio del staff sobre un inquilino (CRM): fecha + estado.

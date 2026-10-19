@@ -267,12 +267,19 @@ export class SepaService {
         }),
       tenantId,
     );
-    const mandates = await this.prisma.withTenant(
-      (tx) => tx.sepaMandate.findMany({ where: { tenantId, status: 'active' } }),
+    const [mandates, plans] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.sepaMandate.findMany({ where: { tenantId, status: 'active' } }),
+          // Las facturas de un plan de pago activo se pagan por cuotas: no se
+          // adeuda la factura entera.
+          tx.paymentPlan.findMany({ where: { status: 'active' }, select: { invoiceIds: true } }),
+        ]),
       tenantId,
     );
+    const inPlan = new Set(plans.flatMap((p) => p.invoiceIds));
     const byCustomer = new Map(mandates.map((m) => [m.customerId, m]));
-    return { invoices, byCustomer };
+    return { invoices: invoices.filter((i) => !inPlan.has(i.id)), byCustomer };
   }
 
   async previewRemittance(tenantId: string): Promise<RemittancePreviewDto> {
