@@ -47,6 +47,7 @@ export function ChatAlertsCard() {
   const [slack, setSlack] = useState('');
   const [dailyOn, setDailyOn] = useState(false);
   const [weeklyOn, setWeeklyOn] = useState(false);
+  const [commercialOn, setCommercialOn] = useState(false);
   const s = q.data;
 
   useEffect(() => {
@@ -54,6 +55,7 @@ export function ChatAlertsCard() {
     setChatId(s.telegramChatId ?? '');
     setDailyOn(s.dailyEnabled);
     setWeeklyOn(s.weeklyEnabled);
+    setCommercialOn(s.commercialEnabled);
   }, [s]);
 
   const fail = (err: unknown) =>
@@ -67,6 +69,7 @@ export function ChatAlertsCard() {
         ...(slack ? { slackWebhookUrl: slack.trim() } : {}),
         dailyEnabled: dailyOn,
         weeklyEnabled: weeklyOn,
+        commercialEnabled: commercialOn,
       });
       setToken('');
       setSlack('');
@@ -96,8 +99,8 @@ export function ChatAlertsCard() {
           <MessageCircle className="size-4" /> Avisos por Telegram y Slack
         </CardTitle>
         <CardDescription>
-          Cada mañana (08:15), lo urgente de «Hoy»; los lunes, el resumen semanal. Solo se envía si
-          hay algo urgente.
+          Cada mañana (08:15), lo urgente de «Hoy»; los lunes, el resumen semanal; y, si quieres,
+          las novedades comerciales al momento. Solo se envía si hay algo.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -180,6 +183,20 @@ export function ChatAlertsCard() {
           <label className="flex items-center gap-2 text-sm">
             <Checkbox checked={weeklyOn} onCheckedChange={(v) => setWeeklyOn(v === true)} />
             Resumen semanal de KPIs (lunes)
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              className="mt-0.5"
+              checked={commercialOn}
+              onCheckedChange={(v) => setCommercialOn(v === true)}
+            />
+            <span>
+              Novedades comerciales al momento
+              <span className="block text-xs text-muted-foreground">
+                Cada hora, si hay algo: altas, bajas, extras contratados o cancelados, cambios de
+                plan, pruebas gratis, primer contrato estando en prueba e interés en funciones.
+              </span>
+            </span>
           </label>
         </div>
 

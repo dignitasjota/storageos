@@ -51,6 +51,7 @@ describe('Admin: avisos por chat (e2e)', () => {
       slackWebhookUrl: '',
       dailyEnabled: false,
       weeklyEnabled: false,
+      commercialEnabled: false,
     });
     await app.close();
     await db.$disconnect();
@@ -82,6 +83,7 @@ describe('Admin: avisos por chat (e2e)', () => {
       slackConfigured: true,
       dailyEnabled: false,
       weeklyEnabled: false,
+      commercialEnabled: false,
     });
     const row = await db.platformAlertSettings.findFirst();
     expect(row?.telegramBotTokenEncrypted).not.toContain('AAFake');

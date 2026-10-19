@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { AdminActivityService } from './admin-activity.service';
 import { AdminTodayService } from './admin-today.service';
 
 import type { Env } from '../../config/env.schema';
@@ -40,6 +41,7 @@ export class ChatAlertsService {
     private readonly admin: PrismaAdminService,
     private readonly crypto: CryptoService,
     private readonly today: AdminTodayService,
+    private readonly activity: AdminActivityService,
     config: ConfigService<Env, true>,
   ) {
     this.stub = config.get('NODE_ENV', { infer: true }) === 'test';
@@ -61,6 +63,7 @@ export class ChatAlertsService {
       slackConfigured: Boolean(r.slackWebhookUrlEncrypted),
       dailyEnabled: r.chatDailyEnabled,
       weeklyEnabled: r.chatWeeklyEnabled,
+      commercialEnabled: r.chatCommercialEnabled,
     };
   }
 
@@ -80,6 +83,12 @@ export class ChatAlertsService {
     }
     if (input.dailyEnabled !== undefined) data.chatDailyEnabled = input.dailyEnabled;
     if (input.weeklyEnabled !== undefined) data.chatWeeklyEnabled = input.weeklyEnabled;
+    if (input.commercialEnabled !== undefined) {
+      data.chatCommercialEnabled = input.commercialEnabled;
+      // Al activarlo empieza desde ahora (no manda lo de días atrás).
+      if (input.commercialEnabled && !r.chatCommercialEnabled)
+        data.chatCommercialLastAt = new Date();
+    }
     await this.admin.platformAlertSettings.update({ where: { id: r.id }, data });
     return this.getSettings();
   }
@@ -150,6 +159,35 @@ export class ChatAlertsService {
       ...body,
       `${this.webBase}/admin/today`,
     ].join('\n');
+  }
+
+  /**
+   * Avisos comerciales: lo nuevo desde el último aviso (altas, extras
+   * contratados o cancelados, cambios de plan, primer contrato en prueba,
+   * interés). El hueco se reclama antes de enviar para no duplicar entre
+   * réplicas; como mucho, las últimas 24 horas.
+   */
+  async sendCommercial(now = new Date()): Promise<ChatAlertSendResultDto> {
+    const r = await this.row();
+    if (!r.chatCommercialEnabled) {
+      return { sent: false, telegram: 'off', slack: 'off', reason: 'disabled' };
+    }
+    const floor = new Date(now.getTime() - 24 * 3_600_000);
+    const from =
+      r.chatCommercialLastAt && r.chatCommercialLastAt > floor ? r.chatCommercialLastAt : floor;
+    const claimed = await this.admin.platformAlertSettings.updateMany({
+      where: { id: r.id, chatCommercialLastAt: r.chatCommercialLastAt },
+      data: { chatCommercialLastAt: now },
+    });
+    if (claimed.count === 0) {
+      return { sent: false, telegram: 'off', slack: 'off', reason: 'nothing_urgent' };
+    }
+    const text = this.activity.commercialText(
+      await this.activity.activity(from, now),
+      this.webBase,
+    );
+    if (!text) return { sent: false, telegram: 'off', slack: 'off', reason: 'nothing_urgent' };
+    return this.send(text);
   }
 
   /** ¿Va el resumen semanal por chat? (lo usa el resumen semanal). */

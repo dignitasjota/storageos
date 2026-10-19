@@ -519,6 +519,7 @@ export const UpdateChatAlertSettingsSchema = z.object({
     .optional(),
   dailyEnabled: z.boolean().optional(),
   weeklyEnabled: z.boolean().optional(),
+  commercialEnabled: z.boolean().optional(),
 });
 export type UpdateChatAlertSettingsInput = z.infer<typeof UpdateChatAlertSettingsSchema>;
 

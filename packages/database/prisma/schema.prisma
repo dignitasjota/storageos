@@ -4575,6 +4575,9 @@ model PlatformAlertSettings {
   slackWebhookUrlEncrypted  String? @map("slack_webhook_url_encrypted")
   chatDailyEnabled          Boolean @default(false) @map("chat_daily_enabled")
   chatWeeklyEnabled         Boolean @default(false) @map("chat_weekly_enabled")
+  /// Avisos comerciales al momento (cada hora, lo nuevo desde el último aviso).
+  chatCommercialEnabled     Boolean   @default(false) @map("chat_commercial_enabled")
+  chatCommercialLastAt      DateTime? @map("chat_commercial_last_at") @db.Timestamptz(6)
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

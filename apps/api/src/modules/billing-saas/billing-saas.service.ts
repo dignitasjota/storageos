@@ -534,7 +534,7 @@ export class BillingSaasService {
       action: 'saas_billing.plan_changed',
       entityType: 'TenantSubscription',
       entityId: sub.id,
-      changes: { from: previousPlanId, to: plan.id, self: true },
+      changes: { from: previousPlanId, to: plan.id, toSlug: plan.slug, self: true },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
