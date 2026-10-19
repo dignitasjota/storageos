@@ -75,3 +75,43 @@ export interface OnboardingDto {
   progress: number;
   completed: boolean;
 }
+
+/** Cifras del mes en curso para la cabecera de «Hoy». */
+export interface TodayKpisDto {
+  /** Facturado en el mes (emitido, sin borradores ni anuladas). */
+  invoicedMonth: number;
+  /** Cobrado en el mes (cobros reales). */
+  collectedMonth: number;
+  /** Deuda vencida pendiente. */
+  overduePending: number;
+  occupancyPct: number;
+  freeUnits: number;
+  totalUnits: number;
+  /** Altas (contratos firmados) y bajas (contratos terminados) del mes. */
+  moveInsMonth: number;
+  moveOutsMonth: number;
+}
+
+export type TodayActivityKind =
+  | 'contract_signed'
+  | 'payment_received'
+  | 'payment_failed'
+  | 'move_out_requested'
+  | 'lead_created'
+  | 'customer_message'
+  | 'incident_reported';
+
+export interface TodayActivityDto {
+  at: string;
+  kind: TodayActivityKind;
+  label: string;
+  detail: string | null;
+  href: string;
+}
+
+/** `GET /dashboard/today/summary`. */
+export interface TodaySummaryDto {
+  kpis: TodayKpisDto;
+  /** Lo que ha pasado en las últimas 48 h, lo más reciente primero. */
+  activity: TodayActivityDto[];
+}
