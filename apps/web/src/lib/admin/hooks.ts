@@ -6,6 +6,9 @@ import { useAdminAuthStore } from './auth-store';
 import type {
   AdminSearchResultDto,
   AdminTenantOverviewDto,
+  AdminBillingCalendarDto,
+  AdminReceivablesDto,
+  AdminTenantAccountDto,
   AdminApprovalRequestDto,
   ApprovalStatus,
   CreateApprovalRequestInput,
@@ -2296,6 +2299,7 @@ export function useChargeAddon() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'billing'] });
     },
   });
 }
@@ -2607,5 +2611,36 @@ export function useUpdateAdminPaymentSettings() {
         json: input,
       }),
     onSuccess: (data) => qc.setQueryData(['admin', 'payment-settings'], data),
+  });
+}
+
+// --- Pagos de los tenants: cuenta, cobros pendientes y calendario ---------
+
+/** Estado de cuenta de un tenant (próximo cargo, deuda, historial). */
+export function useAdminTenantAccount(id: string) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'account'] as const,
+    queryFn: () => adminApiFetch<AdminTenantAccountDto>(`/admin/tenants/${id}/account`),
+  });
+}
+
+/** Cobros pendientes de todos los tenants (cuotas impagadas y extras sin cobrar). */
+export function useAdminReceivables() {
+  return useQuery({
+    queryKey: ['admin', 'billing', 'receivables'] as const,
+    queryFn: () => adminApiFetch<AdminReceivablesDto>('/admin/billing/receivables'),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** Calendario de cobros: los próximos `days` días y lo cobrado en los `pastDays` anteriores. */
+export function useAdminBillingCalendar(days: number, pastDays: number) {
+  return useQuery({
+    queryKey: ['admin', 'billing', 'calendar', days, pastDays] as const,
+    queryFn: () =>
+      adminApiFetch<AdminBillingCalendarDto>(
+        `/admin/billing/calendar?days=${days}&pastDays=${pastDays}`,
+      ),
   });
 }

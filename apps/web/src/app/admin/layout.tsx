@@ -122,6 +122,8 @@ const ADMIN_NAV: AdminNavEntry[] = [
     label: 'Facturación',
     icon: Package,
     children: [
+      { href: '/admin/receivables', label: 'Cobros pendientes', icon: AlertTriangle },
+      { href: '/admin/billing-calendar', label: 'Calendario de cobros', icon: CalendarClock },
       { href: '/admin/plans', label: 'Planes', icon: Package },
       { href: '/admin/addons', label: 'Add-ons', icon: PackagePlus },
       { href: '/admin/platform-billing', label: 'Facturación SaaS', icon: FileText },

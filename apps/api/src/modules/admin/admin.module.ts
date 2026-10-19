@@ -16,6 +16,8 @@ import { TwoFactorModule } from '../two-factor/two-factor.module';
 import { AdminApprovalsController } from './admin-approvals.controller';
 import { AdminApprovalsService } from './admin-approvals.service';
 import { AdminAuditInterceptor } from './admin-audit.interceptor';
+import { AdminBillingOpsController } from './admin-billing-ops.controller';
+import { AdminBillingOpsService } from './admin-billing-ops.service';
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
 import { AdminEmailLogController } from './admin-email-log.controller';
@@ -111,6 +113,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
   ],
   controllers: [
     AdminTenantsOverviewController,
+    AdminBillingOpsController,
     AdminPaymentSettingsController,
     AdminCommsController,
     SuperAdminAuthController,
@@ -143,6 +146,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
   providers: [
     AdminGuard,
     AdminTenantsOverviewService,
+    AdminBillingOpsService,
     // Auditoría de los endpoints marcados con @AdminAudit (solo actúa con esa marca).
     { provide: APP_INTERCEPTOR, useClass: AdminAuditInterceptor },
     PlatformAlertsService,

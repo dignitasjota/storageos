@@ -12,7 +12,7 @@ import {
   type ImpersonateInput,
 } from '@storageos/shared';
 import { Loader2, Mail, MoreVertical, Pencil } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -24,6 +24,7 @@ import { OnboardingCard } from './onboarding-card';
 import { PlatformInvoicesCard } from './platform-invoices-card';
 import { RequestApprovalDialog } from './request-approval-dialog';
 import { SaasPaymentsCard } from './saas-payments-card';
+import { TenantAccountCard } from './tenant-account-card';
 import { TenantAddonsCard } from './tenant-addons-card';
 import { TenantConfigCard } from './tenant-config-card';
 import { TenantCustomersDialog } from './tenant-customers-dialog';
@@ -113,6 +114,8 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 export default function AdminTenantDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  // `?tab=payments` abre directamente esa pestaña (enlaces desde Cobros pendientes).
+  const initialTab = useSearchParams().get('tab') ?? 'general';
   const tenant = useAdminTenant(id);
   const dataExport = useTenantDataExport(id);
   // El rol `support` no edita, suspende, impersona ni toca la suscripción (403 en el API).
@@ -262,7 +265,7 @@ export default function AdminTenantDetailPage() {
       <ApprovalRequestsCard tenantId={t.id} />
       <RequestApprovalDialog tenantId={t.id} open={approvalOpen} onOpenChange={setApprovalOpen} />
 
-      <Tabs defaultValue="general" className="w-full">
+      <Tabs defaultValue={initialTab} className="w-full">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="timeline">Historial</TabsTrigger>
@@ -414,6 +417,7 @@ export default function AdminTenantDetailPage() {
         </TabsContent>
 
         <TabsContent value="payments" className="mt-4 space-y-4">
+          <TenantAccountCard tenantId={id} />
           <TenantAddonsCard tenantId={id} />
           <SaasPaymentsCard tenantId={id} />
           <PlatformInvoicesCard tenantId={id} />
