@@ -574,6 +574,9 @@ export default function CustomersPage() {
         pageSize={50}
         toolbarRight={
           <>
+            <Button variant="outline" asChild>
+              <Link href="/customers/extras">Extras</Link>
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline">Vistas</Button>

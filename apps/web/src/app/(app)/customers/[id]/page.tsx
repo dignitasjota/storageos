@@ -18,6 +18,7 @@ import { MarketingPreferenceCard } from './marketing-preference-card';
 import { CustomerPaymentHistoryTab } from './payment-history-tab';
 import { CustomerPaymentMethodsTab } from './payment-methods-tab';
 import { PortalLinkButton } from './portal-link-button';
+import { QuickContact } from './quick-contact';
 import { CustomerReservationsTab } from './reservations-tab';
 
 import { Can } from '@/components/auth/can';
@@ -130,6 +131,7 @@ export default function CustomerDetailPage() {
             </Button>
           </Can>
         </div>
+        <QuickContact customer={c} />
       </div>
 
       <CustomerAccountCard customerId={c.id} onGoTo={setTab} />
