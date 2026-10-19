@@ -5,6 +5,9 @@ import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { intlLocaleForPortal } from '../i18n/messages';
+import { usePortalLocale } from '../i18n/provider';
+
 import type { PortalSessionDto, ProductDto, ProductSaleDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
@@ -24,6 +27,7 @@ export function ShopCard({
   onPurchased: () => void;
 }) {
   const t = useTranslations('portal.consume.shop');
+  const { locale } = usePortalLocale();
   const [products, setProducts] = useState<ProductDto[] | null>(null);
   const [qty, setQty] = useState<Record<string, number>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -99,7 +103,12 @@ export function ShopCard({
               <div className="text-sm">
                 <p className="font-medium">{p.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {t('priceLabel', { price: priceWithTax(p).toFixed(2) })}
+                  {t('priceLabel', {
+                    price: priceWithTax(p).toLocaleString(intlLocaleForPortal(locale), {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    }),
+                  })}
                   {p.description ? ` · ${p.description}` : ''}
                   {t('stockSuffix', { count: p.totalStock })}
                 </p>

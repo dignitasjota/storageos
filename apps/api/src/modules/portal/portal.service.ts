@@ -861,7 +861,35 @@ export class PortalService {
         },
       },
       orderBy: { issueDate: 'desc' },
+      include: {
+        contract: { select: { unit: { select: { code: true } } } },
+        lateFeeForInvoice: { select: { invoiceNumber: true } },
+        items: { select: { description: true, total: true }, orderBy: { position: 'asc' } },
+      },
     });
+    // Último cobro rechazado de cada factura pendiente: el motivo se enseña
+    // al inquilino para que sepa por qué no se cobró y lo reintente.
+    const failed = await this.admin.payment.findMany({
+      where: {
+        tenantId,
+        customerId,
+        status: 'failed',
+        invoiceId: {
+          in: rows.filter((r) => ['issued', 'overdue'].includes(r.status)).map((r) => r.id),
+        },
+      },
+      select: { invoiceId: true, failureReason: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const lastFailureOf = new Map<string, { at: string; reason: string | null }>();
+    for (const f of failed) {
+      if (f.invoiceId && !lastFailureOf.has(f.invoiceId)) {
+        lastFailureOf.set(f.invoiceId, {
+          at: f.createdAt.toISOString(),
+          reason: readableFailure(f.failureReason),
+        });
+      }
+    }
     // Facturas con un cobro en vuelo (processing/pending) → el frontend
     // desactiva los botones de pago para evitar el doble cobro.
     const inFlight = await this.admin.payment.groupBy({
@@ -912,6 +940,14 @@ export class PortalService {
         kind: r.kind === 'deposit_receipt' ? ('deposit_receipt' as const) : ('invoice' as const),
         bundledReceiptPending: Math.round(bundledReceiptPending * 100) / 100,
         paidWithInvoiceId: parent && pendingOf(parent) > 0 ? parent.id : null,
+        unitCode: r.contract?.unit.code ?? null,
+        periodStart: r.periodStart?.toISOString().slice(0, 10) ?? null,
+        periodEnd: r.periodEnd?.toISOString().slice(0, 10) ?? null,
+        lateFeeForNumber: r.lateFeeForInvoice?.invoiceNumber ?? null,
+        lines: r.items.map((i) => ({ description: i.description, total: Number(i.total) })),
+        // Solo mientras quede algo por pagar y no haya otro cobro en marcha.
+        lastFailure:
+          pendingOf(r) > 0 && !inFlightIds.has(r.id) ? (lastFailureOf.get(r.id) ?? null) : null,
       };
     });
   }
@@ -1360,4 +1396,21 @@ function emailEquals(email: string): { equals: string; mode: 'insensitive' } {
 /** Negocio activo: ni borrado, ni suspendido, ni dado de baja. */
 function tenantUsable(t: { status: string; deletedAt: Date | null }): boolean {
   return !t.deletedAt && t.status !== 'suspended' && t.status !== 'cancelled';
+}
+
+/**
+ * Motivo de un cobro rechazado en palabras del inquilino. Los códigos de las
+ * pasarelas (Stripe, Redsys, GoCardless) no le dicen nada; los mensajes en
+ * claro sí se muestran.
+ */
+function readableFailure(reason: string | null): string | null {
+  if (!reason) return null;
+  const r = reason.toLowerCase();
+  if (r.includes('insufficient')) return 'Fondos insuficientes';
+  if (r.includes('expired')) return 'Tarjeta caducada';
+  if (r.includes('authentication') || r.includes('3ds')) return 'El banco pidió confirmar el pago';
+  if (r.includes('declined') || r.includes('denegad')) return 'El banco rechazó el cobro';
+  if (r.includes('disputed') || r.includes('charged_back')) return 'El cobro se devolvió';
+  if (/^[a-z_]+$/.test(r)) return null;
+  return reason.length > 140 ? `${reason.slice(0, 140)}…` : reason;
 }

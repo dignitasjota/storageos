@@ -228,7 +228,21 @@
         "saveError": "No se pudo guardar.",
         "gocardlessStartError": "No se pudo iniciar la domiciliación.",
         "addDialogTitle": "Añadir método de pago",
-        "addDialogDescription": "Tu IBAN para domiciliación SEPA (aceptarás el mandato en este formulario) o una tarjeta."
+        "addDialogDescription": "Tu IBAN para domiciliación SEPA (aceptarás el mandato en este formulario) o una tarjeta.",
+        "conceptDeposit": "Fianza (justificante, no es una factura)",
+        "conceptLateFee": "Recargo por retraso de la factura {number}",
+        "conceptRentUnit": "Trastero {unit} · {period}",
+        "conceptRent": "Alquiler · {period}",
+        "conceptOther": "Factura",
+        "alreadyPaid": "Ya pagado",
+        "lastFailureReason": "El cobro del {date} no se pudo hacer: {reason}.",
+        "lastFailure": "El cobro del {date} no se pudo hacer.",
+        "retry": "Reintentar el pago",
+        "payAmount": "Pagar {amount}",
+        "pendingTitle": "Por pagar",
+        "payAll": "Pagar todo ({amount})",
+        "yearSummary": "{count, plural, one {# factura} other {# facturas}} · {total}",
+        "payAllResult": "Se pagaron {ok} y {failed, plural, one {# no se pudo cobrar} other {# no se pudieron cobrar}}."
       },
       "access": {
         "title": "Tu acceso",

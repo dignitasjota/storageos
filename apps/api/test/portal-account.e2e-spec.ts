@@ -74,6 +74,30 @@ describe('Portal: mi cuenta (e2e)', () => {
         status: 'overdue',
         issueDate: new Date('2026-02-01'),
         dueDate: new Date('2026-02-10'),
+        periodStart: new Date('2026-02-01'),
+        periodEnd: new Date('2026-02-28'),
+        items: {
+          create: {
+            tenantId: owner.tenantId,
+            description: 'Alquiler trastero',
+            unitPrice: 50,
+            taxRate: 21,
+            taxAmount: 10.5,
+            total: 60.5,
+          },
+        },
+      },
+    });
+    await db.payment.create({
+      data: {
+        tenantId: owner.tenantId,
+        customerId: customer.body.id,
+        invoiceId: overdue.id,
+        amount: 60.5,
+        methodType: 'card',
+        gateway: 'stripe',
+        status: 'failed',
+        failureReason: 'card_declined',
       },
     });
     const collecting = await db.invoice.create({
@@ -152,6 +176,17 @@ describe('Portal: mi cuenta (e2e)', () => {
       ]),
     );
     expect(byNumber).toEqual({ 'PA-1': false, 'PA-2': true });
+    const pa1 = invoices.body.find((i: { invoiceNumber: string }) => i.invoiceNumber === 'PA-1');
+    expect(pa1).toMatchObject({
+      periodStart: '2026-02-01',
+      periodEnd: '2026-02-28',
+      lines: [{ description: 'Alquiler trastero', total: 60.5 }],
+      lastFailure: { reason: 'El banco rechazó el cobro' },
+    });
+    expect(pa1.unitCode).toBeTruthy();
+    // Con un cobro en marcha no se enseña el fallo anterior.
+    const pa2 = invoices.body.find((i: { invoiceNumber: string }) => i.invoiceNumber === 'PA-2');
+    expect(pa2.lastFailure).toBeNull();
 
     const contracts = await http().get('/portal/me/contracts').set(pAuth).expect(200);
     expect(contracts.body[0]).toMatchObject({ effectivePrice: 50, effectivePriceWithVat: 60.5 });
