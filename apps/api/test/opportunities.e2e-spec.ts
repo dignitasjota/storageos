@@ -118,6 +118,42 @@ describe('Oportunidades sobre los inquilinos (e2e)', () => {
     );
     expect(after.lastProposedAt).toBeTruthy();
     expect(after.score).toBe(23);
+    expect(after.lastOfferStatus).toBe('open');
+
+    // La propuesta sale en su área de clientes con «Me interesa».
+    const offers = await http().get('/portal/me/offers').set(pAuth).expect(200);
+    expect(offers.body).toHaveLength(1);
+    expect(offers.body[0]).toMatchObject({ kind: 'insurance', priceGross: 6.05, status: 'open' });
+    const resp = await http()
+      .post(`/portal/me/offers/${offers.body[0].id}/respond`)
+      .set(pAuth)
+      .send({ response: 'interested' })
+      .expect(200);
+    expect(resp.body[0].status).toBe('interested');
+    const notif = await db.notification.findFirst({
+      where: { tenantId: owner.tenantId, type: 'customer.offer_interested' },
+    });
+    expect(notif).toBeTruthy();
+    await http()
+      .post(`/portal/me/offers/${offers.body[0].id}/respond`)
+      .set(pAuth)
+      .send({ response: 'bogus' })
+      .expect(400);
+
+    // Al contratar el seguro la propuesta se da por aceptada.
+    const plan = await db.insurancePlan.findFirstOrThrow({ where: { tenantId: owner.tenantId } });
+    await new Promise((r) => setTimeout(r, 20));
+    await http()
+      .put(`/portal/me/contracts/${contract.body.id}/insurance`)
+      .set(pAuth)
+      .send({ planId: plan.id })
+      .expect(200);
+    const offersAfter = await http().get('/portal/me/offers').set(pAuth).expect(200);
+    expect(offersAfter.body).toHaveLength(0);
+    const row = await db.customerOffer.findFirstOrThrow({ where: { customerId } });
+    expect(row.status).toBe('accepted');
+
+    await http().get('/portal/me/offers').expect(401);
     await http().get('/opportunities').expect(401);
   });
 });

@@ -2123,3 +2123,9 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `GET /portal/me/contracts`: `effectivePriceWithVat` e `insurancePriceWithVat` (la cuota y el seguro con IVA).
 - `GET /portal/me/invoices` gana `unitCode`, `periodStart`/`periodEnd`, `lateFeeForNumber` (es un recargo de esa factura), `lines` (concepto e importe con IVA de cada línea) y `lastFailure` (último cobro rechazado con el motivo en palabras del inquilino, solo mientras siga pendiente y sin otro cobro en marcha).
 - `GET /portal/me/access` devuelve también los accesos suspendidos con `suspension` (`unpaid`, la factura que lo provocó y lo que falta por pagar); mientras está suspendido `value` va a null.
+
+### Portal: ofertas para el inquilino
+
+- `POST /opportunities/propose` crea además una propuesta (`customer_offers`, 30 días; sustituye a la anterior del mismo tipo) que sale en el área de clientes. `GET /opportunities` gana `lastOfferStatus` (open · interested · declined · accepted · expired).
+- `GET /portal/me/offers` (sesión de portal): propuestas vivas; antes marca como aceptadas las que ya contrató (seguro puesto, contrato nuevo, pase nocturno comprado o pago domiciliado después de la propuesta) y como vistas las nuevas.
+- `POST /portal/me/offers/:id/respond {response: interested|declined}` (200, devuelve la lista): «Me interesa» avisa al equipo (notificación `customer.offer_interested`). 400 `invalid_response`, 404 `offer_not_found`.

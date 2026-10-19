@@ -55,6 +55,8 @@ export interface OpportunityDto {
   /** Más alto = más prometedora. */
   score: number;
   lastProposedAt: string | null;
+  /** Qué hizo con la última propuesta en su área de clientes. */
+  lastOfferStatus: CustomerOfferStatus | null;
 }
 
 export interface OpportunitiesDto {
@@ -79,9 +81,38 @@ export interface OpportunityDraftDto {
   /** Texto corto para WhatsApp (se abre con wa.me desde el panel). */
   whatsappText: string;
   portalUrl: string;
+  /** Lo que se le enseña en su área de clientes. */
+  offerText: string;
 }
 
 export interface ProposeOpportunityResultDto {
   emailSent: boolean;
   followupId: string | null;
 }
+
+/** Estado de una propuesta en el área de clientes del inquilino. */
+export const CustomerOfferStatusEnum = z.enum([
+  'open',
+  'interested',
+  'declined',
+  'accepted',
+  'expired',
+]);
+export type CustomerOfferStatus = z.infer<typeof CustomerOfferStatusEnum>;
+
+/** Una propuesta del negocio, vista por el inquilino en su portal. */
+export interface PortalOfferDto {
+  id: string;
+  kind: OpportunityKind;
+  title: string;
+  message: string;
+  priceGross: number | null;
+  status: CustomerOfferStatus;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export const PortalRespondOfferSchema = z.object({
+  response: z.enum(['interested', 'declined']),
+});
+export type PortalRespondOfferInput = z.infer<typeof PortalRespondOfferSchema>;

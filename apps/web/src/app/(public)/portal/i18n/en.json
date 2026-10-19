@@ -516,7 +516,53 @@
         "chargeFailed": "Couldn't charge your payment method. Check your details and try again.",
         "purchaseError": "Couldn't complete the purchase."
       },
-      "linkUsedContinue": "That link is no longer valid. You are still signed in as {name}."
+      "linkUsedContinue": "That link is no longer valid. You are still signed in as {name}.",
+      "offers": {
+        "title": "Offers for you",
+        "perMonth": "{price}/month",
+        "kind": {
+          "insurance": "Contents protection",
+          "larger_unit": "A larger unit",
+          "additional_unit": "Another unit",
+          "night_pass": "Out-of-hours access",
+          "autopay": "Automatic payment"
+        },
+        "cta": {
+          "insurance": "Add protection",
+          "larger_unit": "Request the change",
+          "additional_unit": "See available units",
+          "night_pass": "See the night pass",
+          "autopay": "Set up direct debit"
+        },
+        "interested": "I'm interested",
+        "interestedBadge": "We told your manager you are interested",
+        "decline": "No, thanks",
+        "interestedDone": "Done: your manager will get in touch.",
+        "declinedDone": "Understood, we will not show it again.",
+        "error": "Your answer could not be saved."
+      },
+      "extras": {
+        "title": "My extras",
+        "subtitle": "What you have and what you can add.",
+        "item": {
+          "insurance": "Contents protection",
+          "autopay": "Automatic payment",
+          "extraAccess": "Access for other people",
+          "nightPass": "Night pass",
+          "otherUnit": "Another unit"
+        },
+        "insuranceNone": "Your belongings are not protected.",
+        "insuranceAll": "All your units are protected.",
+        "insuranceSome": "{count} of {total} units protected.",
+        "autopayOn": "Your invoices are charged automatically.",
+        "autopayOff": "You pay each invoice yourself.",
+        "extraAccessCount": "{count, plural, one {# additional access} other {# additional accesses}}.",
+        "extraAccessNone": "Give access to a family member or an employee.",
+        "nightPassHint": "Get in outside opening hours when you need to.",
+        "otherUnitHint": "Rent another unit in a moment.",
+        "manage": "View",
+        "add": "Add"
+      }
     },
     "gocardless": {
       "loading": "Setting up your direct debit…",

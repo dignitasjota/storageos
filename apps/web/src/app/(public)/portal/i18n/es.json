@@ -516,7 +516,53 @@
         "chargeFailed": "No se pudo cobrar tu método de pago. Revisa tus datos e inténtalo de nuevo.",
         "purchaseError": "No se pudo completar la compra."
       },
-      "linkUsedContinue": "Ese enlace ya no es válido. Sigues dentro como {name}."
+      "linkUsedContinue": "Ese enlace ya no es válido. Sigues dentro como {name}.",
+      "offers": {
+        "title": "Ofertas para ti",
+        "perMonth": "{price}/mes",
+        "kind": {
+          "insurance": "Protección de contenido",
+          "larger_unit": "Un trastero más grande",
+          "additional_unit": "Otro trastero",
+          "night_pass": "Acceso fuera de horario",
+          "autopay": "Pago automático"
+        },
+        "cta": {
+          "insurance": "Contratar la protección",
+          "larger_unit": "Pedir el cambio",
+          "additional_unit": "Ver trasteros libres",
+          "night_pass": "Ver el pase nocturno",
+          "autopay": "Domiciliar el pago"
+        },
+        "interested": "Me interesa",
+        "interestedBadge": "Le hemos dicho a tu gestor que te interesa",
+        "decline": "No, gracias",
+        "interestedDone": "Hecho: tu gestor se pondrá en contacto contigo.",
+        "declinedDone": "De acuerdo, no te lo volveremos a enseñar.",
+        "error": "No se pudo guardar tu respuesta."
+      },
+      "extras": {
+        "title": "Mis extras",
+        "subtitle": "Lo que tienes contratado y lo que puedes añadir.",
+        "item": {
+          "insurance": "Protección de contenido",
+          "autopay": "Pago automático",
+          "extraAccess": "Accesos para otras personas",
+          "nightPass": "Pase nocturno",
+          "otherUnit": "Otro trastero"
+        },
+        "insuranceNone": "Tus cosas no están protegidas.",
+        "insuranceAll": "Todos tus trasteros están protegidos.",
+        "insuranceSome": "{count} de {total} trasteros protegidos.",
+        "autopayOn": "Tus recibos se cobran solos.",
+        "autopayOff": "Pagas cada factura a mano.",
+        "extraAccessCount": "{count, plural, one {# acceso adicional} other {# accesos adicionales}}.",
+        "extraAccessNone": "Da acceso a un familiar o a un empleado.",
+        "nightPassHint": "Entra fuera del horario del local cuando lo necesites.",
+        "otherUnitHint": "Contrata otro trastero en un momento.",
+        "manage": "Ver",
+        "add": "Añadir"
+      }
     },
     "gocardless": {
       "loading": "Activando tu domiciliación…",

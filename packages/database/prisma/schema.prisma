@@ -578,6 +578,7 @@ model Tenant {
   stripeAccount                  TenantStripeAccount?
   whatsappConversations          WhatsappConversation[]
   whatsappMessages               WhatsappMessage[]
+  customerOffers          CustomerOffer[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -662,6 +663,7 @@ model User {
   delinquencyCaseFiles     DelinquencyCaseFile[]     @relation("DelinquencyCaseFileCreatedBy")
 
   unitPriceChanges  UnitPriceHistory[] @relation("UnitPriceChangedBy")
+  customerOffers       CustomerOffer[]        @relation("CustomerOfferAuthor")
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
@@ -1212,6 +1214,7 @@ model Customer {
   whatsappConversations WhatsappConversation[]
   couponRedemptions CouponRedemption[]
 
+  offers                 CustomerOffer[]
   @@index([tenantId])
   @@index([tenantId, deletedAt])
   @@index([tenantId, documentNumber])
@@ -5578,3 +5581,30 @@ model FeatureInterestEvent {
   @@map("feature_interest_events")
 }
 
+/// Propuesta al inquilino desde Oportunidades: sale en su área de clientes.
+model CustomerOffer {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  customerId      String    @map("customer_id") @db.Uuid
+  /// insurance | larger_unit | additional_unit | night_pass | autopay
+  kind            String
+  title           String
+  message         String
+  priceGross      Decimal?  @map("price_gross") @db.Decimal(10, 2)
+  /// open | interested | declined | accepted | expired
+  status          String    @default("open")
+  seenAt          DateTime? @map("seen_at") @db.Timestamptz(6)
+  respondedAt     DateTime? @map("responded_at") @db.Timestamptz(6)
+  acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(6)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("CustomerOfferAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, customerId, createdAt(sort: Desc)])
+  @@map("customer_offers")
+}

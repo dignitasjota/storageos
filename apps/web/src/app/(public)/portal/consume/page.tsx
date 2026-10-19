@@ -56,10 +56,12 @@ import { PortalAiChatCard } from './ai-chat-card';
 import { ChatCard } from './chat-card';
 import { DocumentsCard } from './documents-card';
 import { DoorOpenCard } from './door-open-card';
+import { ExtrasCard } from './extras-card';
 import { FaqCard } from './faq-card';
 import { InsuranceCard } from './insurance-card';
 import { InvoicesList } from './invoices-list';
 import { NightAccessCard } from './night-access-card';
+import { OffersCard } from './offers-card';
 import { OverviewCard } from './overview-card';
 import { ProfileCard } from './profile-card';
 import { RetentionOfferCard } from './retention-offer-card';
@@ -1005,9 +1007,18 @@ function PortalConsumeContent() {
               brandColor={session.brandColor ?? null}
               onNavigate={setTab}
             />
+            <OffersCard session={session} onNavigate={handleNav} />
           </TabsContent>
 
           <TabsContent value="contratos" className="space-y-6">
+            <ExtrasCard
+              session={session}
+              contracts={contracts ?? []}
+              account={account}
+              access={access ?? []}
+              nightPass={nightPass}
+              onNavigate={handleNav}
+            />
             <RetentionOfferCard
               session={session}
               onChanged={() => {
