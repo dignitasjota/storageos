@@ -4,6 +4,8 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminSearchResultDto,
+  AdminTenantOverviewDto,
   AdminApprovalRequestDto,
   ApprovalStatus,
   CreateApprovalRequestInput,
@@ -358,6 +360,27 @@ export function useAdminEmailLog(filters: PlatformEmailLogFilters) {
 }
 
 /** Etiquetas estratégicas distintas en uso (para el selector de filtro/segmentación). */
+/** Visión general de todos los tenants (una fila con pagos, extras, salud…). */
+export function useAdminTenantsOverview() {
+  return useQuery({
+    queryKey: ['admin', 'tenants', 'overview'] as const,
+    queryFn: () => adminApiFetch<AdminTenantOverviewDto[]>('/admin/tenants-overview'),
+    staleTime: 30_000,
+  });
+}
+
+/** Búsqueda global del panel admin (⌘K). */
+export function useAdminSearch(q: string) {
+  const term = q.trim();
+  return useQuery({
+    queryKey: ['admin', 'search', term] as const,
+    queryFn: () =>
+      adminApiFetch<AdminSearchResultDto>(`/admin/search?q=${encodeURIComponent(term)}`),
+    enabled: term.length >= 2,
+    staleTime: 15_000,
+  });
+}
+
 export function useAdminTenantTags() {
   return useQuery({
     queryKey: ['admin', 'tenants', 'tags'] as const,

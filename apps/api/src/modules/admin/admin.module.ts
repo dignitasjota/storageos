@@ -39,6 +39,8 @@ import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { AdminTenantSummaryService } from './admin-tenant-summary.service';
 import { AdminTenantTimelineService } from './admin-tenant-timeline.service';
+import { AdminTenantsOverviewController } from './admin-tenants-overview.controller';
+import { AdminTenantsOverviewService } from './admin-tenants-overview.service';
 import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
 import { AdminTodayController } from './admin-today.controller';
@@ -108,6 +110,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     StripeConnectModule,
   ],
   controllers: [
+    AdminTenantsOverviewController,
     AdminPaymentSettingsController,
     AdminCommsController,
     SuperAdminAuthController,
@@ -139,6 +142,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
   ],
   providers: [
     AdminGuard,
+    AdminTenantsOverviewService,
     // Auditoría de los endpoints marcados con @AdminAudit (solo actúa con esa marca).
     { provide: APP_INTERCEPTOR, useClass: AdminAuditInterceptor },
     PlatformAlertsService,

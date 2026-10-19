@@ -45,6 +45,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import type { SuperAdminDto, SuperAdminRefreshResponse } from '@storageos/shared';
 
+import { AdminCommandPalette } from '@/components/admin/admin-command-palette';
 import { ConfirmProvider } from '@/components/confirm-provider';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -486,6 +487,7 @@ function AdminShell({ children }: { children: ReactNode }) {
             <div className="text-sm font-medium text-muted-foreground">Panel super admin</div>
           </div>
           <div className="flex items-center gap-1">
+            <AdminCommandPalette />
             <Link
               href="/admin/notifications"
               className="relative inline-flex size-9 items-center justify-center rounded-full hover:bg-accent"

@@ -35,7 +35,7 @@ test('borrar un seguimiento del tenant pide confirmación en un diálogo', async
   await tenantsLink.click();
   // El CSV recorre todos los tenants del filtro.
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: /Exportar CSV/ }).click();
+  await page.getByRole('button', { name: /CSV/ }).click();
   expect((await download).suggestedFilename()).toBe('tenants.csv');
 
   // Acción masiva: seleccionar y etiquetar.
@@ -50,7 +50,11 @@ test('borrar un seguimiento del tenant pide confirmación en un diálogo', async
   await expect(page.getByText(/Etiquetas actualizadas en 1 tenant/)).toBeVisible();
   await page.getByRole('button', { name: /Quitar selección/ }).click();
 
-  await page.locator('button', { hasText: tenant.slug }).first().click();
+  await page
+    .getByRole('row', { name: new RegExp(tenant.slug) })
+    .getByRole('link')
+    .first()
+    .click();
   await expect(page).toHaveURL(/\/admin\/tenants\/[a-f0-9-]+/);
   await expect(page.getByText('Aporta al mes')).toBeVisible();
 

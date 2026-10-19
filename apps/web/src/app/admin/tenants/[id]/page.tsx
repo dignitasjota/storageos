@@ -13,7 +13,7 @@ import {
 } from '@storageos/shared';
 import { Loader2, Mail, MoreVertical, Pencil } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -98,6 +98,7 @@ import {
   useSuspendTenant,
 } from '@/lib/admin/hooks';
 import { subscriptionStatusLabel, tenantStatusLabel } from '@/lib/admin/labels';
+import { rememberTenant } from '@/lib/admin/recent-tenants';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { IMPERSONATION_HANDOFF_KEY, IMPERSONATION_URL_PARAM } from '@/lib/auth/impersonation';
@@ -127,6 +128,12 @@ export default function AdminTenantDetailPage() {
   const [customersOpen, setCustomersOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+
+  // Para los «recientes» de la búsqueda ⌘K.
+  const tenantName = tenant.data?.name;
+  useEffect(() => {
+    if (tenantName) rememberTenant({ id, name: tenantName });
+  }, [id, tenantName]);
 
   if (tenant.isLoading) {
     return (
