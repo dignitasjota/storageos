@@ -80,6 +80,7 @@ import {
   type SetupIntentResponseDto,
   PortalInterestSchema,
   type PortalAccountDto,
+  type PortalNoticeDto,
   type PortalOfferDto,
   PortalRespondOfferSchema,
 } from '@storageos/shared';
@@ -232,6 +233,39 @@ export class PortalController {
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() input: PortalResetPasswordDto): Promise<PortalSessionDto> {
     return this.portal.resetPassword(input.token, input.password);
+  }
+
+  /** Avisos que el negocio le ha enviado por correo. */
+  @Public()
+  @Get('me/notices')
+  async myNotices(@Headers('authorization') auth: string | undefined): Promise<PortalNoticeDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.listMyNotices(tenantId, customerId);
+  }
+
+  /** Quita un método de pago guardado. */
+  @Public()
+  @Delete('me/payment-methods/:id')
+  @ThrottleLogin()
+  async removeMyPaymentMethod(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PaymentMethodDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.removeMyPaymentMethod(tenantId, customerId, id);
+  }
+
+  /** Lo marca como el método con el que se cobra. */
+  @Public()
+  @Post('me/payment-methods/:id/default')
+  @HttpCode(HttpStatus.OK)
+  @ThrottleLogin()
+  async setMyDefaultPaymentMethod(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PaymentMethodDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.setMyDefaultPaymentMethod(tenantId, customerId, id);
   }
 
   /** «Mi cuenta»: lo que paga al mes, cómo, el próximo cargo y lo que debe. */

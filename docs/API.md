@@ -2134,3 +2134,9 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 
 - `customers.portal_last_seen_at`: última visita del inquilino a su área de clientes (se anota al validar la sesión del portal, como mucho una vez por hora y sin tocar `updated_at`). `GET /customers/overview` la devuelve como `portalLastSeenAt`.
 - `GET /dashboard/today/summary`: `kpis.debtorsWithoutPortal` (inquilinos con facturas vencidas que nunca han entrado).
+
+### Portal: avisos y métodos de pago
+
+- `GET /portal/me/notices`: los 30 últimos correos que el negocio le ha enviado (enviados o entregados, con asunto); los datos secretos (p. ej. un PIN) salen como `••••`.
+- `DELETE /portal/me/payment-methods/:id` y `POST /portal/me/payment-methods/:id/default` (200, devuelven la lista): quitar un método de pago (si era el predeterminado, pasa a serlo el más reciente) o elegir con cuál se cobra. 404 si no es suyo.
+- `GET /portal/me/insurance-plans` devuelve `[]` si el plan del negocio ya no incluye la protección.

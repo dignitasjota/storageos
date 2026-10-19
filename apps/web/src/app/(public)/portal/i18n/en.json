@@ -242,7 +242,13 @@
         "pendingTitle": "To pay",
         "payAll": "Pay all ({amount})",
         "yearSummary": "{count, plural, one {# invoice} other {# invoices}} · {total}",
-        "payAllResult": "{ok} paid and {failed, plural, one {# could not be charged} other {# could not be charged}}."
+        "payAllResult": "{ok} paid and {failed, plural, one {# could not be charged} other {# could not be charged}}.",
+        "makeDefault": "Use for payments",
+        "remove": "Remove",
+        "removeConfirm": "Remove? Tap again",
+        "removed": "Payment method removed.",
+        "defaultSaved": "This method will be charged.",
+        "pmError": "The change could not be saved."
       },
       "access": {
         "title": "Your access",
@@ -562,6 +568,10 @@
         "otherUnitHint": "Rent another unit in a moment.",
         "manage": "View",
         "add": "Add"
+      },
+      "notices": {
+        "title": "Notices we have sent you",
+        "subtitle": "Emails from the business: reminders, price changes and other notices."
       }
     },
     "gocardless": {

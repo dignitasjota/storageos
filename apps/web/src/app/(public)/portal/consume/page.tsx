@@ -61,6 +61,7 @@ import { FaqCard } from './faq-card';
 import { InsuranceCard } from './insurance-card';
 import { InvoicesList } from './invoices-list';
 import { NightAccessCard } from './night-access-card';
+import { NoticesCard } from './notices-card';
 import { OffersCard } from './offers-card';
 import { OverviewCard } from './overview-card';
 import { ProfileCard } from './profile-card';
@@ -335,6 +336,8 @@ function PortalConsumeContent() {
   const [saveCard, setSaveCard] = useState(true);
   const [gcPending, setGcPending] = useState(false);
   const [payingId, setPayingId] = useState<string | null>(null);
+  const [pmBusy, setPmBusy] = useState<string | null>(null);
+  const [pmConfirm, setPmConfirm] = useState<string | null>(null);
 
   /** Fetch autenticado con el JWT corto del portal (no usa el auth store del staff). */
   function portalFetch<T>(
@@ -436,6 +439,12 @@ function PortalConsumeContent() {
             '/portal/me/push/public-key',
           );
           if (!cancelled) setPushKey(k.publicKey);
+          // ¿Ya las tiene activadas en este dispositivo?
+          if (k.publicKey && 'serviceWorker' in navigator && 'PushManager' in window) {
+            const reg = await navigator.serviceWorker.getRegistration();
+            const sub = await reg?.pushManager.getSubscription();
+            if (!cancelled && sub) setPushEnabled(true);
+          }
         } catch {
           /* push opcional */
         }
@@ -771,6 +780,43 @@ function PortalConsumeContent() {
       toast.success(tInvoices('savedSuccess'));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : tInvoices('saveError'));
+    }
+  }
+
+  async function removePm(id: string) {
+    if (!session) return;
+    setPmBusy(id);
+    try {
+      setPaymentMethods(
+        await portalFetch<PaymentMethodDto[]>(session, `/portal/me/payment-methods/${id}`, {
+          method: 'DELETE',
+        }),
+      );
+      setPmConfirm(null);
+      toast.success(tInvoices('removed'));
+      void reloadInvoices();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : tInvoices('pmError'));
+    } finally {
+      setPmBusy(null);
+    }
+  }
+
+  async function setDefaultPm(id: string) {
+    if (!session) return;
+    setPmBusy(id);
+    try {
+      setPaymentMethods(
+        await portalFetch<PaymentMethodDto[]>(session, `/portal/me/payment-methods/${id}/default`, {
+          method: 'POST',
+        }),
+      );
+      toast.success(tInvoices('defaultSaved'));
+      void reloadInvoices();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : tInvoices('pmError'));
+    } finally {
+      setPmBusy(null);
     }
   }
 
@@ -1245,7 +1291,13 @@ function PortalConsumeContent() {
                   invoices={invoices}
                   accessToken={session.accessToken}
                   canChargeAutomatically={canChargeAutomatically}
-                  redsysEnabled={redsysEnabled}
+                  redsysEnabled={
+                    redsysEnabled &&
+                    !(
+                      canChargeAutomatically &&
+                      (paymentMethods ?? []).some((pm) => pm.isDefault && pm.gateway === 'redsys')
+                    )
+                  }
                   bizumEnabled={bizumEnabled}
                   saveCard={cardOnFileEnabled && saveCard}
                   payingId={payingId}
@@ -1364,7 +1416,29 @@ function PortalConsumeContent() {
                             </p>
                           )}
                         </div>
-                        {pm.isDefault && <Badge variant="secondary">{tInvoices('default')}</Badge>}
+                        {pm.isDefault ? (
+                          <Badge variant="secondary">{tInvoices('default')}</Badge>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={pmBusy === pm.id}
+                            onClick={() => void setDefaultPm(pm.id)}
+                          >
+                            {tInvoices('makeDefault')}
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto text-destructive"
+                          disabled={pmBusy === pm.id}
+                          onClick={() =>
+                            pmConfirm === pm.id ? void removePm(pm.id) : setPmConfirm(pm.id)
+                          }
+                        >
+                          {pmConfirm === pm.id ? tInvoices('removeConfirm') : tInvoices('remove')}
+                        </Button>
                       </li>
                     ))}
                   </ul>
@@ -1457,6 +1531,7 @@ function PortalConsumeContent() {
           <TabsContent value="mensajes" className="space-y-6">
             {session && <PortalAiChatCard session={session} />}
             {session && <ChatCard session={session} />}
+            {session && <NoticesCard session={session} />}
           </TabsContent>
 
           <TabsContent value="incidencias" className="space-y-6">
