@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { LeadConversation } from './lead-conversation';
+import { LeadQuote } from './lead-quote';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
@@ -545,6 +546,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
             </p>
           )}
         </div>
+        {isEdit && lead && <LeadQuote lead={lead} />}
         {isEdit && lead && <LeadConversation lead={lead} />}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>

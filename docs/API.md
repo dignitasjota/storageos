@@ -2106,3 +2106,7 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 ### «Hoy»: cifras del mes y actividad
 
 - `GET /dashboard/today/summary?facilityId=` (`contracts:read`, alcance por local; 400 `invalid_facility_id`): cifras del mes en hora de España — facturado, cobrado (cobros reales), deuda vencida pendiente, ocupación, trasteros libres y totales, altas (contratos firmados) y bajas (contratos terminados) — y la actividad de las últimas 48 h (contratos firmados, cobros recibidos y rechazados, bajas pedidas, contactos nuevos, mensajes de inquilinos e incidencias), cada una con su enlace.
+### Presupuesto a un contacto
+
+- `POST /leads/:id/quote/preview {facilityId, unitTypeId, months 1|3|6|12, couponCode?, insurancePlanId?}` (`leads:read`, 200): lo que pagaría al reservar (el trastero libre más barato de ese tamaño en ese local, con el cupón como un cliente nuevo, el seguro de los mismos meses y la fianza), la cuota mensual con IVA después, el enlace a la reserva online con el local, el tamaño, los meses y el cupón ya puestos (`utm_source=presupuesto`) y el correo redactado. 409 `no_units_available`, 400 `insurance_plan_not_found`.
+- `POST /leads/:id/quote/send` (mismo cuerpo + `subject?`, `body?`; `communications:send`): envía el correo (Comunicaciones, `source: lead.quote`), guarda el local y el tamaño que busca, pasa el contacto de «nuevo» a «contactado» y audita `lead.quote_sent`. 400 `lead_without_email`. Si reserva con ese email, la reserva marca el contacto como ganado con el origen del enlace.

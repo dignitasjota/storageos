@@ -3,6 +3,10 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { apiFetch } from '../auth/api';
 
 import type {
+  LeadQuoteDto,
+  LeadQuoteInput,
+  SendLeadQuoteInput,
+  SendLeadQuoteResultDto,
   AutomationRuleDto,
   AutomationRunDto,
   CommunicationDto,
@@ -288,6 +292,30 @@ export function useConvertLead() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
+    },
+  });
+}
+
+/** Presupuesto a un contacto: cálculo y texto (sin enviar). */
+export function useLeadQuotePreview(leadId: string) {
+  return useMutation({
+    mutationFn: (input: LeadQuoteInput) =>
+      apiFetch<LeadQuoteDto>(`/leads/${leadId}/quote/preview`, { method: 'POST', json: input }),
+  });
+}
+
+/** Envía el presupuesto por correo con el enlace a la reserva ya rellenada. */
+export function useSendLeadQuote(leadId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SendLeadQuoteInput) =>
+      apiFetch<SendLeadQuoteResultDto>(`/leads/${leadId}/quote/send`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['communications'] });
+      void qc.invalidateQueries({ queryKey: ['leads'] });
     },
   });
 }

@@ -20,6 +20,10 @@ import {
   type LeadSourceValue,
   type LeadStatusValue,
   LeadReplySchema,
+  LeadQuoteSchema,
+  type LeadQuoteDto as LeadQuoteResultDto,
+  SendLeadQuoteSchema,
+  type SendLeadQuoteResultDto,
   SetLeadMarketingSchema,
   TransitionLeadSchema,
   UpdateLeadSchema,
@@ -33,6 +37,7 @@ import {
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { parsePageRequest, toPage } from '../../common/pagination';
 
+import { LeadQuotesService } from './lead-quotes.service';
 import { LeadsService } from './leads.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -45,6 +50,8 @@ class TransitionLeadDto extends createZodDto(TransitionLeadSchema) {}
 class SetLeadMarketingDto extends createZodDto(SetLeadMarketingSchema) {}
 class LeadReplyDto extends createZodDto(LeadReplySchema) {}
 class ConvertLeadDto extends createZodDto(ConvertLeadSchema) {}
+class LeadQuoteDto extends createZodDto(LeadQuoteSchema) {}
+class SendLeadQuoteDto extends createZodDto(SendLeadQuoteSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -57,7 +64,10 @@ function extractMeta(req: Request): RequestMeta {
 
 @Controller('leads')
 export class LeadsController {
-  constructor(private readonly service: LeadsService) {}
+  constructor(
+    private readonly service: LeadsService,
+    private readonly quotes: LeadQuotesService,
+  ) {}
 
   /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
   @Get('page')
@@ -144,6 +154,33 @@ export class LeadsController {
       id,
       input: body,
       meta: extractMeta(req),
+    });
+  }
+
+  /** Presupuesto (sin enviar): lo que pagaría y el texto del correo. */
+  @Post(':id/quote/preview')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('leads:read')
+  quotePreview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: LeadQuoteDto,
+  ): Promise<LeadQuoteResultDto> {
+    return this.quotes.preview(user.tenantId, id, body);
+  }
+
+  /** Envía el presupuesto por correo con el enlace a la reserva ya rellenada. */
+  @Post(':id/quote/send')
+  @RequirePermission('communications:send')
+  quoteSend(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SendLeadQuoteDto,
+    @Req() req: Request,
+  ): Promise<SendLeadQuoteResultDto> {
+    return this.quotes.send(user.tenantId, user.sub, id, body, {
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
     });
   }
 
