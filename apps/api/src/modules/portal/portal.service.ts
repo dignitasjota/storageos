@@ -873,9 +873,15 @@ export class PortalService {
         invoiceId: { in: rows.map((r) => r.id) },
       },
     });
-    const inFlightIds = new Set(
-      inFlight.map((p) => p.invoiceId).filter((id): id is string => !!id),
-    );
+    // Un adeudo en una remesa SEPA sin confirmar también se está cobrando.
+    const inRemittance = await this.admin.sepaRemittanceItem.findMany({
+      where: { tenantId, status: 'pending', invoiceId: { in: rows.map((r) => r.id) } },
+      select: { invoiceId: true },
+    });
+    const inFlightIds = new Set([
+      ...inFlight.map((p) => p.invoiceId).filter((id): id is string => !!id),
+      ...inRemittance.map((i) => i.invoiceId),
+    ]);
     const pendingOf = (r: (typeof rows)[number]) =>
       ['issued', 'overdue'].includes(r.status)
         ? Math.max(0, Number(r.total) - Number(r.amountPaid))

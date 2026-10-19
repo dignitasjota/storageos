@@ -81,7 +81,11 @@ export function PortalI18nProvider({ children }: { children: ReactNode }) {
 
   return (
     <PortalLocaleContext.Provider value={{ locale, setLocale }}>
-      <NextIntlClientProvider locale={intlLocaleForPortal(locale)} messages={messages}>
+      <NextIntlClientProvider
+        locale={intlLocaleForPortal(locale)}
+        messages={messages}
+        timeZone="Europe/Madrid"
+      >
         {children}
       </NextIntlClientProvider>
     </PortalLocaleContext.Provider>

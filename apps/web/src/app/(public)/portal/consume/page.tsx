@@ -2,6 +2,7 @@
 
 import {
   type PaymentMethodDto,
+  type PortalAccountDto,
   type PortalAccessCredentialDto,
   type PortalChargeResultDto,
   type PortalContractDto,
@@ -304,6 +305,7 @@ function PortalConsumeContent() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodDto[] | null>(null);
   const [access, setAccess] = useState<PortalAccessCredentialDto[] | null>(null);
   const [nightPass, setNightPass] = useState<PortalNightPassInfoDto | null>(null);
+  const [account, setAccount] = useState<PortalAccountDto | null>(null);
   const [passRefresh, setPassRefresh] = useState(0);
   const [buyingPass, setBuyingPass] = useState(false);
   const [referrals, setReferrals] = useState<PortalReferralDto | null>(null);
@@ -379,24 +381,35 @@ function PortalConsumeContent() {
     let cancelled = false;
     (async () => {
       try {
-        // 1) ¿Sesión persistida todavía válida? (recargas, volver a la pestaña).
-        let s = loadStoredPortalSession();
-        // 2) Si no, consumimos el magic link de la URL (un solo uso) y lo
-        //    quitamos de la URL para que las recargas no lo reintenten.
-        if (!s) {
-          if (!token) {
+        // 1) Un enlace de acceso en la URL manda sobre la sesión guardada: en
+        //    un móvil compartido (o al abrir el enlace de otro inquilino) hay
+        //    que entrar con el del enlace, no con la sesión anterior.
+        let s: PortalSessionDto | null = null;
+        if (token) {
+          try {
+            s = await apiFetch<PortalSessionDto>('/portal/login/consume', {
+              method: 'POST',
+              json: { token },
+              requiresAuth: false,
+            });
+            storePortalSession(s);
+          } catch (err) {
+            // Enlace ya usado o caducado: si hay una sesión guardada se sigue
+            // con ella (avisando de con quién); si no, error.
+            s = loadStoredPortalSession();
+            if (!s) throw err;
+            toast.info(t('linkUsedContinue', { name: s.customerName }));
+          }
+          if (typeof window !== 'undefined') {
+            window.history.replaceState(null, '', '/portal/consume');
+          }
+        } else {
+          // 2) Sin enlace: la sesión persistida (recargas, volver a la pestaña).
+          s = loadStoredPortalSession();
+          if (!s) {
             setError(t('invalidLinkFallback'));
             setLoading(false);
             return;
-          }
-          s = await apiFetch<PortalSessionDto>('/portal/login/consume', {
-            method: 'POST',
-            json: { token },
-            requiresAuth: false,
-          });
-          storePortalSession(s);
-          if (typeof window !== 'undefined') {
-            window.history.replaceState(null, '', '/portal/consume');
           }
         }
         if (cancelled) return;
@@ -409,7 +422,7 @@ function PortalConsumeContent() {
             if (err instanceof ApiError && err.statusCode === 401) throw err;
             return fallback;
           });
-        const [inv, pms, acc, refs, ctr, inc, ucr, ucr2] = await Promise.all([
+        const [inv, pms, acc, refs, ctr, inc, ucr, ucr2, acct] = await Promise.all([
           safe(portalFetch<PortalInvoiceDto[]>(s, '/portal/me/invoices'), []),
           safe(portalFetch<PaymentMethodDto[]>(s, '/portal/me/payment-methods'), []),
           safe(portalFetch<PortalAccessCredentialDto[]>(s, '/portal/me/access'), []),
@@ -418,12 +431,14 @@ function PortalConsumeContent() {
           safe(portalFetch<PortalIncidentDto[]>(s, '/portal/me/incidents'), []),
           safe(portalFetch<PortalUnitChangeRequestDto[]>(s, '/portal/me/unit-change-requests'), []),
           safe(portalFetch<PortalNightPassInfoDto | null>(s, '/portal/me/access/night-pass'), null),
+          safe(portalFetch<PortalAccountDto | null>(s, '/portal/me/account'), null),
         ]);
         if (cancelled) return;
         setInvoices(inv);
         setPaymentMethods(pms);
         setAccess(acc);
         setNightPass(ucr2);
+        setAccount(acct);
         setReferrals(refs);
         setContracts(ctr);
         setIncidents(inc);
@@ -661,8 +676,12 @@ function PortalConsumeContent() {
   async function reloadInvoices() {
     if (!session) return;
     try {
-      const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
+      const [inv, acct] = await Promise.all([
+        portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices'),
+        portalFetch<PortalAccountDto>(session, '/portal/me/account'),
+      ]);
       setInvoices(inv);
+      setAccount(acct);
     } catch {
       /* opcional */
     }
@@ -807,12 +826,10 @@ function PortalConsumeContent() {
         toast.info(tInvoices('chargeProcessing'));
         // Recargar para mostrar «Pago en curso» y desactivar los botones (evita
         // que el inquilino lance un segundo adeudo sobre la misma factura).
-        const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
-        setInvoices(inv);
+        await reloadInvoices();
       } else if (result.status === 'succeeded') {
         toast.success(tInvoices('chargeSuccess'));
-        const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
-        setInvoices(inv);
+        await reloadInvoices();
       } else {
         toast.error(
           result.failureReason
@@ -918,18 +935,19 @@ function PortalConsumeContent() {
       </div>
 
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">
             {t('greeting', { name: session.customerName })}
           </h1>
           <p className="text-sm text-muted-foreground">{session.email}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <PortalLanguageSwitcher />
           <ThemeToggle />
           <InstallPwaButton />
-          <Button variant="outline" size="sm" onClick={logout}>
-            <LogOut className="mr-1 h-4 w-4" /> {t('logout')}
+          <Button variant="outline" size="sm" onClick={logout} aria-label={t('logout')}>
+            <LogOut className="h-4 w-4 sm:mr-1" />
+            <span className="hidden sm:inline">{t('logout')}</span>
           </Button>
         </div>
       </div>
@@ -963,6 +981,7 @@ function PortalConsumeContent() {
               invoices={invoices}
               contracts={contracts ?? []}
               unreadMessages={unreadMessages}
+              account={account}
               brandColor={session.brandColor ?? null}
               onNavigate={setTab}
             />
@@ -996,7 +1015,12 @@ function PortalConsumeContent() {
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {c.contractNumber} ·{' '}
-                            {tContracts('pricePerMonth', { price: c.effectivePrice.toFixed(2) })}
+                            {tContracts('pricePerMonth', {
+                              price: (c.effectivePriceWithVat ?? c.effectivePrice).toLocaleString(
+                                intlLocaleForPortal(locale),
+                                { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+                              ),
+                            })}
                             {c.status === 'ending' && c.endDate
                               ? tContracts('moveOutPlanned', { date: c.endDate })
                               : ''}
@@ -1044,7 +1068,12 @@ function PortalConsumeContent() {
                             {tContracts('insuranceLine', { name: c.insurancePlanName })}
                             {c.insurancePrice
                               ? tContracts('insurancePriceSuffix', {
-                                  price: c.insurancePrice.toFixed(2),
+                                  price: (
+                                    c.insurancePriceWithVat ?? c.insurancePrice
+                                  ).toLocaleString(intlLocaleForPortal(locale), {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  }),
                                 })
                               : ''}
                           </span>

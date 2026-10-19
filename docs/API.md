@@ -2103,9 +2103,11 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `GET /opportunities` (`customers:read`, alcance por local): por inquilino con contrato activo, qué ofrecer — seguro (contratos sin protección; más fuerte si miró el seguro), trastero mayor (lo miró o pidió cambio y hay uno libre más grande en su local), otro trastero (lo miró en 30 días), pase nocturno (intentos de entrar fuera de horario o lo miró; solo con el pase activo) y domiciliar el pago (sin tarjeta, adeudo ni mandato) — con motivo, oferta con precio con IVA, valor mensual y última propuesta (lo propuesto en 30 días baja en el orden).
 - `GET /opportunities/draft?customerId=&kind=` (404 `opportunity_not_found` si ya no aplica): asunto, texto del correo y texto para WhatsApp con el enlace al área de clientes.
 - `POST /opportunities/propose {customerId, kind, subject?, body?, followupInDays}` (`communications:send`): envía el correo (Comunicaciones, `source: opportunity:<kind>`), crea el seguimiento y audita `opportunity.proposed`. Solo propone: no cambia el contrato.
+
 ### «Hoy»: cifras del mes y actividad
 
 - `GET /dashboard/today/summary?facilityId=` (`contracts:read`, alcance por local; 400 `invalid_facility_id`): cifras del mes en hora de España — facturado, cobrado (cobros reales), deuda vencida pendiente, ocupación, trasteros libres y totales, altas (contratos firmados) y bajas (contratos terminados) — y la actividad de las últimas 48 h (contratos firmados, cobros recibidos y rechazados, bajas pedidas, contactos nuevos, mensajes de inquilinos e incidencias), cada una con su enlace.
+
 ### Presupuesto a un contacto
 
 - `POST /leads/:id/quote/preview {facilityId, unitTypeId, months 1|3|6|12, couponCode?, insurancePlanId?}` (`leads:read`, 200): lo que pagaría al reservar (el trastero libre más barato de ese tamaño en ese local, con el cupón como un cliente nuevo, el seguro de los mismos meses y la fianza), la cuota mensual con IVA después, el enlace a la reserva online con el local, el tamaño, los meses y el cupón ya puestos (`utm_source=presupuesto`) y el correo redactado. 409 `no_units_available`, 400 `insurance_plan_not_found`.
@@ -2113,3 +2115,9 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 ### Extras por inquilino
 
 - `GET /customers/extras` (`customers:read`, alcance por local): inquilinos con contrato activo y qué tiene cada uno — protección de contenido (contratos con seguro / total), cobro automático (tarjeta, adeudo o mandato SEPA), accesos adicionales activos, pases nocturnos de los últimos 90 días, compras en la tienda de los últimos 12 meses y si entra al área de clientes con contraseña — más cuántos inquilinos tienen cada extra. En la web, «Extras» en Inquilinos: al pulsar un extra se ven los que no lo tienen.
+
+### Portal: mi cuenta
+
+- `GET /portal/me/account` (sesión de portal): lo que paga al mes con IVA (por contrato: alquiler con descuento + seguro), cómo se le cobra (`payVia` card | sepa_debit | sepa_mandate | null, marca y últimas cifras), si se cobra solo (`automatic`) y si puede domiciliar desde el portal (`canSetupAutomatic`), el próximo cargo, lo que ya se está cobrando (`inProgress`: adeudo en curso o en remesa SEPA), lo emitido sin vencer y, si debe algo, `overdue` con importe, desde cuándo, los pasos del escalado de la factura más antigua (`steps`: recordatorios, recargo, corte de acceso, reclamación, con fecha y si ya ocurrió) y `accessBlocked`.
+- `GET /portal/me/invoices`: `paymentInProgress` también es `true` con la factura en una remesa SEPA sin confirmar.
+- `GET /portal/me/contracts`: `effectivePriceWithVat` e `insurancePriceWithVat` (la cuota y el seguro con IVA).

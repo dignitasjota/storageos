@@ -24,6 +24,7 @@ import { UnitRequestsModule } from '../unit-requests/unit-requests.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
 
 import { NightPassService } from './night-pass.service';
+import { PortalAccountService } from './portal-account.service';
 import { PortalLinkController } from './portal-link.controller';
 import { PortalController } from './portal.controller';
 import { PortalService } from './portal.service';
@@ -72,6 +73,6 @@ import { PortalService } from './portal.service';
   // AuditService de AuthModule— ya están disponibles) en vez de importar
   // CustomersModule entero: importarlo reintroducía el JwtModule de AuthModule
   // y rompía la verificación del token del portal (401 en /portal/me/*).
-  providers: [PortalService, NightPassService, CustomerDocumentsService],
+  providers: [PortalService, PortalAccountService, NightPassService, CustomerDocumentsService],
 })
 export class PortalModule {}
