@@ -95,7 +95,34 @@
         "quickIncidents": "Issues",
         "quickReport": "Report",
         "quickContract": "Rent",
-        "quickOtherUnit": "Another unit"
+        "quickOtherUnit": "Another unit",
+        "inProgress": "{amount} is already being collected (direct debit in progress): nothing to do.",
+        "account": {
+          "title": "My account",
+          "monthly": "You pay per month",
+          "vatIncluded": "Amounts include VAT.",
+          "withInsurance": "insurance {amount}",
+          "prepaid": "prepaid for {months} months",
+          "ending": "move-out requested",
+          "nextCharge": "Next charge · {date}",
+          "payCard": "{brand} card ··{last4}",
+          "cardFallback": "Card",
+          "payDebit": "direct debit from account ··{last4}",
+          "automatic": "Charged automatically to your {method}.",
+          "savedNotAutomatic": "Your {method} is saved; invoices are paid from «Invoices».",
+          "manual": "You pay each invoice yourself. Set up a direct debit and forget about it.",
+          "setupAutomatic": "Set up automatic payment",
+          "overdue": "You have {amount} unpaid for {days, plural, one {# day} other {# days}}.",
+          "accessBlocked": "Your access to the facility is suspended because of this unpaid balance. It is restored as soon as you pay.",
+          "payOverdue": "Pay now",
+          "step": {
+            "email_reminder": "{date}: we will send you a reminder.",
+            "email_reminder_final": "{date}: second notice.",
+            "late_fee": "{date}: a late payment fee will be added.",
+            "access_block": "{date}: your access to the facility will be suspended.",
+            "legal_notice": "{date}: formal collection will begin."
+          }
+        }
       },
       "contracts": {
         "title": "My contracts",
@@ -466,7 +493,8 @@
         "noPaymentMethod": "You need a payment method to buy. Add a card or direct debit under «Payment method».",
         "chargeFailed": "Couldn't charge your payment method. Check your details and try again.",
         "purchaseError": "Couldn't complete the purchase."
-      }
+      },
+      "linkUsedContinue": "That link is no longer valid. You are still signed in as {name}."
     },
     "gocardless": {
       "loading": "Setting up your direct debit…",

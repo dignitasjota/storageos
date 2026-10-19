@@ -17,6 +17,8 @@ export interface PortalContractDto {
   endDate: string | null;
   priceMonthly: number;
   effectivePrice: number;
+  /** Cuota con IVA (lo que paga cada mes por el trastero). */
+  effectivePriceWithVat: number;
   cancellationNoticeDays: number;
   endingRequestedAt: string | null;
   /** Fianza/depósito y su estado. */
@@ -29,6 +31,8 @@ export interface PortalContractDto {
   insurancePlanId: string | null;
   insurancePlanName: string | null;
   insurancePrice: number | null;
+  /** Prima del seguro con IVA. */
+  insurancePriceWithVat: number | null;
   /** true si hay PDF del contrato firmado disponible para descargar. */
   hasSignedPdf: boolean;
   /** true si el trastero tiene el candado puesto por impago (expediente overlock). */
@@ -191,4 +195,57 @@ export interface PortalNightPassDto {
   expiresAt: string | null;
   /** Local para el que se compró (null en pases anteriores a 2026-09). */
   facilityName: string | null;
+}
+
+/** Una línea de lo que paga cada mes (un contrato), con IVA. */
+export interface PortalAccountLineDto {
+  contractId: string;
+  unitCode: string;
+  facilityName: string;
+  rent: number;
+  insurance: number;
+  insuranceName: string | null;
+  total: number;
+  /** 1 = mensual; 6/12 = prepago semestral/anual. */
+  billingIntervalMonths: number;
+  ending: boolean;
+}
+
+/** Paso del escalado de un impago que aún no ha ocurrido o ya ocurrió. */
+export interface PortalDunningStepDto {
+  type: 'email_reminder' | 'email_reminder_final' | 'late_fee' | 'access_block' | 'legal_notice';
+  date: string;
+  done: boolean;
+}
+
+/**
+ * «Mi cuenta» del inquilino (`GET /portal/me/account`): lo que paga al mes
+ * con IVA, cómo se le cobra, el próximo cargo y, si debe algo, cuánto y qué
+ * pasará si no paga.
+ */
+export interface PortalAccountDto {
+  monthly: number;
+  lines: PortalAccountLineDto[];
+  /** card | sepa_debit | sepa_mandate | null (se paga a mano). */
+  payVia: 'card' | 'sepa_debit' | 'sepa_mandate' | null;
+  /** Marca de la tarjeta (si es tarjeta). */
+  payBrand: string | null;
+  payLast4: string | null;
+  /** Se cobra solo (tarjeta o adeudo guardados con cobro automático, o remesa SEPA). */
+  automatic: boolean;
+  /** El negocio ofrece domiciliar desde el portal (tarjeta o GoCardless). */
+  canSetupAutomatic: boolean;
+  nextCharge: { date: string; amount: number } | null;
+  /** Ya se está cobrando (adeudo en curso o en remesa): no hay que pagarlo. */
+  inProgress: number;
+  overdue: {
+    amount: number;
+    since: string;
+    days: number;
+    steps: PortalDunningStepDto[];
+    /** El acceso está cortado por este impago. */
+    accessBlocked: boolean;
+  } | null;
+  /** Emitido y aún no vencido (sin contar lo que se está cobrando). */
+  pendingNotDue: number;
 }

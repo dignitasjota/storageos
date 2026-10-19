@@ -95,7 +95,34 @@
         "quickIncidents": "Incidencias",
         "quickReport": "Reportar",
         "quickContract": "Contratar",
-        "quickOtherUnit": "Otro trastero"
+        "quickOtherUnit": "Otro trastero",
+        "inProgress": "{amount} ya se están cobrando (domiciliación en curso): no tienes que hacer nada.",
+        "account": {
+          "title": "Mi cuenta",
+          "monthly": "Pagas al mes",
+          "vatIncluded": "Importes con IVA incluido.",
+          "withInsurance": "seguro {amount}",
+          "prepaid": "pagado por {months} meses",
+          "ending": "baja solicitada",
+          "nextCharge": "Próximo cargo · {date}",
+          "payCard": "tarjeta {brand} ··{last4}",
+          "cardFallback": "Tarjeta",
+          "payDebit": "domiciliación en la cuenta ··{last4}",
+          "automatic": "Se cobra solo con tu {method}.",
+          "savedNotAutomatic": "Tienes guardada tu {method}; las facturas se pagan desde «Facturas».",
+          "manual": "Pagas cada factura a mano. Domicilia el pago y olvídate.",
+          "setupAutomatic": "Domiciliar el pago",
+          "overdue": "Tienes {amount} sin pagar desde hace {days, plural, one {# día} other {# días}}.",
+          "accessBlocked": "Tu acceso al local está suspendido por este impago. Se reactiva en cuanto pagues.",
+          "payOverdue": "Pagar ahora",
+          "step": {
+            "email_reminder": "{date}: te enviaremos un recordatorio.",
+            "email_reminder_final": "{date}: segundo aviso.",
+            "late_fee": "{date}: se aplicará el recargo por retraso.",
+            "access_block": "{date}: se suspenderá tu acceso al local.",
+            "legal_notice": "{date}: se iniciará la reclamación formal."
+          }
+        }
       },
       "contracts": {
         "title": "Mis contratos",
@@ -466,7 +493,8 @@
         "noPaymentMethod": "Necesitas un método de pago para comprar. Añade una tarjeta o domiciliación en «Método de pago».",
         "chargeFailed": "No se pudo cobrar tu método de pago. Revisa tus datos e inténtalo de nuevo.",
         "purchaseError": "No se pudo completar la compra."
-      }
+      },
+      "linkUsedContinue": "Ese enlace ya no es válido. Sigues dentro como {name}."
     },
     "gocardless": {
       "loading": "Activando tu domiciliación…",

@@ -79,6 +79,7 @@ import {
   RequestMoveOutSchema,
   type SetupIntentResponseDto,
   PortalInterestSchema,
+  type PortalAccountDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -104,6 +105,7 @@ import { UnitRequestsService } from '../unit-requests/unit-requests.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 
 import { NightPassService } from './night-pass.service';
+import { PortalAccountService } from './portal-account.service';
 import { PortalService } from './portal.service';
 
 import type { Request } from 'express';
@@ -142,6 +144,7 @@ export class PortalController {
 
   constructor(
     private readonly portal: PortalService,
+    private readonly account: PortalAccountService,
     private readonly redsys: RedsysService,
     private readonly access: AccessCredentialsService,
     private readonly referrals: ReferralsService,
@@ -225,6 +228,18 @@ export class PortalController {
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() input: PortalResetPasswordDto): Promise<PortalSessionDto> {
     return this.portal.resetPassword(input.token, input.password);
+  }
+
+  /** «Mi cuenta»: lo que paga al mes, cómo, el próximo cargo y lo que debe. */
+  @Public()
+  @Get('me/account')
+  async myAccount(@Headers('authorization') auth: string | undefined): Promise<PortalAccountDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    const [card, gocardless] = await Promise.all([
+      this.portal.cardPaymentsAvailable(tenantId),
+      this.portal.isGoCardlessEnabled(tenantId),
+    ]);
+    return this.account.account(tenantId, customerId, card || gocardless);
   }
 
   @Public()

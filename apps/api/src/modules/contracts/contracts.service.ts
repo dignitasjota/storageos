@@ -124,6 +124,8 @@ interface ListFilters {
   page?: PageRequest;
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 @Injectable()
 export class ContractsService {
   private readonly logger = new Logger(ContractsService.name);
@@ -1061,13 +1063,20 @@ export class ContractsService {
       insurancePlanId: string | null;
       insurancePrice: unknown;
       signedPdfUrl: string | null;
-      unit: { code: string; facility: { name: string } };
-      insurancePlan: { name: string } | null;
+      unit: {
+        code: string;
+        facility: { name: string };
+        unitType: { propertyKind: string } | null;
+      };
+      insurancePlan: { name: string; taxRate: unknown } | null;
     },
     overlocked = false,
   ): PortalContractDto {
     const base = Number(row.priceMonthly);
     const discount = Number(row.discountAmount);
+    const effectivePrice = this.pricing.computeEffectivePrice({ base, discount });
+    const rentVat = rentTax(row.unit.unitType?.propertyKind).taxRate;
+    const insurance = row.insurancePrice != null ? Number(row.insurancePrice) : null;
     return {
       id: row.id,
       contractNumber: row.contractNumber,
@@ -1077,7 +1086,8 @@ export class ContractsService {
       startDate: row.startDate.toISOString().slice(0, 10),
       endDate: row.endDate?.toISOString().slice(0, 10) ?? null,
       priceMonthly: base,
-      effectivePrice: this.pricing.computeEffectivePrice({ base, discount }),
+      effectivePrice,
+      effectivePriceWithVat: round2(effectivePrice * (1 + rentVat / 100)),
       cancellationNoticeDays: row.cancellationNoticeDays,
       endingRequestedAt: row.endingRequestedAt?.toISOString() ?? null,
       depositAmount: Number(row.depositAmount),
@@ -1086,7 +1096,11 @@ export class ContractsService {
       freeMonthsRemaining: row.freeMonthsRemaining,
       insurancePlanId: row.insurancePlanId,
       insurancePlanName: row.insurancePlan?.name ?? null,
-      insurancePrice: row.insurancePrice != null ? Number(row.insurancePrice) : null,
+      insurancePrice: insurance,
+      insurancePriceWithVat:
+        insurance != null
+          ? round2(insurance * (1 + Number(row.insurancePlan?.taxRate ?? 21) / 100))
+          : null,
       hasSignedPdf: !!row.signedPdfUrl,
       overlocked,
     };
@@ -1099,8 +1113,14 @@ export class ContractsService {
         where: { tenantId, customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
         orderBy: { startDate: 'desc' },
         include: {
-          unit: { select: { code: true, facility: { select: { name: true } } } },
-          insurancePlan: { select: { name: true } },
+          unit: {
+            select: {
+              code: true,
+              facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
+            },
+          },
+          insurancePlan: { select: { name: true, taxRate: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
@@ -1185,8 +1205,14 @@ export class ContractsService {
               phone: true,
             },
           },
-          unit: { select: { code: true, facility: { select: { name: true } } } },
-          insurancePlan: { select: { name: true } },
+          unit: {
+            select: {
+              code: true,
+              facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
+            },
+          },
+          insurancePlan: { select: { name: true, taxRate: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
@@ -1274,8 +1300,14 @@ export class ContractsService {
           customer: {
             select: { firstName: true, lastName: true, companyName: true, customerType: true },
           },
-          unit: { select: { code: true, facility: { select: { name: true } } } },
-          insurancePlan: { select: { name: true } },
+          unit: {
+            select: {
+              code: true,
+              facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
+            },
+          },
+          insurancePlan: { select: { name: true, taxRate: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
