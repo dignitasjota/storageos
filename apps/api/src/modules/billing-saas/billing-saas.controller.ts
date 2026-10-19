@@ -32,6 +32,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { AuditService } from '../auth/audit.service';
 
 import { BillingSaasService } from './billing-saas.service';
 import { PlatformInvoicesService } from './platform-invoices.service';
@@ -76,6 +77,7 @@ export class BillingSaasController {
     private readonly addons_: SaasAddonsService,
     private readonly invoices: PlatformInvoicesService,
     private readonly sepaMandate: PlatformSepaMandateService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Datos fiscales del tenant para sus facturas de suscripción (razón social, NIF, domicilio). */
@@ -165,11 +167,26 @@ export class BillingSaasController {
   }
 
   @Delete('addons/:assignmentId')
-  cancelAddon(
+  async cancelAddon(
     @CurrentUser() user: AuthenticatedUser,
     @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
   ): Promise<TenantSelfAddonsDto> {
-    return this.addons_.selfRemove(user.tenantId, assignmentId);
+    const addonName = await this.addons_.assignmentName(user.tenantId, assignmentId);
+    const view = await this.addons_.selfRemove(user.tenantId, assignmentId);
+    // Para la actividad del panel admin (quién cancela qué extra).
+    await this.audit
+      .write({
+        tenantId: user.tenantId,
+        userId: user.sub,
+        action: 'saas_billing.addon_removed',
+        entityType: 'TenantSubscriptionAddon',
+        entityId: assignmentId,
+        changes: { addonName },
+        ipAddress: null,
+        userAgent: null,
+      })
+      .catch(() => undefined);
+    return view;
   }
 
   // --- Facturas de la plataforma + historial de pagos (lo que paga el tenant) ---

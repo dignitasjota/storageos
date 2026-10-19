@@ -150,6 +150,7 @@ export class SaasAddonsController {
     @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
     @Req() req: Request,
   ): Promise<TenantBillingSummaryDto> {
+    const addonName = await this.service.assignmentName(id, assignmentId);
     const summary = await this.service.remove(id, assignmentId);
     await this.audit.record({
       superAdminId: admin.sub,
@@ -157,7 +158,7 @@ export class SaasAddonsController {
       targetType: 'tenant',
       targetId: id,
       targetTenantId: id,
-      changes: { assignmentId },
+      changes: { assignmentId, addonName },
       ...extractMeta(req),
     });
     return summary;

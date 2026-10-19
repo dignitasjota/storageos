@@ -365,6 +365,15 @@ export class SaasAddonsService {
     return { summary: tenantSummary, available, includedInPlan, billingExempt, trials };
   }
 
+  /** Nombre del extra de una asignación del tenant (para el registro de bajas). */
+  async assignmentName(tenantId: string, assignmentId: string): Promise<string | null> {
+    const row = await this.admin.tenantSubscriptionAddon.findFirst({
+      where: { id: assignmentId, tenantId },
+      select: { addon: { select: { name: true } } },
+    });
+    return row?.addon.name ?? null;
+  }
+
   /**
    * Prueba gratis de un extra durante `days` días: activa su función con fecha
    * de fin. Al contratarlo pasa a ser el extra de siempre; si no, la tarea de

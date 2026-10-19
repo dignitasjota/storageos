@@ -18,6 +18,7 @@ import {
   QUEUE_WEBHOOKS,
 } from '../queues/queue-names';
 
+import { AdminActivityService } from './admin-activity.service';
 import { AdminApprovalsService } from './admin-approvals.service';
 import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
@@ -67,6 +68,7 @@ export class AdminTodayService {
     private readonly billing: BillingSaasService,
     private readonly ops: AdminOpsHealthService,
     private readonly featureExpiry: FeatureExpiryService,
+    private readonly activityService: AdminActivityService,
     @InjectQueue(QUEUE_BILLING) billingQueue: Queue,
     @InjectQueue(QUEUE_DUNNING) dunningQueue: Queue,
     @InjectQueue(QUEUE_PAYMENTS) paymentsQueue: Queue,
@@ -108,6 +110,8 @@ export class AdminTodayService {
       crons,
       pendingApprovals,
       expiringOverrides,
+      kpis,
+      activity,
     ] = await Promise.all([
       this.addonChargesDue(now),
       this.manualRenewalsDue(now),
@@ -124,6 +128,8 @@ export class AdminTodayService {
       this.ops.crons(now),
       this.approvals.pending(),
       this.featureExpiry.expiringSoon(now),
+      this.activityService.kpis(now),
+      this.activityService.activity(new Date(now.getTime() - 48 * 3_600_000), now),
     ]);
     const overdueCrons = crons.filter((c) => c.overdue);
     // Solo los que tocan hoy o ya pasaron (antes salían todos los pendientes,
@@ -164,6 +170,8 @@ export class AdminTodayService {
       overdueCrons,
       pendingApprovals,
       expiringOverrides,
+      kpis,
+      activity,
       urgentCount,
     };
   }

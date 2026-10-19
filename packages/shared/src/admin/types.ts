@@ -1172,6 +1172,10 @@ export interface AdminTodayDto {
   pendingApprovals: AdminApprovalRequestDto[];
   /** Cortesías y pruebas gratis que vencen en 7 días. */
   expiringOverrides: AdminExpiringOverrideDto[];
+  /** Cifras del día (arriba de «Hoy»). */
+  kpis: AdminTodayKpisDto;
+  /** Lo que ha pasado en las últimas 48 horas. */
+  activity: AdminActivityItemDto[];
   urgentCount: number;
 }
 
@@ -1750,6 +1754,8 @@ export interface ChatAlertSettingsDto {
   dailyEnabled: boolean;
   /** Los lunes, el resumen semanal de KPIs. */
   weeklyEnabled: boolean;
+  /** Al momento: altas, extras contratados o cancelados, cambios de plan, interés… */
+  commercialEnabled: boolean;
 }
 
 export type ChatChannelResult = 'sent' | 'failed' | 'off';
@@ -1862,4 +1868,38 @@ export interface AdminProposeAddonResultDto {
   recipients: number;
   trialExpiresAt: string | null;
   followupId: string | null;
+}
+
+/** Cifras de arriba de «Hoy». */
+export interface AdminTodayKpisDto {
+  /** Lo que aportan al mes los tenants activos de pago (plan + extras, sin IVA si va +IVA). */
+  mrr: number;
+  /** Cobrado en los últimos 7 días. */
+  collected7d: number;
+  /** Cuotas impagadas (past_due) + extras manuales sin cobrar. */
+  pending: number;
+  trials: number;
+  suspended: number;
+  newThisMonth: number;
+}
+
+export type AdminActivityKind =
+  | 'signup'
+  | 'churn'
+  | 'plan_changed'
+  | 'addon_added'
+  | 'addon_removed'
+  | 'addon_trial'
+  | 'first_contract'
+  | 'payment'
+  | 'interest';
+
+/** Algo que ha pasado con un tenant (actividad reciente de «Hoy» y avisos por chat). */
+export interface AdminActivityItemDto {
+  at: string;
+  kind: AdminActivityKind;
+  tenantId: string;
+  tenantName: string;
+  text: string;
+  amount: number | null;
 }

@@ -26,4 +26,15 @@ export class ChatAlertsCron {
       this.logger.error(`chat-alerts.daily fallo: ${(err as Error).message}`);
     }
   }
+
+  /** Cada hora, las novedades comerciales de los tenants (si está activado). */
+  @Cron('5 * * * *', { name: 'chat-alerts.commercial' })
+  async commercial(): Promise<void> {
+    try {
+      const res = await this.chat.sendCommercial();
+      if (res.sent) this.logger.log('chat-alerts.commercial: aviso enviado');
+    } catch (err) {
+      this.logger.error(`chat-alerts.commercial fallo: ${(err as Error).message}`);
+    }
+  }
 }
