@@ -489,6 +489,7 @@ export const UpdatePlatformAlertSettingsSchema = z.object({
   sendWelcome: z.boolean().optional(),
   sendTrialReminders: z.boolean().optional(),
   sendPastDue: z.boolean().optional(),
+  sendActivation: z.boolean().optional(),
   // Resumen semanal de KPIs por email al super admin. Opcional, misma razón.
   weeklyDigestEnabled: z.boolean().optional(),
 });
@@ -1146,3 +1147,27 @@ export const ProposeAddonSchema = z.object({
   followupDays: z.number().int().min(0).max(60).default(7),
 });
 export type ProposeAddonInput = z.infer<typeof ProposeAddonSchema>;
+
+/** Simulador de cuota: plan + extras + ciclo + cupón. */
+export const AdminQuoteSchema = z.object({
+  planId: z.string().uuid(),
+  cycle: z.enum(['monthly', 'yearly']).default('monthly'),
+  addons: z
+    .array(
+      z.object({
+        addonId: z.string().uuid(),
+        quantity: z.number().int().min(1).max(50).default(1),
+      }),
+    )
+    .max(30)
+    .default([]),
+  couponCode: z.string().trim().max(40).optional(),
+});
+export type AdminQuoteInput = z.infer<typeof AdminQuoteSchema>;
+
+/** Enviar la cuota simulada a un tenant como propuesta. */
+export const SendAdminQuoteSchema = AdminQuoteSchema.extend({
+  message: z.string().trim().max(2000).optional(),
+  followupDays: z.number().int().min(0).max(60).default(7),
+});
+export type SendAdminQuoteInput = z.infer<typeof SendAdminQuoteSchema>;

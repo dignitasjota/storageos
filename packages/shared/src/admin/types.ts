@@ -788,6 +788,8 @@ export interface PlatformAlertSettingsDto {
   sendWelcome: boolean;
   sendTrialReminders: boolean;
   sendPastDue: boolean;
+  /** Ayuda para arrancar en la prueba según el uso (días 3, 7 y 12). */
+  sendActivation: boolean;
   /** Resumen semanal de KPIs por email al super admin (lunes 08:00). */
   weeklyDigestEnabled: boolean;
 }
@@ -813,6 +815,8 @@ export interface TenantLifecycleRunResultDto {
   pastDue: number;
   /** Pruebas vencidas que han pasado al plan Free en esta ejecución. */
   trialsEnded: number;
+  /** Correos de ayuda para arrancar enviados (prueba sin local, inquilinos o facturas). */
+  activationNudges: number;
   /** Avisos de cuenta suspendida enviados (días 0, 7 y 14). */
   suspensionNotices: number;
 }
@@ -1902,4 +1906,25 @@ export interface AdminActivityItemDto {
   tenantName: string;
   text: string;
   amount: number | null;
+}
+
+/** Resultado del simulador de cuota (`POST /admin/quote`). */
+export interface AdminQuoteDto {
+  cycle: 'monthly' | 'yearly';
+  /** Líneas a precio de lista del periodo (mes o año). */
+  lines: { label: string; amount: number }[];
+  subtotal: number;
+  couponCode: string | null;
+  discount: number;
+  /** Mensaje si el cupón no vale (el cálculo sigue sin él). */
+  couponError: string | null;
+  base: number;
+  vat: number;
+  total: number;
+  pricesIncludeVat: boolean;
+  taxRate: number;
+  /** Lo que sale al mes (en anual, el total entre 12). */
+  monthlyEquivalent: number;
+  /** En anual: lo que se ahorra frente a pagar 12 meses. */
+  yearlySaving: number | null;
 }

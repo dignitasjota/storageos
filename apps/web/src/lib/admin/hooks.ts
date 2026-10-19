@@ -9,6 +9,9 @@ import type {
   AdminBillingCalendarDto,
   AdminReceivablesDto,
   AdminTenantAccountDto,
+  AdminQuoteDto,
+  AdminQuoteInput,
+  SendAdminQuoteInput,
   AdminAddonOpportunityDto,
   AdminProposeAddonResultDto,
   ProposeAddonInput,
@@ -2691,6 +2694,32 @@ export function useProposeAddon(tenantId: string) {
       void qc.invalidateQueries({ queryKey: ['admin', 'opportunities'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId] });
       void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'followups'] });
+    },
+  });
+}
+
+// --- Simulador de cuota ----------------------------------------------------
+
+/** Calcula una cuota (plan + extras + ciclo + cupón) sin guardar nada. */
+export function useAdminQuote() {
+  return useMutation({
+    mutationFn: (input: AdminQuoteInput) =>
+      adminApiFetch<AdminQuoteDto>('/admin/quote', { method: 'POST', json: input }),
+  });
+}
+
+/** Envía la cuota simulada a un tenant como propuesta. */
+export function useSendAdminQuote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tenantId, input }: { tenantId: string; input: SendAdminQuoteInput }) =>
+      adminApiFetch<{ recipients: number; quote: AdminQuoteDto }>(
+        `/admin/tenants/${tenantId}/quote-offers`,
+        { method: 'POST', json: input },
+      ),
+    onSuccess: (_d, v) => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', v.tenantId] });
       void qc.invalidateQueries({ queryKey: ['admin', 'followups'] });
     },
   });

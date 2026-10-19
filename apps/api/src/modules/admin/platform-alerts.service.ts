@@ -47,6 +47,7 @@ export class PlatformAlertsService {
         ? { sendTrialReminders: input.sendTrialReminders }
         : {}),
       ...(input.sendPastDue !== undefined ? { sendPastDue: input.sendPastDue } : {}),
+      ...(input.sendActivation !== undefined ? { sendActivation: input.sendActivation } : {}),
       ...(input.weeklyDigestEnabled !== undefined
         ? { weeklyDigestEnabled: input.weeklyDigestEnabled }
         : {}),
@@ -155,6 +156,7 @@ export class PlatformAlertsService {
     sendWelcome: boolean;
     sendTrialReminders: boolean;
     sendPastDue: boolean;
+    sendActivation: boolean;
     weeklyDigestEnabled: boolean;
   }): PlatformAlertSettingsDto {
     return {
@@ -167,6 +169,7 @@ export class PlatformAlertsService {
       sendWelcome: row.sendWelcome,
       sendTrialReminders: row.sendTrialReminders,
       sendPastDue: row.sendPastDue,
+      sendActivation: row.sendActivation,
       weeklyDigestEnabled: row.weeklyDigestEnabled,
     };
   }

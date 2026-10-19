@@ -4567,6 +4567,8 @@ model PlatformAlertSettings {
   sendWelcome         Boolean  @default(true) @map("send_welcome")
   sendTrialReminders  Boolean  @default(true) @map("send_trial_reminders")
   sendPastDue         Boolean  @default(true) @map("send_past_due")
+  /// Ayuda para arrancar en la prueba según el uso (días 3, 7 y 12).
+  sendActivation      Boolean  @default(true) @map("send_activation")
   /// Resumen semanal de KPIs (MRR/churn/altas) por email al super admin (lunes 08:00).
   weeklyDigestEnabled Boolean  @default(false) @map("weekly_digest_enabled")
   /// Avisos por chat (Telegram/Slack): token y webhook cifrados (AES-GCM).
