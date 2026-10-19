@@ -1313,3 +1313,11 @@ Sin la variable todo funciona como antes (URL pública, con límite compartido).
 - **Tenants suspendidos**: desde el despliegue su equipo queda en solo lectura y su web deja de aceptar reservas. Revisar en Tenants los que estén «Suspendido» por si alguno no debería estarlo.
 - **Ficheros**: el primer `data-retention.cleanup` (04:00) borra de MinIO los informes con el enlace caducado y las exportaciones de datos de más de 2 días.
 - **Tenant suspendido (#743–#744)**: cron nuevo `suspension-holds.release` (cada hora, worker) que cobra lo retenido y manda los correos en espera al reactivarse. Los avisos al propietario (días 0, 7 y 14) salen con el cron `tenant-lifecycle.daily` aunque los correos de ciclo de vida estén apagados. **Un tenant suspendido desde hace 15 días o más deja de tener web pública nada más desplegar**: reactivar antes los que no deban estarlo. Su fecha de suspensión es `tenants.canceled_at` (o la última actualización si está vacía).
+
+## 31. Tras desplegar las mejoras del panel admin (#745–#752)
+
+- **Migraciones** (las aplica el api al arrancar): `web_header_branded`, `feature_override_expiry`, `feature_interest` (con RLS), `chat_commercial_alerts`, `activation_nudges`. Redesplegar **api y web** con pull efectivo.
+- **Tareas nuevas en el API** (ligeras, una réplica por día o por hora): `feature-overrides.expiry` (07:45, quita cortesías y pruebas caducadas y avisa) y `chat-alerts.commercial` (cada hora, solo si se activa en Alertas).
+- **Ayuda para arrancar**: viene **activada** dentro de los correos de ciclo de vida. Si los correos de ciclo de vida están encendidos, la primera mañana los tenants en prueba sin locales, inquilinos o facturas recibirán un correo (uno por tenant). Desactivarla en Alertas si no se quiere.
+- **Avisos comerciales por chat**: apagados por defecto; se activan en Alertas → Telegram y Slack (empiezan desde ese momento).
+- **Interés**: las señales empiezan a contar al desplegar el web (las pantallas «no está en tu plan» las envían).
