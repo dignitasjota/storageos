@@ -39,6 +39,7 @@ export default function PlatformAlertsPage() {
     sendWelcome: true,
     sendTrialReminders: true,
     sendPastDue: true,
+    sendActivation: true,
     weeklyDigestEnabled: false,
   });
 
@@ -54,6 +55,7 @@ export default function PlatformAlertsPage() {
         sendWelcome: data.sendWelcome,
         sendTrialReminders: data.sendTrialReminders,
         sendPastDue: data.sendPastDue,
+        sendActivation: data.sendActivation,
         weeklyDigestEnabled: data.weeklyDigestEnabled,
       });
     }
@@ -103,13 +105,18 @@ export default function PlatformAlertsPage() {
   async function onRunLifecycle() {
     try {
       const res = await runLifecycle.mutateAsync();
-      const total = res.welcome + res.trialReminders + res.pastDue;
+      const total =
+        res.welcome +
+        res.trialReminders +
+        res.pastDue +
+        res.activationNudges +
+        res.suspensionNotices;
       if (res.trialsEnded > 0) {
         toast.info(`${res.trialsEnded} pruebas vencidas han pasado al plan Free.`);
       }
       if (total > 0) {
         toast.success(
-          `Emails encolados: ${res.welcome} bienvenida, ${res.trialReminders} trial, ${res.pastDue} pago fallido.`,
+          `Emails encolados: ${res.welcome} bienvenida, ${res.trialReminders} prueba, ${res.activationNudges} ayuda para arrancar, ${res.pastDue} pago fallido, ${res.suspensionNotices} suspensión.`,
         );
       } else if (res.trialsEnded === 0) {
         toast.info('No hay emails de ciclo de vida pendientes ahora mismo.');
@@ -265,6 +272,20 @@ export default function PlatformAlertsPage() {
               onCheckedChange={(v) => setForm((f) => ({ ...f, sendPastDue: v === true }))}
             />
             Aviso de pago fallido (past_due)
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              className="mt-0.5"
+              checked={form.sendActivation}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, sendActivation: v === true }))}
+            />
+            <span>
+              Ayuda para arrancar según el uso de la prueba
+              <span className="block text-xs text-muted-foreground">
+                Día 3 sin locales, día 7 sin inquilinos y día 12 sin facturas (este último también
+                te deja un seguimiento para llamarle).
+              </span>
+            </span>
           </label>
           <div className="flex gap-2">
             <Button onClick={onSave} disabled={update.isPending || !canEdit}>

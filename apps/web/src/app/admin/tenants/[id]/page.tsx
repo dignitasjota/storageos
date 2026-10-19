@@ -12,6 +12,7 @@ import {
   type ImpersonateInput,
 } from '@storageos/shared';
 import { Loader2, Mail, MoreVertical, Pencil } from 'lucide-react';
+import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
@@ -418,6 +419,11 @@ export default function AdminTenantDetailPage() {
 
         <TabsContent value="payments" className="mt-4 space-y-4">
           <TenantAccountCard tenantId={id} />
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/admin/quote?tenantId=${id}`}>Simular cuota y proponer</Link>
+            </Button>
+          </div>
           <TenantAddonsCard tenantId={id} tenantName={t.name} />
           <SaasPaymentsCard tenantId={id} />
           <PlatformInvoicesCard tenantId={id} />

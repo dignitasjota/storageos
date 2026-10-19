@@ -36,6 +36,8 @@ import { AdminOpsHealthController } from './admin-ops-health.controller';
 import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminPaymentSettingsController } from './admin-payment-settings.controller';
 import { AdminQueuesController } from './admin-queues.controller';
+import { AdminQuoteController } from './admin-quote.controller';
+import { AdminQuoteService } from './admin-quote.service';
 import { AdminSuperAdminsController } from './admin-super-admins.controller';
 import { AdminSupportService } from './admin-support.service';
 import { AdminSystemController } from './admin-system.controller';
@@ -119,6 +121,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
   controllers: [
     AdminTenantsOverviewController,
     AdminBillingOpsController,
+    AdminQuoteController,
     AdminOpportunitiesController,
     AdminPaymentSettingsController,
     AdminCommsController,
@@ -153,6 +156,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminGuard,
     AdminTenantsOverviewService,
     AdminBillingOpsService,
+    AdminQuoteService,
     AdminActivityService,
     AdminOpportunitiesService,
     FeatureExpiryService,

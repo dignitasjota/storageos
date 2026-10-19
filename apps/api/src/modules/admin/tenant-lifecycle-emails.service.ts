@@ -13,7 +13,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
 import type { Env } from '../../config/env.schema';
-import type { TenantLifecycleRunResultDto } from '@storageos/shared';
+import type { AdminQuoteDto, TenantLifecycleRunResultDto } from '@storageos/shared';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -32,6 +32,12 @@ function renderEmail(body: string): { html: string; text: string } {
   const safe = escapeHtml(body).replace(/\n/g, '<br>');
   const html = `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:14px;color:#111;line-height:1.6">${safe}</div>`;
   return { html, text: body };
+}
+
+interface Counts {
+  facilities: number;
+  customers: number;
+  invoices: number;
 }
 
 interface EmailTemplate {
@@ -78,6 +84,7 @@ export class TenantLifecycleEmailsService {
       // La prueba vence aunque los correos estén apagados.
       trialsEnded: await this.expireTrials(emailsOn && !!settings?.sendTrialReminders),
       suspensionNotices: 0,
+      activationNudges: 0,
     };
     // Avisos de suspensión: siempre (son los que hacen que pague), aunque el
     // resto de correos de ciclo de vida estén apagados.
@@ -87,6 +94,7 @@ export class TenantLifecycleEmailsService {
     if (settings.sendWelcome) result.welcome = await this.runWelcome();
     if (settings.sendTrialReminders) result.trialReminders = await this.runTrialReminders();
     if (settings.sendPastDue) result.pastDue = await this.runPastDue();
+    if (settings.sendActivation) result.activationNudges = await this.runActivationNudges();
 
     if (result.welcome + result.trialReminders + result.pastDue > 0) {
       this.logger.log(
@@ -342,6 +350,148 @@ export class TenantLifecycleEmailsService {
     return sent ? recipients.length : 0;
   }
 
+  /** Propuesta de cuota (plan + extras) con su desglose y el enlace para contratar. */
+  async sendQuoteOffer(
+    tenantId: string,
+    args: { tenantName: string; quote: AdminQuoteDto; message: string | null },
+  ): Promise<number> {
+    const recipients = await this.recipientsFor(tenantId);
+    if (recipients.length === 0) return 0;
+    const q = args.quote;
+    const money = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+    const period = q.cycle === 'yearly' ? 'al año' : 'al mes';
+    const body = [
+      'Hola,',
+      '',
+      ...(args.message ? [args.message, ''] : []),
+      `Esta es la propuesta para ${args.tenantName}:`,
+      '',
+      ...q.lines.map((l) => `• ${l.label}: ${money(l.amount)}`),
+      ...(q.discount > 0 ? [`• Descuento (${q.couponCode}): -${money(q.discount)}`] : []),
+      '',
+      `Base: ${money(q.base)} · IVA (${q.taxRate} %): ${money(q.vat)}`,
+      `Total: ${money(q.total)} ${period}${q.cycle === 'yearly' ? ` (${money(q.monthlyEquivalent)} al mes)` : ''}`,
+      ...(q.yearlySaving ? [`Ahorras ${money(q.yearlySaving)} frente a pagar mes a mes.`] : []),
+      '',
+      `Contratar: ${this.billingUrl}`,
+      '',
+      'Si tienes dudas, responde a este correo.',
+      '',
+      'El equipo de TrasterOS',
+    ].join('\n');
+    const sent = await this.dispatch(tenantId, `quote_offer:${Date.now()}`, {
+      subject: `Tu propuesta de TrasterOS: ${money(q.total)} ${period}`,
+      ...renderEmail(body),
+    });
+    return sent ? recipients.length : 0;
+  }
+
+  /**
+   * Ayuda para arrancar según el uso de la prueba: al día 3 sin locales, al 7
+   * sin inquilinos y al 12 sin facturas, un correo con los pasos y la oferta
+   * de ayuda. El del día 12 deja además un seguimiento al super admin para
+   * llamarle. Uno por tipo y tenant.
+   */
+  async runActivationNudges(now = new Date()): Promise<number> {
+    const day = 86_400_000;
+    const tenants = await this.admin.tenant.findMany({
+      where: {
+        deletedAt: null,
+        billingExempt: false,
+        status: 'trial',
+        createdAt: { lte: new Date(now.getTime() - 3 * day) },
+      },
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        tenantLifecycleEmails: { select: { type: true } },
+        _count: {
+          select: {
+            facilities: { where: { deletedAt: null } },
+            customers: { where: { deletedAt: null } },
+            invoices: {
+              where: {
+                deletedAt: null,
+                kind: 'invoice',
+                status: { in: ['issued', 'paid', 'overdue'] },
+              },
+            },
+          },
+        },
+      },
+      take: 500,
+    });
+    const steps = [
+      { type: 'activation_facility', after: 3, missing: (c: Counts) => c.facilities === 0 },
+      { type: 'activation_customer', after: 7, missing: (c: Counts) => c.customers === 0 },
+      { type: 'activation_invoice', after: 12, missing: (c: Counts) => c.invoices === 0 },
+    ] as const;
+    let count = 0;
+    for (const t of tenants) {
+      const days = Math.floor((now.getTime() - t.createdAt.getTime()) / day);
+      const sent = new Set(t.tenantLifecycleEmails.map((e) => e.type));
+      // Solo el paso más avanzado que toca (si va con retraso no le llegan tres seguidos).
+      const step = [...steps].reverse().find((s) => days >= s.after && s.missing(t._count));
+      if (!step || sent.has(step.type)) continue;
+      if (await this.dispatch(t.id, step.type, this.activationTemplate(t.name, step.type))) {
+        count += 1;
+        if (step.type === 'activation_invoice') {
+          await this.admin.tenantFollowup.create({
+            data: {
+              tenantId: t.id,
+              superAdminId: null,
+              title: 'Llamar: lleva 12 días de prueba sin facturar',
+              dueDate: new Date(now.toISOString().slice(0, 10)),
+            },
+          });
+        }
+      }
+    }
+    return count;
+  }
+
+  private activationTemplate(tenantName: string, type: string): EmailTemplate {
+    const base = this.billingUrl.replace('/settings/saas-billing', '');
+    const content: Record<string, { subject: string; lines: string[] }> = {
+      activation_facility: {
+        subject: 'Da de alta tu primer local en TrasterOS',
+        lines: [
+          `Aún no has creado ningún local en ${tenantName}. Es el primer paso y se hace en un par de minutos:`,
+          '',
+          '1. Crea el local (nombre, dirección y horario).',
+          '2. Añade los tipos de trastero con sus precios.',
+          '3. Da de alta los trasteros (o impórtalos desde un Excel).',
+          '',
+          `Empezar: ${base}/facilities`,
+        ],
+      },
+      activation_customer: {
+        subject: 'Trae a tus inquilinos a TrasterOS',
+        lines: [
+          `Ya tienes ${tenantName} montado; ahora faltan tus inquilinos.`,
+          '',
+          'Puedes darlos de alta uno a uno o importarlos todos de golpe desde un Excel o CSV (inquilinos, trasteros y contratos), sin volver a escribirlos.',
+          '',
+          `Importar: ${base}/customers/import`,
+        ],
+      },
+      activation_invoice: {
+        subject: '¿Te ayudamos a emitir tu primera factura?',
+        lines: [
+          `Llevas casi dos semanas de prueba en ${tenantName} y todavía no has emitido ninguna factura.`,
+          '',
+          'Si quieres, te ayudamos a dejarlo listo en una llamada: series de facturación, cobro automático y la facturación mensual de tus contratos. Solo tienes que responder a este correo.',
+          '',
+          `Facturas: ${base}/invoices`,
+        ],
+      },
+    };
+    const c = content[type]!;
+    const body = ['Hola,', '', ...c.lines, '', 'Un saludo,', 'El equipo de TrasterOS'].join('\n');
+    return { subject: c.subject, ...renderEmail(body) };
+  }
+
   /** Bienvenida a tenants dados de alta en las últimas 48h, sin email previo. */
   private async runWelcome(): Promise<number> {
     const since = new Date(Date.now() - 2 * DAY_MS);
@@ -545,7 +695,8 @@ export class TenantLifecycleEmailsService {
 function lifecycleKind(
   type: string,
 ): 'welcome' | 'trial_ending' | 'payment_pending' | 'admin_message' {
-  if (type.startsWith('addon_offer')) return 'admin_message';
+  if (type.startsWith('addon_offer') || type.startsWith('quote_offer')) return 'admin_message';
+  if (type.startsWith('activation_')) return 'welcome';
   if (type === 'welcome') return 'welcome';
   if (type === 'past_due') return 'payment_pending';
   if (type.startsWith('feature_trial')) return 'trial_ending';

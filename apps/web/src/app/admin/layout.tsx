@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Calculator,
   Activity,
   AlertTriangle,
   BarChart3,
@@ -125,6 +126,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
     children: [
       { href: '/admin/receivables', label: 'Cobros pendientes', icon: AlertTriangle },
       { href: '/admin/billing-calendar', label: 'Calendario de cobros', icon: CalendarClock },
+      { href: '/admin/quote', label: 'Simulador de cuota', icon: Calculator },
       { href: '/admin/plans', label: 'Planes', icon: Package },
       { href: '/admin/addons', label: 'Add-ons', icon: PackagePlus },
       { href: '/admin/platform-billing', label: 'Facturación SaaS', icon: FileText },
