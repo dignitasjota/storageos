@@ -17,6 +17,8 @@ import { toast } from 'sonner';
 import { intlLocaleForPortal } from '../i18n/messages';
 import { usePortalLocale } from '../i18n/provider';
 
+import { reportInterest } from './portal-interest';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -78,6 +80,10 @@ export function AdditionalUnitCard({
     n.toLocaleString(intlLocaleForPortal(locale), { style: 'currency', currency: 'EUR' });
 
   // Resumen del pago del trastero elegido (meses y cupón).
+  useEffect(() => {
+    reportInterest(session.accessToken, 'additional_unit');
+  }, [session.accessToken]);
+
   useEffect(() => {
     if (!target) {
       setQuote(null);

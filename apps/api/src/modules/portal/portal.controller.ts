@@ -78,6 +78,7 @@ import {
   RedsysRedirectRequestSchema,
   RequestMoveOutSchema,
   type SetupIntentResponseDto,
+  PortalInterestSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -93,6 +94,7 @@ import { CustomerDocumentsService } from '../customers/customer-documents.servic
 import { FaqService } from '../faq/faq.service';
 import { SignaturesService } from '../move-in/signatures.service';
 import { IncidentsService } from '../operations/incidents.service';
+import { OpportunitiesService } from '../opportunities/opportunities.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { PushService } from '../push/push.service';
 import { ReferralsService } from '../referrals/referrals.service';
@@ -153,6 +155,7 @@ export class PortalController {
     private readonly nightPass: NightPassService,
     private readonly messages: CustomerMessagesService,
     private readonly faq: FaqService,
+    private readonly opportunities: OpportunitiesService,
     private readonly documents: CustomerDocumentsService,
     private readonly retention: RetentionService,
     private readonly ai: AiService,
@@ -242,6 +245,26 @@ export class PortalController {
   ): Promise<PortalDownloadDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.getMyInvoicePdf(tenantId, customerId, id);
+  }
+
+  /**
+   * El inquilino miró una opción (seguro, otro trastero, uno mayor, pase
+   * nocturno) sin contratarla: señal para el equipo. Nunca falla al cliente.
+   */
+  @Public()
+  @Post('me/interest')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ThrottleLogin()
+  async interest(
+    @Headers('authorization') auth: string | undefined,
+    @Body() body: unknown,
+  ): Promise<void> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    const parsed = PortalInterestSchema.safeParse(body ?? {});
+    if (!parsed.success) return;
+    await this.opportunities
+      .recordInterest(tenantId, customerId, parsed.data)
+      .catch(() => undefined);
   }
 
   /** Centro de ayuda: preguntas frecuentes publicadas del negocio. */

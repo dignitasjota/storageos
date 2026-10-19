@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import { intlLocaleForPortal } from '../i18n/messages';
 import { usePortalLocale } from '../i18n/provider';
 
+import { reportInterest } from './portal-interest';
+
 import type { InsurancePlanDto, PortalContractDto, PortalSessionDto } from '@storageos/shared';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,7 +50,12 @@ export function InsuranceCard({
       requiresAuth: false,
     })
       .then((p) => {
-        if (!cancelled) setPlans(p);
+        if (cancelled) return;
+        setPlans(p);
+        // Mira el seguro con algún trastero sin proteger: señal para el equipo.
+        if (p.length > 0 && contracts.some((c) => !c.insurancePlanId)) {
+          reportInterest(session.accessToken, 'insurance');
+        }
       })
       .catch(() => {
         /* opcional */
@@ -56,6 +63,7 @@ export function InsuranceCard({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al abrir
   }, [session.accessToken]);
 
   function fmt(n: number): string {

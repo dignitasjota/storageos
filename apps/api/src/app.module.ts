@@ -69,6 +69,7 @@ import { MarketingModule } from './modules/marketing/marketing.module';
 import { MoveInModule } from './modules/move-in/move-in.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OperationsModule } from './modules/operations/operations.module';
+import { OpportunitiesModule } from './modules/opportunities/opportunities.module';
 import { OwnersModule } from './modules/owners/owners.module';
 import { GoCardlessModule } from './modules/payments/gocardless/gocardless.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -223,6 +224,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     OperationsModule,
     FollowupsModule,
     CollectionsOpsModule,
+    OpportunitiesModule,
     ProductsModule,
     AnalyticsModule,
     AuditLogModule,
