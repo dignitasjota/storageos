@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  CustomerExtrasDto,
   CustomerAccountDto,
   CustomerOverviewDto,
   ActivateImportedContractsInput,
@@ -688,5 +689,14 @@ export function useCustomerAccount(id: string | undefined) {
     queryKey: ['customers', id, 'account'] as const,
     queryFn: () => apiFetch<CustomerAccountDto>(`/customers/${id}/account`),
     enabled: !!id,
+  });
+}
+
+/** Matriz inquilino × extras (inquilinos con contrato activo). */
+export function useCustomerExtras() {
+  return useQuery({
+    queryKey: ['customers', 'extras'] as const,
+    queryFn: () => apiFetch<CustomerExtrasDto>('/customers/extras'),
+    staleTime: 60_000,
   });
 }
