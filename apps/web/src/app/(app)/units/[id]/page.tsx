@@ -254,6 +254,8 @@ function EditUnitDialog({
     },
   });
 
+  const [width = 0, depth = 0, height = 0] = form.watch(['widthM', 'depthM', 'heightM']);
+
   async function onSubmit(values: UpdateUnitInput) {
     try {
       await update.mutateAsync({ id: unit.id, input: values });
@@ -372,15 +374,30 @@ function EditUnitDialog({
                 )}
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              El área (m²) y el volumen (m³) se recalculan automáticamente.
+            <p className="text-sm">
+              Superficie:{' '}
+              <span className="font-semibold">
+                {Number.isFinite(width * depth) && width > 0 && depth > 0
+                  ? `${(width * depth).toLocaleString('es-ES', { maximumFractionDigits: 2 })} m²`
+                  : '—'}
+              </span>
+              {Number.isFinite(width * depth * height) && width > 0 && depth > 0 && height > 0 && (
+                <span className="text-muted-foreground">
+                  {' '}
+                  · Volumen{' '}
+                  {(width * depth * height).toLocaleString('es-ES', {
+                    maximumFractionDigits: 2,
+                  })}{' '}
+                  m³
+                </span>
+              )}
             </p>
             <FormField
               control={form.control}
               name="basePriceMonthly"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Precio mensual (€)</FormLabel>
+                  <FormLabel>Precio mensual sin IVA (€)</FormLabel>
                   <FormControl>
                     <Input
                       type="number"

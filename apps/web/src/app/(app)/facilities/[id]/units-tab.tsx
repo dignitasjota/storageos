@@ -142,7 +142,7 @@ export function FacilityUnitsTab({ facilityId }: Props) {
     },
     {
       accessorKey: 'basePriceMonthly',
-      header: 'Precio',
+      header: 'Precio (sin IVA)',
       cell: ({ row }) => `${row.original.basePriceMonthly.toFixed(2)} €`,
     },
     {

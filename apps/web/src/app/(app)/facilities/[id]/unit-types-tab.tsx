@@ -159,7 +159,7 @@ export function FacilityUnitTypesTab() {
     },
     {
       accessorKey: 'defaultPriceMonthly',
-      header: 'Precio mensual',
+      header: 'Precio mensual (sin IVA)',
       cell: ({ row }) => `${row.original.defaultPriceMonthly.toFixed(2)} €`,
     },
     {
@@ -257,7 +257,7 @@ export function FacilityUnitTypesTab() {
                   name="defaultPriceMonthly"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Precio mensual (€)</FormLabel>
+                      <FormLabel>Precio mensual sin IVA (€)</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
