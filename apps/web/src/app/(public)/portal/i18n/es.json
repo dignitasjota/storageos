@@ -277,7 +277,15 @@
         "nightPassFacilityHint": "El código solo abrirá la puerta de este local.",
         "nightPassForFacility": "Válido para {name}.",
         "nightPassConfirmDescription": "Se cobrará {price} (+ IVA) a tu método de pago por defecto. El código es de un solo uso y caduca a la mañana siguiente.",
-        "buyAndPay": "Comprar y pagar"
+        "buyAndPay": "Comprar y pagar",
+        "suspendedTitle": "suspendido",
+        "suspendedUnpaid": "Tu acceso está suspendido porque la factura {number} está sin pagar ({amount}). Se reactiva solo en cuanto la pagues.",
+        "suspendedUnpaidGeneric": "Tu acceso está suspendido por una factura sin pagar. Se reactiva solo en cuanto la pagues.",
+        "suspendedOther": "Tu acceso está suspendido. Escríbenos en «Mensajes» si necesitas entrar.",
+        "payToRestore": "Pagar y recuperar el acceso",
+        "show": "Mostrar el código",
+        "hide": "Ocultar el código",
+        "tapToShow": "Pulsa para ver tu código"
       },
       "incidents": {
         "title": "Incidencias",

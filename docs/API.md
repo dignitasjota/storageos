@@ -2122,3 +2122,4 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `GET /portal/me/invoices`: `paymentInProgress` también es `true` con la factura en una remesa SEPA sin confirmar.
 - `GET /portal/me/contracts`: `effectivePriceWithVat` e `insurancePriceWithVat` (la cuota y el seguro con IVA).
 - `GET /portal/me/invoices` gana `unitCode`, `periodStart`/`periodEnd`, `lateFeeForNumber` (es un recargo de esa factura), `lines` (concepto e importe con IVA de cada línea) y `lastFailure` (último cobro rechazado con el motivo en palabras del inquilino, solo mientras siga pendiente y sin otro cobro en marcha).
+- `GET /portal/me/access` devuelve también los accesos suspendidos con `suspension` (`unpaid`, la factura que lo provocó y lo que falta por pagar); mientras está suspendido `value` va a null.

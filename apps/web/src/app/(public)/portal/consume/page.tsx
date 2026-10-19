@@ -42,7 +42,6 @@ import {
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { QRCodeSVG } from 'qrcode.react';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -50,6 +49,7 @@ import { PortalLanguageSwitcher } from '../i18n/language-switcher';
 import { intlLocaleForPortal } from '../i18n/messages';
 import { usePortalLocale } from '../i18n/provider';
 
+import { AccessCredentialItem } from './access-credential';
 import { AccessLogsCard } from './access-logs-card';
 import { AdditionalUnitCard } from './additional-unit-card';
 import { PortalAiChatCard } from './ai-chat-card';
@@ -1379,44 +1379,13 @@ function PortalConsumeContent() {
                 ) : (
                   <ul className="grid gap-4 sm:grid-cols-2">
                     {access.map((c) => (
-                      <li key={c.id} className="rounded-md border p-4">
-                        <div className="mb-2 flex items-center justify-between">
-                          <span className="text-sm font-medium">
-                            {c.label ??
-                              (c.method === 'qr' ? tAccess('qrLabel') : tAccess('pinLabel'))}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title={tAccess('regenerate')}
-                            disabled={regeneratingId === c.id}
-                            onClick={() => void regenerateAccess(c.id)}
-                            aria-label={tAccess('update')}
-                          >
-                            <RefreshCw
-                              className={`h-4 w-4 ${regeneratingId === c.id ? 'animate-spin' : ''}`}
-                            />
-                          </Button>
-                        </div>
-                        {c.value === null ? (
-                          <p className="text-xs text-muted-foreground">
-                            {tAccess('legacyCredential')}
-                          </p>
-                        ) : c.method === 'qr' ? (
-                          <div className="flex flex-col items-center gap-2">
-                            <div className="rounded bg-white p-2">
-                              <QRCodeSVG value={c.value} size={148} />
-                            </div>
-                            <span className="break-all text-center font-mono text-[10px] text-muted-foreground">
-                              {c.value}
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="text-center">
-                            <span className="font-mono text-3xl tracking-[0.3em]">{c.value}</span>
-                          </div>
-                        )}
-                      </li>
+                      <AccessCredentialItem
+                        key={c.id}
+                        credential={c}
+                        regenerating={regeneratingId === c.id}
+                        onRegenerate={() => void regenerateAccess(c.id)}
+                        onPay={() => handleNav('facturas')}
+                      />
                     ))}
                   </ul>
                 )}

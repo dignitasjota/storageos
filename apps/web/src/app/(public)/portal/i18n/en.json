@@ -277,7 +277,15 @@
         "nightPassFacilityHint": "The code will only open the door of this facility.",
         "nightPassForFacility": "Valid for {name}.",
         "nightPassConfirmDescription": "You'll be charged {price} (+ VAT) to your default payment method. The code is single-use and expires the following morning.",
-        "buyAndPay": "Buy and pay"
+        "buyAndPay": "Buy and pay",
+        "suspendedTitle": "suspended",
+        "suspendedUnpaid": "Your access is suspended because invoice {number} is unpaid ({amount}). It is restored automatically as soon as you pay it.",
+        "suspendedUnpaidGeneric": "Your access is suspended because of an unpaid invoice. It is restored automatically as soon as you pay it.",
+        "suspendedOther": "Your access is suspended. Write to us in «Messages» if you need to get in.",
+        "payToRestore": "Pay and restore access",
+        "show": "Show code",
+        "hide": "Hide code",
+        "tapToShow": "Tap to see your code"
       },
       "incidents": {
         "title": "Issues",

@@ -113,6 +113,16 @@ export interface PortalAccessCredentialDto {
   value: string | null;
   expiresAt: string | null;
   lastUsedAt: string | null;
+  /**
+   * Acceso suspendido: por un impago (con la factura y lo que falta por pagar)
+   * u otro motivo del operador. `value` va a null mientras esté suspendido.
+   */
+  suspension?: {
+    unpaid: boolean;
+    invoiceId: string | null;
+    invoiceNumber: string | null;
+    pending: number | null;
+  } | null;
 }
 
 /** Una puerta que el inquilino puede abrir desde el portal («tu móvil es la llave»). */

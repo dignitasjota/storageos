@@ -461,7 +461,7 @@ export class PortalController {
     @Headers('authorization') auth: string | undefined,
   ): Promise<PortalAccessCredentialDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
-    return this.access.listForCustomer(tenantId, customerId);
+    return this.access.listForPortal(tenantId, customerId);
   }
 
   // ----------------------- contratos / move-out ----------------------------
