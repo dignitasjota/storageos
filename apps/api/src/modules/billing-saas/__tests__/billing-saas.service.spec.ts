@@ -498,3 +498,56 @@ describe('BillingSaasService.setBillingMode — cancelación en Stripe', () => {
     }
   });
 });
+
+describe('BillingSaasService.swapStripePlan', () => {
+  it('cambia solo la línea del plan, con prorrateo, y mantiene la periodicidad que paga', async () => {
+    const admin = buildAdmin() as AdminMock & { subscriptionPlan: { findUnique: jest.Mock } };
+    admin.subscriptionPlan = {
+      findUnique: jest.fn().mockResolvedValue({
+        stripePriceId: 'price_starter_m',
+        stripePriceIdYearly: 'price_starter_y',
+      }),
+    };
+    const update = jest.fn().mockResolvedValue({});
+    const retrieve = jest.fn().mockResolvedValue({
+      items: {
+        data: [
+          { id: 'si_addon', price: { id: 'price_addon' }, metadata: { kind: 'addon' } },
+          { id: 'si_plan', price: { id: 'price_starter_y' }, metadata: {} },
+        ],
+      },
+    });
+    const service = new BillingSaasService(
+      {} as unknown as PrismaService,
+      admin as unknown as PrismaAdminService,
+      { write: jest.fn() } as unknown as AuditService,
+      {} as unknown as PlatformInvoicesService,
+      {} as unknown as PlatformCouponsService,
+      {} as unknown as PlatformSepaMandateService,
+      {
+        getClient: () => ({ subscriptions: { retrieve, update } }),
+        isConfigured: () => true,
+      } as unknown as StripeGateway,
+    );
+    await service.swapStripePlan({
+      tenantId: TENANT,
+      stripeSubscriptionId: 'sub_1',
+      currentPlanId: 'plan-starter',
+      plan: {
+        id: 'plan-pro',
+        slug: 'pro',
+        stripePriceId: 'price_pro_m',
+        stripePriceIdYearly: 'price_pro_y',
+      },
+      billingCycle: 'current',
+    });
+    expect(update).toHaveBeenCalledWith(
+      'sub_1',
+      expect.objectContaining({
+        items: [{ id: 'si_plan', price: 'price_pro_y' }],
+        proration_behavior: 'create_prorations',
+        metadata: expect.objectContaining({ planId: 'plan-pro', billingCycle: 'yearly' }),
+      }),
+    );
+  });
+});

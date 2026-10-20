@@ -1281,6 +1281,10 @@ export interface AdminChangePlanPreviewDto {
   redundantAddons: { name: string; feature: string }[];
   /** Recursos cuyo uso supera el límite del plan nuevo. */
   overLimits: { resource: string; used: number; limit: number }[];
+  /** Paga por Stripe: el cambio se aplica también allí, con prorrateo. */
+  chargedByStripe: boolean;
+  /** Paga por Stripe y el plan nuevo no tiene precio en Stripe (no se podrá cambiar). */
+  stripePriceMissing: boolean;
 }
 
 /** Dashboard financiero del SaaS: ingresos por fuente + serie mensual. */

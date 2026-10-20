@@ -1282,6 +1282,17 @@ function ChangePlanControl({
           {!preview.data.newPlanActive && (
             <p className="text-red-600 dark:text-red-400">⚠ El plan destino está desactivado.</p>
           )}
+          {preview.data.stripePriceMissing ? (
+            <p className="text-red-600 dark:text-red-400">
+              ⚠ Paga por Stripe y el plan nuevo no tiene precio en Stripe: configúralo en Planes
+              antes de cambiarlo.
+            </p>
+          ) : preview.data.chargedByStripe ? (
+            <p className="text-muted-foreground">
+              Paga por Stripe: el cambio se aplica también allí y Stripe cobra o abona la diferencia
+              en su próxima factura.
+            </p>
+          ) : null}
           {preview.data.redundantAddons.length > 0 && (
             <p className="text-amber-600 dark:text-amber-400">
               ⚠ Add-ons redundantes (su feature ya la incluye el plan nuevo):{' '}
