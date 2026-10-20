@@ -673,9 +673,9 @@ export function CabeTemplate({
                     unoptimized
                     src={data.logoUrl}
                     alt={data.tenantName}
-                    width={110}
-                    height={32}
-                    className="h-8 w-auto object-contain brightness-0 invert"
+                    width={264}
+                    height={96}
+                    className="h-16 w-auto object-contain brightness-0 invert sm:h-24"
                   />
                 ) : (
                   <span className="text-xl font-extrabold tracking-tight text-white">
@@ -1163,7 +1163,7 @@ function Header({
       style={onBrand ? { backgroundColor: brand } : undefined}
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-20 items-center justify-between gap-3">
+        <div className="flex h-20 items-center justify-between gap-3 sm:h-28">
           <button
             type="button"
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -1174,9 +1174,9 @@ function Header({
                 unoptimized
                 src={data.logoUrl}
                 alt={data.tenantName}
-                width={110}
-                height={40}
-                className="h-10 w-auto object-contain"
+                width={264}
+                height={96}
+                className={`h-16 w-auto object-contain sm:h-24 ${onBrand ? 'brightness-0 invert' : ''}`}
               />
             ) : (
               <span className="text-2xl font-extrabold tracking-tight">{data.tenantName}</span>
@@ -1184,7 +1184,7 @@ function Header({
           </button>
 
           <nav
-            className={`hidden items-center gap-6 text-sm font-bold xl:flex xl:gap-8 ${onBrand ? 'text-white/85' : 'text-slate-600 dark:text-muted-foreground'}`}
+            className={`hidden items-center gap-6 text-sm font-bold xl:flex xl:gap-8 ${onBrand ? 'text-white' : 'text-slate-600 dark:text-muted-foreground'}`}
           >
             {navItems.map((it) => (
               <button
@@ -1209,7 +1209,7 @@ function Header({
               href={portalHref}
               className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${onBrand ? 'bg-white/15 text-white hover:bg-white/25' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-muted dark:text-foreground'}`}
             >
-              <Lock className={`h-4 w-4 ${onBrand ? 'text-white/80' : 'text-slate-500'}`} />{' '}
+              <Lock className={`h-4 w-4 ${onBrand ? 'text-white' : 'text-slate-500'}`} />{' '}
               {t('clientArea')}
             </Link>
             <Link

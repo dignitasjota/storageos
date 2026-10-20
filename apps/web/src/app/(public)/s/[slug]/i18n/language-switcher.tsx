@@ -62,7 +62,7 @@ export function LanguageSwitcher({
       href={otherLocaleHref ?? hrefFor(other, tenantSlug, facilitySlug, customDomain)}
       className={`inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium transition-colors ${
         onBrand
-          ? 'border-white/40 text-white/90 hover:text-white'
+          ? 'border-white/60 text-white hover:bg-white/15'
           : 'text-muted-foreground hover:text-foreground'
       }`}
       aria-label={t('label')}
