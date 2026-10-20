@@ -280,6 +280,40 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
     expect(bad.status).toBe(404);
   });
 
+  it('change-plan de un tenant que paga por Stripe pasa por Stripe: si Stripe falla, no cambia nada', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-plan-stripe');
+    await adminClient.tenant.update({
+      where: { id: owner.tenantId },
+      data: { status: 'active', trialEndsAt: null },
+    });
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: {
+        status: 'active',
+        billingMode: 'stripe',
+        stripeSubscriptionId: `sub_admin_plan_${Date.now()}`,
+      },
+    });
+    const preview = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}/change-plan-preview?planSlug=pro`)
+      .set('Authorization', `Bearer ${superAdminToken}`);
+    expect(preview.status).toBe(200);
+    expect(preview.body.chargedByStripe).toBe(true);
+
+    // En los e2e Stripe no está disponible: el cambio no llega a Stripe y la app
+    // no da el plan nuevo (antes lo daba y Stripe seguía cobrando el anterior).
+    const r = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/change-plan`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ planSlug: 'pro', reason: 'upgrade' });
+    expect(r.status).toBeGreaterThanOrEqual(400);
+    const sub = await adminClient.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+      include: { plan: { select: { slug: true } } },
+    });
+    expect(sub.plan.slug).toBe('starter');
+  });
+
   it('tenant action: suspend → reactivate', async () => {
     const owner = await registerVerifiedUser(app, 'admin-sus');
     const suspend = await request(app.getHttpServer())

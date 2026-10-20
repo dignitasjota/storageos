@@ -14,6 +14,26 @@ import type {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Desde cuándo debe el tenant. En pago manual y SEPA, el fin del periodo
+ * pagado. En Stripe, el periodo ya avanzó al del cobro que falló: se debe
+ * desde su inicio (más el crédito de pagos manuales). Antes se contaba desde
+ * el fin de ese periodo nuevo y el escalado llegaba con un mes de retraso,
+ * cuando Stripe ya había agotado sus reintentos.
+ */
+function dueDateOf(sub: {
+  billingMode: string;
+  stripeSubscriptionId: string | null;
+  currentPeriodStart: Date;
+  currentPeriodEnd: Date;
+  manualExtensionDays: number;
+}): Date {
+  if (sub.billingMode === 'stripe' && sub.stripeSubscriptionId) {
+    return new Date(sub.currentPeriodStart.getTime() + sub.manualExtensionDays * DAY_MS);
+  }
+  return sub.currentPeriodEnd;
+}
+
+/**
  * Dunning del SaaS: cobra a los tenants morosos de la suscripción. Detecta las
  * suscripciones `past_due`, envía recordatorios escalados por email y suspende
  * el tenant tras N días de impago. Idempotente por ciclo (period_end).
@@ -137,7 +157,7 @@ export class PlatformDunningService {
       // sumar aquí o el dunning tardaría el doble en actuar sobre morosos con
       // histórico de pagos manuales.
       const periodEnd = sub.currentPeriodEnd;
-      const daysOverdue = Math.floor((now.getTime() - periodEnd.getTime()) / DAY_MS);
+      const daysOverdue = Math.floor((now.getTime() - dueDateOf(sub).getTime()) / DAY_MS);
       if (daysOverdue < 0) continue;
       result.evaluated += 1;
 

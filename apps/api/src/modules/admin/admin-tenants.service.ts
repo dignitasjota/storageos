@@ -16,6 +16,7 @@ import { zonedNextDayStart } from '../../common/format';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { anonymizeWhatsappConversations } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
+import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 
@@ -117,6 +118,7 @@ export class AdminTenantsService {
     private readonly audit: AuditService,
     private readonly superAdminAudit: SuperAdminAuditService,
     private readonly files: FilesService,
+    private readonly saasBilling: BillingSaasService,
   ) {}
 
   // =============================== read ====================================
@@ -1765,6 +1767,23 @@ export class AdminTenantsService {
     // etc. Para dar features de un plano superior DURANTE el trial se usan los
     // feature overrides, no el cambio de plan.
     const endsTrial = tenant.status === 'trial' || subscription.status === 'trial';
+    // Paga por Stripe: el plan se cambia también en Stripe (con prorrateo, como
+    // el cambio desde el panel del tenant). Si no, la app daba un plan y Stripe
+    // seguía cobrando el otro. Si Stripe falla, no se cambia nada.
+    const chargedByStripe =
+      !!subscription.stripeSubscriptionId &&
+      subscription.billingMode === 'stripe' &&
+      !tenant.billingExempt &&
+      plan.id !== subscription.planId;
+    if (chargedByStripe) {
+      await this.saasBilling.swapStripePlan({
+        tenantId,
+        stripeSubscriptionId: subscription.stripeSubscriptionId!,
+        currentPlanId: subscription.planId,
+        plan,
+        billingCycle: 'current',
+      });
+    }
     await this.admin.tenantSubscription.update({
       where: { tenantId },
       data: {
@@ -1783,6 +1802,7 @@ export class AdminTenantsService {
       previousPlan: previousSlug,
       newPlan: plan.slug,
       ...(endsTrial ? { endedTrial: true } : {}),
+      ...(chargedByStripe ? { stripeUpdated: true } : {}),
     };
     await this.audit.write({
       tenantId,
@@ -1850,7 +1870,11 @@ export class AdminTenantsService {
 
     const currentPrice = Number(subscription.plan.priceMonthly);
     const newPrice = Number(newPlan.priceMonthly);
+    const chargedByStripe =
+      !!subscription.stripeSubscriptionId && subscription.billingMode === 'stripe';
     return {
+      chargedByStripe,
+      stripePriceMissing: chargedByStripe && !newPlan.stripePriceId,
       currentPlanName: subscription.plan.name,
       currentPriceMonthly: currentPrice,
       newPlanName: newPlan.name,

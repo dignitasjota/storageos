@@ -465,64 +465,14 @@ export class BillingSaasService {
         message: 'Tu suscripción es de pago manual. Contacta con soporte para cambiar de plan.',
       });
     }
-    const yearly = args.billingCycle === 'yearly';
-    const newPriceId = yearly ? plan.stripePriceIdYearly : plan.stripePriceId;
-    if (!newPriceId) {
-      throw new BadRequestException({
-        code: 'plan_not_available',
-        message: yearly
-          ? 'El plan no tiene un precio anual configurado en Stripe'
-          : 'El plan no tiene un precio configurado en Stripe',
-      });
-    }
-
-    const previousPlanId = sub.planId;
-    // Precio de Stripe del plan ACTUAL: identifica cuál de los subscription items
-    // es el del plan (no un add-on) para intercambiar SOLO ese. Con add-ons en
-    // modo Stripe hay varios items; `items.data[0]` ya no es necesariamente el plan.
-    const currentPlan = await this.admin.subscriptionPlan.findUnique({
-      where: { id: sub.planId },
-      select: { stripePriceId: true },
+    await this.swapStripePlan({
+      tenantId: args.tenantId,
+      stripeSubscriptionId: sub.stripeSubscriptionId,
+      currentPlanId: sub.planId,
+      plan,
+      billingCycle: args.billingCycle ?? 'monthly',
     });
-    try {
-      const stripeSub = await this.stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
-      const items = stripeSub.items.data;
-      // El item del plan = el que casa con el price del plan actual; si no se
-      // resuelve, el que NO es un add-on (metadata.kind !== 'addon'); último recurso, el primero.
-      const planItem =
-        (currentPlan?.stripePriceId
-          ? items.find((i) => i.price?.id === currentPlan.stripePriceId)
-          : undefined) ??
-        items.find((i) => i.metadata?.kind !== 'addon') ??
-        items[0];
-      const itemId = planItem?.id;
-      if (!itemId) {
-        throw new InternalServerErrorException({
-          code: 'stripe_api_error',
-          message: 'La suscripción de Stripe no tiene líneas',
-        });
-      }
-      await this.stripe.subscriptions.update(sub.stripeSubscriptionId, {
-        items: [{ id: itemId, price: newPriceId }],
-        proration_behavior: 'create_prorations',
-        // Los metadatos quedan con el plan nuevo (Stripe los mezcla con los que hay).
-        metadata: {
-          planId: plan.id,
-          planSlug: plan.slug,
-          billingCycle: yearly ? 'yearly' : 'monthly',
-        },
-      });
-    } catch (err) {
-      if (err instanceof InternalServerErrorException) throw err;
-      this.logger.error(
-        `Stripe subscriptions.update falló para tenant ${args.tenantId}`,
-        err instanceof Error ? err.stack : String(err),
-      );
-      throw new InternalServerErrorException({
-        code: 'stripe_api_error',
-        message: 'No se pudo cambiar el plan en Stripe',
-      });
-    }
+    const previousPlanId = sub.planId;
 
     // El webhook `subscription.updated` no trae el planId → lo fijamos aquí.
     await this.admin.tenantSubscription.update({
@@ -541,6 +491,112 @@ export class BillingSaasService {
     });
 
     return this.getCurrentSubscription(args.tenantId);
+  }
+
+  /**
+   * Cambia el plan de la suscripción de Stripe: intercambia SOLO la línea del
+   * plan (no los extras), con prorrateo (Stripe cobra o abona la diferencia en
+   * la próxima factura), y deja el plan nuevo en los metadatos. `billingCycle`
+   * 'current' mantiene la periodicidad que paga hoy. Lanza si Stripe falla:
+   * quien llama no debe cambiar el plan en la BD.
+   */
+  async swapStripePlan(args: {
+    tenantId: string;
+    stripeSubscriptionId: string;
+    currentPlanId: string;
+    plan: {
+      id: string;
+      slug: string;
+      stripePriceId: string | null;
+      stripePriceIdYearly: string | null;
+    };
+    billingCycle: BillingCycle | 'current';
+  }): Promise<void> {
+    const { plan } = args;
+    // Con la periodicidad elegida, el precio se comprueba antes de llamar a Stripe.
+    if (args.billingCycle !== 'current') {
+      const wanted = args.billingCycle === 'yearly' ? plan.stripePriceIdYearly : plan.stripePriceId;
+      if (!wanted) {
+        throw new BadRequestException({
+          code: 'plan_not_available',
+          message:
+            args.billingCycle === 'yearly'
+              ? 'El plan no tiene un precio anual configurado en Stripe'
+              : 'El plan no tiene un precio configurado en Stripe',
+        });
+      }
+    }
+    // Precio de Stripe del plan ACTUAL: identifica cuál de los subscription items
+    // es el del plan (no un add-on) para intercambiar SOLO ese. Con add-ons en
+    // modo Stripe hay varios items; `items.data[0]` ya no es necesariamente el plan.
+    const currentPlan = await this.admin.subscriptionPlan.findUnique({
+      where: { id: args.currentPlanId },
+      select: { stripePriceId: true, stripePriceIdYearly: true },
+    });
+    let stripeSub: Awaited<ReturnType<StripeClient['subscriptions']['retrieve']>>;
+    try {
+      stripeSub = await this.stripe.subscriptions.retrieve(args.stripeSubscriptionId);
+    } catch (err) {
+      this.logger.error(
+        `Stripe subscriptions.retrieve falló para tenant ${args.tenantId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw new InternalServerErrorException({
+        code: 'stripe_api_error',
+        message: 'No se pudo leer la suscripción en Stripe',
+      });
+    }
+    const items = stripeSub.items.data;
+    const currentPrices = [currentPlan?.stripePriceId, currentPlan?.stripePriceIdYearly].filter(
+      (p): p is string => !!p,
+    );
+    // El item del plan = el que casa con un price del plan actual; si no se
+    // resuelve, el que NO es un add-on (metadata.kind !== 'addon'); último recurso, el primero.
+    const planItem =
+      items.find((i) => !!i.price?.id && currentPrices.includes(i.price.id)) ??
+      items.find((i) => i.metadata?.kind !== 'addon') ??
+      items[0];
+    if (!planItem?.id) {
+      throw new InternalServerErrorException({
+        code: 'stripe_api_error',
+        message: 'La suscripción de Stripe no tiene líneas',
+      });
+    }
+    const yearly =
+      args.billingCycle === 'current'
+        ? !!currentPlan?.stripePriceIdYearly &&
+          planItem.price?.id === currentPlan.stripePriceIdYearly
+        : args.billingCycle === 'yearly';
+    const newPriceId = yearly ? plan.stripePriceIdYearly : plan.stripePriceId;
+    if (!newPriceId) {
+      throw new BadRequestException({
+        code: 'plan_not_available',
+        message: yearly
+          ? 'El plan no tiene un precio anual configurado en Stripe'
+          : 'El plan no tiene un precio configurado en Stripe',
+      });
+    }
+    try {
+      await this.stripe.subscriptions.update(args.stripeSubscriptionId, {
+        items: [{ id: planItem.id, price: newPriceId }],
+        proration_behavior: 'create_prorations',
+        // Los metadatos quedan con el plan nuevo (Stripe los mezcla con los que hay).
+        metadata: {
+          planId: plan.id,
+          planSlug: plan.slug,
+          billingCycle: yearly ? 'yearly' : 'monthly',
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Stripe subscriptions.update falló para tenant ${args.tenantId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw new InternalServerErrorException({
+        code: 'stripe_api_error',
+        message: 'No se pudo cambiar el plan en Stripe',
+      });
+    }
   }
 
   /**
