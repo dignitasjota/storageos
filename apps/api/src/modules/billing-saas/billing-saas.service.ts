@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   InternalServerErrorException,
@@ -692,18 +693,22 @@ export class BillingSaasService {
       this.admin.subscriptionPlan.findFirst({ where: { slug: 'free' } }),
     ]);
     const stillTrial = tenant?.status === 'trial';
-    const updated = await this.admin.tenantSubscription.update({
-      where: { tenantId },
-      data: {
-        stripeSubscriptionId: null,
-        cancelAtPeriodEnd: false,
-        billingMode: 'manual',
-        manualExtensionDays: 0,
-        ...(stillTrial
-          ? { status: 'trial' as const }
-          : { status: 'active' as const, ...(freePlan ? { planId: freePlan.id } : {}) }),
-      },
-    });
+    const [updated] = await this.admin.$transaction([
+      this.admin.tenantSubscription.update({
+        where: { tenantId },
+        data: {
+          stripeSubscriptionId: null,
+          cancelAtPeriodEnd: false,
+          billingMode: 'manual',
+          manualExtensionDays: 0,
+          ...(stillTrial
+            ? { status: 'trial' as const }
+            : { status: 'active' as const, ...(freePlan ? { planId: freePlan.id } : {}) }),
+        },
+      }),
+      // Los extras que iban en la suscripción terminada pasan a cobro manual.
+      ...this.detachStripeAddons(tenantId),
+    ]);
     await this.audit.write({
       tenantId,
       userId: null,
@@ -1314,27 +1319,29 @@ export class BillingSaasService {
       }
     }
 
+    // Stripe tiene que dejar de cobrar ANTES de cambiar el modo: si la
+    // cancelación falla y seguimos, Stripe cobra cada mes y además el nuevo modo
+    // (doble cobro), sin que esos cobros se registren.
     if (sub.stripeSubscriptionId) {
-      try {
-        await this.stripe.subscriptions.cancel(sub.stripeSubscriptionId);
-      } catch (err) {
-        this.logger.warn(
-          `setBillingMode: no se pudo cancelar la sub Stripe ${sub.stripeSubscriptionId} (tenant ${tenantId}): ${String(err)}`,
-        );
-      }
+      await this.cancelStripeSubscriptionOrThrow(tenantId, sub.stripeSubscriptionId);
     }
 
-    await this.admin.tenantSubscription.update({
-      where: { tenantId },
-      data: {
-        stripeSubscriptionId: null,
-        stripeCustomerId: null,
-        cancelAtPeriodEnd: false,
-        status: 'active',
-        manualExtensionDays: 0,
-        billingMode: mode,
-      },
-    });
+    await this.admin.$transaction([
+      this.admin.tenantSubscription.update({
+        where: { tenantId },
+        data: {
+          stripeSubscriptionId: null,
+          // El cliente de Stripe se conserva: los avisos tardíos de Stripe siguen
+          // encontrando al tenant y, si vuelve a suscribirse, no se duplica.
+          cancelAtPeriodEnd: false,
+          status: 'active',
+          manualExtensionDays: 0,
+          billingMode: mode,
+        },
+      }),
+      // Los extras que cobraba Stripe pasan a cobrarse con el nuevo modo.
+      ...this.detachStripeAddons(tenantId),
+    ]);
 
     await this.audit.write({
       tenantId,
@@ -1350,6 +1357,55 @@ export class BillingSaasService {
       ipAddress: null,
       userAgent: null,
     });
+  }
+
+  /**
+   * Cancela la suscripción de Stripe y solo sigue si Stripe confirma que ya no
+   * cobra (cancelada ahora, ya cancelada o inexistente). Sin Stripe configurado
+   * (desarrollo) no hay nada que cancelar.
+   */
+  private async cancelStripeSubscriptionOrThrow(
+    tenantId: string,
+    stripeSubscriptionId: string,
+  ): Promise<void> {
+    if (!this.stripeConfigured()) return;
+    try {
+      await this.stripe.subscriptions.cancel(stripeSubscriptionId);
+      return;
+    } catch (err) {
+      // ¿Ya no cobra? (cancelada antes, o borrada en Stripe).
+      const code = (err as { code?: string }).code;
+      if (code === 'resource_missing') return;
+      try {
+        const current = await this.stripe.subscriptions.retrieve(stripeSubscriptionId);
+        if (TERMINAL_STRIPE_STATUSES.has(current.status)) return;
+      } catch {
+        /* sin respuesta de Stripe: no se puede confirmar */
+      }
+      this.logger.error(
+        `No se pudo cancelar la suscripción de Stripe ${stripeSubscriptionId} (tenant ${tenantId}): ${String(err)}`,
+      );
+      throw new BadGatewayException({
+        code: 'stripe_cancel_failed',
+        message:
+          'Stripe no ha confirmado la cancelación de la suscripción: no se cambia el modo de cobro para no cobrar dos veces. Vuelve a intentarlo o cancélala en el panel de Stripe.',
+      });
+    }
+  }
+
+  /**
+   * Extras que se cobraban como líneas de la suscripción de Stripe: al dejar de
+   * existir esa suscripción pasan a cobro manual y vuelven a la bandeja «Hoy»
+   * (con la cuota por SEPA van en la remesa). Sin esto quedaban «en Stripe» sin
+   * cobrarse nunca y con la función activa.
+   */
+  private detachStripeAddons(tenantId: string) {
+    return [
+      this.admin.tenantSubscriptionAddon.updateMany({
+        where: { tenantId, billingMode: 'stripe' },
+        data: { billingMode: 'manual', stripeSubscriptionItemId: null, nextChargeAt: new Date() },
+      }),
+    ];
   }
 
   /**

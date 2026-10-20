@@ -614,7 +614,12 @@ export class SaasAddonsService {
     const price = input.priceMonthly ?? num(addon.priceMonthly);
     const existing = await this.admin.tenantSubscriptionAddon.findUnique({
       where: { tenantId_addonId: { tenantId, addonId: input.addonId } },
-      select: { billingMode: true, stripeSubscriptionItemId: true, quantity: true },
+      select: {
+        billingMode: true,
+        stripeSubscriptionItemId: true,
+        quantity: true,
+        suspendedAt: true,
+      },
     });
     // Upsert: reasignar actualiza cantidad/precio (unique por tenant+addon).
     await this.admin.tenantSubscriptionAddon.upsert({
@@ -635,6 +640,9 @@ export class SaasAddonsService {
         quantity: input.quantity,
         notes: input.notes ?? null,
         suspendedAt: null,
+        // Si estaba suspendido, la suspensión le quitó la fecha de cobro: vuelve
+        // a la bandeja «Hoy» (como al reactivarlo), si no, nunca se cobraría.
+        ...(existing?.suspendedAt ? { nextChargeAt: new Date() } : {}),
       },
     });
     // Si estaba en modo Stripe y cambia la cantidad, sincroniza el subscription item.

@@ -394,7 +394,8 @@ describe('Admin SaaS manual payment (e2e)', () => {
       where: { tenantId: owner.tenantId },
     });
     expect(sub!.stripeSubscriptionId).toBeNull();
-    expect(sub!.stripeCustomerId).toBeNull();
+    // El cliente de Stripe se conserva (avisos tardíos y volver a suscribirse).
+    expect(sub!.stripeCustomerId).not.toBeNull();
     expect(sub!.status).toBe('active');
     expect(sub!.manualExtensionDays).toBe(0); // reset (el crédito ya está en el periodo)
     // Conserva el periodo ya pagado.
@@ -405,6 +406,113 @@ describe('Admin SaaS manual payment (e2e)', () => {
       .post(`/admin/tenants/${owner.tenantId}/switch-to-manual`)
       .send();
     expect(noAuth.status).toBe(401);
+  });
+
+  it('los extras que cobraba Stripe pasan a cobro manual al dejar Stripe (cambio de modo y fin de la suscripción)', async () => {
+    const slug = `addon-orphan-${Date.now()}`;
+    const addon = await adminClient.subscriptionAddon.create({
+      data: { slug, name: 'Extra de prueba', priceMonthly: 9 },
+    });
+    try {
+      for (const via of ['switch', 'stripe_ended'] as const) {
+        const owner = await registerVerifiedUser(app, `admin-smp-orphan-${via.replace('_', '')}`);
+        const stripeSub = `sub_orphan_${via}_${Date.now()}`;
+        await adminClient.tenantSubscription.update({
+          where: { tenantId: owner.tenantId },
+          data: {
+            status: 'active',
+            stripeSubscriptionId: stripeSub,
+            stripeCustomerId: `cus_orphan_${via}_${Date.now()}`,
+            billingMode: 'stripe',
+          },
+        });
+        await adminClient.tenant.update({
+          where: { id: owner.tenantId },
+          data: { status: 'active', trialEndsAt: null },
+        });
+        const assignment = await adminClient.tenantSubscriptionAddon.create({
+          data: {
+            tenantId: owner.tenantId,
+            addonId: addon.id,
+            priceMonthly: 9,
+            quantity: 1,
+            billingMode: 'stripe',
+            stripeSubscriptionItemId: 'si_fake',
+            nextChargeAt: null,
+          },
+        });
+
+        if (via === 'switch') {
+          await request(app.getHttpServer())
+            .post(`/admin/tenants/${owner.tenantId}/switch-to-manual`)
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+        } else {
+          // El tenant cancela en el portal de Stripe → aviso de suscripción terminada.
+          await app.get(BillingSaasService).syncSubscriptionFromStripe({
+            stripeSubscriptionId: stripeSub,
+            stripeCustomerId: 'cus_x',
+            tenantIdHint: owner.tenantId,
+            status: 'canceled',
+            currentPeriodStart: Math.floor(Date.now() / 1000) - 86_400,
+            currentPeriodEnd: Math.floor(Date.now() / 1000) + 86_400,
+            cancelAtPeriodEnd: false,
+          });
+        }
+
+        const row = await adminClient.tenantSubscriptionAddon.findUniqueOrThrow({
+          where: { id: assignment.id },
+        });
+        expect(row.billingMode).toBe('manual');
+        expect(row.stripeSubscriptionItemId).toBeNull();
+        // Vuelve a la bandeja de cobros de «Hoy».
+        expect(row.nextChargeAt).not.toBeNull();
+      }
+    } finally {
+      await adminClient.tenantSubscriptionAddon.deleteMany({ where: { addonId: addon.id } });
+      await adminClient.subscriptionAddon.delete({ where: { id: addon.id } });
+    }
+  });
+
+  it('reasignar un extra suspendido lo vuelve a poner en la bandeja de cobros', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-smp-reassign');
+    const addon = await adminClient.subscriptionAddon.create({
+      data: { slug: `addon-reassign-${Date.now()}`, name: 'Extra reasignado', priceMonthly: 5 },
+    });
+    try {
+      const auth = { Authorization: `Bearer ${token}` };
+      const assigned = await request(app.getHttpServer())
+        .post(`/admin/tenants/${owner.tenantId}/addons`)
+        .set(auth)
+        .send({ addonId: addon.id, quantity: 1 });
+      expect([200, 201]).toContain(assigned.status);
+      const row = await adminClient.tenantSubscriptionAddon.findFirstOrThrow({
+        where: { tenantId: owner.tenantId, addonId: addon.id },
+      });
+      await request(app.getHttpServer())
+        .post(`/admin/tenants/${owner.tenantId}/addons/${row.id}/suspend`)
+        .set(auth)
+        .then((r) => expect([200, 201]).toContain(r.status));
+      expect(
+        (await adminClient.tenantSubscriptionAddon.findUniqueOrThrow({ where: { id: row.id } }))
+          .nextChargeAt,
+      ).toBeNull();
+
+      // Reasignarlo (en vez de «Reactivar») también lo reactiva: con su cobro.
+      await request(app.getHttpServer())
+        .post(`/admin/tenants/${owner.tenantId}/addons`)
+        .set(auth)
+        .send({ addonId: addon.id, quantity: 1 })
+        .then((r) => expect([200, 201]).toContain(r.status));
+      const after = await adminClient.tenantSubscriptionAddon.findUniqueOrThrow({
+        where: { id: row.id },
+      });
+      expect(after.suspendedAt).toBeNull();
+      expect(after.nextChargeAt).not.toBeNull();
+    } finally {
+      await adminClient.tenantSubscriptionAddon.deleteMany({ where: { addonId: addon.id } });
+      await adminClient.subscriptionAddon.delete({ where: { id: addon.id } });
+    }
   });
 
   it('enforcement manual: un pago parcial que no cubre "ahora" sigue past_due', async () => {
