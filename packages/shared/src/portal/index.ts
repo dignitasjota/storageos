@@ -249,3 +249,11 @@ export interface PortalAccountDto {
   /** Emitido y aún no vencido (sin contar lo que se está cobrando). */
   pendingNotDue: number;
 }
+
+/** Un aviso que el negocio le envió por correo (recordatorio, subida de precio…). */
+export interface PortalNoticeDto {
+  id: string;
+  subject: string;
+  body: string;
+  sentAt: string;
+}

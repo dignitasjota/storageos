@@ -242,7 +242,13 @@
         "pendingTitle": "Por pagar",
         "payAll": "Pagar todo ({amount})",
         "yearSummary": "{count, plural, one {# factura} other {# facturas}} · {total}",
-        "payAllResult": "Se pagaron {ok} y {failed, plural, one {# no se pudo cobrar} other {# no se pudieron cobrar}}."
+        "payAllResult": "Se pagaron {ok} y {failed, plural, one {# no se pudo cobrar} other {# no se pudieron cobrar}}.",
+        "makeDefault": "Usar para cobrar",
+        "remove": "Quitar",
+        "removeConfirm": "¿Quitar? Pulsa otra vez",
+        "removed": "Método de pago quitado.",
+        "defaultSaved": "Se cobrará con este método.",
+        "pmError": "No se pudo guardar el cambio."
       },
       "access": {
         "title": "Tu acceso",
@@ -562,6 +568,10 @@
         "otherUnitHint": "Contrata otro trastero en un momento.",
         "manage": "Ver",
         "add": "Añadir"
+      },
+      "notices": {
+        "title": "Avisos que te hemos enviado",
+        "subtitle": "Los correos del negocio: recordatorios, cambios de precio y otros avisos."
       }
     },
     "gocardless": {

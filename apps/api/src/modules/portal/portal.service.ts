@@ -15,10 +15,11 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { Prisma } from '@storageos/database';
-import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
+import { NON_CASH_PAYMENT_METHODS, type PortalNoticeDto } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { emailLocale } from '../../common/format';
+import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -1087,6 +1088,8 @@ export class PortalService {
   /** Planes de seguro/protección activos que ofrece el negocio (para contratar). */
   async listInsurancePlans(tenantId: string, customerId: string): Promise<InsurancePlanDto[]> {
     await this.requireCustomer(tenantId, customerId);
+    // Si el negocio ya no tiene la protección en su plan no se puede contratar.
+    if (!(await tenantHasFeature(this.admin, tenantId, 'insurance'))) return [];
     const rows = await this.admin.insurancePlan.findMany({
       where: { tenantId, isActive: true },
       orderBy: { monthlyPrice: 'asc' },
@@ -1375,6 +1378,102 @@ export class PortalService {
       status: payment.status,
       failureReason: payment.failureReason,
     };
+  }
+
+  /**
+   * Avisos que el negocio le envió por correo (recordatorios de pago, subidas
+   * de precio, corte de acceso, propuestas…), para que los tenga a mano en su
+   * área de clientes. Los datos secretos (p. ej. un PIN) nunca se enseñan.
+   */
+  async listMyNotices(tenantId: string, customerId: string): Promise<PortalNoticeDto[]> {
+    await this.requireCustomer(tenantId, customerId);
+    const rows = await this.admin.communication.findMany({
+      where: {
+        tenantId,
+        customerId,
+        channel: 'email',
+        status: { in: ['sent', 'delivered'] },
+        subject: { not: null },
+      },
+      select: { id: true, subject: true, bodyText: true, sentAt: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      subject: r.subject ?? '',
+      body: r.bodyText.replace(/\[\[SECRET-\d+\]\]/g, '••••'),
+      sentAt: (r.sentAt ?? r.createdAt).toISOString(),
+    }));
+  }
+
+  /** Quita un método de pago propio; si era el predeterminado, pasa a serlo el más reciente. */
+  async removeMyPaymentMethod(
+    tenantId: string,
+    customerId: string,
+    paymentMethodId: string,
+  ): Promise<PaymentMethodDto[]> {
+    await this.requireCustomer(tenantId, customerId);
+    const pm = await this.admin.paymentMethod.findFirst({
+      where: { id: paymentMethodId, tenantId, customerId, deletedAt: null },
+      select: { id: true, isDefault: true },
+    });
+    if (!pm) {
+      throw new NotFoundException({
+        code: 'payment_method_not_found',
+        message: 'Método de pago no encontrado',
+      });
+    }
+    await this.admin.$transaction(async (tx) => {
+      await tx.paymentMethod.update({
+        where: { id: pm.id },
+        data: { deletedAt: new Date(), isDefault: false },
+      });
+      if (pm.isDefault) {
+        const next = await tx.paymentMethod.findFirst({
+          where: { tenantId, customerId, deletedAt: null },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        });
+        if (next)
+          await tx.paymentMethod.update({ where: { id: next.id }, data: { isDefault: true } });
+      }
+    });
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: 'payment_method.removed_by_customer',
+      entityType: 'PaymentMethod',
+      entityId: pm.id,
+    });
+    return this.listMyPaymentMethods(tenantId, customerId);
+  }
+
+  /** Marca un método de pago propio como predeterminado (el que se cobra). */
+  async setMyDefaultPaymentMethod(
+    tenantId: string,
+    customerId: string,
+    paymentMethodId: string,
+  ): Promise<PaymentMethodDto[]> {
+    await this.requireCustomer(tenantId, customerId);
+    const pm = await this.admin.paymentMethod.findFirst({
+      where: { id: paymentMethodId, tenantId, customerId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!pm) {
+      throw new NotFoundException({
+        code: 'payment_method_not_found',
+        message: 'Método de pago no encontrado',
+      });
+    }
+    await this.admin.$transaction([
+      this.admin.paymentMethod.updateMany({
+        where: { tenantId, customerId, isDefault: true },
+        data: { isDefault: false },
+      }),
+      this.admin.paymentMethod.update({ where: { id: pm.id }, data: { isDefault: true } }),
+    ]);
+    return this.listMyPaymentMethods(tenantId, customerId);
   }
 
   /** Customer vivo del tenant o 404 (mismo guard que `listMyInvoices`). */
