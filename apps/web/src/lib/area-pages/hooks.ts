@@ -3,8 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type {
+  AreaPageDraftDto,
   AreaPagesSettingsDto,
   CreateAreaPageInput,
+  DraftAreaPageInput,
   UpdateAreaPageInput,
 } from '@storageos/shared';
 
@@ -37,5 +39,13 @@ export function useDeleteAreaPage() {
     mutationFn: (id: string) =>
       apiFetch<AreaPagesSettingsDto>(`${path}/${id}`, { method: 'DELETE' }),
     onSuccess: (data) => qc.setQueryData(key, data),
+  });
+}
+
+/** Borrador con IA (no guarda nada). */
+export function useDraftAreaPage() {
+  return useMutation({
+    mutationFn: (input: DraftAreaPageInput) =>
+      apiFetch<AreaPageDraftDto>(`${path}/draft`, { method: 'POST', json: input }),
   });
 }
