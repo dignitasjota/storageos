@@ -162,7 +162,7 @@ export default function AreaPagesPage() {
     <div className="max-w-3xl space-y-6">
       <SettingsHeader
         title="Páginas de zona"
-        description="Las páginas «trasteros en <ciudad>» de tu web, que es lo que más se busca en Google. Ponles texto propio: es lo que las diferencia. Incluido en Web Premium."
+        description="Las páginas «trasteros en <ciudad>» de tu web, que es lo que más se busca en Google. Ponles texto propio: es lo que las diferencia. Incluido en el extra SEO local."
       />
 
       {data.isLoading ? (

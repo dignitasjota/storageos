@@ -1334,3 +1334,14 @@ Sin la variable todo funciona como antes (URL pública, con límite compartido).
 - **Migraciones** (las aplica el api al arrancar): `customer_offers` (con RLS) y `customer_portal_last_seen`. Redesplegar **api y web** con pull efectivo.
 - **Columna «Portal»** en Inquilinos: empieza vacía y se va llenando a medida que los inquilinos entran. Conviene esperar unas semanas antes de enviar el acceso en bloque a los que «nunca han entrado».
 - **Ofertas**: solo las propuestas enviadas desde Oportunidades a partir de este despliegue aparecen en el portal; «Me interesa» avisa al equipo y no contrata nada.
+
+## 34. Extra «SEO local»: IA y Search Console
+
+1. **IA en producción.** El compose de Portainer no pasaba `AI_PROVIDER` ni `ANTHROPIC_API_KEY` a los contenedores: hasta ahora la IA (asistente del panel, sugerencias y textos de las páginas de zona) funcionaba en modo demo. Pon en las variables del stack `AI_PROVIDER=anthropic` y `ANTHROPIC_API_KEY=…` (opcional `AI_MODEL`) y redespliega api y worker.
+2. **Cuenta de servicio de Search Console.**
+   - En Google Cloud Console crea un proyecto (o usa uno), activa **Google Search Console API** y crea una **cuenta de servicio** sin roles.
+   - En la cuenta de servicio → Claves → Añadir clave → JSON. Descarga el fichero.
+   - Pega el JSON completo (en una línea) en la variable `GSC_SERVICE_ACCOUNT_JSON` del stack y redespliega api y worker.
+   - Cada tenant añade el `client_email` de la cuenta como usuario «Restringido» de su propiedad en Search Console y la conecta en **Análisis → Posiciones en Google**. El worker descarga los datos cada día (cron `search-console.daily`).
+3. Revisa el precio del extra «SEO local» (12 €/mes) en `/admin/addons` y, si lo vendes también por Stripe, crea su Price.
+4. Quien tenía páginas de zona publicadas conserva el extra como cortesía (migración `20261106100000_local_seo_courtesy`); quítasela desde la ficha del tenant si procede.

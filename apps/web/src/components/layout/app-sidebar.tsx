@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BarChart3,
+  SearchCheck,
   CalendarCheck,
   Bot,
   Boxes,
@@ -414,6 +415,13 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/analytics', labelKey: 'analytics', icon: BarChart3, permission: 'analytics:read' },
       { href: '/competitors', labelKey: 'competitors', icon: Store, permission: 'analytics:read' },
+      {
+        href: '/seo',
+        labelKey: 'seo',
+        icon: SearchCheck,
+        permission: 'analytics:read',
+        feature: 'local_seo',
+      },
       { href: '/reports', labelKey: 'reports', icon: FileSpreadsheet, permission: 'reports:read' },
       {
         href: '/assistant',
