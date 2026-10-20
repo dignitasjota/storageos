@@ -22,6 +22,7 @@ import { AccountingModule } from './modules/accounting/accounting.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AiModule } from './modules/ai/ai.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { AreaPagesModule } from './modules/area-pages/area-pages.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AutomationsModule } from './modules/automations/automations.module';
@@ -210,6 +211,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     FaqModule,
     EmailDomainsModule,
     BlogModule,
+    AreaPagesModule,
     PromoLandingsModule,
     ContractsModule,
     QueuesModule,

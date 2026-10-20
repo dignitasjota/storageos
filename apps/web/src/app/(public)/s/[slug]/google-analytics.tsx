@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import Script from 'next/script';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 
-import { legalHref } from './i18n/messages';
+import { facilityHref, legalHref } from './i18n/messages';
+
+import type { AreaPageLinkDto } from '@storageos/shared';
 
 /**
  * Envía un evento de conversión a GA4 (`gtag('event', ...)`). No-op si el
@@ -22,6 +24,8 @@ export function trackEvent(name: string, params?: Record<string, string | number
 export interface TenantSiteRef {
   tenantSlug: string;
   customDomain?: string | null;
+  /** Páginas de zona («trasteros en …») que se enlazan en el pie. */
+  areaLinks?: AreaPageLinkDto[];
 }
 
 type Consent = 'all' | 'necessary';
@@ -139,8 +143,10 @@ export function TenantLegalLinks({
   className?: string;
 }) {
   const t = useTranslations('publicWeb.legal');
+  const tWeb = useTranslations('publicWeb');
+  const locale = useLocale().startsWith('en') ? 'en' : 'es';
   const link = 'transition hover:underline';
-  return (
+  const legal = (
     <nav
       aria-label={t('navLabel')}
       className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${className}`}
@@ -160,5 +166,26 @@ export function TenantLegalLinks({
         </button>
       )}
     </nav>
+  );
+  const areas = site.areaLinks ?? [];
+  if (areas.length === 0) return legal;
+  // Enlaces a las páginas de zona: Google las encuentra y entiende de qué van.
+  return (
+    <div className="flex flex-col gap-1">
+      <nav aria-label={t('areasLabel')} className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {areas.map((a) => (
+          <Link
+            key={a.path}
+            href={facilityHref(site.tenantSlug, a.path, locale, site.customDomain)}
+            className={link}
+          >
+            {a.kind === 'nearby'
+              ? tWeb('area.nearHeading', { city: a.name })
+              : tWeb('city.heading', { city: a.name })}
+          </Link>
+        ))}
+      </nav>
+      {legal}
+    </div>
   );
 }

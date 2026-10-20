@@ -1,19 +1,24 @@
 import {
+  areaPagePath,
   cityFromPageSlug,
-  cityPages,
-  type CityPage,
+  resolveAreaPages,
+  type AreaPageFaq,
   type PublicLandingDto,
+  type ResolvedAreaPage,
 } from '@storageos/shared';
-import { notFound } from 'next/navigation';
-import { NextIntlClientProvider } from 'next-intl';
+import { notFound, permanentRedirect } from 'next/navigation';
+import { createTranslator, NextIntlClientProvider } from 'next-intl';
 
 import {
   cityPageHref,
+  facilityHref,
   getPublicWebMessages,
   intlLocaleFor,
+  landingHref,
   type PublicWebLocale,
 } from '../i18n/messages';
 import { getLanding, siteUrl } from '../landing-shared';
+import { faqPageLd, localBusinessFields } from '../local-business-ld';
 import { formatPrice, grossPrice } from '../price-format';
 import { TenantWebChrome } from '../tenant-web-chrome';
 import { WhatsappFloatButton } from '../whatsapp-float-button';
@@ -25,30 +30,74 @@ import type { Metadata } from 'next';
 import { safeJsonLd } from '@/lib/json-ld';
 
 type Facility = PublicLandingDto['facilities'][number];
+type AreaPage = ResolvedAreaPage<Facility>;
 
-/** Datos de la página de una ciudad (`trasteros-en-<ciudad>`), o null si no la tiene. */
+/** Página de zona (`trasteros-en-<zona>`): ciudad con locales o zona cercana, o null. */
 export async function getCityPage(
   slug: string,
   pageSlug: string,
-): Promise<{
-  data: PublicLandingDto;
-  page: CityPage<Facility>;
-  pages: CityPage<Facility>[];
-} | null> {
+): Promise<{ data: PublicLandingDto; page: AreaPage; pages: AreaPage[] } | null> {
   const city = cityFromPageSlug(pageSlug);
   if (!city) return null;
   const data = await getLanding(slug);
   if (!data || data.webTemplate === 'external') return null;
-  const pages = cityPages(data.facilities);
+  const pages = resolveAreaPages(data.facilities, data.areaPages ?? []);
   const page = pages.find((p) => p.slug === city);
   return page ? { data, page, pages } : null;
 }
 
-function minPrice(page: CityPage<Facility>): number | null {
+/** A dónde lleva la dirección cuando no tiene página propia. */
+function redirectUrl(data: PublicLandingDto, page: AreaPage, locale: PublicWebLocale) {
+  if (!page.redirect) return null;
+  return page.redirect.to === 'home'
+    ? landingHref(data.tenantSlug, locale, data.customDomain)
+    : facilityHref(data.tenantSlug, page.redirect.publicSlug, locale, data.customDomain);
+}
+
+function minPrice(page: AreaPage): number | null {
   const prices = page.facilities.flatMap((f) =>
     f.unitTypes.filter((u) => u.available > 0).map((u) => grossPrice(u)),
   );
   return prices.length > 0 ? Math.min(...prices) : null;
+}
+
+/** Preguntas visibles: las propias y, después, las generadas que aplican. */
+async function pageFaqs(
+  data: PublicLandingDto,
+  page: AreaPage,
+  locale: PublicWebLocale,
+): Promise<AreaPageFaq[]> {
+  const messages = await getPublicWebMessages(locale);
+  const t = createTranslator({
+    locale: intlLocaleFor(locale),
+    messages,
+    namespace: 'publicWeb.city',
+  });
+  const min = minPrice(page);
+  const price = min != null ? formatPrice(min, locale) : null;
+  const own = page.content?.faqs ?? [];
+  const generated: AreaPageFaq[] = [];
+  if (page.kind === 'city') {
+    generated.push({
+      question: t('q1', { city: page.name }),
+      answer: price
+        ? t('a1', { city: page.name, tenantName: data.tenantName, price })
+        : t('a1NoPrice'),
+    });
+    generated.push({
+      question: t('q2', { city: page.name, tenantName: data.tenantName }),
+      answer: t('a2', {
+        city: page.name,
+        count: page.facilities.length,
+        addresses: page.facilities
+          .map((f) => [f.name, f.address].filter(Boolean).join(', '))
+          .join('; '),
+      }),
+    });
+  }
+  generated.push({ question: t('q3'), answer: t('a3') });
+  const seen = new Set(own.map((f) => f.question.trim().toLowerCase()));
+  return [...own, ...generated.filter((f) => !seen.has(f.question.trim().toLowerCase()))];
 }
 
 export async function buildCityMetadata(
@@ -59,16 +108,28 @@ export async function buildCityMetadata(
   const found = await getCityPage(slug, pageSlug);
   if (!found) return null;
   const { data, page } = found;
+  // Lleva a otra página (la portada o la ficha del local): no se indexa.
+  if (page.redirect) return { robots: { index: false, follow: true } };
   const min = minPrice(page);
   const price = min != null ? formatPrice(min, locale) : null;
+  const near = page.kind === 'nearby';
+  const names = page.facilities.map((f) => f.name).join(', ');
+  // Los textos propios están en español: en inglés se usan los generados.
+  const own = locale === 'es' ? page.content : null;
   const title =
-    locale === 'en'
-      ? `Storage units in ${page.name} · ${data.tenantName}`
-      : `Trasteros en ${page.name} · ${data.tenantName}`;
+    own?.seoTitle ||
+    (locale === 'en'
+      ? `Storage units ${near ? 'near' : 'in'} ${page.name} · ${data.tenantName}`
+      : `Trasteros ${near ? 'cerca de' : 'en'} ${page.name} · ${data.tenantName}`);
   const description =
-    locale === 'en'
-      ? `${page.facilities.length} storage locations of ${data.tenantName} in ${page.name}${price ? `, from ${price}/month (VAT incl.)` : ''}. Check sizes and availability and book online.`
-      : `${page.facilities.length === 1 ? 'Un centro' : `${page.facilities.length} centros`} de ${data.tenantName} en ${page.name}${price ? `, desde ${price}/mes (IVA incl.)` : ''}. Consulta tamaños y disponibilidad y reserva online.`;
+    own?.seoDescription ||
+    (near
+      ? locale === 'en'
+        ? `Storage units near ${page.name}: ${names} (${data.tenantName})${price ? `, from ${price}/month (VAT incl.)` : ''}. Check sizes and book online.`
+        : `Trasteros cerca de ${page.name}: ${names} (${data.tenantName})${price ? `, desde ${price}/mes (IVA incl.)` : ''}. Consulta tamaños y reserva online.`
+      : locale === 'en'
+        ? `${page.facilities.length} storage locations of ${data.tenantName} in ${page.name}${price ? `, from ${price}/month (VAT incl.)` : ''}. Check sizes and availability and book online.`
+        : `${page.facilities.length === 1 ? 'Un centro' : `${page.facilities.length} centros`} de ${data.tenantName} en ${page.name}${price ? `, desde ${price}/mes (IVA incl.)` : ''}. Consulta tamaños y disponibilidad y reserva online.`);
   const es = cityPageHref(slug, page.slug, 'es', data.customDomain);
   const en = cityPageHref(slug, page.slug, 'en', data.customDomain);
   return {
@@ -78,7 +139,8 @@ export async function buildCityMetadata(
       canonical: locale === 'en' ? en : es,
       languages: { es, en, 'x-default': es },
     },
-    robots: { index: true, follow: true },
+    // Una zona cercana sin texto propio suficiente no se indexa.
+    robots: { index: page.indexable, follow: true },
     openGraph: {
       title,
       description,
@@ -101,10 +163,21 @@ export async function CityPageBody({
   const found = await getCityPage(slug, pageSlug);
   if (!found) notFound();
   const { data, page, pages } = found;
+  const target = redirectUrl(data, page, locale);
+  if (target) permanentRedirect(target);
+
   const messages = await getPublicWebMessages(locale);
+  const faqs = await pageFaqs(data, page, locale);
+  // El texto de las demás páginas no viaja al navegador.
+  const site = { ...data, areaPages: [] };
   const min = minPrice(page);
   const base = data.customDomain ? `https://${data.customDomain}` : `${siteUrl()}/s/${slug}`;
-  const pageUrl = `${base}/trasteros-en-${page.slug}`;
+  const pageUrl = `${base}/${areaPagePath(page.slug)}`;
+  const served = [
+    ...(page.kind === 'nearby' ? [page.name] : []),
+    ...(page.content?.nearbyAreas ?? []),
+  ];
+  const faqLd = faqPageLd(faqs, `${pageUrl}#faq`);
   const jsonLd = {
     '@context': 'https://schema.org',
     '@graph': [
@@ -118,18 +191,8 @@ export async function CityPageBody({
             '@type': 'SelfStorage',
             '@id': `${base}${f.publicSlug ? `/${f.publicSlug}` : ''}#local-${f.id}`,
             name: `${data.tenantName} — ${f.name}`,
-            ...(f.address
-              ? {
-                  address: {
-                    '@type': 'PostalAddress',
-                    streetAddress: f.address,
-                    addressLocality: f.city ?? page.name,
-                    ...(f.postalCode ? { postalCode: f.postalCode } : {}),
-                    addressCountry: 'ES',
-                  },
-                }
-              : {}),
-            ...(f.contactPhone ? { telephone: f.contactPhone } : {}),
+            ...(f.publicSlug ? { url: `${base}/${f.publicSlug}` } : {}),
+            ...localBusinessFields(f, { areaServed: served }),
           },
         })),
       },
@@ -140,24 +203,26 @@ export async function CityPageBody({
           { '@type': 'ListItem', position: 2, name: page.name, item: pageUrl },
         ],
       },
+      ...(faqLd ? [faqLd] : []),
     ],
   };
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
       <TenantWebChrome
-        data={data}
+        data={site}
         locale={locale}
         hasBlog={data.hasBlog}
         googleAnalyticsId={data.googleAnalyticsId}
         languageHrefBuilder={(l) => cityPageHref(slug, page.slug, l, data.customDomain)}
       >
         <CityBody
-          data={data}
+          data={site}
           page={page}
+          faqs={faqs}
           others={pages
-            .filter((p) => p.slug !== page.slug)
-            .map((p) => ({ name: p.name, slug: p.slug }))}
+            .filter((p) => p.slug !== page.slug && p.indexable)
+            .map((p) => ({ name: p.name, slug: p.slug, kind: p.kind }))}
           fromPrice={min != null ? formatPrice(min, locale) : null}
           locale={locale}
         />

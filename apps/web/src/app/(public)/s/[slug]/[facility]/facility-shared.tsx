@@ -3,8 +3,14 @@ import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
 import { buildCityMetadata, CityPageBody } from '../city/city-shared';
-import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from '../i18n/messages';
+import {
+  getPublicWebMessages,
+  intlLocaleFor,
+  landingHref,
+  type PublicWebLocale,
+} from '../i18n/messages';
 import { siteUrl } from '../landing-shared';
+import { faqPageLd, localBusinessFields } from '../local-business-ld';
 import { priceRangeString } from '../price-format';
 import { themeFor } from '../promo/promo-theme';
 import { TenantWebChrome } from '../tenant-web-chrome';
@@ -83,19 +89,8 @@ export function buildFacilityJsonLd(
     name: `${data.tenantName} — ${f.name}`,
     parentOrganization: { '@id': orgId },
     ...(f.imageUrls.length > 0 ? { image: f.imageUrls } : {}),
-    ...(f.address || f.city
-      ? {
-          address: {
-            '@type': 'PostalAddress',
-            ...(f.address ? { streetAddress: f.address } : {}),
-            ...(f.city ? { addressLocality: f.city } : {}),
-            ...(f.postalCode ? { postalCode: f.postalCode } : {}),
-            addressCountry: 'ES',
-          },
-        }
-      : {}),
-    ...(f.contactPhone ? { telephone: f.contactPhone } : {}),
-    ...(f.contactEmail ? { email: f.contactEmail } : {}),
+    url: pageUrl,
+    ...localBusinessFields(f, { areaServed: data.areaPage?.content?.nearbyAreas ?? [] }),
     ...(priceRange ? { priceRange } : {}),
   };
 
@@ -107,9 +102,11 @@ export function buildFacilityJsonLd(
     ],
   };
 
+  // Preguntas propias de la ciudad cuando la ficha hace de página de la ciudad.
+  const faq = faqPageLd(data.areaPage?.content?.faqs ?? [], `${pageUrl}#faq`);
   return {
     '@context': 'https://schema.org',
-    '@graph': [organization, website, selfStorage, breadcrumb],
+    '@graph': [organization, website, selfStorage, breadcrumb, ...(faq ? [faq] : [])],
   };
 }
 
@@ -147,21 +144,27 @@ export async function buildFacilityMetadata(
     };
   }
   const f = data.facility;
+  // Los textos propios de la ciudad están en español.
+  const own = locale === 'es' ? data.areaPage?.content : null;
   const title =
-    locale === 'en'
+    own?.seoTitle ||
+    (locale === 'en'
       ? `Storage units${f.city ? ` in ${f.city}` : ''} — ${f.name} · ${data.tenantName}`
-      : `Trasteros${f.city ? ` en ${f.city}` : ''} — ${f.name} · ${data.tenantName}`;
+      : `Trasteros${f.city ? ` en ${f.city}` : ''} — ${f.name} · ${data.tenantName}`);
   const description =
-    locale === 'en'
+    own?.seoDescription ||
+    (locale === 'en'
       ? `Rent a storage unit at ${f.name}${f.city ? ` (${f.city})` : ''}. Check sizes, prices and availability and book online.`
       : `Alquila un trastero en ${f.name}${
           f.city ? ` (${f.city})` : ''
-        }. Consulta tamaños, precios y disponibilidad y reserva online.`;
+        }. Consulta tamaños, precios y disponibilidad y reserva online.`);
   const base = data.customDomain
     ? `https://${data.customDomain}/${facilitySlug}`
     : `/s/${slug}/${facilitySlug}`;
-  const canonical =
-    locale === 'en'
+  // Con un solo local, la portada es la página principal (esta repite su contenido).
+  const canonical = data.singleFacility
+    ? landingHref(slug, locale, data.customDomain)
+    : locale === 'en'
       ? data.customDomain
         ? `https://${data.customDomain}/l/en/${facilitySlug}`
         : `/s/${slug}/l/en/${facilitySlug}`

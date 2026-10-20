@@ -2,7 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   SUSPENSION_WEB_OFFLINE_DAYS,
   suspensionDays,
-  cityPages,
+  areaPageLinks,
+  areaPageShownOnFacility,
+  cityPageOfFacility,
+  resolveAreaPages,
   couponSummary,
   effectiveFeaturesFromList,
   promoLandingIsLive,
@@ -17,6 +20,7 @@ import {
 } from '@storageos/shared';
 
 import { tenantHasFeature, liveOverrideWhere } from '../../common/tenant-features';
+import { toAreaContent } from '../area-pages/area-page.mapper';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 import { LeadsService } from '../leads/leads.service';
@@ -24,6 +28,7 @@ import { promotionUnitId } from '../promotions/promotions.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
+  PublicAreaPageContentDto,
   LeadDto,
   OpeningHours,
   PublicContactInput,
@@ -241,6 +246,9 @@ export class LandingService {
     // Web Premium: solo si el tenant tiene la feature se aplica la plantilla y los
     // textos personalizados; si no, se sirve `default` sin headline/about custom.
     const hasWebPremium = await this.hasWebPremium(tenant.id);
+    const areaPages = hasWebPremium
+      ? ((await this.areaContents([tenant.id])).get(tenant.id) ?? [])
+      : [];
     let webTemplate =
       hasWebPremium && isWebTemplate(tenant.webTemplate) ? tenant.webTemplate : 'default';
     // `external` (proxy hacia la web propia del tenant) exige dominio propio
@@ -287,6 +295,13 @@ export class LandingService {
       webAbout: hasWebPremium ? tenant.webAbout : null,
       webContent: hasWebPremium ? parseWebContent(tenant.webContent) : null,
       webSeo: hasWebPremium ? parseWebSeo(tenant.webSeo) : null,
+      areaPages,
+      areaLinks: areaPageLinks(
+        resolveAreaPages(
+          facilities.map((f) => ({ id: f.id, city: f.city, publicSlug: f.publicSlug })),
+          areaPages,
+        ),
+      ),
       whatsappNumber: await this.whatsappNumber(tenant.id),
       testimonials,
       faqs,
@@ -350,6 +365,24 @@ export class LandingService {
     if (!row?.enabled || !row.webButtonEnabled) return null;
     if (!(await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'))) return null;
     return waMeNumber(row.displayPhone);
+  }
+
+  /** Páginas de zona publicadas de cada tenant (con texto propio). */
+  private async areaContents(
+    tenantIds: string[],
+  ): Promise<Map<string, PublicAreaPageContentDto[]>> {
+    const out = new Map<string, PublicAreaPageContentDto[]>();
+    if (tenantIds.length === 0) return out;
+    const rows = await this.admin.webAreaPage.findMany({
+      where: { tenantId: { in: tenantIds }, isPublished: true },
+      orderBy: { name: 'asc' },
+    });
+    for (const r of rows) {
+      const list = out.get(r.tenantId) ?? [];
+      list.push(toAreaContent(r));
+      out.set(r.tenantId, list);
+    }
+    return out;
   }
 
   private async hasWebPremium(tenantId: string): Promise<boolean> {
@@ -577,9 +610,17 @@ export class LandingService {
       googleAnalyticsId: full.googleAnalyticsId,
       whatsappNumber: full.whatsappNumber,
       facility,
-      cityPage: (() => {
-        const page = cityPages(full.facilities).find((c) => c.facilities.includes(facility));
-        return page ? { name: page.name, slug: page.slug } : null;
+      ...(() => {
+        const pages = resolveAreaPages(full.facilities, full.areaPages);
+        const city = cityPageOfFacility(pages, facility.id);
+        // Su ciudad solo tiene este local: la ficha hace de página de la ciudad.
+        const own = areaPageShownOnFacility(pages, facility.id);
+        return {
+          cityPage: city ? { name: city.name, slug: city.slug } : null,
+          areaPage: own ? { name: own.name, slug: own.slug, content: own.content } : null,
+          singleFacility: full.facilities.length === 1,
+          areaLinks: full.areaLinks,
+        };
       })(),
     };
   }
@@ -668,7 +709,13 @@ export class LandingService {
     const [facilities, blogPosts, promos] = await Promise.all([
       this.admin.facility.findMany({
         where: { deletedAt: null, isActive: true },
-        select: { publicSlug: true, city: true, tenant: { select: { slug: true } } },
+        select: {
+          id: true,
+          publicSlug: true,
+          city: true,
+          tenantId: true,
+          tenant: { select: { slug: true } },
+        },
       }),
       this.admin.blogPost.findMany({
         where: { isPublished: true },
@@ -687,7 +734,10 @@ export class LandingService {
       }),
     ]);
     const bySlug = new Map<string, string[]>();
-    const facilitiesByTenant = new Map<string, { city: string | null }[]>();
+    const facilitiesByTenant = new Map<
+      string,
+      { id: string; city: string | null; publicSlug: string | null; tenantId: string }[]
+    >();
     for (const f of facilities) {
       const all = facilitiesByTenant.get(f.tenant.slug) ?? [];
       all.push(f);
@@ -718,14 +768,31 @@ export class LandingService {
       promosByTenant.set(p.tenant.slug, list);
     }
 
+    // Páginas de zona con texto propio: solo con Web Premium (como en la web).
+    const premiumTenantIds: string[] = [];
+    for (const f of facilities) {
+      if (!premiumTenantIds.includes(f.tenantId) && (await hasPremium(f.tenantId))) {
+        premiumTenantIds.push(f.tenantId);
+      }
+    }
+    const areaByTenant = await this.areaContents(premiumTenantIds);
+
     return {
       entries: tenants.map((t) => {
         const posts = blogByTenant.get(t.slug) ?? [];
         return {
           tenantSlug: t.slug,
           updatedAt: t.updatedAt.toISOString(),
-          facilitySlugs: bySlug.get(t.slug) ?? [],
-          citySlugs: cityPages(facilitiesByTenant.get(t.slug) ?? []).map((c) => c.slug),
+          // Con un solo local, su ficha apunta a la portada: no va al sitemap.
+          facilitySlugs:
+            (facilitiesByTenant.get(t.slug)?.length ?? 0) > 1 ? (bySlug.get(t.slug) ?? []) : [],
+          citySlugs: (() => {
+            const own = facilitiesByTenant.get(t.slug) ?? [];
+            const tenantId = own[0]?.tenantId;
+            return resolveAreaPages(own, (tenantId && areaByTenant.get(tenantId)) || [])
+              .filter((p) => p.indexable)
+              .map((p) => p.slug);
+          })(),
           blogPostSlugs: posts.map((p) => p.slug),
           blogPosts: posts,
           promoSlugs: promosByTenant.get(t.slug) ?? [],

@@ -1771,6 +1771,14 @@ Descuento sobre el pago que se hace al contratar (no sobre las renovaciones). Im
 - **Reserva online** `POST /public/move-in/book/:slug` y **portal** `POST /portal/me/contracts` aceptan `months` (1, 3, 6 o 12) y `couponCode`. Errores: 400 `coupon_not_valid` (reserva, con el motivo) y `unit_has_offer` (portal: el trastero ya tiene una oferta).
 - **Reserva online con el email de un inquilino que ya existe** (sin distinguir mayúsculas): `BookingResultDto.signingToken` = `null` y `signingLinkSentTo` = el email enmascarado (`a***a@dominio`); el enlace de firma se envía por correo a ese email (fuente `booking.signing_link`). Antes se devolvía el enlace a quien rellenaba el formulario y, al firmar, recibía la sesión del área de clientes de ese inquilino (con sus códigos de acceso). Lo mismo en las reservas del asistente de WhatsApp.
 
+### Páginas de zona (`/settings/web/area-pages`, extra Web Premium)
+
+Páginas `/trasteros-en-<zona>` de la web del tenant. Una por ciudad con locales (existen siempre) y, opcionalmente, de zonas cercanas sin local (máx. 10).
+
+- `GET /settings/web/area-pages` (`settings:read`) → `AreaPagesSettingsDto`: `pages` (texto guardado), `overview` (cómo se ve cada página en la web: `kind` city/nearby, `redirect`, `indexable`, `introWords`, `warnings` no_intro/short_intro/no_facilities/not_published) y `singleFacility`.
+- `POST` / `PATCH /:id` / `DELETE /:id` (`settings:manage`), devuelven el mismo DTO. Cuerpo: `name`, `slug?` (por defecto, del nombre), `facilityIds` (solo zonas cercanas, obligatorio en ellas), `nearestNote`, `intro`, `nearbyAreas[]` (≤15), `faqs[{question, answer}]` (≤8), `seoTitle` (≤70), `seoDescription` (≤200), `isPublished`. Si el slug coincide con la ciudad de un local es el texto de esa ciudad (los locales enviados no se guardan). Errores: 400 `area_page_facilities_required`, `invalid_facility`, `area_page_limit`; 409 `area_page_slug_taken`; 403 sin la feature.
+- Reglas (`resolveAreaPages` en shared): con un solo local en la empresa, la página de su ciudad lleva (308) a la portada y la ficha del local declara la portada como canónica; con un solo local en una ciudad, la página de esa ciudad lleva a la ficha, que muestra su texto (`PublicFacilityLandingDto.areaPage`); una zona cercana solo se indexa con ≥120 palabras. `PublicLandingDto.areaPages` (texto publicado) y `areaLinks` (enlaces del pie, también en la ficha); el sitemap (`citySlugs`) solo lleva las indexables y deja fuera la ficha cuando hay un solo local.
+
 ### Landings de promoción (`/promo-landings`, extra Web Premium)
 
 Páginas propias por promoción en la web del tenant, con el estilo de su plantilla.
@@ -2112,6 +2120,7 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 
 - `POST /leads/:id/quote/preview {facilityId, unitTypeId, months 1|3|6|12, couponCode?, insurancePlanId?}` (`leads:read`, 200): lo que pagaría al reservar (el trastero libre más barato de ese tamaño en ese local, con el cupón como un cliente nuevo, el seguro de los mismos meses y la fianza), la cuota mensual con IVA después, el enlace a la reserva online con el local, el tamaño, los meses y el cupón ya puestos (`utm_source=presupuesto`) y el correo redactado. 409 `no_units_available`, 400 `insurance_plan_not_found`.
 - `POST /leads/:id/quote/send` (mismo cuerpo + `subject?`, `body?`; `communications:send`): envía el correo (Comunicaciones, `source: lead.quote`), guarda el local y el tamaño que busca, pasa el contacto de «nuevo» a «contactado» y audita `lead.quote_sent`. 400 `lead_without_email`. Si reserva con ese email, la reserva marca el contacto como ganado con el origen del enlace.
+
 ### Extras por inquilino
 
 - `GET /customers/extras` (`customers:read`, alcance por local): inquilinos con contrato activo y qué tiene cada uno — protección de contenido (contratos con seguro / total), cobro automático (tarjeta, adeudo o mandato SEPA), accesos adicionales activos, pases nocturnos de los últimos 90 días, compras en la tienda de los últimos 12 meses y si entra al área de clientes con contraseña — más cuántos inquilinos tienen cada extra. En la web, «Extras» en Inquilinos: al pulsar un extra se ven los que no lo tienen.

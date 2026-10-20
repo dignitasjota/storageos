@@ -393,6 +393,11 @@ describe('Landing pública por tenant (e2e)', () => {
       facilityName: 'Local Sur',
       unitsCount: 1,
     });
+    // Con un solo local su ficha apunta a la portada y no va al sitemap.
+    await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local Norte',
+      unitsCount: 1,
+    });
 
     const res = await request(app.getHttpServer()).get('/public/landing/sitemap');
     expect(res.status).toBe(200);

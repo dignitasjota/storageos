@@ -153,6 +153,13 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         permission: 'settings:manage',
       },
       {
+        href: '/settings/area-pages',
+        label: 'Páginas de zona',
+        description:
+          'Las páginas «trasteros en <ciudad>» para Google, con tu texto y zonas cercanas.',
+        permission: 'settings:manage',
+      },
+      {
         href: '/settings/promo-landings',
         label: 'Landings de promoción',
         description:

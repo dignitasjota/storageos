@@ -317,8 +317,10 @@ export async function LandingPageBody({
   /** `/precios` o `/contacto`: la misma web, bajando sola a esa sección. */
   section?: LandingSection;
 }) {
-  const data = await getLanding(slug);
-  if (!data) notFound();
+  const full = await getLanding(slug);
+  if (!full) notFound();
+  // El texto de las páginas de zona no viaja al navegador (solo sus enlaces).
+  const data = { ...full, areaPages: [] };
 
   // Web «externa»: quien llegue por `/s/<slug>` en el dominio de la
   // plataforma (enlace viejo, o el dominio propio se desverificó tras
