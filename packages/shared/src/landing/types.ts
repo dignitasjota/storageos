@@ -5,6 +5,7 @@
 import type { PromotionDiscountTypeValue } from '../billing';
 import type { OpeningHours } from '../facilities';
 import type { WebContent, WebSeo } from '../web';
+import type { AreaPageLinkDto, PublicAreaPageContentDto } from '../web/area-pages';
 export interface PublicLandingUnitTypeDto {
   id: string;
   name: string;
@@ -75,6 +76,10 @@ export interface PublicLandingDto {
   webContent: WebContent | null;
   /** Títulos y descripciones para Google (vacío = generados). `null` sin `web_premium`. */
   webSeo: WebSeo | null;
+  /** Texto propio de las páginas de zona (`/trasteros-en-<zona>`). Vacío sin `web_premium`. */
+  areaPages: PublicAreaPageContentDto[];
+  /** Enlaces a las páginas de zona para el pie de la web. */
+  areaLinks: AreaPageLinkDto[];
   /**
    * Número de WhatsApp Business del tenant para el botón de la web (solo con el
    * extra, el número activo y el botón activado). Cifras con prefijo, listo para `wa.me`.
@@ -137,8 +142,17 @@ export interface PublicFacilityLandingDto {
   /** Igual que en `PublicLandingDto`. */
   whatsappNumber: string | null;
   facility: PublicLandingFacilityDto;
-  /** Página de la ciudad del local (`/trasteros-en-<ciudad>`), si el negocio tiene varios locales. */
+  /** Página de la ciudad del local (`/trasteros-en-<ciudad>`), si se muestra por sí misma. */
   cityPage: { name: string; slug: string } | null;
+  /**
+   * El local es el único de su ciudad: su ficha hace de página de la ciudad
+   * (la dirección de la ciudad lleva aquí) y muestra su texto propio.
+   */
+  areaPage: { name: string; slug: string; content: PublicAreaPageContentDto | null } | null;
+  /** El negocio tiene un solo local: la portada es la página principal. */
+  singleFacility: boolean;
+  /** Enlaces a las páginas de zona para el pie de la web. */
+  areaLinks: AreaPageLinkDto[];
 }
 
 /** Entrada del blog en el listado público (`/s/<slug>/blog`). */

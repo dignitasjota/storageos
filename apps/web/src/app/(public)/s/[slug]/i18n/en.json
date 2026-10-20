@@ -868,7 +868,8 @@
       "bannerText": "We use necessary cookies to run the website and, if you agree, analytics cookies (Google Analytics) to understand how it is used. More information in our policy on",
       "necessaryOnly": "Necessary only",
       "acceptAll": "Accept all",
-      "privacyPolicy": "privacy policy"
+      "privacyPolicy": "privacy policy",
+      "areasLabel": "Areas"
     },
     "city": {
       "heading": "Storage units in {city}",
@@ -883,6 +884,11 @@
       "q3": "Can I book the storage unit online?",
       "a3": "Yes. Choose the location and size, book in a few minutes, sign the contract from your phone and pay online.",
       "otherCities": "Storage units in other cities"
+    },
+    "area": {
+      "nearHeading": "Storage units near {city}",
+      "servedAreas": "We also serve:",
+      "nearIntro": "The closest location to {city}: {names}."
     }
   }
 }

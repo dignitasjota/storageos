@@ -663,6 +663,10 @@ A diferencia de las promociones (que descuentan todas las cuotas), el **cupón d
 - ✅ **PR 3** — cupón y meses en la reserva online, la firma, el portal (trastero adicional) y el alta de contrato del panel, con resumen del primer pago.
 - ✅ **Revisión** (#687): un cupón que deja el alquiler a 0 € ya no bloquea la reserva (la factura queda pagada y se da el acceso), opción «un solo uso por cliente», cupón y descuento manual no se combinan, el resumen público no revela si un email es cliente.
 
+### Páginas de zona para Google (2026-10-20) ✅
+
+`/trasteros-en-<zona>` con texto propio (Web Premium): introducción, zonas a las que da servicio, preguntas propias y título/descripción para Google por ciudad; zonas cercanas sin local (máx. 10, se indexan con ≥120 palabras y dicen cuál es el local más cercano). Sin páginas duplicadas: con un solo local la ciudad lleva a la portada (y la ficha apunta a ella como canónica); con un solo local en una ciudad, la ciudad lleva a la ficha, que muestra el texto. Datos estructurados de cada local con coordenadas, horario, zonas servidas y preguntas; enlaces a las páginas de zona en el pie de las 9 plantillas. Panel: Configuración → Web pública → Páginas de zona (estado de cada página y avisos de texto corto). **Pendiente**: que el perfil de Google Business de cada local enlace su página de ciudad (lo hace el tenant).
+
 ### Landings de promoción (2026-10-16, #689–#691) ✅
 
 Incluidas en **Web Premium**. Páginas propias por promoción con el estilo de la plantilla del tenant, en `/promo/<nombre>` del dominio propio (`/s/<slug>/promo/<nombre>` en la plataforma). Cupón opcional; apagada o caducada lleva a la portada.

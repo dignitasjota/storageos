@@ -868,7 +868,8 @@
       "bannerText": "Usamos cookies necesarias para que la web funcione y, si lo aceptas, de analítica (Google Analytics) para saber cómo se usa. Más información en la política de",
       "necessaryOnly": "Solo necesarias",
       "acceptAll": "Aceptar todas",
-      "privacyPolicy": "política de privacidad"
+      "privacyPolicy": "política de privacidad",
+      "areasLabel": "Zonas"
     },
     "city": {
       "heading": "Trasteros en {city}",
@@ -883,6 +884,11 @@
       "q3": "¿Puedo reservar el trastero online?",
       "a3": "Sí. Eliges el centro y el tamaño, reservas en unos minutos, firmas el contrato desde el móvil y pagas online.",
       "otherCities": "Trasteros en otras ciudades"
+    },
+    "area": {
+      "nearHeading": "Trasteros cerca de {city}",
+      "servedAreas": "También damos servicio a:",
+      "nearIntro": "El centro más cercano a {city}: {names}."
     }
   }
 }

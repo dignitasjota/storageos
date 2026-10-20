@@ -33,6 +33,7 @@ export * from './web';
 export * from './web/calculator';
 export * from './web/embeds';
 export * from './web/city-pages';
+export * from './web/area-pages';
 export * from './web/legal';
 export * from './accounting';
 export * from './notifications';

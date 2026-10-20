@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
+import { AreaFaqs, AreaIntro } from '../area-content';
 import { trackEvent } from '../google-analytics';
 import {
   bookHrefFor,
@@ -13,42 +14,37 @@ import {
 } from '../i18n/messages';
 import { FacilityMeta, UnitTypeList } from '../templates';
 
-import type { CityPage, PublicLandingDto } from '@storageos/shared';
+import type {
+  AreaPageFaq,
+  AreaPageKind,
+  PublicLandingDto,
+  ResolvedAreaPage,
+} from '@storageos/shared';
 
 type Facility = PublicLandingDto['facilities'][number];
 
-/** Página de una ciudad: sus centros con tamaños y precios, y preguntas de la ciudad. */
+/** Página de zona: ciudad con sus centros o zona cercana con el centro más cercano. */
 export function CityBody({
   data,
   page,
+  faqs,
   others,
   fromPrice,
   locale,
 }: {
   data: PublicLandingDto;
-  page: CityPage<Facility>;
-  others: { name: string; slug: string }[];
+  page: ResolvedAreaPage<Facility>;
+  faqs: AreaPageFaq[];
+  others: { name: string; slug: string; kind: AreaPageKind }[];
   fromPrice: string | null;
   locale: PublicWebLocale;
 }) {
   const t = useTranslations('publicWeb');
   const brand = data.brandColor ?? '#2563EB';
-  const addresses = page.facilities
-    .map((f) => [f.name, f.address].filter(Boolean).join(', '))
-    .join('; ');
-  const faqs = [
-    {
-      q: t('city.q1', { city: page.name }),
-      a: fromPrice
-        ? t('city.a1', { city: page.name, tenantName: data.tenantName, price: fromPrice })
-        : t('city.a1NoPrice'),
-    },
-    {
-      q: t('city.q2', { city: page.name, tenantName: data.tenantName }),
-      a: t('city.a2', { city: page.name, count: page.facilities.length, addresses }),
-    },
-    { q: t('city.q3'), a: t('city.a3') },
-  ];
+  const near = page.kind === 'nearby';
+  const heading = near
+    ? t('area.nearHeading', { city: page.name })
+    : t('city.heading', { city: page.name });
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:py-14">
@@ -60,19 +56,24 @@ export function CityBody({
           {data.tenantName}
         </Link>
         <span className="mx-1.5">/</span>
-        <span>{t('city.heading', { city: page.name })}</span>
+        <span>{heading}</span>
       </nav>
-      <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-        {t('city.heading', { city: page.name })}
-      </h1>
+      <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{heading}</h1>
       <p className="mt-3 text-lg text-muted-foreground">
-        {t('city.intro', {
-          count: page.facilities.length,
-          tenantName: data.tenantName,
-          city: page.name,
-        })}{' '}
+        {near
+          ? page.content?.nearestNote ||
+            t('area.nearIntro', {
+              city: page.name,
+              names: page.facilities.map((f) => f.name).join(', '),
+            })
+          : t('city.intro', {
+              count: page.facilities.length,
+              tenantName: data.tenantName,
+              city: page.name,
+            })}{' '}
         {fromPrice && t('city.fromPrice', { price: fromPrice })}
       </p>
+      <AreaIntro content={page.content} />
       <Link
         href={bookHrefFor(data, locale)}
         onClick={() => trackEvent('cta_reservar_click', { location: 'city_page' })}
@@ -103,21 +104,7 @@ export function CityBody({
         ))}
       </div>
 
-      <section className="mt-14">
-        <h2 className="mb-6 text-2xl font-bold tracking-tight">
-          {t('city.faqTitle', { city: page.name })}
-        </h2>
-        <div className="divide-y rounded-lg border bg-card">
-          {faqs.map((f) => (
-            <details key={f.q} className="px-5 py-4" open>
-              <summary className="cursor-pointer list-none font-medium marker:content-none">
-                {f.q}
-              </summary>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.a}</p>
-            </details>
-          ))}
-        </div>
-      </section>
+      <AreaFaqs title={t('city.faqTitle', { city: page.name })} faqs={faqs} />
 
       {others.length > 0 && (
         <section className="mt-12">
@@ -129,7 +116,9 @@ export function CityBody({
                   href={cityPageHref(data.tenantSlug, c.slug, locale, data.customDomain)}
                   className="inline-flex h-9 items-center rounded-full border px-4 text-sm hover:bg-accent"
                 >
-                  {t('city.heading', { city: c.name })}
+                  {c.kind === 'nearby'
+                    ? t('area.nearHeading', { city: c.name })
+                    : t('city.heading', { city: c.name })}
                 </Link>
               </li>
             ))}

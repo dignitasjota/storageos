@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
+import { AreaFaqs, AreaIntro } from '../area-content';
 import { trackEvent } from '../google-analytics';
 import { bookHref, cityPageHref, landingHref, type PublicWebLocale } from '../i18n/messages';
 import { FacilityMeta, UnitTypeList } from '../templates';
@@ -109,6 +110,8 @@ export function FacilityBody({
 
       <FacilityMeta f={f} tenantName={data.tenantName} />
 
+      <AreaIntro content={data.areaPage?.content ?? null} />
+
       {f.imageUrls.length > 0 && (
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {f.imageUrls.map((url, index) => (
@@ -151,6 +154,13 @@ export function FacilityBody({
         locale={locale}
         site={{ tenantSlug: data.tenantSlug, customDomain: data.customDomain, facilities: [f] }}
       />
+
+      {data.areaPage?.content && (
+        <AreaFaqs
+          title={t('city.faqTitle', { city: data.areaPage.name })}
+          faqs={data.areaPage.content.faqs}
+        />
+      )}
     </div>
   );
 }

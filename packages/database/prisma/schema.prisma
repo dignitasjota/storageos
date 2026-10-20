@@ -543,6 +543,7 @@ model Tenant {
   faqEntries              FaqEntry[]
   blogPosts               BlogPost[]
   promoLandings           PromoLanding[]
+  webAreaPages            WebAreaPage[]
   promoLandingVisits      PromoLandingVisit[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
@@ -4335,6 +4336,30 @@ model PromoLanding {
 
   @@unique([tenantId, slug], map: "promo_landings_tenant_slug_key")
   @@map("promo_landings")
+}
+
+/// Página de zona de la web del tenant (`/trasteros-en-<slug>`): texto propio de la
+/// página de una ciudad con locales o página de una zona cercana sin local.
+model WebAreaPage {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  slug           String
+  name           String
+  facilityIds    String[] @default([]) @map("facility_ids") @db.Uuid
+  nearestNote    String?  @map("nearest_note")
+  intro          String?
+  nearbyAreas    String[] @default([]) @map("nearby_areas")
+  faqs           Json     @default("[]")
+  seoTitle       String?  @map("seo_title")
+  seoDescription String?  @map("seo_description")
+  isPublished    Boolean  @default(true) @map("is_published")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug], map: "web_area_pages_tenant_slug_key")
+  @@map("web_area_pages")
 }
 
 /// Visita a una landing de promoción (sin datos personales: id aleatorio del navegador + UTM).
