@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -460,6 +461,19 @@ export class SaasAddonsService {
 
   /** Contratación por el tenant: solo add-ons ACTIVOS del catálogo, quantity>=1. */
   async selfAssign(tenantId: string, addonId: string, quantity = 1): Promise<TenantSelfAddonsDto> {
+    // Con la cuenta suspendida por impago puede pagar y regularizar, pero no
+    // contratar funciones nuevas (las tendría activas sin pagar la cuota).
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { status: true },
+    });
+    if (tenant?.status === 'suspended') {
+      throw new ForbiddenException({
+        code: 'tenant_suspended_read_only',
+        message:
+          'Tu cuenta está suspendida por un pago pendiente: regulariza el pago antes de contratar extras.',
+      });
+    }
     const addon = await this.findAddon(addonId);
     if (!addon.isActive) {
       throw new BadRequestException({

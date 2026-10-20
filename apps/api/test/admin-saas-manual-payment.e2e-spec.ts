@@ -298,7 +298,7 @@ describe('Admin SaaS manual payment (e2e)', () => {
     // Aseguramos que arranca en trial.
     await adminClient.tenant.update({
       where: { id: owner.tenantId },
-      data: { status: 'trial' },
+      data: { status: 'trial', trialEndsAt: new Date(Date.now() + 5 * 86_400_000) },
     });
 
     const pay = await request(app.getHttpServer())
@@ -310,6 +310,8 @@ describe('Admin SaaS manual payment (e2e)', () => {
     // Al pagar la suscripción, el tenant deja de ser trial → active.
     const tenant = await adminClient.tenant.findUnique({ where: { id: owner.tenantId } });
     expect(tenant!.status).toBe('active');
+    // Sin la fecha de prueba: «Reactivar» no lo devuelve a prueba.
+    expect(tenant!.trialEndsAt).toBeNull();
   });
 
   it('enforcement manual: periodo vencido → past_due + banner; el pago cuenta desde la fecha debida', async () => {

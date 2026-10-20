@@ -262,7 +262,7 @@ export class BillingSaasService {
       this.admin.subscriptionPlan.findUnique({ where: { id: args.planId } }),
       this.admin.tenantSubscription.findUnique({
         where: { tenantId: args.tenantId },
-        select: { stripeSubscriptionId: true, status: true },
+        select: { stripeSubscriptionId: true, status: true, billingMode: true },
       }),
     ]);
     if (!tenant) {
@@ -284,6 +284,24 @@ export class BillingSaasService {
             ? 'Tu suscripción tiene un pago pendiente. Actualiza la tarjeta en «Gestionar suscripción».'
             : 'Ya tienes una suscripción activa. Usa «Cambiar de plan» para cambiarla.',
       });
+    }
+    // La cuota se domicilia por SEPA: con un adeudo ya en el banco, una
+    // suscripción de Stripe cobraría ese mes dos veces.
+    if (currentSub?.billingMode === 'sepa') {
+      const pendingDebit = await this.admin.platformSepaRemittanceItem.count({
+        where: {
+          tenantId: args.tenantId,
+          itemStatus: 'pending',
+          remittance: { status: { not: 'cancelled' } },
+        },
+      });
+      if (pendingDebit > 0) {
+        throw new BadRequestException({
+          code: 'sepa_debit_pending',
+          message:
+            'Tu cuota de este mes ya se está cobrando por domiciliación. Cuando se cobre, podrás pasar a pagar con tarjeta.',
+        });
+      }
     }
     if (!plan) {
       throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
@@ -655,7 +673,9 @@ export class BillingSaasService {
     if (newStatus === 'active') {
       await this.admin.tenant.updateMany({
         where: { id: tenantId, status: { in: ['suspended', 'trial'] } },
-        data: { status: 'active' },
+        // Sin la fecha de fin de prueba: «Reactivar» la usa para decidir si
+        // vuelve a prueba, y un tenant que ya pagó no vuelve a ella.
+        data: { status: 'active', trialEndsAt: null },
       });
     }
 
@@ -1239,7 +1259,7 @@ export class BillingSaasService {
       // hasta hoy, no se reactiva.
       await tx.tenant.updateMany({
         where: { id: args.tenantId, status: { in: covered ? ['suspended', 'trial'] : [] } },
-        data: { status: 'active' },
+        data: { status: 'active', trialEndsAt: null },
       });
 
       return { payment: created, couponAlreadyRecent: false };
