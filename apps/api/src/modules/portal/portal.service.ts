@@ -824,6 +824,7 @@ export class PortalService {
       where: { id: payload.customerId, tenantId: payload.tenantId, deletedAt: null },
       select: {
         portalSessionVersion: true,
+        portalLastSeenAt: true,
         tenant: { select: { status: true, deletedAt: true } },
       },
     });
@@ -840,6 +841,21 @@ export class PortalService {
         code: 'account_unavailable',
         message: 'Esta cuenta no está disponible temporalmente. Contacta con tu gestor.',
       });
+    }
+    // Última visita al área de clientes (como mucho una escritura por hora).
+    const now = Date.now();
+    if (!customer.portalLastSeenAt || now - customer.portalLastSeenAt.getTime() > 3_600_000) {
+      // SQL directo: una visita no debe cambiar el `updated_at` del inquilino.
+      // En segundo plano y sin que un fallo afecte a la petición.
+      const customerId = payload.customerId;
+      void (async () => {
+        try {
+          await this.admin
+            .$executeRaw`UPDATE customers SET portal_last_seen_at = now() WHERE id = ${customerId}::uuid`;
+        } catch {
+          /* no es crítico */
+        }
+      })();
     }
     return { customerId: payload.customerId, tenantId: payload.tenantId };
   }

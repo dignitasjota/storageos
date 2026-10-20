@@ -431,6 +431,14 @@ export default function TodayPage() {
 
             <TabsContent value="collections" className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
+                {(summary.data?.kpis.debtorsWithoutPortal ?? 0) > 0 && (
+                  <StatTile
+                    label="Con deuda y nunca han entrado en el portal"
+                    value={String(summary.data!.kpis.debtorsWithoutPortal)}
+                    icon={CreditCard}
+                    href="/customers?f=overdue,noPortal"
+                  />
+                )}
                 <StatTile
                   label="Vencen hoy"
                   value={

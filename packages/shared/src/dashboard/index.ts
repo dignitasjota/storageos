@@ -90,6 +90,8 @@ export interface TodayKpisDto {
   /** Altas (contratos firmados) y bajas (contratos terminados) del mes. */
   moveInsMonth: number;
   moveOutsMonth: number;
+  /** Inquilinos con deuda vencida que nunca han entrado en su área de clientes. */
+  debtorsWithoutPortal: number;
 }
 
 export type TodayActivityKind =

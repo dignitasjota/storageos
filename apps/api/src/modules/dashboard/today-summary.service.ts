@@ -77,6 +77,7 @@ export class TodaySummaryService {
         leads,
         messages,
         incidents,
+        debtorsWithoutPortal,
       ] = await Promise.all([
         tx.invoice.aggregate({
           where: {
@@ -195,6 +196,14 @@ export class TodaySummaryService {
           orderBy: { createdAt: 'desc' },
           take: 20,
         }),
+        // Deben algo y nunca han entrado en su área de clientes.
+        tx.customer.count({
+          where: {
+            deletedAt: null,
+            portalLastSeenAt: null,
+            invoices: { some: { ...invWhere, deletedAt: null, status: 'overdue' } },
+          },
+        }),
       ]);
 
       const count = (s: string) => unitsByStatus.find((u) => u.status === s)?._count._all ?? 0;
@@ -267,6 +276,7 @@ export class TodaySummaryService {
           totalUnits,
           moveInsMonth: moveIns,
           moveOutsMonth: moveOuts,
+          debtorsWithoutPortal,
         },
         activity,
       };

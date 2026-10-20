@@ -2129,3 +2129,8 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `POST /opportunities/propose` crea además una propuesta (`customer_offers`, 30 días; sustituye a la anterior del mismo tipo) que sale en el área de clientes. `GET /opportunities` gana `lastOfferStatus` (open · interested · declined · accepted · expired).
 - `GET /portal/me/offers` (sesión de portal): propuestas vivas; antes marca como aceptadas las que ya contrató (seguro puesto, contrato nuevo, pase nocturno comprado o pago domiciliado después de la propuesta) y como vistas las nuevas.
 - `POST /portal/me/offers/:id/respond {response: interested|declined}` (200, devuelve la lista): «Me interesa» avisa al equipo (notificación `customer.offer_interested`). 400 `invalid_response`, 404 `offer_not_found`.
+
+### Uso del portal en el panel
+
+- `customers.portal_last_seen_at`: última visita del inquilino a su área de clientes (se anota al validar la sesión del portal, como mucho una vez por hora y sin tocar `updated_at`). `GET /customers/overview` la devuelve como `portalLastSeenAt`.
+- `GET /dashboard/today/summary`: `kpis.debtorsWithoutPortal` (inquilinos con facturas vencidas que nunca han entrado).

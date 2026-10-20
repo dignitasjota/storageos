@@ -16,6 +16,8 @@ export interface CustomerOverviewDto {
   tags: string[];
   kycVerified: boolean;
   portalAccessEnabled: boolean;
+  /** Última visita a su área de clientes (null = nunca ha entrado). */
+  portalLastSeenAt: string | null;
   createdAt: string;
   /** Trasteros de sus contratos vivos. */
   units: { code: string; facilityName: string }[];
