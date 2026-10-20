@@ -1328,3 +1328,9 @@ Sin la variable todo funciona como antes (URL pública, con límite compartido).
 - **Tarea nueva en el API**: `payment-plans.daily` (07:00, una réplica por día) cierra los planes de pago cumplidos y marca como rotos los que llevan una cuota vencida más de los días de gracia.
 - **Señales del portal**: empiezan a contar al desplegar el web (cuando el inquilino abre el seguro, otro trastero o el pase nocturno sin contratar).
 - Nada se envía solo: los presupuestos y las propuestas salen cuando el equipo pulsa «Enviar».
+
+## 33. Tras desplegar las mejoras del portal del inquilino (#761–#766)
+
+- **Migraciones** (las aplica el api al arrancar): `customer_offers` (con RLS) y `customer_portal_last_seen`. Redesplegar **api y web** con pull efectivo.
+- **Columna «Portal»** en Inquilinos: empieza vacía y se va llenando a medida que los inquilinos entran. Conviene esperar unas semanas antes de enviar el acceso en bloque a los que «nunca han entrado».
+- **Ofertas**: solo las propuestas enviadas desde Oportunidades a partir de este despliegue aparecen en el portal; «Me interesa» avisa al equipo y no contrata nada.
