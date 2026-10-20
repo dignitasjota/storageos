@@ -427,3 +427,74 @@ describe('BillingSaasService', () => {
     expect(issueBestEffort).not.toHaveBeenCalled();
   });
 });
+
+describe('BillingSaasService.setBillingMode — cancelación en Stripe', () => {
+  function build(stripe: { cancel: jest.Mock; retrieve: jest.Mock }) {
+    const admin = buildAdmin() as AdminMock & {
+      tenantSubscriptionAddon: { updateMany: jest.Mock };
+    };
+    admin.tenantSubscriptionAddon = { updateMany: jest.fn().mockResolvedValue({ count: 1 }) };
+    admin.tenantSubscription.findUnique.mockResolvedValue({
+      id: 'sub-1',
+      stripeSubscriptionId: 'sub_live',
+      billingMode: 'stripe',
+    });
+    const service = new BillingSaasService(
+      {} as unknown as PrismaService,
+      admin as unknown as PrismaAdminService,
+      { write: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService,
+      {} as unknown as PlatformInvoicesService,
+      {} as unknown as PlatformCouponsService,
+      {
+        hasActiveMandate: jest.fn().mockResolvedValue(true),
+      } as unknown as PlatformSepaMandateService,
+      {
+        getClient: () => ({ subscriptions: stripe }),
+        isConfigured: () => true,
+      } as unknown as StripeGateway,
+    );
+    return { service, admin };
+  }
+
+  it('si Stripe no confirma la cancelación, no cambia el modo (evita el doble cobro)', async () => {
+    const stripe = {
+      cancel: jest.fn().mockRejectedValue(new Error('connection reset')),
+      retrieve: jest.fn().mockResolvedValue({ status: 'active' }),
+    };
+    const { service, admin } = build(stripe);
+    await expect(service.setBillingMode(TENANT, 'manual')).rejects.toMatchObject({
+      response: { code: 'stripe_cancel_failed' },
+    });
+    expect(admin.tenantSubscription.update).not.toHaveBeenCalled();
+    expect(admin.tenantSubscriptionAddon.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('una suscripción ya cancelada o inexistente en Stripe deja seguir', async () => {
+    for (const stripe of [
+      {
+        cancel: jest
+          .fn()
+          .mockRejectedValue(Object.assign(new Error('x'), { code: 'resource_missing' })),
+        retrieve: jest.fn(),
+      },
+      {
+        cancel: jest.fn().mockRejectedValue(new Error('already canceled')),
+        retrieve: jest.fn().mockResolvedValue({ status: 'canceled' }),
+      },
+    ]) {
+      const { service, admin } = build(stripe);
+      await service.setBillingMode(TENANT, 'sepa');
+      const data = admin.tenantSubscription.update.mock.calls[0]![0].data;
+      expect(data).toMatchObject({ stripeSubscriptionId: null, billingMode: 'sepa' });
+      // El cliente de Stripe se conserva.
+      expect(data).not.toHaveProperty('stripeCustomerId');
+      // Los extras que cobraba Stripe pasan a manual.
+      expect(admin.tenantSubscriptionAddon.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { tenantId: TENANT, billingMode: 'stripe' },
+          data: expect.objectContaining({ billingMode: 'manual', stripeSubscriptionItemId: null }),
+        }),
+      );
+    }
+  });
+});
