@@ -8,8 +8,10 @@ import { CITY_PAGE_PREFIX, citySlug } from './city-pages';
  * - **Ciudad**: una por cada ciudad con locales. El tenant puede ponerle texto
  *   propio (introducción, zonas cercanas, preguntas, título para Google).
  *   Con un solo local en toda la empresa la página lleva a la portada; con un
- *   solo local en esa ciudad, a la ficha del local (que muestra el texto
- *   propio): así no hay dos páginas iguales compitiendo en Google.
+ *   solo local en esa ciudad, la página de la ciudad muestra la ficha completa
+ *   del local y la ficha redirige a ella: así no hay dos páginas iguales
+ *   compitiendo en Google y queda la dirección con la búsqueda
+ *   («trasteros en Valencia»).
  * - **Zona cercana**: un pueblo sin local («trasteros en Paterna»), con el
  *   local más cercano. Solo se indexa con texto propio suficiente: una página
  *   que solo cambia el nombre del pueblo perjudica a toda la web.
@@ -75,7 +77,7 @@ export interface PublicAreaPageContentDto {
 export type AreaPageKind = 'city' | 'nearby';
 
 /** A dónde lleva la dirección en vez de mostrar una página propia. */
-export type AreaPageRedirect = { to: 'home' } | { to: 'facility'; publicSlug: string };
+export type AreaPageRedirect = { to: 'home' };
 
 export interface ResolvedAreaPage<T> {
   slug: string;
@@ -84,6 +86,11 @@ export interface ResolvedAreaPage<T> {
   facilities: T[];
   content: PublicAreaPageContentDto | null;
   redirect: AreaPageRedirect | null;
+  /**
+   * Único local de la ciudad: la página muestra su ficha completa y la ficha
+   * del local redirige aquí.
+   */
+  soleFacility: T | null;
   /** Se muestra y se indexa (va al sitemap). */
   indexable: boolean;
 }
@@ -124,12 +131,7 @@ export function resolveAreaPages<
 
   const cities: ResolvedAreaPage<T>[] = [...byCity.entries()].map(([slug, group]) => {
     const only = group.facilities[0];
-    const redirect: AreaPageRedirect | null =
-      facilities.length === 1
-        ? { to: 'home' }
-        : group.facilities.length === 1 && only?.publicSlug
-          ? { to: 'facility', publicSlug: only.publicSlug }
-          : null;
+    const redirect: AreaPageRedirect | null = facilities.length === 1 ? { to: 'home' } : null;
     return {
       slug,
       name: group.name,
@@ -137,6 +139,7 @@ export function resolveAreaPages<
       facilities: group.facilities,
       content: contents.find((c) => c.slug === slug) ?? null,
       redirect,
+      soleFacility: !redirect && group.facilities.length === 1 && only?.publicSlug ? only : null,
       indexable: redirect == null,
     };
   });
@@ -153,6 +156,7 @@ export function resolveAreaPages<
       facilities: shown,
       content: c,
       redirect: null,
+      soleFacility: null,
       indexable: wordCount(c.intro) >= AREA_PAGE_MIN_WORDS,
     });
   }
@@ -161,8 +165,16 @@ export function resolveAreaPages<
   return [...cities.sort(byName), ...nearby.sort(byName)];
 }
 
-/** Página de la ciudad que se muestra en la ficha del local (su ciudad redirige a ella). */
-export function areaPageShownOnFacility<T extends { id: string }>(
+/** Página de la ciudad que sustituye a la ficha del local (la ficha redirige a ella). */
+export function cityPageReplacingFacility<T extends { id: string }>(
+  pages: ResolvedAreaPage<T>[],
+  facilityId: string,
+): ResolvedAreaPage<T> | null {
+  return pages.find((p) => p.kind === 'city' && p.soleFacility?.id === facilityId) ?? null;
+}
+
+/** Página de la ciudad del local con varios locales (para enlazarla desde la ficha). */
+export function cityPageOfFacility<T extends { id: string }>(
   pages: ResolvedAreaPage<T>[],
   facilityId: string,
 ): ResolvedAreaPage<T> | null {
@@ -170,20 +182,9 @@ export function areaPageShownOnFacility<T extends { id: string }>(
     pages.find(
       (p) =>
         p.kind === 'city' &&
-        p.redirect?.to === 'facility' &&
+        p.indexable &&
+        !p.soleFacility &&
         p.facilities.some((f) => f.id === facilityId),
-    ) ?? null
-  );
-}
-
-/** Página de la ciudad del local, si se muestra por sí misma (para enlazarla). */
-export function cityPageOfFacility<T extends { id: string }>(
-  pages: ResolvedAreaPage<T>[],
-  facilityId: string,
-): ResolvedAreaPage<T> | null {
-  return (
-    pages.find(
-      (p) => p.kind === 'city' && p.indexable && p.facilities.some((f) => f.id === facilityId),
     ) ?? null
   );
 }
@@ -214,6 +215,8 @@ export interface AreaPageOverviewDto {
   pageId: string | null;
   isPublished: boolean;
   redirect: AreaPageRedirect | null;
+  /** Local cuya ficha completa se muestra en esta página (único de la ciudad). */
+  soleFacilityName: string | null;
   indexable: boolean;
   introWords: number;
   /** Avisos para el panel: sin texto propio, poco texto, sin locales… */
@@ -227,22 +230,17 @@ export interface AreaPagesSettingsDto {
   singleFacility: boolean;
 }
 
-/** Enlace del pie de la web a una página de zona (o a la ficha que hace de ciudad). */
+/** Enlace del pie de la web a una página de zona. */
 export interface AreaPageLinkDto {
   name: string;
   kind: AreaPageKind;
-  /** Lo que va tras la base de la web: `trasteros-en-<zona>` o el slug de la ficha. */
+  /** Lo que va tras la base de la web: `trasteros-en-<zona>`. */
   path: string;
 }
 
 /** Enlaces a las páginas de zona que se ofrecen a Google (para el pie de la web). */
-export function areaPageLinks<T extends { publicSlug: string | null }>(
-  pages: ResolvedAreaPage<T>[],
-): AreaPageLinkDto[] {
-  return pages.flatMap((p) => {
-    if (p.redirect?.to === 'facility') {
-      return [{ name: p.name, kind: p.kind, path: p.redirect.publicSlug }];
-    }
-    return p.indexable ? [{ name: p.name, kind: p.kind, path: areaPagePath(p.slug) }] : [];
-  });
+export function areaPageLinks<T>(pages: ResolvedAreaPage<T>[]): AreaPageLinkDto[] {
+  return pages.flatMap((p) =>
+    p.indexable ? [{ name: p.name, kind: p.kind, path: areaPagePath(p.slug) }] : [],
+  );
 }

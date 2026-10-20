@@ -142,11 +142,11 @@ export interface PublicFacilityLandingDto {
   /** Igual que en `PublicLandingDto`. */
   whatsappNumber: string | null;
   facility: PublicLandingFacilityDto;
-  /** Página de la ciudad del local (`/trasteros-en-<ciudad>`), si se muestra por sí misma. */
+  /** Página de la ciudad del local (`/trasteros-en-<ciudad>`) cuando tiene varios locales. */
   cityPage: { name: string; slug: string } | null;
   /**
-   * El local es el único de su ciudad: su ficha hace de página de la ciudad
-   * (la dirección de la ciudad lleva aquí) y muestra su texto propio.
+   * El local es el único de su ciudad: la página de la ciudad muestra esta
+   * ficha con su texto propio y la dirección de la ficha redirige a ella.
    */
   areaPage: { name: string; slug: string; content: PublicAreaPageContentDto | null } | null;
   /** El negocio tiene un solo local: la portada es la página principal. */

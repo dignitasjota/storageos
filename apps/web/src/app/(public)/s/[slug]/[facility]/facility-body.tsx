@@ -12,7 +12,7 @@ import { FacilityMeta, UnitTypeList } from '../templates';
 
 import { buildFacilityJsonLd } from './facility-shared';
 
-import type { PublicFacilityLandingDto } from '@storageos/shared';
+import type { AreaPageFaq, PublicFacilityLandingDto } from '@storageos/shared';
 
 import { safeJsonLd } from '@/lib/json-ld';
 
@@ -59,15 +59,26 @@ export function FacilityBody({
   slug,
   facilitySlug,
   locale,
+  asCityPage,
 }: {
   data: PublicFacilityLandingDto;
   slug: string;
   facilitySlug: string;
   locale: PublicWebLocale;
+  /**
+   * La ficha se muestra en la página de su ciudad (es el único local): la
+   * dirección es la de la ciudad y las preguntas son las de esa página.
+   */
+  asCityPage?: { path: string; faqs: AreaPageFaq[] };
 }) {
   const t = useTranslations('publicWeb');
   const f = data.facility;
-  const jsonLd = buildFacilityJsonLd(data, slug, facilitySlug, locale);
+  const faqs = asCityPage ? asCityPage.faqs : (data.areaPage?.content?.faqs ?? []);
+  const cityName = data.areaPage?.name ?? f.city ?? f.name;
+  const jsonLd = buildFacilityJsonLd(data, slug, asCityPage?.path ?? facilitySlug, locale, {
+    faqs,
+    ...(asCityPage ? { pageName: t('city.heading', { city: cityName }) } : {}),
+  });
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
@@ -103,7 +114,7 @@ export function FacilityBody({
             <span className="mx-1.5">/</span>
           </>
         )}
-        <span>{f.name}</span>
+        <span>{asCityPage ? t('city.heading', { city: cityName }) : f.name}</span>
       </nav>
 
       <FacilityHeading f={f} />
@@ -155,12 +166,7 @@ export function FacilityBody({
         site={{ tenantSlug: data.tenantSlug, customDomain: data.customDomain, facilities: [f] }}
       />
 
-      {data.areaPage?.content && (
-        <AreaFaqs
-          title={t('city.faqTitle', { city: data.areaPage.name })}
-          faqs={data.areaPage.content.faqs}
-        />
-      )}
+      {faqs.length > 0 && <AreaFaqs title={t('city.faqTitle', { city: cityName })} faqs={faqs} />}
     </div>
   );
 }

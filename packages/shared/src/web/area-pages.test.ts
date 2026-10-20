@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  areaPageShownOnFacility,
+  areaPageLinks,
   cityPageOfFacility,
+  cityPageReplacingFacility,
   resolveAreaPages,
   wordCount,
   type PublicAreaPageContentDto,
@@ -35,20 +36,27 @@ describe('páginas de zona', () => {
     expect(page).toMatchObject({ slug: 'mislata', redirect: { to: 'home' }, indexable: false });
   });
 
-  it('una ciudad con un solo local lleva a su ficha y la ficha muestra su texto', () => {
+  it('una ciudad con un solo local se queda con la ficha y la ficha redirige a ella', () => {
     const pages = resolveAreaPages(
       [fac('a', 'Mislata', 'centro-mislata'), fac('b', 'Valencia'), fac('c', 'valencia')],
       [content('mislata', { intro: 'Texto' })],
     );
     const mislata = pages.find((p) => p.slug === 'mislata');
-    expect(mislata?.redirect).toEqual({ to: 'facility', publicSlug: 'centro-mislata' });
-    expect(areaPageShownOnFacility(pages, 'a')?.content?.intro).toBe('Texto');
+    expect(mislata).toMatchObject({ redirect: null, indexable: true });
+    expect(mislata?.soleFacility?.id).toBe('a');
+    expect(cityPageReplacingFacility(pages, 'a')?.content?.intro).toBe('Texto');
+    expect(cityPageReplacingFacility(pages, 'b')).toBeNull();
     expect(cityPageOfFacility(pages, 'a')).toBeNull();
     expect(cityPageOfFacility(pages, 'b')?.slug).toBe('valencia');
     expect(pages.find((p) => p.slug === 'valencia')).toMatchObject({
       redirect: null,
+      soleFacility: null,
       indexable: true,
     });
+    expect(areaPageLinks(pages).map((l) => l.path)).toEqual([
+      'trasteros-en-mislata',
+      'trasteros-en-valencia',
+    ]);
   });
 
   it('una zona cercana solo se indexa con texto propio suficiente', () => {
