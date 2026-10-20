@@ -246,7 +246,8 @@ export class LandingService {
     // Web Premium: solo si el tenant tiene la feature se aplica la plantilla y los
     // textos personalizados; si no, se sirve `default` sin headline/about custom.
     const hasWebPremium = await this.hasWebPremium(tenant.id);
-    const areaPages = hasWebPremium
+    // Texto propio de las páginas de zona y zonas cercanas: extra «SEO local».
+    const areaPages = (await tenantHasFeature(this.admin, tenant.id, 'local_seo'))
       ? ((await this.areaContents([tenant.id])).get(tenant.id) ?? [])
       : [];
     let webTemplate =
@@ -769,14 +770,12 @@ export class LandingService {
       promosByTenant.set(p.tenant.slug, list);
     }
 
-    // Páginas de zona con texto propio: solo con Web Premium (como en la web).
-    const premiumTenantIds: string[] = [];
-    for (const f of facilities) {
-      if (!premiumTenantIds.includes(f.tenantId) && (await hasPremium(f.tenantId))) {
-        premiumTenantIds.push(f.tenantId);
-      }
+    // Páginas de zona con texto propio: solo con «SEO local» (como en la web).
+    const seoTenantIds: string[] = [];
+    for (const tenantId of new Set(facilities.map((f) => f.tenantId))) {
+      if (await tenantHasFeature(this.admin, tenantId, 'local_seo')) seoTenantIds.push(tenantId);
     }
-    const areaByTenant = await this.areaContents(premiumTenantIds);
+    const areaByTenant = await this.areaContents(seoTenantIds);
 
     return {
       entries: tenants.map((t) => {

@@ -66,6 +66,7 @@ const RULES: Partial<Record<TenantFeature, Rule>> = {
       : null,
   web_premium: (s) => (s.facilities >= 2 ? `${s.facilities} locales` : null),
   whatsapp_business: (s) => (s.features.has('web_premium') ? 'Tiene Web Premium' : null),
+  local_seo: (s) => (s.features.has('web_premium') ? 'Tiene Web Premium' : null),
 };
 
 /**

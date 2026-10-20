@@ -118,4 +118,12 @@ export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
     priceMonthly: 29,
     feature: 'whatsapp_business',
   },
+  {
+    slug: 'addon-local-seo',
+    name: 'SEO local',
+    description:
+      'Sal en Google en tu ciudad y en los pueblos de alrededor: páginas de zona con textos redactados con IA, revisión de SEO de tu web, seguimiento de posiciones con Search Console e informe mensual.',
+    priceMonthly: 12,
+    feature: 'local_seo',
+  },
 ];

@@ -25,8 +25,18 @@ describe('Analytics — checklist de SEO on-page (e2e)', () => {
     expect(res.status).toBe(401);
   });
 
+  it('sin el extra «SEO local» no está disponible', async () => {
+    const owner = await registerVerifiedUser(app, 'seo-checklist-noaddon');
+    const res = await request(app.getHttpServer())
+      .get('/analytics/seo-checklist')
+      .set({ Authorization: `Bearer ${owner.accessToken}` });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('feature_not_in_plan');
+  });
+
   it('tenant vacío: todo pendiente, sin web_premium', async () => {
     const owner = await registerVerifiedUser(app, 'seo-checklist-empty');
+    await setTenantFeatureOverride(owner.slug, 'local_seo', true);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
 
     const res = await request(app.getHttpServer()).get('/analytics/seo-checklist').set(auth);
@@ -44,6 +54,7 @@ describe('Analytics — checklist de SEO on-page (e2e)', () => {
 
   it('completar los 5 checks base sube el score a 5/5', async () => {
     const owner = await registerVerifiedUser(app, 'seo-checklist-base');
+    await setTenantFeatureOverride(owner.slug, 'local_seo', true);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, {
       unitsCount: 1,
@@ -86,6 +97,7 @@ describe('Analytics — checklist de SEO on-page (e2e)', () => {
 
   it('con web_premium: completar los 5 checks premium sube el score a 5/5', async () => {
     const owner = await registerVerifiedUser(app, 'seo-checklist-premium');
+    await setTenantFeatureOverride(owner.slug, 'local_seo', true);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await setTenantFeatureOverride(owner.slug, 'web_premium', true);
 

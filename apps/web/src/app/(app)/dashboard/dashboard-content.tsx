@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useHasPermission, useMe } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission, useMe } from '@/lib/auth/hooks';
 
 function daysUntil(iso: string | null): number | null {
   if (!iso) return null;
@@ -35,6 +35,7 @@ export function DashboardContent() {
   const format = useFormatter();
   const me = useMe();
   const canSeeAnalytics = useHasPermission('analytics:read');
+  const hasLocalSeo = useHasFeature('local_seo');
   const isMobile = useIsMobile();
 
   // En móvil, un «home tipo app» con acciones grandes en vez del dashboard de
@@ -99,7 +100,7 @@ export function DashboardContent() {
         <>
           <SuggestedActionsCard />
 
-          <SeoNudgeCard />
+          {hasLocalSeo && <SeoNudgeCard />}
 
           <KpiTiles />
 

@@ -23,6 +23,7 @@ export const TenantFeatures = [
   'housing', // alquiler de viviendas (exento de IVA, contrato LAU, fianza depositada) — SOLO add-on
   'multi_owner', // varios propietarios por cuenta (plan Administrador)
   'whatsapp_business', // WhatsApp del negocio en su web + bandeja en el panel — SOLO add-on
+  'local_seo', // páginas de zona, revisión de SEO, posiciones e informe — SOLO add-on
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -138,4 +139,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   housing: 'Viviendas',
   multi_owner: 'Varios propietarios',
   whatsapp_business: 'WhatsApp Business',
+  local_seo: 'SEO local',
 };

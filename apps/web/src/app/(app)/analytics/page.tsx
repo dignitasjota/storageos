@@ -32,6 +32,7 @@ import type {
   SeoChecklistItemDto,
 } from '@storageos/shared';
 
+import { FeatureGate } from '@/components/auth/feature-gate';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -179,7 +180,9 @@ export default function AnalyticsPage() {
           <BenchmarkPanel />
         </TabsContent>
         <TabsContent value="seo" className="mt-4">
-          <SeoChecklistPanel />
+          <FeatureGate feature="local_seo">
+            <SeoChecklistPanel />
+          </FeatureGate>
         </TabsContent>
       </Tabs>
     </div>
