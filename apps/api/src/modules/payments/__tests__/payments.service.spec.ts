@@ -451,6 +451,7 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
     const tx = buildTx();
     tx.invoice.findFirst.mockResolvedValue(issuedInvoice());
     tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      customerId: CUSTOMER_ID,
       id: PM_ID,
       type: 'sepa_debit',
       gateway: 'stripe',
@@ -513,6 +514,7 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
     const tx = buildTx();
     tx.invoice.findFirst.mockResolvedValue(issuedInvoice());
     tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      customerId: CUSTOMER_ID,
       id: PM_ID,
       type: 'card',
       gateway: 'stripe',
@@ -555,6 +557,7 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
     const tx = buildTx();
     tx.invoice.findFirst.mockResolvedValue(issuedInvoice());
     tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      customerId: CUSTOMER_ID,
       id: PM_ID,
       type: 'card',
       gateway: 'stripe',
@@ -627,6 +630,7 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
     const tx = buildTx();
     tx.invoice.findFirst.mockResolvedValue(issuedInvoice());
     tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      customerId: CUSTOMER_ID,
       id: PM_ID,
       type: 'cash',
       gateway: 'manual',
@@ -648,6 +652,36 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
       }),
     ).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'payment_method_not_chargeable' }),
+    });
+    expect(gateway.charge).not.toHaveBeenCalled();
+  });
+
+  it('un método de pago de otro inquilino devuelve 400 sin llamar al gateway', async () => {
+    const tx = buildTx();
+    tx.invoice.findFirst.mockResolvedValue(issuedInvoice());
+    tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      customerId: 'otro-inquilino',
+      id: PM_ID,
+      type: 'sepa_debit',
+      gateway: 'stripe',
+      gatewayCustomerId: 'cus_otro',
+    });
+    const gateway = { charge: jest.fn() };
+    const service = buildService(tx, {
+      gateway,
+      paymentMethods: { decryptToken: jest.fn(), cardContext: jest.fn().mockResolvedValue(null) },
+    });
+
+    await expect(
+      service.chargeInvoice({
+        tenantId: TENANT,
+        userId: 'user-1',
+        invoiceId: INVOICE_ID,
+        input: { paymentMethodId: PM_ID },
+        meta,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'payment_method_not_for_customer' }),
     });
     expect(gateway.charge).not.toHaveBeenCalled();
   });
@@ -674,6 +708,7 @@ describe('PaymentsService.chargeInvoice (Stripe Connect)', () => {
     const tx = buildTx();
     tx.invoice.findFirst.mockResolvedValue(invoice());
     tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      customerId: CUSTOMER_ID,
       id: PM_ID,
       type: 'card',
       gateway: 'stripe',
@@ -722,6 +757,7 @@ describe('PaymentsService.chargeInvoice (Stripe Connect)', () => {
     const tx = buildTx();
     tx.invoice.findFirst.mockResolvedValue(invoice());
     tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      customerId: CUSTOMER_ID,
       id: PM_ID,
       type: 'card',
       gateway: 'stripe',

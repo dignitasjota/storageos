@@ -762,15 +762,15 @@ portal mínimo para que el inquilino consulte sus facturas.
 
 ### Endpoints — Payments
 
-| Metodo | Ruta                             | Auth | Roles                 | Descripcion                                                              |
-| ------ | -------------------------------- | ---- | --------------------- | ------------------------------------------------------------------------ |
-| GET    | `/payments`                      | SI   | cualquiera            | Lista con filtros `?invoiceId=&customerId=`                              |
-| POST   | `/payments/invoices/:id/charge`  | SI   | owner, manager        | Charge automatico (usa payment_method default si no hay paymentMethodId) |
-| GET    | `/customers/:id/payment-methods` | SI   | cualquiera            | Lista metodos guardados del customer                                     |
-| POST   | `/payment-methods/setup-intent`  | SI   | owner, manager, staff | Crea Stripe SetupIntent + Customer si falta                              |
-| POST   | `/payment-methods`               | SI   | owner, manager, staff | Registra metodo tras setupIntent (cifra token)                           |
-| DELETE | `/payment-methods/:id`           | SI   | owner, manager        | Soft delete                                                              |
-| POST   | `/webhooks/stripe`               | NO   | publico (HMAC)        | Eventos Stripe (raw body + Stripe-Signature)                             |
+| Metodo | Ruta                             | Auth | Roles                 | Descripcion                                                                                                                                   |
+| ------ | -------------------------------- | ---- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/payments`                      | SI   | cualquiera            | Lista con filtros `?invoiceId=&customerId=`                                                                                                   |
+| POST   | `/payments/invoices/:id/charge`  | SI   | owner, manager        | Charge automatico (usa payment_method default si no hay paymentMethodId; un método de otro inquilino → 400 `payment_method_not_for_customer`) |
+| GET    | `/customers/:id/payment-methods` | SI   | cualquiera            | Lista metodos guardados del customer                                                                                                          |
+| POST   | `/payment-methods/setup-intent`  | SI   | owner, manager, staff | Crea Stripe SetupIntent + Customer si falta                                                                                                   |
+| POST   | `/payment-methods`               | SI   | owner, manager, staff | Registra metodo tras setupIntent (cifra token)                                                                                                |
+| DELETE | `/payment-methods/:id`           | SI   | owner, manager        | Soft delete                                                                                                                                   |
+| POST   | `/webhooks/stripe`               | NO   | publico (HMAC)        | Eventos Stripe (raw body + Stripe-Signature)                                                                                                  |
 
 ### Endpoints — Dunning + RGPD
 
