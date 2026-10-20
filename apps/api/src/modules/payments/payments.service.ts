@@ -18,6 +18,7 @@ import {
   type DomainEventPayload,
   type InvoiceRefundedPayload,
   type PaymentOverpaidPayload,
+  type InvoicePaymentRevertedPayload,
   type PaymentFailedPayload,
 } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -1040,6 +1041,7 @@ export class PaymentsService {
     existing: { id: string; invoiceId: string | null; amount: Prisma.Decimal },
   ): Promise<void> {
     let reverted = false;
+    let backToOverdue = false;
     await this.prisma.withTenant(async (tx) => {
       // Solo el primero que pasa el pago de `succeeded` a `failed` resta el
       // importe: una disputa y un `charged_back` simultáneos no restan dos veces.
@@ -1068,6 +1070,7 @@ export class PaymentsService {
               ? 'overdue'
               : 'issued'
             : invoice.status;
+        backToOverdue = invoice.status === 'paid' && revertedStatus === 'overdue';
         await tx.invoice.update({
           where: { id: invoice.id },
           data: {
@@ -1087,6 +1090,13 @@ export class PaymentsService {
     this.logger.warn(
       `charge.dispute sincronizado: payment ${existing.id} revertido (${Number(existing.amount)} EUR, reason=${args.reason ?? 'unknown'})`,
     );
+    // Cobro devuelto: el escalado de impagos empieza de cero desde hoy.
+    if (backToOverdue && existing.invoiceId) {
+      this.events.emit(DOMAIN_EVENTS.invoice_payment_reverted, {
+        tenantId: args.tenantId,
+        invoiceId: existing.invoiceId,
+      } satisfies InvoicePaymentRevertedPayload);
+    }
   }
 
   private toDto(

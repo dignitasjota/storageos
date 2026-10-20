@@ -280,6 +280,7 @@ export class AccessIntegrationsService {
             where: {
               actionType: 'access_block',
               status: 'executed',
+              supersededAt: null,
               invoice: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
             },
           }),

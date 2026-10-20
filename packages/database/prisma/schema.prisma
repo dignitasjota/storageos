@@ -1902,6 +1902,9 @@ model DunningAction {
   executedAt   DateTime?           @map("executed_at") @db.Timestamptz(6)
   result       Json?
   notes        String?
+  /// Acción de un ciclo anterior: el cobro se devolvió y el escalado empezó de
+  /// cero. Se conserva como historial; no cuenta para el anti-duplicado.
+  supersededAt DateTime?           @map("superseded_at") @db.Timestamptz(6)
   createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)

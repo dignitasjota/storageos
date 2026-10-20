@@ -46,7 +46,18 @@ export const DOMAIN_EVENTS = {
   sepa_remittance_created: 'domain.sepa_remittance_created',
   /** Reserva online (booking self-service) creada → aviso al staff. */
   booking_created: 'domain.booking_created',
+  /**
+   * Un cobro de una factura pagada se devolvió (contracargo, devolución SEPA o
+   * N43) y vuelve a estar vencida → el escalado de impagos empieza de cero. No
+   * es trigger.
+   */
+  invoice_payment_reverted: 'domain.invoice_payment_reverted',
 } as const;
+
+export interface InvoicePaymentRevertedPayload {
+  tenantId: string;
+  invoiceId: string;
+}
 
 export interface InvoiceCancelledPayload {
   tenantId: string;

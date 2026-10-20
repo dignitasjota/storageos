@@ -146,7 +146,11 @@ export class PortalAccountService {
     if (overdueRows.length) {
       const oldest = overdueRows[0]!;
       const actions = await this.admin.dunningAction.findMany({
-        where: { tenantId, invoiceId: { in: overdueRows.map((i) => i.id) } },
+        where: {
+          tenantId,
+          invoiceId: { in: overdueRows.map((i) => i.id) },
+          supersededAt: null,
+        },
         select: {
           invoiceId: true,
           actionType: true,

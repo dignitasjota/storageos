@@ -347,7 +347,7 @@ export class CustomerOverviewService {
       if (overdue.length) {
         const oldest = overdue[0]!;
         const steps = await tx.dunningAction.findMany({
-          where: { invoiceId: oldest.id },
+          where: { invoiceId: oldest.id, supersededAt: null },
           select: { actionType: true, scheduledFor: true, executedAt: true, status: true },
           orderBy: { scheduledFor: 'asc' },
         });

@@ -42,6 +42,7 @@ import {
   DOMAIN_EVENTS,
   type DomainEventPayload,
   type InvoiceCancelledPayload,
+  type InvoicePaymentRevertedPayload,
   type InvoiceRefundedPayload,
 } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
@@ -1855,6 +1856,7 @@ export class InvoicesService {
   }): Promise<InvoiceDto> {
     await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     let revertedStatus: InvoiceStatus = 'issued';
+    let backToOverdue = false;
 
     const updated = await this.prisma.withTenant(async (tx) => {
       // Fila bloqueada + lectura fresca: dos devoluciones a la vez no restan
@@ -1877,6 +1879,8 @@ export class InvoicesService {
           ? 'overdue'
           : 'issued'
         : existing.status;
+      // Pagada → vencida otra vez (no al deshacer un cobro registrado por error).
+      backToOverdue = wasPaid && revertedStatus === 'overdue' && !args.undo;
       // Solo el cobro devuelto pasa a fallido (antes, todos los de la
       // factura): primero uno del mismo importe; si no, los más recientes
       // que quepan en lo devuelto.
@@ -1943,6 +1947,13 @@ export class InvoicesService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    // Cobro devuelto: el escalado de impagos empieza de cero desde hoy.
+    if (backToOverdue) {
+      this.events.emit(DOMAIN_EVENTS.invoice_payment_reverted, {
+        tenantId: args.tenantId,
+        invoiceId: args.invoiceId,
+      } satisfies InvoicePaymentRevertedPayload);
+    }
     return this.toDto(updated);
   }
 

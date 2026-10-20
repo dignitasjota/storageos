@@ -8,6 +8,7 @@ import { BillingModule } from '../billing/billing.module';
 import { CollectionsModule } from '../collections/collections.module';
 import { QUEUE_DUNNING } from '../queues/queues.module';
 
+import { DunningRestartService } from './dunning-restart.service';
 import { DunningController } from './dunning.controller';
 import { DunningProcessor } from './dunning.processor';
 import { DunningService } from './dunning.service';
@@ -29,6 +30,12 @@ import { DunningService } from './dunning.service';
     BullModule.registerQueue({ name: QUEUE_DUNNING }),
   ],
   controllers: [DunningController],
-  providers: [...(WORKERS_ENABLED_IN_API ? [DunningService, DunningProcessor] : [])],
+  // DunningRestartService: siempre (el evento de cobro devuelto lo emiten los
+  // webhooks y la conciliación del API, con o sin workers).
+  providers: [
+    DunningRestartService,
+    ...(WORKERS_ENABLED_IN_API ? [DunningService, DunningProcessor] : []),
+  ],
+  exports: [DunningRestartService],
 })
 export class DunningModule {}
