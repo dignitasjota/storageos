@@ -719,6 +719,15 @@ Segunda pasada a las webs de los tenants (plantillas, landings, reserva, firma, 
 
 - ✅ Inquilinos, contratos, facturas, pagos, contactos, tareas, incidencias y gastos con «Cargar más» y búsqueda en el servidor; los desplegables de inquilino buscan en el servidor (antes solo ofrecían los 50-100 primeros).
 
+### Portal del inquilino: su cuenta, facturas, accesos, ofertas y uso (2026-10-20, #761–#766) ✅
+
+- ✅ **#761** — «Mi cuenta» en el inicio del portal: cuota con IVA, cómo paga, próximo cargo, cobro en curso y deuda con los pasos del escalado; un enlace nuevo ya no queda tapado por una sesión guardada.
+- ✅ **#762** — Facturas con concepto, trastero, periodo y desglose, motivo del rechazo, reintentar y «Pagar todo».
+- ✅ **#763** — Accesos suspendidos con su motivo y el código oculto hasta pulsar; «Pagar y recuperar el acceso».
+- ✅ **#764** — Las propuestas de Oportunidades llegan al portal como ofertas («Me interesa» avisa al equipo, nada se contrata solo) y «Mis extras».
+- ✅ **#765** — Quién usa el área de clientes (columna, filtro y vista «con deuda y sin portal»), envío del acceso en bloque y cifra en Hoy.
+- ✅ **#766** — Avisos enviados en el portal, borrar o elegir el método de pago por defecto y arreglos menores.
+
 ### Panel del tenant: cuenta del inquilino, cobros del mes y venta (2026-10-19, #754–#759) ✅
 
 - ✅ **#754** — Inquilinos en tabla con cuota, cómo paga, deuda, próximo cargo, último pago y último contacto; filtros, columnas y vistas guardadas. Estado de cuenta en la ficha (deuda y escalado, próximo cargo desglosado, historial único).
