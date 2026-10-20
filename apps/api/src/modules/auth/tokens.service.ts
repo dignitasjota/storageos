@@ -19,6 +19,8 @@ export interface AccessTokenPayload {
   permissions: Permission[];
   /** Locales a los que está restringido (permisos por local); null = todos. */
   facilityScope: string[] | null;
+  /** Rol personalizado con el que se emitió (para invalidar el token si cambia). */
+  tenantRoleId: string | null;
 }
 
 /** Payload + claims estandar al verificar. */
@@ -60,6 +62,7 @@ export class TokensService {
         role: payload.role,
         permissions: payload.permissions,
         facilityScope: payload.facilityScope,
+        trid: payload.tenantRoleId,
       },
       {
         subject: payload.sub,

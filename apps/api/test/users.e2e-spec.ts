@@ -96,10 +96,21 @@ describe('Users (e2e)', () => {
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(transfer.status).toBe(204);
 
-    // Verificar: el antiguo owner ahora es manager, el nuevo es owner.
-    const meOld = await request(app.getHttpServer())
+    // El token del antiguo owner llevaba su rol anterior: ya no vale.
+    const stale = await request(app.getHttpServer())
       .get('/auth/me')
       .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(stale.status).toBe(401);
+    expect(stale.body.code).toBe('session_outdated');
+
+    // Con un token nuevo, el antiguo owner es manager.
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ tenantSlug: owner.slug, email: owner.email, password: owner.password });
+    expect(login.status).toBe(200);
+    const meOld = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${login.body.accessToken}`);
     expect(meOld.body.user.role).toBe('manager');
   });
 

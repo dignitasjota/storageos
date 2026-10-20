@@ -485,6 +485,7 @@ export class AuthService {
       role: user.role,
       permissions: await this.resolvePermissions(result.tenantId, user),
       facilityScope: await this.resolveFacilityScope(result.tenantId, user.id),
+      tenantRoleId: user.tenantRoleId,
     });
 
     return {
@@ -781,6 +782,7 @@ export class AuthService {
       role: user.role,
       permissions: await this.resolvePermissions(tenant.id, user),
       facilityScope: await this.resolveFacilityScope(tenant.id, user.id),
+      tenantRoleId: user.tenantRoleId,
     });
 
     return {

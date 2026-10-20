@@ -258,6 +258,14 @@ export class PaymentsService {
         });
       }
       const pm = await tx.paymentMethod.findUniqueOrThrow({ where: { id: pmId } });
+      // El método elegido tiene que ser del inquilino de la factura: si no, se
+      // cobraría a otra persona.
+      if (pm.deletedAt || pm.customerId !== invoiceCustomerId) {
+        throw new BadRequestException({
+          code: 'payment_method_not_for_customer',
+          message: 'Ese método de pago no es del inquilino de la factura.',
+        });
+      }
       // Stripe: se cobra con la cuenta del tenant (Connect) o, en instalaciones
       // antiguas, con la de la plataforma (TENANT_CARD_PAYMENTS_ENABLED). La
       // tarjeta tiene que estar guardada en esa misma cuenta.

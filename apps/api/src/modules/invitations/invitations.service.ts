@@ -350,6 +350,7 @@ export class InvitationsService {
       role: user.role,
       permissions: permissionsForRole(user.role),
       facilityScope: null,
+      tenantRoleId: null,
     });
 
     const userDto: UserDto = {

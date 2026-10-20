@@ -550,3 +550,14 @@ Hallazgo: el tenant solo tenía la «Exportación A3/Sage» (CSV de facturas por
 - Excel con tres hojas (Facturas, Cobros, Fianzas) sin la columna «Actividad»; la exportación de la plataforma gana también la hoja/CSV de fianzas del negocio propio.
 - Web: la pestaña de `/fiscal` pasa a «Exportación para la asesoría» (resumen, avisos, Excel y CSV). El endpoint antiguo `/fiscal/accounting-export` se mantiene.
 - e2e `tenant-accountant-export`.
+
+## Revisión de acceso (2026-10-20) ✅
+
+Pasada por todo lo que decide quién ve qué: guards globales, RLS (todas las tablas con `tenant_id` la tienen y las 13 globales con `tenant_id` sin RLS no son legibles por `storageos_app`), consultas con el cliente administrador, rutas públicas y del portal (todas las del portal exigen sesión y filtran por `customerId`), panel admin (`AdminGuard` + superadmin en dinero/configuración), webhooks (firma o secreto obligatorio), API keys, tokens cortos (cada uno comprueba su `purpose`), CORS, cookies, ficheros y HTML. Arreglado:
+
+- **Cobro con el método de pago de otro inquilino**: `POST /payments/invoices/:id/charge` con `paymentMethodId` no comprobaba que el método fuera del inquilino de la factura (dentro del mismo tenant) → 400 `payment_method_not_for_customer`.
+- **El token de acceso no se revalidaba**: un usuario desactivado o con otro rol seguía con su token hasta 15 minutos. `JwtStrategy` consulta el usuario en cada petición (por PK): inactivo o de otro tenant → 401 `account_unavailable`; rol o rol personalizado distinto del del token (claim nuevo `trid`) → 401 `session_outdated` y la web renueva el token sola con los permisos actuales. La sesión de soporte no compara el rol (lleva el suyo, de solo lectura).
+- **Cabeceras internas del middleware**: `x-storageos-tenant-slug`/`x-storageos-tenant-public` se quitan si las manda el navegador (con ellas se podían servir en la plataforma páginas que solo existen en un dominio propio).
+- e2e `security-review`.
+
+Riesgos aceptados: CSP con `'unsafe-inline'`; la redirección del middleware en `/dashboard` y `/settings` es de comodidad (la frontera es la API).

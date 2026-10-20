@@ -108,11 +108,29 @@ async function resolveSlug(host: string): Promise<DomainResolution> {
   return value;
 }
 
+/**
+ * Cabeceras que solo pone este middleware (dominio propio del tenant). Si las
+ * manda el navegador se quitan: con ellas cualquiera podía servir en la
+ * plataforma páginas que solo existen en un dominio propio.
+ */
+const INTERNAL_HEADERS = ['x-storageos-tenant-slug', 'x-storageos-tenant-public'];
+
+function cleanHeaders(req: NextRequest): Headers {
+  const headers = new Headers(req.headers);
+  for (const h of INTERNAL_HEADERS) headers.delete(h);
+  return headers;
+}
+
+/** Sigue con la petición, sin las cabeceras internas que trajera el navegador. */
+function passThrough(req: NextRequest): NextResponse {
+  return NextResponse.next({ request: { headers: cleanHeaders(req) } });
+}
+
 function platformProtection(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
 
   if (pathname.startsWith('/widget/')) {
-    const res = NextResponse.next();
+    const res = passThrough(req);
     res.headers.set('X-Frame-Options', 'ALLOWALL');
     res.headers.set(
       'Content-Security-Policy',
@@ -122,10 +140,10 @@ function platformProtection(req: NextRequest): NextResponse {
   }
 
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-  if (!isProtected) return withNoindex(pathname, NextResponse.next());
+  if (!isProtected) return withNoindex(pathname, passThrough(req));
 
   const refresh = req.cookies.get('refresh_token');
-  if (refresh && refresh.value) return NextResponse.next();
+  if (refresh && refresh.value) return passThrough(req);
   // Sesión de soporte abierta desde el panel admin: el token vive en la pestaña
   // (sessionStorage), no en cookie. Esta marca solo evita mandar al login; sin
   // token válido, la propia página lleva al login.
@@ -133,7 +151,7 @@ function platformProtection(req: NextRequest): NextResponse {
     req.cookies.get('storageos_impersonation')?.value ||
     req.nextUrl.searchParams.has('impersonation')
   ) {
-    return NextResponse.next();
+    return passThrough(req);
   }
 
   const url = req.nextUrl.clone();
@@ -155,7 +173,7 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
       // su dominio propio (portal, login, cualquier página pública) — no
       // depende de que la URL lleve `?slug=` (que nuestras plantillas añaden,
       // pero una web externa del tenant o un enlace tecleado a mano no).
-      const headers = new Headers(req.headers);
+      const headers = cleanHeaders(req);
       headers.set('x-storageos-tenant-slug', slug);
       if (route.action === 'rewrite') {
         const url = req.nextUrl.clone();
