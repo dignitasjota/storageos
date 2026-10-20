@@ -33,6 +33,33 @@ describe('Guard de pago en vuelo + parciales solo efectivo (e2e)', () => {
     await cleanupTestTenants();
   });
 
+  it('bloquea mark-paid con un cobro de Redsys sin respuesta del banco (salvo override)', async () => {
+    const owner = await registerVerifiedUser(app, 'inflightredsys');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const customerId = await createCustomer(app, owner.accessToken);
+    const inv = await createDraftInvoice(app, owner.accessToken, customerId, { unitPrice: 100 });
+    await request(app.getHttpServer()).post(`/invoices/${inv}/issue`).set(auth).expect(200);
+    await admin.payment.create({
+      data: {
+        tenantId: owner.tenantId,
+        invoiceId: inv,
+        customerId,
+        amount: 121,
+        currency: 'EUR',
+        status: 'processing',
+        methodType: 'card',
+        gateway: 'redsys',
+      },
+    });
+    const blocked = await request(app.getHttpServer())
+      .post(`/invoices/${inv}/mark-paid`)
+      .set(auth)
+      .send({ amount: 121, methodType: 'cash' });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('gateway_payment_in_progress');
+  });
+
   it('bloquea mark-paid con adeudo SEPA en curso (salvo override) y parciales no-efectivo', async () => {
     const owner = await registerVerifiedUser(app, 'inflight');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

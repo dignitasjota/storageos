@@ -1748,7 +1748,9 @@ export class InvoicesService {
         const gatewayInFlight = await tx.payment.count({
           where: {
             invoiceId: args.invoiceId,
-            gateway: { in: ['stripe', 'gocardless'] },
+            // También Redsys: un cobro con tarjeta guardada sin respuesta del
+            // banco puede acabar cobrado (lo confirma su notificación).
+            gateway: { in: ['stripe', 'gocardless', 'redsys'] },
             status: { in: ['pending', 'processing'] },
           },
         });

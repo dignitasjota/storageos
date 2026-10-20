@@ -171,6 +171,21 @@ describe('Add-ons self-service del tenant (e2e)', () => {
     expect(blocked.body.code).toBe('addon_capacity_in_use');
   });
 
+  it('con la cuenta suspendida por impago no puede contratar extras nuevos', async () => {
+    const owner = await registerVerifiedUser(app, 'self-addon-susp');
+    await setTenantPlan(owner.slug, 'free');
+    await admin.tenant.update({ where: { id: owner.tenantId }, data: { status: 'suspended' } });
+    const res = await request(app.getHttpServer())
+      .post('/settings/saas-billing/addons')
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .send({ addonId });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('tenant_suspended_read_only');
+    expect(await admin.tenantSubscriptionAddon.count({ where: { tenantId: owner.tenantId } })).toBe(
+      0,
+    );
+  });
+
   it('sin permiso billing:configure → 403 (staff)', async () => {
     const owner = await registerVerifiedUser(app, 'self-addon-staff');
     // El owner sí tiene el permiso; probamos que el endpoint exige sesión.

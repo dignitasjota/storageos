@@ -63,6 +63,7 @@ export default function SaasBillingPage() {
   const checkout = useCreateCheckoutSession();
   const portal = useCreatePortalSession();
   const changePlan = useChangePlan();
+  const selfAddons = useSelfAddons();
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
 
@@ -135,6 +136,21 @@ export default function SaasBillingPage() {
     try {
       await changePlan.mutateAsync({ planId, billingCycle: cycle });
       toast.success('Plan cambiado. Stripe ajustará la diferencia en tu próxima factura.');
+      // Extras que el plan nuevo ya incluye: se siguen cobrando hasta que se cancelen.
+      const included = new Set<string>(
+        plans.data?.find((p) => p.id === planId)?.tenantFeatures ?? [],
+      );
+      const redundant = (selfAddons.data?.summary.addons ?? []).filter(
+        (a) => !a.suspended && a.feature && included.has(a.feature),
+      );
+      if (redundant.length > 0) {
+        toast.info(
+          `Tu plan nuevo ya incluye ${redundant.map((a) => a.name).join(', ')}. Puedes cancelar ${
+            redundant.length > 1 ? 'esos extras' : 'ese extra'
+          } en «Extras de tu cuenta» para no pagarlo dos veces.`,
+          { duration: 12_000 },
+        );
+      }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cambiar el plan.');
     } finally {

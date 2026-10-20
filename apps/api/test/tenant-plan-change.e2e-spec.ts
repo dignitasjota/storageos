@@ -112,6 +112,50 @@ describe('Cambio de plan self-service (e2e)', () => {
     expect(yearly.body.code).toBe('plan_not_available');
   });
 
+  it('domiciliado por SEPA con el adeudo del mes en el banco: no abre un Checkout de Stripe', async () => {
+    const owner = await registerVerifiedUser(app, 'plan-change-sepa');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const pro = await admin.subscriptionPlan.findFirst({ where: { slug: 'pro' } });
+    await admin.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { billingMode: 'sepa', status: 'active', stripeSubscriptionId: null },
+    });
+    const mandate = await admin.platformSepaMandate.create({
+      data: {
+        tenantId: owner.tenantId,
+        reference: `MND-T-${Date.now()}`,
+        ibanEncrypted: 'x',
+        ibanLast4: '1332',
+        signedAt: new Date(),
+      },
+    });
+    const remittance = await admin.platformSepaRemittance.create({
+      data: { name: 'Prueba', messageId: `REM-T-${Date.now()}`, collectionDate: new Date() },
+    });
+    await admin.platformSepaRemittanceItem.create({
+      data: {
+        remittanceId: remittance.id,
+        tenantId: owner.tenantId,
+        mandateId: mandate.id,
+        amount: 7900,
+        sequenceType: 'FRST',
+        endToEndId: `E2E-T-${Date.now()}`,
+        periodCovered: new Date(),
+      },
+    });
+    try {
+      const res = await request(app.getHttpServer())
+        .post('/settings/saas-billing/checkout')
+        .set(auth)
+        .send({ planId: pro!.id, successUrl: 'https://x.test/ok', cancelUrl: 'https://x.test/ko' });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('sepa_debit_pending');
+    } finally {
+      await admin.platformSepaRemittanceItem.deleteMany({ where: { remittanceId: remittance.id } });
+      await admin.platformSepaRemittance.delete({ where: { id: remittance.id } });
+    }
+  });
+
   it('sin sesión → 401', async () => {
     await request(app.getHttpServer())
       .post('/settings/saas-billing/change-plan')
