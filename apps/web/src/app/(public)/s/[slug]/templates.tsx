@@ -151,7 +151,15 @@ export function isOpenNow(hours: OpeningHours, timezone: string): boolean | null
     const [openH, openM] = today.open.split(':').map(Number);
     const [closeH, closeM] = today.close.split(':').map(Number);
     const nowMin = hour * 60 + minute;
-    return nowMin >= openH! * 60 + openM! && nowMin < closeH! * 60 + closeM!;
+    const openMin = openH! * 60 + openM!;
+    let closeMin = closeH! * 60 + closeM!;
+    // «23:59» cuenta como hasta medianoche (un horario 24 h no debe salir cerrado ese minuto).
+    if (closeMin === 23 * 60 + 59) closeMin = 24 * 60;
+    // Cierre igual o anterior a la apertura: abre 24 h (00:00–00:00) o cruza la medianoche.
+    if (closeMin <= openMin) {
+      return closeMin === openMin || nowMin >= openMin || nowMin < closeMin;
+    }
+    return nowMin >= openMin && nowMin < closeMin;
   } catch {
     return null;
   }

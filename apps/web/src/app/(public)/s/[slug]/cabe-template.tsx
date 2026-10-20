@@ -33,7 +33,7 @@ import {
 } from './i18n/messages';
 import { grossPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
-import { cities, formatPrice, isOpenNow, useHeadlineFallback } from './templates';
+import { cities, formatPrice, useHeadlineFallback } from './templates';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
@@ -856,7 +856,6 @@ function FacilityCard({
   const t = useTranslations('publicWeb.cabe');
   const tHours = useTranslations('publicWeb.hours');
   const tCommon = useTranslations('publicWeb.common');
-  const open = isOpenNow(f.openingHours, f.timezone);
   const hasHours = WEEKDAYS.some((d) => f.openingHours[d]);
   const map = mapEmbedUrl(f);
   const image = f.imageUrls[0] ?? null;
@@ -873,16 +872,6 @@ function FacilityCard({
               <span className="rounded-md bg-slate-100 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:bg-muted dark:text-foreground">
                 {f.city || t('center')}
               </span>
-              {hasHours && open != null && (
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${open ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-slate-200 text-slate-700 dark:bg-muted dark:text-muted-foreground'}`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${open ? 'bg-emerald-600' : 'bg-slate-400'}`}
-                  />
-                  {open ? tHours('openNow') : tHours('closedNow')}
-                </span>
-              )}
             </div>
             <div>
               <h3 className="text-2xl font-black">{f.name}</h3>
