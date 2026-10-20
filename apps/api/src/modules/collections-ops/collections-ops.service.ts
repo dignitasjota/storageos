@@ -320,7 +320,7 @@ export class CollectionsOpsService {
           select: { id: true, email: true, phone: true, ...NAME_SELECT },
         }),
         tx.dunningAction.findMany({
-          where: { invoiceId: { in: invoiceIds } },
+          where: { invoiceId: { in: invoiceIds }, supersededAt: null },
           select: {
             invoiceId: true,
             actionType: true,

@@ -24,8 +24,10 @@ import {
   QUEUE_DUNNING,
 } from '../queues/queues.module';
 
+import { dunningCalendar } from './dunning-calendar';
+
 import type { Env } from '../../config/env.schema';
-import type { CustomerType, DunningActionType, Prisma } from '@storageos/database';
+import type { CustomerType, Prisma } from '@storageos/database';
 
 export interface ProcessInvoiceJobData {
   tenantId: string;
@@ -175,22 +177,14 @@ export class DunningService {
     if (!invoice || (invoice.status !== 'issued' && invoice.status !== 'overdue')) return;
     if (!invoice.dueDate) return;
     const base = invoice.dueDate;
-    const calendar: Array<{ daysAfter: number; type: DunningActionType }> = [
-      { daysAfter: 1, type: 'email_reminder' },
-      // Segundo aviso: tipo propio (el índice único es por tipo; con el mismo
-      // tipo que el primero no se llegaba a programar nunca).
-      { daysAfter: 7, type: 'email_reminder_final' },
-      { daysAfter: 14, type: 'access_block' },
-      { daysAfter: 30, type: 'legal_notice' },
-    ];
-    // Recargo por mora: solo si el tenant lo activó (opt-in), a los N días.
     const tenant = await this.admin.tenant.findUnique({
       where: { id: data.tenantId },
       select: { lateFeeEnabled: true, lateFeeGraceDays: true },
     });
-    if (tenant?.lateFeeEnabled) {
-      calendar.push({ daysAfter: tenant.lateFeeGraceDays, type: 'late_fee' });
-    }
+    const calendar = dunningCalendar({
+      enabled: !!tenant?.lateFeeEnabled,
+      graceDays: tenant?.lateFeeGraceDays ?? 0,
+    });
     for (const step of calendar) {
       const scheduledFor = new Date(base);
       scheduledFor.setUTCDate(scheduledFor.getUTCDate() + step.daysAfter);
@@ -201,6 +195,7 @@ export class DunningService {
           invoiceId: data.invoiceId,
           actionType: step.type,
           status: { in: ['scheduled', 'executed'] },
+          supersededAt: null,
         },
       });
       if (existing) continue;
