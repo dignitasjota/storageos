@@ -283,6 +283,9 @@ export class LeadsService {
       phone?: string | undefined;
       message?: string | undefined;
       acceptsMarketing?: boolean | undefined;
+      utmSource?: string | undefined;
+      utmMedium?: string | undefined;
+      utmCampaign?: string | undefined;
     };
     meta: RequestMeta;
   }): Promise<LeadDto> {
@@ -292,6 +295,9 @@ export class LeadsService {
           data: {
             tenantId: args.tenantId,
             source: 'web',
+            utmSource: args.input.utmSource || null,
+            utmMedium: args.input.utmMedium || null,
+            utmCampaign: args.input.utmCampaign || null,
             firstName: args.input.firstName,
             lastName: args.input.lastName || null,
             email: args.input.email,

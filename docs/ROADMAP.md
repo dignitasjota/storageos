@@ -667,6 +667,15 @@ A diferencia de las promociones (que descuentan todas las cuotas), el **cupón d
 
 El de la plataforma y el del dominio propio de cada tenant se generan con `renderSitemap` (shared): `loc`, `lastmod`, `changefreq`, `priority` y después los enlaces de idioma con `x-default` (Next.js los escribía antes de `lastmod` y el documento no validaba contra el esquema de sitemaps.org). `app/sitemap.ts` pasa a `app/sitemap.xml/route.ts`. Las páginas de ciudad llevan también su versión en inglés.
 
+### De dónde vienen los clientes de la web del tenant (2026-10-21) — en curso
+
+Saber si un cliente llegó por Instagram, Facebook, Google Ads, un portal o una promoción aunque entre por la portada y navegue antes de reservar. Plan en 3 PR:
+
+- **PR 1** — origen guardado en el navegador: al entrar en la web del tenant (portada, locales, blog, landings, reserva) se anota el origen (`utm_*` del enlace, clic en un anuncio con `gclid`/`fbclid`/`msclkid`/`ttclid` o la web de la que viene: Google, Instagram, Facebook, Idealista…) durante 30 días, sin datos personales. La reserva, el contacto de la web y las landings lo usan. Gana la última visita con origen conocido; la navegación interna y las visitas directas no lo cambian.
+- **PR 2** — visitas de toda la web (no solo landings) y página Marketing → Orígenes: visitas → contactos → reservas → firmadas → ingresos por origen y campaña.
+- **PR 3** — enlaces por canal a cualquier página (portada, un local, precios) con sus utm puestas, y opcionalmente el mismo origen en GA4.
+- Fuera por ahora: pixel de Meta y etiqueta de conversión de Google Ads (consentimiento y scripts de terceros en cada web). El botón de WhatsApp no lleva el origen todavía.
+
 ### Extra «SEO local» (2026-10-21, decisiones de Jota) — en curso
 
 Extra de pago aparte (`local_seo`, 12 €/mes) para quien quiere salir en Google en su ciudad y alrededores. Lo básico de SEO (sitemap, robots, datos estructurados, canónicas, Search Console y GA4) sigue para todos, y el título/descripción de portada, precios y contacto y el blog siguen en Web Premium.
