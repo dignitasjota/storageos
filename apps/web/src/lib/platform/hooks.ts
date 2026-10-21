@@ -8,7 +8,10 @@ import type { PlatformBannerDto } from '@storageos/shared';
 export function usePlatformBanner() {
   return useQuery({
     queryKey: ['platform-banner'] as const,
-    queryFn: () => apiFetch<PlatformBannerDto | null>('/platform-banner'),
+    // Sin banner activo el API responde sin cuerpo (Nest no serializa un `null`
+    // a pelo) y React Query no admite `undefined` como dato.
+    queryFn: async () =>
+      (await apiFetch<PlatformBannerDto | null | undefined>('/platform-banner')) ?? null,
     staleTime: 5 * 60_000,
   });
 }
