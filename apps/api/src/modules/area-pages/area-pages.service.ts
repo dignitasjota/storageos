@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -10,16 +11,22 @@ import {
   MAX_NEARBY_AREA_PAGES,
   areaPageSlug,
   citySlug,
+  parseAreaPageDraft,
   resolveAreaPages,
   wordCount,
+  type AreaPageDraftDto,
   type AreaPageOverviewDto,
   type AreaPagesSettingsDto,
   type CreateAreaPageInput,
+  type DraftAreaPageInput,
   type UpdateAreaPageInput,
 } from '@storageos/shared';
 
+import { AiService } from '../ai/ai.service';
 import { PrismaService } from '../database/prisma.service';
+import { LandingService } from '../landing/landing.service';
 
+import { AREA_PAGE_DRAFT_SYSTEM, areaPageDraftContext } from './area-page-draft';
 import { toAreaContent, toAreaPageDto } from './area-page.mapper';
 
 import type { Prisma, WebAreaPage } from '@storageos/database';
@@ -32,7 +39,66 @@ import type { Prisma, WebAreaPage } from '@storageos/database';
  */
 @Injectable()
 export class AreaPagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly landing: LandingService,
+    private readonly ai: AiService,
+  ) {}
+
+  /**
+   * Borrador con IA de una página de zona con los datos reales de sus locales
+   * (dirección, horario, tamaños y precios). No guarda nada: el tenant lo
+   * revisa en el formulario. Ciudad = la zona tiene locales; si no, zona
+   * cercana con los locales elegidos.
+   */
+  async draft(
+    tenantId: string,
+    userId: string,
+    input: DraftAreaPageInput,
+  ): Promise<AreaPageDraftDto> {
+    const slug = areaPageSlug({ name: input.name });
+    if (!slug) {
+      throw new BadRequestException({ code: 'invalid_slug', message: 'Nombre no válido' });
+    }
+    const tenant = await this.prisma.withTenant(
+      (tx) => tx.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }),
+      tenantId,
+    );
+    if (!tenant)
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    const site = await this.landing.getBySlug(tenant.slug);
+    const inCity = site.facilities.filter((f) => f.city && citySlug(f.city) === slug);
+    const kind = inCity.length > 0 ? 'city' : 'nearby';
+    const facilities =
+      kind === 'city' ? inCity : site.facilities.filter((f) => input.facilityIds.includes(f.id));
+    if (facilities.length === 0) {
+      throw new BadRequestException({
+        code: 'area_page_facilities_required',
+        message: 'Elige qué local se muestra en esta zona',
+      });
+    }
+    const text = await this.ai.completeText({
+      tenantId,
+      userId,
+      feature: 'area_page_draft',
+      system: AREA_PAGE_DRAFT_SYSTEM,
+      user: areaPageDraftContext({
+        tenantName: site.tenantName,
+        zone: input.name,
+        kind,
+        facilities,
+        existingFaqs: site.faqs.map((f) => f.question),
+      }),
+    });
+    const draft = parseAreaPageDraft(text, kind);
+    if (!draft) {
+      throw new BadGatewayException({
+        code: 'ai_draft_failed',
+        message: 'No se ha podido redactar el texto. Inténtalo de nuevo.',
+      });
+    }
+    return draft;
+  }
 
   async settings(tenantId: string): Promise<AreaPagesSettingsDto> {
     const { rows, facilities } = await this.prisma.withTenant(async (tx) => {

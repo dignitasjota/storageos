@@ -8,10 +8,11 @@ import {
   type AreaPageDto,
   type AreaPageFaq,
 } from '@storageos/shared';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -25,7 +26,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useSaveAreaPage } from '@/lib/area-pages/hooks';
+import { useDraftAreaPage, useSaveAreaPage } from '@/lib/area-pages/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useFacilities } from '@/lib/facilities/hooks';
 
@@ -50,6 +51,8 @@ export function AreaPageDialog({
   onClose: () => void;
 }) {
   const save = useSaveAreaPage();
+  const draft = useDraftAreaPage();
+  const ask = useConfirm();
   const facilities = useFacilities();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -82,6 +85,36 @@ export function AreaPageDialog({
   const words = wordCount(intro);
   const minWords = city ? AREA_PAGE_CITY_MIN_WORDS : AREA_PAGE_MIN_WORDS;
   const autoSlug = citySlug(name);
+
+  async function writeWithAi() {
+    const hasText = intro.trim() || faqs.length > 0 || seoTitle.trim() || seoDescription.trim();
+    if (
+      hasText &&
+      !(await ask({
+        title: '¿Sustituir el texto?',
+        description:
+          'El borrador reemplaza el texto, las zonas cercanas, las preguntas y los textos para Google que tienes ahora. No se guarda hasta que pulses «Guardar».',
+        confirmLabel: 'Redactar',
+      }))
+    ) {
+      return;
+    }
+    try {
+      const d = await draft.mutateAsync({
+        name: name.trim(),
+        facilityIds: city ? [] : facilityIds,
+      });
+      setIntro(d.intro);
+      if (!city && d.nearestNote) setNearestNote(d.nearestNote);
+      setAreas(d.nearbyAreas.join(', '));
+      setFaqs(d.faqs);
+      setSeoTitle(d.seoTitle ?? '');
+      setSeoDescription(d.seoDescription ?? '');
+      toast.success('Borrador listo. Revísalo antes de guardar.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo redactar el texto');
+    }
+  }
 
   async function submit() {
     if (!target) return;
@@ -183,6 +216,29 @@ export function AreaPageDialog({
               />
             </div>
           )}
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed p-3">
+            <p className="text-sm text-muted-foreground">
+              Redactamos el texto, las zonas cercanas, las preguntas y los textos para Google con
+              los datos de {city ? 'tu local' : 'los locales elegidos'}. Revisa nombres y distancias
+              antes de guardar.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={writeWithAi}
+              disabled={
+                draft.isPending || name.trim().length < 2 || (!city && facilityIds.length === 0)
+              }
+            >
+              {draft.isPending ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1 h-4 w-4" />
+              )}
+              Redactar con IA
+            </Button>
+          </div>
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">

@@ -4,6 +4,7 @@ import {
   areaPageLinks,
   cityPageOfFacility,
   cityPageReplacingFacility,
+  parseAreaPageDraft,
   resolveAreaPages,
   wordCount,
   type PublicAreaPageContentDto,
@@ -81,5 +82,33 @@ describe('páginas de zona', () => {
   it('cuenta palabras sin signos sueltos', () => {
     expect(wordCount('Trasteros en Mislata — desde 39 €')).toBe(5);
     expect(wordCount(null)).toBe(0);
+  });
+});
+
+describe('borrador con IA de una página de zona', () => {
+  it('lee el JSON aunque venga entre texto y recorta a los límites', () => {
+    const text = `Aquí tienes:\n\`\`\`json\n${JSON.stringify({
+      intro: 'Texto de la zona.',
+      nearestNote: 'A 8 km.',
+      nearbyAreas: ['Xirivella', '', 'x'.repeat(80)],
+      faqs: [{ question: '¿Hay furgoneta?', answer: 'Sí.' }, { question: 'Mal' }],
+      seoTitle: 'Trasteros cerca de Paterna '.repeat(5),
+      seoDescription: 'Descripción',
+    })}\n\`\`\``;
+    const draft = parseAreaPageDraft(text, 'nearby');
+    expect(draft?.intro).toBe('Texto de la zona.');
+    expect(draft?.nearestNote).toBe('A 8 km.');
+    expect(draft?.nearbyAreas).toHaveLength(2);
+    expect(draft?.nearbyAreas[1]!.length).toBeLessThanOrEqual(60);
+    expect(draft?.faqs).toEqual([{ question: '¿Hay furgoneta?', answer: 'Sí.' }]);
+    expect(draft?.seoTitle!.length).toBeLessThanOrEqual(70);
+  });
+
+  it('una ciudad no lleva nota del local más cercano; sin intro no hay borrador', () => {
+    expect(
+      parseAreaPageDraft('{"intro":"Hola","nearestNote":"x"}', 'city')?.nearestNote,
+    ).toBeNull();
+    expect(parseAreaPageDraft('{"faqs":[]}', 'city')).toBeNull();
+    expect(parseAreaPageDraft('no es json', 'city')).toBeNull();
   });
 });

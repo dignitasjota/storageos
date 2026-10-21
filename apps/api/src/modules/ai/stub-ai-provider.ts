@@ -2,6 +2,29 @@ import { Injectable } from '@nestjs/common';
 
 import { type AiCompletion, type AiMessageParam, AiProvider } from './ai-provider';
 
+/** Marca del prompt de borrador de página de zona (el simulador responde un JSON). */
+export const AREA_PAGE_DRAFT_MARKER = 'Redactas páginas de zona';
+
+const AREA_PAGE_DRAFT_STUB: AiCompletion = {
+  stopReason: 'end_turn',
+  content: [
+    {
+      type: 'text',
+      text: JSON.stringify({
+        intro: Array.from(
+          { length: 14 },
+          () => 'Texto de demostración de la página de zona redactado en modo demo.',
+        ).join(' '),
+        nearestNote: 'Nuestro local más cercano está a pocos minutos en coche.',
+        nearbyAreas: ['Zona norte', 'Zona sur'],
+        faqs: [{ question: '¿Puedo entrar con furgoneta?', answer: 'Sí, hasta la puerta.' }],
+        seoTitle: 'Trasteros en la zona (demo)',
+        seoDescription: 'Borrador de demostración. Configura la IA para textos reales.',
+      }),
+    },
+  ],
+};
+
 /**
  * Provider de IA simulado (sin API key). Determinista: según el texto del último
  * mensaje del usuario decide si invocar una herramienta, y al recibir el
@@ -14,10 +37,13 @@ export class StubAiProvider extends AiProvider {
 
   /** Respuesta simulada + consumo aproximado (≈4 caracteres por token). */
   async createMessage(args: {
+    system?: string;
     messages: AiMessageParam[];
     tools?: unknown[];
   }): Promise<AiCompletion> {
-    const completion = await this.respond(args);
+    const completion = args.system?.includes(AREA_PAGE_DRAFT_MARKER)
+      ? AREA_PAGE_DRAFT_STUB
+      : await this.respond(args);
     const tokens = (text: string) => Math.max(1, Math.ceil(text.length / 4));
     const inputTokens = tokens(JSON.stringify(args.messages));
     const outputTokens = tokens(JSON.stringify(completion.content));

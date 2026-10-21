@@ -165,6 +165,31 @@ export class AiService {
       });
   }
 
+  /**
+   * Llamada suelta al modelo, sin herramientas ni conversación: devuelve el
+   * texto de la respuesta. Para redactar borradores (páginas de zona…).
+   */
+  async completeText(args: {
+    tenantId: string;
+    userId: string | null;
+    feature: string;
+    system: string;
+    user: string;
+  }): Promise<string> {
+    this.assertAvailable();
+    const completion = await this.provider.createMessage({
+      system: args.system,
+      messages: [{ role: 'user', content: args.user }],
+      tools: [],
+    });
+    this.recordUsage(args.tenantId, args.userId, args.feature, completion);
+    return completion.content
+      .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+  }
+
   /** 503 si el provider no está configurado (antes de abrir un stream). */
   assertAvailable(): void {
     if (!this.provider.available) {

@@ -161,4 +161,48 @@ describe('Páginas de zona de la web (e2e)', () => {
     expect(settings.body.singleFacility).toBe(true);
     expect(settings.body.overview[0]).toMatchObject({ slug: 'mislata', redirect: { to: 'home' } });
   });
+
+  it('redacta un borrador con IA con los locales de la zona (sin guardar nada)', async () => {
+    const owner = await registerVerifiedUser(app, 'areadraft');
+    const a = auth(owner.accessToken);
+    const mislata = await facility(owner.accessToken, 'Centro Mislata', 'Mislata');
+    await facility(owner.accessToken, 'Centro Valencia', 'Valencia');
+
+    // Sin el extra «SEO local» no está disponible.
+    const blocked = await http()
+      .post('/settings/web/area-pages/draft')
+      .set(a)
+      .send({ name: 'Mislata' });
+    expect(blocked.status).toBe(403);
+    await setTenantFeatureOverride(owner.slug, 'local_seo', true);
+
+    // Ciudad con local: usa sus locales.
+    const city = await http()
+      .post('/settings/web/area-pages/draft')
+      .set(a)
+      .send({ name: 'Mislata' });
+    expect(city.status).toBe(201);
+    expect(city.body).toMatchObject({ kind: 'city', nearestNote: null });
+    expect(city.body.intro.split(/\s+/).length).toBeGreaterThan(100);
+    expect(city.body.faqs.length).toBeGreaterThan(0);
+
+    // Zona cercana: hay que elegir el local.
+    const noFac = await http()
+      .post('/settings/web/area-pages/draft')
+      .set(a)
+      .send({ name: 'Paterna' });
+    expect(noFac.status).toBe(400);
+    expect(noFac.body.code).toBe('area_page_facilities_required');
+    const near = await http()
+      .post('/settings/web/area-pages/draft')
+      .set(a)
+      .send({ name: 'Paterna', facilityIds: [mislata.id] });
+    expect(near.status).toBe(201);
+    expect(near.body.kind).toBe('nearby');
+    expect(typeof near.body.nearestNote).toBe('string');
+
+    // No se ha guardado ninguna página.
+    const settings = await http().get('/settings/web/area-pages').set(a);
+    expect(settings.body.pages).toHaveLength(0);
+  });
 });

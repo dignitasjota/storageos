@@ -244,3 +244,75 @@ export function areaPageLinks<T>(pages: ResolvedAreaPage<T>[]): AreaPageLinkDto[
     p.indexable ? [{ name: p.name, kind: p.kind, path: areaPagePath(p.slug) }] : [],
   );
 }
+
+/** Petición de borrador con IA de una página de zona (no guarda nada). */
+export const DraftAreaPageSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  /** Locales que se muestran (solo zonas cercanas; en una ciudad, los suyos). */
+  facilityIds: z.array(z.string().uuid()).max(20).default([]),
+});
+export type DraftAreaPageInput = z.infer<typeof DraftAreaPageSchema>;
+
+/** Borrador redactado con IA: el tenant lo revisa antes de guardar. */
+export interface AreaPageDraftDto {
+  kind: AreaPageKind;
+  intro: string;
+  nearestNote: string | null;
+  nearbyAreas: string[];
+  faqs: AreaPageFaq[];
+  seoTitle: string | null;
+  seoDescription: string | null;
+}
+
+const clip = (v: unknown, max: number): string | null => {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!t) return null;
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return (space > max * 0.6 ? cut.slice(0, space) : cut).trim();
+};
+
+/**
+ * Lee la respuesta del modelo (un objeto JSON, aunque venga entre texto o en
+ * un bloque de código) y la ajusta a los límites de una página de zona.
+ * Devuelve null si no hay un texto de introducción utilizable.
+ */
+export function parseAreaPageDraft(text: string, kind: AreaPageKind): AreaPageDraftDto | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const intro = clip(raw.intro, 4000);
+  if (!intro) return null;
+  const nearbyAreas = (Array.isArray(raw.nearbyAreas) ? raw.nearbyAreas : [])
+    .map((a) => clip(a, 60))
+    .filter((a): a is string => !!a && a.length >= 2)
+    .slice(0, 15);
+  const faqs = (Array.isArray(raw.faqs) ? raw.faqs : [])
+    .map((f) => {
+      const o = (f ?? {}) as Record<string, unknown>;
+      const question = clip(o.question, 200);
+      const answer = clip(o.answer, 1500);
+      return question && answer && question.length >= 3 && answer.length >= 3
+        ? { question, answer }
+        : null;
+    })
+    .filter((f): f is AreaPageFaq => f != null)
+    .slice(0, 8);
+  return {
+    kind,
+    intro,
+    nearestNote: kind === 'nearby' ? clip(raw.nearestNote, 200) : null,
+    nearbyAreas,
+    faqs,
+    seoTitle: clip(raw.seoTitle, 70),
+    seoDescription: clip(raw.seoDescription, 200),
+  };
+}
