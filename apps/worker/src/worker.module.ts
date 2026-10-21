@@ -35,6 +35,7 @@ import { RentIncreasesModule } from '../../api/src/modules/rent-increases/rent-i
 import { ReportsModule } from '../../api/src/modules/reports/reports.module';
 import { RetentionModule } from '../../api/src/modules/retention/retention.module';
 import { ReviewsModule } from '../../api/src/modules/reviews/reviews.module';
+import { SearchConsoleModule } from '../../api/src/modules/search-console/search-console.module';
 import { SecurityEventsModule } from '../../api/src/modules/security-events/security-events.module';
 import { SuspensionHoldsModule } from '../../api/src/modules/suspension-holds/suspension-holds.module';
 import { WaitlistModule } from '../../api/src/modules/waitlist/waitlist.module';
@@ -145,6 +146,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     MoveInModule,
     // Recordatorios por WhatsApp de las reservas hechas por el asistente.
     WhatsappBusinessModule,
+    SearchConsoleModule,
     PlanLimitsModule,
     MaintenanceModule,
     NotificationsModule,

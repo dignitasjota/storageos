@@ -544,6 +544,8 @@ model Tenant {
   blogPosts               BlogPost[]
   promoLandings           PromoLanding[]
   webAreaPages            WebAreaPage[]
+  searchConsole           TenantSearchConsole?
+  searchConsoleRows       SearchConsoleRow[]
   promoLandingVisits      PromoLandingVisit[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
@@ -4360,6 +4362,44 @@ model WebAreaPage {
 
   @@unique([tenantId, slug], map: "web_area_pages_tenant_slug_key")
   @@map("web_area_pages")
+}
+
+/// Propiedad de Search Console del tenant (extra «SEO local»).
+model TenantSearchConsole {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @unique @map("tenant_id") @db.Uuid
+  /// `sc-domain:ejemplo.es` o `https://ejemplo.es/`.
+  siteUrl      String    @map("site_url")
+  /// pending | connected | error
+  status       String    @default("pending")
+  lastError    String?   @map("last_error")
+  connectedAt  DateTime? @map("connected_at") @db.Timestamptz(6)
+  lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_search_console")
+}
+
+/// Búsquedas de Search Console por día, consulta y página.
+model SearchConsoleRow {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  date        DateTime @db.Date
+  query       String
+  page        String
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  position    Decimal  @db.Decimal(7, 2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, query, page], map: "search_console_rows_key")
+  @@index([tenantId, date], map: "search_console_rows_tenant_date_idx")
+  @@map("search_console_rows")
 }
 
 /// Visita a una landing de promoción (sin datos personales: id aleatorio del navegador + UTM).

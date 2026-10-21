@@ -310,6 +310,12 @@ const envSchemaBase = z.object({
   AI_COST_INPUT_PER_MTOK_USD: z.coerce.number().min(0).default(3),
   AI_COST_OUTPUT_PER_MTOK_USD: z.coerce.number().min(0).default(15),
 
+  // --- Search Console (extra «SEO local») ---
+  /** JSON de la cuenta de servicio de Google (con `client_email` y `private_key`). */
+  GSC_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  /** `stub` = sin llamar a Google (desarrollo). En tests siempre simulado. */
+  GSC_MODE: z.enum(['stub', 'live']).optional(),
+
   // --- Notificaciones push (Web Push / VAPID) ---
   // Sin claves, el push queda desactivado (no-op). Generar con
   // `npx web-push generate-vapid-keys`.

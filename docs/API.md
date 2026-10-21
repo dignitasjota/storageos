@@ -1771,6 +1771,17 @@ Descuento sobre el pago que se hace al contratar (no sobre las renovaciones). Im
 - **Reserva online** `POST /public/move-in/book/:slug` y **portal** `POST /portal/me/contracts` aceptan `months` (1, 3, 6 o 12) y `couponCode`. Errores: 400 `coupon_not_valid` (reserva, con el motivo) y `unit_has_offer` (portal: el trastero ya tiene una oferta).
 - **Reserva online con el email de un inquilino que ya existe** (sin distinguir mayúsculas): `BookingResultDto.signingToken` = `null` y `signingLinkSentTo` = el email enmascarado (`a***a@dominio`); el enlace de firma se envía por correo a ese email (fuente `booking.signing_link`). Antes se devolvía el enlace a quien rellenaba el formulario y, al firmar, recibía la sesión del área de clientes de ese inquilino (con sus códigos de acceso). Lo mismo en las reservas del asistente de WhatsApp.
 
+### Posiciones en Google (`/seo`, extra «SEO local»)
+
+Seguimiento con Google Search Console. La plataforma tiene una cuenta de servicio (`GSC_SERVICE_ACCOUNT_JSON`); el tenant la añade como usuario de su propiedad. Todo con `@RequireFeature('local_seo')`. En tests (o `GSC_MODE=stub`) no se llama a Google.
+
+- `GET /seo/search-console` (`settings:read`) → `SearchConsoleSettingsDto` (`available`, `serviceAccountEmail`, `siteUrl`, `status` pending/connected/error, `lastError`, `connectedAt`, `lastSyncedAt`).
+- `PUT /seo/search-console {siteUrl}` (`settings:manage`): `sc-domain:dominio` o `https://dominio/`; comprueba el acceso (400 `search_console_no_access` con el motivo; 503 `search_console_not_configured` sin cuenta de servicio) y descarga los últimos 120 días.
+- `DELETE /seo/search-console` (`settings:manage`): desconecta y borra lo descargado.
+- `POST /seo/search-console/sync` (`settings:manage`): descarga ya los últimos días.
+- `GET /seo/positions?days=7|28|90` (`analytics:read`) → `SeoPositionsDto`: totales (clics, apariciones, posición media ponderada, % de clics) frente al periodo anterior, búsquedas con su cambio de posición, páginas (las de zona con `areaSlug`) y avisos (`page_dropped`, `page_clicks_dropped`, `query_dropped`). Cálculo en shared (`summarizeSearchConsole`).
+- Cron `search-console.daily` (worker): repasa los últimos 6 días de cada tenant conectado con el extra; guarda unos 16 meses (`search_console_rows`).
+
 ### Páginas de zona (`/settings/web/area-pages`, extra «SEO local»)
 
 Páginas `/trasteros-en-<zona>` de la web del tenant. Una por ciudad con locales (existen siempre, con el texto generado) y, con el extra «SEO local» (`local_seo`, `addon-local-seo`, 12 €/mes), texto propio de cada ciudad y zonas cercanas sin local (máx. 10). Sin el extra el panel da 403 `feature_not_in_plan` y la web no muestra el texto propio ni las zonas cercanas. La revisión de SEO (`GET /analytics/seo-checklist`) también es de este extra. Quien tenía páginas de zona publicadas al crearse el extra lo conserva como cortesía (migración `20261106100000_local_seo_courtesy`).
