@@ -167,10 +167,10 @@ export class AnalyticsController {
   }
 
   /**
-   * Checklist de SEO on-page. Sin `@RequireFeature`: visible a cualquier
-   * tenant (los ítems de `premium` se muestran igualmente, gated en el
-   * frontend como upsell si no tienen `web_premium`).
+   * Revisión de SEO de la web: parte del extra «SEO local». Los ítems de
+   * `premium` se muestran igualmente (upsell de Web Premium si no la tiene).
    */
+  @RequireFeature('local_seo')
   @Get('seo-checklist')
   getSeoChecklist(@CurrentUser() user: AuthenticatedUser): Promise<SeoChecklistDto> {
     return this.service.getSeoChecklist(user.tenantId);

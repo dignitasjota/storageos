@@ -666,6 +666,16 @@ A diferencia de las promociones (que descuentan todas las cuotas), el **cupón d
 ### sitemap.xml válido (2026-10-20) ✅
 
 El de la plataforma y el del dominio propio de cada tenant se generan con `renderSitemap` (shared): `loc`, `lastmod`, `changefreq`, `priority` y después los enlaces de idioma con `x-default` (Next.js los escribía antes de `lastmod` y el documento no validaba contra el esquema de sitemaps.org). `app/sitemap.ts` pasa a `app/sitemap.xml/route.ts`. Las páginas de ciudad llevan también su versión en inglés.
+
+### Extra «SEO local» (2026-10-21, decisiones de Jota) — en curso
+
+Extra de pago aparte (`local_seo`, 12 €/mes) para quien quiere salir en Google en su ciudad y alrededores. Lo básico de SEO (sitemap, robots, datos estructurados, canónicas, Search Console y GA4) sigue para todos, y el título/descripción de portada, precios y contacto y el blog siguen en Web Premium.
+
+1. ✅ **Extra y bloqueo**: páginas de zona (texto propio + zonas cercanas) y revisión de SEO; cortesía para quien ya las usaba.
+2. **Textos con IA**: botón «Redactar con IA» en cada página de zona con los datos reales del local (dirección, tamaños, precios, horario); el tenant revisa y publica.
+3. **Seguimiento de posiciones con Search Console**: el tenant añade nuestra cuenta de servicio como usuario de su propiedad; búsquedas por las que sale, posición media, clics e impresiones, evolución por página de zona y avisos si una página cae.
+4. **Informe mensual**: posiciones y su cambio, clics, páginas que más traen y qué mejorar; en el panel y por correo el día 1.
+
 ### Páginas de zona para Google (2026-10-20) ✅
 
 `/trasteros-en-<zona>` con texto propio (Web Premium): introducción, zonas a las que da servicio, preguntas propias y título/descripción para Google por ciudad; zonas cercanas sin local (máx. 10, se indexan con ≥120 palabras y dicen cuál es el local más cercano). Sin páginas duplicadas: con un solo local la ciudad lleva a la portada (y la ficha apunta a ella como canónica); con un solo local en una ciudad, la ciudad lleva a la ficha, que muestra el texto. Datos estructurados de cada local con coordenadas, horario, zonas servidas y preguntas; enlaces a las páginas de zona en el pie de las 9 plantillas. Panel: Configuración → Web pública → Páginas de zona (estado de cada página y avisos de texto corto). **Pendiente**: que el perfil de Google Business de cada local enlace su página de ciudad (lo hace el tenant).

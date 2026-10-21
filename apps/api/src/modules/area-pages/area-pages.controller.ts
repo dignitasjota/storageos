@@ -18,8 +18,8 @@ import { AreaPagesService } from './area-pages.service';
 class CreateAreaPageDto extends createZodDto(CreateAreaPageSchema) {}
 class UpdateAreaPageDto extends createZodDto(UpdateAreaPageSchema) {}
 
-/** Páginas de zona de la web del tenant (`/trasteros-en-<zona>`). Feature `web_premium`. */
-@RequireFeature('web_premium')
+/** Páginas de zona de la web del tenant (`/trasteros-en-<zona>`). Extra «SEO local». */
+@RequireFeature('local_seo')
 @Controller('settings/web/area-pages')
 export class AreaPagesController {
   constructor(private readonly pages: AreaPagesService) {}

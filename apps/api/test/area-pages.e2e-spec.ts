@@ -40,6 +40,7 @@ describe('Páginas de zona de la web (e2e)', () => {
     const a = auth(owner.accessToken);
     expect((await http().get('/settings/web/area-pages').set(a)).status).toBe(403);
     await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    await setTenantFeatureOverride(owner.slug, 'local_seo', true);
 
     const madrid1 = await facility(owner.accessToken, 'Centro Norte', 'Madrid');
     await facility(owner.accessToken, 'Centro Sur', 'Madrid');
@@ -148,6 +149,7 @@ describe('Páginas de zona de la web (e2e)', () => {
   it('con un solo local la ficha apunta a la portada y no va al sitemap', async () => {
     const owner = await registerVerifiedUser(app, 'areasingle');
     await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    await setTenantFeatureOverride(owner.slug, 'local_seo', true);
     const only = await facility(owner.accessToken, 'Único', 'Mislata');
     const ficha = await http().get(`/public/landing/${owner.slug}/${only.publicSlug}`);
     expect(ficha.body).toMatchObject({ singleFacility: true, cityPage: null, areaPage: null });

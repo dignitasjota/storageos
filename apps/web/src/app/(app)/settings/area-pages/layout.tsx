@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 import { FeatureGate } from '@/components/auth/feature-gate';
 
-/** Web Premium: gating por feature/add-on. */
+/** Extra «SEO local». */
 export default function AreaPagesLayout({ children }: { children: ReactNode }) {
-  return <FeatureGate feature="web_premium">{children}</FeatureGate>;
+  return <FeatureGate feature="local_seo">{children}</FeatureGate>;
 }
