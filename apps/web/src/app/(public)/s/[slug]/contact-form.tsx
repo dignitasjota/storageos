@@ -1,10 +1,13 @@
 'use client';
 
+import { trafficSourceToUtm } from '@storageos/shared';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 import { trackEvent } from './google-analytics';
 import { legalHref } from './i18n/messages';
+
+import { currentTrafficSource } from '@/lib/attribution';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -39,6 +42,7 @@ export function ContactForm({
           message: fd.get('message') || '',
           hp: fd.get('company') || '', // honeypot
           acceptsMarketing: fd.get('marketing') === 'on',
+          ...trafficSourceToUtm(currentTrafficSource(slug)),
         }),
       });
       if (!res.ok) throw new Error('fail');

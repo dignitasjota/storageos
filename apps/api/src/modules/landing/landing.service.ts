@@ -525,6 +525,9 @@ export class LandingService {
         phone: input.phone || undefined,
         message: input.message || undefined,
         acceptsMarketing: input.acceptsMarketing ?? false,
+        utmSource: input.utmSource,
+        utmMedium: input.utmMedium,
+        utmCampaign: input.utmCampaign,
       },
       meta,
     });

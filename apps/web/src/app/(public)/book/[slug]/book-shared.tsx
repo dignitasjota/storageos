@@ -3,6 +3,7 @@
 import {
   FIRST_PAYMENT_MONTHS,
   bookCentroFromPath,
+  trafficSourceToUtm,
   type FirstPaymentMonths,
 } from '@storageos/shared';
 import { Loader2, MailCheck } from 'lucide-react';
@@ -28,6 +29,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { currentTrafficSource } from '@/lib/attribution';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
 /**
@@ -77,9 +79,9 @@ export function BookPageBody({
   const [submitting, setSubmitting] = useState(false);
   // Email que ya era de un inquilino: el enlace de firma se le envía por correo.
   const [linkSentTo, setLinkSentTo] = useState<string | null | undefined>(undefined);
-  // UTM de la URL (p. ej. desde el enlace corto /g/<code> de una campaña
-  // física): se capturan una vez al montar y se reenvían en el lead y en la
-  // reserva para que el rendimiento de marketing pueda atribuir la conversión.
+  // Origen de la visita (utm del enlace, anuncio o web de la que viene, aunque
+  // entrara por la portada): se reenvía en el lead y en la reserva para que el
+  // rendimiento de marketing pueda atribuir la conversión.
   const [utm, setUtm] = useState<{ utmSource?: string; utmMedium?: string; utmCampaign?: string }>(
     {},
   );
@@ -117,14 +119,7 @@ export function BookPageBody({
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
-    const next: typeof utm = {};
-    const source = sp.get('utm_source');
-    const medium = sp.get('utm_medium');
-    const campaign = sp.get('utm_campaign');
-    if (source) next.utmSource = source;
-    if (medium) next.utmMedium = medium;
-    if (campaign) next.utmCampaign = campaign;
-    if (Object.keys(next).length > 0) setUtm(next);
+    setUtm(trafficSourceToUtm(currentTrafficSource(slug)));
     // Desde una landing de promoción: cupón ya aplicado y meses que pide.
     const coupon = sp.get('coupon')?.trim().toUpperCase();
     if (coupon) {
@@ -133,7 +128,7 @@ export function BookPageBody({
     }
     const m = Number(sp.get('months'));
     if (m === 3 || m === 6 || m === 12) setMonths(m);
-  }, []);
+  }, [slug]);
 
   // Con un solo local no hace falta elegirlo: se selecciona solo.
   const onlyFacility = data?.facilities.length === 1 ? data.facilities[0]! : null;

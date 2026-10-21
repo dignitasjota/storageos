@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { utmFields } from '../communications/schemas';
+
 /**
  * Web «Premium»: el operador personaliza su web pública (`/s/<slug>`). En v1 elige
  * una PLANTILLA de diseño + edita el claim del hero + la sección «quiénes somos».
@@ -203,5 +205,7 @@ export const PublicContactSchema = z.object({
   acceptsMarketing: z.boolean().optional(),
   /** Honeypot anti-bot: debe llegar vacío. */
   hp: z.string().max(0).optional().or(z.literal('')),
+  /** De dónde vino el visitante (Instagram, un anuncio…). */
+  ...utmFields,
 });
 export type PublicContactInput = z.infer<typeof PublicContactSchema>;

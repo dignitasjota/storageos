@@ -12,6 +12,8 @@ import { grossPrice, formatPrice } from '../price-format';
 
 import { themeFor } from './promo-theme';
 
+import { currentTrafficSource } from '@/lib/attribution';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const VISITOR_KEY = 'storageos.promo.visitor';
 
@@ -29,16 +31,18 @@ function visitorId(): string {
 }
 
 /**
- * Variables de seguimiento de la visita: las del enlace (flyer, QR, anuncio…)
- * o, si no trae, «web». La campaña es siempre la de la landing si no viene otra.
+ * Variables de seguimiento de la visita: las del enlace (flyer, QR, anuncio…),
+ * la web de la que viene o el origen con el que entró antes en la web; si no se
+ * sabe, «web». La campaña es la de la landing si el enlace no trae otra.
  */
 function useTracking(tenantSlug: string, slug: string): Record<string, string> {
   const [utm, setUtm] = useState<Record<string, string>>({});
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
+    const origin = currentTrafficSource(tenantSlug);
     const next = {
-      utm_source: sp.get('utm_source') || 'web',
-      utm_medium: sp.get('utm_medium') || 'landing',
+      utm_source: origin?.source || 'web',
+      utm_medium: origin?.medium || 'landing',
       utm_campaign: sp.get('utm_campaign') || promoCampaign(slug),
     };
     setUtm(next);

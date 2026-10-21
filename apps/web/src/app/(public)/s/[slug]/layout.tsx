@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 
+import { AttributionRecorder } from '@/components/public/attribution-recorder';
 import { TenantUnavailable } from '@/components/public/tenant-unavailable';
 import { fetchTenantBrand } from '@/lib/tenant-brand';
 import { tenantIconsMetadata } from '@/lib/tenant-favicon';
@@ -26,5 +27,10 @@ export default async function TenantWebLayout({
   if (brand?.webUnavailable) {
     return <TenantUnavailable brand={brand} kind="web" />;
   }
-  return children;
+  return (
+    <>
+      <AttributionRecorder slug={slug} />
+      {children}
+    </>
+  );
 }

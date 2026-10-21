@@ -753,8 +753,25 @@ describe('Landing pública por tenant (e2e)', () => {
       .expect(200);
     await request(app.getHttpServer())
       .post(`/public/landing/${owner.slug}/contact`)
-      .send({ firstName: 'Web', email: 'perf@web.local', message: 'Info' })
+      .send({
+        firstName: 'Web',
+        email: 'perf@web.local',
+        message: 'Info',
+        utmSource: 'instagram',
+        utmMedium: 'social',
+        utmCampaign: 'verano',
+      })
       .expect(201);
+    // El contacto guarda de dónde vino el visitante.
+    const leads = await request(app.getHttpServer()).get('/leads').set(auth).expect(200);
+    const lead = (leads.body as { email: string; utmSource: string | null }[]).find(
+      (l) => l.email === 'perf@web.local',
+    );
+    expect(lead).toMatchObject({
+      utmSource: 'instagram',
+      utmMedium: 'social',
+      utmCampaign: 'verano',
+    });
 
     const perf = await request(app.getHttpServer()).get('/analytics/web-performance').set(auth);
     expect(perf.status).toBe(200);
