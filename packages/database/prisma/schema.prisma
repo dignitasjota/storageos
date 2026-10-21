@@ -547,6 +547,7 @@ model Tenant {
   searchConsole           TenantSearchConsole?
   searchConsoleRows       SearchConsoleRow[]
   promoLandingVisits      PromoLandingVisit[]
+  webEvents               WebEvent[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
   waitlistEntries         WaitlistEntry[]
@@ -4422,6 +4423,29 @@ model PromoLandingVisit {
 
   @@index([promoLandingId, createdAt], map: "promo_landing_visits_landing_created_idx")
   @@map("promo_landing_visits")
+}
+
+/// Analítica propia de la web del tenant: páginas vistas y clics de contacto.
+/// Sin IP ni datos personales (id aleatorio del navegador + origen).
+model WebEvent {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  visitorId String   @map("visitor_id")
+  /// page_view | call_click | whatsapp_click | email_click | directions_click
+  kind      String
+  path      String
+  source    String?
+  medium    String?
+  campaign  String?
+  /// mobile | tablet | desktop
+  device    String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt], map: "web_events_tenant_created_idx")
+  @@index([tenantId, visitorId, createdAt], map: "web_events_visitor_idx")
+  @@map("web_events")
 }
 
 /// Pago de la suscripcion SaaS del tenant (lo que la empresa paga por la

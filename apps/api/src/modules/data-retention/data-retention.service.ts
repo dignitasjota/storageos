@@ -78,6 +78,7 @@ export class DataRetentionService {
     platformEmails: number;
     whatsappConversations: number;
     whatsappMessages: number;
+    webEvents: number;
   }> {
     const now = Date.now();
     const cutoff = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000);
@@ -87,6 +88,7 @@ export class DataRetentionService {
     const commsDays = this.config.get('RETENTION_COMMUNICATIONS_DAYS', { infer: true });
     const notifDays = this.config.get('RETENTION_NOTIFICATIONS_DAYS', { infer: true });
     const whatsappDays = this.config.get('RETENTION_WHATSAPP_DAYS', { infer: true });
+    const webEventsDays = this.config.get('RETENTION_WEB_EVENTS_DAYS', { infer: true });
     const prenoticeDays = Math.max(
       this.config.get('RETENTION_SEPA_PRENOTICE_DAYS', { infer: true }),
       commsDays,
@@ -113,6 +115,7 @@ export class DataRetentionService {
       platformEmails,
       whatsappConversations,
       whatsappMessages,
+      webEvents,
     ] = await Promise.all([
       this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
       this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
@@ -137,6 +140,8 @@ export class DataRetentionService {
       this.admin.whatsappMessage.deleteMany({
         where: { createdAt: { lt: cutoff(whatsappDays) } },
       }),
+      // Analítica propia de la web de los tenants.
+      this.admin.webEvent.deleteMany({ where: { createdAt: { lt: cutoff(webEventsDays) } } }),
     ]);
 
     await this.files.deleteObjects('uploads', expiredMedia.map((m) => m.mediaKey!).filter(Boolean));
@@ -149,6 +154,7 @@ export class DataRetentionService {
       platformEmails: platformEmails.count,
       whatsappConversations: whatsappConversations.count,
       whatsappMessages: whatsappMessages.count,
+      webEvents: webEvents.count,
     };
     const total =
       result.auditLogs +
@@ -157,14 +163,16 @@ export class DataRetentionService {
       result.notifications +
       result.platformEmails +
       result.whatsappConversations +
-      result.whatsappMessages;
+      result.whatsappMessages +
+      result.webEvents;
     if (total > 0) {
       this.logger.log(
         `data-retention: borradas ${total} filas ` +
           `(audit=${result.auditLogs}, access=${result.accessLogs}, ` +
           `comms=${result.communications}, notif=${result.notifications}, ` +
           `platform_emails=${result.platformEmails}, ` +
-          `whatsapp=${result.whatsappConversations}/${result.whatsappMessages})`,
+          `whatsapp=${result.whatsappConversations}/${result.whatsappMessages}, ` +
+          `web_events=${result.webEvents})`,
       );
     }
     return result;

@@ -12,23 +12,9 @@ import { grossPrice, formatPrice } from '../price-format';
 
 import { themeFor } from './promo-theme';
 
-import { currentTrafficSource } from '@/lib/attribution';
+import { currentTrafficSource, visitorId } from '@/lib/attribution';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-const VISITOR_KEY = 'storageos.promo.visitor';
-
-/** Identificador aleatorio del navegador (sin datos personales) para contar visitantes. */
-function visitorId(): string {
-  try {
-    const saved = window.localStorage.getItem(VISITOR_KEY);
-    if (saved) return saved;
-    const id = crypto.randomUUID();
-    window.localStorage.setItem(VISITOR_KEY, id);
-    return id;
-  } catch {
-    return crypto.randomUUID();
-  }
-}
 
 /**
  * Variables de seguimiento de la visita: las del enlace (flyer, QR, anuncio…),

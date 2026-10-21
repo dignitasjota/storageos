@@ -17,6 +17,8 @@ import { MarketingChannelsService } from './marketing-channels.service';
 import { MarketingPublicController } from './marketing-public.controller';
 import { MarketingRenewalsCron } from './marketing-renewals.cron';
 import { MarketingController } from './marketing.controller';
+import { WebAnalyticsController, WebAnalyticsPublicController } from './web-analytics.controller';
+import { WebAnalyticsService } from './web-analytics.service';
 
 /**
  * Control de marketing: catálogo de canales/campañas de captación (portales
@@ -35,6 +37,8 @@ import { MarketingController } from './marketing.controller';
     MetaAdsController,
     CatalogFeedController,
     AdCampaignDraftController,
+    WebAnalyticsController,
+    WebAnalyticsPublicController,
   ],
   providers: [
     MarketingChannelsService,
@@ -43,6 +47,7 @@ import { MarketingController } from './marketing.controller';
     MetaAdsSettingsService,
     AdSpendSyncService,
     CatalogFeedService,
+    WebAnalyticsService,
     ...(WORKERS_ENABLED_IN_API ? [AdSpendSyncCron] : []),
   ],
   exports: [MarketingChannelsService],

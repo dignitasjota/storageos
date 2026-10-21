@@ -16,6 +16,7 @@ import type {
   UpdateGoogleAdsSettingsInput,
   UpdateMarketingChannelInput,
   UpdateMetaAdsSettingsInput,
+  WebAnalyticsDto,
 } from '@storageos/shared';
 
 import { apiFetch } from '@/lib/auth/api';
@@ -38,6 +39,14 @@ export function useMarketingPerformance(filters: { from?: string; to?: string })
   return useQuery({
     queryKey: ['marketing', 'performance', filters],
     queryFn: () => apiFetch<MarketingPerformanceDto>(`/marketing/channels/performance${suffix}`),
+  });
+}
+
+/** Visitas y orígenes de la web del tenant (7, 30 o 90 días). */
+export function useWebAnalytics(days: number) {
+  return useQuery({
+    queryKey: ['marketing', 'web-analytics', days],
+    queryFn: () => apiFetch<WebAnalyticsDto>(`/marketing/web-analytics?days=${days}`),
   });
 }
 

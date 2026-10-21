@@ -10,6 +10,7 @@ const RETENTION: Record<string, number> = {
   RETENTION_NOTIFICATIONS_DAYS: 90,
   RETENTION_SEPA_PRENOTICE_DAYS: 430,
   RETENTION_WHATSAPP_DAYS: 365,
+  RETENTION_WEB_EVENTS_DAYS: 480,
 };
 
 function build() {
@@ -24,6 +25,7 @@ function build() {
       deleteMany: jest.fn().mockResolvedValue({ count: 7 }),
       findMany: jest.fn().mockResolvedValue([{ mediaKey: 't/whatsapp/c/m.jpg' }]),
     },
+    webEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 8 }) },
   };
   const config = {
     get: jest.fn((key: string) => RETENTION[key]),
@@ -63,6 +65,10 @@ describe('DataRetentionService', () => {
     const prenoticeCutoff = commsWhere.OR[2].createdAt.lt as Date;
     expect(Math.abs(prenoticeCutoff.getTime() - (before - 430 * 86_400_000))).toBeLessThan(5000);
 
+    // Las visitas de la web se guardan 480 días.
+    const webCutoff = admin.webEvent.deleteMany.mock.calls[0]![0].where.createdAt.lt as Date;
+    expect(Math.abs(webCutoff.getTime() - (before - 480 * 86_400_000))).toBeLessThan(5000);
+
     // Los archivos de WhatsApp de los mensajes borrados salen del almacenamiento.
     expect(files.deleteObjects).toHaveBeenCalledWith('uploads', ['t/whatsapp/c/m.jpg']);
     expect(result).toEqual({
@@ -73,6 +79,7 @@ describe('DataRetentionService', () => {
       platformEmails: 4,
       whatsappConversations: 6,
       whatsappMessages: 7,
+      webEvents: 8,
     });
   });
 });

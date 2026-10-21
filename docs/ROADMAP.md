@@ -667,14 +667,19 @@ A diferencia de las promociones (que descuentan todas las cuotas), el **cupón d
 
 El de la plataforma y el del dominio propio de cada tenant se generan con `renderSitemap` (shared): `loc`, `lastmod`, `changefreq`, `priority` y después los enlaces de idioma con `x-default` (Next.js los escribía antes de `lastmod` y el documento no validaba contra el esquema de sitemaps.org). `app/sitemap.ts` pasa a `app/sitemap.xml/route.ts`. Las páginas de ciudad llevan también su versión en inglés.
 
-### De dónde vienen los clientes de la web del tenant (2026-10-21) — en curso
+### Analítica de la web y del marketing del tenant (2026-10-21, decisiones de Jota) — en curso
 
-Saber si un cliente llegó por Instagram, Facebook, Google Ads, un portal o una promoción aunque entre por la portada y navegue antes de reservar. Plan en 3 PR:
+Saber de dónde vienen los clientes de la web del tenant (Instagram, Facebook, Google Ads, un portal, una promoción) y juntar en el panel los datos de Google Analytics, los anuncios, las redes y la ficha de Google. Principio: lo que medimos nosotros es completo y llega hasta el dinero (contrato firmado y pagado); lo de fuera se importa como resúmenes diarios y se enseña al lado.
 
-- **PR 1** — origen guardado en el navegador: al entrar en la web del tenant (portada, locales, blog, landings, reserva) se anota el origen (`utm_*` del enlace, clic en un anuncio con `gclid`/`fbclid`/`msclkid`/`ttclid` o la web de la que viene: Google, Instagram, Facebook, Idealista…) durante 30 días, sin datos personales. La reserva, el contacto de la web y las landings lo usan. Gana la última visita con origen conocido; la navegación interna y las visitas directas no lo cambian.
-- **PR 2** — visitas de toda la web (no solo landings) y página Marketing → Orígenes: visitas → contactos → reservas → firmadas → ingresos por origen y campaña.
-- **PR 3** — enlaces por canal a cualquier página (portada, un local, precios) con sus utm puestas, y opcionalmente el mismo origen en GA4.
-- Fuera por ahora: pixel de Meta y etiqueta de conversión de Google Ads (consentimiento y scripts de terceros en cada web). El botón de WhatsApp no lleva el origen todavía.
+- ✅ **#782** — origen guardado en el navegador (30 días, sin datos personales): utm del enlace, clics de anuncios (`gclid`/`fbclid`/`msclkid`/`ttclid`) o la web de la que viene. La reserva, el contacto de la web y las landings lo usan aunque el visitante entrara por la portada.
+- **PR 2 (este)** — analítica propia de toda la web: páginas vistas y clics de contacto (llamar, WhatsApp, email, cómo llegar) con su origen, sin cookies de terceros; página **Marketing → Visitas de la web** (visitantes, contactos, reservas con comparación, visitantes por día, embudo por origen hasta ingresos con el gasto del canal, páginas más vistas, clics de contacto, dispositivo).
+- **PR 3** — Google Analytics 4 por la cuenta de servicio de la plataforma (como Search Console): el tenant la añade como «Lector» en su propiedad; sesiones por origen, páginas, eventos de conversión.
+- **PR 4** — rendimiento de los anuncios: impresiones, clics, CTR, CPC y conversiones de Google Ads y Meta Ads (ya traemos el gasto).
+- **PR 5** — Marketing → Resumen y correo mensual «Tu marketing en <mes>» con qué hacer.
+- **PR 6** — Google Business Profile (visitas de la ficha, llamadas, cómo llegar, reseñas). Requiere OAuth y que Google apruebe el acceso del proyecto a sus APIs (gestión de Jota, pedir ya).
+- **PR 7** — Instagram y Facebook orgánico (seguidores, alcance, publicaciones): primero con el token pegado por el tenant; revisión de la app por Meta cuando haya uso.
+- Pendiente: enlaces por canal a cualquier página (no solo reserva y landings) con utm puestas; el botón de WhatsApp aún no lleva el origen.
+- Fuera por ahora: pixel de Meta y etiqueta de conversión de Google Ads en la web del tenant (consentimiento y scripts de terceros; como opción más adelante), Looker Studio incrustado y scraping de redes.
 
 ### Extra «SEO local» (2026-10-21, decisiones de Jota) — en curso
 
