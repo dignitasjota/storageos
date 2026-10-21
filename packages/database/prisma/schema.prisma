@@ -548,6 +548,9 @@ model Tenant {
   searchConsoleRows       SearchConsoleRow[]
   promoLandingVisits      PromoLandingVisit[]
   webEvents               WebEvent[]
+  ga4                     TenantGa4?
+  ga4SourceRows           Ga4SourceRow[]
+  ga4PageRows             Ga4PageRow[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
   waitlistEntries         WaitlistEntry[]
@@ -4386,6 +4389,61 @@ model TenantSearchConsole {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("tenant_search_console")
+}
+
+/// Google Analytics 4 de la web del tenant (Web Premium): la cuenta de servicio
+/// de la plataforma lee su propiedad.
+model TenantGa4 {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @unique @map("tenant_id") @db.Uuid
+  /// Número de la propiedad de GA4.
+  propertyId   String    @map("property_id")
+  /// pending | connected | error
+  status       String    @default("pending")
+  lastError    String?   @map("last_error")
+  connectedAt  DateTime? @map("connected_at") @db.Timestamptz(6)
+  lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_ga4")
+}
+
+/// Sesiones de GA4 por día, origen/medio/campaña y dispositivo.
+model Ga4SourceRow {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  date            DateTime @db.Date
+  source          String
+  medium          String
+  campaign        String
+  device          String
+  sessions        Int      @default(0)
+  engagedSessions Int      @default(0) @map("engaged_sessions")
+  pageViews       Int      @default(0) @map("page_views")
+  keyEvents       Int      @default(0) @map("key_events")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, source, medium, campaign, device], map: "ga4_source_rows_key")
+  @@map("ga4_source_rows")
+}
+
+/// Páginas vistas de GA4 por día y página.
+model Ga4PageRow {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  date      DateTime @db.Date
+  pagePath  String   @map("page_path")
+  pageViews Int      @default(0) @map("page_views")
+  sessions  Int      @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, pagePath], map: "ga4_page_rows_key")
+  @@map("ga4_page_rows")
 }
 
 /// Búsquedas de Search Console por día, consulta y página.

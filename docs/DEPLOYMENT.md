@@ -1345,3 +1345,10 @@ Sin la variable todo funciona como antes (URL pública, con límite compartido).
    - Cada tenant añade el `client_email` de la cuenta como usuario «Restringido» de su propiedad en Search Console y la conecta en **Análisis → Posiciones en Google**. El worker descarga los datos cada día (cron `search-console.daily`).
 3. Revisa el precio del extra «SEO local» (12 €/mes) en `/admin/addons` y, si lo vendes también por Stripe, crea su Price.
 4. Quien tenía páginas de zona publicadas conserva el extra como cortesía (migración `20261106100000_local_seo_courtesy`); quítasela desde la ficha del tenant si procede.
+
+## 35. Analítica de la web del tenant y Google Analytics 4
+
+1. **Analítica propia** (migración `20261108100000_web_events`): no necesita nada. Las webs de los tenants empiezan a medir visitas y clics de contacto al desplegar el web; se ven en **Marketing → Visitas de la web**. Se guardan `RETENTION_WEB_EVENTS_DAYS` días (480 por defecto).
+2. **Google Analytics 4** (migración `20261108120000_ga4`, dentro de Web Premium): usa la **misma cuenta de servicio** que Search Console (`GSC_SERVICE_ACCOUNT_JSON`).
+   - En el mismo proyecto de Google Cloud activa **Google Analytics Data API**.
+   - Cada tenant añade el `client_email` de la cuenta como **Lector** en Google Analytics → Administrar → Gestión del acceso a la propiedad y pega el ID de la propiedad (el número, no el «G-…») en **Marketing → Visitas de la web**. El worker descarga los datos cada día (cron `ga4.daily`).

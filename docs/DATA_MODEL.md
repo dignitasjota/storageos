@@ -210,6 +210,15 @@ Cupones: descuento sobre el **pago que se hace al contratar** (de 1 a 12 meses p
 - `coupon_redemptions` (RLS): cada uso — coupon_id, customer_id, contract_id (único: un cupón por contrato), invoice_id, months, discount_amount, free_months.
 - El cálculo es `quoteCoupon` (shared, en céntimos): % sobre todos los meses pagados, € fijo hasta el alquiler, meses gratis = los regalados × la cuota (se paga al menos un mes). La fianza y el seguro no se descuentan. El uso se reserva con `CouponsService.redeemInTx` (incremento condicionado a `used_count < max_uses`). Un cupón ya usado no se borra (409 `coupon_in_use`), se desactiva.
 
+### Google Analytics 4 (2026-10-22)
+
+Datos de la propiedad de GA4 del tenant (Web Premium), descargados cada día por la cuenta de servicio de la plataforma. Agregados, sin datos personales.
+
+- `tenant_ga4` (RLS, uno por tenant): property_id, status (`pending` | `connected` | `error`), last_error, connected_at, last_synced_at. Cambiar de propiedad borra lo descargado.
+- `ga4_source_rows` (RLS): date, source, medium, campaign, device, sessions, engaged_sessions, page_views, key_events (único por tenant y esas dimensiones).
+- `ga4_page_rows` (RLS): date, page_path, page_views, sessions (único por tenant, día y página).
+- Al conectar se descargan 120 días; cada día, los 6 últimos (se sustituyen); se guardan unos 16 meses.
+
 ### `web_events` (2026-10-22)
 
 Analítica propia de la web del tenant (todas las páginas: portada, locales, blog, landings, reserva). Sin IP ni datos personales.
@@ -858,6 +867,10 @@ Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la g
 - **`promo_landings`** (RLS): `/promo/<nombre>` con textos, foto, ventajas, condiciones, cupón opcional, locales y tamaños, secciones, fechas, SEO e `indexable` (false por defecto).
 - **`promo_landing_visits`** (RLS, sin datos personales): id aleatorio del navegador + UTM.
 - `marketing_channels.promo_landing_id` (FK SET NULL): enlaces y QR de cada origen.
+
+### Google Analytics 4 (`20261108120000`)
+
+- **`tenant_ga4`**, **`ga4_source_rows`**, **`ga4_page_rows`** (RLS): conexión y datos diarios de la propiedad de GA4 del tenant.
 
 ### Analítica propia de la web (`20261108100000`)
 

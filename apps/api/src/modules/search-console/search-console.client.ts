@@ -1,30 +1,15 @@
-import { createSign } from 'node:crypto';
-
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { shiftDate, type SearchConsoleRowInput } from '@storageos/shared';
 
+import { GoogleServiceAccount } from '../../common/google/google-service-account';
+
 import type { Env } from '../../config/env.schema';
 
-const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const API = 'https://www.googleapis.com/webmasters/v3';
 const SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
 const PAGE_SIZE = 5000;
 const MAX_ROWS = 25_000;
-
-export class SearchConsoleError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
-
-interface ServiceAccount {
-  client_email: string;
-  private_key: string;
-}
 
 /**
  * Cliente de la API de Google Search Console con la cuenta de servicio de la
@@ -36,25 +21,12 @@ interface ServiceAccount {
  */
 @Injectable()
 export class SearchConsoleClient {
-  private readonly logger = new Logger(SearchConsoleClient.name);
-  private readonly account: ServiceAccount | null;
-  private token: { value: string; expiresAt: number } | null = null;
+  private readonly account: GoogleServiceAccount;
 
   constructor(config: ConfigService<Env, true>) {
-    const raw = config.get('GSC_SERVICE_ACCOUNT_JSON', { infer: true });
-    this.account = null;
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as Partial<ServiceAccount>;
-        if (parsed.client_email && parsed.private_key) {
-          this.account = { client_email: parsed.client_email, private_key: parsed.private_key };
-        } else {
-          this.logger.warn('GSC_SERVICE_ACCOUNT_JSON sin client_email o private_key');
-        }
-      } catch {
-        this.logger.warn('GSC_SERVICE_ACCOUNT_JSON no es un JSON válido');
-      }
-    }
+    this.account = new GoogleServiceAccount(
+      config.get('GSC_SERVICE_ACCOUNT_JSON', { infer: true }),
+    );
   }
 
   get stub(): boolean {
@@ -63,12 +35,12 @@ export class SearchConsoleClient {
 
   /** La plataforma puede conectar propiedades. */
   get available(): boolean {
-    return this.stub || this.account != null;
+    return this.stub || this.account.configured;
   }
 
   /** Email que el tenant añade como usuario en Search Console. */
   get serviceAccountEmail(): string | null {
-    if (this.account) return this.account.client_email;
+    if (this.account.email) return this.account.email;
     return this.stub ? 'seo@trasteros-demo.iam.gserviceaccount.com' : null;
   }
 
@@ -123,68 +95,8 @@ export class SearchConsoleClient {
     return out;
   }
 
-  private async accessToken(): Promise<string> {
-    if (!this.account) throw new SearchConsoleError('Search Console no está configurado', 503);
-    if (this.token && this.token.expiresAt > Date.now() + 60_000) return this.token.value;
-    const now = Math.floor(Date.now() / 1000);
-    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
-    const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({
-      iss: this.account.client_email,
-      scope: SCOPE,
-      aud: TOKEN_URL,
-      iat: now,
-      exp: now + 3600,
-    })}`;
-    const signature = createSign('RSA-SHA256')
-      .update(unsigned)
-      .sign(this.account.private_key)
-      .toString('base64url');
-    const res = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: `${unsigned}.${signature}`,
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const body = (await res.json().catch(() => ({}))) as {
-      access_token?: string;
-      expires_in?: number;
-      error_description?: string;
-    };
-    if (!res.ok || !body.access_token) {
-      throw new SearchConsoleError(
-        `Google no aceptó la cuenta de servicio: ${body.error_description ?? res.status}`,
-        502,
-      );
-    }
-    this.token = {
-      value: body.access_token,
-      expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000,
-    };
-    return this.token.value;
-  }
-
-  private async request<T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<T> {
-    const token = await this.accessToken();
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const json = (await res.json().catch(() => ({}))) as T & { error?: { message?: string } };
-    if (!res.ok) {
-      throw new SearchConsoleError(
-        json.error?.message ?? `Search Console: ${res.status}`,
-        res.status,
-      );
-    }
-    return json;
+  private request<T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<T> {
+    return this.account.request<T>(SCOPE, method, url, body);
   }
 }
 

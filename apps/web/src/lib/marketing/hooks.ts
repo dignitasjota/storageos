@@ -6,6 +6,8 @@ import type {
   AdCampaignDraftDto,
   AdPlatformTestResultDto,
   CreateMarketingChannelInput,
+  Ga4ReportDto,
+  Ga4SettingsDto,
   GoogleAdsSettingsDto,
   MarketingChannelDto,
   MarketingPerformanceDto,
@@ -47,6 +49,39 @@ export function useWebAnalytics(days: number) {
   return useQuery({
     queryKey: ['marketing', 'web-analytics', days],
     queryFn: () => apiFetch<WebAnalyticsDto>(`/marketing/web-analytics?days=${days}`),
+  });
+}
+
+const ga4Key = ['marketing', 'ga4'] as const;
+
+/** Conexión con Google Analytics 4 (Web Premium). */
+export function useGa4Settings(enabled = true) {
+  return useQuery({
+    queryKey: [...ga4Key, 'settings'],
+    queryFn: () => apiFetch<Ga4SettingsDto>('/marketing/ga4'),
+    enabled,
+  });
+}
+
+export function useGa4Report(days: number, enabled = true) {
+  return useQuery({
+    queryKey: [...ga4Key, 'report', days],
+    queryFn: () => apiFetch<Ga4ReportDto>(`/marketing/ga4/report?days=${days}`),
+    enabled,
+  });
+}
+
+/** Conectar (`propertyId`), desconectar (`null`) o actualizar ya (`'sync'`). */
+export function useGa4Action() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (action: { propertyId: string } | null | 'sync') =>
+      action === 'sync'
+        ? apiFetch<Ga4SettingsDto>('/marketing/ga4/sync', { method: 'POST' })
+        : action === null
+          ? apiFetch<Ga4SettingsDto>('/marketing/ga4', { method: 'DELETE' })
+          : apiFetch<Ga4SettingsDto>('/marketing/ga4', { method: 'PUT', json: action }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ga4Key }),
   });
 }
 
