@@ -867,3 +867,24 @@ Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la g
 - `platform_sepa_remittance_items` (`20261030100000_platform_sepa_retry_bounced`): el único `(tenant, periodo)` pasa a índice parcial sobre `pending`/`collected` (un adeudo devuelto se puede reintentar).
 - `tenants.auto_end_contracts` (`20261031100000`, por defecto `true`): el contrato en baja se finaliza solo el día siguiente a su fecha de fin.
 - `invoices.charge_held_at` y `communications.held_at` (`20261031120000_suspension_holds`, índices parciales): cobro automático y envío retenidos mientras el tenant estaba suspendido; el cron `suspension-holds.release` los libera al reactivarse (envíos de más de 30 días → `skipped`).
+
+### Paneles admin y del tenant, portal (`20261101100000` – `20261104100000`)
+
+- `tenants.web_header_branded` (bool): cabecera de la web pública con el color de marca.
+- `tenant_feature_overrides.expires_at` / `trial_addon_id` (FK a `subscription_addons`, SET NULL) / `expiry_notified_at`: cortesías y pruebas de extras con fecha; origen nuevo `trial`.
+- **`feature_interest_events`** (RLS): `user_id`, `feature`, `path` — el tenant pulsó una función que no tiene.
+- `platform_alert_settings.chat_commercial_enabled` / `chat_commercial_last_at` (avisos comerciales por Telegram/Slack) y `send_activation` (correos de activación días 3/7/12).
+- **`payment_plans`** (RLS): `customer_id`, `status` (active/completed/broken/cancelled), `invoice_ids` UUID[] (GIN), `total_amount`, `paid_at_start`, `installments` jsonb, `grace_days`; con un plan activo y al día el escalado, los reintentos y la remesa no tocan esas facturas.
+- **`customer_interest_events`** (RLS): `customer_id`, `kind` (seguro, trastero adicional o más grande, pase nocturno), `unit_type_id` — miró en el portal y no contrató.
+- **`customer_offers`** (RLS): `kind`, `title`, `message`, `price_gross`, `status` (open/interested/declined/accepted/expired), `seen_at`, `responded_at`, `accepted_at`, `expires_at` — propuestas de Oportunidades que ve el inquilino en el portal.
+- `customers.portal_last_seen_at`: última visita al portal (como mucho una anotación por hora).
+- `dunning_actions.superseded_at`: acción sustituida; el índice único de acciones activas la excluye.
+
+### Páginas de zona y SEO local (`20261105100000` – `20261107120000`)
+
+Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
+
+- **`web_area_pages`**: `slug` (único por tenant), `name`, `facility_ids` UUID[], `nearest_note`, `intro`, `nearby_areas` TEXT[], `faqs` jsonb, `seo_title`, `seo_description`, `is_published`. Las páginas de ciudad se generan solas; esta tabla guarda el texto propio y las zonas cercanas.
+- `20261106100000_local_seo_courtesy`: override `local_seo` (`manual`) para los tenants con páginas de zona publicadas.
+- **`tenant_search_console`** (una por tenant): `site_url` (`sc-domain:…` o `https://…/`), `status` (pending/connected/error), `last_error`, `connected_at`, `last_synced_at`, `monthly_report` (por defecto sí), `last_report_month` (`AAAA-MM`, no se repite el informe).
+- **`search_console_rows`**: `date`, `query`, `page`, `clicks`, `impressions`, `position` (media del día) — búsquedas descargadas de Google; se guardan unos 16 meses.
