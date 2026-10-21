@@ -210,6 +210,13 @@ Cupones: descuento sobre el **pago que se hace al contratar** (de 1 a 12 meses p
 - `coupon_redemptions` (RLS): cada uso — coupon_id, customer_id, contract_id (único: un cupón por contrato), invoice_id, months, discount_amount, free_months.
 - El cálculo es `quoteCoupon` (shared, en céntimos): % sobre todos los meses pagados, € fijo hasta el alquiler, meses gratis = los regalados × la cuota (se paga al menos un mes). La fianza y el seguro no se descuentan. El uso se reserva con `CouponsService.redeemInTx` (incremento condicionado a `used_count < max_uses`). Un cupón ya usado no se borra (409 `coupon_in_use`), se desactiva.
 
+### `web_events` (2026-10-22)
+
+Analítica propia de la web del tenant (todas las páginas: portada, locales, blog, landings, reserva). Sin IP ni datos personales.
+
+- `web_events` (RLS): tenant_id (CASCADE), visitor_id (id aleatorio del navegador, el mismo de las landings), kind (`page_view` | `call_click` | `whatsapp_click` | `email_click` | `directions_click`), path (como lo ve el visitante: `/s/<slug>/precios` → `/precios`, `/book/<slug>` → `/reservar`), source/medium/campaign (origen recordado de la visita), device (`mobile` | `tablet` | `desktop`), created_at. Índices `(tenant_id, created_at)` y `(tenant_id, visitor_id, created_at)`.
+- Una página vista cuenta una vez por visitante y página cada 30 min; un clic repetido en 10 s, una vez. Los robots no se guardan. Se borran a los `RETENTION_WEB_EVENTS_DAYS` (480).
+
 ### `promo_landings` (2026-10-16)
 
 Landings de promoción de la web del tenant (extra Web Premium), en `/promo/<slug>`.
@@ -851,6 +858,10 @@ Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la g
 - **`promo_landings`** (RLS): `/promo/<nombre>` con textos, foto, ventajas, condiciones, cupón opcional, locales y tamaños, secciones, fechas, SEO e `indexable` (false por defecto).
 - **`promo_landing_visits`** (RLS, sin datos personales): id aleatorio del navegador + UTM.
 - `marketing_channels.promo_landing_id` (FK SET NULL): enlaces y QR de cada origen.
+
+### Analítica propia de la web (`20261108100000`)
+
+- **`web_events`** (RLS, sin datos personales): páginas vistas y clics de contacto con su origen y dispositivo.
 
 ### Web del tenant (`20261027100000` – `20261028100000`)
 

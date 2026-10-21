@@ -1,4 +1,9 @@
-import { ATTRIBUTION_DAYS, detectTrafficSource, type TrafficSource } from '@storageos/shared';
+import {
+  ATTRIBUTION_DAYS,
+  detectTrafficSource,
+  type TrafficSource,
+  type WebEventKind,
+} from '@storageos/shared';
 
 /**
  * Origen de la visita a la web de un tenant, guardado en el navegador
@@ -91,4 +96,40 @@ export function currentTrafficSource(slug: string): TrafficSource | null {
     referrer: '',
     ownHosts: [window.location.host],
   });
+}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+/** Se conserva la clave de las landings para no contar dos veces al mismo visitante. */
+const VISITOR_KEY = 'storageos.promo.visitor';
+
+/** Identificador aleatorio del navegador (sin datos personales) para contar visitantes. */
+export function visitorId(): string {
+  try {
+    const saved = window.localStorage.getItem(VISITOR_KEY);
+    if (saved) return saved;
+    const id = crypto.randomUUID();
+    window.localStorage.setItem(VISITOR_KEY, id);
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
+/** Anota una página vista o un clic de contacto (best-effort: nunca rompe la página). */
+export function trackWebEvent(slug: string, kind: WebEventKind, path = window.location.pathname) {
+  if (typeof window === 'undefined' || navigator.webdriver) return;
+  const origin = currentTrafficSource(slug);
+  void fetch(`${API_URL}/public/landing/${encodeURIComponent(slug)}/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      visitorId: visitorId(),
+      kind,
+      path,
+      ...(origin?.source ? { source: origin.source } : {}),
+      ...(origin?.medium ? { medium: origin.medium } : {}),
+      ...(origin?.campaign ? { campaign: origin.campaign } : {}),
+    }),
+    keepalive: true,
+  }).catch(() => undefined);
 }

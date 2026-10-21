@@ -33,6 +33,7 @@ export * from './web';
 export * from './web/calculator';
 export * from './web/embeds';
 export * from './web/attribution';
+export * from './web/web-analytics';
 export * from './web/sitemap-xml';
 export * from './web/city-pages';
 export * from './web/area-pages';
