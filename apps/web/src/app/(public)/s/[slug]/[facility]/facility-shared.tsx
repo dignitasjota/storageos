@@ -1,9 +1,10 @@
 import { cityFromPageSlug } from '@storageos/shared';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
 import { buildCityMetadata, CityPageBody } from '../city/city-shared';
 import {
+  cityPageHref,
   getPublicWebMessages,
   intlLocaleFor,
   landingHref,
@@ -18,7 +19,7 @@ import { WhatsappFloatButton } from '../whatsapp-float-button';
 
 import { FacilityBody } from './facility-body';
 
-import type { PublicFacilityLandingDto } from '@storageos/shared';
+import type { AreaPageFaq, PublicFacilityLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
 import { ApiUnavailableError, SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
@@ -57,6 +58,7 @@ export function buildFacilityJsonLd(
   slug: string,
   facilitySlug: string,
   locale: PublicWebLocale,
+  opts: { faqs?: AreaPageFaq[]; pageName?: string } = {},
 ) {
   const tenantBase = data.customDomain ? `https://${data.customDomain}` : `${siteUrl()}/s/${slug}`;
   const orgId = `${tenantBase}/#organization`;
@@ -98,12 +100,12 @@ export function buildFacilityJsonLd(
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: data.tenantName, item: tenantBase },
-      { '@type': 'ListItem', position: 2, name: f.name, item: pageUrl },
+      { '@type': 'ListItem', position: 2, name: opts.pageName ?? f.name, item: pageUrl },
     ],
   };
 
-  // Preguntas propias de la ciudad cuando la ficha hace de página de la ciudad.
-  const faq = faqPageLd(data.areaPage?.content?.faqs ?? [], `${pageUrl}#faq`);
+  // Las mismas preguntas que se ven en la página.
+  const faq = faqPageLd(opts.faqs ?? data.areaPage?.content?.faqs ?? [], `${pageUrl}#faq`);
   return {
     '@context': 'https://schema.org',
     '@graph': [organization, website, selfStorage, breadcrumb, ...(faq ? [faq] : [])],
@@ -143,6 +145,8 @@ export async function buildFacilityMetadata(
       robots: { index: false },
     };
   }
+  // Único local de su ciudad: la buena es la página de la ciudad (redirige).
+  if (data.areaPage && !data.singleFacility) return { robots: { index: false, follow: true } };
   const f = data.facility;
   // Los textos propios de la ciudad están en español.
   const own = locale === 'es' ? data.areaPage?.content : null;
@@ -208,6 +212,10 @@ export async function FacilityPageBody({
       return <CityPageBody slug={slug} pageSlug={facilitySlug} locale={locale} />;
     }
     notFound();
+  }
+  // Único local de su ciudad: la página de la ciudad muestra esta ficha.
+  if (raw.areaPage && !raw.singleFacility) {
+    permanentRedirect(cityPageHref(slug, raw.areaPage.slug, locale, raw.customDomain));
   }
   // El color de la plantilla si el negocio no ha elegido uno (como la portada).
   const data = { ...raw, brandColor: themeFor(raw.webTemplate, raw.brandColor).accent };

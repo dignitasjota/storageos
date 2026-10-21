@@ -9,9 +9,10 @@ import {
 import { notFound, permanentRedirect } from 'next/navigation';
 import { createTranslator, NextIntlClientProvider } from 'next-intl';
 
+import { FacilityBody } from '../[facility]/facility-body';
+import { getFacility } from '../[facility]/facility-shared';
 import {
   cityPageHref,
-  facilityHref,
   getPublicWebMessages,
   intlLocaleFor,
   landingHref,
@@ -20,6 +21,7 @@ import {
 import { getLanding, siteUrl } from '../landing-shared';
 import { faqPageLd, localBusinessFields } from '../local-business-ld';
 import { formatPrice, grossPrice } from '../price-format';
+import { themeFor } from '../promo/promo-theme';
 import { TenantWebChrome } from '../tenant-web-chrome';
 import { WhatsappFloatButton } from '../whatsapp-float-button';
 
@@ -46,12 +48,9 @@ export async function getCityPage(
   return page ? { data, page, pages } : null;
 }
 
-/** A dónde lleva la dirección cuando no tiene página propia. */
+/** A dónde lleva la dirección cuando no tiene página propia (un solo local: la portada). */
 function redirectUrl(data: PublicLandingDto, page: AreaPage, locale: PublicWebLocale) {
-  if (!page.redirect) return null;
-  return page.redirect.to === 'home'
-    ? landingHref(data.tenantSlug, locale, data.customDomain)
-    : facilityHref(data.tenantSlug, page.redirect.publicSlug, locale, data.customDomain);
+  return page.redirect ? landingHref(data.tenantSlug, locale, data.customDomain) : null;
 }
 
 function minPrice(page: AreaPage): number | null {
@@ -168,6 +167,38 @@ export async function CityPageBody({
 
   const messages = await getPublicWebMessages(locale);
   const faqs = await pageFaqs(data, page, locale);
+
+  // Único local de la ciudad: la página muestra su ficha completa.
+  const sole = page.soleFacility?.publicSlug
+    ? await getFacility(slug, page.soleFacility.publicSlug)
+    : null;
+  if (sole) {
+    const facilityData = {
+      ...sole,
+      brandColor: themeFor(sole.webTemplate, sole.brandColor).accent,
+    };
+    return (
+      <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
+        <TenantWebChrome
+          data={facilityData}
+          locale={locale}
+          hasBlog={sole.hasBlog}
+          googleAnalyticsId={sole.googleAnalyticsId}
+          languageHrefBuilder={(l) => cityPageHref(slug, page.slug, l, data.customDomain)}
+        >
+          <FacilityBody
+            data={facilityData}
+            slug={slug}
+            facilitySlug={sole.facility.publicSlug ?? areaPagePath(page.slug)}
+            locale={locale}
+            asCityPage={{ path: areaPagePath(page.slug), faqs }}
+          />
+        </TenantWebChrome>
+        <WhatsappFloatButton number={sole.whatsappNumber} facilityName={sole.facility.name} />
+      </NextIntlClientProvider>
+    );
+  }
+
   // El texto de las demás páginas no viaja al navegador.
   const site = { ...data, areaPages: [] };
   const min = minPrice(page);

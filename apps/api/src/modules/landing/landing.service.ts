@@ -3,8 +3,8 @@ import {
   SUSPENSION_WEB_OFFLINE_DAYS,
   suspensionDays,
   areaPageLinks,
-  areaPageShownOnFacility,
   cityPageOfFacility,
+  cityPageReplacingFacility,
   resolveAreaPages,
   couponSummary,
   effectiveFeaturesFromList,
@@ -613,8 +613,9 @@ export class LandingService {
       ...(() => {
         const pages = resolveAreaPages(full.facilities, full.areaPages);
         const city = cityPageOfFacility(pages, facility.id);
-        // Su ciudad solo tiene este local: la ficha hace de página de la ciudad.
-        const own = areaPageShownOnFacility(pages, facility.id);
+        // Su ciudad solo tiene este local: la página de la ciudad muestra esta
+        // ficha y la ficha redirige a ella.
+        const own = cityPageReplacingFacility(pages, facility.id);
         return {
           cityPage: city ? { name: city.name, slug: city.slug } : null,
           areaPage: own ? { name: own.name, slug: own.slug, content: own.content } : null,
@@ -783,15 +784,20 @@ export class LandingService {
         return {
           tenantSlug: t.slug,
           updatedAt: t.updatedAt.toISOString(),
-          // Con un solo local, su ficha apunta a la portada: no va al sitemap.
-          facilitySlugs:
-            (facilitiesByTenant.get(t.slug)?.length ?? 0) > 1 ? (bySlug.get(t.slug) ?? []) : [],
-          citySlugs: (() => {
+          ...(() => {
             const own = facilitiesByTenant.get(t.slug) ?? [];
             const tenantId = own[0]?.tenantId;
-            return resolveAreaPages(own, (tenantId && areaByTenant.get(tenantId)) || [])
-              .filter((p) => p.indexable)
-              .map((p) => p.slug);
+            const pages = resolveAreaPages(own, (tenantId && areaByTenant.get(tenantId)) || []);
+            // Con un solo local su ficha apunta a la portada, y la del único
+            // local de una ciudad, a la página de la ciudad: no van al sitemap.
+            const replaced = new Set(
+              pages.flatMap((p) => (p.soleFacility?.publicSlug ? [p.soleFacility.publicSlug] : [])),
+            );
+            return {
+              facilitySlugs:
+                own.length > 1 ? (bySlug.get(t.slug) ?? []).filter((s) => !replaced.has(s)) : [],
+              citySlugs: pages.filter((p) => p.indexable).map((p) => p.slug),
+            };
           })(),
           blogPostSlugs: posts.map((p) => p.slug),
           blogPosts: posts,

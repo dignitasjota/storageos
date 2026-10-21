@@ -52,7 +52,9 @@ describe('Páginas de zona de la web (e2e)', () => {
     expect(madrid).toMatchObject({ kind: 'city', indexable: true, warnings: ['no_intro'] });
     expect(first.body.overview.find((p: { slug: string }) => p.slug === 'mislata')).toMatchObject({
       kind: 'city',
-      redirect: { to: 'facility', publicSlug: mislata.publicSlug },
+      redirect: null,
+      indexable: true,
+      soleFacilityName: 'Centro Mislata',
     });
 
     // Texto propio de Mislata (ciudad): los locales que se envíen no se guardan.
@@ -91,7 +93,8 @@ describe('Páginas de zona de la web (e2e)', () => {
       .send({ name: 'Paterna', facilityIds: [mislata.id] });
     expect(dup.status).toBe(409);
 
-    // La web pública lleva el texto; la ficha de Mislata hace de página de la ciudad.
+    // La web pública lleva el texto; la página de Mislata muestra la ficha de su
+    // único local, que redirige a ella.
     const landing = await http().get(`/public/landing/${owner.slug}`);
     expect(landing.body.areaPages.map((p: { slug: string }) => p.slug).sort()).toEqual([
       'mislata',
@@ -116,7 +119,10 @@ describe('Páginas de zona de la web (e2e)', () => {
       (await http().get('/public/landing/sitemap')).body.entries.find(
         (e: { tenantSlug: string }) => e.tenantSlug === owner.slug,
       );
-    expect((await entry()).citySlugs).toEqual(['madrid']);
+    // Mislata sustituye a la ficha de su único local: la ficha no va al sitemap.
+    expect((await entry()).citySlugs).toEqual(['madrid', 'mislata']);
+    expect((await entry()).facilitySlugs).not.toContain(mislata.publicSlug);
+    expect((await entry()).facilitySlugs).toContain(madrid1.publicSlug);
 
     // Con texto suficiente la zona cercana va a Google.
     const pid = near.body.pages.find((p: { slug: string }) => p.slug === 'paterna').id;
@@ -125,7 +131,7 @@ describe('Páginas de zona de la web (e2e)', () => {
       .set(a)
       .send({ intro: words(130) })
       .expect(200);
-    expect((await entry()).citySlugs).toEqual(['madrid', 'paterna']);
+    expect((await entry()).citySlugs).toEqual(['madrid', 'mislata', 'paterna']);
 
     // Apagada: deja de existir en la web.
     await http()
@@ -133,7 +139,7 @@ describe('Páginas de zona de la web (e2e)', () => {
       .set(a)
       .send({ isPublished: false })
       .expect(200);
-    expect((await entry()).citySlugs).toEqual(['madrid']);
+    expect((await entry()).citySlugs).toEqual(['madrid', 'mislata']);
     const del = await http().delete(`/settings/web/area-pages/${pid}`).set(a);
     expect(del.status).toBe(200);
     expect(del.body.pages).toHaveLength(1);

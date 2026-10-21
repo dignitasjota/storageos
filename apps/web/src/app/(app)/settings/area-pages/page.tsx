@@ -20,8 +20,6 @@ import { useTenantBranding } from '@/lib/branding/hooks';
 
 function Status({ p }: { p: AreaPageOverviewDto }) {
   if (p.redirect?.to === 'home') return <Badge variant="secondary">Lleva a la portada</Badge>;
-  if (p.redirect?.to === 'facility')
-    return <Badge variant="secondary">Lleva a la ficha del local</Badge>;
   if (p.warnings.includes('not_published')) return <Badge variant="secondary">Apagada</Badge>;
   if (p.warnings.includes('no_facilities')) return <Badge variant="destructive">Sin locales</Badge>;
   if (!p.indexable) return <Badge variant="outline">En la web, sin ofrecer a Google</Badge>;
@@ -30,9 +28,9 @@ function Status({ p }: { p: AreaPageOverviewDto }) {
 
 function Warnings({ p }: { p: AreaPageOverviewDto }) {
   const lines: string[] = [];
-  if (p.redirect?.to === 'facility') {
+  if (p.soleFacilityName) {
     lines.push(
-      'Es tu único local en esta ciudad: su ficha hace de página de la ciudad y muestra este texto.',
+      `Es tu único local en esta ciudad: la página muestra la ficha completa de ${p.soleFacilityName} y su dirección redirige aquí.`,
     );
   }
   if (p.warnings.includes('no_intro'))
@@ -177,9 +175,9 @@ export default function AreaPagesPage() {
             <CardHeader>
               <CardTitle>Tus ciudades</CardTitle>
               <CardDescription>
-                Una por cada ciudad donde tienes un local. Con un solo local en la ciudad, la
-                dirección lleva a la ficha del local, que muestra este texto (así no hay dos páginas
-                iguales compitiendo en Google).
+                Una por cada ciudad donde tienes un local. Con un solo local en la ciudad, esta
+                página muestra la ficha completa del local y la dirección de la ficha redirige aquí
+                (así no hay dos páginas iguales compitiendo en Google).
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -246,12 +244,13 @@ export default function AreaPagesPage() {
             <CardContent className="space-y-2 text-sm text-muted-foreground">
               <p>
                 Lo que más mueve las búsquedas locales es el perfil de Google Business de cada
-                local. En el enlace a la web de cada perfil pon la página de su ciudad (o la ficha
-                del local si es el único en su ciudad), no la portada.
+                local. En el enlace a la web de cada perfil pon la página de su ciudad
+                (`trasteros-en-…`) o, si la ciudad tiene varios locales, la ficha de ese local; no
+                la portada.
               </p>
               <p>
                 El nombre, la dirección y el teléfono deben ser exactamente los mismos en Google y
-                en la ficha del local.
+                en la web.
               </p>
             </CardContent>
           </Card>
