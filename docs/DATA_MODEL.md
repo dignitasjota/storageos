@@ -214,6 +214,10 @@ Cupones: descuento sobre el **pago que se hace al contratar** (de 1 a 12 meses p
 
 - `ad_metrics_daily` (RLS): tenant_id, marketing_channel_id (CASCADE), platform (`google_ads` | `meta_ads`), campaign_id, date, cost, impressions, clicks, conversions (las de la plataforma; Google admite fracciones), updated_at. Única por canal y día. La rellena la misma sincronización que crea los gastos (`expenses.external_ref`), también los días sin gasto.
 
+### Resumen de marketing por correo (2026-10-22)
+
+- `tenants.marketing_report_enabled` (por defecto **sí**) y `marketing_report_last_month` (`YYYY-MM` del último enviado, también de un mes sin actividad que no se envía, para no repetirlo).
+
 ### Google Analytics 4 (2026-10-22)
 
 Datos de la propiedad de GA4 del tenant (Web Premium), descargados cada día por la cuenta de servicio de la plataforma. Agregados, sin datos personales.
@@ -875,6 +879,10 @@ Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la g
 ### Rendimiento de los anuncios (`20261108140000`)
 
 - **`ad_metrics_daily`** (RLS): impresiones, clics, gasto y conversiones por canal de anuncios y día.
+
+### Resumen de marketing (`20261108160000`)
+
+- **`tenants.marketing_report_enabled`** / **`marketing_report_last_month`**: correo mensual «Tu marketing en <mes>».
 
 ### Google Analytics 4 (`20261108120000`)
 

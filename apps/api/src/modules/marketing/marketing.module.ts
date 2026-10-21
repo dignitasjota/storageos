@@ -1,8 +1,10 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AiModule } from '../ai/ai.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { QUEUE_EMAIL } from '../queues/queue-names';
 
 import { AdCampaignDraftController } from './ad-campaign-draft.controller';
 import { AdPerformanceService } from './ad-platforms/ad-performance.service';
@@ -22,6 +24,9 @@ import { MarketingChannelsService } from './marketing-channels.service';
 import { MarketingPublicController } from './marketing-public.controller';
 import { MarketingRenewalsCron } from './marketing-renewals.cron';
 import { MarketingController } from './marketing.controller';
+import { MarketingSummaryController } from './summary/marketing-summary.controller';
+import { MarketingSummaryCron } from './summary/marketing-summary.cron';
+import { MarketingSummaryService } from './summary/marketing-summary.service';
 import { WebAnalyticsController, WebAnalyticsPublicController } from './web-analytics.controller';
 import { WebAnalyticsService } from './web-analytics.service';
 
@@ -34,7 +39,7 @@ import { WebAnalyticsService } from './web-analytics.service';
  * credenciales pegadas a mano por el tenant).
  */
 @Module({
-  imports: [NotificationsModule, AiModule],
+  imports: [NotificationsModule, AiModule, BullModule.registerQueue({ name: QUEUE_EMAIL })],
   controllers: [
     MarketingController,
     MarketingPublicController,
@@ -45,6 +50,7 @@ import { WebAnalyticsService } from './web-analytics.service';
     WebAnalyticsController,
     WebAnalyticsPublicController,
     Ga4Controller,
+    MarketingSummaryController,
   ],
   providers: [
     MarketingChannelsService,
@@ -57,7 +63,8 @@ import { WebAnalyticsService } from './web-analytics.service';
     WebAnalyticsService,
     Ga4Client,
     Ga4Service,
-    ...(WORKERS_ENABLED_IN_API ? [AdSpendSyncCron, Ga4Cron] : []),
+    MarketingSummaryService,
+    ...(WORKERS_ENABLED_IN_API ? [AdSpendSyncCron, Ga4Cron, MarketingSummaryCron] : []),
   ],
   exports: [MarketingChannelsService],
 })

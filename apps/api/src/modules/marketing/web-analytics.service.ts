@@ -94,8 +94,28 @@ export class WebAnalyticsService {
   async report(tenantId: string, daysInput: number): Promise<WebAnalyticsDto> {
     const days = (WEB_ANALYTICS_DAYS as readonly number[]).includes(daysInput) ? daysInput : 30;
     const now = Date.now();
-    const since = new Date(now - days * DAY_MS);
-    const prevSince = new Date(now - 2 * days * DAY_MS);
+    return this.reportRange(
+      tenantId,
+      { since: new Date(now - days * DAY_MS), until: new Date(now) },
+      days,
+    );
+  }
+
+  /**
+   * Informe de `[since, until)` frente al periodo anterior de la misma
+   * duración (lo usa también el resumen mensual de marketing).
+   */
+  async reportRange(
+    tenantId: string,
+    range: { since: Date; until: Date; fromDay?: string; toDay?: string },
+    days: number,
+  ): Promise<WebAnalyticsDto> {
+    const { since, until } = range;
+    // Días (columnas DATE) del periodo: por defecto, los de UTC.
+    const fromDay = range.fromDay ?? since.toISOString().slice(0, 10);
+    const toDay = range.toDay ?? new Date(until.getTime() - 1).toISOString().slice(0, 10);
+    const now = until.getTime() - 1;
+    const prevSince = new Date(since.getTime() - (until.getTime() - since.getTime()));
 
     const { tenant, events, prevVisitors, leads, channels, expenses } =
       await this.prisma.withTenant(
@@ -105,7 +125,7 @@ export class WebAnalyticsService {
             select: { timezone: true },
           }),
           events: await tx.webEvent.findMany({
-            where: { createdAt: { gte: since } },
+            where: { createdAt: { gte: since, lt: until } },
             select: {
               visitorId: true,
               kind: true,
@@ -127,7 +147,10 @@ export class WebAnalyticsService {
               OR: [{ utmSource: { not: null } }, { source: { in: ['web', 'widget'] } }],
               AND: [
                 {
-                  OR: [{ createdAt: { gte: prevSince } }, { wonAt: { gte: prevSince } }],
+                  OR: [
+                    { createdAt: { gte: prevSince, lt: until } },
+                    { wonAt: { gte: prevSince, lt: until } },
+                  ],
                 },
               ],
             },
@@ -145,7 +168,7 @@ export class WebAnalyticsService {
           expenses: await tx.expense.findMany({
             where: {
               marketingChannelId: { not: null },
-              expenseDate: { gte: new Date(since.toISOString().slice(0, 10)) },
+              expenseDate: { gte: new Date(fromDay), lte: new Date(toDay) },
             },
             select: { marketingChannelId: true, amount: true },
           }),

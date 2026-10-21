@@ -12,6 +12,7 @@ import type {
   GoogleAdsSettingsDto,
   MarketingChannelDto,
   MarketingPerformanceDto,
+  MarketingSummaryDto,
   MetaAdsSettingsDto,
   SuggestAdCampaignInput,
   SyncAdSpendInput,
@@ -42,6 +43,36 @@ export function useMarketingPerformance(filters: { from?: string; to?: string })
   return useQuery({
     queryKey: ['marketing', 'performance', filters],
     queryFn: () => apiFetch<MarketingPerformanceDto>(`/marketing/channels/performance${suffix}`),
+  });
+}
+
+const summaryKey = ['marketing', 'summary'] as const;
+
+/** Resumen de marketing de un mes (`YYYY-MM`; por defecto, el pasado). */
+export function useMarketingSummary(month: string | null) {
+  return useQuery({
+    queryKey: [...summaryKey, month ?? 'last'],
+    queryFn: () =>
+      apiFetch<MarketingSummaryDto>(`/marketing/summary${month ? `?month=${month}` : ''}`),
+  });
+}
+
+/** Activa o apaga el correo mensual «Tu marketing en <mes>». */
+export function useSetMarketingReport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiFetch<void>('/marketing/summary/report', { method: 'PUT', json: { enabled } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: summaryKey }),
+  });
+}
+
+export function useSendMarketingReport() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ recipients: number; month: string }>('/marketing/summary/report/send', {
+        method: 'POST',
+      }),
   });
 }
 
