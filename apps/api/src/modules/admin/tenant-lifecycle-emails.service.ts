@@ -502,11 +502,11 @@ export class TenantLifecycleEmailsService {
         createdAt: { gte: since },
         tenantLifecycleEmails: { none: { type: 'welcome' } },
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, slug: true },
     });
     let count = 0;
     for (const t of tenants) {
-      if (await this.dispatch(t.id, 'welcome', this.welcomeTemplate(t.name))) count += 1;
+      if (await this.dispatch(t.id, 'welcome', this.welcomeTemplate(t.name, t.slug))) count += 1;
     }
     return count;
   }
@@ -610,17 +610,21 @@ export class TenantLifecycleEmailsService {
 
   // --- Plantillas (español, tono cordial de operador SaaS) ---
 
-  private welcomeTemplate(tenantName: string): EmailTemplate {
+  private welcomeTemplate(tenantName: string, slug: string): EmailTemplate {
+    const base = this.billingUrl.replace('/settings/saas-billing', '');
     const body = [
       `¡Bienvenido a TrasterOS, ${tenantName}!`,
       '',
-      'Gracias por darte de alta. Ya puedes empezar a gestionar tus locales, trasteros,',
-      'contratos y facturación desde el panel.',
+      'Gracias por darte de alta. Para entrar al panel te pediremos el identificador',
+      `de tu empresa: ${slug}`,
       '',
-      'Para sacarle el máximo partido, te recomendamos completar la configuración inicial',
-      '(datos de tu empresa, primer local y trasteros) y revisar tu plan de suscripción:',
+      'En el Resumen del panel tienes los primeros pasos para empezar a operar:',
+      'tu local, los tipos de trastero con sus precios, los trasteros (o impórtalos',
+      'desde un Excel), los datos de tu empresa y cómo te pagan tus inquilinos.',
       '',
-      this.billingUrl,
+      `Empezar: ${base}/dashboard`,
+      '',
+      `Tu web pública ya está activa: ${base}/s/${slug}`,
       '',
       'Si necesitas ayuda, responde a este correo o abre un ticket de soporte desde el panel.',
       '',

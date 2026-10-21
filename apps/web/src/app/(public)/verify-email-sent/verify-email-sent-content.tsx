@@ -57,6 +57,9 @@ export function VerifyEmailSentContent() {
           </div>
           <CardTitle className="text-2xl">{t('title')}</CardTitle>
           <CardDescription>{t('subtitle', { email: email || '—' })}</CardDescription>
+          {tenantSlug && (
+            <p className="text-sm text-muted-foreground">{t('slug', { slug: tenantSlug })}</p>
+          )}
         </CardHeader>
         <CardContent className="space-y-3">
           <Button

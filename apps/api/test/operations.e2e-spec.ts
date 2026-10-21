@@ -1,6 +1,7 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -224,11 +225,7 @@ describe('Fase 6: tasks + incidents + products + analytics + reports (e2e)', () 
       .send({ customerType: 'individual', firstName: 'Ana', lastName: 'Diez', country: 'ES' });
     expect(customer.status).toBe(201);
 
-    const series = await request(app.getHttpServer())
-      .post('/invoice-series')
-      .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ code: 'A', name: 'Serie A', prefix: 'A', isDefault: true });
-    expect(series.status).toBe(201);
+    await ensureDefaultSeries(app, owner.accessToken);
 
     const prod = await request(app.getHttpServer())
       .post('/products')

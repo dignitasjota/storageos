@@ -29,7 +29,7 @@ test.describe('Onboarding de tenant', () => {
     // 1. Registro vía UI
     await page.goto('/register');
     await page.getByLabel(/Nombre de la empresa/i).fill(`E2E ${slug}`);
-    await page.getByLabel(/Subdominio/i).fill(slug);
+    await page.getByLabel(/Identificador/i).fill(slug);
     await page.getByLabel(/Tu nombre/i).fill('E2E Tester');
     await page.getByLabel(/^Email$/i).fill(email);
     await page.getByLabel(/Contraseña/i).fill(password);

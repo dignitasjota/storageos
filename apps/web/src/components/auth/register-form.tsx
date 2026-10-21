@@ -48,8 +48,11 @@ export function RegisterForm() {
       tenantSlug: values.tenantSlug?.trim() || undefined,
     };
     try {
-      await register.mutateAsync(payload);
-      router.replace(`/verify-email-sent?email=${encodeURIComponent(payload.email)}`);
+      const res = await register.mutateAsync(payload);
+      router.replace(
+        `/verify-email-sent?email=${encodeURIComponent(payload.email)}` +
+          `&tenantSlug=${encodeURIComponent(res.tenant.slug)}`,
+      );
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 409) {

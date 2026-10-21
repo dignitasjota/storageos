@@ -667,6 +667,14 @@ A diferencia de las promociones (que descuentan todas las cuotas), el **cupón d
 
 El de la plataforma y el del dominio propio de cada tenant se generan con `renderSitemap` (shared): `loc`, `lastmod`, `changefreq`, `priority` y después los enlaces de idioma con `x-default` (Next.js los escribía antes de `lastmod` y el documento no validaba contra el esquema de sitemaps.org). `app/sitemap.ts` pasa a `app/sitemap.xml/route.ts`. Las páginas de ciudad llevan también su versión en inglés.
 
+### Puesta en marcha del tenant nuevo (2026-10-22, decisiones de Jota) — en curso
+
+Análisis del onboarding: el tenant nuevo no veía lo que bloquea operar (serie de facturación, datos fiscales, cómo le pagan los inquilinos) y el checklist del Resumen era corto. Decisiones: checklist mejorado (no un asistente paso a paso) y el NIF no se pide en el registro (va en el checklist).
+
+- **PR 1 (este)** — sin bloqueos: el registro crea la serie de facturación por defecto (el bootstrap la añade a quien no tenga), el login recuerda la empresa en el navegador (o la toma de `?tenant=`), «Subdominio» pasa a «Identificador de tu empresa» con su uso explicado, el identificador sale tras registrarse y en los correos de verificación y bienvenida (que ahora lleva a los primeros pasos y a la web pública) y «Reenviar email» funciona tras registrarse.
+- **PR 2** — checklist en dos bloques (imprescindible: local, tipos, trasteros, datos de la empresa, cómo te pagan, inquilinos o importación, primer contrato; recomendado: ver la web, marca, equipo, correo, plantilla de contrato), enlaces correctos, en el móvil y siempre accesible desde Configuración; «Datos de tu empresa» en el grupo Empresa.
+- **PR 3** — Resumen compacto hasta el primer contrato, guía de inicio en la app y aviso de límites al terminar la prueba.
+
 ### Analítica de la web y del marketing del tenant (2026-10-21, decisiones de Jota) — en curso
 
 Saber de dónde vienen los clientes de la web del tenant (Instagram, Facebook, Google Ads, un portal, una promoción) y juntar en el panel los datos de Google Analytics, los anuncios, las redes y la ficha de Google. Principio: lo que medimos nosotros es completo y llega hasta el dinero (contrato firmado y pagado); lo de fuera se importa como resúmenes diarios y se enseña al lado.

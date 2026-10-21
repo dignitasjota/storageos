@@ -10,6 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import {
+  DEFAULT_INVOICE_SERIES,
   effectiveFeaturesFromList,
   permissionsForRole,
   resolvePlanFeatures,
@@ -137,6 +138,11 @@ export class AuthService {
           role: 'owner',
           // email_verified_at queda NULL hasta que el usuario verifique.
         },
+      });
+      // Serie de facturación por defecto: sin ella la primera factura de una
+      // reserva online no se emite (el inquilino no puede pagar y la reserva caduca).
+      await tx.invoiceSeries.create({
+        data: { tenantId: newTenant.id, ...DEFAULT_INVOICE_SERIES },
       });
       // Siembra las plantillas transaccionales del tenant (bienvenida, factura
       // vencida, contrato firmado, PIN de acceso, review…) para que los emails
@@ -730,7 +736,7 @@ export class AuthService {
       to: user.email,
       kind: 'verify_email',
       subject: 'Verifica tu cuenta de TrasterOS',
-      template: VerificationEmail({ fullName: user.fullName, verifyUrl }),
+      template: VerificationEmail({ fullName: user.fullName, verifyUrl, tenantSlug: tenant.slug }),
     });
 
     await this.audit.write({

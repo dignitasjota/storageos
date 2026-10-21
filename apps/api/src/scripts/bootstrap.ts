@@ -20,7 +20,7 @@
  */
 import { hash as argonHash } from '@node-rs/argon2';
 import { type Prisma, PrismaClient } from '@storageos/database';
-import { DEFAULT_SAAS_ADDONS } from '@storageos/shared';
+import { DEFAULT_INVOICE_SERIES, DEFAULT_SAAS_ADDONS } from '@storageos/shared';
 
 import { BUILTIN_TEMPLATES } from '../modules/communications/builtin-templates';
 
@@ -158,6 +158,21 @@ async function main(): Promise<void> {
     console.info(
       `[bootstrap] plantillas transaccionales: ${seededTemplates} nuevas en ${tenants.length} tenants`,
     );
+
+    // Serie de facturación por defecto para los tenants que no tienen ninguna
+    // (el registro la crea desde 2026-10-22): sin ella no se emite la primera
+    // factura de una reserva online.
+    const withoutSeries = await prisma.tenant.findMany({
+      where: {
+        deletedAt: null,
+        invoiceSeries: { none: { ownerId: null, isRectification: false } },
+      },
+      select: { id: true },
+    });
+    for (const t of withoutSeries) {
+      await prisma.invoiceSeries.create({ data: { tenantId: t.id, ...DEFAULT_INVOICE_SERIES } });
+    }
+    console.info(`[bootstrap] serie por defecto creada en ${withoutSeries.length} tenants`);
 
     const email = process.env.BOOTSTRAP_SUPERADMIN_EMAIL?.trim();
     const password = process.env.BOOTSTRAP_SUPERADMIN_PASSWORD;
