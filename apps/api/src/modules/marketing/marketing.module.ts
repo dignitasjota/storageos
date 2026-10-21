@@ -13,6 +13,10 @@ import { MetaAdsSettingsService } from './ad-platforms/meta-ads-settings.service
 import { MetaAdsController } from './ad-platforms/meta-ads.controller';
 import { CatalogFeedController } from './catalog-feed.controller';
 import { CatalogFeedService } from './catalog-feed.service';
+import { Ga4Client } from './ga4/ga4.client';
+import { Ga4Controller } from './ga4/ga4.controller';
+import { Ga4Cron } from './ga4/ga4.cron';
+import { Ga4Service } from './ga4/ga4.service';
 import { MarketingChannelsService } from './marketing-channels.service';
 import { MarketingPublicController } from './marketing-public.controller';
 import { MarketingRenewalsCron } from './marketing-renewals.cron';
@@ -39,6 +43,7 @@ import { WebAnalyticsService } from './web-analytics.service';
     AdCampaignDraftController,
     WebAnalyticsController,
     WebAnalyticsPublicController,
+    Ga4Controller,
   ],
   providers: [
     MarketingChannelsService,
@@ -48,7 +53,9 @@ import { WebAnalyticsService } from './web-analytics.service';
     AdSpendSyncService,
     CatalogFeedService,
     WebAnalyticsService,
-    ...(WORKERS_ENABLED_IN_API ? [AdSpendSyncCron] : []),
+    Ga4Client,
+    Ga4Service,
+    ...(WORKERS_ENABLED_IN_API ? [AdSpendSyncCron, Ga4Cron] : []),
   ],
   exports: [MarketingChannelsService],
 })

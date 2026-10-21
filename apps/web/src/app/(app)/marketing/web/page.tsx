@@ -18,6 +18,8 @@ import {
   YAxis,
 } from 'recharts';
 
+import { Ga4Section } from './ga4-section';
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useWebAnalytics } from '@/lib/marketing/hooks';
 
@@ -378,6 +380,8 @@ export default function WebAnalyticsPage() {
               </Card>
             </div>
           </div>
+
+          <Ga4Section days={days} ownVisitors={t.visitors} />
 
           <p className="text-xs text-muted-foreground">
             Lo mide TrasterOS en tu web, sin cookies de terceros: cuenta todas las visitas aunque el
