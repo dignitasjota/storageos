@@ -2,7 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import type { SearchConsoleSettingsDto, SeoPositionsDto } from '@storageos/shared';
+import type {
+  SearchConsoleSettingsDto,
+  SeoMonthlyReportDto,
+  SeoPositionsDto,
+} from '@storageos/shared';
 
 import { apiFetch } from '@/lib/auth/api';
 
@@ -54,4 +58,31 @@ export function useSyncSearchConsole() {
   return useSettingsMutation(() =>
     apiFetch<SearchConsoleSettingsDto>('/seo/search-console/sync', { method: 'POST' }),
   );
+}
+
+export function useSeoReport(enabled: boolean) {
+  return useQuery({
+    queryKey: ['seo', 'report'],
+    queryFn: () => apiFetch<SeoMonthlyReportDto>('/seo/report'),
+    enabled,
+  });
+}
+
+export function useToggleSeoReport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiFetch<SearchConsoleSettingsDto>('/seo/search-console/report', {
+        method: 'PUT',
+        json: { enabled },
+      }),
+    onSuccess: (data) => qc.setQueryData(settingsKey, data),
+  });
+}
+
+export function useSendSeoReport() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ recipients: number; month: string }>('/seo/report/send', { method: 'POST' }),
+  });
 }

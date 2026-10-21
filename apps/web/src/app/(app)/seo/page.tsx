@@ -1,6 +1,15 @@
 'use client';
 
-import { ArrowDown, ArrowUp, Copy, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Copy,
+  Lightbulb,
+  Loader2,
+  Mail,
+  RefreshCw,
+  TriangleAlert,
+} from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -11,6 +20,7 @@ import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -26,8 +36,11 @@ import {
   useConnectSearchConsole,
   useDisconnectSearchConsole,
   useSearchConsole,
+  useSendSeoReport,
   useSeoPositions,
+  useSeoReport,
   useSyncSearchConsole,
+  useToggleSeoReport,
 } from '@/lib/seo/hooks';
 
 const nf = new Intl.NumberFormat('es-ES');
@@ -275,6 +288,78 @@ function ConnectCard() {
   );
 }
 
+function MonthlyReportCard() {
+  const settings = useSearchConsole();
+  const report = useSeoReport(settings.data?.status === 'connected');
+  const toggle = useToggleSeoReport();
+  const send = useSendSeoReport();
+  const r = report.data;
+  if (!r) return null;
+  const hasData = r.summary.totals.impressions > 0;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Lightbulb className="size-4 text-amber-500" /> Informe de {r.label}
+        </CardTitle>
+        <CardDescription>
+          {hasData
+            ? `${nf.format(r.summary.totals.clicks)} clics y ${nf.format(r.summary.totals.impressions)} apariciones en Google (el mes anterior: ${nf.format(r.summary.previousTotals.clicks)} y ${nf.format(r.summary.previousTotals.impressions)}).`
+            : 'Todavía no hay datos de ese mes.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {r.tips.length > 0 ? (
+          <ul className="list-disc space-y-1.5 pl-5 text-sm">
+            {r.tips.map((tip) => (
+              <li key={tip}>{tip}</li>
+            ))}
+          </ul>
+        ) : (
+          hasData && (
+            <p className="text-sm text-muted-foreground">Nada urgente que mejorar este mes.</p>
+          )
+        )}
+        <Can permission="settings:manage">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={settings.data?.monthlyReport ?? true}
+                onCheckedChange={(v) => toggle.mutate(v === true)}
+              />
+              Enviarme este informe por correo cada mes (día 3)
+            </label>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={send.isPending}
+              onClick={async () => {
+                try {
+                  const res = await send.mutateAsync();
+                  toast.success(
+                    res.recipients > 0
+                      ? 'Informe enviado a los propietarios'
+                      : 'No hay propietarios con el email verificado',
+                  );
+                } catch (err) {
+                  toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar');
+                }
+              }}
+            >
+              {send.isPending ? (
+                <Loader2 className="mr-1 size-4 animate-spin" />
+              ) : (
+                <Mail className="mr-1 size-4" />
+              )}
+              Enviármelo ahora
+            </Button>
+          </div>
+        </Can>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SeoPage() {
   const settings = useSearchConsole();
   const connected = settings.data?.status === 'connected';
@@ -331,6 +416,8 @@ export default function SeoPage() {
 
           <Kpis now={d.totals} before={d.previousTotals} />
 
+          <MonthlyReportCard />
+
           {d.alerts.length > 0 && (
             <Card className="border-amber-300 dark:border-amber-800">
               <CardHeader>
@@ -343,6 +430,30 @@ export default function SeoPage() {
                   {d.alerts.map((a) => (
                     <li key={`${a.kind}-${a.label}`}>
                       <span className="font-medium">{a.label}</span>: {a.detail}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          {d.opportunities.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Oportunidades</CardTitle>
+                <CardDescription>
+                  Búsquedas en las que ya sales entre la 4.ª y la 20.ª posición: mejorando el texto
+                  de la página que las trabaja es donde antes subes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="divide-y text-sm">
+                  {d.opportunities.map((q) => (
+                    <li key={q.query} className="flex items-center justify-between gap-3 py-2">
+                      <span className="truncate">{q.query}</span>
+                      <span className="shrink-0 text-muted-foreground">
+                        posición {fmtPos(q.position)} · {nf.format(q.impressions)} apariciones
+                      </span>
                     </li>
                   ))}
                 </ul>

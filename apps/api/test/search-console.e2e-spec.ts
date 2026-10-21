@@ -76,4 +76,41 @@ describe('Search Console (e2e)', () => {
     expect(off.body).toMatchObject({ siteUrl: null, status: null });
     expect((await http().get('/seo/positions').set(a)).body.totals.clicks).toBe(0);
   });
+
+  it('informe mensual: resumen del mes pasado, consejos, envío y desactivar', async () => {
+    const owner = await registerVerifiedUser(app, 'gscreport');
+    const a = { Authorization: `Bearer ${owner.accessToken}` };
+    const http = () => request(app.getHttpServer());
+    await setTenantFeatureOverride(owner.slug, 'local_seo', true);
+    await http()
+      .put('/seo/search-console')
+      .set(a)
+      .send({ siteUrl: 'sc-domain:demo.es' })
+      .expect(200);
+
+    const now = new Date();
+    const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const daysInPrev = new Date(
+      Date.UTC(prev.getUTCFullYear(), prev.getUTCMonth() + 1, 0),
+    ).getUTCDate();
+
+    const report = await http().get('/seo/report').set(a);
+    expect(report.status).toBe(200);
+    expect(report.body.month).toBe(prev.toISOString().slice(0, 7));
+    expect(report.body.summary.totals.clicks).toBe(daysInPrev * 6);
+    expect(Array.isArray(report.body.tips)).toBe(true);
+    // «alquiler trasteros» sale en la posición 9 con apariciones: es una oportunidad.
+    expect(report.body.summary.opportunities.map((q: { query: string }) => q.query)).toContain(
+      'alquiler trasteros',
+    );
+
+    expect((await http().get('/seo/report?month=2026-13').set(a)).status).toBe(400);
+
+    const sent = await http().post('/seo/report/send').set(a);
+    expect(sent.status).toBe(201);
+    expect(sent.body).toMatchObject({ recipients: 1, month: report.body.month });
+
+    const off = await http().put('/seo/search-console/report').set(a).send({ enabled: false });
+    expect(off.body.monthlyReport).toBe(false);
+  });
 });

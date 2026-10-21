@@ -4375,6 +4375,10 @@ model TenantSearchConsole {
   lastError    String?   @map("last_error")
   connectedAt  DateTime? @map("connected_at") @db.Timestamptz(6)
   lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  /// Informe mensual por correo a los propietarios.
+  monthlyReport   Boolean   @default(true) @map("monthly_report")
+  /// `YYYY-MM` del último informe enviado (no se repite).
+  lastReportMonth String?   @map("last_report_month")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

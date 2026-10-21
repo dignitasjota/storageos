@@ -1780,6 +1780,10 @@ Seguimiento con Google Search Console. La plataforma tiene una cuenta de servici
 - `DELETE /seo/search-console` (`settings:manage`): desconecta y borra lo descargado.
 - `POST /seo/search-console/sync` (`settings:manage`): descarga ya los últimos días.
 - `GET /seo/positions?days=7|28|90` (`analytics:read`) → `SeoPositionsDto`: totales (clics, apariciones, posición media ponderada, % de clics) frente al periodo anterior, búsquedas con su cambio de posición, páginas (las de zona con `areaSlug`) y avisos (`page_dropped`, `page_clicks_dropped`, `query_dropped`). Cálculo en shared (`summarizeSearchConsole`).
+- `GET /seo/report?month=AAAA-MM` (`analytics:read`, por defecto el mes pasado) → `SeoMonthlyReportDto`: resumen del mes frente al anterior (con `opportunities`: búsquedas entre la 4.ª y la 20.ª posición con ≥20 apariciones) y `tips` (qué mejorar: páginas que caen, oportunidades, páginas de zona sin texto, zonas buscadas sin página; `seoReportTips` en shared). 400 `invalid_month`.
+- `POST /seo/report/send` (`settings:manage`): envía ya el informe del mes pasado a los propietarios.
+- `PUT /seo/search-console/report {enabled}` (`settings:manage`): activa o apaga el envío mensual (activado por defecto).
+- Cron `seo-report.monthly` (día 3 a las 09:00, worker): envía el informe a los tenants con Search Console, el envío activado y el extra; no repite un mes (`last_report_month`).
 - Cron `search-console.daily` (worker): repasa los últimos 6 días de cada tenant conectado con el extra; guarda unos 16 meses (`search_console_rows`).
 
 ### Páginas de zona (`/settings/web/area-pages`, extra «SEO local»)

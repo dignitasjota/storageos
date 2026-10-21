@@ -674,7 +674,7 @@ Extra de pago aparte (`local_seo`, 12 €/mes) para quien quiere salir en Google
 1. ✅ **Extra y bloqueo**: páginas de zona (texto propio + zonas cercanas) y revisión de SEO; cortesía para quien ya las usaba.
 2. ✅ **Textos con IA**: botón «Redactar con IA» en cada página de zona con los datos reales del local (dirección, tamaños, precios, horario); el tenant revisa y publica.
 3. ✅ **Seguimiento de posiciones con Search Console**: el tenant añade nuestra cuenta de servicio como usuario de su propiedad; búsquedas por las que sale, posición media, clics e impresiones, evolución por página de zona y avisos si una página cae.
-4. **Informe mensual**: posiciones y su cambio, clics, páginas que más traen y qué mejorar; en el panel y por correo el día 1.
+4. ✅ **Informe mensual**: posiciones y su cambio, clics, páginas que más traen y qué mejorar; en el panel y por correo el día 3 (Google publica los datos con 2-3 días de retraso).
 
 ### Páginas de zona para Google (2026-10-20) ✅
 
