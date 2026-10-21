@@ -10,5 +10,6 @@ import { AreaPagesService } from './area-pages.service';
   imports: [AiModule, LandingModule],
   controllers: [AreaPagesController],
   providers: [AreaPagesService],
+  exports: [AreaPagesService],
 })
 export class AreaPagesModule {}

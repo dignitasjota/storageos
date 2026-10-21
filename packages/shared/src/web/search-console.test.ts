@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   areaSlugOfPage,
   ConnectSearchConsoleSchema,
+  previousMonthRange,
+  seoReportTips,
+  summarizeRange,
   summarizeSearchConsole,
   type SearchConsoleRowInput,
 } from './search-console';
@@ -56,5 +59,43 @@ describe('Search Console', () => {
       'page_dropped',
       'query_dropped',
     ]);
+  });
+
+  it('mes anterior y oportunidades (posición 4-20 con apariciones)', () => {
+    expect(previousMonthRange('2026-11-03')).toEqual({ from: '2026-10-01', to: '2026-10-31' });
+    expect(previousMonthRange('2026-01-03')).toEqual({ from: '2025-12-01', to: '2025-12-31' });
+    const rows = [
+      row('2026-10-05', 'guardamuebles mislata', 'https://x.es/', 0, 50, 11),
+      row('2026-10-05', 'trasteros mislata', 'https://x.es/', 5, 60, 2),
+      row('2026-10-05', 'poco vista', 'https://x.es/', 0, 5, 9),
+    ];
+    const s = summarizeRange(rows, {
+      from: '2026-10-01',
+      to: '2026-10-31',
+      previousFrom: '2026-09-01',
+      previousTo: '2026-09-30',
+    });
+    expect(s.opportunities.map((q) => q.query)).toEqual(['guardamuebles mislata']);
+  });
+
+  it('consejos: oportunidades, páginas sin texto y zonas buscadas sin página', () => {
+    const rows = [
+      row('2026-10-05', 'guardamuebles mislata', 'https://x.es/', 0, 50, 11),
+      row('2026-10-05', 'trasteros paterna', 'https://x.es/', 0, 30, 25),
+      row('2026-10-05', 'trasteros cerca de mi', 'https://x.es/', 0, 30, 25),
+    ];
+    const s = summarizeRange(rows, {
+      from: '2026-10-01',
+      to: '2026-10-31',
+      previousFrom: '2026-09-01',
+      previousTo: '2026-09-30',
+    });
+    const tips = seoReportTips(s, [
+      { slug: 'mislata', name: 'Mislata', kind: 'city', warnings: ['no_intro'], redirect: null },
+    ]);
+    expect(tips[0]).toContain('guardamuebles mislata');
+    expect(tips.some((t) => t.includes('«Trasteros en Mislata» no tiene texto propio'))).toBe(true);
+    expect(tips.some((t) => t.includes('trasteros paterna'))).toBe(true);
+    expect(tips.some((t) => t.includes('cerca de mi'))).toBe(false);
   });
 });

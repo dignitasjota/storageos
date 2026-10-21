@@ -35,7 +35,11 @@ export interface SearchConsoleSettingsDto {
   lastError: string | null;
   connectedAt: string | null;
   lastSyncedAt: string | null;
+  /** Informe mensual por correo a los propietarios. */
+  monthlyReport: boolean;
 }
+
+export const SeoMonthlyReportToggleSchema = z.object({ enabled: z.boolean() });
 
 /** Fila guardada (lo que devuelve Search Console por día, búsqueda y página). */
 export interface SearchConsoleRowInput {
@@ -94,6 +98,11 @@ export interface SeoPositionsDto {
   totals: SeoTotalsDto;
   previousTotals: SeoTotalsDto;
   queries: SeoQueryDto[];
+  /**
+   * Búsquedas donde ya apareces entre la 4.ª y la 20.ª posición con
+   * apariciones suficientes: las más fáciles de subir.
+   */
+  opportunities: SeoQueryDto[];
   pages: SeoPageDto[];
   alerts: SeoAlertDto[];
   /** Último día con datos (Search Console va 2-3 días por detrás). */
@@ -175,6 +184,24 @@ export function summarizeSearchConsole(
   const from = shiftDate(to, -(days - 1));
   const previousTo = shiftDate(from, -1);
   const previousFrom = shiftDate(previousTo, -(days - 1));
+  return summarizeRange(rows, { from, to, previousFrom, previousTo }, lastDate);
+}
+
+/** Primer y último día del mes natural anterior a `date` (YYYY-MM-DD). */
+export function previousMonthRange(date: string): { from: string; to: string } {
+  const [y, m] = date.split('-').map(Number) as [number, number];
+  const first = new Date(Date.UTC(y, m - 2, 1));
+  const last = new Date(Date.UTC(y, m - 1, 0));
+  return { from: first.toISOString().slice(0, 10), to: last.toISOString().slice(0, 10) };
+}
+
+/** Resumen de un rango concreto frente a otro (p. ej. un mes frente al anterior). */
+export function summarizeRange(
+  rows: SearchConsoleRowInput[],
+  range: { from: string; to: string; previousFrom: string; previousTo: string },
+  lastDate: string | null = null,
+): SeoPositionsDto {
+  const { from, to, previousFrom, previousTo } = range;
   const current = rows.filter((r) => r.date >= from && r.date <= to);
   const previous = rows.filter((r) => r.date >= previousFrom && r.date <= previousTo);
 
@@ -215,8 +242,12 @@ export function summarizeSearchConsole(
         change: previousPosition != null ? round1(previousPosition - position) : null,
       };
     })
-    .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions)
-    .slice(0, 50);
+    .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+
+  const opportunities = queries
+    .filter((q) => q.position >= 4 && q.position <= 20 && q.impressions >= 20)
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, 10);
 
   const pages: SeoPageDto[] = [...byPage.entries()]
     .map(([page, a]) => {
@@ -270,9 +301,100 @@ export function summarizeSearchConsole(
     previousTo,
     totals: totalsOf(current),
     previousTotals: totalsOf(previous),
-    queries,
+    queries: queries.slice(0, 50),
+    opportunities,
     pages,
     alerts: alerts.slice(0, 10),
     lastDate,
   };
+}
+
+/** Informe mensual de SEO (panel y correo). */
+export interface SeoMonthlyReportDto {
+  /** `YYYY-MM` del mes del informe. */
+  month: string;
+  /** «octubre de 2026». */
+  label: string;
+  summary: SeoPositionsDto;
+  /** Qué hacer este mes, de más a menos importante. */
+  tips: string[];
+}
+
+/** Página de zona tal como la ve el panel (para los consejos). */
+export interface SeoReportAreaPage {
+  slug: string;
+  name: string;
+  kind: 'city' | 'nearby';
+  warnings: string[];
+  redirect: unknown;
+}
+
+const LOCAL_QUERY_RE =
+  /^(?:alquiler (?:de )?)?(?:trasteros?|guardamuebles|minialmacenes?)(?: (?:en|de))? (.+)$/;
+const NOT_A_PLACE = new Set([
+  'cerca',
+  'cerca de mi',
+  'cerca de mí',
+  'baratos',
+  'barato',
+  'precio',
+  'precios',
+  'pequeños',
+  'pequeño',
+  'grandes',
+  'grande',
+  '24 horas',
+  'particulares',
+  'para empresas',
+  'online',
+]);
+
+function citySlugOf(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Consejos del informe: qué mejorar con los datos del mes. */
+export function seoReportTips(
+  summary: SeoPositionsDto,
+  areaPages: SeoReportAreaPage[],
+  limit = 6,
+): string[] {
+  const tips: string[] = [];
+  for (const a of summary.alerts.filter((x) => x.kind !== 'query_dropped').slice(0, 2)) {
+    tips.push(`Revisa ${a.label}: ${a.detail.charAt(0).toLowerCase()}${a.detail.slice(1)}`);
+  }
+  for (const q of summary.opportunities.slice(0, 3)) {
+    tips.push(
+      `«${q.query}»: sales en la posición ${String(q.position).replace('.', ',')} con ${q.impressions} apariciones. Si mejoras el texto de la página que la trabaja, puedes subir a los primeros puestos.`,
+    );
+  }
+  for (const p of areaPages) {
+    if (p.redirect) continue;
+    const label = `«Trasteros ${p.kind === 'nearby' ? 'cerca de' : 'en'} ${p.name}»`;
+    if (p.warnings.includes('no_intro')) {
+      tips.push(`${label} no tiene texto propio: redáctalo con IA en Páginas de zona.`);
+    } else if (p.warnings.includes('short_intro')) {
+      tips.push(`${label} tiene poco texto: amplíalo para que Google la tenga en cuenta.`);
+    }
+  }
+  const known = new Set(areaPages.map((p) => p.slug));
+  const suggested = new Set<string>();
+  for (const q of summary.queries) {
+    if (q.impressions < 10) continue;
+    const place = LOCAL_QUERY_RE.exec(q.query.trim().toLowerCase())?.[1]?.trim();
+    if (!place || NOT_A_PLACE.has(place) || place.split(' ').length > 3) continue;
+    const slug = citySlugOf(place);
+    if (!slug || known.has(slug) || suggested.has(slug)) continue;
+    suggested.add(slug);
+    tips.push(
+      `Buscan «${q.query}» (${q.impressions} veces) y no tienes página para esa zona: crea una página de zona.`,
+    );
+    if (suggested.size >= 2) break;
+  }
+  return tips.slice(0, limit);
 }

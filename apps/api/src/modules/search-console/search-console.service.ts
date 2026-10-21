@@ -54,6 +54,7 @@ export class SearchConsoleService {
       lastError: row?.lastError ?? null,
       connectedAt: row?.connectedAt?.toISOString() ?? null,
       lastSyncedAt: row?.lastSyncedAt?.toISOString() ?? null,
+      monthlyReport: row?.monthlyReport ?? true,
     };
   }
 
