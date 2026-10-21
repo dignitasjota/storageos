@@ -551,6 +551,7 @@ model Tenant {
   ga4                     TenantGa4?
   ga4SourceRows           Ga4SourceRow[]
   ga4PageRows             Ga4PageRow[]
+  adMetrics               AdMetricDaily[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
   waitlistEntries         WaitlistEntry[]
@@ -1475,11 +1476,36 @@ model MarketingChannel {
   promotion         Promotion?         @relation(fields: [promotionId], references: [id], onDelete: SetNull)
   promoLanding      PromoLanding?      @relation(fields: [promoLandingId], references: [id], onDelete: SetNull)
   expenses          Expense[]
+  adMetrics         AdMetricDaily[]
   recurringExpenses RecurringExpense[]
 
   @@index([tenantId, status])
   @@index([promoLandingId], map: "marketing_channels_promo_landing_idx")
   @@map("marketing_channels")
+}
+
+/// Rendimiento diario de una campaña de Google Ads o Meta Ads vinculada a un canal.
+model AdMetricDaily {
+  id                 String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  marketingChannelId String   @map("marketing_channel_id") @db.Uuid
+  /// google_ads | meta_ads
+  platform           String
+  campaignId         String   @map("campaign_id")
+  date               DateTime @db.Date
+  cost               Decimal  @default(0) @db.Decimal(12, 2)
+  impressions        Int      @default(0)
+  clicks             Int      @default(0)
+  /// Conversiones que cuenta la plataforma.
+  conversions        Decimal  @default(0) @db.Decimal(12, 2)
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  marketingChannel MarketingChannel @relation(fields: [marketingChannelId], references: [id], onDelete: Cascade)
+
+  @@unique([marketingChannelId, date], map: "ad_metrics_daily_channel_date_key")
+  @@index([tenantId, date], map: "ad_metrics_daily_tenant_date_idx")
+  @@map("ad_metrics_daily")
 }
 
 /// Plantilla de gasto recurrente: define un gasto fijo mensual; un cron genera

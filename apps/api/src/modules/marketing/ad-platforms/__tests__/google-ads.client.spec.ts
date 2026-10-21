@@ -40,7 +40,7 @@ describe('GoogleAdsClient', () => {
     expect(headers['developer-token']).toBe('dev-token-1');
   });
 
-  it('getCampaignSpend convierte cost_micros a euros y agrupa por fecha', async () => {
+  it('getCampaignStats convierte cost_micros a euros y trae impresiones, clics y conversiones', async () => {
     mockFetch((url) => {
       if (url.includes('oauth2.googleapis.com')) {
         return { ok: true, status: 200, body: { access_token: 'tok', expires_in: 3600 } };
@@ -50,20 +50,28 @@ describe('GoogleAdsClient', () => {
         status: 200,
         body: {
           results: [
-            { segments: { date: '2026-08-01' }, metrics: { costMicros: '12340000' } },
+            {
+              segments: { date: '2026-08-01' },
+              metrics: {
+                costMicros: '12340000',
+                impressions: '1500',
+                clicks: '42',
+                conversions: 2.5,
+              },
+            },
             { segments: { date: '2026-08-02' }, metrics: { costMicros: '5000000' } },
           ],
         },
       };
     });
-    const rows = await new GoogleAdsClient(CREDS).getCampaignSpend(
+    const rows = await new GoogleAdsClient(CREDS).getCampaignStats(
       '999888777',
       '2026-08-01',
       '2026-08-02',
     );
     expect(rows).toEqual([
-      { date: '2026-08-01', cost: 12.34 },
-      { date: '2026-08-02', cost: 5 },
+      { date: '2026-08-01', cost: 12.34, impressions: 1500, clicks: 42, conversions: 2.5 },
+      { date: '2026-08-02', cost: 5, impressions: 0, clicks: 0, conversions: 0 },
     ]);
   });
 

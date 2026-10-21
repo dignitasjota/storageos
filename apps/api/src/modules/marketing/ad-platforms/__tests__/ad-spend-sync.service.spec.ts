@@ -7,10 +7,14 @@ import type { MetaAdsSettingsService } from '../meta-ads-settings.service';
 
 interface TxMock {
   expense: { upsert: jest.Mock };
+  adMetricDaily: { upsert: jest.Mock };
 }
 
 function buildTx(): TxMock {
-  return { expense: { upsert: jest.fn().mockResolvedValue({}) } };
+  return {
+    expense: { upsert: jest.fn().mockResolvedValue({}) },
+    adMetricDaily: { upsert: jest.fn().mockResolvedValue({}) },
+  };
 }
 
 function buildService(tx: TxMock) {
@@ -75,5 +79,35 @@ describe('AdSpendSyncService.upsertSpendExpenses', () => {
     const [args] = tx.expense.upsert.mock.calls[0]!;
     expect(args.create.description).toBe('Meta Ads — Campaña Búsqueda Local');
     expect(args.create.externalRef).toBe('meta_ads:999:2026-08-01');
+  });
+});
+
+describe('AdSpendSyncService.upsertAdMetrics', () => {
+  it('guarda una fila por canal y día, también los días sin gasto', async () => {
+    const tx = buildTx();
+    const service = buildService(tx);
+    await service.upsertAdMetrics(TENANT, CHANNEL, 'google_ads', '999', [
+      { date: '2026-08-01', cost: 12.34, impressions: 1500, clicks: 42, conversions: 2.5 },
+      { date: '2026-08-02', cost: 0, impressions: 30, clicks: 0, conversions: 0 },
+    ]);
+    expect(tx.adMetricDaily.upsert).toHaveBeenCalledTimes(2);
+    const [args] = tx.adMetricDaily.upsert.mock.calls[0]!;
+    expect(args.where).toEqual({
+      marketingChannelId_date: {
+        marketingChannelId: 'chan-1',
+        date: new Date('2026-08-01T00:00:00.000Z'),
+      },
+    });
+    expect(args.create).toMatchObject({
+      tenantId: TENANT,
+      marketingChannelId: 'chan-1',
+      platform: 'google_ads',
+      campaignId: '999',
+      cost: 12.34,
+      impressions: 1500,
+      clicks: 42,
+      conversions: 2.5,
+    });
+    expect(args.update).toMatchObject({ impressions: 1500, clicks: 42 });
   });
 });

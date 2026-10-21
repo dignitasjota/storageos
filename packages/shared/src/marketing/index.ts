@@ -127,6 +127,58 @@ export interface MarketingPerformanceDto {
   totals: { cost: number; leadsCount: number; wonCount: number; mrrGenerated: number };
 }
 
+/** Lo que da la plataforma de anuncios + lo que pasa después en TrasterOS. */
+export interface AdPerformanceFigures {
+  impressions: number;
+  clicks: number;
+  cost: number;
+  /** Conversiones que cuenta Google Ads o Meta Ads. */
+  platformConversions: number;
+  /** Contactos con el origen del canal (`utmSourceMatch`). */
+  contacts: number;
+  /** Reservas / contratos de esos contactos. */
+  bookings: number;
+  signed: number;
+}
+
+export interface AdPerformanceRatios {
+  /** Clics / impresiones (0-1); null sin impresiones. */
+  ctr: number | null;
+  /** Coste por clic; null sin clics. */
+  cpc: number | null;
+  costPerContact: number | null;
+  costPerBooking: number | null;
+}
+
+export interface AdPerformanceRowDto extends AdPerformanceFigures, AdPerformanceRatios {
+  channelId: string;
+  channelName: string;
+  platform: 'google_ads' | 'meta_ads';
+  externalCampaignId: string | null;
+  /** Último día con datos de la plataforma (null si aún no se ha sincronizado). */
+  lastDataDate: string | null;
+}
+
+export interface AdPerformanceDto {
+  from: string;
+  to: string;
+  rows: AdPerformanceRowDto[];
+  totals: AdPerformanceFigures & AdPerformanceRatios;
+}
+
+const ratio = (a: number, b: number, digits: number) =>
+  b > 0 ? Math.round((a / b) * 10 ** digits) / 10 ** digits : null;
+
+/** CTR, coste por clic, por contacto y por reserva. */
+export function adPerformanceRatios(f: AdPerformanceFigures): AdPerformanceRatios {
+  return {
+    ctr: ratio(f.clicks, f.impressions, 4),
+    cpc: ratio(f.cost, f.clicks, 2),
+    costPerContact: f.cost > 0 ? ratio(f.cost, f.contacts, 2) : null,
+    costPerBooking: f.cost > 0 ? ratio(f.cost, f.bookings, 2) : null,
+  };
+}
+
 /** Generar y consultar el enlace corto de un canal (`/g/<code>` → redirige con UTM). */
 export interface MarketingShortLinkResolveDto {
   /** URL destino a la que redirigir (booking del tenant con UTM ya incluidos). */

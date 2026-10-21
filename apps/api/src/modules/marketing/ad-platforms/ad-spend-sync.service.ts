@@ -3,16 +3,13 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
 
+import { round2, type AdDailyStats } from './ad-stats';
 import { GoogleAdsSettingsService } from './google-ads-settings.service';
 import { GoogleAdsClient } from './google-ads.client';
 import { MetaAdsSettingsService } from './meta-ads-settings.service';
 import { MetaAdsClient } from './meta-ads.client';
 
-import type { GoogleAdsSpendRow } from './google-ads.client';
-import type { MetaAdsSpendRow } from './meta-ads.client';
 import type { SyncAdSpendResultDto } from '@storageos/shared';
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Ventana por defecto de una sincronización manual/automática (días). */
 const DEFAULT_SYNC_DAYS = 7;
@@ -90,6 +87,37 @@ export class AdSpendSyncService {
     return { synced, totalCost: round2(totalCost) };
   }
 
+  /**
+   * Guarda el rendimiento diario de la campaña (impresiones, clics,
+   * conversiones y gasto) — uno por canal y día, también los días sin gasto.
+   */
+  async upsertAdMetrics(
+    tenantId: string,
+    channel: SyncChannel,
+    platform: 'google_ads' | 'meta_ads',
+    campaignId: string,
+    rows: AdDailyStats[],
+  ): Promise<void> {
+    await this.prisma.withTenant(async (tx) => {
+      for (const row of rows) {
+        const date = new Date(`${row.date}T00:00:00.000Z`);
+        const metrics = {
+          campaignId,
+          platform,
+          cost: row.cost,
+          impressions: row.impressions,
+          clicks: row.clicks,
+          conversions: row.conversions,
+        };
+        await tx.adMetricDaily.upsert({
+          where: { marketingChannelId_date: { marketingChannelId: channel.id, date } },
+          create: { tenantId, marketingChannelId: channel.id, date, ...metrics },
+          update: metrics,
+        });
+      }
+    }, tenantId);
+  }
+
   /** Sincroniza un canal concreto (llamada manual desde el panel o el cron). */
   async syncChannel(
     tenantId: string,
@@ -141,9 +169,9 @@ export class AdSpendSyncService {
         message: 'La integración con Google Ads no está activa',
       });
     }
-    let rows: GoogleAdsSpendRow[];
+    let rows: AdDailyStats[];
     try {
-      rows = await new GoogleAdsClient(creds).getCampaignSpend(
+      rows = await new GoogleAdsClient(creds).getCampaignStats(
         channel.externalCampaignId!,
         from,
         to,
@@ -160,6 +188,7 @@ export class AdSpendSyncService {
       channel.externalCampaignId!,
       rows,
     );
+    await this.upsertAdMetrics(tenantId, channel, 'google_ads', channel.externalCampaignId!, rows);
     await this.googleSettings.recordSyncResult(tenantId, null);
     return result;
   }
@@ -177,9 +206,9 @@ export class AdSpendSyncService {
         message: 'La integración con Meta Ads no está activa',
       });
     }
-    let rows: MetaAdsSpendRow[];
+    let rows: AdDailyStats[];
     try {
-      rows = await new MetaAdsClient(creds).getCampaignSpend(channel.externalCampaignId!, from, to);
+      rows = await new MetaAdsClient(creds).getCampaignStats(channel.externalCampaignId!, from, to);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error de sincronización';
       await this.metaSettings.recordSyncResult(tenantId, message);
@@ -192,6 +221,7 @@ export class AdSpendSyncService {
       channel.externalCampaignId!,
       rows,
     );
+    await this.upsertAdMetrics(tenantId, channel, 'meta_ads', channel.externalCampaignId!, rows);
     await this.metaSettings.recordSyncResult(tenantId, null);
     return result;
   }

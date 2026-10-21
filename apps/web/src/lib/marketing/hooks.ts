@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type {
   AdCampaignDraftDto,
+  AdPerformanceDto,
   AdPlatformTestResultDto,
   CreateMarketingChannelInput,
   Ga4ReportDto,
@@ -82,6 +83,18 @@ export function useGa4Action() {
           ? apiFetch<Ga4SettingsDto>('/marketing/ga4', { method: 'DELETE' })
           : apiFetch<Ga4SettingsDto>('/marketing/ga4', { method: 'PUT', json: action }),
     onSettled: () => qc.invalidateQueries({ queryKey: ga4Key }),
+  });
+}
+
+/** Rendimiento de las campañas de Google Ads y Meta Ads vinculadas a un canal. */
+export function useAdsPerformance(filters: { from?: string; to?: string }) {
+  const qs = new URLSearchParams();
+  if (filters.from) qs.set('from', filters.from);
+  if (filters.to) qs.set('to', filters.to);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return useQuery({
+    queryKey: ['marketing', 'ads-performance', filters],
+    queryFn: () => apiFetch<AdPerformanceDto>(`/marketing/channels/ads-performance${suffix}`),
   });
 }
 

@@ -24,25 +24,38 @@ describe('MetaAdsClient', () => {
     expect(String(spy.mock.calls[0]![0])).not.toContain('act_act_555');
   });
 
-  it('getCampaignSpend mapea date_start/spend a filas', async () => {
+  it('getCampaignStats mapea gasto, impresiones, clics y conversiones sin duplicar variantes', async () => {
     mockFetch(() => ({
       ok: true,
       status: 200,
       body: {
         data: [
-          { date_start: '2026-08-01', date_stop: '2026-08-01', spend: '12.5' },
+          {
+            date_start: '2026-08-01',
+            date_stop: '2026-08-01',
+            spend: '12.5',
+            impressions: '900',
+            clicks: '31',
+            actions: [
+              { action_type: 'lead', value: '3' },
+              // Variante de píxel: ya va incluida en «lead».
+              { action_type: 'offsite_conversion.fb_pixel_lead', value: '3' },
+              { action_type: 'link_click', value: '28' },
+              { action_type: 'contact', value: '1' },
+            ],
+          },
           { date_start: '2026-08-02', date_stop: '2026-08-02', spend: '0' },
         ],
       },
     }));
-    const rows = await new MetaAdsClient({ accessToken: 'tok', adAccountId: '1' }).getCampaignSpend(
+    const rows = await new MetaAdsClient({ accessToken: 'tok', adAccountId: '1' }).getCampaignStats(
       '9988',
       '2026-08-01',
       '2026-08-02',
     );
     expect(rows).toEqual([
-      { date: '2026-08-01', cost: 12.5 },
-      { date: '2026-08-02', cost: 0 },
+      { date: '2026-08-01', cost: 12.5, impressions: 900, clicks: 31, conversions: 4 },
+      { date: '2026-08-02', cost: 0, impressions: 0, clicks: 0, conversions: 0 },
     ]);
   });
 

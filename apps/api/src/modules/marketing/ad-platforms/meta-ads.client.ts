@@ -6,18 +6,27 @@
  *
  * Docs: https://developers.facebook.com/docs/marketing-api/insights
  */
+import { round2, type AdDailyStats } from './ad-stats';
+
 const GRAPH_BASE = 'https://graph.facebook.com/v21.0';
+
+/**
+ * Acciones que cuentan como conversión: los tipos agregados de Meta (cada uno
+ * ya incluye sus variantes de píxel y formularios, así que no se duplican).
+ */
+const CONVERSION_ACTIONS = new Set([
+  'lead',
+  'purchase',
+  'contact',
+  'schedule',
+  'submit_application',
+  'complete_registration',
+]);
 
 export interface MetaAdsCredentials {
   accessToken: string;
   /** Con o sin prefijo `act_`; se normaliza. */
   adAccountId: string;
-}
-
-export interface MetaAdsSpendRow {
-  /** YYYY-MM-DD */
-  date: string;
-  cost: number;
 }
 
 const withActPrefix = (id: string) => (id.startsWith('act_') ? id : `act_${id}`);
@@ -48,15 +57,37 @@ export class MetaAdsClient {
     await this.request(`/${withActPrefix(this.creds.adAccountId)}`, { fields: 'id' });
   }
 
-  /** Gasto diario de una campaña en `[from, to]` (ambos inclusive, YYYY-MM-DD). */
-  async getCampaignSpend(campaignId: string, from: string, to: string): Promise<MetaAdsSpendRow[]> {
+  /** Gasto, impresiones, clics y conversiones por día de una campaña en `[from, to]` (inclusive). */
+  async getCampaignStats(campaignId: string, from: string, to: string): Promise<AdDailyStats[]> {
     const timeRange = JSON.stringify({ since: from, until: to });
-    const data = await this.request<{ data?: Array<{ date_start?: string; spend?: string }> }>(
-      `/${campaignId}/insights`,
-      { fields: 'spend', time_increment: '1', time_range: timeRange, level: 'campaign' },
-    );
+    const data = await this.request<{
+      data?: Array<{
+        date_start?: string;
+        spend?: string;
+        impressions?: string;
+        clicks?: string;
+        actions?: Array<{ action_type?: string; value?: string }>;
+      }>;
+    }>(`/${campaignId}/insights`, {
+      fields: 'spend,impressions,clicks,actions',
+      time_increment: '1',
+      time_range: timeRange,
+      level: 'campaign',
+    });
     return (data.data ?? [])
-      .map((r) => (r.date_start ? { date: r.date_start, cost: Number(r.spend ?? 0) } : null))
-      .filter((r): r is MetaAdsSpendRow => r !== null);
+      .map((r) =>
+        r.date_start
+          ? {
+              date: r.date_start,
+              cost: round2(Number(r.spend ?? 0)),
+              impressions: Number(r.impressions ?? 0),
+              clicks: Number(r.clicks ?? 0),
+              conversions: (r.actions ?? [])
+                .filter((a) => a.action_type && CONVERSION_ACTIONS.has(a.action_type))
+                .reduce((n, a) => n + Number(a.value ?? 0), 0),
+            }
+          : null,
+      )
+      .filter((r): r is AdDailyStats => r !== null);
   }
 }
