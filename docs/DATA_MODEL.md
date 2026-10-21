@@ -210,6 +210,10 @@ Cupones: descuento sobre el **pago que se hace al contratar** (de 1 a 12 meses p
 - `coupon_redemptions` (RLS): cada uso — coupon_id, customer_id, contract_id (único: un cupón por contrato), invoice_id, months, discount_amount, free_months.
 - El cálculo es `quoteCoupon` (shared, en céntimos): % sobre todos los meses pagados, € fijo hasta el alquiler, meses gratis = los regalados × la cuota (se paga al menos un mes). La fianza y el seguro no se descuentan. El uso se reserva con `CouponsService.redeemInTx` (incremento condicionado a `used_count < max_uses`). Un cupón ya usado no se borra (409 `coupon_in_use`), se desactiva.
 
+### `ad_metrics_daily` (2026-10-22)
+
+- `ad_metrics_daily` (RLS): tenant_id, marketing_channel_id (CASCADE), platform (`google_ads` | `meta_ads`), campaign_id, date, cost, impressions, clicks, conversions (las de la plataforma; Google admite fracciones), updated_at. Única por canal y día. La rellena la misma sincronización que crea los gastos (`expenses.external_ref`), también los días sin gasto.
+
 ### Google Analytics 4 (2026-10-22)
 
 Datos de la propiedad de GA4 del tenant (Web Premium), descargados cada día por la cuenta de servicio de la plataforma. Agregados, sin datos personales.
@@ -867,6 +871,10 @@ Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la g
 - **`promo_landings`** (RLS): `/promo/<nombre>` con textos, foto, ventajas, condiciones, cupón opcional, locales y tamaños, secciones, fechas, SEO e `indexable` (false por defecto).
 - **`promo_landing_visits`** (RLS, sin datos personales): id aleatorio del navegador + UTM.
 - `marketing_channels.promo_landing_id` (FK SET NULL): enlaces y QR de cada origen.
+
+### Rendimiento de los anuncios (`20261108140000`)
+
+- **`ad_metrics_daily`** (RLS): impresiones, clics, gasto y conversiones por canal de anuncios y día.
 
 ### Google Analytics 4 (`20261108120000`)
 

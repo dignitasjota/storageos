@@ -1352,3 +1352,4 @@ Sin la variable todo funciona como antes (URL pública, con límite compartido).
 2. **Google Analytics 4** (migración `20261108120000_ga4`, dentro de Web Premium): usa la **misma cuenta de servicio** que Search Console (`GSC_SERVICE_ACCOUNT_JSON`).
    - En el mismo proyecto de Google Cloud activa **Google Analytics Data API**.
    - Cada tenant añade el `client_email` de la cuenta como **Lector** en Google Analytics → Administrar → Gestión del acceso a la propiedad y pega el ID de la propiedad (el número, no el «G-…») en **Marketing → Visitas de la web**. El worker descarga los datos cada día (cron `ga4.daily`).
+3. **Rendimiento de los anuncios** (migración `20261108140000_ad_metrics_daily`): nada que configurar. La siguiente sincronización de cada canal de Google Ads o Meta Ads (el cron trae los 3 últimos días; «Sincronizar gasto» en el canal, los 7 últimos) empieza a guardar impresiones, clics y conversiones.

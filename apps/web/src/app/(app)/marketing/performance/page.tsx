@@ -4,6 +4,8 @@ import { MARKETING_CHANNEL_TYPE_LABELS, type MarketingPerformanceRowDto } from '
 import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 
+import { AdsPerformanceCard } from './ads-card';
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { localDateString, localMonthStart } from '@/lib/dates';
 import { useMarketingPerformance } from '@/lib/marketing/hooks';
@@ -182,6 +184,8 @@ export default function MarketingPerformancePage() {
           )}
         </CardContent>
       </Card>
+      <AdsPerformanceCard range={range} />
+
       <p className="text-xs text-muted-foreground">
         El <strong>coste por lead</strong> y el <strong>CAC</strong> (coste de adquisición) se
         calculan sobre los gastos vinculados al canal en el periodo. El <strong>payback</strong> son

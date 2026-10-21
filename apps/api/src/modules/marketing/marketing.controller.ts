@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -21,11 +22,13 @@ import { createZodDto } from 'nestjs-zod';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { AdPerformanceService } from './ad-platforms/ad-performance.service';
 import { AdSpendSyncService } from './ad-platforms/ad-spend-sync.service';
 import { MarketingChannelsService } from './marketing-channels.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import type {
+  AdPerformanceDto,
   MarketingChannelDto,
   MarketingPerformanceDto,
   SyncAdSpendResultDto,
@@ -40,6 +43,7 @@ export class MarketingController {
   constructor(
     private readonly channels: MarketingChannelsService,
     private readonly adSpendSync: AdSpendSyncService,
+    private readonly adPerformance: AdPerformanceService,
   ) {}
 
   @RequirePermission('marketing:read')
@@ -63,6 +67,28 @@ export class MarketingController {
     @Query('to') to?: string,
   ): Promise<MarketingPerformanceDto> {
     return this.channels.getPerformance(user.tenantId, {
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
+  }
+
+  /** Rendimiento de las campañas de Google Ads y Meta Ads (antes de `:id`). */
+  @RequirePermission('marketing:read')
+  @Get('ads-performance')
+  adsPerformance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<AdPerformanceDto> {
+    for (const d of [from, to]) {
+      if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        throw new BadRequestException({
+          code: 'invalid_date',
+          message: 'Fecha no válida (AAAA-MM-DD)',
+        });
+      }
+    }
+    return this.adPerformance.report(user.tenantId, {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
     });

@@ -8,6 +8,8 @@
  *
  * Docs: https://developers.google.com/google-ads/api/rest/overview
  */
+import { round2, type AdDailyStats } from './ad-stats';
+
 const API_VERSION = 'v18';
 const ADS_BASE = 'https://googleads.googleapis.com';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -20,13 +22,6 @@ export interface GoogleAdsCredentials {
   /** Con o sin guiones; se normaliza. */
   customerId: string;
   loginCustomerId?: string | null;
-}
-
-export interface GoogleAdsSpendRow {
-  /** YYYY-MM-DD */
-  date: string;
-  /** Euros (o la divisa de la cuenta), ya convertido de `cost_micros`. */
-  cost: number;
 }
 
 const digitsOnly = (s: string) => s.replace(/[^0-9]/g, '');
@@ -100,25 +95,33 @@ export class GoogleAdsClient {
     await this.search('SELECT customer.id FROM customer LIMIT 1');
   }
 
-  /** Gasto diario de una campaña en `[from, to]` (ambos inclusive, YYYY-MM-DD). */
-  async getCampaignSpend(
-    campaignId: string,
-    from: string,
-    to: string,
-  ): Promise<GoogleAdsSpendRow[]> {
-    const query = `SELECT segments.date, metrics.cost_micros FROM campaign WHERE campaign.id = ${Number(
+  /** Gasto, impresiones, clics y conversiones por día de una campaña en `[from, to]` (inclusive). */
+  async getCampaignStats(campaignId: string, from: string, to: string): Promise<AdDailyStats[]> {
+    const query = `SELECT segments.date, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions FROM campaign WHERE campaign.id = ${Number(
       digitsOnly(campaignId),
     )} AND segments.date BETWEEN '${from}' AND '${to}'`;
     const rows = await this.search(query);
     return rows
       .map((r) => {
         const segments = r.segments as { date?: string } | undefined;
-        const metrics = r.metrics as { costMicros?: string | number } | undefined;
+        const metrics = r.metrics as
+          | {
+              costMicros?: string | number;
+              impressions?: string | number;
+              clicks?: string | number;
+              conversions?: string | number;
+            }
+          | undefined;
         const date = segments?.date;
-        const costMicros = Number(metrics?.costMicros ?? 0);
         if (!date) return null;
-        return { date, cost: Math.round((costMicros / 1_000_000) * 100) / 100 };
+        return {
+          date,
+          cost: round2(Number(metrics?.costMicros ?? 0) / 1_000_000),
+          impressions: Number(metrics?.impressions ?? 0),
+          clicks: Number(metrics?.clicks ?? 0),
+          conversions: round2(Number(metrics?.conversions ?? 0)),
+        };
       })
-      .filter((r): r is GoogleAdsSpendRow => r !== null);
+      .filter((r): r is AdDailyStats => r !== null);
   }
 }
