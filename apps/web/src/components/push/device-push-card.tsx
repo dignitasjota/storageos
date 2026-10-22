@@ -1,13 +1,13 @@
 'use client';
 
-import { STAFF_PUSH_TYPES, type StaffPushStatusDto } from '@storageos/shared';
+import { type StaffPushStatusDto } from '@storageos/shared';
 import { BellRing, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
 import { pushSupported, urlBase64ToUint8Array } from '@/lib/push/vapid';
 
 type State =
@@ -16,11 +16,28 @@ type State =
   | { kind: 'not_configured' }
   | { kind: 'ready'; publicKey: string; subscribed: boolean; endpoint: string | null };
 
+/** Llamada a la API del panel que muestra la tarjeta (equipo o super admin). */
+type Fetcher = <T>(path: string, init?: { method?: 'GET' | 'POST'; json?: unknown }) => Promise<T>;
+
 /**
- * Avisos en el móvil o el ordenador del usuario (PWA del panel): las
- * notificaciones de la campana que piden actuar. Se activa en cada dispositivo.
+ * Avisos en el móvil o el ordenador del usuario (panel instalado como app):
+ * las notificaciones de la campana que piden actuar. Se activa en cada
+ * dispositivo. La usan el panel del equipo (`/me/push`) y el del super admin
+ * (`/admin/me/push`).
  */
-export function DevicePushCard() {
+export function DevicePushCard({
+  fetcher,
+  basePath,
+  topics,
+  scopeNote,
+}: {
+  fetcher: Fetcher;
+  /** Ruta con `GET` (estado), `/subscribe` y `/unsubscribe`. */
+  basePath: string;
+  /** De qué avisa, para que el usuario sepa qué le llegará. */
+  topics: string[];
+  scopeNote?: string;
+}) {
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
 
@@ -35,7 +52,7 @@ export function DevicePushCard() {
       const current = await reg?.pushManager.getSubscription();
       const endpoint = current?.endpoint ?? null;
       const qs = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : '';
-      const status = await apiFetch<StaffPushStatusDto>(`/me/push${qs}`).catch(() => null);
+      const status = await fetcher<StaffPushStatusDto>(`${basePath}${qs}`).catch(() => null);
       if (cancelled) return;
       if (!status?.publicKey) {
         setState({ kind: 'not_configured' });
@@ -51,7 +68,7 @@ export function DevicePushCard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fetcher, basePath]);
 
   async function enable() {
     if (state.kind !== 'ready') return;
@@ -67,7 +84,7 @@ export function DevicePushCard() {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(state.publicKey) as BufferSource,
       });
-      await apiFetch<void>('/me/push/subscribe', { method: 'POST', json: sub.toJSON() });
+      await fetcher<void>(`${basePath}/subscribe`, { method: 'POST', json: sub.toJSON() });
       setState({ ...state, subscribed: true, endpoint: sub.endpoint });
       toast.success('Avisos activados en este dispositivo');
     } catch (err) {
@@ -81,7 +98,7 @@ export function DevicePushCard() {
     if (state.kind !== 'ready' || !state.endpoint) return;
     setBusy(true);
     try {
-      await apiFetch<void>('/me/push/unsubscribe', {
+      await fetcher<void>(`${basePath}/unsubscribe`, {
         method: 'POST',
         json: { endpoint: state.endpoint },
       });
@@ -120,8 +137,7 @@ export function DevicePushCard() {
         ) : (
           <>
             <p className="text-muted-foreground">
-              Te avisaremos de: {Object.values(STAFF_PUSH_TYPES).join(', ').toLowerCase()}. Solo de
-              los locales que tienes asignados.
+              Te avisaremos de: {topics.join(', ').toLowerCase()}.{scopeNote ? ` ${scopeNote}` : ''}
             </p>
             {state.subscribed ? (
               <Button variant="outline" size="sm" onClick={disable} disabled={busy}>

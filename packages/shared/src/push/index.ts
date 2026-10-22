@@ -50,3 +50,25 @@ export interface StaffPushStatusDto {
   /** Este dispositivo ya tiene el push activado para el usuario. */
   subscribed: boolean;
 }
+
+/**
+ * Avisos del panel del super admin que también llegan como push a su móvil u
+ * ordenador: los que piden actuar. El resto se quedan en la campana.
+ */
+export const SUPER_ADMIN_PUSH_TYPES: Record<string, string> = {
+  support_ticket: 'Ticket de soporte nuevo o con respuesta',
+  'approval.requested': 'Soporte pide aprobar una acción',
+  'platform_contact.received': 'Mensaje desde el formulario de la web',
+  'saas_payment.disputed': 'Contracargo de una suscripción',
+  'saas_billing.subscription_ended': 'Una suscripción de Stripe ha terminado',
+  'saas_billing.unresolved_webhook': 'Pago de Stripe sin tenant',
+  'email.provider_rejected': 'El proveedor de correo rechaza envíos',
+  feature_interest: 'Un tenant insiste en una función de pago',
+};
+
+export function isSuperAdminPushType(type: string): boolean {
+  return Object.prototype.hasOwnProperty.call(SUPER_ADMIN_PUSH_TYPES, type);
+}
+
+/** Igual que el del equipo: clave pública y si este dispositivo lo tiene activado. */
+export type SuperAdminPushStatusDto = StaffPushStatusDto;

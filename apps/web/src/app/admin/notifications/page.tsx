@@ -1,14 +1,15 @@
 'use client';
 
+import { SUPER_ADMIN_PUSH_TYPES, type SuperAdminNotificationDto } from '@storageos/shared';
 import { BellRing, CheckCheck, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
-import type { SuperAdminNotificationDto } from '@storageos/shared';
-
 import { AdminError } from '@/components/admin/admin-error';
+import { DevicePushCard } from '@/components/push/device-push-card';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { adminApiFetch } from '@/lib/admin/api';
 import {
   useAdminNotificationsPage,
   useAdminNotifUnreadCount,
@@ -85,6 +86,13 @@ export default function AdminNotificationsPage() {
           </Button>
         </div>
       </div>
+
+      <DevicePushCard
+        fetcher={adminApiFetch}
+        basePath="/admin/me/push"
+        topics={Object.values(SUPER_ADMIN_PUSH_TYPES)}
+        scopeNote="Si llegan varios a la vez, recibes uno solo con el recuento."
+      />
 
       {page.isLoading ? (
         <div className="flex justify-center py-12">

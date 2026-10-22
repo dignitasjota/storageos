@@ -13,10 +13,17 @@ import { PrismaService } from '../database/prisma.service';
 
 import type { Env } from '../../config/env.schema';
 
-interface PushPayload {
+export interface PushPayload {
   title: string;
   body?: string;
   url?: string;
+}
+
+export interface PushTarget {
+  id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
 }
 
 /**
@@ -187,32 +194,35 @@ export class PushService {
   }
 
   /** Envía a cada suscripción; borra las que el navegador ya no acepta. */
-  private async deliver(
-    tenantId: string,
-    subs: { id: string; endpoint: string; p256dh: string; auth: string }[],
-    payload: PushPayload,
-  ): Promise<void> {
-    const body = JSON.stringify(payload);
+  private async deliver(tenantId: string, subs: PushTarget[], payload: PushPayload): Promise<void> {
     for (const sub of subs) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          body,
+      if ((await this.sendOne(sub, payload)) === 'gone') {
+        // Suscripción caducada/cancelada: la borramos.
+        await this.prisma.withTenant(
+          (tx) => tx.pushSubscription.deleteMany({ where: { id: sub.id } }),
+          tenantId,
         );
-      } catch (err) {
-        const status = (err as { statusCode?: number }).statusCode;
-        if (status === 404 || status === 410) {
-          // Suscripción caducada/cancelada: la borramos.
-          await this.prisma.withTenant(
-            (tx) => tx.pushSubscription.deleteMany({ where: { id: sub.id } }),
-            tenantId,
-          );
-        } else {
-          this.logger.warn(
-            `[push] envío fallido (${status ?? 'err'}) a ${sub.endpoint.slice(0, 40)}…`,
-          );
-        }
       }
+    }
+  }
+
+  /**
+   * Envía un aviso a una suscripción. `gone` = el navegador ya no la acepta
+   * (404/410) y quien la guarda debe borrarla. No lanza.
+   */
+  async sendOne(sub: PushTarget, payload: PushPayload): Promise<'sent' | 'gone' | 'failed'> {
+    if (!this.enabled) return 'failed';
+    try {
+      await webpush.sendNotification(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        JSON.stringify(payload),
+      );
+      return 'sent';
+    } catch (err) {
+      const status = (err as { statusCode?: number }).statusCode;
+      if (status === 404 || status === 410) return 'gone';
+      this.logger.warn(`[push] envío fallido (${status ?? 'err'}) a ${sub.endpoint.slice(0, 40)}…`);
+      return 'failed';
     }
   }
 
