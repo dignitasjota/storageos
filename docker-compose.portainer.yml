@@ -54,6 +54,9 @@ x-app-env: &app-env
   MINIO_BUCKET_PUBLIC: storageos-public
   MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
   WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:3000}
+  # URL pública del API: notificación de Redsys, baja en un clic de los correos
+  # y direcciones de webhook (WhatsApp, cámaras). En producción, https://api.<dominio>.
+  API_BASE_URL: ${API_BASE_URL:-http://localhost:3001}
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
   JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
   JWT_ACCESS_TTL_SECONDS: '900'
@@ -102,6 +105,19 @@ x-app-env: &app-env
   OPENAPI_ENABLED: ${OPENAPI_ENABLED:-false}
   SENTRY_TRACES_SAMPLE_RATE: '0'
   WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-stub}
+  # WhatsApp de la plataforma (Meta Cloud API) y verificación de su webhook.
+  WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+  WHATSAPP_FROM_PHONE_ID: ${WHATSAPP_FROM_PHONE_ID:-}
+  WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
+  WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+  # Respuestas por correo que llegan al chat del inquilino.
+  EMAIL_INBOUND_SECRET: ${EMAIL_INBOUND_SECRET:-}
+  # Avisos push (inquilino, equipo y super admin). Sin claves, desactivados.
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+  VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@storageos.local}
+  # Proxies delante del API (Nginx Proxy Manager = 1).
+  TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
   LOCK_PROVIDER: ${LOCK_PROVIDER:-stub}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LOG_PRETTY: 'false'
