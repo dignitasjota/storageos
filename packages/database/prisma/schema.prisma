@@ -556,6 +556,9 @@ model Tenant {
   ga4SourceRows           Ga4SourceRow[]
   ga4PageRows             Ga4PageRow[]
   adMetrics               AdMetricDaily[]
+  socialAccount           TenantSocialAccount?
+  socialDailyMetrics      SocialDailyMetric[]
+  socialPosts             SocialPost[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
   waitlistEntries         WaitlistEntry[]
@@ -4474,6 +4477,76 @@ model Ga4PageRow {
 
   @@unique([tenantId, date, pagePath], map: "ga4_page_rows_key")
   @@map("ga4_page_rows")
+}
+
+/// Instagram y Facebook orgánico del tenant (Web Premium): página y cuenta de
+/// Instagram vinculada, con el token de la página cifrado.
+model TenantSocialAccount {
+  id                   String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @unique @map("tenant_id") @db.Uuid
+  pageId               String    @map("page_id")
+  pageName             String    @map("page_name")
+  instagramUserId      String?   @map("instagram_user_id")
+  instagramUsername    String?   @map("instagram_username")
+  accessTokenEncrypted String    @map("access_token_encrypted")
+  /// connected | error
+  status               String    @default("connected")
+  lastError            String?   @map("last_error")
+  connectedAt          DateTime? @map("connected_at") @db.Timestamptz(6)
+  lastSyncedAt         DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_social_accounts")
+}
+
+/// Métricas diarias de cada red (null = Meta no la devolvió).
+model SocialDailyMetric {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  /// instagram | facebook
+  network       String
+  date          DateTime @db.Date
+  followers     Int?
+  newFollowers  Int?     @map("new_followers")
+  reach         Int?
+  views         Int?
+  profileViews  Int?     @map("profile_views")
+  websiteClicks Int?     @map("website_clicks")
+  engagements   Int?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, network, date], map: "social_daily_metrics_key")
+  @@map("social_daily_metrics")
+}
+
+/// Publicaciones recientes con sus cifras.
+model SocialPost {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  network      String
+  externalId   String   @map("external_id")
+  publishedAt  DateTime @map("published_at") @db.Timestamptz(6)
+  caption      String?
+  mediaType    String?  @map("media_type")
+  permalink    String?
+  thumbnailUrl String?  @map("thumbnail_url")
+  likes        Int?
+  comments     Int?
+  shares       Int?
+  saves        Int?
+  reach        Int?
+  views        Int?
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, network, externalId], map: "social_posts_key")
+  @@index([tenantId, publishedAt], map: "social_posts_tenant_published_idx")
+  @@map("social_posts")
 }
 
 /// Búsquedas de Search Console por día, consulta y página.

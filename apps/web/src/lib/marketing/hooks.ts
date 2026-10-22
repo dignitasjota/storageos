@@ -14,6 +14,8 @@ import type {
   MarketingPerformanceDto,
   MarketingSummaryDto,
   MetaAdsSettingsDto,
+  ConnectSocialInput,
+  SocialSettingsDto,
   SuggestAdCampaignInput,
   SyncAdSpendInput,
   SyncAdSpendResultDto,
@@ -114,6 +116,31 @@ export function useGa4Action() {
           ? apiFetch<Ga4SettingsDto>('/marketing/ga4', { method: 'DELETE' })
           : apiFetch<Ga4SettingsDto>('/marketing/ga4', { method: 'PUT', json: action }),
     onSettled: () => qc.invalidateQueries({ queryKey: ga4Key }),
+  });
+}
+
+const socialKey = ['marketing', 'social'] as const;
+
+/** Conexión con Instagram y Facebook (Web Premium). */
+export function useSocialSettings(enabled = true) {
+  return useQuery({
+    queryKey: [...socialKey, 'settings'],
+    queryFn: () => apiFetch<SocialSettingsDto>('/marketing/social'),
+    enabled,
+  });
+}
+
+/** Conectar (token y página), desconectar (`null`) o actualizar ya (`'sync'`). */
+export function useSocialAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (action: ConnectSocialInput | null | 'sync') =>
+      action === 'sync'
+        ? apiFetch<SocialSettingsDto>('/marketing/social/sync', { method: 'POST' })
+        : action === null
+          ? apiFetch<SocialSettingsDto>('/marketing/social', { method: 'DELETE' })
+          : apiFetch<SocialSettingsDto>('/marketing/social', { method: 'PUT', json: action }),
+    onSettled: () => qc.invalidateQueries({ queryKey: socialKey }),
   });
 }
 

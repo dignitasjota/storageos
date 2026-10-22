@@ -214,6 +214,12 @@ Cupones: descuento sobre el **pago que se hace al contratar** (de 1 a 12 meses p
 
 - `ad_metrics_daily` (RLS): tenant_id, marketing_channel_id (CASCADE), platform (`google_ads` | `meta_ads`), campaign_id, date, cost, impressions, clicks, conversions (las de la plataforma; Google admite fracciones), updated_at. Única por canal y día. La rellena la misma sincronización que crea los gastos (`expenses.external_ref`), también los días sin gasto.
 
+### Instagram y Facebook orgánico (2026-10-22)
+
+- `tenant_social_accounts` (RLS, una por tenant): page_id, page_name, instagram_user_id/username (cuenta profesional vinculada), access_token_encrypted (token de la página, AES-GCM con AAD = tenant), status (`connected` | `error`), last_error, connected_at, last_synced_at. Conectar otra página borra lo descargado de la anterior; anonimizar el tenant borra todo.
+- `social_daily_metrics` (RLS, única por tenant, red y día): network (`instagram` | `facebook`), followers, new_followers, reach, views, profile_views, website_clicks, engagements; null = Meta no la dio (una descarga posterior no borra un valor guardado). ~16 meses.
+- `social_posts` (RLS, única por tenant, red y `external_id`): published_at, caption (500), media_type, permalink, thumbnail_url, likes, comments, shares, saves, reach, views. Publicaciones de los últimos 90 días, se actualizan en cada descarga.
+
 ### Resumen de marketing por correo (2026-10-22)
 
 - `tenants.marketing_report_enabled` (por defecto **sí**) y `marketing_report_last_month` (`YYYY-MM` del último enviado, también de un mes sin actividad que no se envía, para no repetirlo).
@@ -879,6 +885,10 @@ Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la g
 ### Rendimiento de los anuncios (`20261108140000`)
 
 - **`ad_metrics_daily`** (RLS): impresiones, clics, gasto y conversiones por canal de anuncios y día.
+
+### Instagram y Facebook (`20261108180000`)
+
+- **`tenant_social_accounts`**, **`social_daily_metrics`** y **`social_posts`** (RLS): página y cuenta de Instagram del tenant, métricas por red y día y publicaciones recientes.
 
 ### Resumen de marketing (`20261108160000`)
 

@@ -317,6 +317,8 @@ const envSchemaBase = z.object({
   GSC_SERVICE_ACCOUNT_JSON: z.string().optional(),
   /** `stub` = sin llamar a Google (desarrollo). En tests siempre simulado. */
   GSC_MODE: z.enum(['stub', 'live']).optional(),
+  /** Instagram y Facebook orgánico: `stub` = sin llamar a Meta. En tests siempre simulado. */
+  SOCIAL_MODE: z.enum(['stub', 'live']).optional(),
 
   // --- Notificaciones push (Web Push / VAPID) ---
   // Sin claves, el push queda desactivado (no-op). Generar con
