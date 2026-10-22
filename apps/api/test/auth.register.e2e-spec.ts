@@ -1,6 +1,8 @@
 import request from 'supertest';
 
-import { deleteAllMessages } from './helpers/mailpit';
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
+import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants, uniqueTestIds } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -46,6 +48,19 @@ describe('POST /auth/register (e2e)', () => {
     expect(res.body.requiresEmailVerification).toBe(true);
     expect(res.body.accessToken).toBeUndefined();
     expect(res.headers['set-cookie']).toBeUndefined();
+
+    // Nace con una serie de facturación por defecto (la 1ª factura de una
+    // reserva online no se emite sin ella).
+    const series = await app.get(PrismaAdminService).invoiceSeries.findMany({
+      where: { tenant: { slug: body.tenantSlug } },
+    });
+    expect(series).toEqual([
+      expect.objectContaining({ code: 'A', prefix: 'FA', isDefault: true, isActive: true }),
+    ]);
+
+    // El correo de verificación lleva el identificador con el que se entra.
+    const email = await waitForEmail(body.email);
+    expect(email.HTML).toContain(body.tenantSlug);
   });
 
   it('genera slug automaticamente cuando no se pasa', async () => {

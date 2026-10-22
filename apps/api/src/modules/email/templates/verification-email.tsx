@@ -5,9 +5,11 @@ import { EmailLayout } from './_layout';
 export interface VerificationEmailProps {
   fullName: string;
   verifyUrl: string;
+  /** Identificador de la empresa: se pide al entrar al panel. */
+  tenantSlug?: string;
 }
 
-export function VerificationEmail({ fullName, verifyUrl }: VerificationEmailProps) {
+export function VerificationEmail({ fullName, verifyUrl, tenantSlug }: VerificationEmailProps) {
   return (
     <EmailLayout
       preview="Verifica tu cuenta de TrasterOS"
@@ -40,6 +42,13 @@ export function VerificationEmail({ fullName, verifyUrl }: VerificationEmailProp
         </Link>
       </Text>
 
+      {tenantSlug && (
+        <Text style={{ marginTop: 24, marginBottom: 0 }}>
+          Para entrar al panel te pediremos el identificador de tu empresa:{' '}
+          <strong>{tenantSlug}</strong>. Guárdalo.
+        </Text>
+      )}
+
       <Text style={{ marginTop: 24, marginBottom: 0, fontSize: 13, color: '#475569' }}>
         El enlace caduca en 24 horas. Si no creaste esta cuenta, puedes ignorar este email.
       </Text>
@@ -50,6 +59,7 @@ export function VerificationEmail({ fullName, verifyUrl }: VerificationEmailProp
 VerificationEmail.PreviewProps = {
   fullName: 'Jane Doe',
   verifyUrl: 'https://app.storageos.local/verify-email/abc.def',
+  tenantSlug: 'trasteros-garcia',
 } satisfies VerificationEmailProps;
 
 export default VerificationEmail;

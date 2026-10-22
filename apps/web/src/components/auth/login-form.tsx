@@ -21,6 +21,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { useLogin } from '@/lib/auth/hooks';
+import { lastTenantSlug, rememberTenantSlug } from '@/lib/auth/last-tenant';
 import { useChallenge2fa } from '@/lib/two-factor/hooks';
 
 export function LoginForm() {
@@ -60,9 +61,20 @@ export function LoginForm() {
 
   const [pendingToken, setPendingToken] = useState<string | null>(null);
 
+  // La empresa viene en el enlace (`?tenant=`) o es la última con la que se
+  // entró en este navegador. Tras montar, para no desajustar el render del servidor.
+  useEffect(() => {
+    if (form.getValues('tenantSlug')) return;
+    const slug = params.get('tenant') ?? lastTenantSlug();
+    if (slug) form.setValue('tenantSlug', slug);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function onSubmit(values: LoginInput) {
     try {
       const result = await login.mutateAsync(values);
+      // Credenciales correctas (también si falta el segundo paso): se recuerda la empresa.
+      rememberTenantSlug(values.tenantSlug);
       if ('requires2faEnrolment' in result) {
         // El tenant exige 2FA y el user no lo tiene activo. Redirigimos a la
         // pagina publica de enrolment con el token en la URL.

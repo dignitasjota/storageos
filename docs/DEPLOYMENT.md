@@ -467,7 +467,9 @@ que se compila a `dist/scripts/bootstrap.js` dentro de la imagen del API y:
 1. Siembra los planes `free`/`starter`/`pro`. **Imprescindible**: el registro
    de un tenant exige el plan `starter`; sin él, falla con
    _"Configuracion de planes incompleta"_.
-2. Crea el super admin inicial **si** defines `BOOTSTRAP_SUPERADMIN_EMAIL` y
+2. Crea la serie de facturación por defecto (`A`, prefijo `FA`) en los tenants
+   que no tienen ninguna (el registro ya la crea desde el 2026-10-22).
+3. Crea el super admin inicial **si** defines `BOOTSTRAP_SUPERADMIN_EMAIL` y
    `BOOTSTRAP_SUPERADMIN_PASSWORD` (no resetea la password si el admin ya
    existe).
 

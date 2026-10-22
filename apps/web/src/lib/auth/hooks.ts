@@ -2,6 +2,7 @@ import { featuresForPlan, permissionsForRole } from '@storageos/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from './api';
+import { rememberTenantSlug } from './last-tenant';
 import { useAuthStore } from './store';
 
 import type {
@@ -104,6 +105,7 @@ export function useRegister() {
         json: input,
         requiresAuth: false,
       }),
+    onSuccess: (data) => rememberTenantSlug(data.tenant.slug),
   });
 }
 
@@ -118,6 +120,7 @@ export function useVerifyEmail() {
         requiresAuth: false,
       }),
     onSuccess: (data) => {
+      rememberTenantSlug(data.tenant.slug);
       useAuthStore.getState().setAccessToken(data.accessToken);
       queryClient.setQueryData<MeResponse>(meQueryKey, {
         user: data.user,

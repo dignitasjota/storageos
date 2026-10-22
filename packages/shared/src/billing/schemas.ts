@@ -225,6 +225,18 @@ export const CreateInvoiceSeriesSchema = z.object({
 });
 export type CreateInvoiceSeriesInput = z.infer<typeof CreateInvoiceSeriesSchema>;
 
+/**
+ * Serie que se crea al registrar un tenant (y la que propone el formulario):
+ * sin ella no se emite la primera factura de una reserva online.
+ */
+export const DEFAULT_INVOICE_SERIES = {
+  code: 'A',
+  name: 'Serie principal',
+  prefix: 'FA',
+  yearScope: true,
+  isDefault: true,
+} as const;
+
 export const UpdateInvoiceSeriesSchema = CreateInvoiceSeriesSchema.partial()
   .extend({ isActive: z.boolean().optional() })
   .refine((v) => Object.values(v).some((field) => field !== undefined), {
