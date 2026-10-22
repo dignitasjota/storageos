@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Sin conexión · TrasterOS</title>
     <style>
       :root { color-scheme: dark; }
@@ -16,35 +16,178 @@
         color: #e2e8f0;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
         text-align: center;
-        padding: 24px;
+        padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+        box-sizing: border-box;
       }
-      .card { max-width: 360px; }
+      .card { width: 100%; max-width: 380px; }
       h1 { font-size: 1.25rem; margin: 16px 0 8px; }
-      p { color: #94a3b8; line-height: 1.5; }
+      h2 { font-size: 1rem; margin: 0 0 4px; }
+      p { color: #94a3b8; line-height: 1.5; margin: 0 0 8px; }
       button {
-        margin-top: 20px;
+        margin-top: 12px;
         background: #3b82f6;
         color: white;
         border: 0;
         border-radius: 8px;
-        padding: 10px 18px;
-        font-size: 0.95rem;
+        padding: 12px 18px;
+        font-size: 1rem;
         cursor: pointer;
+        min-height: 44px;
       }
-      svg { width: 64px; height: 64px; }
+      button.secondary { background: transparent; border: 1px solid #334155; color: #e2e8f0; }
+      .icon { width: 56px; height: 56px; }
+      .access { margin-top: 20px; text-align: left; }
+      .item {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 16px;
+        margin-top: 12px;
+        text-align: center;
+      }
+      .item .label { font-weight: 600; margin-bottom: 8px; }
+      .pin {
+        font-size: 2.25rem;
+        font-weight: 700;
+        letter-spacing: 0.3em;
+        font-variant-numeric: tabular-nums;
+        margin: 8px 0;
+      }
+      .qr { background: #ffffff; border-radius: 8px; padding: 8px; display: inline-block; }
+      .qr svg { width: 220px; height: 220px; display: block; }
+      .muted { font-size: 0.85rem; color: #94a3b8; }
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <div class="card">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.5">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.5" aria-hidden="true">
         <path d="M3 3l18 18M10.6 5.1A9 9 0 0 1 21 12M5 12a9 9 0 0 1 3-2.6M8.5 16.5a5 5 0 0 1 7 0M12 20h.01" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <h1>Sin conexión</h1>
-      <p>
+      <h1 id="title">Sin conexión</h1>
+      <p id="text">
         No hay conexión a internet. Algunas funciones (pago, facturas) necesitan
         red. Vuelve a intentarlo cuando recuperes la señal.
       </p>
-      <button onclick="location.reload()">Reintentar</button>
+
+      <!-- Acceso del inquilino guardado en este móvil (lo escribe el portal). -->
+      <section class="access" id="access" hidden>
+        <h2 id="accessTitle"></h2>
+        <p id="accessHint" class="muted"></p>
+        <div id="items"></div>
+        <p id="savedAt" class="muted"></p>
+      </section>
+
+      <button id="retry" onclick="location.reload()">Reintentar</button>
     </div>
+
+    <script>
+      (function () {
+        var TEXTS = {
+          es: {
+            title: 'Sin conexión',
+            text: 'No hay conexión a internet. Tu código de acceso funciona igual; para pagar o ver tus facturas necesitas red.',
+            accessTitle: 'Tu acceso en {tenant}',
+            hint: 'Sube el brillo de la pantalla para que el lector lea el QR.',
+            pin: 'PIN',
+            qr: 'Código QR',
+            show: 'Mostrar código',
+            hide: 'Ocultar',
+            until: 'Válido hasta {date}',
+            saved: 'Guardado el {date}. Si lo cambias en el portal, se actualiza al volver a tener conexión.',
+            retry: 'Reintentar',
+          },
+          en: {
+            title: 'No connection',
+            text: 'You are offline. Your access code still works; you need a connection to pay or see your invoices.',
+            accessTitle: 'Your access at {tenant}',
+            hint: 'Turn up the screen brightness so the reader can scan the QR.',
+            pin: 'PIN',
+            qr: 'QR code',
+            show: 'Show code',
+            hide: 'Hide',
+            until: 'Valid until {date}',
+            saved: 'Saved on {date}. If you change it in the portal, it updates once you are back online.',
+            retry: 'Try again',
+          },
+        };
+        var data = null;
+        try {
+          data = JSON.parse(localStorage.getItem('storageos.portal.offline-access') || 'null');
+        } catch (e) {
+          data = null;
+        }
+        if (!data || !Array.isArray(data.items)) return;
+        var now = Date.now();
+        var items = data.items.filter(function (it) {
+          return it && it.value && (!it.expiresAt || new Date(it.expiresAt).getTime() > now);
+        });
+        if (items.length === 0) return;
+
+        var lang = data.locale === 'en' ? 'en' : 'es';
+        var t = TEXTS[lang];
+        var intl = lang === 'en' ? 'en-GB' : 'es-ES';
+        var fmt = function (iso) {
+          return new Date(iso).toLocaleString(intl, {
+            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+          });
+        };
+        document.documentElement.lang = lang;
+        document.getElementById('title').textContent = t.title;
+        document.getElementById('text').textContent = t.text;
+        document.getElementById('retry').textContent = t.retry;
+        document.getElementById('accessTitle').textContent =
+          t.accessTitle.replace('{tenant}', data.tenantName || 'TrasterOS');
+        document.getElementById('accessHint').textContent = t.hint;
+        if (data.savedAt) {
+          document.getElementById('savedAt').textContent = t.saved.replace('{date}', fmt(data.savedAt));
+        }
+
+        var box = document.getElementById('items');
+        items.forEach(function (it) {
+          var card = document.createElement('div');
+          card.className = 'item';
+          var label = document.createElement('div');
+          label.className = 'label';
+          label.textContent = it.label || (it.method === 'qr' ? t.qr : t.pin);
+          card.appendChild(label);
+
+          // Oculto hasta pulsar, como en el portal: alguien puede estar mirando.
+          var secret = document.createElement('div');
+          secret.hidden = true;
+          if (it.method === 'qr' && typeof it.qrSvg === 'string' && it.qrSvg.indexOf('<svg') === 0) {
+            var qr = document.createElement('div');
+            qr.className = 'qr';
+            qr.innerHTML = it.qrSvg;
+            secret.appendChild(qr);
+          } else {
+            var pin = document.createElement('div');
+            pin.className = 'pin';
+            pin.textContent = it.value;
+            secret.appendChild(pin);
+          }
+          card.appendChild(secret);
+
+          if (it.expiresAt) {
+            var until = document.createElement('p');
+            until.className = 'muted';
+            until.textContent = t.until.replace('{date}', fmt(it.expiresAt));
+            card.appendChild(until);
+          }
+
+          var toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className = 'secondary';
+          toggle.textContent = t.show;
+          toggle.onclick = function () {
+            secret.hidden = !secret.hidden;
+            toggle.textContent = secret.hidden ? t.show : t.hide;
+          };
+          card.appendChild(toggle);
+          box.appendChild(card);
+        });
+        document.getElementById('access').hidden = false;
+      })();
+    </script>
   </body>
 </html>
