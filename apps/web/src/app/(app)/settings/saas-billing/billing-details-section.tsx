@@ -23,10 +23,16 @@ type Form = {
 };
 
 /**
- * Datos fiscales del tenant (razón social, NIF y domicilio) que aparecen en las
- * facturas de su suscripción. Sin ellos la factura no es completa.
+ * Datos fiscales del tenant (razón social, NIF y domicilio): salen en las
+ * facturas que emite a sus inquilinos, en sus textos legales y en las facturas
+ * de su suscripción. Se editan en Configuración → Datos de tu empresa y se
+ * repiten en Plan y facturas.
  */
-export function BillingDetailsSection() {
+export function BillingDetailsSection({
+  variant = 'subscription',
+}: {
+  variant?: 'subscription' | 'company';
+}) {
   const { data } = useSaasBillingDetails();
   const update = useUpdateSaasBillingDetails();
   const [form, setForm] = useState<Form | null>(null);
@@ -70,20 +76,23 @@ export function BillingDetailsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-lg font-semibold">Datos de facturación</h2>
+      {variant === 'subscription' && (
+        <h2 className="text-lg font-semibold">Datos de facturación</h2>
+      )}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Datos fiscales de tu empresa</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Aparecen en las facturas de tu suscripción a TrasterOS. La razón social, el NIF y el
-            domicilio fiscal son obligatorios para que la factura sea completa (y deducible).
+            {variant === 'company'
+              ? 'Salen como emisor en las facturas a tus inquilinos, en tus textos legales y en las facturas de tu suscripción a TrasterOS. La razón social, el NIF y el domicilio fiscal son obligatorios en una factura.'
+              : 'Aparecen en las facturas de tu suscripción a TrasterOS y como emisor en las facturas a tus inquilinos. La razón social, el NIF y el domicilio fiscal son obligatorios para que la factura sea completa (y deducible).'}
           </p>
           {data.missing.length > 0 && (
             <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              Faltan: {data.missing.join(', ')}. Complétalos antes del próximo cobro.
+              Faltan: {data.missing.join(', ')}. Sin ellos tus facturas no están completas.
             </p>
           )}
           <div className="grid gap-3 sm:grid-cols-2">

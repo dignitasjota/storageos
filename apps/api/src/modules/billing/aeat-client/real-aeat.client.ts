@@ -149,7 +149,7 @@ export class RealAeatClient extends AeatClient {
     // Emisor: el propietario (plan Administrador) o el propio tenant.
     const issuer = invoice.owner
       ? { name: invoice.owner.legalName, taxId: invoice.owner.taxId }
-      : { name: tenant.name, taxId: tenant.taxId ?? '' };
+      : { name: tenant.billingLegalName || tenant.name, taxId: tenant.taxId ?? '' };
 
     if (!invoice.aeatRecordTimestamp) {
       return { status: 'error', message: 'invoice_missing_record_timestamp' };
@@ -331,7 +331,7 @@ export class RealAeatClient extends AeatClient {
 
     const tenant = await this.admin.tenant.findUnique({
       where: { id: invoice.tenantId },
-      select: { taxId: true, name: true },
+      select: { taxId: true, name: true, billingLegalName: true },
     });
     // Emisor: el propietario (plan Administrador) o el propio tenant.
     const owner = invoice.owner
@@ -342,7 +342,7 @@ export class RealAeatClient extends AeatClient {
       : null;
     const issuer = owner
       ? { name: owner.legalName, taxId: owner.taxId }
-      : { name: tenant?.name ?? '', taxId: tenant?.taxId ?? '' };
+      : { name: tenant?.billingLegalName || tenant?.name || '', taxId: tenant?.taxId ?? '' };
     if (!issuer.taxId) {
       return { status: 'error', message: 'tenant_no_tax_id' };
     }
