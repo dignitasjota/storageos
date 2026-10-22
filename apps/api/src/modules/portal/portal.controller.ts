@@ -25,6 +25,7 @@ import {
   PortalConsumeMagicLinkSchema,
   PortalLoginPasswordSchema,
   PortalSetPasswordSchema,
+  PortalRenewSessionSchema,
   PortalResetPasswordSchema,
   PortalGoCardlessMandateCompleteSchema,
   type PaymentMethodDto,
@@ -120,6 +121,7 @@ class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchem
 class PortalLoginPasswordDto extends createZodDto(PortalLoginPasswordSchema) {}
 class PortalSetPasswordDto extends createZodDto(PortalSetPasswordSchema) {}
 class PortalResetPasswordDto extends createZodDto(PortalResetPasswordSchema) {}
+class PortalRenewSessionDto extends createZodDto(PortalRenewSessionSchema) {}
 class PortalRegisterPaymentMethodDto extends createZodDto(PortalRegisterPaymentMethodSchema) {}
 class PortalGoCardlessMandateCompleteDto extends createZodDto(
   PortalGoCardlessMandateCompleteSchema,
@@ -186,7 +188,7 @@ export class PortalController {
   @Post('login/consume')
   @HttpCode(HttpStatus.OK)
   async consume(@Body() input: PortalConsumeMagicLinkDto): Promise<PortalSessionDto> {
-    return this.portal.consumeMagicLink(input.token);
+    return this.portal.consumeMagicLink(input.token, input.installedApp ?? false);
   }
 
   /** Login por email + contraseña (opt-in; el inquilino la fija desde el portal). */
@@ -210,7 +212,29 @@ export class PortalController {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     // Devuelve una sesión NUEVA: el cambio cierra las demás sesiones (y la
     // actual, cuyo token queda con la versión anterior).
-    return this.portal.setMyPassword(tenantId, customerId, input.password, input.currentPassword);
+    return this.portal.setMyPassword(
+      tenantId,
+      customerId,
+      input.password,
+      input.currentPassword,
+      input.installedApp ?? false,
+    );
+  }
+
+  /**
+   * Sesión nueva para quien ya tiene una válida: la app instalada la pide al
+   * abrirse para que no caduque mientras la use.
+   */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/session/renew')
+  @HttpCode(HttpStatus.OK)
+  async renewSession(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalRenewSessionDto,
+  ): Promise<PortalSessionDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.renewSession(tenantId, customerId, input.installedApp ?? false);
   }
 
   /** Solicitar un enlace de restablecimiento de contraseña por email (204 silencioso). */
@@ -232,7 +256,7 @@ export class PortalController {
   @Post('login/reset')
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() input: PortalResetPasswordDto): Promise<PortalSessionDto> {
-    return this.portal.resetPassword(input.token, input.password);
+    return this.portal.resetPassword(input.token, input.password, input.installedApp ?? false);
   }
 
   /** Avisos que el negocio le ha enviado por correo. */

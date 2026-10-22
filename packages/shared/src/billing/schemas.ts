@@ -537,8 +537,16 @@ export const PortalRequestMagicLinkSchema = z.object({
 });
 export type PortalRequestMagicLinkInput = z.infer<typeof PortalRequestMagicLinkSchema>;
 
+/**
+ * El portal abierto como app instalada (pantalla de inicio) pide una sesión
+ * larga: 30 días, renovada cada vez que se abre. En el navegador, 48 h.
+ */
+export const PORTAL_APP_SESSION_DAYS = 30;
+const installedApp = z.boolean().optional();
+
 export const PortalConsumeMagicLinkSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{16,64}\.[A-Za-z0-9_-]{20,}$/, 'Token invalido'),
+  installedApp,
 });
 export type PortalConsumeMagicLinkInput = z.infer<typeof PortalConsumeMagicLinkSchema>;
 
@@ -550,6 +558,7 @@ export const PortalLoginPasswordSchema = z.object({
   tenantSlug: z.string().trim().toLowerCase().min(3).max(63),
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(1).max(200),
+  installedApp,
 });
 export type PortalLoginPasswordInput = z.infer<typeof PortalLoginPasswordSchema>;
 
@@ -558,6 +567,7 @@ export const PortalSetPasswordSchema = z.object({
   password: z.string().min(8, 'Mínimo 8 caracteres').max(200),
   /** Obligatoria si ya tiene contraseña (cambiarla, no crearla). */
   currentPassword: z.string().max(200).optional(),
+  installedApp,
 });
 export type PortalSetPasswordInput = z.infer<typeof PortalSetPasswordSchema>;
 
@@ -565,8 +575,13 @@ export type PortalSetPasswordInput = z.infer<typeof PortalSetPasswordSchema>;
 export const PortalResetPasswordSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{16,64}\.[A-Za-z0-9_-]{20,}$/, 'Token invalido'),
   password: z.string().min(8, 'Mínimo 8 caracteres').max(200),
+  installedApp,
 });
 export type PortalResetPasswordInput = z.infer<typeof PortalResetPasswordSchema>;
+
+/** Renovar la sesión del portal (la app instalada lo hace cada vez que se abre). */
+export const PortalRenewSessionSchema = z.object({ installedApp });
+export type PortalRenewSessionInput = z.infer<typeof PortalRenewSessionSchema>;
 
 /**
  * Registro de payment method desde el portal del inquilino. A diferencia

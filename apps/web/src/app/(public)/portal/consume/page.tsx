@@ -88,13 +88,15 @@ import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
 import { urlBase64ToUint8Array } from '@/lib/push/vapid';
+import { isInstalledApp } from '@/lib/pwa/installed';
 
 /**
  * La sesión del portal se persiste en localStorage tras consumir el magic link
  * (que es de un solo uso): una recarga la reutiliza en vez de reintentar
  * consumir un token ya gastado. Se usa localStorage (no sessionStorage) para que
  * sobreviva al cierre del navegador → el inquilino puede volver a entrar durante
- * la vigencia de la sesión (48 h, fijada por el server vía `expiresIn`).
+ * la vigencia de la sesión (48 h, o 30 días renovables con la app instalada;
+ * la fija el server vía `expiresIn`).
  */
 const PORTAL_SESSION_KEY = 'storageos.portal.session';
 /** Sincronizada al guardar la sesión para que `PortalI18nProvider` la recupere sin esperar al perfil. */
@@ -369,7 +371,7 @@ function PortalConsumeContent() {
           try {
             s = await apiFetch<PortalSessionDto>('/portal/login/consume', {
               method: 'POST',
-              json: { token },
+              json: { token, installedApp: isInstalledApp() },
               requiresAuth: false,
             });
             storePortalSession(s);
@@ -390,6 +392,29 @@ function PortalConsumeContent() {
             setError(t('invalidLinkFallback'));
             setLoading(false);
             return;
+          }
+          // Con la app instalada, cada vez que se abre la sesión se renueva
+          // (30 días): solo caduca si pasa un mes sin usarla.
+          if (isInstalledApp()) {
+            try {
+              const renewed = await apiFetch<PortalSessionDto>('/portal/me/session/renew', {
+                method: 'POST',
+                json: { installedApp: true },
+                headers: { Authorization: `Bearer ${s.accessToken}` },
+                requiresAuth: false,
+              });
+              storePortalSession(renewed);
+              s = renewed;
+            } catch (err) {
+              // Sesión cortada (contraseña cambiada, sesiones cerradas…): a entrar
+              // de nuevo. Un fallo de red no impide seguir con la que hay.
+              if (err instanceof ApiError && err.statusCode === 401) {
+                clearStoredPortalSession();
+                setError(t('sessionExpired'));
+                setLoading(false);
+                return;
+              }
+            }
           }
         }
         if (cancelled) return;

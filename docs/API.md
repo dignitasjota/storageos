@@ -2178,3 +2178,8 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `GET /portal/me/notices`: los 30 últimos correos que el negocio le ha enviado (enviados o entregados, con asunto); los datos secretos (p. ej. un PIN) salen como `••••`.
 - `DELETE /portal/me/payment-methods/:id` y `POST /portal/me/payment-methods/:id/default` (200, devuelven la lista): quitar un método de pago (si era el predeterminado, pasa a serlo el más reciente) o elegir con cuál se cobra. 404 si no es suyo.
 - `GET /portal/me/insurance-plans` devuelve `[]` si el plan del negocio ya no incluye la protección.
+
+### Portal: sesión de la app instalada
+
+- `POST /portal/login/consume`, `/portal/login/password`, `/portal/login/reset` y `/portal/me/password` aceptan `installedApp?: boolean`. Con `true` (el portal abierto como app instalada, `display-mode: standalone`) la sesión dura **30 días** (`PORTAL_APP_SESSION_DAYS`); sin él, 48 h como hasta ahora. `expiresIn` lo refleja.
+- `POST /portal/me/session/renew {installedApp?}` (sesión de portal, 200 → `PortalSessionDto`): sesión nueva con la que ya se tiene. La app instalada la pide al abrirse, así que solo caduca tras un mes sin usarla. Se corta igual que el resto: cambiar la contraseña, «Cerrar sesiones del portal» (401) o negocio suspendido (403 `account_unavailable`).
