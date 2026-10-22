@@ -10,7 +10,7 @@ import {
 } from '@storageos/shared';
 import { Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -40,9 +40,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useCreateSupportTicket, useSupportTickets } from '@/lib/support/hooks';
+import {
+  useCreateSupportTicket,
+  usePlatformMessages,
+  useSupportTickets,
+} from '@/lib/support/hooks';
 
 const STATUS_LABELS: Record<
   SupportTicketStatusValue,
@@ -64,7 +69,15 @@ const PRIORITY_LABELS: Record<SupportTicketPriorityValue, string> = {
 
 export default function SupportPage() {
   const tickets = useSupportTickets();
+  const platform = usePlatformMessages();
   const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState('tickets');
+  // Los avisos de un anuncio abren esta pestaña (`?tab=trasteros`).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') === 'trasteros') {
+      setTab('trasteros');
+    }
+  }, []);
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -81,44 +94,128 @@ export default function SupportPage() {
         </Button>
       </div>
 
-      {tickets.isLoading ? (
-        <div className="flex h-[40vh] items-center justify-center">
-          <Loader2 className="size-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : (tickets.data ?? []).length === 0 ? (
-        <div className="rounded-md border bg-card px-4 py-12 text-center text-sm text-muted-foreground">
-          Aún no has abierto ningún ticket.
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-md border bg-card">
-          <ul className="divide-y">
-            {(tickets.data ?? []).map((t) => {
-              const s = STATUS_LABELS[t.status];
-              return (
-                <li key={t.id}>
-                  <Link
-                    href={`/support/${t.id}`}
-                    className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-accent/40"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">{t.subject}</span>
-                        <Badge variant={s.variant}>{s.label}</Badge>
-                        <Badge variant="outline">{PRIORITY_LABELS[t.priority]}</Badge>
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Abierto el {new Date(t.createdAt).toLocaleString('es-ES')}
-                      </div>
-                    </div>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="tickets">Tus tickets</TabsTrigger>
+          <TabsTrigger value="trasteros">
+            Mensajes de TrasterOS
+            {(platform.data ?? []).length > 0 && (
+              <span className="ml-1.5 text-xs text-muted-foreground">
+                {(platform.data ?? []).length}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="trasteros" className="mt-4">
+          <PlatformMessages />
+        </TabsContent>
+        <TabsContent value="tickets" className="mt-4">
+          {tickets.isLoading ? (
+            <div className="flex h-[40vh] items-center justify-center">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (tickets.data ?? []).length === 0 ? (
+            <div className="rounded-md border bg-card px-4 py-12 text-center text-sm text-muted-foreground">
+              Aún no has abierto ningún ticket.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-md border bg-card">
+              <ul className="divide-y">
+                {(tickets.data ?? []).map((t) => {
+                  const s = STATUS_LABELS[t.status];
+                  return (
+                    <li key={t.id}>
+                      <Link
+                        href={`/support/${t.id}`}
+                        className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-accent/40"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-medium">{t.subject}</span>
+                            <Badge variant={s.variant}>{s.label}</Badge>
+                            <Badge variant="outline">{PRIORITY_LABELS[t.priority]}</Badge>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Abierto el {new Date(t.createdAt).toLocaleString('es-ES')}
+                          </div>
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <CreateTicketDialog open={creating} onClose={() => setCreating(false)} />
+    </div>
+  );
+}
+
+const KIND_LABELS: Record<string, string> = {
+  direct: 'Para ti',
+  announcement: 'Anuncio',
+  retention: 'Seguimiento',
+};
+
+/** Lo que TrasterOS te ha enviado por correo, también aquí (por si se pierde el correo). */
+function PlatformMessages() {
+  const platform = usePlatformMessages();
+  const [open, setOpen] = useState<string | null>(null);
+  if (platform.isLoading) {
+    return (
+      <div className="flex h-[30vh] items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  const items = platform.data ?? [];
+  if (items.length === 0) {
+    return (
+      <div className="rounded-md border bg-card px-4 py-12 text-center text-sm text-muted-foreground">
+        TrasterOS aún no te ha enviado ningún mensaje.
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-md border bg-card">
+      <ul className="divide-y">
+        {items.map((m) => (
+          <li key={m.id} className="px-4 py-3">
+            <button
+              type="button"
+              className="flex w-full items-start justify-between gap-3 text-left"
+              onClick={() => setOpen(open === m.id ? null : m.id)}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium">{m.subject}</span>
+                  <Badge variant="outline">{KIND_LABELS[m.kind] ?? m.kind}</Badge>
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {new Date(m.createdAt).toLocaleString('es-ES')}
+                </div>
+              </div>
+            </button>
+            {open === m.id && (
+              <div className="mt-3 space-y-3">
+                <p className="whitespace-pre-wrap text-sm">{m.body}</p>
+                {m.ticketId ? (
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/support/${m.ticketId}`}>Responder</Link>
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    ¿Dudas sobre este mensaje? Abre un ticket y te respondemos.
+                  </p>
+                )}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -68,6 +68,7 @@ import { MrrModule } from './mrr.module';
 import { PlatformAlertsController } from './platform-alerts.controller';
 import { PlatformAlertsCron } from './platform-alerts.cron';
 import { PlatformAlertsService } from './platform-alerts.service';
+import { PlatformMessagesTenantController } from './platform-messages-tenant.controller';
 import { SecurityAlertsController } from './security-alerts.controller';
 import { SecurityEventsController } from './security-events.controller';
 import { SuperAdminAuditController } from './super-admin-audit.controller';
@@ -146,6 +147,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminImpersonationAuditController,
     SupportTicketsAdminController,
     SupportTicketsTenantController,
+    PlatformMessagesTenantController,
     WebhooksCleanupController,
     AdminFollowupsController,
     AdminTodayController,

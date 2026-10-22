@@ -1932,3 +1932,14 @@ export interface AdminQuoteDto {
   /** En anual: lo que se ahorra frente a pagar 12 meses. */
   yearlySaving: number | null;
 }
+
+/** Mensaje de TrasterOS al tenant (lo ve en Soporte → Mensajes de TrasterOS). */
+export interface TenantPlatformMessageDto {
+  id: string;
+  kind: 'direct' | 'announcement' | 'retention';
+  subject: string;
+  body: string;
+  /** Ticket donde responderlo (solo el correo directo). */
+  ticketId: string | null;
+  createdAt: string;
+}

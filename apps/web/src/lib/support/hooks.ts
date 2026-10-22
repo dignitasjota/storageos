@@ -6,6 +6,7 @@ import type {
   AddTicketMessageInput,
   CreateSupportTicketInput,
   SupportTicketDto,
+  TenantPlatformMessageDto,
 } from '@storageos/shared';
 
 /**
@@ -62,5 +63,13 @@ export function useAddTicketMessage() {
       qc.invalidateQueries({ queryKey: ['support', 'tickets', vars.id] });
       qc.invalidateQueries({ queryKey: supportTicketsKey });
     },
+  });
+}
+
+/** Mensajes de TrasterOS al tenant (correo directo, anuncios, retención). */
+export function usePlatformMessages() {
+  return useQuery({
+    queryKey: ['support', 'platform-messages'] as const,
+    queryFn: () => apiFetch<TenantPlatformMessageDto[]>('/support/platform-messages'),
   });
 }

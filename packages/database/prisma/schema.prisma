@@ -597,6 +597,7 @@ model Tenant {
   whatsappMessages               WhatsappMessage[]
   customerOffers          CustomerOffer[]
   customerMessageReads CustomerMessageRead[]
+  platformMessages     TenantPlatformMessage[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -3689,6 +3690,7 @@ model SuperAdmin {
   tenantInteractions TenantInteraction[]      @relation("TenantInteractionAuthor")
   tenantFollowups    TenantFollowup[]         @relation("TenantFollowupAuthor")
 
+  platformMessages      TenantPlatformMessage[]
   @@map("super_admins")
   productUpdates ProductUpdate[] @relation("ProductUpdateAuthor")
   supportCannedResponses SupportCannedResponse[] @relation("SupportCannedAuthor")
@@ -3771,6 +3773,7 @@ model SupportTicket {
   assignedAdmin SuperAdmin?            @relation("TicketAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
   messages      SupportTicketMessage[]
 
+  platformMessages TenantPlatformMessage[]
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([assignedAdminId])
@@ -4292,6 +4295,26 @@ model CustomerInteraction {
 /// Chat bidireccional entre el inquilino (portal) y el staff. Un hilo por
 /// cliente; `senderType` distingue quién escribió.
 /// Hasta cuándo ha leído cada usuario del equipo la conversación con un inquilino.
+/// Mensajes de TrasterOS al tenant (correo directo, anuncio, retención) visibles en su panel.
+model TenantPlatformMessage {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  /// direct | announcement | retention
+  kind         String
+  subject      String
+  body         String
+  ticketId     String?  @map("ticket_id") @db.Uuid
+  superAdminId String?  @map("super_admin_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket     SupportTicket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  superAdmin SuperAdmin?    @relation(fields: [superAdminId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt(sort: Desc)], map: "tenant_platform_messages_tenant_created_idx")
+  @@map("tenant_platform_messages")
+}
+
 model CustomerMessageRead {
   customerId String   @map("customer_id") @db.Uuid
   userId     String   @map("user_id") @db.Uuid
