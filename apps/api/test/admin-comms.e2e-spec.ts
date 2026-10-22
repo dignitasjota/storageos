@@ -95,6 +95,22 @@ describe('Admin comms (email + broadcast) (e2e)', () => {
     );
     expect(emailEntry).toBeTruthy();
 
+    // En el panel del tenant: en «Mensajes de TrasterOS» y como ticket para responder.
+    const tenantAuth = { Authorization: `Bearer ${owner.accessToken}` };
+    const inbox = await request(app.getHttpServer())
+      .get('/support/platform-messages')
+      .set(tenantAuth)
+      .expect(200);
+    const directMsg = inbox.body.find((m: { subject: string }) => m.subject === 'Aviso importante');
+    expect(directMsg).toMatchObject({ kind: 'direct', body: 'Hola, esto es una prueba.' });
+    expect(directMsg.ticketId).toBeTruthy();
+    const ticket = await request(app.getHttpServer())
+      .get(`/support/tickets/${directMsg.ticketId}`)
+      .set(tenantAuth)
+      .expect(200);
+    expect(ticket.body.status).toBe('waiting_user');
+    expect(ticket.body.messages[0].body).toBe('Hola, esto es una prueba.');
+
     // Validación: asunto demasiado corto -> 400
     const bad = await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/email`)
@@ -117,6 +133,16 @@ describe('Admin comms (email + broadcast) (e2e)', () => {
     expect(broadcast.status).toBe(200);
     expect(broadcast.body.tenants).toBeGreaterThanOrEqual(1);
     expect(broadcast.body.recipients).toBeGreaterThanOrEqual(1);
+    const afterBroadcast = await request(app.getHttpServer())
+      .get('/support/platform-messages')
+      .set(tenantAuth)
+      .expect(200);
+    expect(
+      afterBroadcast.body.some(
+        (m: { kind: string; subject: string }) =>
+          m.kind === 'announcement' && m.subject === 'Mantenimiento programado',
+      ),
+    ).toBe(true);
 
     // Sin token -> 401
     const noAuth = await request(app.getHttpServer())

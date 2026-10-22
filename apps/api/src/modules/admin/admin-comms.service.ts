@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
@@ -14,6 +15,7 @@ import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { Env } from '../../config/env.schema';
 import type {
+  TenantPlatformMessageDto,
   AdminBroadcastInput,
   AdminBroadcastResultDto,
   AdminEmailTenantInput,
@@ -54,6 +56,7 @@ export class AdminCommsService {
     private readonly interactions: AdminTenantInteractionsService,
     private readonly followups: AdminTenantFollowupsService,
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
+    private readonly notifications: NotificationsService,
     config: ConfigService<Env, true>,
   ) {
     this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true });
@@ -95,6 +98,97 @@ export class AdminCommsService {
     return { sent, failed };
   }
 
+  /**
+   * Correo directo: abre un ticket «esperando tu respuesta» con el mensaje del
+   * admin (para responderlo desde el panel), lo guarda en «Mensajes de
+   * TrasterOS» y avisa en el panel. Devuelve el id del ticket.
+   */
+  private async recordDirectMessage(
+    tenantId: string,
+    input: { subject: string; body: string },
+    superAdminId: string,
+  ): Promise<string> {
+    const now = new Date();
+    const ticket = await this.admin.supportTicket.create({
+      data: {
+        tenantId,
+        subject: input.subject,
+        priority: 'normal',
+        category: 'trasteros',
+        status: 'waiting_user',
+        firstResponseAt: now,
+        messages: {
+          create: { authorAdminId: superAdminId, body: input.body, isInternal: false },
+        },
+      },
+      select: { id: true },
+    });
+    await this.admin.tenantPlatformMessage.create({
+      data: {
+        tenantId,
+        kind: 'direct',
+        subject: input.subject,
+        body: input.body,
+        ticketId: ticket.id,
+        superAdminId,
+      },
+    });
+    await this.notifications
+      .create(tenantId, {
+        type: 'platform.message',
+        title: `Mensaje de TrasterOS: ${input.subject}`,
+        body: input.body.slice(0, 140),
+        link: `/support/${ticket.id}`,
+      })
+      .catch(() => undefined);
+    return ticket.id;
+  }
+
+  /** Anuncio o correo de retención: queda en el panel de cada tenant y le avisa. */
+  private async recordBroadcast(
+    tenantIds: string[],
+    input: { subject: string; body: string },
+    superAdminId: string,
+    kind: 'announcement' | 'retention' = 'announcement',
+  ): Promise<void> {
+    if (tenantIds.length === 0) return;
+    await this.admin.tenantPlatformMessage.createMany({
+      data: tenantIds.map((tenantId) => ({
+        tenantId,
+        kind,
+        subject: input.subject,
+        body: input.body,
+        superAdminId,
+      })),
+    });
+    await this.admin.notification.createMany({
+      data: tenantIds.map((tenantId) => ({
+        tenantId,
+        type: 'platform.message',
+        title: `Mensaje de TrasterOS: ${input.subject}`,
+        body: input.body.slice(0, 140),
+        link: '/support?tab=trasteros',
+      })),
+    });
+  }
+
+  /** Mensajes de TrasterOS al tenant (cara tenant, Soporte). */
+  async listForTenant(tenantId: string): Promise<TenantPlatformMessageDto[]> {
+    const rows = await this.admin.tenantPlatformMessage.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.kind as TenantPlatformMessageDto['kind'],
+      subject: r.subject,
+      body: r.body,
+      ticketId: r.ticketId,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+
   /** Encola un email por destinatario en la cola BullMQ `email`. */
   private async enqueue(recipients: string[], subject: string, body: string): Promise<void> {
     if (recipients.length === 0) return;
@@ -126,7 +220,15 @@ export class AdminCommsService {
         message: 'El tenant no tiene destinatarios (owner verificado o email de facturación).',
       });
     }
-    const { sent, failed } = await this.sendTo(recipients, input.subject, input.body);
+    // El mensaje queda en su panel como ticket (para responderlo desde allí) y
+    // en «Mensajes de TrasterOS».
+    const ticketId = await this.recordDirectMessage(tenantId, input, meta.superAdminId);
+    const replyUrl = `${this.webBaseUrl}/support/${ticketId}`;
+    const { sent, failed } = await this.sendTo(
+      recipients,
+      input.subject,
+      `${input.body}\n\n—\nPuedes responder desde tu panel: ${replyUrl}`,
+    );
     await this.superAdminAudit.record({
       superAdminId: meta.superAdminId,
       action: 'admin.tenant.email_sent',
@@ -196,7 +298,15 @@ export class AdminCommsService {
       reached += 1;
       allRecipients.push(...tos);
     }
-    await this.enqueue(allRecipients, input.subject, input.body);
+    await this.enqueue(
+      allRecipients,
+      input.subject,
+      `${input.body}\n\n—\n¿Dudas? Escríbenos desde Soporte en tu panel: ${this.webBaseUrl}/support`,
+    );
+    const reachedIds = tenants
+      .filter((t) => (ownersByTenant.get(t.id)?.size ?? 0) > 0 || t.billingEmail)
+      .map((t) => t.id);
+    await this.recordBroadcast(reachedIds, input, meta.superAdminId);
 
     await this.superAdminAudit.record({
       superAdminId: meta.superAdminId,
@@ -278,6 +388,7 @@ export class AdminCommsService {
     ].join('\n');
     await this.enqueue(recipients, subject, body);
     const emailRecipients = recipients.length;
+    await this.recordBroadcast([tenantId], { subject, body }, superAdminId, 'retention');
 
     // 3) Registro de la gestión como una única interacción.
     await this.interactions.create({

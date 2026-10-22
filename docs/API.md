@@ -2099,6 +2099,11 @@ Todo con la feature `multi_owner`.
 - Respuesta del tenant → aviso al feed del super admin (`support_ticket`, también push). Responder en un ticket `resolved` lo reabre (`open`); la pantalla del tenant deja responder hasta que se cierra.
 - Asignar un ticket avisa en el feed del admin (`support_ticket.assigned`).
 
+### Mensajería: mensajes de TrasterOS en el panel del tenant
+
+- Migración `20261109160000_tenant_platform_messages` (RLS): todo lo que el super admin envía a un tenant queda también en su panel, **Soporte → «Mensajes de TrasterOS»** (`GET /support/platform-messages`, del tenant del JWT; `kind` `direct` | `announcement` | `retention`), con notificación `platform.message`.
+- **Correo directo** (`POST /admin/tenants/:id/email`): además abre un **ticket** (`category: trasteros`, `waiting_user`, mensaje del admin) para responder desde el panel; el correo lleva el enlace «Puedes responder desde tu panel». Anuncios (`/admin/announcements`) y playbook de retención se guardan sin ticket; el anuncio lleva al pie el enlace a Soporte.
+
 ### Mensajería: avisos del chat inquilino ↔ equipo
 
 - El equipo escribe en «Mensajes» → push al inquilino (abre `/portal/consume?tab=mensajes`) y **copia por correo** (`customer_email.staff_message`, tipo `staff_message` en Ajustes → Correo, activado por defecto), como mucho una cada 15 minutos por inquilino.
