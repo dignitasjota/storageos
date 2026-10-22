@@ -490,7 +490,10 @@ function AdminShell({ children }: { children: ReactNode }) {
             >
               <Menu className="size-5" />
             </Button>
-            <div className="text-sm font-medium text-muted-foreground">Panel super admin</div>
+            <div className="truncate text-sm font-medium text-muted-foreground">
+              <span className="sm:hidden">Admin</span>
+              <span className="hidden sm:inline">Panel super admin</span>
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <AdminCommandPalette />

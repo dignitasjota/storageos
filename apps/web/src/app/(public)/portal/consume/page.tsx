@@ -994,11 +994,13 @@ function PortalConsumeContent() {
       </div>
 
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">
+        {/* En el móvil el saludo solo sale en Inicio: en el resto de pestañas
+            ocupaba media pantalla antes del contenido. */}
+        <div className={`min-w-0 ${tab === 'inicio' ? '' : 'invisible h-0 md:visible md:h-auto'}`}>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
             {t('greeting', { name: session.customerName })}
           </h1>
-          <p className="text-sm text-muted-foreground">{session.email}</p>
+          <p className="truncate text-sm text-muted-foreground">{session.email}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <PortalLanguageSwitcher />

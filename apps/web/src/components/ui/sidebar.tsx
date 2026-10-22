@@ -271,7 +271,8 @@ const SidebarTrigger = React.forwardRef<
       data-sidebar="trigger"
       variant="ghost"
       size="icon"
-      className={cn('h-7 w-7', className)}
+      // En el móvil, 40 px para acertar con el dedo; en escritorio, compacto.
+      className={cn('h-10 w-10 md:h-7 md:w-7', className)}
       onClick={(event) => {
         onClick?.(event);
         toggleSidebar();
@@ -279,7 +280,7 @@ const SidebarTrigger = React.forwardRef<
       {...props}
     >
       <PanelLeft />
-      <span className="sr-only">Toggle Sidebar</span>
+      <span className="sr-only">Abrir o cerrar el menú</span>
     </Button>
   );
 });

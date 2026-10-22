@@ -9,7 +9,7 @@ import { PwaRegister } from '@/components/pwa/pwa-register';
 // de la del equipo del tenant y la del inquilino. Comparten el service worker.
 export const metadata: Metadata = {
   manifest: '/manifest-admin.webmanifest',
-  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'TrasterOS Admin' },
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'TrasterOS Admin' },
 };
 
 export const viewport: Viewport = {

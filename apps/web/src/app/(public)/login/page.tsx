@@ -5,6 +5,7 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 
 import { LoginForm } from '@/components/auth/login-form';
+import { IosInstallHint } from '@/components/pwa/ios-install-hint';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -15,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function LoginPage() {
   const t = await getTranslations('auth.login');
   return (
-    <div className="container flex justify-center py-12">
+    <div className="container flex flex-col items-center py-12">
       <Card className="w-full max-w-md border-border/60">
         <CardHeader className="space-y-2 text-center">
           <CardTitle className="text-2xl">{t('title')}</CardTitle>
@@ -41,6 +42,12 @@ export default async function LoginPage() {
           </div>
         </CardContent>
       </Card>
+      <div className="mt-4 w-full max-w-md">
+        <IosInstallHint
+          appName="TrasterOS"
+          dismissKey="storageos.staff-ios-install-hint.dismissed"
+        />
+      </div>
     </div>
   );
 }

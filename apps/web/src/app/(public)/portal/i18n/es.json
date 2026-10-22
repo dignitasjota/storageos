@@ -584,5 +584,13 @@
       "notFound": "No se encontró la domiciliación en curso.",
       "back": "Volver al portal"
     }
+  },
+  "appHeader": {
+    "theme": {
+      "light": "Claro",
+      "dark": "Oscuro",
+      "system": "Sistema",
+      "toggleLabel": "Cambiar tema"
+    }
   }
 }
