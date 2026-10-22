@@ -2,24 +2,12 @@ import { headers } from 'next/headers';
 
 import { PortalLoginClient } from './portal-login-client';
 
-import type { PublicTenantBrandDto } from '@storageos/shared';
+import type { Metadata } from 'next';
 
-import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import { appName, tenantIconPath, tenantManifestPath } from '@/lib/portal/tenant-app';
+import { fetchPortalBrand } from '@/lib/portal/tenant-app.server';
 
-const API_URL = SERVER_API_URL;
-
-async function fetchBrand(slug: string): Promise<PublicTenantBrandDto | null> {
-  try {
-    const res = await fetch(`${API_URL}/public/landing/brand/${encodeURIComponent(slug)}`, {
-      headers: internalApiHeaders(),
-      next: { revalidate: 60 },
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as PublicTenantBrandDto;
-  } catch {
-    return null;
-  }
-}
+type Props = { searchParams: Promise<{ slug?: string }> };
 
 /**
  * Resuelve el tenant del login (para mostrarlo con su aspecto white-label)
@@ -28,16 +16,31 @@ async function fetchBrand(slug: string): Promise<PublicTenantBrandDto | null> {
  * que fija el middleware — cubre el caso de un enlace tecleado a mano o
  * enlazado desde una web externa que el tenant aloja fuera de la plataforma.
  */
-export default async function PortalLoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ slug?: string }>;
-}) {
+async function resolveSlug(searchParams: Props['searchParams']): Promise<string | null> {
   const { slug: querySlug } = await searchParams;
-  const h = await headers();
-  const domainSlug = h.get('x-storageos-tenant-slug');
-  const slug = querySlug || domainSlug || null;
-  const brand = slug ? await fetchBrand(slug) : null;
+  const domainSlug = (await headers()).get('x-storageos-tenant-slug');
+  return querySlug || domainSlug || null;
+}
 
+/** Con operador, la app que se instala lleva su nombre, color e icono. */
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const slug = await resolveSlug(searchParams);
+  const brand = slug ? await fetchPortalBrand(slug) : null;
+  if (!slug || !brand || brand.portalUnavailable) return {};
+  const name = appName(brand.tenantName);
+  return {
+    title: `Acceso de clientes · ${name}`,
+    manifest: tenantManifestPath(slug),
+    appleWebApp: { capable: true, statusBarStyle: 'default', title: name },
+    icons: {
+      icon: [{ url: tenantIconPath(slug, 192), type: 'image/png', sizes: '192x192' }],
+      apple: [{ url: tenantIconPath(slug, 180), sizes: '180x180' }],
+    },
+  };
+}
+
+export default async function PortalLoginPage({ searchParams }: Props) {
+  const slug = await resolveSlug(searchParams);
+  const brand = slug ? await fetchPortalBrand(slug) : null;
   return <PortalLoginClient initialSlug={slug} initialBrand={brand} />;
 }
