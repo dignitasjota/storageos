@@ -12,6 +12,7 @@ export const CUSTOMER_EMAIL_KINDS = [
   'contract_ending_soon',
   'move_out_confirmed',
   'sepa_prenotification',
+  'staff_message',
 ] as const;
 export type CustomerEmailKind = (typeof CUSTOMER_EMAIL_KINDS)[number];
 
@@ -49,6 +50,11 @@ export const CUSTOMER_EMAIL_LABELS: Record<
     description:
       'Al generar una remesa SEPA: importe, fecha de cargo, cuenta y mandato (lo exige la normativa SEPA).',
   },
+  staff_message: {
+    label: 'Mensaje del equipo',
+    description:
+      'Copia por correo cuando le escribes desde «Mensajes» (como mucho uno cada 15 minutos por inquilino).',
+  },
 };
 
 export type CustomerEmailSettingsDto = Record<CustomerEmailKind, boolean>;
@@ -77,6 +83,7 @@ export const STAFF_EMAIL_KINDS = [
   'new_booking',
   'move_out_requested',
   'portal_incident',
+  'customer_message',
 ] as const;
 export type StaffEmailKind = (typeof STAFF_EMAIL_KINDS)[number];
 
@@ -96,6 +103,11 @@ export const STAFF_EMAIL_LABELS: Record<StaffEmailKind, { label: string; descrip
   portal_incident: {
     label: 'Incidencia de un inquilino',
     description: 'Un inquilino reporta una incidencia desde su área de clientes.',
+  },
+  customer_message: {
+    label: 'Mensaje de un inquilino',
+    description:
+      'Un inquilino escribe en «Mensajes» (portal, WhatsApp o email). Uno por inquilino mientras no se lea.',
   },
 };
 

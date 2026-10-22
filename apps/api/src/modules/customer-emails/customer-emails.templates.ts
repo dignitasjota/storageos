@@ -67,7 +67,8 @@ export type CustomerEmailData =
       unitCode: string;
       facilityName: string;
       endDate: Date;
-    };
+    }
+  | { kind: 'staff_message'; tenantName: string; body: string };
 
 export interface RenderedEmail {
   subject: string;
@@ -279,6 +280,22 @@ function content(data: CustomerEmailData, l: Locale): Content {
               'Recuerda dejar el trastero vacío antes de esa fecha. Si ha sido un error, puedes cancelar la baja desde tu área de clientes.',
             ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+      };
+    case 'staff_message':
+      return {
+        subject: en
+          ? `New message from ${data.tenantName}`
+          : `Tienes un mensaje de ${data.tenantName}`,
+        paragraphs: [
+          en
+            ? 'We have written to you in your customer area:'
+            : 'Te hemos escrito en tu área de clientes:',
+          data.body,
+          en
+            ? 'You can reply from the Messages tab of your customer area.'
+            : 'Puedes responder desde la pestaña «Mensajes» de tu área de clientes.',
+        ],
+        cta: en ? 'Read and reply' : 'Leer y responder',
       };
   }
 }

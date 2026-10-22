@@ -311,6 +311,11 @@ function PortalConsumeContent() {
   const [unitChanges, setUnitChanges] = useState<PortalUnitChangeRequestDto[] | null>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [tab, setTab] = useState('inicio');
+  // El push de un mensaje abre directamente la pestaña (`?tab=mensajes`).
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+    if (wanted) setTab(wanted);
+  }, []);
   const [moreOpen, setMoreOpen] = useState(false);
   const [ucNote, setUcNote] = useState('');
   const [ucContractId, setUcContractId] = useState('');

@@ -14,6 +14,7 @@ import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
+  type CustomerMessagePayload,
   type DomainEventPayload,
   type PaymentFailedPayload,
   type SepaRemittanceCreatedPayload,
@@ -29,6 +30,9 @@ import {
 
 import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
+
+/** Como mucho un correo por mensajes del equipo cada 15 minutos por inquilino. */
+const STAFF_MESSAGE_EMAIL_GAP_MS = 15 * 60 * 1000;
 
 interface Recipient {
   customerId: string;
@@ -241,6 +245,35 @@ export class CustomerEmailsService {
           endDate: c.endDate,
         },
         contractId: c.id,
+      });
+    });
+  }
+
+  /**
+   * El equipo escribe al inquilino en «Mensajes»: copia por correo (el push solo
+   * llega a quien lo activó). Como mucho una cada 15 minutos por inquilino: si
+   * el equipo escribe varias frases seguidas, basta el primer aviso.
+   */
+  @OnEvent(DOMAIN_EVENTS.customer_message_from_staff, { async: true, promisify: true })
+  async onStaffMessage(p: CustomerMessagePayload): Promise<void> {
+    await this.safe('staff_message', p.tenantId, async () => {
+      const recent = await this.admin.customerMessage.count({
+        where: {
+          tenantId: p.tenantId,
+          customerId: p.customerId,
+          senderType: 'staff',
+          id: { not: p.messageId },
+          createdAt: { gte: new Date(Date.now() - STAFF_MESSAGE_EMAIL_GAP_MS) },
+        },
+      });
+      if (recent > 0) return;
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: p.tenantId },
+        select: { name: true },
+      });
+      if (!tenant) return;
+      await this.send(p.tenantId, 'staff_message', null, p.customerId, {
+        data: { kind: 'staff_message', tenantName: tenant.name, body: p.body },
       });
     });
   }

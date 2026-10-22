@@ -2099,6 +2099,12 @@ Todo con la feature `multi_owner`.
 - Respuesta del tenant → aviso al feed del super admin (`support_ticket`, también push). Responder en un ticket `resolved` lo reabre (`open`); la pantalla del tenant deja responder hasta que se cierra.
 - Asignar un ticket avisa en el feed del admin (`support_ticket.assigned`).
 
+### Mensajería: avisos del chat inquilino ↔ equipo
+
+- El equipo escribe en «Mensajes» → push al inquilino (abre `/portal/consume?tab=mensajes`) y **copia por correo** (`customer_email.staff_message`, tipo `staff_message` en Ajustes → Correo, activado por defecto), como mucho una cada 15 minutos por inquilino.
+- El inquilino escribe (portal, WhatsApp o email entrante) → notificación `customer.message` (enlace `/customers/:id?tab=chat`) y aviso por correo al equipo (tipo `customer_message`, en Ajustes → Correo y en las preferencias de cada usuario). **Solo el primero mientras tenga mensajes sin leer**: varias frases seguidas no generan varios avisos.
+- Eventos internos `domain.customer_message_from_staff` / `domain.customer_message_from_customer` (no son disparadores de automatizaciones).
+
 ### WhatsApp Business (#668–#673)
 
 Todo con la feature `whatsapp_business`. WhatsApp simulado con `NODE_ENV=test` o `WHATSAPP_BUSINESS_MODE=stub`.

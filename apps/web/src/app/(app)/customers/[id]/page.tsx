@@ -3,7 +3,7 @@
 import { ArrowLeft, BadgeCheck, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { CustomerAccountCard } from './account-card';
@@ -57,6 +57,11 @@ export default function CustomerDetailPage() {
   const unreadMessages = useCustomerUnreadSummary().data?.byCustomer[id ?? ''] ?? 0;
   const setKyc = useSetKycVerified();
   const [tab, setTab] = useState<string>('contracts');
+  // Los avisos enlazan a una pestaña concreta (`?tab=chat`).
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+    if (wanted) setTab(wanted);
+  }, []);
 
   if (customer.isLoading || !customer.data) {
     return (

@@ -38,6 +38,9 @@ export const DOMAIN_EVENTS = {
   incident_resolved: 'domain.incident_resolved',
   /** El staff resolvió una solicitud de cambio de trastero (push al inquilino). */
   unit_change_resolved: 'domain.unit_change_resolved',
+  /** Mensaje del chat inquilino ↔ equipo (no son disparadores de automatizaciones). */
+  customer_message_from_staff: 'domain.customer_message_from_staff',
+  customer_message_from_customer: 'domain.customer_message_from_customer',
   /** Un trastero pasó a `available` (fin de contrato, cambio manual…) → lo oye la lista de espera. */
   unit_available: 'domain.unit_available',
   /** Un cobro automático (auto-charge, reintento, domiciliación) fue rechazado → aviso al inquilino. */
@@ -120,6 +123,15 @@ export interface MoveOutCancelledPayload {
   customerName: string;
   /** `portal` = la anuló el inquilino · `retention_offer` = aceptó una oferta. */
   reason: 'portal' | 'retention_offer';
+}
+
+/** Mensaje del chat: quién, a quién y por qué canal entró. */
+export interface CustomerMessagePayload {
+  tenantId: string;
+  customerId: string;
+  messageId: string;
+  body: string;
+  channel: 'portal' | 'whatsapp' | 'email';
 }
 
 export interface CustomerNotifyPayload {

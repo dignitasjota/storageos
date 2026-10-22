@@ -86,6 +86,7 @@ describe('resolveCustomerEmailSettings', () => {
       contract_ending_soon: true,
       move_out_confirmed: true,
       sepa_prenotification: true,
+      staff_message: true,
     });
     expect(resolveCustomerEmailSettings({ invoice_issued: false }).invoice_issued).toBe(false);
     expect(resolveCustomerEmailSettings(null).payment_received).toBe(true);
