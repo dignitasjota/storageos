@@ -2093,6 +2093,12 @@ Todo con la feature `multi_owner`.
 - **Icono de la app del inquilino con el logo**: `GET /public/landing/brand/:slug/logo` (público, 60/min) sirve los bytes del logo **subido** (404 sin él; una dirección pegada nunca se descarga desde el servidor). `PublicTenantBrandDto.logoUploaded`. La ruta del icono de la app (`/portal/app/<slug>/icon/<tamaño>`) dibuja ese logo sobre blanco (en `maskable`, dentro del 80 % central) y, sin logo subido, las iniciales sobre el color de marca; lleva `?v=` para que el móvil no se quede con el icono anterior al cambiar el logo.
 - **Panel con tu marca** (función `branded_panel`, planes Pro y Administrador): `MeResponse.tenant` lleva `brandColor`, `logoUrl` y `logoUploaded`; con la función, el menú del panel muestra el logo del tenant y el panel se instala con `/panel-app/<slug>/manifest` (nombre «<tenant> · Panel», mismos iconos que la app del portal).
 
+### Mensajería: avisos de los tickets de soporte
+
+- Respuesta visible del admin (`POST /admin/support/tickets/:id/messages` sin `isInternal`) y paso a `resolved`/`closed` → notificación del panel del tenant `support.reply` (también push al equipo) + correo a quien abrió el ticket (`kind: admin_message`, con el texto y el enlace). Las notas internas no avisan.
+- Respuesta del tenant → aviso al feed del super admin (`support_ticket`, también push). Responder en un ticket `resolved` lo reabre (`open`); la pantalla del tenant deja responder hasta que se cierra.
+- Asignar un ticket avisa en el feed del admin (`support_ticket.assigned`).
+
 ### WhatsApp Business (#668–#673)
 
 Todo con la feature `whatsapp_business`. WhatsApp simulado con `NODE_ENV=test` o `WHATSAPP_BUSINESS_MODE=stub`.

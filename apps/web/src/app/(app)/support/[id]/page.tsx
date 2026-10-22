@@ -88,7 +88,12 @@ export default function SupportTicketPage() {
         </CardContent>
       </Card>
 
-      {t.status !== 'closed' && t.status !== 'resolved' && <ReplyForm ticketId={t.id} />}
+      {t.status === 'resolved' && (
+        <p className="text-sm text-muted-foreground">
+          Lo hemos dado por resuelto. Si el problema sigue, responde aquí y lo reabriremos.
+        </p>
+      )}
+      {t.status !== 'closed' && <ReplyForm ticketId={t.id} />}
     </div>
   );
 }

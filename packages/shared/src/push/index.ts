@@ -27,6 +27,7 @@ export interface PushPublicKeyDto {
 export const STAFF_PUSH_TYPES: Record<string, string> = {
   'lead.created': 'Contacto nuevo desde la web',
   'customer.message': 'Mensaje de un inquilino',
+  'support.reply': 'Soporte de TrasterOS te ha respondido',
   'whatsapp.message': 'Mensaje de WhatsApp',
   'whatsapp.handoff': 'El asistente de WhatsApp pide una persona',
   'whatsapp.booking': 'Reserva desde WhatsApp',
@@ -57,6 +58,7 @@ export interface StaffPushStatusDto {
  */
 export const SUPER_ADMIN_PUSH_TYPES: Record<string, string> = {
   support_ticket: 'Ticket de soporte nuevo o con respuesta',
+  'support_ticket.assigned': 'Te han asignado un ticket de soporte',
   'approval.requested': 'Soporte pide aprobar una acción',
   'platform_contact.received': 'Mensaje desde el formulario de la web',
   'saas_payment.disputed': 'Contracargo de una suscripción',
