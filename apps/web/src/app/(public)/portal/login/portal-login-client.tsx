@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
+import { appName } from '@/lib/portal/tenant-app';
 import { isInstalledApp } from '@/lib/pwa/installed';
 
 const PORTAL_SESSION_KEY = 'storageos.portal.session';
@@ -309,7 +310,7 @@ export function PortalLoginClient({
           </CardContent>
         </Card>
         <div className="w-full max-w-md">
-          <IosInstallHint />
+          <IosInstallHint {...(brand ? { appName: appName(brand.tenantName) } : {})} />
         </div>
       </div>
       {brand && (

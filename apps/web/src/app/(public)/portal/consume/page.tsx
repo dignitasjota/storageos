@@ -72,6 +72,7 @@ import { WaitlistCard } from './waitlist-card';
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { InstallPwaButton } from '@/components/pwa/install-pwa-button';
+import { TenantAppHead } from '@/components/pwa/tenant-app-head';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -994,6 +995,7 @@ function PortalConsumeContent() {
 
   return (
     <div className="container max-w-5xl space-y-6 py-10">
+      <TenantAppHead slug={session.tenantSlug} tenantName={session.tenantName} />
       {/* Marca del operador (white-label) — clicable para volver al inicio */}
       <div className="space-y-2">
         <button
