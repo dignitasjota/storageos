@@ -133,8 +133,12 @@ export class WhatsappConversationsController {
 
   @RequirePermission('communications:read')
   @Get()
-  list(@CurrentUser() user: AuthenticatedUser): Promise<WhatsappConversationDto[]> {
-    return this.inbox.list(user.tenantId);
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('customerId') customerId?: string,
+  ): Promise<WhatsappConversationDto[]> {
+    const id = customerId && /^[0-9a-f-]{36}$/i.test(customerId) ? customerId : undefined;
+    return this.inbox.list(user.tenantId, id ? { customerId: id } : {});
   }
 
   @RequirePermission('communications:read')

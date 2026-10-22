@@ -57,6 +57,19 @@ export function useWhatsappConversations(enabled = true) {
   });
 }
 
+/** Conversaciones del WhatsApp del negocio con un inquilino (para enlazarlas desde su ficha). */
+export function useCustomerWhatsappConversations(customerId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...conversationsKey, 'customer', customerId],
+    queryFn: () =>
+      apiFetch<WhatsappConversationDto[]>(
+        `/whatsapp/conversations?customerId=${encodeURIComponent(customerId)}`,
+      ),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
 export function useWhatsappConversation(id: string | null) {
   return useQuery({
     queryKey: [...conversationsKey, id] as const,
