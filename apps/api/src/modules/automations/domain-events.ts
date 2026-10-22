@@ -132,6 +132,8 @@ export interface CustomerMessagePayload {
   messageId: string;
   body: string;
   channel: 'portal' | 'whatsapp' | 'email';
+  /** Solo en mensajes del equipo: por dónde sale además (canal del inquilino). */
+  replyVia?: 'whatsapp' | 'email' | null;
 }
 
 export interface CustomerNotifyPayload {

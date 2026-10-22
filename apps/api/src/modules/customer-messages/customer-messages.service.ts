@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
+import { chatReplyChannel } from '@storageos/shared';
 
 import { DOMAIN_EVENTS, type CustomerMessagePayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -130,14 +131,22 @@ export class CustomerMessagesService {
     body: string,
   ): Promise<CustomerMessageDto> {
     await this.assertCustomer(tenantId, customerId);
-    const created = await this.prisma.withTenant(
-      (tx) =>
-        tx.customerMessage.create({
-          data: { tenantId, customerId, senderType: 'staff', senderUserId: userId, body },
-          include: messageInclude,
-        }),
-      tenantId,
-    );
+    const { created, lastFromCustomer } = await this.prisma.withTenant(async (tx) => {
+      const last = await tx.customerMessage.findFirst({
+        where: { tenantId, customerId, senderType: 'customer' },
+        orderBy: { createdAt: 'desc' },
+        select: { channel: true, createdAt: true },
+      });
+      const row = await tx.customerMessage.create({
+        data: { tenantId, customerId, senderType: 'staff', senderUserId: userId, body },
+        include: messageInclude,
+      });
+      return { created: row, lastFromCustomer: last };
+    }, tenantId);
+    // Si escribió por WhatsApp o email, la respuesta sale también por ahí.
+    const replyVia = lastFromCustomer
+      ? chatReplyChannel([{ senderType: 'customer', ...lastFromCustomer }])
+      : null;
     await this.push.sendToCustomer(tenantId, customerId, {
       title: 'Nuevo mensaje de tu gestor',
       body: body.slice(0, 140),
@@ -150,6 +159,7 @@ export class CustomerMessagesService {
       messageId: created.id,
       body,
       channel: 'portal',
+      replyVia,
     } satisfies CustomerMessagePayload);
     return toDto(created);
   }

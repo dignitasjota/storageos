@@ -1,7 +1,9 @@
 'use client';
 
+import { chatReplyChannel } from '@storageos/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Send, ShieldAlert, Sparkles } from 'lucide-react';
+import { Loader2, MessageCircle, Send, ShieldAlert, Sparkles } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -10,8 +12,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useSuggestReply } from '@/lib/ai/hooks';
 import { ApiError } from '@/lib/auth/api';
-import { useHasFeature } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCustomerMessages, useSendCustomerMessage } from '@/lib/customers/hooks';
+import { useCustomerWhatsappConversations } from '@/lib/whatsapp/hooks';
 
 export function CustomerChatTab({ customerId }: { customerId: string }) {
   const messages = useCustomerMessages(customerId);
@@ -23,6 +26,13 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
   const endRef = useRef<HTMLDivElement>(null);
 
   const items = messages.data ?? [];
+  // La respuesta sale también por donde escribió el inquilino (WhatsApp en 24 h o email).
+  const replyVia = chatReplyChannel(items);
+  // Su conversación en el WhatsApp del negocio (otra bandeja), si la hay.
+  const hasWhatsapp = useHasFeature('whatsapp_business');
+  const canReadComms = useHasPermission('communications:read');
+  const canWhatsapp = hasWhatsapp && canReadComms;
+  const waConversations = useCustomerWhatsappConversations(customerId, canWhatsapp).data ?? [];
 
   async function suggestReply() {
     try {
@@ -61,6 +71,20 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
         <CardTitle className="text-base">Chat con el inquilino</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {waConversations.map((c) => (
+          <Link
+            key={c.id}
+            href={`/whatsapp?c=${c.id}`}
+            className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+          >
+            <MessageCircle className="size-4 shrink-0" />
+            <span className="flex-1">
+              También te escribe al WhatsApp del negocio
+              {c.unreadCount > 0 ? ` · ${c.unreadCount} sin leer` : ''}
+            </span>
+            <span className="font-medium">Abrir</span>
+          </Link>
+        ))}
         {messages.isLoading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -153,6 +177,13 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
             )}
           </Button>
         </div>
+        <p className="text-[11px] text-muted-foreground">
+          {replyVia === 'whatsapp'
+            ? 'Te escribió por WhatsApp: la respuesta le llega también por WhatsApp y a su área de clientes.'
+            : replyVia === 'email'
+              ? 'Te escribió por email: la respuesta le llega también por email y a su área de clientes.'
+              : 'La respuesta le llega a su área de clientes, con aviso en el móvil y por correo.'}
+        </p>
         {hasAi && (
           <p className="text-[11px] text-muted-foreground">
             <Sparkles className="mr-1 inline size-3" /> «Sugerir respuesta» redacta un borrador con

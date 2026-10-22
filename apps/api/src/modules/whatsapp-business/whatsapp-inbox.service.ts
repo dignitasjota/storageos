@@ -244,11 +244,14 @@ export class WhatsappInboxService {
     });
   }
 
-  async list(tenantId: string): Promise<WhatsappConversationDto[]> {
+  async list(
+    tenantId: string,
+    filter: { customerId?: string } = {},
+  ): Promise<WhatsappConversationDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.whatsappConversation.findMany({
-          where: { tenantId },
+          where: { tenantId, ...(filter.customerId ? { customerId: filter.customerId } : {}) },
           include: {
             customer: { select: { firstName: true, lastName: true, companyName: true } },
           },

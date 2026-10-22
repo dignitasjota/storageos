@@ -222,6 +222,32 @@ export interface CustomerUnreadSummaryDto {
   byCustomer: Record<string, number>;
 }
 
+/**
+ * Por dónde sale además la respuesta del equipo: por el canal por el que
+ * escribió el inquilino la última vez. WhatsApp solo dentro de las 24 h que
+ * permite Meta sin plantilla; pasado ese plazo, por el portal y el correo.
+ */
+export type ChatReplyChannel = 'whatsapp' | 'email' | null;
+export const WHATSAPP_SESSION_HOURS = 24;
+
+export function chatReplyChannel(
+  messages: { senderType: 'customer' | 'staff'; channel: string; createdAt: string | Date }[],
+  now: Date = new Date(),
+): ChatReplyChannel {
+  let last: (typeof messages)[number] | undefined;
+  for (const m of messages) {
+    if (m.senderType !== 'customer') continue;
+    if (!last || new Date(m.createdAt) > new Date(last.createdAt)) last = m;
+  }
+  if (!last) return null;
+  if (last.channel === 'email') return 'email';
+  if (last.channel === 'whatsapp') {
+    const age = now.getTime() - new Date(last.createdAt).getTime();
+    return age <= WHATSAPP_SESSION_HOURS * 3600 * 1000 ? 'whatsapp' : null;
+  }
+  return null;
+}
+
 /** Un mensaje del chat bidireccional inquilino <-> staff. */
 export interface CustomerMessageDto {
   id: string;

@@ -2103,6 +2103,8 @@ Todo con la feature `multi_owner`.
 
 - El equipo escribe en «Mensajes» → push al inquilino (abre `/portal/consume?tab=mensajes`) y **copia por correo** (`customer_email.staff_message`, tipo `staff_message` en Ajustes → Correo, activado por defecto), como mucho una cada 15 minutos por inquilino.
 - El inquilino escribe (portal, WhatsApp o email entrante) → notificación `customer.message` (enlace `/customers/:id?tab=chat`) y aviso por correo al equipo (tipo `customer_message`, en Ajustes → Correo y en las preferencias de cada usuario). **Solo el primero mientras tenga mensajes sin leer**: varias frases seguidas no generan varios avisos.
+- **La respuesta sale por donde escribió el inquilino** (`chatReplyChannel` en shared): si su último mensaje entró por WhatsApp (número de la plataforma) hace menos de 24 h, la respuesta del equipo sale también por WhatsApp (`communications` con `source: customer_message.reply`); si entró por email, cada respuesta sale por email aunque las copias estén apagadas. La pestaña del chat indica por dónde le llegará.
+- `GET /whatsapp/conversations?customerId=` (conversaciones del WhatsApp del negocio con ese inquilino): la ficha enlaza su conversación (`/whatsapp?c=<id>`) con los no leídos.
 - Eventos internos `domain.customer_message_from_staff` / `domain.customer_message_from_customer` (no son disparadores de automatizaciones).
 
 ### WhatsApp Business (#668–#673)

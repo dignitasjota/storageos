@@ -257,6 +257,21 @@ export class CustomerEmailsService {
   @OnEvent(DOMAIN_EVENTS.customer_message_from_staff, { async: true, promisify: true })
   async onStaffMessage(p: CustomerMessagePayload): Promise<void> {
     await this.safe('staff_message', p.tenantId, async () => {
+      // Escribió por WhatsApp (en las últimas 24 h): la respuesta sale por WhatsApp.
+      if (p.replyVia === 'whatsapp' && (await this.replyByWhatsapp(p))) return;
+      // Escribió por email: cada respuesta sale por email (es la conversación).
+      if (p.replyVia === 'email') {
+        const tenant = await this.admin.tenant.findUnique({
+          where: { id: p.tenantId },
+          select: { name: true },
+        });
+        if (!tenant) return;
+        await this.send(p.tenantId, 'staff_message', null, p.customerId, {
+          data: { kind: 'staff_message', tenantName: tenant.name, body: p.body },
+          ignoreSettings: true,
+        });
+        return;
+      }
       const recent = await this.admin.customerMessage.count({
         where: {
           tenantId: p.tenantId,
@@ -276,6 +291,25 @@ export class CustomerEmailsService {
         data: { kind: 'staff_message', tenantName: tenant.name, body: p.body },
       });
     });
+  }
+
+  /** Respuesta por el WhatsApp de la plataforma. `false` si no se puede (sigue el correo). */
+  private async replyByWhatsapp(p: CustomerMessagePayload): Promise<boolean> {
+    if (!this.communications.whatsappAvailable) return false;
+    const c = await this.admin.customer.findFirst({
+      where: { id: p.customerId, tenantId: p.tenantId, deletedAt: null },
+      select: { phone: true },
+    });
+    if (!c?.phone) return false;
+    await this.communications.enqueue({
+      tenantId: p.tenantId,
+      channel: 'whatsapp',
+      recipient: c.phone,
+      bodyText: p.body,
+      customerId: p.customerId,
+      source: 'customer_message.reply',
+    });
+    return true;
   }
 
   /** Preaviso SEPA: un correo por adeudo de la remesa, a su deudor. */
@@ -371,10 +405,16 @@ export class CustomerEmailsService {
     /** Disparador de automatizaciones equivalente (para no duplicar), si lo hay. */
     trigger: AutomationTriggerValue | null,
     customerId: string,
-    args: { data: CustomerEmailData; invoiceId?: string; contractId?: string | null },
+    args: {
+      data: CustomerEmailData;
+      invoiceId?: string;
+      contractId?: string | null;
+      /** La respuesta a quien escribió por email sale aunque las copias estén apagadas. */
+      ignoreSettings?: boolean;
+    },
   ): Promise<SendOutcome> {
     const settings = await this.getSettings(tenantId);
-    if (!settings[kind]) return { status: 'disabled' };
+    if (!settings[kind] && !args.ignoreSettings) return { status: 'disabled' };
     if (trigger && (await this.hasActiveAutomation(tenantId, trigger))) {
       return { status: 'automation' };
     }
