@@ -83,6 +83,7 @@ describe('Avisos por email al equipo (e2e)', () => {
       new_booking: true,
       move_out_requested: true,
       portal_incident: true,
+      customer_message: true,
     });
     await request(app.getHttpServer())
       .patch('/settings/tenant/staff-emails')
@@ -117,6 +118,7 @@ describe('Avisos por email al equipo (e2e)', () => {
         new_booking: true,
         move_out_requested: true,
         portal_incident: true,
+        customer_message: true,
       },
       disabledByTenant: [],
     });

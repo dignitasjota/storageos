@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 
+import { DOMAIN_EVENTS, type CustomerMessagePayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
@@ -39,6 +41,7 @@ export class CustomerMessagesService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly push: PushService,
+    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -138,8 +141,16 @@ export class CustomerMessagesService {
     await this.push.sendToCustomer(tenantId, customerId, {
       title: 'Nuevo mensaje de tu gestor',
       body: body.slice(0, 140),
-      url: '/portal/login',
+      url: '/portal/consume?tab=mensajes',
     });
+    // Copia por correo (el push no llega a quien no lo activó).
+    this.events.emit(DOMAIN_EVENTS.customer_message_from_staff, {
+      tenantId,
+      customerId,
+      messageId: created.id,
+      body,
+      channel: 'portal',
+    } satisfies CustomerMessagePayload);
     return toDto(created);
   }
 
@@ -153,21 +164,34 @@ export class CustomerMessagesService {
     senderVerified = true,
   ): Promise<CustomerMessageDto> {
     const { name } = await this.assertCustomer(tenantId, customerId);
-    const created = await this.prisma.withTenant(
-      (tx) =>
-        tx.customerMessage.create({
-          data: { tenantId, customerId, senderType: 'customer', body, channel, senderVerified },
-          include: messageInclude,
-        }),
-      tenantId,
-    );
-    const via = channel === 'whatsapp' ? ' (WhatsApp)' : channel === 'email' ? ' (email)' : '';
-    await this.notifications.create(tenantId, {
-      type: 'customer.message',
-      title: `Mensaje de ${name}${via}${senderVerified ? '' : ' — remitente no verificado'}`,
-      body: body.slice(0, 140),
-      link: `/customers/${customerId}`,
-    });
+    const { created, alreadyPending } = await this.prisma.withTenant(async (tx) => {
+      // ¿Ya había mensajes suyos sin leer? Entonces el equipo ya está avisado:
+      // no repetimos notificación ni correo por cada frase.
+      const pending = await tx.customerMessage.count({
+        where: { tenantId, customerId, senderType: 'customer', readAt: null },
+      });
+      const row = await tx.customerMessage.create({
+        data: { tenantId, customerId, senderType: 'customer', body, channel, senderVerified },
+        include: messageInclude,
+      });
+      return { created: row, alreadyPending: pending > 0 };
+    }, tenantId);
+    if (!alreadyPending) {
+      const via = channel === 'whatsapp' ? ' (WhatsApp)' : channel === 'email' ? ' (email)' : '';
+      await this.notifications.create(tenantId, {
+        type: 'customer.message',
+        title: `Mensaje de ${name}${via}${senderVerified ? '' : ' — remitente no verificado'}`,
+        body: body.slice(0, 140),
+        link: `/customers/${customerId}?tab=chat`,
+      });
+      this.events.emit(DOMAIN_EVENTS.customer_message_from_customer, {
+        tenantId,
+        customerId,
+        messageId: created.id,
+        body,
+        channel,
+      } satisfies CustomerMessagePayload);
+    }
     return toDto(created);
   }
 }

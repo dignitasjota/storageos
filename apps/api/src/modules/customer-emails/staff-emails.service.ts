@@ -17,6 +17,7 @@ import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
   type BookingCreatedPayload,
+  type CustomerMessagePayload,
   type DomainEventPayload,
 } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -208,6 +209,31 @@ export class StaffEmailsService {
         path: '/incidents',
         cta: 'Ver incidencias',
         facilityId: inc.facilityId,
+      });
+    });
+  }
+
+  /**
+   * Un inquilino escribe en «Mensajes» (portal, WhatsApp o email). Solo llega
+   * el primero mientras haya mensajes suyos sin leer (lo decide quien emite).
+   */
+  @OnEvent(DOMAIN_EVENTS.customer_message_from_customer, { async: true, promisify: true })
+  async onCustomerMessage(p: CustomerMessagePayload): Promise<void> {
+    await this.safe('customer_message', p.tenantId, async () => {
+      const customer = await this.admin.customer.findFirst({
+        where: { id: p.customerId, tenantId: p.tenantId, deletedAt: null },
+        select: { firstName: true, lastName: true, companyName: true, customerType: true },
+      });
+      if (!customer) return;
+      const via =
+        p.channel === 'whatsapp' ? ' por WhatsApp' : p.channel === 'email' ? ' por email' : '';
+      const body = p.body.length > 600 ? `${p.body.slice(0, 600)}…` : p.body;
+      await this.notify(p.tenantId, 'customer_message', {
+        subject: `Mensaje de ${customerName(customer)}${via}`,
+        lines: [body],
+        path: `/customers/${p.customerId}?tab=chat`,
+        cta: 'Leer y responder',
+        facilityId: null,
       });
     });
   }
