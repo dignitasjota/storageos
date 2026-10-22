@@ -97,6 +97,29 @@
 }
 
 @layer utilities {
+  /* Barra de desplazamiento fina y del color del menú, en vez de la del sistema.
+     Solo se marca al pasar el ratón por encima. */
+  .scrollbar-subtle {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--sidebar-foreground) / 0.18) transparent;
+  }
+  .scrollbar-subtle:hover {
+    scrollbar-color: hsl(var(--sidebar-foreground) / 0.35) transparent;
+  }
+  .scrollbar-subtle::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-subtle::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-subtle::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: hsl(var(--sidebar-foreground) / 0.18);
+  }
+  .scrollbar-subtle:hover::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--sidebar-foreground) / 0.35);
+  }
+
   /* Safe-areas (notch / home indicator) en modo standalone. Requieren
      `viewport-fit=cover` (definido en el viewport del layout raíz). */
   .pb-safe {
