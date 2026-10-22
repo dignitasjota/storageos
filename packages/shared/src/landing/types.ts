@@ -275,6 +275,8 @@ export interface PublicTenantBrandDto {
   tenantSlug: string;
   brandColor: string | null;
   logoUrl: string | null;
+  /** El logo es un fichero subido: se puede usar en el icono de las apps. */
+  logoUploaded: boolean;
   /** Favicon de su web, o null (se usa el de TrasterOS). */
   faviconUrl: string | null;
   /** Cuenta suspendida: ni reserva online ni área de clientes. */

@@ -50,6 +50,13 @@ describe('Logo del tenant subido como fichero (e2e)', () => {
     expect(set.body.portalLogoUrl).toContain(key);
     const brand = await http().get(`/public/landing/brand/${owner.slug}`);
     expect(brand.body.logoUrl).toContain(key);
+    expect(brand.body.logoUploaded).toBe(true);
+
+    // Los bytes del logo subido, para el icono de la app.
+    const bytes = await http().get(`/public/landing/brand/${owner.slug}/logo`);
+    expect(bytes.status).toBe(200);
+    expect(bytes.headers['content-type']).toContain('image/png');
+    expect(Buffer.compare(bytes.body as Buffer, PNG)).toBe(0);
 
     // Guardar el resto de la marca sin tocar el logo no lo convierte en dirección pegada.
     const same = await http()
@@ -92,5 +99,6 @@ describe('Logo del tenant subido como fichero (e2e)', () => {
       .send({ key: null });
     expect(removed.body.logoUploaded).toBe(false);
     expect(removed.body.portalLogoUrl).toBeNull();
+    await http().get(`/public/landing/brand/${owner.slug}/logo`).expect(404);
   });
 });

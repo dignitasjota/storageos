@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 
-import { appName, appShortName, brandColorOf, tenantIconPath } from '@/lib/portal/tenant-app';
+import {
+  appName,
+  appShortName,
+  brandColorOf,
+  iconVersion,
+  tenantIconPath,
+} from '@/lib/portal/tenant-app';
 import { fetchPortalBrand } from '@/lib/portal/tenant-app.server';
 
 /**
@@ -18,6 +24,7 @@ export async function GET(
     return NextResponse.redirect(new URL('/manifest.webmanifest', request.url));
   }
   const color = brandColorOf(brand);
+  const v = iconVersion(brand);
   const manifest = {
     id: `/portal/app/${slug}`,
     name: appName(brand.tenantName),
@@ -31,16 +38,26 @@ export async function GET(
     background_color: '#ffffff',
     theme_color: color,
     icons: [
-      { src: tenantIconPath(slug, 192), sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: tenantIconPath(slug, 512), sizes: '512x512', type: 'image/png', purpose: 'any' },
       {
-        src: tenantIconPath(slug, 192, true),
+        src: tenantIconPath(slug, 192, false, v),
+        sizes: '192x192',
+        type: 'image/png',
+        purpose: 'any',
+      },
+      {
+        src: tenantIconPath(slug, 512, false, v),
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'any',
+      },
+      {
+        src: tenantIconPath(slug, 192, true, v),
         sizes: '192x192',
         type: 'image/png',
         purpose: 'maskable',
       },
       {
-        src: tenantIconPath(slug, 512, true),
+        src: tenantIconPath(slug, 512, true, v),
         sizes: '512x512',
         type: 'image/png',
         purpose: 'maskable',
