@@ -188,3 +188,4 @@ export interface MarketingShortLinkResolveDto {
 export * from './ad-platforms';
 export * from './ad-campaign-draft';
 export * from './summary';
+export * from './social';

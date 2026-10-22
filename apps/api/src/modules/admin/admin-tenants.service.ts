@@ -1984,6 +1984,10 @@ export class AdminTenantsService {
       await tx.tenantWhatsappSettings.deleteMany({ where: { tenantId } });
       // La cuenta de Stripe del tenant (la cuenta sigue en Stripe, a su nombre).
       await tx.tenantStripeAccount.deleteMany({ where: { tenantId } });
+      // Instagram y Facebook: fuera el token de la página y lo descargado.
+      await tx.socialPost.deleteMany({ where: { tenantId } });
+      await tx.socialDailyMetric.deleteMany({ where: { tenantId } });
+      await tx.tenantSocialAccount.deleteMany({ where: { tenantId } });
 
       const users = await tx.user.findMany({ where: { tenantId }, select: { id: true } });
       for (const user of users) {

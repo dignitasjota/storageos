@@ -24,6 +24,10 @@ import { MarketingChannelsService } from './marketing-channels.service';
 import { MarketingPublicController } from './marketing-public.controller';
 import { MarketingRenewalsCron } from './marketing-renewals.cron';
 import { MarketingController } from './marketing.controller';
+import { MetaGraphClient } from './social/meta-graph.client';
+import { SocialController } from './social/social.controller';
+import { SocialCron } from './social/social.cron';
+import { SocialService } from './social/social.service';
 import { MarketingSummaryController } from './summary/marketing-summary.controller';
 import { MarketingSummaryCron } from './summary/marketing-summary.cron';
 import { MarketingSummaryService } from './summary/marketing-summary.service';
@@ -51,6 +55,7 @@ import { WebAnalyticsService } from './web-analytics.service';
     WebAnalyticsPublicController,
     Ga4Controller,
     MarketingSummaryController,
+    SocialController,
   ],
   providers: [
     MarketingChannelsService,
@@ -64,7 +69,9 @@ import { WebAnalyticsService } from './web-analytics.service';
     Ga4Client,
     Ga4Service,
     MarketingSummaryService,
-    ...(WORKERS_ENABLED_IN_API ? [AdSpendSyncCron, Ga4Cron, MarketingSummaryCron] : []),
+    MetaGraphClient,
+    SocialService,
+    ...(WORKERS_ENABLED_IN_API ? [AdSpendSyncCron, Ga4Cron, MarketingSummaryCron, SocialCron] : []),
   ],
   exports: [MarketingChannelsService],
 })
