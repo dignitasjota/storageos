@@ -1374,3 +1374,11 @@ Hasta esta versión, `docker-compose.portainer.yml` no pasaba al API ni al worke
 Tras cambiarlas, «Update the stack» con _Re-pull image_ desactivado basta (son variables, no código).
 
 **Comprobar**: en el panel de un tenant, Configuración → WhatsApp → «Si usas tu propia app de Meta» debe mostrar `https://api.trasteros.pro/webhooks/whatsapp`, no `localhost`. Y en Configuración → Perfil → Avisos (equipo) o Notificaciones (super admin), «Avisos en este dispositivo» debe ofrecer «Activar» en lugar de «aún no están disponibles».
+
+## 37. Logo subido y marca del tenant en las apps (2026-10-22, #801–#806)
+
+Al redesplegar api y web:
+
+- **Migraciones**: `tenant_logo_upload` (`tenants.portal_logo_key`) y `branded_panel_feature` (añade la función `branded_panel` a los planes Pro y Administrador ya existentes).
+- **Comprobar**: Configuración → Marca y SEO permite subir el logo (PNG/JPG); con un tenant Pro, el menú del panel muestra su logo y «con TrasterOS» abajo; en `/portal/app/<slug>/icon/192` sale el logo sobre blanco (sin logo subido, las iniciales).
+- Menús: el panel del tenant y el del admin cambian de agrupación (solo web); las direcciones de las páginas no cambian.
