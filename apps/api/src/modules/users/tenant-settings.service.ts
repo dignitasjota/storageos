@@ -22,6 +22,8 @@ import {
   parseWebSections,
   resolvePlanFeatures,
   TENANT_FAVICON_MIME_TYPES,
+  TENANT_LOGO_MAX_BYTES,
+  TENANT_LOGO_MIME_TYPES,
 } from '@storageos/shared';
 
 import { liveOverrideWhere } from '../../common/tenant-features';
@@ -278,6 +280,7 @@ export class TenantSettingsService {
     portalBrandColor: string | null;
     webHeaderBranded: boolean;
     portalLogoUrl: string | null;
+    portalLogoKey: string | null;
     customDomain: string | null;
     customDomainVerifiedAt: Date | null;
     googleSiteVerification: string | null;
@@ -288,6 +291,7 @@ export class TenantSettingsService {
       portalBrandColor: tenant.portalBrandColor,
       webHeaderBranded: tenant.webHeaderBranded,
       portalLogoUrl: tenant.portalLogoUrl,
+      logoUploaded: tenant.portalLogoKey !== null,
       customDomain: tenant.customDomain,
       customDomainVerifiedAt: tenant.customDomainVerifiedAt?.toISOString() ?? null,
       googleSiteVerification: tenant.googleSiteVerification,
@@ -345,6 +349,60 @@ export class TenantSettingsService {
     return this.toBrandingResponse(updated);
   }
 
+  /** URL firmada para subir el logo directo al bucket público (PNG o JPG). */
+  async requestLogoUpload(tenantId: string, mimeType: string): Promise<TenantFaviconUploadDto> {
+    const ext = mimeType === 'image/jpeg' ? 'jpg' : 'png';
+    const key = `${tenantId}/logo/${randomUUID()}.${ext}`;
+    const { uploadUrl } = await this.files.getPresignedPutUrl({
+      bucket: 'public',
+      key,
+      contentType: mimeType,
+    });
+    return { uploadUrl, key, requiredHeaders: { 'Content-Type': mimeType } };
+  }
+
+  /**
+   * Fija (o quita, con `null`) el logo subido. Guarda la clave y su URL pública
+   * en `portalLogoUrl`, que es lo que leen la web, el portal y los correos.
+   */
+  async setLogo(args: {
+    tenantId: string;
+    actorUserId: string;
+    key: string | null;
+    meta: RequestMeta;
+  }): Promise<TenantBrandingResponse> {
+    const { key } = args;
+    if (key) {
+      if (!key.startsWith(`${args.tenantId}/logo/`) || key.includes('..')) {
+        throw new BadRequestException({ code: 'invalid_logo_key', message: 'Logo no válido' });
+      }
+      await this.files.assertObjectMimeType(
+        'public',
+        key,
+        TENANT_LOGO_MIME_TYPES,
+        TENANT_LOGO_MAX_BYTES,
+      );
+    }
+    const updated = await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: {
+        portalLogoKey: key,
+        portalLogoUrl: key ? this.files.buildPublicUrl('public', key) : null,
+      },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: key ? 'tenant.logo_set' : 'tenant.logo_removed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: { key },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toBrandingResponse(updated);
+  }
+
   /** ¿El tenant tiene una feature concreta (plan + overrides)? */
   private async hasFeature(tenantId: string, feature: TenantFeature): Promise<boolean> {
     const [subscription, overrides] = await Promise.all([
@@ -380,8 +438,10 @@ export class TenantSettingsService {
     if (input.portalBrandColor !== undefined)
       data.portalBrandColor = input.portalBrandColor || null;
     if (input.webHeaderBranded !== undefined) data.webHeaderBranded = input.webHeaderBranded;
-    if (input.portalLogoUrl !== undefined) {
+    if (input.portalLogoUrl !== undefined && input.portalLogoUrl.trim() !== tenant.portalLogoUrl) {
+      // Una dirección pegada sustituye al logo subido.
       const raw = input.portalLogoUrl.trim();
+      data.portalLogoKey = null;
       if (raw === '') {
         data.portalLogoUrl = null;
       } else {

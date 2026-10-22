@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { FaviconCard } from './favicon-card';
+import { LogoField } from './logo-field';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -142,28 +143,12 @@ export default function BrandingSettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-1">
-            <Label>URL del logo</Label>
-            <Input
-              value={logoUrl}
-              onChange={(e) => setLogoUrl(e.target.value)}
-              placeholder="https://tudominio.com/logo.png"
-            />
-            <p className="text-xs text-muted-foreground">
-              Enlace público a tu logo (PNG/SVG). Déjalo vacío para no mostrar logo.
-            </p>
-          </div>
-
-          {logoUrl && (
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Vista previa</Label>
-              <div className="flex items-center gap-3 rounded-md border p-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={logoUrl} alt="Logo" className="h-10 w-auto object-contain" />
-                <span className="h-1 flex-1 rounded-full" style={{ backgroundColor: color }} />
-              </div>
-            </div>
-          )}
+          <LogoField
+            logoUrl={logoUrl}
+            logoUploaded={branding.data?.logoUploaded ?? false}
+            onLogoUrlChange={setLogoUrl}
+            color={color}
+          />
 
           <Button onClick={saveBranding} disabled={update.isPending}>
             {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}

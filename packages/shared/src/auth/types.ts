@@ -187,6 +187,8 @@ export interface TenantBrandingResponse {
   /** Cabecera de la web pública con el color de la marca (botón «Reservar» en blanco). */
   webHeaderBranded: boolean;
   portalLogoUrl: string | null;
+  /** El logo es un fichero subido (no una dirección pegada). */
+  logoUploaded: boolean;
   /** Dominio propio configurado (white-label), o null. */
   customDomain: string | null;
   /** null = pendiente de activación por el super admin; ISO = activo. */

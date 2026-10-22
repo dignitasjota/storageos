@@ -9,7 +9,9 @@ import {
   type TenantReviewsSettingsResponse,
   type TenantSecuritySettingsResponse,
   RequestTenantFaviconUploadSchema,
+  RequestTenantLogoUploadSchema,
   SetTenantFaviconSchema,
+  SetTenantLogoSchema,
   UpdateContractTemplateSchema,
   UpdateTenantAccessSettingsSchema,
   UpdateTenantBillingSettingsSchema,
@@ -44,6 +46,8 @@ class UpdateContractTemplateDto extends createZodDto(UpdateContractTemplateSchem
 class UpdateWebSettingsDto extends createZodDto(UpdateWebSettingsSchema) {}
 class RequestTenantFaviconUploadDto extends createZodDto(RequestTenantFaviconUploadSchema) {}
 class SetTenantFaviconDto extends createZodDto(SetTenantFaviconSchema) {}
+class RequestTenantLogoUploadDto extends createZodDto(RequestTenantLogoUploadSchema) {}
+class SetTenantLogoDto extends createZodDto(SetTenantLogoSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -170,6 +174,33 @@ export class TenantSettingsController {
     @Req() req: Request,
   ): Promise<TenantBrandingResponse> {
     return this.settings.setFavicon({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      key: body.key,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** URL firmada para subir el logo (PNG o JPG). */
+  @RequirePermission('settings:manage')
+  @Post('branding/logo-upload-url')
+  @HttpCode(HttpStatus.OK)
+  requestLogoUpload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: RequestTenantLogoUploadDto,
+  ): Promise<TenantFaviconUploadDto> {
+    return this.settings.requestLogoUpload(user.tenantId, body.mimeType);
+  }
+
+  /** Fija el logo subido (o lo quita con `{ key: null }`). */
+  @RequirePermission('settings:manage')
+  @Put('branding/logo')
+  setLogo(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: SetTenantLogoDto,
+    @Req() req: Request,
+  ): Promise<TenantBrandingResponse> {
+    return this.settings.setLogo({
       tenantId: user.tenantId,
       actorUserId: user.sub,
       key: body.key,

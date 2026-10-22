@@ -259,6 +259,20 @@ export type RequestTenantFaviconUploadInput = z.infer<typeof RequestTenantFavico
 export const SetTenantFaviconSchema = z.object({ key: z.string().min(1).max(300).nullable() });
 export type SetTenantFaviconInput = z.infer<typeof SetTenantFaviconSchema>;
 
+/**
+ * Formatos admitidos para el logo subido. Sin SVG (se sirve desde el dominio de
+ * ficheros) ni WebP (el generador de iconos de la app no lo lee).
+ */
+export const TENANT_LOGO_MIME_TYPES = ['image/png', 'image/jpeg'] as const;
+export const TENANT_LOGO_MAX_BYTES = 2 * 1024 * 1024;
+export const RequestTenantLogoUploadSchema = z.object({
+  mimeType: z.enum(TENANT_LOGO_MIME_TYPES),
+});
+export type RequestTenantLogoUploadInput = z.infer<typeof RequestTenantLogoUploadSchema>;
+/** `null` quita el logo. */
+export const SetTenantLogoSchema = z.object({ key: z.string().min(1).max(300).nullable() });
+export type SetTenantLogoInput = z.infer<typeof SetTenantLogoSchema>;
+
 export const UpdateTenantBrandingSchema = z.object({
   /** Color de marca en hex (#RRGGBB); '' lo desactiva. */
   portalBrandColor: z

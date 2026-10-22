@@ -397,6 +397,8 @@ model Tenant {
   /// Cabecera de la web pública con el color de la marca (y el botón «Reservar» en blanco).
   webHeaderBranded             Boolean               @default(false) @map("web_header_branded")
   portalLogoUrl                String?               @map("portal_logo_url")
+  /// Logo subido al bucket público (`<tenant>/logo/…`); si existe, `portalLogoUrl` es su URL.
+  portalLogoKey                String?               @map("portal_logo_key")
   webFaviconKey                String?               @map("web_favicon_key")
   /// Web «Premium» (feature `web_premium`): plantilla de diseño de la web pública
   /// (`/s/<slug>`) + claim del hero + sección «quiénes somos». Sin la feature se
