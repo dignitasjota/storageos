@@ -38,14 +38,18 @@ export function InstallPwaButton() {
     <Button
       variant="outline"
       size="sm"
+      aria-label="Instalar app"
+      title="Instalar app"
+      className="shrink-0 px-2 sm:px-3"
       onClick={async () => {
         await deferred.prompt();
         await deferred.userChoice;
         setDeferred(null);
       }}
     >
-      <Download className="mr-1.5 h-4 w-4" />
-      Instalar app
+      <Download className="h-4 w-4 sm:mr-1.5" />
+      {/* En el móvil solo el icono: el texto no cabe en la cabecera. */}
+      <span className="hidden sm:inline">Instalar app</span>
     </Button>
   );
 }

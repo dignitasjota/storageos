@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { IosInstallHint } from '@/components/pwa/ios-install-hint';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -59,7 +60,7 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-12">
+    <div className="flex min-h-screen flex-col items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md border-border/60">
         <CardHeader className="space-y-2 text-center">
           <CardTitle className="text-2xl">Panel super admin</CardTitle>
@@ -120,6 +121,12 @@ export default function AdminLoginPage() {
           )}
         </CardContent>
       </Card>
+      <div className="mt-4 w-full max-w-md">
+        <IosInstallHint
+          appName="TrasterOS Admin"
+          dismissKey="storageos.admin-ios-install-hint.dismissed"
+        />
+      </div>
     </div>
   );
 }

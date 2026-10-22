@@ -584,5 +584,13 @@
       "notFound": "We couldn't find the direct debit in progress.",
       "back": "Back to the portal"
     }
+  },
+  "appHeader": {
+    "theme": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System",
+      "toggleLabel": "Change theme"
+    }
   }
 }

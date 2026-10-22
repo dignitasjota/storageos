@@ -561,60 +561,172 @@ export default function AdminTenantsPage() {
           No hay tenants que coincidan con el filtro.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border bg-card">
-          <table className="w-full min-w-[900px] text-sm">
-            <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="w-8 px-3 py-2">
-                  <Checkbox
-                    aria-label="Seleccionar todos"
-                    checked={allSelected ? true : selected.size > 0 ? 'indeterminate' : false}
-                    onCheckedChange={() =>
-                      setSelected(allSelected ? new Set() : new Set(rows.map((t) => t.id)))
-                    }
+        <>
+          {/* Móvil: una tarjeta por tenant con lo esencial. */}
+          <ul className="space-y-2 md:hidden">
+            {rows.map((t) => (
+              <TenantCard
+                key={t.id}
+                t={t}
+                selected={selected.has(t.id)}
+                onToggle={() => toggle(t.id)}
+              />
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto rounded-md border bg-card md:block">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                <tr>
+                  <th className="w-8 px-3 py-2">
+                    <Checkbox
+                      aria-label="Seleccionar todos"
+                      checked={allSelected ? true : selected.size > 0 ? 'indeterminate' : false}
+                      onCheckedChange={() =>
+                        setSelected(allSelected ? new Set() : new Set(rows.map((t) => t.id)))
+                      }
+                    />
+                  </th>
+                  <SortHead label="Tenant" k="name" sort={sort} onSort={toggleSort} />
+                  <th className="px-3 py-2 font-medium">Estado</th>
+                  {show('plan') && <th className="px-3 py-2 font-medium">Plan y cobro</th>}
+                  {show('monthly') && (
+                    <SortHead
+                      label="Aporta/mes"
+                      k="monthly"
+                      sort={sort}
+                      onSort={toggleSort}
+                      right
+                    />
+                  )}
+                  {show('addons') && <th className="px-3 py-2 font-medium">Extras</th>}
+                  {show('nextCharge') && (
+                    <SortHead
+                      label="Próximo cobro"
+                      k="nextCharge"
+                      sort={sort}
+                      onSort={toggleSort}
+                    />
+                  )}
+                  {show('health') && (
+                    <SortHead label="Salud" k="health" sort={sort} onSort={toggleSort} />
+                  )}
+                  {show('lastLogin') && (
+                    <SortHead label="Último acceso" k="lastLogin" sort={sort} onSort={toggleSort} />
+                  )}
+                  {show('followup') && (
+                    <SortHead label="Seguimiento" k="followup" sort={sort} onSort={toggleSort} />
+                  )}
+                  {show('usage') && <th className="px-3 py-2 font-medium">Uso</th>}
+                  {show('owner') && <th className="px-3 py-2 font-medium">Propietario</th>}
+                  {show('created') && (
+                    <SortHead label="Alta" k="created" sort={sort} onSort={toggleSort} />
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((t) => (
+                  <TenantRow
+                    key={t.id}
+                    t={t}
+                    show={show}
+                    selected={selected.has(t.id)}
+                    onToggle={() => toggle(t.id)}
                   />
-                </th>
-                <SortHead label="Tenant" k="name" sort={sort} onSort={toggleSort} />
-                <th className="px-3 py-2 font-medium">Estado</th>
-                {show('plan') && <th className="px-3 py-2 font-medium">Plan y cobro</th>}
-                {show('monthly') && (
-                  <SortHead label="Aporta/mes" k="monthly" sort={sort} onSort={toggleSort} right />
-                )}
-                {show('addons') && <th className="px-3 py-2 font-medium">Extras</th>}
-                {show('nextCharge') && (
-                  <SortHead label="Próximo cobro" k="nextCharge" sort={sort} onSort={toggleSort} />
-                )}
-                {show('health') && (
-                  <SortHead label="Salud" k="health" sort={sort} onSort={toggleSort} />
-                )}
-                {show('lastLogin') && (
-                  <SortHead label="Último acceso" k="lastLogin" sort={sort} onSort={toggleSort} />
-                )}
-                {show('followup') && (
-                  <SortHead label="Seguimiento" k="followup" sort={sort} onSort={toggleSort} />
-                )}
-                {show('usage') && <th className="px-3 py-2 font-medium">Uso</th>}
-                {show('owner') && <th className="px-3 py-2 font-medium">Propietario</th>}
-                {show('created') && (
-                  <SortHead label="Alta" k="created" sort={sort} onSort={toggleSort} />
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((t) => (
-                <TenantRow
-                  key={t.id}
-                  t={t}
-                  show={show}
-                  selected={selected.has(t.id)}
-                  onToggle={() => toggle(t.id)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
+  );
+}
+
+function TenantCard({
+  t,
+  selected,
+  onToggle,
+}: {
+  t: Row;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const login = daysAgo(t.lastTeamLoginAt);
+  const trialLeft = t.trialEndsAt
+    ? Math.ceil((new Date(t.trialEndsAt).getTime() - Date.now()) / DAY)
+    : null;
+  return (
+    <li
+      className={`rounded-lg border bg-card p-3 text-sm ${selected ? 'border-primary bg-primary/5' : ''}`}
+    >
+      <div className="flex items-start gap-3">
+        <Checkbox
+          className="mt-1"
+          checked={selected}
+          onCheckedChange={onToggle}
+          aria-label={`Seleccionar ${t.name}`}
+        />
+        <Link href={`/admin/tenants/${t.id}`} className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate font-medium">{t.name}</div>
+              <div className="truncate text-xs text-muted-foreground">{t.slug}</div>
+            </div>
+            <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'} className="shrink-0">
+              {tenantStatusLabel(t.status)}
+            </Badge>
+          </div>
+          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            <div>
+              <dt className="text-muted-foreground">Plan</dt>
+              <dd>
+                {t.planName ?? '—'}
+                {t.billingExempt
+                  ? ' · exenta'
+                  : t.billingMode
+                    ? ` · ${MODE_LABEL[t.billingMode] ?? t.billingMode}`
+                    : ''}
+              </dd>
+            </div>
+            <div className="text-right">
+              <dt className="text-muted-foreground">Aporta/mes</dt>
+              <dd className="font-medium tabular-nums">{t.billingExempt ? '—' : eur(t.monthly)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">
+                {t.status === 'trial' ? 'Prueba' : 'Próximo cobro'}
+              </dt>
+              <dd>
+                {t.overdueSince ? (
+                  <span className="font-medium text-destructive">
+                    Debe desde {day(t.overdueSince)}
+                  </span>
+                ) : t.status === 'trial' && trialLeft !== null ? (
+                  <span className={trialLeft <= 3 ? 'text-destructive' : ''}>
+                    {trialLeft > 0 ? `Quedan ${trialLeft} d` : 'Vencida'}
+                  </span>
+                ) : (
+                  day(t.nextChargeAt)
+                )}
+              </dd>
+            </div>
+            <div className="text-right">
+              <dt className="text-muted-foreground">Último acceso</dt>
+              <dd className={login === null || login > 14 ? 'text-destructive' : ''}>
+                {login === null ? 'Nunca' : login === 0 ? 'Hoy' : `Hace ${login} d`}
+              </dd>
+            </div>
+          </dl>
+          {t.healthLevel && (
+            <span
+              className={`mt-2 inline-block rounded px-1.5 py-0.5 text-xs ${HEALTH[t.healthLevel]?.className ?? ''}`}
+            >
+              Salud {t.healthScore} · {HEALTH[t.healthLevel]?.label}
+            </span>
+          )}
+        </Link>
+      </div>
+    </li>
   );
 }
 

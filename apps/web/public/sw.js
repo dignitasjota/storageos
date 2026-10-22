@@ -9,7 +9,7 @@
  * autenticadas, ni peticiones que no sean GET de mismo origen. El pago y las
  * facturas requieren red por diseño.
  */
-const CACHE = 'storageos-pwa-v3';
+const CACHE = 'storageos-pwa-v4';
 const PRECACHE = [
   '/offline.html',
   '/icon.svg',
@@ -17,6 +17,7 @@ const PRECACHE = [
   '/icon-512.png',
   '/manifest.webmanifest',
   '/manifest-staff.webmanifest',
+  '/manifest-admin.webmanifest',
 ];
 
 self.addEventListener('install', (event) => {
