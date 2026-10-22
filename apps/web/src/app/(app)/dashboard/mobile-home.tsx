@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
+import { OnboardingCard } from './onboarding-card';
+
 import type { Permission, TenantFeature } from '@storageos/shared';
 
 import { useFeatures, useMe, usePermissions } from '@/lib/auth/hooks';
@@ -112,6 +114,8 @@ export function MobileHome() {
         </h1>
         <p className="text-sm text-muted-foreground">¿Qué quieres hacer?</p>
       </div>
+
+      <OnboardingCard />
 
       {/* Búsqueda grande (lleva a clientes; el ⌘K del header también funciona) */}
       <Link

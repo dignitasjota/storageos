@@ -50,6 +50,19 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     icon: Building2,
     items: [
       {
+        href: '/settings/getting-started',
+        label: 'Puesta en marcha',
+        description: 'Lo que hay que configurar para operar y lo recomendado, con su estado.',
+        permission: 'settings:read',
+      },
+      {
+        href: '/settings/company',
+        label: 'Datos de tu empresa',
+        description:
+          'Razón social, NIF y domicilio fiscal: salen en tus facturas y textos legales.',
+        permission: 'billing:configure',
+      },
+      {
         href: '/settings/users',
         label: 'Usuarios',
         description: 'Tu equipo: invitar, editar, locales asignados y desactivar.',

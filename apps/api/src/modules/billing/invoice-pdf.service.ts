@@ -69,7 +69,17 @@ export class InvoicePdfService implements OnModuleDestroy {
       (tx) =>
         tx.tenant.findUniqueOrThrow({
           where: { id: tenantId },
-          select: { name: true, slug: true, taxId: true, country: true, billingEmail: true },
+          select: {
+            name: true,
+            slug: true,
+            taxId: true,
+            country: true,
+            billingEmail: true,
+            billingLegalName: true,
+            billingAddress: true,
+            billingPostalCode: true,
+            billingCity: true,
+          },
         }),
       tenantId,
     );
@@ -103,7 +113,22 @@ export class InvoicePdfService implements OnModuleDestroy {
             .join(', '),
           managedBy: tenant.name,
         }
-      : tenant;
+      : {
+          // Nombre comercial arriba; en «Emisor», la razón social y el domicilio
+          // fiscal (obligatorios en la factura, RD 1619/2012 art. 6).
+          name: tenant.name,
+          legalName: tenant.billingLegalName,
+          slug: tenant.slug,
+          taxId: tenant.taxId,
+          country: tenant.country,
+          billingEmail: tenant.billingEmail,
+          address: [
+            tenant.billingAddress,
+            [tenant.billingPostalCode, tenant.billingCity].filter(Boolean).join(' '),
+          ]
+            .filter(Boolean)
+            .join(', '),
+        };
     // En F2 puede no haber destinatario: customerId nullable desde
     // Fase 13A.3. Usamos un placeholder "Cliente sin identificar"
     // cuando no exista, manteniendo el PDF emitible.
@@ -212,6 +237,8 @@ export class InvoicePdfService implements OnModuleDestroy {
       country: string;
       billingEmail: string | null;
       address?: string;
+      /** Razón social si difiere del nombre comercial. */
+      legalName?: string | null;
       managedBy?: string;
     };
     customer: {
@@ -313,7 +340,7 @@ export class InvoicePdfService implements OnModuleDestroy {
 <div class="parties">
   <div class="party">
     <strong>Emisor</strong>
-    <div class="row">${escapeHtml(args.tenant.name)}</div>
+    <div class="row">${escapeHtml(args.tenant.legalName || args.tenant.name)}</div>
     ${args.tenant.taxId ? `<div class="row">NIF/CIF: ${args.tenant.taxId}</div>` : ''}
     ${args.tenant.address ? `<div class="row">${escapeHtml(args.tenant.address)}</div>` : ''}
     <div class="row">País: ${args.tenant.country}</div>

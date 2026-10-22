@@ -59,21 +59,32 @@ export interface TodayDto {
   retentionOffersPending: { count: number; items: TodayItemDto[] };
 }
 
-/** Un paso del onboarding del operador (primeros pasos guiados). */
+/** Un paso de la puesta en marcha del operador. */
 export interface OnboardingStepDto {
   key: string;
   label: string;
+  /** Qué es y por qué importa, en una línea. */
+  hint: string;
   done: boolean;
+  /** `required` = sin esto no se puede operar; `recommended` = mejora la experiencia. */
+  group: 'required' | 'recommended';
   /** Ruta a la que ir para completar el paso. */
   href: string;
+  /** Atajo alternativo (p. ej. importar desde un Excel). */
+  secondary?: { label: string; href: string };
 }
 
 /** Checklist de puesta en marcha del operador. */
 export interface OnboardingDto {
   steps: OnboardingStepDto[];
-  /** Pasos completados / total (0-1). */
+  /** Pasos imprescindibles completados / total (0-1). */
   progress: number;
+  /** Todos los imprescindibles hechos (la tarjeta del Resumen se oculta). */
   completed: boolean;
+  requiredDone: number;
+  requiredTotal: number;
+  recommendedDone: number;
+  recommendedTotal: number;
 }
 
 /** Cifras del mes en curso para la cabecera de «Hoy». */
