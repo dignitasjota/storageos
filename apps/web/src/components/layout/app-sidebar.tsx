@@ -108,7 +108,7 @@ interface NavGroup {
   items: NavItem[];
 }
 
-/** Items principales, fuera de cualquier grupo (siempre los primeros). */
+/** Items principales, fijos en la cabecera del menú (no se desplazan). */
 const PRIMARY_ITEMS: NavItem[] = [
   { href: '/today', labelKey: 'today', icon: Sun },
   { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
@@ -680,14 +680,10 @@ export function AppSidebar() {
             </>
           )}
         </Link>
+        {/* Hoy y Resumen, fijos arriba: no se desplazan con el resto del menú. */}
+        <SidebarMenu>{PRIMARY_ITEMS.map((item) => renderItem(item))}</SidebarMenu>
       </SidebarHeader>
-      <SidebarContent className="gap-0">
-        {/* Item principal suelto (sin cabecera de grupo), siempre el primero. */}
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>{PRIMARY_ITEMS.map((item) => renderItem(item))}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent className="scrollbar-subtle gap-0 border-y border-sidebar-border">
         {GROUPS.map((group) => {
           const items = group.items.filter((item) =>
             // Un submenú solo cuenta si le queda algún hijo visible.
