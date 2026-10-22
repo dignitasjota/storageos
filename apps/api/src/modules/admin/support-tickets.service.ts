@@ -2,15 +2,20 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PlatformService } from '../platform/platform.service';
 
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 
+import type { Env } from '../../config/env.schema';
 import type {
   AddTicketMessageInput,
   AdminSupportTicketsPageDto,
@@ -97,12 +102,20 @@ const VALID_TRANSITIONS: Record<SupportTicketStatusValue, SupportTicketStatusVal
  */
 @Injectable()
 export class SupportTicketsService {
+  private readonly logger = new Logger(SupportTicketsService.name);
+  private readonly webBaseUrl: string;
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly interactions: AdminTenantInteractionsService,
     private readonly platform: PlatformService,
-  ) {}
+    private readonly notifications: NotificationsService,
+    private readonly email: EmailService,
+    config: ConfigService<Env, true>,
+  ) {
+    this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true });
+  }
 
   // =========================== tenant facade ===============================
 
@@ -222,8 +235,9 @@ export class SupportTicketsService {
         authorAdmin: { select: { fullName: true } },
       },
     });
-    // Si el ticket estaba en waiting_user, vuelve a open (el cliente respondio).
-    if (ticket.status === 'waiting_user') {
+    // Si el ticket estaba esperando al cliente o resuelto, vuelve a open: la
+    // pelota pasa al admin (un «resuelto» que no lo estaba se reabre solo).
+    if (ticket.status === 'waiting_user' || ticket.status === 'resolved') {
       await this.admin.supportTicket.update({
         where: { id: args.ticketId },
         data: { status: 'open' },
@@ -244,6 +258,16 @@ export class SupportTicketsService {
       changes: { messageId: message.id },
       ipAddress: args.meta?.ipAddress ?? null,
       userAgent: args.meta?.userAgent ?? null,
+    });
+    // El admin se entera de que el tenant ha contestado (feed + push).
+    await this.platform.notify({
+      type: 'support_ticket',
+      title:
+        ticket.status === 'resolved'
+          ? `${ticket.tenant.name} reabre un ticket resuelto`
+          : `Respuesta de ${ticket.tenant.name}`,
+      body: `${ticket.subject}: ${args.input.body.slice(0, 140)}`,
+      link: `/admin/support/${args.ticketId}`,
     });
     return this.toMessageDto(message);
   }
@@ -356,6 +380,12 @@ export class SupportTicketsService {
       ipAddress: args.meta?.ipAddress ?? null,
       userAgent: args.meta?.userAgent ?? null,
     });
+    if (!args.input.isInternal) {
+      await this.noticeTenant(ticket, {
+        title: 'Soporte de TrasterOS te ha respondido',
+        body: args.input.body,
+      });
+    }
     return this.toMessageDto(message);
   }
 
@@ -401,6 +431,18 @@ export class SupportTicketsService {
       ipAddress: args.meta?.ipAddress ?? null,
       userAgent: args.meta?.userAgent ?? null,
     });
+    if (args.input.status === 'resolved' || args.input.status === 'closed') {
+      await this.noticeTenant(ticket, {
+        title:
+          args.input.status === 'resolved'
+            ? 'Hemos resuelto tu ticket de soporte'
+            : 'Hemos cerrado tu ticket de soporte',
+        body:
+          args.input.status === 'resolved'
+            ? 'Si el problema sigue, responde en el ticket y lo reabriremos.'
+            : 'Si necesitas algo más, abre un ticket nuevo desde Soporte.',
+      });
+    }
     return this.toDto(updated);
   }
 
@@ -445,10 +487,73 @@ export class SupportTicketsService {
       ipAddress: args.meta?.ipAddress ?? null,
       userAgent: args.meta?.userAgent ?? null,
     });
+    if (args.input.superAdminId && args.input.superAdminId !== ticket.assignedAdminId) {
+      await this.platform.notify({
+        type: 'support_ticket.assigned',
+        title: `Ticket asignado a ${updated.assignedAdmin?.fullName ?? 'un admin'}`,
+        body: `${ticket.tenant.name}: ${ticket.subject}`,
+        link: `/admin/support/${args.ticketId}`,
+      });
+    }
     return this.toDto(updated);
   }
 
   // ============================== helpers ==================================
+
+  /**
+   * Avisa al tenant de una respuesta o cambio del admin: notificación del panel
+   * (y push) a todo el equipo, y correo a quien abrió el ticket. Best-effort:
+   * un fallo del aviso no deshace la respuesta.
+   */
+  private async noticeTenant(
+    ticket: TicketWithRelations,
+    msg: { title: string; body: string },
+  ): Promise<void> {
+    const link = `/support/${ticket.id}`;
+    try {
+      await this.notifications.create(ticket.tenantId, {
+        type: 'support.reply',
+        title: msg.title,
+        body: `${ticket.subject}: ${msg.body.slice(0, 140)}`,
+        link,
+      });
+    } catch (err) {
+      this.logger.warn(`[support] aviso in-app: ${(err as Error).message}`);
+    }
+    if (!ticket.createdByUserId) return;
+    const author = await this.admin.user.findFirst({
+      where: { id: ticket.createdByUserId, isActive: true },
+      select: { email: true, fullName: true },
+    });
+    if (!author) return;
+    const url = `${this.webBaseUrl}${link}`;
+    const escape = (v: string) =>
+      v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const text = [
+      `Hola ${author.fullName},`,
+      '',
+      `${msg.title} (ticket «${ticket.subject}»):`,
+      '',
+      msg.body,
+      '',
+      `Ver el ticket y responder: ${url}`,
+    ].join('\n');
+    const html =
+      `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:14px;color:#111;line-height:1.6">` +
+      `<p>Hola ${escape(author.fullName)},</p>` +
+      `<p>${escape(msg.title)} (ticket «${escape(ticket.subject)}»):</p>` +
+      `<blockquote style="margin:0;padding:8px 12px;border-left:3px solid #2563eb;background:#f8fafc">${escape(msg.body).replace(/\n/g, '<br>')}</blockquote>` +
+      `<p><a href="${url}" style="color:#2563eb">Ver el ticket y responder</a></p></div>`;
+    void this.email
+      .sendRendered({
+        to: author.email,
+        kind: 'admin_message',
+        subject: `${msg.title}: ${ticket.subject}`,
+        html,
+        text,
+      })
+      .catch((err) => this.logger.warn(`[support] correo: ${(err as Error).message}`));
+  }
 
   private async findForTenant(tenantId: string, ticketId: string): Promise<TicketWithRelations> {
     const row = await this.admin.supportTicket.findFirst({
