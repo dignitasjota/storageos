@@ -36,6 +36,7 @@ import type {
   CustomerDto,
   EmailSuppressionDto,
   CustomerInteractionDto,
+  CustomerConversationDto,
   CustomerMessageDto,
   CustomerUnreadSummaryDto,
   PortalMagicLinkDto,
@@ -580,6 +581,20 @@ export function useRevokePortalSessions(customerId: string) {
 }
 
 // --- Chat con el inquilino ---------------------------------------------------
+
+/** Bandeja «Mensajes»: conversaciones por último mensaje, con los no leídos de quien mira. */
+export function useCustomerConversations(facilityId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['customers', 'conversations', facilityId ?? 'all'] as const,
+    queryFn: () =>
+      apiFetch<CustomerConversationDto[]>(
+        `/customer-messages/conversations${facilityId ? `?facilityId=${facilityId}` : ''}`,
+      ),
+    enabled,
+    refetchInterval: 20_000,
+    refetchIntervalInBackground: false,
+  });
+}
 
 export function useCustomerMessages(id: string | undefined, enabled = true) {
   return useQuery({

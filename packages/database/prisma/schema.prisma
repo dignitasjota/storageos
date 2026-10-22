@@ -596,6 +596,7 @@ model Tenant {
   whatsappConversations          WhatsappConversation[]
   whatsappMessages               WhatsappMessage[]
   customerOffers          CustomerOffer[]
+  customerMessageReads CustomerMessageRead[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -683,6 +684,7 @@ model User {
   customerOffers       CustomerOffer[]        @relation("CustomerOfferAuthor")
   pushSubscriptions  PushSubscription[]
 
+  customerMessageReads CustomerMessageRead[]
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
@@ -1236,6 +1238,7 @@ model Customer {
   couponRedemptions CouponRedemption[]
 
   offers                 CustomerOffer[]
+  messageReads         CustomerMessageRead[]
   @@index([tenantId])
   @@index([tenantId, deletedAt])
   @@index([tenantId, documentNumber])
@@ -4288,6 +4291,22 @@ model CustomerInteraction {
 
 /// Chat bidireccional entre el inquilino (portal) y el staff. Un hilo por
 /// cliente; `senderType` distingue quién escribió.
+/// Hasta cuándo ha leído cada usuario del equipo la conversación con un inquilino.
+model CustomerMessageRead {
+  customerId String   @map("customer_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  lastReadAt DateTime @default(now()) @map("last_read_at") @db.Timestamptz(6)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, userId])
+  @@index([tenantId, userId], map: "customer_message_reads_tenant_user_idx")
+  @@map("customer_message_reads")
+}
+
 model CustomerMessage {
   id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId     String    @map("tenant_id") @db.Uuid

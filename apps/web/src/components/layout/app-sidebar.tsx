@@ -32,6 +32,7 @@ import {
   LifeBuoy,
   Mail,
   Megaphone,
+  Inbox,
   MessageCircle,
   MousePointerClick,
   Package,
@@ -115,6 +116,7 @@ const GROUPS: NavGroup[] = [
     labelKey: 'operations',
     items: [
       { href: '/customers', labelKey: 'customers', icon: Users, permission: 'customers:read' },
+      { href: '/messages', labelKey: 'messages', icon: Inbox, permission: 'customers:read' },
       {
         href: 'ops-contracting',
         labelKey: 'contracts',
@@ -504,7 +506,7 @@ export function AppSidebar() {
   function badgeCount(href: string): number {
     if (href === '/unit-change-requests') return unitChangePending;
     if (href === '/unit-requests') return unitRequestPending;
-    if (href === '/customers') return unreadMessages;
+    if (href === '/messages') return unreadMessages;
     if (href === '/whatsapp') return whatsappUnread;
     if (href === '/incidents') return incidentCounts.reported + incidentCounts.investigating;
     return 0;
@@ -531,7 +533,7 @@ export function AppSidebar() {
         <SidebarMenuBadge className="bg-emerald-600 text-white">{whatsappUnread}</SidebarMenuBadge>
       );
     }
-    if (href === '/customers' && unreadMessages > 0) {
+    if (href === '/messages' && unreadMessages > 0) {
       return (
         <SidebarMenuBadge className="bg-blue-500 text-white">{unreadMessages}</SidebarMenuBadge>
       );

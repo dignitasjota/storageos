@@ -47,6 +47,7 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
   useEffect(() => {
     if (messages.isSuccess) {
       void qc.invalidateQueries({ queryKey: ['customers', 'unread-summary'] });
+      void qc.invalidateQueries({ queryKey: ['customers', 'conversations'] });
     }
   }, [messages.isSuccess, messages.dataUpdatedAt, qc]);
 

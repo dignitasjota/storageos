@@ -8,7 +8,7 @@ import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
 
-import type { CustomerMessageDto } from '@storageos/shared';
+import type { CustomerConversationDto, CustomerMessageDto } from '@storageos/shared';
 
 const messageInclude = {
   sender: { select: { fullName: true } },
@@ -46,28 +46,112 @@ export class CustomerMessagesService {
   ) {}
 
   /**
-   * Resumen de mensajes del inquilino sin leer por el staff (para los badges del
-   * menú/lista/ficha): total y desglose por cliente.
+   * Mensajes de inquilinos que ESTE usuario aún no ha leído (badges del menú,
+   * la lista de inquilinos y la ficha): total y por cliente. Cuenta los
+   * posteriores a su última lectura de cada conversación (o a su alta, si
+   * nunca la abrió: un usuario nuevo no hereda el historial como pendiente).
    */
   async unreadSummary(
     tenantId: string,
+    userId: string,
   ): Promise<{ total: number; byCustomer: Record<string, number> }> {
     const rows = await this.prisma.withTenant(
-      (tx) =>
-        tx.customerMessage.groupBy({
-          by: ['customerId'],
-          where: { tenantId, senderType: 'customer', readAt: null },
-          _count: { _all: true },
-        }),
+      (tx) => tx.$queryRaw<{ customer_id: string; n: number }[]>`
+        SELECT m.customer_id, count(*)::int AS n
+        FROM customer_messages m
+        JOIN customers c ON c.id = m.customer_id AND c.deleted_at IS NULL
+        LEFT JOIN customer_message_reads r
+          ON r.customer_id = m.customer_id AND r.user_id = ${userId}::uuid
+        WHERE m.tenant_id = ${tenantId}::uuid
+          AND m.sender_type = 'customer'
+          AND m.created_at > COALESCE(
+            r.last_read_at,
+            (SELECT u.created_at FROM users u WHERE u.id = ${userId}::uuid)
+          )
+        GROUP BY m.customer_id`,
       tenantId,
     );
     const byCustomer: Record<string, number> = {};
     let total = 0;
     for (const r of rows) {
-      byCustomer[r.customerId] = r._count._all;
-      total += r._count._all;
+      byCustomer[r.customer_id] = r.n;
+      total += r.n;
     }
     return { total, byCustomer };
+  }
+
+  /**
+   * Bandeja «Mensajes»: las conversaciones con su último mensaje, de la más
+   * reciente a la más antigua, con los no leídos de quien mira. Con locales
+   * (filtro o alcance del usuario), solo inquilinos con algún contrato en ellos.
+   */
+  async conversations(
+    tenantId: string,
+    userId: string,
+    facilityIds: string[] | null,
+  ): Promise<CustomerConversationDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) => tx.$queryRaw<
+        {
+          customer_id: string;
+          body: string;
+          sender_type: string;
+          channel: string;
+          created_at: Date;
+          customer_type: string;
+          first_name: string | null;
+          last_name: string | null;
+          company_name: string | null;
+          unread: number;
+        }[]
+      >`
+        WITH last AS (
+          SELECT DISTINCT ON (m.customer_id)
+            m.customer_id, m.body, m.sender_type, m.channel, m.created_at
+          FROM customer_messages m
+          WHERE m.tenant_id = ${tenantId}::uuid
+          ORDER BY m.customer_id, m.created_at DESC
+        )
+        SELECT l.customer_id, l.body, l.sender_type, l.channel, l.created_at,
+          c.customer_type::text AS customer_type, c.first_name, c.last_name, c.company_name,
+          (
+            SELECT count(*)::int FROM customer_messages x
+            WHERE x.tenant_id = ${tenantId}::uuid
+              AND x.customer_id = l.customer_id
+              AND x.sender_type = 'customer'
+              AND x.created_at > COALESCE(
+                (SELECT r.last_read_at FROM customer_message_reads r
+                  WHERE r.customer_id = l.customer_id AND r.user_id = ${userId}::uuid),
+                (SELECT u.created_at FROM users u WHERE u.id = ${userId}::uuid)
+              )
+          ) AS unread
+        FROM last l
+        JOIN customers c ON c.id = l.customer_id AND c.deleted_at IS NULL
+        WHERE ${facilityIds}::uuid[] IS NULL OR EXISTS (
+          SELECT 1 FROM contracts k
+          JOIN units u ON u.id = k.unit_id
+          WHERE k.customer_id = l.customer_id
+            AND k.deleted_at IS NULL
+            AND u.facility_id = ANY(${facilityIds}::uuid[])
+        )
+        ORDER BY l.created_at DESC
+        LIMIT 200`,
+      tenantId,
+    );
+    return rows.map((r) => ({
+      customerId: r.customer_id,
+      customerName:
+        r.customer_type === 'business'
+          ? (r.company_name ?? 'Empresa')
+          : [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || 'Cliente',
+      lastMessage: {
+        body: r.body.length > 200 ? `${r.body.slice(0, 200)}…` : r.body,
+        senderType: r.sender_type as 'customer' | 'staff',
+        channel: (r.channel ?? 'portal') as 'portal' | 'whatsapp' | 'email',
+        createdAt: r.created_at.toISOString(),
+      },
+      unread: r.unread,
+    }));
   }
 
   /** Mensajes del staff que el inquilino aún no ha leído (badge del portal). */
@@ -105,6 +189,8 @@ export class CustomerMessagesService {
     tenantId: string,
     customerId: string,
     viewer: 'staff' | 'customer',
+    /** Usuario del equipo que lo abre: su leído propio de esta conversación. */
+    userId?: string,
   ): Promise<CustomerMessageDto[]> {
     await this.assertCustomer(tenantId, customerId);
     // El staff lee los del inquilino y viceversa.
@@ -114,6 +200,14 @@ export class CustomerMessagesService {
         where: { tenantId, customerId, senderType: otherSide, readAt: null },
         data: { readAt: new Date() },
       });
+      if (viewer === 'staff' && userId) {
+        const now = new Date();
+        await tx.customerMessageRead.upsert({
+          where: { customerId_userId: { customerId, userId } },
+          create: { customerId, userId, tenantId, lastReadAt: now },
+          update: { lastReadAt: now },
+        });
+      }
       return tx.customerMessage.findMany({
         where: { tenantId, customerId },
         include: messageInclude,
