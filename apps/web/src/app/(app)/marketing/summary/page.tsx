@@ -90,6 +90,12 @@ const KPIS: Kpi[] = [
   { label: 'Gasto en marketing', value: (f) => f.spend, money: true },
   { label: 'Sesiones (Google Analytics)', value: (f) => f.ga4Sessions },
   { label: 'Clics desde Google', value: (f) => f.searchClicks },
+  { label: 'Alcance en redes', value: (f) => f.socialReach, hint: 'Instagram y Facebook' },
+  {
+    label: 'Seguidores en redes',
+    value: (f) => f.socialFollowers,
+    hint: 'Instagram y Facebook, al final del mes',
+  },
 ];
 
 export default function MarketingSummaryPage() {

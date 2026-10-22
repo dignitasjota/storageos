@@ -195,7 +195,7 @@ export class MarketingSummaryService {
     const [web, extra] = await Promise.all([
       this.web.reportRange(tenantId, { since, until, fromDay: from, toDay: to }, days),
       this.prisma.withTenant(async (tx) => {
-        const [allContacts, spend, ads, ga4, gsc] = await Promise.all([
+        const [allContacts, spend, ads, ga4, gsc, social] = await Promise.all([
           tx.lead.count({ where: { deletedAt: null, createdAt: { gte: since, lt: until } } }),
           tx.expense.aggregate({
             where: { category: 'marketing', expenseDate: { gte: day(from), lte: day(to) } },
@@ -207,8 +207,9 @@ export class MarketingSummaryService {
           }),
           tx.tenantGa4.findUnique({ where: { tenantId }, select: { status: true } }),
           tx.tenantSearchConsole.findUnique({ where: { tenantId }, select: { status: true } }),
+          tx.tenantSocialAccount.findUnique({ where: { tenantId }, select: { id: true } }),
         ]);
-        const [ga4Sessions, searchClicks] = await Promise.all([
+        const [ga4Sessions, searchClicks, socialRows] = await Promise.all([
           ga4?.status === 'connected'
             ? tx.ga4SourceRow
                 .aggregate({
@@ -225,13 +226,34 @@ export class MarketingSummaryService {
                 })
                 .then((r) => r._sum.clicks ?? 0)
             : Promise.resolve(null),
+          social
+            ? tx.socialDailyMetric.findMany({
+                where: { date: { lte: day(to) } },
+                select: { network: true, date: true, reach: true, followers: true },
+                orderBy: { date: 'asc' },
+              })
+            : Promise.resolve(null),
         ]);
+        // Seguidores: el último dato de cada red hasta el fin del mes.
+        let socialFollowers: number | null = null;
+        let socialReach: number | null = null;
+        if (socialRows) {
+          const last = new Map<string, number>();
+          socialReach = 0;
+          for (const r of socialRows) {
+            if (r.followers != null) last.set(r.network, r.followers);
+            if (r.date >= day(from)) socialReach += r.reach ?? 0;
+          }
+          socialFollowers = last.size > 0 ? [...last.values()].reduce((a, b) => a + b, 0) : null;
+        }
         return {
           allContacts,
           spend: Math.round(Number(spend._sum.amount ?? 0) * 100) / 100,
           adClicks: ads._sum.clicks ?? 0,
           ga4Sessions,
           searchClicks,
+          socialFollowers,
+          socialReach,
         };
       }, tenantId),
     ]);
@@ -268,6 +290,7 @@ export class MarketingSummaryService {
               externalCampaignId: { not: null },
             },
           }),
+          social: await tx.tenantSocialAccount.count(),
           links: await tx.marketingChannel.count({
             where: { deletedAt: null, utmSourceMatch: { not: null } },
           }),
@@ -282,6 +305,7 @@ export class MarketingSummaryService {
       channelsWithLinks: data.links,
       webPremium: features.includes('web_premium'),
       localSeo: features.includes('local_seo'),
+      social: data.social > 0,
     };
   }
 
@@ -302,6 +326,16 @@ export class MarketingSummaryService {
     }
     if (c.searchClicks != null) {
       rows.push(['Clics desde Google', int(c.searchClicks), int(p.searchClicks ?? 0)]);
+    }
+    if (c.socialReach != null) {
+      rows.push(['Alcance en Instagram y Facebook', int(c.socialReach), int(p.socialReach ?? 0)]);
+    }
+    if (c.socialFollowers != null) {
+      rows.push([
+        'Seguidores en Instagram y Facebook',
+        int(c.socialFollowers),
+        p.socialFollowers != null ? int(p.socialFollowers) : '—',
+      ]);
     }
     const base = this.config.get('WEB_BASE_URL', { infer: true });
     const url = `${base}/marketing/summary`;

@@ -15,6 +15,7 @@ import type {
   MarketingSummaryDto,
   MetaAdsSettingsDto,
   ConnectSocialInput,
+  SocialReportDto,
   SocialSettingsDto,
   SuggestAdCampaignInput,
   SyncAdSpendInput,
@@ -127,6 +128,14 @@ export function useSocialSettings(enabled = true) {
     queryKey: [...socialKey, 'settings'],
     queryFn: () => apiFetch<SocialSettingsDto>('/marketing/social'),
     enabled,
+  });
+}
+
+/** Cifras de Instagram y Facebook de los últimos `days` días. */
+export function useSocialReport(days: number) {
+  return useQuery({
+    queryKey: [...socialKey, 'report', days],
+    queryFn: () => apiFetch<SocialReportDto>(`/marketing/social/report?days=${days}`),
   });
 }
 

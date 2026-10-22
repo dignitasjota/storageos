@@ -7,7 +7,7 @@ import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-f
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
-import type { SocialSettingsDto } from '@storageos/shared';
+import type { MarketingSummaryDto, SocialReportDto, SocialSettingsDto } from '@storageos/shared';
 
 // Meta va simulada (NODE_ENV=test): un token `invalid…` falla y uno `multi…`
 // da acceso a dos páginas.
@@ -115,5 +115,63 @@ describe('Instagram y Facebook orgánico (e2e)', () => {
     expect(await admin.socialPost.count({ where: { tenantId } })).toBe(0);
 
     await http().get('/marketing/social').expect(401);
+  });
+
+  it('informe por red, mejores publicaciones, visitas desde redes y su paso al resumen', async () => {
+    const owner = await registerVerifiedUser(app, 'social-report');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+
+    // Sin conectar, el resumen propone conectar.
+    const before = await http().get('/marketing/summary').set(auth).expect(200);
+    expect((before.body as MarketingSummaryDto).connections.social).toBe(false);
+    expect(
+      (before.body as MarketingSummaryDto).tips.find((t) => t.text.startsWith('Conecta Instagram')),
+    ).toMatchObject({ kind: 'info', href: '/marketing/social' });
+
+    await http()
+      .put('/marketing/social')
+      .set(auth)
+      .send({ accessToken: 'page-token-0000000000000000' })
+      .expect(200);
+    // Un visitante que llega desde Instagram.
+    await http()
+      .post(`/public/landing/${owner.slug}/events`)
+      .set('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile/15E148')
+      .send({ visitorId: 'visitor-social-01', kind: 'page_view', path: '/', source: 'instagram' })
+      .expect(204);
+
+    const res = await http().get('/marketing/social/report?days=30').set(auth).expect(200);
+    const report = res.body as SocialReportDto;
+    expect(report.days).toBe(30);
+    expect(report.networks.map((n) => n.network)).toEqual(['instagram', 'facebook']);
+    const ig = report.networks[0]!;
+    expect(ig.followers).toBe(1500);
+    expect(ig.totals.reach).toBeGreaterThan(0);
+    expect(ig.daily).toHaveLength(30);
+    expect(report.topPosts.length).toBeGreaterThan(0);
+    expect(report.topPosts.length).toBeLessThanOrEqual(6);
+    // Ordenadas: primero la de más alcance (las de Instagram lo traen).
+    expect(report.topPosts[0]!.network).toBe('instagram');
+    expect(report.web).toEqual([
+      { network: 'instagram', visitors: 1, contacts: 0, bookings: 0 },
+      { network: 'facebook', visitors: 0, contacts: 0, bookings: 0 },
+    ]);
+
+    const month = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Madrid',
+      year: 'numeric',
+      month: '2-digit',
+    })
+      .format(new Date())
+      .slice(0, 7);
+    const summary = (await http().get(`/marketing/summary?month=${month}`).set(auth).expect(200))
+      .body as MarketingSummaryDto;
+    expect(summary.connections.social).toBe(true);
+    expect(summary.current.socialReach).not.toBeNull();
+    // Ya no propone conectar (puede haber otros consejos sobre redes).
+    expect(summary.tips.find((t) => t.text.startsWith('Conecta Instagram'))).toBeUndefined();
+
+    await http().get('/marketing/social/report').expect(401);
   });
 });

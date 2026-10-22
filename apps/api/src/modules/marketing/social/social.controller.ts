@@ -1,5 +1,9 @@
-import { Body, Controller, Delete, Get, Post, Put } from '@nestjs/common';
-import { ConnectSocialSchema, type SocialSettingsDto } from '@storageos/shared';
+import { Body, Controller, Delete, Get, Post, Put, Query } from '@nestjs/common';
+import {
+  ConnectSocialSchema,
+  type SocialReportDto,
+  type SocialSettingsDto,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -46,5 +50,14 @@ export class SocialController {
   async sync(@CurrentUser() user: AuthenticatedUser): Promise<SocialSettingsDto> {
     await this.social.sync(user.tenantId);
     return this.social.settings(user.tenantId);
+  }
+
+  @RequirePermission('marketing:read')
+  @Get('report')
+  report(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('days') days?: string,
+  ): Promise<SocialReportDto> {
+    return this.social.report(user.tenantId, Number(days) || 30);
   }
 }

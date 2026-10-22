@@ -416,7 +416,9 @@ function stubDaily(page: MetaPage, start: string, end: string): SocialDailyInput
 function stubPosts(page: MetaPage, since: string): SocialPostInput[] {
   const out: SocialPostInput[] = [];
   for (let i = 0; i < 4; i++) {
-    const date = shiftDate(since, 10 + i * 15);
+    // Hace 3, 23, 43 y 63 días (dentro de los 90 que se piden).
+    const date = shiftDate(new Date().toISOString().slice(0, 10), -(3 + i * 20));
+    if (date < since) continue;
     out.push({
       network: 'instagram',
       externalId: `ig-${page.id}-${i}`,
