@@ -472,8 +472,10 @@
       "hint": "Podrás añadir locales cuando tengamos la Fase 2."
     },
     "trialBanner": {
-      "remaining": "Trial — quedan {days, plural, =0 {hoy es el último día} =1 {1 día} other {# días}}",
-      "ended": "Tu prueba ha terminado."
+      "remaining": "Prueba gratuita — quedan {days, plural, =0 {hoy es el último día} =1 {1 día} other {# días}}",
+      "ended": "Tu prueba ha terminado.",
+      "endingSoon": "Después pasarás al plan Gratis, con menos trasteros, locales y usuarios.",
+      "choosePlan": "Elegir plan"
     },
     "theme": {
       "light": "Claro",
@@ -550,6 +552,7 @@
     "reports": "Informes",
     "reviews": "Valoraciones",
     "support": "Soporte",
+    "help": "Cómo funciona",
     "updates": "Novedades",
     "settings": "Configuración",
     "collections": "Impagos",

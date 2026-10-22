@@ -6,6 +6,7 @@ import {
   BarChart3,
   SearchCheck,
   CalendarCheck,
+  BookOpen,
   Bot,
   Boxes,
   Building2,
@@ -723,6 +724,18 @@ export function AppSidebar() {
                 {updatesUnread}
               </SidebarMenuBadge>
             )}
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === '/help'}
+              className="data-[active=true]:font-medium"
+            >
+              <Link href="/help">
+                <BookOpen />
+                <span>{t('help')}</span>
+              </Link>
+            </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton

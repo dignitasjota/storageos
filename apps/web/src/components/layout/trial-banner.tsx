@@ -1,6 +1,7 @@
 'use client';
 
 import { Clock } from 'lucide-react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { useMe } from '@/lib/auth/hooks';
@@ -13,7 +14,7 @@ function daysUntil(iso: string | null): number | null {
 
 /**
  * Banner sutil debajo del header cuando el tenant esta en estado `trial`.
- * Si la prueba ya termino, mostramos el aviso correspondiente.
+ * En la última semana avisa de que pasará al plan Gratis y enlaza a elegir plan.
  */
 export function TrialBanner() {
   const t = useTranslations('appHeader.trialBanner');
@@ -30,6 +31,16 @@ export function TrialBanner() {
       <div className="container flex h-9 items-center gap-2 text-xs font-medium">
         <Clock className="size-3.5" aria-hidden />
         <span>{days > 0 ? t('remaining', { days }) : t('ended')}</span>
+        {days <= 7 && (
+          <>
+            <span className="hidden font-normal text-muted-foreground sm:inline">
+              {t('endingSoon')}
+            </span>
+            <Link href="/settings/saas-billing" className="underline underline-offset-2">
+              {t('choosePlan')}
+            </Link>
+          </>
+        )}
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ import { RevenueTrendCard } from './revenue-trend-card';
 import { SeoNudgeCard } from './seo-nudge-card';
 import { SuggestedActionsCard } from './suggested-actions-card';
 
+import { useOnboarding } from '@/components/onboarding/onboarding-steps';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -37,6 +38,9 @@ export function DashboardContent() {
   const canSeeAnalytics = useHasPermission('analytics:read');
   const hasLocalSeo = useHasFeature('local_seo');
   const isMobile = useIsMobile();
+  const onboarding = useOnboarding();
+  // Hasta el primer contrato las cifras salen todas a cero: no se enseñan.
+  const hasFirstContract = onboarding.data?.steps.find((s) => s.key === 'contract')?.done ?? true;
 
   // En móvil, un «home tipo app» con acciones grandes en vez del dashboard de
   // métricas (más ágil para operar desde el local).
@@ -96,7 +100,14 @@ export function DashboardContent() {
 
       <QuickActions />
 
-      {canSeeAnalytics ? (
+      {canSeeAnalytics && !hasFirstContract ? (
+        <Card className="border-dashed">
+          <CardContent className="py-6 text-sm text-muted-foreground">
+            Aquí verás tus ingresos, la ocupación, la morosidad y las previsiones en cuanto tengas
+            tu primer contrato.
+          </CardContent>
+        </Card>
+      ) : canSeeAnalytics ? (
         <>
           <SuggestedActionsCard />
 
