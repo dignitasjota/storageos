@@ -86,17 +86,13 @@ interface AdminNavGroup {
   children: AdminNavItem[];
 }
 
-type AdminNavEntry = AdminNavItem | AdminNavGroup;
-
-function isGroup(e: AdminNavEntry): e is AdminNavGroup {
-  return 'children' in e;
-}
-
-// Menú agrupado: los items afines cuelgan de un grupo desplegable; «Soporte»
-// queda suelto (lleva badge). La página de 2FA del super admin (/admin/security)
-// vive en el menú de usuario, no aquí.
-const ADMIN_NAV: AdminNavEntry[] = [
-  { href: '/admin/today', label: 'Hoy', icon: CalendarCheck },
+// Menú agrupado por lo que el admin quiere hacer: ver números (Negocio), actuar
+// sobre tenants, cobrar, vender, comunicar, configurar la plataforma y vigilar.
+// «Hoy» y «Soporte» van fijos fuera del desplazamiento (Soporte lleva badge).
+// La página de 2FA del super admin (/admin/security) vive en el menú de usuario.
+const ADMIN_NAV_TOP: AdminNavItem = { href: '/admin/today', label: 'Hoy', icon: CalendarCheck };
+const ADMIN_NAV_BOTTOM: AdminNavItem = { href: '/admin/support', label: 'Soporte', icon: LifeBuoy };
+const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'Negocio',
     icon: BarChart3,
@@ -105,9 +101,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/finance', label: 'Finanzas', icon: Wallet },
       { href: '/admin/health', label: 'Salud', icon: HeartPulse },
       { href: '/admin/adoption', label: 'Adopción', icon: TrendingUp },
-      { href: '/admin/opportunities', label: 'Oportunidades', icon: Sparkles },
-      { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
-      { href: '/admin/trials', label: 'Trials', icon: Hourglass },
+      { href: '/admin/usage', label: 'Uso por tenant', icon: HardDrive },
     ],
   },
   {
@@ -116,26 +110,34 @@ const ADMIN_NAV: AdminNavEntry[] = [
     children: [
       { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
       { href: '/admin/followups', label: 'Seguimientos', icon: CalendarClock },
+      { href: '/admin/trials', label: 'Trials', icon: Hourglass },
+      { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
+      { href: '/admin/opportunities', label: 'Oportunidades', icon: Sparkles },
+      { href: '/admin/billing-health', label: 'Problemas de facturación', icon: FileWarning },
       { href: '/admin/custom-domains', label: 'Dominios propios', icon: Globe },
-      { href: '/admin/billing-health', label: 'Facturación de los tenants', icon: FileWarning },
-      { href: '/admin/usage', label: 'Uso por tenant', icon: HardDrive },
     ],
   },
   {
-    label: 'Facturación',
-    icon: Package,
+    label: 'Cobros',
+    icon: CreditCard,
     children: [
       { href: '/admin/receivables', label: 'Cobros pendientes', icon: AlertTriangle },
       { href: '/admin/billing-calendar', label: 'Calendario de cobros', icon: CalendarClock },
-      { href: '/admin/quote', label: 'Simulador de cuota', icon: Calculator },
+      { href: '/admin/platform-billing', label: 'Facturas emitidas', icon: FileText },
+      { href: '/admin/platform-dunning', label: 'Recordatorios de impago', icon: BellRing },
+      { href: '/admin/platform-sepa', label: 'Cuenta SEPA (BBVA)', icon: Landmark },
+      { href: '/admin/platform-sepa/remittances', label: 'Remesas SEPA', icon: Landmark },
+    ],
+  },
+  {
+    label: 'Catálogo y precios',
+    icon: Package,
+    children: [
       { href: '/admin/plans', label: 'Planes', icon: Package },
       { href: '/admin/addons', label: 'Add-ons', icon: PackagePlus },
-      { href: '/admin/platform-billing', label: 'Facturación SaaS', icon: FileText },
-      { href: '/admin/platform-dunning', label: 'Dunning SaaS', icon: BellRing },
-      { href: '/admin/platform-sepa', label: 'SEPA (BBVA)', icon: Landmark },
-      { href: '/admin/platform-sepa/remittances', label: 'Remesas SEPA', icon: Landmark },
       { href: '/admin/coupons', label: 'Cupones', icon: Ticket },
-      { href: '/admin/payments', label: 'Cobros de los tenants', icon: CreditCard },
+      { href: '/admin/quote', label: 'Simulador de cuota', icon: Calculator },
+      { href: '/admin/payments', label: 'Comisión por cobros con tarjeta', icon: CreditCard },
     ],
   },
   {
@@ -145,32 +147,31 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
       { href: '/admin/product-updates', label: 'Novedades', icon: Sparkles },
       { href: '/admin/platform-banner', label: 'Banner y avisos', icon: BellRing },
+      { href: '/admin/email-log', label: 'Correos enviados', icon: Inbox },
+    ],
+  },
+  {
+    label: 'Plataforma',
+    icon: Globe,
+    children: [
       { href: '/admin/website', label: 'Web de TrasterOS', icon: Globe },
-      { href: '/admin/platform-alerts', label: 'Alertas', icon: BellRing },
+      { href: '/admin/legal', label: 'Páginas legales', icon: FileText },
       { href: '/admin/email', label: 'Correo saliente', icon: Mail },
       { href: '/admin/whatsapp-ai', label: 'IA de WhatsApp', icon: MessageCircle },
-      { href: '/admin/email-log', label: 'Correos enviados', icon: Inbox },
-      { href: '/admin/legal', label: 'Páginas legales', icon: FileText },
+      { href: '/admin/platform-alerts', label: 'Alertas al admin', icon: BellRing },
     ],
   },
-  { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
   {
-    label: 'Seguridad',
+    label: 'Seguridad y sistema',
     icon: ShieldCheck,
     children: [
-      { href: '/admin/security-dashboard', label: 'Dashboard seguridad', icon: Gauge },
+      { href: '/admin/security-dashboard', label: 'Seguridad', icon: Gauge },
       { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },
-      { href: '/admin/audit-logs', label: 'Audit logs', icon: ScrollText },
+      { href: '/admin/audit-logs', label: 'Registro de acciones', icon: ScrollText },
       { href: '/admin/impersonation', label: 'Impersonaciones', icon: Eye },
       { href: '/admin/super-admins', label: 'Super admins', icon: UserCog },
-    ],
-  },
-  {
-    label: 'Sistema',
-    icon: Layers,
-    children: [
       { href: '/admin/queues', label: 'Sistema y colas', icon: Layers },
-      { href: '/admin/webhooks-cleanup', label: 'Cleanup webhooks', icon: Trash2 },
+      { href: '/admin/webhooks-cleanup', label: 'Limpieza de webhooks', icon: Trash2 },
     ],
   },
 ];
@@ -370,60 +371,64 @@ function AdminNavLinks({
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
+  const link = (item: AdminNavItem) => (
+    <AdminNavLink
+      item={item}
+      pathname={pathname}
+      openTickets={openTickets}
+      urgentToday={urgentToday}
+      onNavigate={onNavigate}
+    />
+  );
+
   return (
-    <nav className="flex-1 space-y-1 px-2 py-3">
-      {ADMIN_NAV.map((entry) => {
-        if (!isGroup(entry)) {
+    <nav className="flex min-h-0 flex-1 flex-col">
+      {/* «Hoy» fijo arriba: no se desplaza con los grupos. */}
+      <div className="border-b border-border px-2 py-2">{link(ADMIN_NAV_TOP)}</div>
+      <div className="scrollbar-subtle min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-3">
+        {ADMIN_NAV.map((entry) => {
+          const hasActiveChild = entry.children.some((c) => isActive(c.href));
+          const open = openGroups[entry.label] ?? hasActiveChild;
+          const Icon = entry.icon;
           return (
-            <AdminNavLink
-              key={entry.href}
-              item={entry}
-              pathname={pathname}
-              openTickets={openTickets}
-              urgentToday={urgentToday}
-              onNavigate={onNavigate}
-            />
-          );
-        }
-        const hasActiveChild = entry.children.some((c) => isActive(c.href));
-        const open = openGroups[entry.label] ?? hasActiveChild;
-        const Icon = entry.icon;
-        return (
-          <div key={entry.label}>
-            <button
-              type="button"
-              onClick={() => setOpenGroups((s) => ({ ...s, [entry.label]: !open }))}
-              className={cn(
-                'flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-                hasActiveChild
-                  ? 'font-medium text-foreground'
-                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+            <div key={entry.label}>
+              <button
+                type="button"
+                onClick={() => setOpenGroups((s) => ({ ...s, [entry.label]: !open }))}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
+                  hasActiveChild
+                    ? 'font-medium text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+                )}
+              >
+                <Icon className="size-4" />
+                {entry.label}
+                <ChevronDown
+                  className={cn('ml-auto size-4 transition-transform', open ? '' : '-rotate-90')}
+                />
+              </button>
+              {open && (
+                <div className="mt-1 space-y-1">
+                  {entry.children.map((child) => (
+                    <AdminNavLink
+                      key={child.href}
+                      item={child}
+                      pathname={pathname}
+                      openTickets={openTickets}
+                      urgentToday={urgentToday}
+                      onNavigate={onNavigate}
+                      nested
+                    />
+                  ))}
+                </div>
               )}
-            >
-              <Icon className="size-4" />
-              {entry.label}
-              <ChevronDown
-                className={cn('ml-auto size-4 transition-transform', open ? '' : '-rotate-90')}
-              />
-            </button>
-            {open && (
-              <div className="mt-1 space-y-1">
-                {entry.children.map((child) => (
-                  <AdminNavLink
-                    key={child.href}
-                    item={child}
-                    pathname={pathname}
-                    openTickets={openTickets}
-                    urgentToday={urgentToday}
-                    onNavigate={onNavigate}
-                    nested
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
+            </div>
+          );
+        })}
+      </div>
+      {/* «Soporte» fijo abajo, con su aviso de tickets. */}
+      <div className="border-t border-border px-2 py-2">{link(ADMIN_NAV_BOTTOM)}</div>
     </nav>
   );
 }
@@ -452,8 +457,8 @@ function AdminShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen bg-background">
       {/* Sidebar fijo en desktop */}
-      <aside className="hidden w-60 shrink-0 border-r border-border bg-muted/30 md:flex md:flex-col">
-        <div className="flex h-14 items-center gap-2 border-b border-border px-4 text-base font-semibold tracking-tight">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-border bg-muted/30 md:flex md:flex-col">
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4 text-base font-semibold tracking-tight">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/icon.svg" alt="TrasterOS" className="size-7 rounded-md shadow-sm" />
           TrasterOS Admin
@@ -463,8 +468,8 @@ function AdminShell({ children }: { children: ReactNode }) {
 
       {/* Drawer del sidebar en móvil */}
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-        <SheetContent side="left" className="w-64 p-0">
-          <SheetTitle className="flex h-14 items-center gap-2 border-b border-border px-4 text-base font-semibold tracking-tight">
+        <SheetContent side="left" className="flex w-64 flex-col p-0">
+          <SheetTitle className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4 text-base font-semibold tracking-tight">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/icon.svg" alt="TrasterOS" className="size-7 rounded-md shadow-sm" />
             TrasterOS Admin
