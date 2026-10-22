@@ -279,6 +279,12 @@ export const MODULE_SETTINGS: SettingsNavItem[] = [
     permission: 'communications:read',
   },
   {
+    href: '/insurance-plans',
+    label: 'Seguros',
+    description: 'Planes de protección que ofreces a tus inquilinos y su precio.',
+    permission: 'insurance:read',
+  },
+  {
     href: '/message-templates',
     label: 'Plantillas de mensajes',
     description: 'Textos de los correos y WhatsApp que envías.',

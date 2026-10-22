@@ -22,7 +22,6 @@ import {
   Gauge,
   Gift,
   HandCoins,
-  Inbox,
   KeyRound,
   Cctv,
   Landmark,
@@ -34,7 +33,6 @@ import {
   Mail,
   Megaphone,
   MessageCircle,
-  MessageSquare,
   MousePointerClick,
   Package,
   PackagePlus,
@@ -42,9 +40,7 @@ import {
   Receipt,
   Replace,
   Settings,
-  Shield,
   Share2,
-  ShieldCheck,
   Sparkles,
   Star,
   Store,
@@ -121,7 +117,7 @@ const GROUPS: NavGroup[] = [
       { href: '/customers', labelKey: 'customers', icon: Users, permission: 'customers:read' },
       {
         href: 'ops-contracting',
-        labelKey: 'opsContracting',
+        labelKey: 'contracts',
         icon: FileText,
         children: [
           {
@@ -142,14 +138,6 @@ const GROUPS: NavGroup[] = [
             icon: Hourglass,
             permission: 'reservations:read',
           },
-        ],
-      },
-      {
-        href: 'unit-petitions',
-        labelKey: 'unitPetitions',
-        icon: Inbox,
-        permission: 'contracts:read',
-        children: [
           {
             href: '/unit-change-requests',
             labelKey: 'unitChangeRequests',
@@ -181,18 +169,25 @@ const GROUPS: NavGroup[] = [
         ],
       },
       {
-        href: '/access',
+        href: 'ops-access',
         labelKey: 'access',
         icon: KeyRound,
-        permission: 'access:read',
-        feature: 'access_control',
-      },
-      {
-        href: '/cameras',
-        labelKey: 'cameras',
-        icon: Cctv,
-        permission: 'access:read',
-        feature: 'cameras',
+        children: [
+          {
+            href: '/access',
+            labelKey: 'access',
+            icon: KeyRound,
+            permission: 'access:read',
+            feature: 'access_control',
+          },
+          {
+            href: '/cameras',
+            labelKey: 'cameras',
+            icon: Cctv,
+            permission: 'access:read',
+            feature: 'cameras',
+          },
+        ],
       },
     ],
   },
@@ -205,21 +200,14 @@ const GROUPS: NavGroup[] = [
         icon: Building2,
         permission: 'facilities:read',
       },
+      { href: '/units', labelKey: 'units', icon: Boxes, permission: 'units:read' },
+      { href: '/products', labelKey: 'products', icon: Package, permission: 'products:read' },
       {
         href: '/owners',
         labelKey: 'owners',
         icon: UserRound,
         permission: 'facilities:read',
         feature: 'multi_owner',
-      },
-      { href: '/units', labelKey: 'units', icon: Boxes, permission: 'units:read' },
-      { href: '/products', labelKey: 'products', icon: Package, permission: 'products:read' },
-      {
-        href: '/insurance-plans',
-        labelKey: 'insurance',
-        icon: Shield,
-        permission: 'insurance:read',
-        feature: 'insurance',
       },
     ],
   },
@@ -228,19 +216,25 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/invoices', labelKey: 'invoices', icon: CreditCard, permission: 'invoices:read' },
       {
-        href: '/collections-month',
-        labelKey: 'collectionsMonth',
-        icon: CalendarCheck,
-        permission: 'payments:read',
-      },
-      { href: '/arrears', labelKey: 'arrears', icon: HandCoins, permission: 'payments:read' },
-      { href: '/cash', labelKey: 'cash', icon: Wallet, permission: 'payments:read' },
-      { href: '/expenses', labelKey: 'expenses', icon: Receipt, permission: 'expenses:read' },
-      {
-        href: 'billing-bank',
-        labelKey: 'billingBank',
-        icon: Landmark,
+        href: 'billing-collections',
+        labelKey: 'billingCollections',
+        icon: HandCoins,
         children: [
+          {
+            href: '/collections-month',
+            labelKey: 'collectionsMonth',
+            icon: CalendarCheck,
+            permission: 'payments:read',
+          },
+          { href: '/arrears', labelKey: 'arrears', icon: HandCoins, permission: 'payments:read' },
+          { href: '/cash', labelKey: 'cash', icon: Wallet, permission: 'payments:read' },
+          {
+            href: '/collections',
+            labelKey: 'collections',
+            icon: Lock,
+            permission: 'collections:read',
+            feature: 'collections',
+          },
           {
             href: '/returned-receipts',
             labelKey: 'returnedReceipts',
@@ -263,24 +257,12 @@ const GROUPS: NavGroup[] = [
           },
         ],
       },
+      { href: '/expenses', labelKey: 'expenses', icon: Receipt, permission: 'expenses:read' },
       {
-        href: 'billing-fiscal',
-        labelKey: 'billingFiscal',
+        href: '/fiscal',
+        labelKey: 'fiscal',
         icon: FileSpreadsheet,
-        children: [
-          {
-            href: '/fiscal',
-            labelKey: 'fiscal',
-            icon: FileSpreadsheet,
-            permission: 'invoices:manage',
-          },
-          {
-            href: '/settings/billing/verifactu',
-            labelKey: 'verifactu',
-            icon: ShieldCheck,
-            permission: 'invoices:manage',
-          },
-        ],
+        permission: 'invoices:manage',
       },
       {
         href: 'billing-portfolio',
@@ -300,13 +282,6 @@ const GROUPS: NavGroup[] = [
             icon: CalendarClock,
             permission: 'contracts:read',
           },
-          {
-            href: '/collections',
-            labelKey: 'collections',
-            icon: Lock,
-            permission: 'collections:read',
-            feature: 'collections',
-          },
         ],
       },
     ],
@@ -314,12 +289,6 @@ const GROUPS: NavGroup[] = [
   {
     labelKey: 'crm',
     items: [
-      {
-        href: '/opportunities',
-        labelKey: 'opportunities',
-        icon: Lightbulb,
-        permission: 'customers:read',
-      },
       {
         href: 'crm-acquisition',
         labelKey: 'crmAcquisition',
@@ -330,6 +299,12 @@ const GROUPS: NavGroup[] = [
             href: '/followups',
             labelKey: 'followups',
             icon: CalendarClock,
+            permission: 'customers:read',
+          },
+          {
+            href: '/opportunities',
+            labelKey: 'opportunities',
+            icon: Lightbulb,
             permission: 'customers:read',
           },
         ],
@@ -357,19 +332,6 @@ const GROUPS: NavGroup[] = [
             labelKey: 'communications',
             icon: Mail,
             permission: 'communications:read',
-          },
-          {
-            href: '/message-templates',
-            labelKey: 'messageTemplates',
-            icon: MessageSquare,
-            permission: 'templates:read',
-          },
-          {
-            href: '/automations',
-            labelKey: 'automations',
-            icon: Bot,
-            permission: 'automations:read',
-            feature: 'automations',
           },
         ],
       },
@@ -437,13 +399,25 @@ const GROUPS: NavGroup[] = [
     labelKey: 'analysis',
     items: [
       { href: '/analytics', labelKey: 'analytics', icon: BarChart3, permission: 'analytics:read' },
-      { href: '/competitors', labelKey: 'competitors', icon: Store, permission: 'analytics:read' },
       {
-        href: '/seo',
-        labelKey: 'seo',
-        icon: SearchCheck,
-        permission: 'analytics:read',
-        feature: 'local_seo',
+        href: 'analysis-market',
+        labelKey: 'analysisMarket',
+        icon: Store,
+        children: [
+          {
+            href: '/competitors',
+            labelKey: 'competitors',
+            icon: Store,
+            permission: 'analytics:read',
+          },
+          {
+            href: '/seo',
+            labelKey: 'seo',
+            icon: SearchCheck,
+            permission: 'analytics:read',
+            feature: 'local_seo',
+          },
+        ],
       },
       { href: '/reports', labelKey: 'reports', icon: FileSpreadsheet, permission: 'reports:read' },
       {
@@ -598,6 +572,8 @@ export function AppSidebar() {
     if (item.children && item.children.length > 0) {
       const children = item.children.filter((c) => can(c.permission) && hasFeature(c.feature));
       if (children.length === 0) return null;
+      // Con un solo hijo visible (p. ej. Accesos sin cámaras) no hace falta desplegable.
+      if (children.length === 1) return renderItem(children[0]!);
       const childActive = children.some(
         (c) => pathname === c.href || pathname.startsWith(`${c.href}/`),
       );
