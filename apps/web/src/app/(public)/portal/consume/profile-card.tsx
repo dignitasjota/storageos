@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError, apiFetch } from '@/lib/auth/api';
+import { isInstalledApp } from '@/lib/pwa/installed';
 
 type FormState = {
   firstName: string;
@@ -258,7 +259,11 @@ function PasswordSection({
     try {
       const renewed = await apiFetch<PortalSessionDto>('/portal/me/password', {
         method: 'POST',
-        json: { password: pwd, ...(hasPassword ? { currentPassword: current } : {}) },
+        json: {
+          password: pwd,
+          installedApp: isInstalledApp(),
+          ...(hasPassword ? { currentPassword: current } : {}),
+        },
         headers: { Authorization: `Bearer ${session.accessToken}` },
         requiresAuth: false,
       });

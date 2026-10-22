@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
+import { isInstalledApp } from '@/lib/pwa/installed';
 
 const PORTAL_SESSION_KEY = 'storageos.portal.session';
 const PORTAL_LOCALE_KEY = 'storageos.portal.locale';
@@ -54,7 +55,7 @@ function ResetForm() {
     try {
       const session = await apiFetch<PortalSessionDto>('/portal/login/reset', {
         method: 'POST',
-        json: { token, password },
+        json: { token, password, installedApp: isInstalledApp() },
         requiresAuth: false,
       });
       storePortalSession(session);

@@ -15,7 +15,11 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { Prisma } from '@storageos/database';
-import { NON_CASH_PAYMENT_METHODS, type PortalNoticeDto } from '@storageos/shared';
+import {
+  NON_CASH_PAYMENT_METHODS,
+  PORTAL_APP_SESSION_DAYS,
+  type PortalNoticeDto,
+} from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { emailLocale } from '../../common/format';
@@ -70,6 +74,12 @@ const STAFF_MAGIC_LINK_TTL_SECONDS = 7 * 24 * 60 * 60;
  * persiste en localStorage). El enlace en sí sigue siendo de un solo uso.
  */
 const PORTAL_SESSION_TTL_SECONDS = 48 * 60 * 60;
+/**
+ * Con el portal instalado como app la sesión dura 30 días y se renueva cada
+ * vez que se abre: solo caduca tras un mes sin usarla. Se sigue pudiendo
+ * cortar (cambio de contraseña, «Cerrar sesiones del portal», negocio suspendido).
+ */
+const PORTAL_APP_SESSION_TTL_SECONDS = PORTAL_APP_SESSION_DAYS * 24 * 60 * 60;
 const MAGIC_LINK_KEY_PREFIX = 'portal:magiclink:';
 /** Enlace de restablecimiento de contraseña (self-service por email): 30 min. */
 const RESET_TOKEN_TTL_SECONDS = 30 * 60;
@@ -389,7 +399,7 @@ export class PortalService {
     });
   }
 
-  async consumeMagicLink(token: string): Promise<PortalSessionDto> {
+  async consumeMagicLink(token: string, installedApp = false): Promise<PortalSessionDto> {
     if (!PORTAL_TOKEN_PREFIX_REGEX.test(token)) {
       throw new UnauthorizedException({
         code: 'portal_token_invalid',
@@ -431,7 +441,7 @@ export class PortalService {
         message: 'Enlace no válido para esta cuenta',
       });
     }
-    return this.buildSession(customer, tenant);
+    return this.buildSession(customer, tenant, installedApp);
   }
 
   private dummyPasswordHashPromise: Promise<string> | null = null;
@@ -491,7 +501,7 @@ export class PortalService {
         message: 'Email o contraseña incorrectos',
       });
     }
-    return this.buildSession(customer, tenant!);
+    return this.buildSession(customer, tenant!, input.installedApp ?? false);
   }
 
   /**
@@ -510,6 +520,7 @@ export class PortalService {
     customerId: string,
     password: string,
     currentPassword?: string,
+    installedApp = false,
   ): Promise<PortalSessionDto> {
     await this.requireCustomer(tenantId, customerId);
     // Cambiar una contraseña ya puesta exige la actual: si no, quien abriera un
@@ -539,7 +550,22 @@ export class PortalService {
       },
     });
     const tenant = await this.admin.tenant.findUniqueOrThrow({ where: { id: tenantId } });
-    return this.buildSession(updated, tenant);
+    return this.buildSession(updated, tenant, installedApp);
+  }
+
+  /**
+   * Sesión nueva para quien ya tiene una válida. La app instalada la pide cada
+   * vez que se abre para que no caduque mientras la siga usando.
+   */
+  async renewSession(
+    tenantId: string,
+    customerId: string,
+    installedApp = false,
+  ): Promise<PortalSessionDto> {
+    await this.requireCustomer(tenantId, customerId);
+    const customer = await this.admin.customer.findUniqueOrThrow({ where: { id: customerId } });
+    const tenant = await this.admin.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    return this.buildSession(customer, tenant, installedApp);
   }
 
   /**
@@ -589,7 +615,11 @@ export class PortalService {
    * acceso, y devuelve una sesión (auto-login). Error genérico si el token no es
    * válido/caducó o la cuenta ya no existe.
    */
-  async resetPassword(token: string, password: string): Promise<PortalSessionDto> {
+  async resetPassword(
+    token: string,
+    password: string,
+    installedApp = false,
+  ): Promise<PortalSessionDto> {
     if (!PORTAL_TOKEN_PREFIX_REGEX.test(token)) {
       throw new UnauthorizedException({ code: 'portal_token_invalid', message: 'Enlace invalido' });
     }
@@ -628,7 +658,7 @@ export class PortalService {
         portalSessionVersion: { increment: 1 },
       },
     });
-    return this.buildSession(updated, tenant);
+    return this.buildSession(updated, tenant, installedApp);
   }
 
   /**
@@ -767,8 +797,9 @@ export class PortalService {
       portalBrandColor: string | null;
       portalLogoUrl: string | null;
     },
+    installedApp = false,
   ): Promise<PortalSessionDto> {
-    const ttl = PORTAL_SESSION_TTL_SECONDS;
+    const ttl = installedApp ? PORTAL_APP_SESSION_TTL_SECONDS : PORTAL_SESSION_TTL_SECONDS;
     const accessToken = await this.jwt.signAsync(
       {
         customerId: customer.id,

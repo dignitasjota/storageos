@@ -29,7 +29,8 @@
       "forgotSuccess": "If that email belongs to a customer, we've sent you a link to set or change your password. Check your spam folder too.",
       "unavailableTitle": "Customer area temporarily unavailable",
       "unavailableBody": "{tenantName}'s customer area is not available right now. Your access to the storage units keeps working as usual.",
-      "unavailableContact": "For anything you need, please contact the business directly:"
+      "unavailableContact": "For anything you need, please contact the business directly:",
+      "iosAppLinkHint": "In the iPhone app, the email link opens in Safari and won't sign you in to the app. Sign in with your password; if you don't have one yet, request it below under “Forgot your password or don't have one yet?”."
     },
     "reset": {
       "title": "New password",

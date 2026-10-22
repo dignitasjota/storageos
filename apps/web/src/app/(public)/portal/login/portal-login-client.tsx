@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { PortalLanguageSwitcher } from '../i18n/language-switcher';
@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
+import { isInstalledApp } from '@/lib/pwa/installed';
 
 const PORTAL_SESSION_KEY = 'storageos.portal.session';
 const PORTAL_LOCALE_KEY = 'storageos.portal.locale';
@@ -63,6 +64,15 @@ export function PortalLoginClient({
   const [password, setPassword] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  // App instalada en iPhone: no comparte sesión con Safari y el enlace del correo
+  // se abre en Safari, así que dentro de la app se entra con contraseña.
+  const [iosApp, setIosApp] = useState(false);
+  useEffect(() => {
+    if ((navigator as Navigator & { standalone?: boolean }).standalone === true) {
+      setIosApp(true);
+      setMode('password');
+    }
+  }, []);
   const brand = initialBrand;
 
   const brandColor = brand?.brandColor ?? undefined;
@@ -91,7 +101,7 @@ export function PortalLoginClient({
     try {
       const session = await apiFetch<PortalSessionDto>('/portal/login/password', {
         method: 'POST',
-        json: { tenantSlug, email, password },
+        json: { tenantSlug, email, password, installedApp: isInstalledApp() },
         requiresAuth: false,
       });
       storePortalSession(session);
@@ -213,6 +223,11 @@ export function PortalLoginClient({
                     {t('modePassword')}
                   </button>
                 </div>
+                {iosApp && mode === 'link' && (
+                  <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                    {t('iosAppLinkHint')}
+                  </p>
+                )}
 
                 <form
                   className="space-y-4"
