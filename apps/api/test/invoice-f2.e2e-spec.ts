@@ -166,8 +166,9 @@ describe('Invoice F2 simplificada (e2e)', () => {
     expect(issued.body.customerId).toBeNull();
     expect(issued.body.invoiceNumber).toMatch(/^FA\//);
     expect(issued.body.hash).toMatch(/^[0-9A-F]{64}$/);
-    // El envio AEAT es asincrono (Fase 10A.4); tras issue queda pendiente.
-    expect(['pending', null]).toContain(issued.body.aeatStatus);
+    // El envío a la AEAT va en la cola: al leer la factura puede seguir
+    // pendiente o (con el simulador, que responde al instante) ya aceptada.
+    expect(['pending', null, 'accepted']).toContain(issued.body.aeatStatus);
   });
 
   it('rechaza F1 sin customerId (400 customer_required)', async () => {
