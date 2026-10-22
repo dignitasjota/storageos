@@ -4,7 +4,7 @@ import { PortalLoginClient } from './portal-login-client';
 
 import type { Metadata } from 'next';
 
-import { appName, tenantIconPath, tenantManifestPath } from '@/lib/portal/tenant-app';
+import { appName, iconVersion, tenantIconPath, tenantManifestPath } from '@/lib/portal/tenant-app';
 import { fetchPortalBrand } from '@/lib/portal/tenant-app.server';
 
 type Props = { searchParams: Promise<{ slug?: string }> };
@@ -33,8 +33,14 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
     manifest: tenantManifestPath(slug),
     appleWebApp: { capable: true, statusBarStyle: 'default', title: name },
     icons: {
-      icon: [{ url: tenantIconPath(slug, 192), type: 'image/png', sizes: '192x192' }],
-      apple: [{ url: tenantIconPath(slug, 180), sizes: '180x180' }],
+      icon: [
+        {
+          url: tenantIconPath(slug, 192, false, iconVersion(brand)),
+          type: 'image/png',
+          sizes: '192x192',
+        },
+      ],
+      apple: [{ url: tenantIconPath(slug, 180, false, iconVersion(brand)), sizes: '180x180' }],
     },
   };
 }

@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -38,7 +39,7 @@ import type {
   PublicTenantBrandDto,
   ResolveDomainDto,
 } from '@storageos/shared';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 class PublicContactDto extends createZodDto(PublicContactSchema) {}
 class PromoVisitDto extends createZodDto(PromoVisitSchema) {}
@@ -84,6 +85,17 @@ export class LandingController {
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   brand(@Param('slug') slug: string): Promise<PublicTenantBrandDto> {
     return this.landing.getBrand(slug);
+  }
+
+  /** Logo subido del tenant (solo el subido), para el icono de su app. */
+  @Get('brand/:slug/logo')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async brandLogo(@Param('slug') slug: string, @Res() res: Response): Promise<void> {
+    const { bytes, mimeType } = await this.landing.getUploadedLogo(slug);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(bytes);
   }
 
   @Get(':slug')

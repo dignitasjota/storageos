@@ -89,6 +89,7 @@ import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
 import { clearOfflineAccess, saveOfflineAccess } from '@/lib/portal/offline-access';
+import { iconVersion } from '@/lib/portal/tenant-app';
 import { urlBase64ToUint8Array } from '@/lib/push/vapid';
 import { isInstalledApp } from '@/lib/pwa/installed';
 
@@ -995,7 +996,12 @@ function PortalConsumeContent() {
 
   return (
     <div className="container max-w-5xl space-y-6 py-10">
-      <TenantAppHead slug={session.tenantSlug} tenantName={session.tenantName} />
+      <TenantAppHead
+        slug={session.tenantSlug}
+        tenantName={session.tenantName}
+        // Solo para no servir el icono anterior al cambiar el logo.
+        iconVersion={iconVersion({ logoUploaded: true, logoUrl: session.logoUrl })}
+      />
       {/* Marca del operador (white-label) — clicable para volver al inicio */}
       <div className="space-y-2">
         <button

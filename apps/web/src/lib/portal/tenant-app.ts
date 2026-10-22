@@ -79,6 +79,20 @@ export function appInitials(tenantName: string): string {
   );
 }
 
+/**
+ * Versión del icono: cambia al subir otro logo, para que el móvil y la caché
+ * no sigan con el anterior. Vacía sin logo subido.
+ */
+export function iconVersion(
+  brand: Pick<PublicTenantBrandDto, 'logoUploaded' | 'logoUrl'> | null,
+): string {
+  if (!brand?.logoUploaded || !brand.logoUrl) return '';
+  const file = brand.logoUrl.split('/').pop() ?? '';
+  return file.replace(/\.[a-z]+$/i, '').slice(0, 8);
+}
+
 export const tenantManifestPath = (slug: string) => `/portal/app/${slug}/manifest`;
-export const tenantIconPath = (slug: string, size: number, maskable = false) =>
-  `/portal/app/${slug}/icon/${size}${maskable ? '?maskable=1' : ''}`;
+export const tenantIconPath = (slug: string, size: number, maskable = false, version = '') => {
+  const query = [maskable ? 'maskable=1' : '', version ? `v=${version}` : ''].filter(Boolean);
+  return `/portal/app/${slug}/icon/${size}${query.length ? `?${query.join('&')}` : ''}`;
+};

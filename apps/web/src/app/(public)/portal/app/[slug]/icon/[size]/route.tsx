@@ -5,7 +5,7 @@ import { ImageResponse } from 'next/og';
 import { NextResponse } from 'next/server';
 
 import { appInitials, brandColorOf, textColorOn } from '@/lib/portal/tenant-app';
-import { fetchPortalBrand } from '@/lib/portal/tenant-app.server';
+import { fetchPortalBrand, fetchUploadedLogoDataUrl } from '@/lib/portal/tenant-app.server';
 
 const SIZES = new Set([180, 192, 512]);
 
@@ -18,9 +18,10 @@ function boldFont(): Promise<Buffer | null> {
 }
 
 /**
- * Icono de la app del portal: iniciales del operador sobre su color. No se
- * descarga su logo (es una URL que pega el operador: el servidor no pide
- * direcciones ajenas). `?maskable=1` deja el margen que recortan Android.
+ * Icono de la app del portal: el logo que ha subido el operador sobre blanco
+ * o, sin logo subido, sus iniciales sobre su color. Un logo pegado como
+ * dirección no se usa (el servidor no pide direcciones ajenas).
+ * `?maskable=1` deja el margen que recorta Android.
  */
 export async function GET(
   request: Request,
@@ -36,6 +37,29 @@ export async function GET(
     );
   }
   const maskable = new URL(request.url).searchParams.get('maskable') === '1';
+  const cache = { 'Cache-Control': 'public, max-age=3600' };
+  const logo = brand.logoUploaded ? await fetchUploadedLogoDataUrl(slug) : null;
+  if (logo) {
+    // Fondo blanco: los logos suelen ser oscuros o de color sobre transparente.
+    // En maskable el logo cabe en el 80 % central que no se recorta.
+    const inner = Math.round(size * (maskable ? 0.62 : 0.78));
+    return new ImageResponse(
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#ffffff',
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={logo} width={inner} height={inner} style={{ objectFit: 'contain' }} />
+      </div>,
+      { width: size, height: size, headers: cache },
+    );
+  }
   const bg = brandColorOf(brand);
   const fg = textColorOn(bg);
   const initials = appInitials(brand.tenantName);
@@ -63,7 +87,7 @@ export async function GET(
     {
       width: size,
       height: size,
-      headers: { 'Cache-Control': 'public, max-age=3600' },
+      headers: cache,
       ...(font
         ? { fonts: [{ name: 'Geist', data: font, weight: 700 as const, style: 'normal' as const }] }
         : {}),

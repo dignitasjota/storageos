@@ -551,6 +551,7 @@ export class LandingService {
         slug: true,
         portalBrandColor: true,
         portalLogoUrl: true,
+        portalLogoKey: true,
         webFaviconKey: true,
         deletedAt: true,
         id: true,
@@ -584,10 +585,26 @@ export class LandingService {
       tenantSlug: tenant.slug,
       brandColor: tenant.portalBrandColor,
       logoUrl: tenant.portalLogoUrl,
+      logoUploaded: tenant.portalLogoKey !== null,
       faviconUrl: tenant.webFaviconKey
         ? this.files.buildPublicUrl('public', tenant.webFaviconKey)
         : null,
     };
+  }
+
+  /**
+   * Bytes del logo subido por el tenant (para dibujar el icono de su app). Solo
+   * el subido: una dirección pegada nunca se descarga desde el servidor.
+   */
+  async getUploadedLogo(slug: string): Promise<{ bytes: Buffer; mimeType: string }> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { slug },
+      select: { portalLogoKey: true, deletedAt: true },
+    });
+    const key = tenant && !tenant.deletedAt ? tenant.portalLogoKey : null;
+    if (!key) throw new NotFoundException({ code: 'logo_not_found', message: 'Sin logo' });
+    const bytes = await this.files.getObject({ bucket: 'public', key });
+    return { bytes, mimeType: key.endsWith('.jpg') ? 'image/jpeg' : 'image/png' };
   }
 
   /** Landing de un único local por su `publicSlug`. */
