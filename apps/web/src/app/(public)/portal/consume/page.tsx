@@ -87,6 +87,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
+import { clearOfflineAccess, saveOfflineAccess } from '@/lib/portal/offline-access';
 import { urlBase64ToUint8Array } from '@/lib/push/vapid';
 import { isInstalledApp } from '@/lib/pwa/installed';
 
@@ -135,6 +136,8 @@ function clearStoredPortalSession(): void {
   } catch {
     /* ignore */
   }
+  // Sin sesión tampoco debe quedar el código de acceso guardado en el móvil.
+  clearOfflineAccess();
 }
 
 /** Texto legible del estado de la fianza. */
@@ -284,6 +287,10 @@ function PortalConsumeContent() {
   const [invoices, setInvoices] = useState<PortalInvoiceDto[] | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodDto[] | null>(null);
   const [access, setAccess] = useState<PortalAccessCredentialDto[] | null>(null);
+  // Copia del acceso para enseñarlo sin conexión (en el local a veces no hay red).
+  useEffect(() => {
+    if (session && access) saveOfflineAccess(session.tenantName, session.locale, access);
+  }, [session, access]);
   const [nightPass, setNightPass] = useState<PortalNightPassInfoDto | null>(null);
   const [account, setAccount] = useState<PortalAccountDto | null>(null);
   const [passRefresh, setPassRefresh] = useState(0);
