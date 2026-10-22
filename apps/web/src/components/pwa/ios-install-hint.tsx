@@ -12,7 +12,13 @@ const DISMISS_KEY = 'storageos.ios-install-hint.dismissed';
  * el gesto manual: «Compartir → Añadir a pantalla de inicio». Se muestra solo
  * en iOS, fuera del modo standalone, y es descartable (se recuerda).
  */
-export function IosInstallHint() {
+export function IosInstallHint({
+  appName = 'Mi trastero',
+  dismissKey = DISMISS_KEY,
+}: {
+  appName?: string;
+  dismissKey?: string;
+} = {}) {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -24,15 +30,15 @@ export function IosInstallHint() {
     const standalone =
       (window.navigator as Navigator & { standalone?: boolean }).standalone === true ||
       window.matchMedia('(display-mode: standalone)').matches;
-    const dismissed = window.localStorage.getItem(DISMISS_KEY) === '1';
+    const dismissed = window.localStorage.getItem(dismissKey) === '1';
     if (isIos && !standalone && !dismissed) setShow(true);
-  }, []);
+  }, [dismissKey]);
 
   if (!show) return null;
 
   function dismiss() {
     try {
-      window.localStorage.setItem(DISMISS_KEY, '1');
+      window.localStorage.setItem(dismissKey, '1');
     } catch {
       /* almacenamiento no disponible: solo ocultamos esta vez */
     }
@@ -49,7 +55,7 @@ export function IosInstallHint() {
       >
         <X className="size-4" />
       </button>
-      <p className="font-medium">Instala «Mi trastero» en tu iPhone</p>
+      <p className="font-medium">Instala «{appName}» en tu iPhone</p>
       <p className="mt-1 text-muted-foreground">
         Toca <Share className="inline size-4 -translate-y-0.5" aria-label="Compartir" /> «Compartir»
         y luego <span className="font-medium text-foreground">«Añadir a pantalla de inicio»</span>{' '}

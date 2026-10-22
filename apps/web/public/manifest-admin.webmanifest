@@ -1,0 +1,30 @@
+{
+  "id": "/admin",
+  "name": "TrasterOS — Admin",
+  "short_name": "TrasterOS Admin",
+  "description": "Panel del super admin de TrasterOS: tenants, cobros, soporte y estado de la plataforma.",
+  "lang": "es-ES",
+  "start_url": "/admin/today",
+  "scope": "/admin",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    {
+      "src": "/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
