@@ -35,6 +35,10 @@ export interface MarketingMonthFigures {
   ga4Sessions: number | null;
   /** Clics desde la búsqueda de Google (Search Console); null sin conectar. */
   searchClicks: number | null;
+  /** Seguidores de Instagram + Facebook al final del mes; null sin conectar. */
+  socialFollowers: number | null;
+  /** Alcance de Instagram + Facebook en el mes; null sin conectar. */
+  socialReach: number | null;
 }
 
 export interface MarketingSummarySourceDto {
@@ -58,6 +62,8 @@ export interface MarketingSummaryConnections {
   /** Funciones del plan (para no sugerir lo que no tiene). */
   webPremium: boolean;
   localSeo: boolean;
+  /** Instagram/Facebook conectados. */
+  social: boolean;
 }
 
 export type MarketingTipKind = 'warning' | 'good' | 'info';
@@ -116,7 +122,8 @@ export function hasMarketingActivity(f: MarketingMonthFigures): boolean {
       f.spend +
       f.adClicks +
       (f.ga4Sessions ?? 0) +
-      (f.searchClicks ?? 0) >
+      (f.searchClicks ?? 0) +
+      (f.socialReach ?? 0) >
     0
   );
 }
@@ -136,6 +143,8 @@ const WASTED_SPEND_MIN = 20;
 const VISITORS_MIN = 50;
 const TREND_BASE_MIN = 20;
 const MAX_TIPS = 5;
+/** Alcance en redes a partir del cual se habla de él. */
+const SOCIAL_REACH_MIN = 500;
 
 /**
  * Qué hacer este mes: primero lo que pide actuar, luego lo que funciona y al
@@ -205,6 +214,28 @@ export function marketingSummaryTips(input: {
     }
   }
 
+  // Redes: llegan a gente, pero ¿entra alguien en la web desde ahí?
+  const socialVisitors = sources
+    .filter((s) => s.source === 'instagram' || s.source === 'facebook')
+    .reduce((n, s) => n + s.visitors, 0);
+  if ((c.socialReach ?? 0) >= SOCIAL_REACH_MIN && socialVisitors === 0) {
+    warnings.push({
+      kind: 'warning',
+      text: `Tus publicaciones llegaron a ${c.socialReach!.toLocaleString('es-ES')} personas en Instagram y Facebook, pero nadie entró en tu web desde ahí. Pon el enlace de tu web en la biografía y en las publicaciones (con un enlace de canal sabrás cuál funciona).`,
+      href: '/marketing/channels',
+    });
+  }
+  if (c.socialReach != null && (p.socialReach ?? 0) >= SOCIAL_REACH_MIN) {
+    const change = Math.round(((c.socialReach - p.socialReach!) / p.socialReach!) * 100);
+    if (change >= 30) {
+      good.push({
+        kind: 'good',
+        text: `Tu alcance en redes subió un ${change} %. Mira en Redes sociales qué publicaciones funcionaron y repite el formato.`,
+        href: '/marketing/social',
+      });
+    }
+  }
+
   const paidSources = sources
     .filter((s) => s.bookings > 0 && s.cost > 0 && s.costPerBooking != null)
     .sort((a, b) => a.costPerBooking! - b.costPerBooking!);
@@ -240,6 +271,13 @@ export function marketingSummaryTips(input: {
       kind: 'info',
       text: 'Conecta Google Analytics para ver sus sesiones junto a tus visitas.',
       href: '/marketing/web',
+    });
+  }
+  if (conn.webPremium && !conn.social) {
+    info.push({
+      kind: 'info',
+      text: 'Conecta Instagram y Facebook para ver su alcance y sus mejores publicaciones junto a tus visitas.',
+      href: '/marketing/social',
     });
   }
   if (conn.localSeo && !conn.searchConsole) {

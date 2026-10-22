@@ -23,6 +23,8 @@ const figures = (over: Partial<MarketingMonthFigures> = {}): MarketingMonthFigur
   adClicks: 0,
   ga4Sessions: null,
   searchClicks: null,
+  socialFollowers: null,
+  socialReach: null,
   ...over,
 });
 
@@ -45,6 +47,7 @@ const connected: MarketingSummaryConnections = {
   channelsWithLinks: 2,
   webPremium: true,
   localSeo: true,
+  social: true,
 };
 
 describe('meses', () => {
@@ -120,6 +123,7 @@ describe('marketingSummaryTips', () => {
         searchConsole: false,
         webPremium: false,
         localSeo: false,
+        social: false,
       },
     });
     expect(noPlan).toEqual([]);
@@ -133,5 +137,36 @@ describe('marketingSummaryTips', () => {
       connections: { ...connected, ga4: false, searchConsole: false, channelsWithLinks: 0 },
     });
     expect(tips).toHaveLength(5);
+  });
+
+  it('redes: alcance sin visitas a la web, subida del alcance y conectar', () => {
+    const tips = marketingSummaryTips({
+      current: figures({ socialReach: 2400 }),
+      previous: figures({ socialReach: 1000 }),
+      sources: [],
+      connections: connected,
+    });
+    expect(tips.map((t) => [t.kind, t.href])).toEqual([
+      ['warning', '/marketing/channels'],
+      ['good', '/marketing/social'],
+    ]);
+    expect(tips[0]!.text).toContain('llegaron a 2400 personas');
+
+    // Con visitas desde Instagram no avisa.
+    const fine = marketingSummaryTips({
+      current: figures({ socialReach: 2400 }),
+      previous: figures(),
+      sources: [source({ source: 'instagram', visitors: 12 })],
+      connections: connected,
+    });
+    expect(fine).toEqual([]);
+
+    const notConnected = marketingSummaryTips({
+      current: figures(),
+      previous: figures(),
+      sources: [],
+      connections: { ...connected, social: false },
+    });
+    expect(notConnected.map((t) => t.href)).toEqual(['/marketing/social']);
   });
 });

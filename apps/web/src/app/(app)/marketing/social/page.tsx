@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
 import { SocialConnectSection } from './connect-section';
+import { SocialReportSection } from './report-section';
 
 import { useHasFeature } from '@/lib/auth/hooks';
 import { useSocialSettings } from '@/lib/marketing/hooks';
@@ -31,7 +32,10 @@ export default function SocialPage() {
       ) : settings.isLoading || !settings.data ? (
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
       ) : (
-        <SocialConnectSection settings={settings.data} />
+        <>
+          <SocialConnectSection settings={settings.data} />
+          {settings.data.connected && <SocialReportSection />}
+        </>
       )}
     </div>
   );

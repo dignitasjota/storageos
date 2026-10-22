@@ -1,7 +1,12 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
+  SOCIAL_NETWORKS,
+  SOCIAL_REPORT_DAYS,
   shiftDate,
+  summarizeSocial,
   type ConnectSocialInput,
+  type SocialNetwork,
+  type SocialReportDto,
   type SocialDailyInput,
   type SocialPageOptionDto,
   type SocialSettingsDto,
@@ -11,6 +16,7 @@ import { CryptoService } from '../../../common/crypto/crypto.service';
 import { tenantHasFeature } from '../../../common/tenant-features';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
+import { WebAnalyticsService } from '../web-analytics.service';
 
 import { MetaGraphClient, MetaGraphError, type MetaPage } from './meta-graph.client';
 
@@ -51,6 +57,7 @@ export class SocialService {
     private readonly admin: PrismaAdminService,
     private readonly crypto: CryptoService,
     private readonly client: MetaGraphClient,
+    private readonly web: WebAnalyticsService,
   ) {}
 
   async settings(tenantId: string): Promise<SocialSettingsDto> {
@@ -223,6 +230,79 @@ export class SocialService {
       );
       return { ok: false };
     }
+  }
+
+  /**
+   * Informe de los últimos `days` días (hasta ayer: Meta va con un día de
+   * retraso) frente al periodo anterior, con las mejores publicaciones y lo
+   * que hicieron en la web quienes llegaron desde Instagram o Facebook.
+   */
+  async report(tenantId: string, daysInput: number): Promise<SocialReportDto> {
+    const days = (SOCIAL_REPORT_DAYS as readonly number[]).includes(daysInput) ? daysInput : 30;
+    const to = shiftDate(today(), -1);
+    const from = shiftDate(to, -(days - 1));
+    const previousFrom = shiftDate(from, -days);
+    const [rows, posts, web] = await Promise.all([
+      this.prisma.withTenant(
+        (tx) =>
+          tx.socialDailyMetric.findMany({
+            where: { tenantId, date: { gte: asDate(previousFrom), lte: asDate(to) } },
+          }),
+        tenantId,
+      ),
+      this.prisma.withTenant(
+        (tx) =>
+          tx.socialPost.findMany({
+            where: { tenantId, publishedAt: { gte: asDate(from) } },
+            orderBy: { publishedAt: 'desc' },
+            take: 300,
+          }),
+        tenantId,
+      ),
+      this.web.report(tenantId, days),
+    ]);
+    const summary = summarizeSocial(
+      rows.map((r) => ({
+        network: r.network as SocialNetwork,
+        date: r.date.toISOString().slice(0, 10),
+        followers: r.followers,
+        newFollowers: r.newFollowers,
+        reach: r.reach,
+        views: r.views,
+        profileViews: r.profileViews,
+        websiteClicks: r.websiteClicks,
+        engagements: r.engagements,
+      })),
+      posts.map((p) => ({
+        network: p.network as SocialNetwork,
+        externalId: p.externalId,
+        publishedAt: p.publishedAt.toISOString(),
+        caption: p.caption,
+        mediaType: p.mediaType,
+        permalink: p.permalink,
+        thumbnailUrl: p.thumbnailUrl,
+        likes: p.likes,
+        comments: p.comments,
+        shares: p.shares,
+        saves: p.saves,
+        reach: p.reach,
+        views: p.views,
+      })),
+      { from, to, previousFrom },
+    );
+    return {
+      days,
+      ...summary,
+      web: SOCIAL_NETWORKS.map((network) => {
+        const s = web.sources.find((x) => x.source === network);
+        return {
+          network,
+          visitors: s?.visitors ?? 0,
+          contacts: s?.contacts ?? 0,
+          bookings: s?.bookings ?? 0,
+        };
+      }),
+    };
   }
 
   /** Cron diario: cuentas conectadas de tenants con Web Premium. */
