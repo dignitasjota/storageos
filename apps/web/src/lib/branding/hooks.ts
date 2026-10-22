@@ -71,3 +71,40 @@ export function useRemoveTenantFavicon() {
     onSuccess: () => qc.invalidateQueries({ queryKey: brandingKey }),
   });
 }
+
+/** Sube el logo (URL firmada → PUT directo al bucket → fijar la clave). */
+export function useUploadTenantLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const mimeType = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+      const up = await apiFetch<TenantFaviconUploadDto>(
+        '/settings/tenant/branding/logo-upload-url',
+        { method: 'POST', json: { mimeType } },
+      );
+      const put = await fetch(up.uploadUrl, {
+        method: 'PUT',
+        headers: up.requiredHeaders,
+        body: file,
+      });
+      if (!put.ok) throw new Error('upload_failed');
+      return apiFetch<TenantBrandingResponse>('/settings/tenant/branding/logo', {
+        method: 'PUT',
+        json: { key: up.key },
+      });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: brandingKey }),
+  });
+}
+
+export function useRemoveTenantLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<TenantBrandingResponse>('/settings/tenant/branding/logo', {
+        method: 'PUT',
+        json: { key: null },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: brandingKey }),
+  });
+}
