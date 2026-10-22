@@ -239,7 +239,14 @@ describe('Holded: copia idempotente (e2e)', () => {
       .send({ amount: 121, methodType: 'cash' })
       .expect(200);
     await sync.pushInvoice(tenantId, id, true);
-    const payment = await admin.payment.findFirstOrThrow({ where: { invoiceId: id } });
+    // Cobrar dispara además la copia del cobro en segundo plano (invoice_paid):
+    // si esa reserva el cobro antes, la llamada de arriba se lo salta y hay que
+    // esperar a que termine.
+    let payment = await admin.payment.findFirstOrThrow({ where: { invoiceId: id } });
+    for (let i = 0; i < 50 && !payment.holdedSyncedAt; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      payment = await admin.payment.findFirstOrThrow({ where: { invoiceId: id } });
+    }
     expect(payment.holdedSyncedAt).not.toBeNull();
 
     await http()
