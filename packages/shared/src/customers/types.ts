@@ -248,6 +248,20 @@ export function chatReplyChannel(
   return null;
 }
 
+/** Una conversación de la bandeja «Mensajes»: inquilino, último mensaje y no leídos (de quien mira). */
+export interface CustomerConversationDto {
+  customerId: string;
+  customerName: string;
+  lastMessage: {
+    body: string;
+    senderType: 'customer' | 'staff';
+    channel: 'portal' | 'whatsapp' | 'email';
+    createdAt: string;
+  };
+  /** Mensajes del inquilino que este usuario aún no ha leído. */
+  unread: number;
+}
+
 /** Un mensaje del chat bidireccional inquilino <-> staff. */
 export interface CustomerMessageDto {
   id: string;

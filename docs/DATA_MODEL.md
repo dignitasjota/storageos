@@ -704,6 +704,7 @@ recordManualPayment` (provider `'sepa'`, mismo candado/dedup/extensión de
   ⚠️ Los default privileges conceden CRUD a `storageos_app` en cada tabla nueva:
   **una tabla global nueva debe incluir su propio `REVOKE` (o RLS) en la
   migración.**
+- `customer_message_reads` (RLS, PK `customer_id`+`user_id`, `last_read_at`): hasta cuándo ha leído cada usuario del equipo la conversación con un inquilino (bandeja «Mensajes» y badges por usuario). Sin fila, cuenta desde el alta del usuario. `customer_messages.read_at` sigue siendo el leído del equipo (avisos sin repetir) y el del inquilino en el portal.
 
 ## 15. Pendiente / post-MVP
 

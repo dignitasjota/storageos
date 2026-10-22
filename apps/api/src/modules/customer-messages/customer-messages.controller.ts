@@ -23,7 +23,7 @@ export class CustomerMessagesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('customerId', new ParseUUIDPipe()) customerId: string,
   ): Promise<CustomerMessageDto[]> {
-    return this.messages.list(user.tenantId, customerId, 'staff');
+    return this.messages.list(user.tenantId, customerId, 'staff', user.sub);
   }
 
   @RequirePermission('customers:write')
