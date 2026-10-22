@@ -80,6 +80,7 @@ async function seedPlans() {
         'custom_domain',
         'collections',
         'cameras',
+        'branded_panel',
       ],
     },
     {
@@ -102,6 +103,7 @@ async function seedPlans() {
         'custom_domain',
         'collections',
         'cameras',
+        'branded_panel',
         'multi_owner',
       ],
     },

@@ -824,6 +824,9 @@ export class AuthService {
       locale: tenant.locale,
       currency: tenant.currency,
       timezone: tenant.timezone,
+      brandColor: tenant.portalBrandColor,
+      logoUrl: tenant.portalLogoUrl,
+      logoUploaded: tenant.portalLogoKey !== null,
     };
   }
 

@@ -13,9 +13,12 @@ export function TenantAppHead({
   slug,
   tenantName,
   iconVersion = '',
+  manifestPath = tenantManifestPath(slug),
 }: {
   slug: string;
   tenantName: string;
+  /** Ficha a usar: la del portal por defecto; el panel del equipo pasa la suya. */
+  manifestPath?: string;
   /** Cambia al subir otro logo (ver `iconVersion` de tenant-app). */
   iconVersion?: string;
 }) {
@@ -32,7 +35,7 @@ export function TenantAppHead({
       l.rel = rel;
       return l;
     };
-    ensure('link[rel="manifest"]', link('manifest')).setAttribute('href', tenantManifestPath(slug));
+    ensure('link[rel="manifest"]', link('manifest')).setAttribute('href', manifestPath);
     ensure('link[rel="apple-touch-icon"]', link('apple-touch-icon')).setAttribute(
       'href',
       tenantIconPath(slug, 180, false, iconVersion),
@@ -42,6 +45,6 @@ export function TenantAppHead({
       m.name = 'apple-mobile-web-app-title';
       return m;
     }).setAttribute('content', appName(tenantName));
-  }, [slug, tenantName, iconVersion]);
+  }, [slug, tenantName, iconVersion, manifestPath]);
   return null;
 }

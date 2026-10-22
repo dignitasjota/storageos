@@ -69,6 +69,29 @@ export function useHasFeature(feature: TenantFeature): boolean {
 }
 
 /** POST /auth/login con email/password/tenantSlug. */
+/**
+ * Marca del tenant para el panel del equipo, solo si su plan incluye «Panel
+ * con tu marca» (`branded_panel`); si no, null y el panel es de TrasterOS.
+ */
+export function usePanelBrand(): {
+  slug: string;
+  name: string;
+  brandColor: string | null;
+  logoUrl: string | null;
+  logoUploaded: boolean;
+} | null {
+  const { data } = useMe();
+  if (!data?.features.includes('branded_panel')) return null;
+  const t = data.tenant;
+  return {
+    slug: t.slug,
+    name: t.name,
+    brandColor: t.brandColor,
+    logoUrl: t.logoUrl,
+    logoUploaded: t.logoUploaded,
+  };
+}
+
 export function useLogin() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -370,6 +370,9 @@ export class InvitationsService {
       locale: tenant.locale,
       currency: tenant.currency,
       timezone: tenant.timezone,
+      brandColor: tenant.portalBrandColor,
+      logoUrl: tenant.portalLogoUrl,
+      logoUploaded: tenant.portalLogoKey !== null,
     };
     const subscriptionDto: SubscriptionDto = {
       status: subscription.status,

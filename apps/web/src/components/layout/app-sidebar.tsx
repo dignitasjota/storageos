@@ -80,9 +80,10 @@ import {
   SidebarMenuSubItem,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { useFeatures, usePermissions } from '@/lib/auth/hooks';
+import { useFeatures, usePanelBrand, usePermissions } from '@/lib/auth/hooks';
 import { useCustomerUnreadSummary } from '@/lib/customers/hooks';
 import { useIncidentPendingCounts } from '@/lib/operations/hooks';
+import { appInitials, appName, brandColorOf, textColorOn } from '@/lib/portal/tenant-app';
 import { useProductUpdatesUnread } from '@/lib/product-updates/hooks';
 import { useSupportWaitingCount } from '@/lib/support/hooks';
 import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
@@ -463,6 +464,7 @@ export function AppSidebar() {
   const t = useTranslations('sidebar');
   const permissions = usePermissions();
   const features = useFeatures();
+  const panelBrand = usePanelBrand();
   const can = (p?: Permission) => !p || permissions.includes(p);
   const hasFeature = (f?: TenantFeature) => !f || features.includes(f);
 
@@ -662,15 +664,21 @@ export function AppSidebar() {
           href="/dashboard"
           className="flex h-14 items-center gap-2 px-2 transition-opacity hover:opacity-80"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/icon.svg"
-            alt="TrasterOS"
-            className="size-8 shrink-0 rounded-lg shadow-sm"
-          />
-          <span className="text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            TrasterOS
-          </span>
+          {panelBrand ? (
+            <PanelBrandMark brand={panelBrand} />
+          ) : (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/brand/icon.svg"
+                alt="TrasterOS"
+                className="size-8 shrink-0 rounded-lg shadow-sm"
+              />
+              <span className="text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+                TrasterOS
+              </span>
+            </>
+          )}
         </Link>
       </SidebarHeader>
       <SidebarContent className="gap-0">
@@ -774,7 +782,44 @@ export function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        {panelBrand && (
+          <p className="px-2 pb-1 text-[11px] text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden">
+            con TrasterOS
+          </p>
+        )}
       </SidebarFooter>
     </Sidebar>
+  );
+}
+
+/**
+ * Cabecera del menú con la marca del tenant («Panel con tu marca», plan Pro):
+ * su logo o, sin logo, sus iniciales sobre su color y su nombre.
+ */
+function PanelBrandMark({ brand }: { brand: NonNullable<ReturnType<typeof usePanelBrand>> }) {
+  const color = brandColorOf(brand);
+  if (brand.logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={brand.logoUrl}
+        alt={brand.name}
+        title={brand.name}
+        className="h-9 w-auto max-w-[180px] object-contain object-left group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:max-w-8"
+      />
+    );
+  }
+  return (
+    <>
+      <span
+        className="flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold shadow-sm"
+        style={{ backgroundColor: color, color: textColorOn(color) }}
+      >
+        {appInitials(brand.name)}
+      </span>
+      <span className="truncate text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+        {appName(brand.name)}
+      </span>
+    </>
   );
 }
