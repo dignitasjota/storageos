@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { DevicePushCard } from './device-push-card';
 import { EmailNoticesForm } from './email-notices-form';
 import { TwoFactorPanel } from './two-factor-panel';
 
@@ -54,7 +55,7 @@ export default function ProfileSettingsPage() {
           <TabsTrigger value="profile">{t('tabs.profile')}</TabsTrigger>
           <TabsTrigger value="password">{t('tabs.password')}</TabsTrigger>
           <TabsTrigger value="2fa">Verificación en dos pasos</TabsTrigger>
-          <TabsTrigger value="notices">Avisos por correo</TabsTrigger>
+          <TabsTrigger value="notices">Avisos</TabsTrigger>
         </TabsList>
         <TabsContent value="profile" className="mt-6 max-w-lg">
           {me.data ? (
@@ -75,7 +76,8 @@ export default function ProfileSettingsPage() {
         <TabsContent value="2fa" className="mt-6">
           <TwoFactorPanel />
         </TabsContent>
-        <TabsContent value="notices" className="mt-6 max-w-lg">
+        <TabsContent value="notices" className="mt-6 max-w-lg space-y-6">
+          <DevicePushCard />
           <EmailNoticesForm />
         </TabsContent>
       </Tabs>

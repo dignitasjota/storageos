@@ -1907,6 +1907,12 @@ Páginas propias por promoción en la web del tenant, con el estilo de su planti
 - `POST /portal/me/push/unsubscribe` (sesión de portal, throttle): body `{ endpoint }`.
 - Web Push (`web-push`) por `VAPID_*`. Listeners `invoice_overdue`/`invoice_paid` envían un push al inquilino.
 
+### Equipo — avisos en el dispositivo (`/me/push`, 2026-10-22)
+
+- `GET /me/push?endpoint=` (cualquier usuario del panel): `{ publicKey, subscribed }` (null sin VAPID; `subscribed` = ese dispositivo ya lo tiene activado).
+- `POST /me/push/subscribe` body `{ endpoint, keys: { p256dh, auth } }` (204; el mismo navegador pasa a ser de quien lo activa) y `POST /me/push/unsubscribe` `{ endpoint }` (204, solo las suyas).
+- Cada notificación del panel de los tipos de `STAFF_PUSH_TYPES` (contacto nuevo, mensaje del inquilino, WhatsApp —mensaje, paso a persona, reserva—, incidencia, baja, trastero adicional o cambio, oferta que interesa, plan de pagos incumplido, alarma de cámara, puerta bloqueada) se envía además como push a los usuarios activos con el push activado que ven ese local (sin local, a todos; sin locales asignados, todo). Las de facturas pagadas y demás se quedan en la campana.
+
 ### Asistente IA (`/ai/...`)
 
 - `POST /ai/chat` (`ai:use`): body `{ conversationId?, content }`. Crea la conversación si no se pasa id; el asistente puede invocar herramientas read-only (ocupación, vencidas, métricas, búsqueda/resumen de cliente) ejecutadas con el contexto del tenant **y del usuario**: solo se ofrecen las que su rol permite (métricas e ingresos por mes `analytics:read`, ocupación y disponibilidad `units:read`, vencidas `invoices:read`, clientes `customers:read`, contratos que vencen `contracts:read`, leads `leads:read`, tareas `tasks:read`, incidencias `incidents:read`, gastos `expenses:read`) y los datos se filtran por su `facilityScope`. Devuelve `{ conversationId, message }` (con `toolsUsed`). 503 `ai_not_configured` si el provider anthropic no tiene API key.

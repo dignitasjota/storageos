@@ -679,6 +679,8 @@ model User {
 
   unitPriceChanges  UnitPriceHistory[] @relation("UnitPriceChangedBy")
   customerOffers       CustomerOffer[]        @relation("CustomerOfferAuthor")
+  pushSubscriptions  PushSubscription[]
+
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
@@ -2442,19 +2444,24 @@ model AiPendingAction {
 }
 
 /// Suscripción Web Push del navegador del inquilino (PWA del portal).
+/// Suscripción Web Push de un inquilino (portal) o de un usuario del equipo
+/// (panel); exactamente uno de los dos (CHECK en SQL).
 model PushSubscription {
   id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId   String   @map("tenant_id") @db.Uuid
-  customerId String   @map("customer_id") @db.Uuid
+  customerId String?  @map("customer_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
   endpoint   String   @unique
   p256dh     String
   auth       String
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, customerId])
+  @@index([tenantId, userId])
   @@map("push_subscriptions")
 }
 

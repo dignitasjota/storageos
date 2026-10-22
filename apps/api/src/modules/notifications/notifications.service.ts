@@ -8,6 +8,7 @@ import {
   type PaymentOverpaidPayload,
 } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
+import { PushService } from '../push/push.service';
 
 import type { Prisma } from '@storageos/database';
 import type { NotificationListDto } from '@storageos/shared';
@@ -26,7 +27,10 @@ function nested(scope: Record<string, unknown>, a: string, b: string): string | 
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly push: PushService,
+  ) {}
 
   /**
    * Crea una notificación del panel. `facilityId` (o, si no se sabe, el
@@ -67,6 +71,10 @@ export class NotificationsService {
         }),
       tenantId,
     );
+    // Las que piden actuar llegan también al móvil del equipo (sin esperar).
+    void this.push
+      .sendToStaff(tenantId, { ...input, facilityId })
+      .catch((err) => this.logger.warn(`[push] equipo: ${(err as Error).message}`));
   }
 
   /** Local de un contrato, factura o trastero (null si no se sabe). */

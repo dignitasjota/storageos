@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
+import { isStaffPushType, type PushSubscribeInput } from '@storageos/shared';
 import webpush from 'web-push';
 
 import {
@@ -11,7 +12,6 @@ import {
 import { PrismaService } from '../database/prisma.service';
 
 import type { Env } from '../../config/env.schema';
-import type { PushSubscribeInput } from '@storageos/shared';
 
 interface PushPayload {
   title: string;
@@ -20,7 +20,8 @@ interface PushPayload {
 }
 
 /**
- * Notificaciones Web Push para el inquilino (PWA del portal). Si no hay claves
+ * Notificaciones Web Push para el inquilino (PWA del portal) y para el equipo
+ * (PWA del panel: las notificaciones de la campana que piden actuar). Si no hay claves
  * VAPID configuradas, queda **desactivado** (no-op) — dev/test/CI no necesitan
  * claves. Las suscripciones del navegador se guardan en `push_subscriptions`.
  */
@@ -75,7 +76,13 @@ export class PushService {
           p256dh: input.keys.p256dh,
           auth: input.keys.auth,
         },
-        update: { tenantId, customerId, p256dh: input.keys.p256dh, auth: input.keys.auth },
+        update: {
+          tenantId,
+          customerId,
+          userId: null,
+          p256dh: input.keys.p256dh,
+          auth: input.keys.auth,
+        },
       });
     }, tenantId);
   }
@@ -96,6 +103,95 @@ export class PushService {
       (tx) => tx.pushSubscription.findMany({ where: { tenantId, customerId } }),
       tenantId,
     );
+    await this.deliver(tenantId, subs, payload);
+  }
+
+  // --- Equipo del tenant (PWA del panel) ---
+
+  /** Activa el push en este dispositivo para un usuario del equipo. */
+  async subscribeUser(tenantId: string, userId: string, input: PushSubscribeInput): Promise<void> {
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.pushSubscription.upsert({
+          where: { endpoint: input.endpoint },
+          create: {
+            tenantId,
+            userId,
+            endpoint: input.endpoint,
+            p256dh: input.keys.p256dh,
+            auth: input.keys.auth,
+          },
+          // El mismo navegador pasa a ser de quien lo activa ahora.
+          update: {
+            tenantId,
+            userId,
+            customerId: null,
+            p256dh: input.keys.p256dh,
+            auth: input.keys.auth,
+          },
+        }),
+      tenantId,
+    );
+  }
+
+  async unsubscribeUser(tenantId: string, userId: string, endpoint: string): Promise<void> {
+    await this.prisma.withTenant(
+      (tx) => tx.pushSubscription.deleteMany({ where: { tenantId, userId, endpoint } }),
+      tenantId,
+    );
+  }
+
+  /** ¿Este dispositivo tiene el push activado para este usuario? */
+  async isUserSubscribed(tenantId: string, userId: string, endpoint: string): Promise<boolean> {
+    const n = await this.prisma.withTenant(
+      (tx) => tx.pushSubscription.count({ where: { tenantId, userId, endpoint } }),
+      tenantId,
+    );
+    return n > 0;
+  }
+
+  /**
+   * Push al equipo de una notificación del panel, solo de las que piden actuar
+   * (`STAFF_PUSH_TYPES`) y solo a quien ve ese local: sin local, a todos; con
+   * local, a quien no tiene locales asignados o tiene ese.
+   */
+  async sendToStaff(
+    tenantId: string,
+    n: {
+      type: string;
+      title: string;
+      body?: string | null;
+      link?: string | null;
+      facilityId?: string | null;
+    },
+  ): Promise<void> {
+    if (!this.enabled || !isStaffPushType(n.type)) return;
+    const subs = await this.prisma.withTenant(
+      (tx) =>
+        tx.pushSubscription.findMany({
+          where: { tenantId, userId: { not: null }, user: { isActive: true } },
+          include: { user: { select: { facilities: { select: { facilityId: true } } } } },
+        }),
+      tenantId,
+    );
+    const allowed = subs.filter((s) => {
+      if (!n.facilityId) return true;
+      const scope = s.user?.facilities ?? [];
+      return scope.length === 0 || scope.some((f) => f.facilityId === n.facilityId);
+    });
+    await this.deliver(tenantId, allowed, {
+      title: n.title,
+      ...(n.body ? { body: n.body } : {}),
+      url: n.link ?? '/notifications',
+    });
+  }
+
+  /** Envía a cada suscripción; borra las que el navegador ya no acepta. */
+  private async deliver(
+    tenantId: string,
+    subs: { id: string; endpoint: string; p256dh: string; auth: string }[],
+    payload: PushPayload,
+  ): Promise<void> {
     const body = JSON.stringify(payload);
     for (const sub of subs) {
       try {

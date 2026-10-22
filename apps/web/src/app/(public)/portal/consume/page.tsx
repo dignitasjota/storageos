@@ -87,6 +87,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
+import { urlBase64ToUint8Array } from '@/lib/push/vapid';
 
 /**
  * La sesión del portal se persiste en localStorage tras consumir el magic link
@@ -258,16 +259,6 @@ function paymentStatusLabel(
   if (status === 'refunded') return t('paymentStatusRefunded');
   if (status === 'partially_refunded') return t('paymentStatusPartiallyRefunded');
   return status;
-}
-
-/** Convierte la clave pública VAPID (base64url) al formato que pide pushManager. */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(base64);
-  const output = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
-  return output;
 }
 
 function PortalConsumeContent() {

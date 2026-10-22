@@ -667,6 +667,12 @@ A diferencia de las promociones (que descuentan todas las cuotas), el **cupón d
 
 El de la plataforma y el del dominio propio de cada tenant se generan con `renderSitemap` (shared): `loc`, `lastmod`, `changefreq`, `priority` y después los enlaces de idioma con `x-default` (Next.js los escribía antes de `lastmod` y el documento no validaba contra el esquema de sitemaps.org). `app/sitemap.ts` pasa a `app/sitemap.xml/route.ts`. Las páginas de ciudad llevan también su versión en inglés.
 
+### Apps móviles (2026-10-22, decisión de Jota)
+
+Sin app nativa por ahora: el portal del inquilino y el panel del equipo siguen como **PWA** instalables (el panel del super admin, solo escritorio). Se pasará a una app de tienda **solo** si un cliente exige estar en la App Store o cuando la apertura con el móvil pase a NFC/Bluetooth; entonces, **Capacitor** (envolver la web, no reescribirla), llegando con funciones nativas (push, cámara, NFC) para pasar la revisión de Apple. Como mucho dos apps: inquilino (la que aporta en la tienda; una única app con la marca del tenant dentro) y equipo; nunca la del super admin. Descartado: app nativa en Swift o React Native.
+
+- **Push para el equipo (este)**: las notificaciones de la campana que piden actuar llegan también al móvil u ordenador de cada usuario que lo active (Configuración → Perfil → Avisos), solo de sus locales.
+
 ### Puesta en marcha del tenant nuevo (2026-10-22, decisiones de Jota) ✅
 
 Análisis del onboarding: el tenant nuevo no veía lo que bloquea operar (serie de facturación, datos fiscales, cómo le pagan los inquilinos) y el checklist del Resumen era corto. Decisiones: checklist mejorado (no un asistente paso a paso) y el NIF no se pide en el registro (va en el checklist).
