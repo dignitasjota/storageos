@@ -18,6 +18,7 @@ import {
   CreditCard,
   FileSpreadsheet,
   FileText,
+  Gauge,
   Gift,
   HandCoins,
   Inbox,
@@ -395,6 +396,12 @@ const GROUPS: NavGroup[] = [
         labelKey: 'crmMarketing',
         icon: Target,
         children: [
+          {
+            href: '/marketing/summary',
+            labelKey: 'marketingSummary',
+            icon: Gauge,
+            permission: 'marketing:read',
+          },
           {
             href: '/marketing/channels',
             labelKey: 'marketingChannels',

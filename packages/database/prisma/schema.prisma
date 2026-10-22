@@ -358,6 +358,10 @@ model Tenant {
   autoIssueRecurring           Boolean               @default(false) @map("auto_issue_recurring")
   /// Informe mensual por email al operador (ocupación/ingresos/morosidad/altas/leads). Opt-in.
   monthlyDigestEnabled         Boolean               @default(false) @map("monthly_digest_enabled")
+  /// Resumen mensual del marketing por correo («Tu marketing en <mes>»).
+  marketingReportEnabled       Boolean               @default(true) @map("marketing_report_enabled")
+  /// Último mes enviado (`YYYY-MM`), para no repetirlo.
+  marketingReportLastMonth     String?               @map("marketing_report_last_month")
   /// Correos automáticos al inquilino que el tenant ha APAGADO (`{kind: false}`); ausente = activado.
   customerEmailSettings        Json                  @default("{}") @map("customer_email_settings")
   /// Avisos por email al equipo que el tenant ha APAGADO (`{kind: false}`); ausente = activado.
