@@ -24,6 +24,7 @@ export const TenantFeatures = [
   'multi_owner', // varios propietarios por cuenta (plan Administrador)
   'whatsapp_business', // WhatsApp del negocio en su web + bandeja en el panel — SOLO add-on
   'local_seo', // páginas de zona, revisión de SEO, posiciones e informe — SOLO add-on
+  'branded_panel', // panel del equipo con el logo y nombre del tenant (también la app instalada)
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -49,6 +50,7 @@ export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
     'custom_domain',
     'collections',
     'cameras',
+    'branded_panel',
   ],
   /** Todo Pro + varios propietarios (administradores de cartera). */
   administrador: [
@@ -62,6 +64,7 @@ export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
     'custom_domain',
     'collections',
     'cameras',
+    'branded_panel',
     'multi_owner',
   ],
 };
@@ -140,4 +143,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   multi_owner: 'Varios propietarios',
   whatsapp_business: 'WhatsApp Business',
   local_seo: 'SEO local',
+  branded_panel: 'Panel con tu marca',
 };

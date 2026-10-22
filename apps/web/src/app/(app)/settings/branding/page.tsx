@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -12,11 +13,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
+import { useHasFeature } from '@/lib/auth/hooks';
 import { useTenantBranding, useUpdateTenantBranding } from '@/lib/branding/hooks';
 
 export default function BrandingSettingsPage() {
   const branding = useTenantBranding();
   const update = useUpdateTenantBranding();
+  const panelBranded = useHasFeature('branded_panel');
 
   const [color, setColor] = useState('#2563eb');
   const [headerBranded, setHeaderBranded] = useState(false);
@@ -80,7 +83,17 @@ export default function BrandingSettingsPage() {
         <CardHeader>
           <CardTitle>Marca del portal y la web pública</CardTitle>
           <CardDescription>
-            Personaliza el portal de tus inquilinos y tu web pública con tu logo y color.
+            Personaliza el portal de tus inquilinos y tu web pública con tu logo y color.{' '}
+            {panelBranded ? (
+              'Tu logo también sale en el menú de este panel y en la app que instala tu equipo.'
+            ) : (
+              <>
+                Con el plan Pro, también en el panel de tu equipo y en su app.{' '}
+                <Link href="/settings/saas-billing" className="underline">
+                  Ver planes
+                </Link>
+              </>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

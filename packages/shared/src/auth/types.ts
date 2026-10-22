@@ -29,6 +29,11 @@ export interface TenantDto {
   locale: string;
   currency: string;
   timezone: string;
+  /** Marca del tenant (el panel la muestra con la función `branded_panel`). */
+  brandColor: string | null;
+  logoUrl: string | null;
+  /** El logo es un fichero subido (se puede usar en el icono de la app). */
+  logoUploaded: boolean;
 }
 
 /** Datos minimos de la suscripcion (para banners del trial, etc.). */

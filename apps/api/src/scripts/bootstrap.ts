@@ -67,6 +67,7 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
       'custom_domain',
       'collections',
       'cameras',
+      'branded_panel',
     ],
   },
   {
@@ -89,6 +90,7 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
       'custom_domain',
       'collections',
       'cameras',
+      'branded_panel',
       'multi_owner',
     ],
   },

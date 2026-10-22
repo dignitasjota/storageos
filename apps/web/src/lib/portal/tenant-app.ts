@@ -92,6 +92,8 @@ export function iconVersion(
 }
 
 export const tenantManifestPath = (slug: string) => `/portal/app/${slug}/manifest`;
+/** Ficha de la app del panel del equipo con la marca del tenant (plan Pro). */
+export const panelManifestPath = (slug: string) => `/panel-app/${slug}/manifest`;
 export const tenantIconPath = (slug: string, size: number, maskable = false, version = '') => {
   const query = [maskable ? 'maskable=1' : '', version ? `v=${version}` : ''].filter(Boolean);
   return `/portal/app/${slug}/icon/${size}${query.length ? `?${query.join('&')}` : ''}`;

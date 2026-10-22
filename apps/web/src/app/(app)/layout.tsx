@@ -10,6 +10,7 @@ import { ImpersonationBanner } from '@/components/layout/impersonation-banner';
 import { PaymentAlertBanner } from '@/components/layout/payment-alert-banner';
 import { PlatformBanner } from '@/components/layout/platform-banner';
 import { TrialBanner } from '@/components/layout/trial-banner';
+import { PanelAppHead } from '@/components/pwa/panel-app-head';
 import { PwaRegister } from '@/components/pwa/pwa-register';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AuthBootstrap } from '@/lib/auth/bootstrap';
@@ -35,6 +36,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <PwaRegister />
       <AuthBootstrap>
         <ConfirmProvider>
+          <PanelAppHead />
           <SidebarProvider>
             <AppSidebar />
             <SidebarInset className="bg-app">

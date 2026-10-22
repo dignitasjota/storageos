@@ -2,7 +2,7 @@ import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { deleteAllMessages } from './helpers/mailpit';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -60,6 +60,18 @@ describe('GET /auth/me (e2e)', () => {
     expect(res.body.features).not.toContain('ai_assistant');
     expect(res.body.features).not.toContain('sepa');
     expect(res.body.features).not.toContain('bank_reconciliation');
+    expect(res.body.features).not.toContain('branded_panel');
+    // La marca del tenant viaja con la sesión (el panel la usa con el plan Pro).
+    expect(res.body.tenant).toMatchObject({ logoUrl: null, logoUploaded: false });
+  });
+
+  it('el plan Pro incluye el panel con la marca del tenant', async () => {
+    await setTenantPlan(slugA, 'pro');
+    const res = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${accessTokenA}`);
+    expect(res.body.features).toContain('branded_panel');
+    await setTenantPlan(slugA, 'starter');
   });
 
   it('rechaza con 401 sin token', async () => {
