@@ -3687,6 +3687,21 @@ model SuperAdmin {
   @@map("super_admins")
   productUpdates ProductUpdate[] @relation("ProductUpdateAuthor")
   supportCannedResponses SupportCannedResponse[] @relation("SupportCannedAuthor")
+  pushSubscriptions SuperAdminPushSubscription[]
+}
+
+/// Dispositivos del super admin con avisos push (panel admin instalado). Global, sin RLS.
+model SuperAdminPushSubscription {
+  id           String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  superAdminId String     @map("super_admin_id") @db.Uuid
+  superAdmin   SuperAdmin @relation(fields: [superAdminId], references: [id], onDelete: Cascade)
+  endpoint     String     @unique
+  p256dh       String
+  auth         String
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([superAdminId])
+  @@map("super_admin_push_subscriptions")
 }
 
 /// Codigos de recuperacion 2FA para super admin. 10 codigos `XXXX-XXXX`
@@ -5283,6 +5298,8 @@ model SuperAdminNotification {
   body      String?
   link      String?
   readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  /// Cuándo se envió por push (null = pendiente).
+  pushedAt  DateTime? @map("pushed_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([createdAt(sort: Desc)])

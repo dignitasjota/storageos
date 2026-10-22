@@ -3,6 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   type ChangePasswordInput,
+  STAFF_PUSH_TYPES,
   ChangePasswordSchema,
   type UpdateProfileInput,
   UpdateProfileSchema,
@@ -12,10 +13,10 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
-import { DevicePushCard } from './device-push-card';
 import { EmailNoticesForm } from './email-notices-form';
 import { TwoFactorPanel } from './two-factor-panel';
 
+import { DevicePushCard } from '@/components/push/device-push-card';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -28,7 +29,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ApiError } from '@/lib/auth/api';
+import { ApiError, apiFetch } from '@/lib/auth/api';
 import { useMe } from '@/lib/auth/hooks';
 import { useChangePassword, useUpdateProfile } from '@/lib/users/hooks';
 
@@ -77,7 +78,12 @@ export default function ProfileSettingsPage() {
           <TwoFactorPanel />
         </TabsContent>
         <TabsContent value="notices" className="mt-6 max-w-lg space-y-6">
-          <DevicePushCard />
+          <DevicePushCard
+            fetcher={apiFetch}
+            basePath="/me/push"
+            topics={Object.values(STAFF_PUSH_TYPES)}
+            scopeNote="Solo de los locales que tienes asignados."
+          />
           <EmailNoticesForm />
         </TabsContent>
       </Tabs>

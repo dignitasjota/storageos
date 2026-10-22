@@ -2179,6 +2179,11 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `DELETE /portal/me/payment-methods/:id` y `POST /portal/me/payment-methods/:id/default` (200, devuelven la lista): quitar un método de pago (si era el predeterminado, pasa a serlo el más reciente) o elegir con cuál se cobra. 404 si no es suyo.
 - `GET /portal/me/insurance-plans` devuelve `[]` si el plan del negocio ya no incluye la protección.
 
+### Push del super admin
+
+- `GET /admin/me/push?endpoint=` → `{publicKey, subscribed}`, `POST /admin/me/push/subscribe {endpoint, keys}` y `POST /admin/me/push/unsubscribe {endpoint}` (204; `AdminGuard`, también el rol soporte). Suscripciones en la tabla global `super_admin_push_subscriptions` (sin tenant; REVOKE para `storageos_app`).
+- Los avisos salen del feed `super_admin_notifications`: la tarea `super-admin-push.send` (cada minuto, en el worker) reclama de forma atómica los de la última hora aún sin enviar (`pushed_at`) y manda los tipos de `SUPER_ADMIN_PUSH_TYPES` (tickets, aprobaciones, formulario de la web, contracargos, suscripción de Stripe terminada o sin tenant, correo rechazado por el proveedor, interés repetido en una función) a cada super admin activo con el push activado. Con 4 o más a la vez, un solo aviso con el recuento. Sin claves VAPID no hace nada.
+
 ### Portal: sesión de la app instalada
 
 - `POST /portal/login/consume`, `/portal/login/password`, `/portal/login/reset` y `/portal/me/password` aceptan `installedApp?: boolean`. Con `true` (el portal abierto como app instalada, `display-mode: standalone`) la sesión dura **30 días** (`PORTAL_APP_SESSION_DAYS`); sin él, 48 h como hasta ahora. `expiresIn` lo refleja.

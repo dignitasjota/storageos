@@ -11,6 +11,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { StripeConnectModule } from '../payments/stripe-connect/stripe-connect.module';
 import { PlatformModule } from '../platform/platform.module';
+import { PushModule } from '../push/push.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 
 import { AdminActivityService } from './admin-activity.service';
@@ -35,6 +36,7 @@ import { AdminOpportunitiesService } from './admin-opportunities.service';
 import { AdminOpsHealthController } from './admin-ops-health.controller';
 import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminPaymentSettingsController } from './admin-payment-settings.controller';
+import { AdminPushController } from './admin-push.controller';
 import { AdminQueuesController } from './admin-queues.controller';
 import { AdminQuoteController } from './admin-quote.controller';
 import { AdminQuoteService } from './admin-quote.service';
@@ -104,6 +106,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
  */
 @Module({
   imports: [
+    PushModule,
     EmailDomainsModule,
     AuthModule,
     PlatformModule,
@@ -119,6 +122,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     StripeConnectModule,
   ],
   controllers: [
+    AdminPushController,
     AdminTenantsOverviewController,
     AdminBillingOpsController,
     AdminQuoteController,
