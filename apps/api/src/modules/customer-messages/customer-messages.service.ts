@@ -1,10 +1,21 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
-import { chatReplyChannel } from '@storageos/shared';
+import {
+  attachmentLabel,
+  chatReplyChannel,
+  type MessageAttachmentInput,
+  type MessageAttachmentUploadDto,
+} from '@storageos/shared';
 
+import {
+  assertAttachment,
+  attachmentDto,
+  requestAttachmentUpload,
+} from '../../common/message-attachments';
 import { DOMAIN_EVENTS, type CustomerMessagePayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
 
@@ -16,7 +27,7 @@ const messageInclude = {
 
 type MessageRow = Prisma.CustomerMessageGetPayload<{ include: typeof messageInclude }>;
 
-function toDto(row: MessageRow): CustomerMessageDto {
+function toDto(row: MessageRow): Omit<CustomerMessageDto, 'attachment'> {
   return {
     id: row.id,
     senderType: row.senderType as CustomerMessageDto['senderType'],
@@ -43,7 +54,30 @@ export class CustomerMessagesService {
     private readonly notifications: NotificationsService,
     private readonly push: PushService,
     private readonly events: EventEmitter2,
+    private readonly files: FilesService,
   ) {}
+
+  private async dto(row: MessageRow): Promise<CustomerMessageDto> {
+    return { ...toDto(row), attachment: await attachmentDto(this.files, row) };
+  }
+
+  /** URL firmada para subir un adjunto a la conversación con un inquilino. */
+  async requestAttachmentUpload(
+    tenantId: string,
+    customerId: string,
+    mimeType: string,
+  ): Promise<MessageAttachmentUploadDto> {
+    await this.assertCustomer(tenantId, customerId);
+    return requestAttachmentUpload(this.files, `${tenantId}/chat/${customerId}/`, mimeType);
+  }
+
+  private attachmentFields(
+    tenantId: string,
+    customerId: string,
+    att: MessageAttachmentInput | undefined,
+  ) {
+    return att ? assertAttachment(this.files, `${tenantId}/chat/${customerId}/`, att) : {};
+  }
 
   /**
    * Mensajes de inquilinos que ESTE usuario aún no ha leído (badges del menú,
@@ -98,6 +132,7 @@ export class CustomerMessagesService {
           sender_type: string;
           channel: string;
           created_at: Date;
+          attachment_name: string | null;
           customer_type: string;
           first_name: string | null;
           last_name: string | null;
@@ -107,12 +142,12 @@ export class CustomerMessagesService {
       >`
         WITH last AS (
           SELECT DISTINCT ON (m.customer_id)
-            m.customer_id, m.body, m.sender_type, m.channel, m.created_at
+            m.customer_id, m.body, m.sender_type, m.channel, m.created_at, m.attachment_name
           FROM customer_messages m
           WHERE m.tenant_id = ${tenantId}::uuid
           ORDER BY m.customer_id, m.created_at DESC
         )
-        SELECT l.customer_id, l.body, l.sender_type, l.channel, l.created_at,
+        SELECT l.customer_id, l.body, l.sender_type, l.channel, l.created_at, l.attachment_name,
           c.customer_type::text AS customer_type, c.first_name, c.last_name, c.company_name,
           (
             SELECT count(*)::int FROM customer_messages x
@@ -145,7 +180,13 @@ export class CustomerMessagesService {
           ? (r.company_name ?? 'Empresa')
           : [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || 'Cliente',
       lastMessage: {
-        body: r.body.length > 200 ? `${r.body.slice(0, 200)}…` : r.body,
+        body: r.body
+          ? r.body.length > 200
+            ? `${r.body.slice(0, 200)}…`
+            : r.body
+          : r.attachment_name
+            ? attachmentLabel(r.attachment_name)
+            : '',
         senderType: r.sender_type as 'customer' | 'staff',
         channel: (r.channel ?? 'portal') as 'portal' | 'whatsapp' | 'email',
         createdAt: r.created_at.toISOString(),
@@ -214,7 +255,7 @@ export class CustomerMessagesService {
         orderBy: { createdAt: 'asc' },
       });
     }, tenantId);
-    return rows.map(toDto);
+    return Promise.all(rows.map((r) => this.dto(r)));
   }
 
   /** El staff responde al inquilino → push al inquilino. */
@@ -223,8 +264,12 @@ export class CustomerMessagesService {
     customerId: string,
     userId: string,
     body: string,
+    attachment?: MessageAttachmentInput,
   ): Promise<CustomerMessageDto> {
     await this.assertCustomer(tenantId, customerId);
+    const att = await this.attachmentFields(tenantId, customerId, attachment);
+    // Lo que se cuenta en avisos y canales cuando el mensaje solo lleva adjunto.
+    const text = body || (attachment ? attachmentLabel(attachment.filename) : '');
     const { created, lastFromCustomer } = await this.prisma.withTenant(async (tx) => {
       const last = await tx.customerMessage.findFirst({
         where: { tenantId, customerId, senderType: 'customer' },
@@ -232,7 +277,7 @@ export class CustomerMessagesService {
         select: { channel: true, createdAt: true },
       });
       const row = await tx.customerMessage.create({
-        data: { tenantId, customerId, senderType: 'staff', senderUserId: userId, body },
+        data: { tenantId, customerId, senderType: 'staff', senderUserId: userId, body, ...att },
         include: messageInclude,
       });
       return { created: row, lastFromCustomer: last };
@@ -243,7 +288,7 @@ export class CustomerMessagesService {
       : null;
     await this.push.sendToCustomer(tenantId, customerId, {
       title: 'Nuevo mensaje de tu gestor',
-      body: body.slice(0, 140),
+      body: text.slice(0, 140),
       url: '/portal/consume?tab=mensajes',
     });
     // Copia por correo (el push no llega a quien no lo activó).
@@ -251,11 +296,11 @@ export class CustomerMessagesService {
       tenantId,
       customerId,
       messageId: created.id,
-      body,
+      body: text,
       channel: 'portal',
       replyVia,
     } satisfies CustomerMessagePayload);
-    return toDto(created);
+    return this.dto(created);
   }
 
   /** El inquilino escribe desde el portal → notificación in-app al staff. */
@@ -266,8 +311,11 @@ export class CustomerMessagesService {
     channel: 'portal' | 'whatsapp' | 'email' = 'portal',
     /** `false` = email entrante sin DMARC `pass` (remitente no autenticado). */
     senderVerified = true,
+    attachment?: MessageAttachmentInput,
   ): Promise<CustomerMessageDto> {
     const { name } = await this.assertCustomer(tenantId, customerId);
+    const att = await this.attachmentFields(tenantId, customerId, attachment);
+    const text = body || (attachment ? attachmentLabel(attachment.filename) : '');
     const { created, alreadyPending } = await this.prisma.withTenant(async (tx) => {
       // ¿Ya había mensajes suyos sin leer? Entonces el equipo ya está avisado:
       // no repetimos notificación ni correo por cada frase.
@@ -275,7 +323,15 @@ export class CustomerMessagesService {
         where: { tenantId, customerId, senderType: 'customer', readAt: null },
       });
       const row = await tx.customerMessage.create({
-        data: { tenantId, customerId, senderType: 'customer', body, channel, senderVerified },
+        data: {
+          tenantId,
+          customerId,
+          senderType: 'customer',
+          body,
+          channel,
+          senderVerified,
+          ...att,
+        },
         include: messageInclude,
       });
       return { created: row, alreadyPending: pending > 0 };
@@ -285,17 +341,17 @@ export class CustomerMessagesService {
       await this.notifications.create(tenantId, {
         type: 'customer.message',
         title: `Mensaje de ${name}${via}${senderVerified ? '' : ' — remitente no verificado'}`,
-        body: body.slice(0, 140),
+        body: text.slice(0, 140),
         link: `/customers/${customerId}?tab=chat`,
       });
       this.events.emit(DOMAIN_EVENTS.customer_message_from_customer, {
         tenantId,
         customerId,
         messageId: created.id,
-        body,
+        body: text,
         channel,
       } satisfies CustomerMessagePayload);
     }
-    return toDto(created);
+    return this.dto(created);
   }
 }

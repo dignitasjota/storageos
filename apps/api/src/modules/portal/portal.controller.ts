@@ -45,6 +45,8 @@ import {
   PortalSetInsuranceSchema,
   PortalUpdateProfileSchema,
   SendCustomerMessageSchema,
+  MessageAttachmentUploadSchema,
+  type MessageAttachmentUploadDto,
   type CustomerDocumentDto,
   type CustomerDocumentUploadDto,
   type CustomerMessageDto,
@@ -134,6 +136,7 @@ class PortalSetInsuranceDto extends createZodDto(PortalSetInsuranceSchema) {}
 class PortalPurchaseDto extends createZodDto(PortalPurchaseSchema) {}
 class RedsysRedirectBody extends createZodDto(RedsysRedirectRequestSchema) {}
 class PortalSendMessageDto extends createZodDto(SendCustomerMessageSchema) {}
+class PortalMessageAttachmentUploadDto extends createZodDto(MessageAttachmentUploadSchema) {}
 class RequestDocumentUploadDto extends createZodDto(RequestCustomerDocumentUploadSchema) {}
 class RegisterDocumentDto extends createZodDto(RegisterCustomerDocumentSchema) {}
 class PortalCreateExtraAccessDto extends createZodDto(PortalCreateExtraAccessSchema) {}
@@ -455,7 +458,27 @@ export class PortalController {
     @Body() body: PortalSendMessageDto,
   ): Promise<CustomerMessageDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
-    return this.messages.sendFromCustomer(tenantId, customerId, body.body);
+    return this.messages.sendFromCustomer(
+      tenantId,
+      customerId,
+      body.body,
+      'portal',
+      true,
+      body.attachment,
+    );
+  }
+
+  /** URL firmada para adjuntar una imagen o PDF al mensaje. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/messages/upload-url')
+  @HttpCode(HttpStatus.OK)
+  async messageUploadUrl(
+    @Headers('authorization') auth: string | undefined,
+    @Body() body: PortalMessageAttachmentUploadDto,
+  ): Promise<MessageAttachmentUploadDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.messages.requestAttachmentUpload(tenantId, customerId, body.mimeType);
   }
 
   /** Accesorios a la venta (catálogo del negocio con stock). */

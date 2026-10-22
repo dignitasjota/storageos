@@ -1,8 +1,6 @@
 'use client';
 
-import { zodResolver } from '@hookform/resolvers/zod';
 import {
-  AddTicketMessageSchema,
   type AddTicketMessageInput,
   type SupportTicketMessageDto,
   type SupportTicketStatusValue,
@@ -10,9 +8,15 @@ import {
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import {
+  AttachmentPicker,
+  AttachmentView,
+  uploadMessageAttachment,
+} from '@/components/messages/attachments';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,7 +30,11 @@ import {
 } from '@/components/ui/form';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useAddTicketMessage, useSupportTicket } from '@/lib/support/hooks';
+import {
+  presignTicketAttachment,
+  useAddTicketMessage,
+  useSupportTicket,
+} from '@/lib/support/hooks';
 
 const STATUS_LABELS: Record<SupportTicketStatusValue, string> = {
   open: 'Abierto',
@@ -109,23 +117,37 @@ function MessageBubble({ message }: { message: SupportTicketMessageDto }) {
         <span className="font-medium text-foreground">{author}</span>
         <span>{new Date(message.createdAt).toLocaleString('es-ES')}</span>
       </div>
-      <p className="mt-1 whitespace-pre-wrap">{message.body}</p>
+      {message.body && <p className="mt-1 whitespace-pre-wrap">{message.body}</p>}
+      {message.attachment && <AttachmentView attachment={message.attachment} />}
     </div>
   );
 }
 
 function ReplyForm({ ticketId }: { ticketId: string }) {
   const add = useAddTicketMessage();
+  const [file, setFile] = useState<File | null>(null);
+  // Sin resolver: el mensaje puede ir solo con el adjunto (que no es un campo del formulario).
   const form = useForm<AddTicketMessageInput>({
-    resolver: zodResolver(AddTicketMessageSchema),
     defaultValues: { body: '', isInternal: false },
   });
 
   async function onSubmit(values: AddTicketMessageInput) {
+    const body = values.body.trim();
+    if (!body && !file) {
+      form.setError('body', { message: 'Escribe un mensaje o adjunta un archivo' });
+      return;
+    }
     try {
+      const attachment = file
+        ? await uploadMessageAttachment(file, presignTicketAttachment)
+        : undefined;
       // El tenant nunca envia notas internas: forzamos isInternal=false.
-      await add.mutateAsync({ id: ticketId, input: { ...values, isInternal: false } });
+      await add.mutateAsync({
+        id: ticketId,
+        input: { body, isInternal: false, ...(attachment ? { attachment } : {}) },
+      });
       form.reset({ body: '', isInternal: false });
+      setFile(null);
       toast.success('Mensaje enviado.');
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.body.message);
@@ -154,7 +176,12 @@ function ReplyForm({ ticketId }: { ticketId: string }) {
                 </FormItem>
               )}
             />
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <AttachmentPicker
+                file={file}
+                onChange={setFile}
+                disabled={form.formState.isSubmitting}
+              />
               <Button type="submit" disabled={form.formState.isSubmitting}>
                 Enviar
               </Button>

@@ -137,6 +137,7 @@ export class RgpdService {
     requestId?: string;
     meta: RequestMeta;
   }): Promise<void> {
+    const chatAttachmentKeys: string[] = [];
     const filesToDelete = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findUnique({
         where: { id: args.customerId },
@@ -209,7 +210,16 @@ export class RgpdService {
       await tx.pushSubscription.deleteMany({ where: { customerId } });
 
       // Lo que el inquilino escribió o lo que el equipo anotó sobre él.
-      await tx.customerMessage.updateMany({ where: { customerId }, data: { body: ANON } });
+      // Los adjuntos del chat (fotos, PDF) también se borran.
+      const chatFiles = await tx.customerMessage.findMany({
+        where: { customerId, attachmentKey: { not: null } },
+        select: { attachmentKey: true },
+      });
+      chatAttachmentKeys.push(...chatFiles.map((m) => m.attachmentKey!));
+      await tx.customerMessage.updateMany({
+        where: { customerId },
+        data: { body: ANON, attachmentKey: null, attachmentMime: null, attachmentName: null },
+      });
       await tx.customerInteraction.updateMany({ where: { customerId }, data: { content: ANON } });
       await tx.customerFollowup.updateMany({
         where: { customerId },
@@ -297,7 +307,7 @@ export class RgpdService {
       }
       return [...whatsapp.mediaKeys, ...fileKeys];
     }, args.tenantId);
-    await this.files.deleteObjects('uploads', filesToDelete);
+    await this.files.deleteObjects('uploads', [...filesToDelete, ...chatAttachmentKeys]);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

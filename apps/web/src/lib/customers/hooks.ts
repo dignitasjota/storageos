@@ -37,6 +37,8 @@ import type {
   EmailSuppressionDto,
   CustomerInteractionDto,
   CustomerConversationDto,
+  MessageAttachmentInput,
+  MessageAttachmentUploadDto,
   CustomerMessageDto,
   CustomerUnreadSummaryDto,
   PortalMagicLinkDto,
@@ -605,13 +607,21 @@ export function useCustomerMessages(id: string | undefined, enabled = true) {
   });
 }
 
+/** URL firmada para subir un adjunto a la conversación con un inquilino. */
+export function presignCustomerMessageAttachment(customerId: string, mimeType: string) {
+  return apiFetch<MessageAttachmentUploadDto>(`/customers/${customerId}/messages/upload-url`, {
+    method: 'POST',
+    json: { mimeType },
+  });
+}
+
 export function useSendCustomerMessage(customerId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: string) =>
+    mutationFn: (input: { body: string; attachment?: MessageAttachmentInput }) =>
       apiFetch<CustomerMessageDto>(`/customers/${customerId}/messages`, {
         method: 'POST',
-        json: { body },
+        json: input,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customers', customerId, 'messages'] }),
   });

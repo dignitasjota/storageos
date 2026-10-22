@@ -1,4 +1,5 @@
 import type { TenantFeature } from '../features';
+import type { MessageAttachmentDto } from '../messages';
 import type {
   ApprovalAction,
   PlatformCouponDiscountTypeValue,
@@ -550,6 +551,8 @@ export interface SupportTicketMessageDto {
   authorUserName: string | null;
   authorAdminId: string | null;
   authorAdminName: string | null;
+  /** Imagen o PDF adjunto (URL firmada), o null. */
+  attachment: MessageAttachmentDto | null;
   createdAt: string;
 }
 

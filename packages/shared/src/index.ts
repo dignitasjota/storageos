@@ -79,3 +79,4 @@ export * from './whatsapp';
 export * from './coupons';
 export * from './promo-landings';
 export * from './pagination';
+export * from './messages';

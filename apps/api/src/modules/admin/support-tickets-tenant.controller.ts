@@ -12,6 +12,8 @@ import {
 import {
   AddTicketMessageSchema,
   CreateSupportTicketSchema,
+  MessageAttachmentUploadSchema,
+  type MessageAttachmentUploadDto,
   type SupportTicketDto,
   type SupportTicketMessageDto,
 } from '@storageos/shared';
@@ -28,6 +30,7 @@ import type { Request } from 'express';
 
 class CreateSupportTicketDto extends createZodDto(CreateSupportTicketSchema) {}
 class AddTicketMessageDto extends createZodDto(AddTicketMessageSchema) {}
+class AttachmentUploadDto extends createZodDto(MessageAttachmentUploadSchema) {}
 
 interface ReqMetaInfo {
   ipAddress: string | null;
@@ -66,6 +69,16 @@ export class SupportTicketsTenantController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<SupportTicketDto> {
     return this.tickets.detailForTenant(user.tenantId, id);
+  }
+
+  /** URL firmada para subir un adjunto (imagen o PDF) a un ticket. */
+  @Post('attachments/upload-url')
+  @HttpCode(HttpStatus.OK)
+  uploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: AttachmentUploadDto,
+  ): Promise<MessageAttachmentUploadDto> {
+    return this.tickets.requestAttachmentUpload(user.tenantId, body.mimeType);
   }
 
   @Post()

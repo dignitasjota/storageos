@@ -448,7 +448,10 @@
         "empty": "Aún no hay mensajes. Empieza la conversación.",
         "inputPlaceholder": "Escribe un mensaje…",
         "send": "Enviar",
-        "sendError": "No se pudo enviar el mensaje."
+        "sendError": "No se pudo enviar el mensaje.",
+        "attach": "Adjuntar imagen o PDF",
+        "attachType": "Adjunta una imagen (JPG, PNG o WebP) o un PDF.",
+        "attachSize": "El adjunto no puede pasar de 10 MB."
       },
       "documents": {
         "title": "Mis documentos",

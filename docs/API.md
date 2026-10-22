@@ -2099,6 +2099,12 @@ Todo con la feature `multi_owner`.
 - Respuesta del tenant → aviso al feed del super admin (`support_ticket`, también push). Responder en un ticket `resolved` lo reabre (`open`); la pantalla del tenant deja responder hasta que se cierra.
 - Asignar un ticket avisa en el feed del admin (`support_ticket.assigned`).
 
+### Mensajería: adjuntos en tickets y chat
+
+- Migración `20261109180000_message_attachments` (`attachment_key`/`_mime`/`_name` en `support_ticket_messages` y `customer_messages`). Un adjunto por mensaje: imagen (JPG/PNG/WebP) o PDF, máx. 10 MB, bucket privado `uploads` (`<tenant>/support/…` y `<tenant>/chat/<customer>/…`), bytes comprobados al guardar (400 `invalid_attachment` si la clave no es de esa conversación).
+- URL firmada para subir: `POST /support/tickets/attachments/upload-url`, `POST /admin/support/tickets/:id/attachments/upload-url`, `POST /customers/:id/messages/upload-url` (`customers:write`), `POST /portal/me/messages/upload-url` → `{uploadUrl, key, requiredHeaders}`. Luego `attachment: {key, mimeType, filename}` en `POST /support/tickets` (al abrir), `…/messages` y `POST /portal/me/messages`; el texto puede ir vacío si hay adjunto.
+- Los DTO de mensaje llevan `attachment: {url, mimeType, filename} | null` (URL firmada 10 min; los PDF se descargan). Anonimizar un inquilino borra también los adjuntos de su chat.
+
 ### Mensajería: mensajes de TrasterOS en el panel del tenant
 
 - Migración `20261109160000_tenant_platform_messages` (RLS): todo lo que el super admin envía a un tenant queda también en su panel, **Soporte → «Mensajes de TrasterOS»** (`GET /support/platform-messages`, del tenant del JWT; `kind` `direct` | `announcement` | `retention`), con notificación `platform.message`.

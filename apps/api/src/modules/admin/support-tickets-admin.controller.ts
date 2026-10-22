@@ -14,6 +14,8 @@ import {
 } from '@nestjs/common';
 import {
   AddTicketMessageSchema,
+  MessageAttachmentUploadSchema,
+  type MessageAttachmentUploadDto,
   type AdminSupportTicketsPageDto,
   AssignTicketSchema,
   type SupportTicketDto,
@@ -37,6 +39,7 @@ import type { Request } from 'express';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 class AddTicketMessageDto extends createZodDto(AddTicketMessageSchema) {}
+class AttachmentUploadDto extends createZodDto(MessageAttachmentUploadSchema) {}
 class TransitionTicketDto extends createZodDto(TransitionTicketSchema) {}
 class AssignTicketDto extends createZodDto(AssignTicketSchema) {}
 
@@ -108,6 +111,16 @@ export class SupportTicketsAdminController {
   @Get(':id')
   async detail(@Param('id', new ParseUUIDPipe()) id: string): Promise<SupportTicketDto> {
     return this.tickets.detailForAdmin(id);
+  }
+
+  /** URL firmada para adjuntar una imagen o PDF a la respuesta. */
+  @Post(':id/attachments/upload-url')
+  @HttpCode(HttpStatus.OK)
+  uploadUrl(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: AttachmentUploadDto,
+  ): Promise<MessageAttachmentUploadDto> {
+    return this.tickets.requestAttachmentUploadAsAdmin(id, body.mimeType);
   }
 
   @Post(':id/messages')
