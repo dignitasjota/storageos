@@ -4,6 +4,7 @@ import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -19,6 +20,7 @@ const ADMIN_EMAIL = 'admin-lifecycle-test@storageos.local';
 interface TestQueue {
   pause: () => Promise<void>;
   obliterate: (opts: { force: boolean }) => Promise<void>;
+  getJobs: (types: string[]) => Promise<{ data: { to: string; subject: string; text: string } }[]>;
 }
 
 describe('Tenant lifecycle emails (e2e)', () => {
@@ -141,6 +143,8 @@ describe('Tenant lifecycle emails (e2e)', () => {
       where: { tenantId: paid.tenantId },
       data: { status: 'active' },
     });
+    // Más trasteros de los que permite el plan Gratis: el correo lo avisa.
+    await createFacilityWithUnits(app, unpaid.accessToken, { unitsCount: 12 });
 
     const run = await request(app.getHttpServer()).post('/admin/tenant-lifecycle/run').set(auth);
     expect(run.status).toBe(200);
@@ -159,6 +163,13 @@ describe('Tenant lifecycle emails (e2e)', () => {
         where: { tenantId: unpaid.tenantId, type: 'trial_ended' },
       }),
     ).toBe(1);
+    const jobs = await emailQueue.getJobs(['waiting', 'paused']);
+    const ended = jobs.find(
+      (j) => j.data.to === unpaid.email && /ha terminado/.test(String(j.data.subject)),
+    );
+    expect(ended?.data.text).toContain(
+      'Tienes 12 trasteros, y el plan Gratis permite 10 trasteros',
+    );
 
     const b = await adminClient.tenant.findUniqueOrThrow({
       where: { id: paid.tenantId },

@@ -159,7 +159,8 @@ export class TenantLifecycleEmailsService {
         })
         .catch(() => undefined);
       if (sendEmail && !paid) {
-        await this.dispatch(t.id, 'trial_ended', this.trialEndedTemplate(t.name)).catch(
+        const limits = await this.freePlanLimitsNote(t.id, 'ended').catch(() => []);
+        await this.dispatch(t.id, 'trial_ended', this.trialEndedTemplate(t.name, limits)).catch(
           () => false,
         );
       }
@@ -531,7 +532,8 @@ export class TenantLifecycleEmailsService {
         select: { id: true, name: true, trialEndsAt: true },
       });
       for (const t of tenants) {
-        const tmpl = this.trialTemplate(t.name, milestone.days);
+        const limits = await this.freePlanLimitsNote(t.id, 'ending').catch(() => []);
+        const tmpl = this.trialTemplate(t.name, milestone.days, limits);
         if (await this.dispatch(t.id, milestone.type, tmpl)) count += 1;
       }
     }
@@ -610,6 +612,38 @@ export class TenantLifecycleEmailsService {
 
   // --- Plantillas (español, tono cordial de operador SaaS) ---
 
+  /**
+   * Qué pasa con lo que ya tiene al pasar al plan Gratis: si supera alguno de
+   * sus límites, lo conserva todo pero no puede crear más. Vacío si cabe.
+   */
+  private async freePlanLimitsNote(tenantId: string, when: 'ending' | 'ended'): Promise<string[]> {
+    const [plan, units, facilities, users] = await Promise.all([
+      this.admin.subscriptionPlan.findUnique({
+        where: { slug: 'free' },
+        select: { maxUnits: true, maxFacilities: true, maxUsers: true },
+      }),
+      this.admin.unit.count({ where: { tenantId } }),
+      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
+      this.admin.user.count({ where: { tenantId, isActive: true } }),
+    ]);
+    if (!plan) return [];
+    const over = [
+      { have: units, max: plan.maxUnits, one: 'trastero', many: 'trasteros' },
+      { have: facilities, max: plan.maxFacilities, one: 'local', many: 'locales' },
+      { have: users, max: plan.maxUsers, one: 'usuario', many: 'usuarios' },
+    ].filter((x) => x.max != null && x.have > x.max);
+    if (over.length === 0) return [];
+    const n = (v: number, one: string, many: string) => `${v} ${v === 1 ? one : many}`;
+    const have = over.map((x) => n(x.have, x.one, x.many)).join(', ');
+    const allowed = over.map((x) => n(x.max!, x.one, x.many)).join(', ');
+    return [
+      `${when === 'ending' ? 'Ahora tienes' : 'Tienes'} ${have}, y el plan Gratis permite ${allowed}.`,
+      when === 'ending'
+        ? 'Si no eliges un plan, lo conservarás todo, pero no podrás dar de alta más hasta contratarlo.'
+        : 'Lo conservas todo, pero no podrás dar de alta más hasta que contrates un plan.',
+    ];
+  }
+
   private welcomeTemplate(tenantName: string, slug: string): EmailTemplate {
     const base = this.billingUrl.replace('/settings/saas-billing', '');
     const body = [
@@ -634,7 +668,7 @@ export class TenantLifecycleEmailsService {
     return { subject: '¡Bienvenido a TrasterOS!', ...renderEmail(body) };
   }
 
-  private trialTemplate(tenantName: string, days: number): EmailTemplate {
+  private trialTemplate(tenantName: string, days: number, limits: string[] = []): EmailTemplate {
     const daysLabel = days === 1 ? '1 día' : `${days} días`;
     const body = [
       `Hola, ${tenantName}:`,
@@ -645,6 +679,7 @@ export class TenantLifecycleEmailsService {
       this.billingUrl,
       '',
       'Elige el plan que mejor se ajuste a tu operativa; puedes cambiarlo en cualquier momento.',
+      ...(limits.length > 0 ? ['', ...limits] : []),
       '',
       '¿Dudas sobre qué plan te conviene? Responde a este correo y te ayudamos.',
       '',
@@ -657,13 +692,14 @@ export class TenantLifecycleEmailsService {
     };
   }
 
-  private trialEndedTemplate(tenantName: string): EmailTemplate {
+  private trialEndedTemplate(tenantName: string, limits: string[] = []): EmailTemplate {
     const body = [
       `Hola, ${tenantName}:`,
       '',
       'Tu periodo de prueba de TrasterOS ha terminado y tu cuenta ha pasado al plan gratuito.',
       'Tus datos siguen ahí y puedes seguir entrando, pero las funciones de pago quedan',
       'desactivadas hasta que contrates un plan:',
+      ...(limits.length > 0 ? ['', ...limits] : []),
       '',
       this.billingUrl,
       '',

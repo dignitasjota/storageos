@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
 
 import { OnboardingStepList, useOnboarding } from '@/components/onboarding/onboarding-steps';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +18,11 @@ export default function GettingStartedPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Puesta en marcha</h1>
         <p className="text-sm text-muted-foreground">
           Lo que hay que configurar para operar y lo que conviene revisar. Se marca solo al hacerlo.
+          ¿Cómo es el día a día?{' '}
+          <Link href="/help" className="text-primary hover:underline">
+            Cómo funciona
+          </Link>
+          .
         </p>
       </div>
       {isLoading || !data ? (
