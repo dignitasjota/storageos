@@ -22,6 +22,7 @@ import {
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { subtractAmounts, toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
+import { assertCollectionDate } from '../../common/sepa-mandate/collection-date';
 import {
   parseStoredDocument,
   renderMandateHtml,
@@ -658,6 +659,7 @@ export class SepaService {
         message: 'Configura primero el acreedor SEPA en ajustes',
       });
     }
+    assertCollectionDate(input.collectionDate);
     const { invoices, byCustomer } = await this.eligible(tenantId);
     const selected = input.invoiceIds
       ? invoices.filter((i) => input.invoiceIds!.includes(i.id))

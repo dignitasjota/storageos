@@ -1,3 +1,5 @@
+import { sepaId, sepaText } from '@storageos/shared';
+
 /**
  * Generador del fichero SEPA de adeudos directos **pain.008.001.02** (esquema
  * CORE, cuaderno AEB 19.14). El operador lo descarga y lo sube a su banco.
@@ -5,6 +7,10 @@
  * Agrupa las transacciones en bloques `PmtInf` por tipo de secuencia
  * (FRST/RCUR), como exige el estándar (una primera presentación de un mandato
  * va como FRST; las siguientes como RCUR).
+ *
+ * Cuaderno AEB 19-14: el presentador se identifica en `InitgPty/Id` con el
+ * identificador del acreedor; los textos van en el juego de caracteres SEPA
+ * (sin acentos ni ñ) y recortados (nombres 70, concepto 140, identificadores 35).
  */
 
 export interface Pain008Creditor {
@@ -37,6 +43,16 @@ function esc(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+/** Nombre (máx. 70) en caracteres SEPA, escapado para el XML. */
+function nm(s: string): string {
+  return esc(sepaText(s, 70) || 'NOTPROVIDED');
+}
+
+/** Identificador (máx. 35) en caracteres SEPA, escapado para el XML. */
+function id(s: string): string {
+  return esc(sepaId(s));
 }
 
 function amount(cents: number): string {
@@ -75,29 +91,29 @@ export function buildPain008(args: {
         .map(
           (t) => `
       <DrctDbtTxInf>
-        <PmtId><EndToEndId>${esc(t.endToEndId)}</EndToEndId></PmtId>
+        <PmtId><EndToEndId>${id(t.endToEndId)}</EndToEndId></PmtId>
         <InstdAmt Ccy="EUR">${amount(t.amountCents)}</InstdAmt>
-        <DrctDbtTx><MndtRltdInf><MndtId>${esc(t.mandateReference)}</MndtId><DtOfSgntr>${t.mandateSignedDate}</DtOfSgntr></MndtRltdInf></DrctDbtTx>
+        <DrctDbtTx><MndtRltdInf><MndtId>${id(t.mandateReference)}</MndtId><DtOfSgntr>${t.mandateSignedDate}</DtOfSgntr></MndtRltdInf></DrctDbtTx>
         <DbtrAgt>${finInstn(t.debtorBic)}</DbtrAgt>
-        <Dbtr><Nm>${esc(t.debtorName)}</Nm></Dbtr>
+        <Dbtr><Nm>${nm(t.debtorName)}</Nm></Dbtr>
         <DbtrAcct><Id><IBAN>${esc(t.debtorIban)}</IBAN></Id></DbtrAcct>
-        <RmtInf><Ustrd>${esc(t.remittanceInfo)}</Ustrd></RmtInf>
+        <RmtInf><Ustrd>${esc(sepaText(t.remittanceInfo, 140))}</Ustrd></RmtInf>
       </DrctDbtTxInf>`,
         )
         .join('');
       return `
     <PmtInf>
-      <PmtInfId>${esc(messageId)}-${seq}</PmtInfId>
+      <PmtInfId>${esc(sepaId(`${sepaId(messageId, 30)}-${seq}`))}</PmtInfId>
       <PmtMtd>DD</PmtMtd>
       <NbOfTxs>${txs.length}</NbOfTxs>
       <CtrlSum>${amount(seqCents)}</CtrlSum>
       <PmtTpInf><SvcLvl><Cd>SEPA</Cd></SvcLvl><LclInstrm><Cd>CORE</Cd></LclInstrm><SeqTp>${seq}</SeqTp></PmtTpInf>
       <ReqdColltnDt>${collectionDate}</ReqdColltnDt>
-      <Cdtr><Nm>${esc(creditor.name)}</Nm></Cdtr>
+      <Cdtr><Nm>${nm(creditor.name)}</Nm></Cdtr>
       <CdtrAcct><Id><IBAN>${esc(creditor.iban)}</IBAN></Id></CdtrAcct>
       <CdtrAgt>${finInstn(creditor.bic)}</CdtrAgt>
       <ChrgBr>SLEV</ChrgBr>
-      <CdtrSchmeId><Id><PrvtId><Othr><Id>${esc(creditor.creditorId)}</Id><SchmeNm><Prtry>SEPA</Prtry></SchmeNm></Othr></PrvtId></Id></CdtrSchmeId>${txBlocks}
+      <CdtrSchmeId><Id><PrvtId><Othr><Id>${id(creditor.creditorId)}</Id><SchmeNm><Prtry>SEPA</Prtry></SchmeNm></Othr></PrvtId></Id></CdtrSchmeId>${txBlocks}
     </PmtInf>`;
     })
     .join('');
@@ -106,11 +122,11 @@ export function buildPain008(args: {
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.001.02" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <CstmrDrctDbtInitn>
     <GrpHdr>
-      <MsgId>${esc(messageId)}</MsgId>
+      <MsgId>${id(messageId)}</MsgId>
       <CreDtTm>${creDtTm}</CreDtTm>
       <NbOfTxs>${totalTxs}</NbOfTxs>
       <CtrlSum>${amount(totalCents)}</CtrlSum>
-      <InitgPty><Nm>${esc(creditor.name)}</Nm></InitgPty>
+      <InitgPty><Nm>${nm(creditor.name)}</Nm><Id><OrgId><Othr><Id>${id(creditor.creditorId)}</Id></Othr></OrgId></Id></InitgPty>
     </GrpHdr>${pmtInfBlocks}
   </CstmrDrctDbtInitn>
 </Document>`;

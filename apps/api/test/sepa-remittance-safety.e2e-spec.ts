@@ -6,6 +6,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { buildN43 } from './helpers/n43';
+import { futureCollectionDate } from './helpers/platform-sepa';
 import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -40,7 +41,7 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
     const r = await http()
       .post('/sepa/remittances')
       .set(auth())
-      .send({ name: `Remesa ${Date.now()}`, collectionDate: '2026-12-30', invoiceIds })
+      .send({ name: `Remesa ${Date.now()}`, collectionDate: futureCollectionDate(20), invoiceIds })
       .expect(201);
     return r.body.id as string;
   }

@@ -1,3 +1,5 @@
+import { nextSepaBusinessDay } from '@storageos/shared';
+
 /** Domicilio del acreedor de la plataforma (sale en el mandato que firma el tenant). */
 export const PLATFORM_CREDITOR_ADDRESS = {
   creditorAddress: 'Calle Mayor 1',
@@ -22,7 +24,9 @@ export function platformMandateBody(iban: string, bic?: string) {
   };
 }
 
-/** Fecha de cobro dentro de `days` días (respeta el preaviso de 5 días). */
+/** Fecha de cobro: el primer día hábil SEPA a partir de dentro de `days` días. */
 export function futureCollectionDate(days = 10): string {
-  return new Date(Date.now() + days * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  return nextSepaBusinessDay(
+    new Date(Date.now() + days * 24 * 3600 * 1000).toISOString().slice(0, 10),
+  );
 }

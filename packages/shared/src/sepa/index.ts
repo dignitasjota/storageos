@@ -240,3 +240,4 @@ export function daysUntilCollection(collectionDate: string, today: Date = new Da
 }
 
 export * from './mandate';
+export * from './collection';

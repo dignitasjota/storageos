@@ -1,10 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { nextSepaBusinessDay } from '@storageos/shared';
 
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { formatDateLong, formatEur, todayInTimezone } from '../../../common/format';
 import { toCents } from '../../../common/money';
+import { assertCollectionDate } from '../../../common/sepa-mandate/collection-date';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { EmailService } from '../../email/email.service';
 import { buildPain008, type Pain008Transaction } from '../../sepa/sepa-pain008';
@@ -99,7 +101,10 @@ export class PlatformSepaRemittanceService {
     const s = await this.admin.platformSepaSettings.findFirst({ select: { prenoticeDays: true } });
     const days = s?.prenoticeDays ?? 5;
     const today = todayInTimezone('Europe/Madrid');
-    const earliest = new Date(today.getTime() + days * DAY_MS).toISOString().slice(0, 10);
+    // La primera fecha que respeta el preaviso y es día hábil SEPA.
+    const earliest = nextSepaBusinessDay(
+      new Date(today.getTime() + days * DAY_MS).toISOString().slice(0, 10),
+    );
     return { days, earliest };
   }
 
@@ -231,6 +236,7 @@ export class PlatformSepaRemittanceService {
         details: { earliestCollectionDate: earliest, prenoticeDays: days },
       });
     }
+    assertCollectionDate(args.input.collectionDate);
     const { candidates } = await this.eligible();
     const selected = args.input.tenantIds
       ? candidates.filter((c) => args.input.tenantIds!.includes(c.tenantId))
