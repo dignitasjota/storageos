@@ -6,6 +6,7 @@ import { PaymentsService } from '../src/modules/payments/payments.service';
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
+import { futureCollectionDate } from './helpers/platform-sepa';
 import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -248,7 +249,7 @@ describe('Facturación: operaciones simultáneas (e2e)', () => {
     const rem = await request(app.getHttpServer())
       .post('/sepa/remittances')
       .set(auth)
-      .send({ name: 'Remesa', collectionDate: '2026-06-30', invoiceIds: [id] })
+      .send({ name: 'Remesa', collectionDate: futureCollectionDate(20), invoiceIds: [id] })
       .expect(201);
 
     const rs = await Promise.all(

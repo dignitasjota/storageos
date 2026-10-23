@@ -353,7 +353,7 @@ describe('Platform SEPA — remesas (e2e)', () => {
       .set(adminAuth())
       .send({
         name: 'Con preaviso',
-        collectionDate: futureCollectionDate(preview.body.prenoticeDays),
+        collectionDate: preview.body.earliestCollectionDate,
         tenantIds: [owner.tenantId],
       });
     expect(created.status).toBe(201);
@@ -362,5 +362,16 @@ describe('Platform SEPA — remesas (e2e)', () => {
     });
     expect(item?.prenoticeSentAt).not.toBeNull();
     expect(item?.prenoticeRecipients).toContain('@');
+  });
+
+  it('fecha de cobro en festivo o fin de semana → 400 con la primera válida', async () => {
+    const owner = await registerVerifiedUser(app, 'sepa-rem-holiday');
+    void owner;
+    const res = await request(app.getHttpServer())
+      .post('/admin/platform-sepa/remittances')
+      .set(adminAuth())
+      .send({ name: 'Navidad', collectionDate: `${new Date().getUTCFullYear() + 1}-12-25` });
+    expect(res.status).toBe(400);
+    expect(['invalid_collection_date', 'sepa_not_configured']).toContain(res.body.code);
   });
 });

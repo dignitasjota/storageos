@@ -2117,6 +2117,11 @@ Contrato de adeudos del banco (cláusulas 4.1 y 4.3): no se puede cobrar sin la 
 - `GET /settings/saas-billing/sepa-mandate/document` y `GET /admin/tenants/:id/sepa-mandate/document`: PDF del mandato firmado.
 - Remesa: la vista previa devuelve `prenoticeDays` y `earliestCollectionDate`; crear con una fecha de cobro anterior → 400 `collection_date_too_soon`. Al crearla, cada tenant recibe un **preaviso por correo** (importe, fecha, cuenta, acreedor, referencia; tipo de correo `sepa_prenotice`) y queda constancia en el adeudo (`prenotice_sent_at`, `prenotice_recipients`). Solo entran mandatos firmados (`signed` o `external`, los anteriores).
 
+### SEPA: fichero conforme al cuaderno AEB 19-14
+
+- El fichero pain.008 (inquilinos y plataforma) identifica al presentador en `InitgPty/Id/OrgId/Othr/Id` con el identificador del acreedor, pasa nombres y conceptos al juego de caracteres SEPA (sin acentos ni ñ; `sepaText`) y los recorta (nombre 70, concepto 140), y limpia los identificadores (`sepaId`: 35, sin espacios ni `//`).
+- `POST /sepa/remittances` y `POST /admin/platform-sepa/remittances`: 400 `invalid_collection_date` si la fecha de cobro ya pasó, está a más de un año o no es día hábil TARGET2 (`details.suggestion` = la primera válida). Shared `isSepaBusinessDay`, `nextSepaBusinessDay`, `collectionDateIssue`.
+
 ### Mensajería: adjuntos en tickets y chat
 
 - Migración `20261109180000_message_attachments` (`attachment_key`/`_mime`/`_name` en `support_ticket_messages` y `customer_messages`). Un adjunto por mensaje: imagen (JPG/PNG/WebP) o PDF, máx. 10 MB, bucket privado `uploads` (`<tenant>/support/…` y `<tenant>/chat/<customer>/…`), bytes comprobados al guardar (400 `invalid_attachment` si la clave no es de esa conversación).

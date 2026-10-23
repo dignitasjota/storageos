@@ -3,6 +3,8 @@
 import {
   daysUntilCollection,
   earliestCollectionDate,
+  isSepaBusinessDay,
+  nextSepaBusinessDay,
   type RemittancePreviewDto,
   type SepaRemittanceDto,
 } from '@storageos/shared';
@@ -289,6 +291,9 @@ function CreateRemittanceDialog() {
 
   const daysLeft = collectionDate ? daysUntilCollection(collectionDate) : 0;
   const shortNotice = Boolean(collectionDate) && data !== null && daysLeft < data.prenoticeDays;
+  const firstValid = data ? nextSepaBusinessDay(earliestCollectionDate(data.prenoticeDays)) : '';
+  const notBusinessDay =
+    Boolean(collectionDate) && !shortNotice && !isSepaBusinessDay(collectionDate);
 
   const selectedTotal =
     data?.eligible.filter((e) => selected.has(e.invoiceId)).reduce((s, e) => s + e.amount, 0) ?? 0;
@@ -356,10 +361,26 @@ function CreateRemittanceDialog() {
                 size="sm"
                 variant="outline"
                 className="mt-2"
-                onClick={() => setCollectionDate(earliestCollectionDate(data.prenoticeDays))}
+                onClick={() => setCollectionDate(firstValid)}
               >
-                Usar la primera fecha válida (
-                {formatDay(earliestCollectionDate(data.prenoticeDays))})
+                Usar la primera fecha válida ({formatDay(firstValid)})
+              </Button>
+            </div>
+          )}
+          {notBusinessDay && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              <p>
+                El banco solo carga en días hábiles (de lunes a viernes y no festivos del calendario
+                TARGET2).
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={() => setCollectionDate(nextSepaBusinessDay(collectionDate))}
+              >
+                Usar el {formatDay(nextSepaBusinessDay(collectionDate))}
               </Button>
             </div>
           )}

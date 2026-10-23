@@ -4,6 +4,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { waitForEmail } from './helpers/mailpit';
+import { futureCollectionDate } from './helpers/platform-sepa';
 import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -99,7 +100,11 @@ describe('Remesas SEPA (e2e)', () => {
     const remittance = await request(app.getHttpServer())
       .post('/sepa/remittances')
       .set(auth)
-      .send({ name: 'Remesa junio', collectionDate: '2026-06-30', invoiceIds: [invoiceId] });
+      .send({
+        name: 'Remesa junio',
+        collectionDate: futureCollectionDate(20),
+        invoiceIds: [invoiceId],
+      });
     expect(remittance.status).toBe(201);
     expect(remittance.body.status).toBe('generated');
     expect(remittance.body.itemCount).toBe(1);
@@ -108,7 +113,8 @@ describe('Remesas SEPA (e2e)', () => {
 
     // Preaviso de cargo al deudor (normativa SEPA): importe, fecha y mandato.
     const notice = await waitForEmail(debtorEmail, { subjectIncludes: 'Aviso de cargo' });
-    expect(notice.Subject).toMatch(/121,00\s€ el 30\/06\/2026/);
+    const [y, m, d] = futureCollectionDate(20).split('-');
+    expect(notice.Subject).toMatch(new RegExp(`121,00\\s€ el ${d}/${m}/${y}`));
     expect(notice.Text).toContain('Referencia del mandato: MND-');
 
     // Constancia del preaviso en la propia remesa (prueba ante una devolución).
@@ -225,7 +231,11 @@ describe('Remesas SEPA (e2e)', () => {
     const rem = await request(app.getHttpServer())
       .post('/sepa/remittances')
       .set(auth)
-      .send({ name: 'Sin preaviso', collectionDate: '2026-06-30', invoiceIds: [invoiceId] })
+      .send({
+        name: 'Sin preaviso',
+        collectionDate: futureCollectionDate(20),
+        invoiceIds: [invoiceId],
+      })
       .expect(201);
 
     let status: string | null = null;
