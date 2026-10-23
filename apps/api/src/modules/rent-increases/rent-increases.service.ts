@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { formatDateLong, formatEur } from '../../common/format';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -264,12 +265,8 @@ export class RentIncreasesService {
     const tenantName =
       (await this.admin.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))
         ?.name ?? '';
-    const effectiveLabel = new Date(`${input.effectiveDate}T00:00:00Z`).toLocaleDateString(
-      'es-ES',
-      {
-        timeZone: 'UTC',
-      },
-    );
+    // «1 de marzo de 2026» (mediodía UTC: el mismo día en España).
+    const effectiveLabel = formatDateLong(new Date(`${input.effectiveDate}T12:00:00Z`));
     let noticeSent = false;
     for (const a of affected) {
       if (!a.customerEmail) continue;
@@ -282,7 +279,7 @@ export class RentIncreasesService {
           bodyText:
             `Hola ${a.customerFirstName},\n\n` +
             `Te informamos de que, a partir del ${effectiveLabel}, la cuota mensual de tu trastero ${a.unitCode} ` +
-            `pasará de ${a.oldPrice.toFixed(2)} € a ${a.newPrice.toFixed(2)} €.\n\n` +
+            `pasará de ${formatEur(a.oldPrice)} a ${formatEur(a.newPrice)}.\n\n` +
             `Si tienes cualquier duda, responde a este correo.\n\nGracias por confiar en ${tenantName}.`,
           source: `rent_increase:${created.id}`,
           contractId: a.contractId,

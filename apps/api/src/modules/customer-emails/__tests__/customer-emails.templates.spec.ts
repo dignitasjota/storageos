@@ -25,6 +25,19 @@ describe('renderCustomerEmail', () => {
     expect(r.text).toContain('Trasteros <García>');
   });
 
+  it('pago de la fianza: habla de justificante, no de factura', () => {
+    const r = renderCustomerEmail(base, {
+      kind: 'payment_received',
+      invoiceNumber: 'FZ-CT-2026-00009',
+      amount: 100,
+      paidAt: new Date('2026-10-20T10:00:00Z'),
+      depositReceipt: true,
+    });
+    expect(r.subject).toBe('Fianza recibida — justificante FZ-CT-2026-00009');
+    expect(r.text).toMatch(/fianza de 100,00\s€/);
+    expect(r.text).not.toContain('factura');
+  });
+
   it('factura emitida: explica cómo se va a pagar según el caso', () => {
     const issued = (
       payment: Parameters<typeof renderCustomerEmail>[1] extends infer D

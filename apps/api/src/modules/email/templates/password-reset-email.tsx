@@ -11,11 +11,11 @@ export interface PasswordResetEmailProps {
 export function PasswordResetEmail({ fullName, resetUrl, ipAddress }: PasswordResetEmailProps) {
   return (
     <EmailLayout
-      preview="Restablece tu contrasena de TrasterOS"
-      heading={`Hola ${fullName}, restablece tu contrasena`}
+      preview="Restablece tu contraseña de TrasterOS"
+      heading={`Hola ${fullName}, restablece tu contraseña`}
     >
       <Text style={{ margin: 0, marginBottom: 16 }}>
-        Hemos recibido una solicitud para restablecer tu contrasena. Si fuiste tu, pulsa el boton de
+        Hemos recibido una solicitud para restablecer tu contraseña. Si fuiste tú, pulsa el botón de
         abajo:
       </Text>
 
@@ -31,11 +31,11 @@ export function PasswordResetEmail({ fullName, resetUrl, ipAddress }: PasswordRe
           display: 'inline-block',
         }}
       >
-        Cambiar mi contrasena
+        Cambiar mi contraseña
       </Button>
 
       <Text style={{ marginTop: 24, marginBottom: 0, fontSize: 13, color: '#475569' }}>
-        Si el boton no funciona, copia este enlace en el navegador:
+        Si el botón no funciona, copia este enlace en el navegador:
         <br />
         <Link href={resetUrl} style={{ color: '#2563eb' }}>
           {resetUrl}
@@ -44,7 +44,7 @@ export function PasswordResetEmail({ fullName, resetUrl, ipAddress }: PasswordRe
 
       <Text style={{ marginTop: 24, marginBottom: 0, fontSize: 13, color: '#475569' }}>
         El enlace caduca en 1 hora. Si no pediste este cambio, ignora este email y tu cuenta sigue
-        segura{ipAddress ? ` (peticion desde la IP ${ipAddress})` : ''}.
+        segura{ipAddress ? ` (petición desde la IP ${ipAddress})` : ''}.
       </Text>
     </EmailLayout>
   );

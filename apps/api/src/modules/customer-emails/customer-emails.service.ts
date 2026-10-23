@@ -166,6 +166,7 @@ export class CustomerEmailsService {
           invoiceNumber: inv.invoiceNumber,
           amount: Math.round(amount * 100) / 100,
           paidAt: inv.paidAt ?? new Date(),
+          depositReceipt: inv.kind === 'deposit_receipt',
         },
         invoiceId: p.entityId,
         contractId: inv.contractId,
@@ -536,6 +537,7 @@ export class CustomerEmailsService {
       where: { id: invoiceId, tenantId },
       select: {
         status: true,
+        kind: true,
         invoiceNumber: true,
         total: true,
         withholdingAmount: true,
