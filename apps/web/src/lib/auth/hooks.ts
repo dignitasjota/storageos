@@ -22,6 +22,8 @@ import type {
   VerifyEmailInput,
 } from '@storageos/shared';
 
+import { clearAppActivity, markAppActive } from '@/lib/app-lock/idle';
+
 type LoginResponse =
   | AuthSuccessResponse
   | LoginRequires2faResponse
@@ -104,6 +106,7 @@ export function useLogin() {
     onSuccess: (data) => {
       if ('requires2fa' in data || 'requires2faEnrolment' in data) return;
       useAuthStore.getState().setAccessToken(data.accessToken);
+      markAppActive();
       queryClient.setQueryData<MeResponse>(meQueryKey, {
         user: data.user,
         tenant: data.tenant,
@@ -145,6 +148,7 @@ export function useVerifyEmail() {
     onSuccess: (data) => {
       rememberTenantSlug(data.tenant.slug);
       useAuthStore.getState().setAccessToken(data.accessToken);
+      markAppActive();
       queryClient.setQueryData<MeResponse>(meQueryKey, {
         user: data.user,
         tenant: data.tenant,
@@ -203,6 +207,7 @@ export function useLogout() {
     },
     onSettled: () => {
       useAuthStore.getState().clear();
+      clearAppActivity();
       queryClient.removeQueries({ queryKey: meQueryKey });
     },
   });
@@ -215,6 +220,7 @@ export function useLogoutAll() {
     mutationFn: () => apiFetch<{ revokedCount: number }>('/auth/logout-all', { method: 'POST' }),
     onSettled: () => {
       useAuthStore.getState().clear();
+      clearAppActivity();
       queryClient.removeQueries({ queryKey: meQueryKey });
     },
   });

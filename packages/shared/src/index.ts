@@ -80,3 +80,4 @@ export * from './coupons';
 export * from './promo-landings';
 export * from './pagination';
 export * from './messages';
+export * from './app-lock';

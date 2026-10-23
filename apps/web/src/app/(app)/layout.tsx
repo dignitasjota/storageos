@@ -3,6 +3,7 @@ import { ThemeProvider } from 'next-themes';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
+import { AppLockGate } from '@/components/app-lock/app-lock-gate';
 import { ConfirmProvider } from '@/components/confirm-provider';
 import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
@@ -37,17 +38,19 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <AuthBootstrap>
         <ConfirmProvider>
           <PanelAppHead />
-          <SidebarProvider>
-            <AppSidebar />
-            <SidebarInset className="bg-app">
-              <ImpersonationBanner />
-              <AppHeader />
-              <PlatformBanner />
-              <PaymentAlertBanner />
-              <TrialBanner />
-              <div className="flex-1">{children}</div>
-            </SidebarInset>
-          </SidebarProvider>
+          <AppLockGate>
+            <SidebarProvider>
+              <AppSidebar />
+              <SidebarInset className="bg-app">
+                <ImpersonationBanner />
+                <AppHeader />
+                <PlatformBanner />
+                <PaymentAlertBanner />
+                <TrialBanner />
+                <div className="flex-1">{children}</div>
+              </SidebarInset>
+            </SidebarProvider>
+          </AppLockGate>
         </ConfirmProvider>
       </AuthBootstrap>
     </ThemeProvider>
