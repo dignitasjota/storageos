@@ -10,6 +10,14 @@ export interface InvitationEmailProps {
   acceptUrl: string;
 }
 
+/** Rol en palabras (el email llega a alguien que aún no conoce el panel). */
+const ROLE_LABEL: Record<string, string> = {
+  owner: 'propietario',
+  manager: 'gestor',
+  staff: 'personal del local',
+  readonly: 'consulta (solo lectura)',
+};
+
 export function InvitationEmail({
   recipientName,
   inviterName,
@@ -24,7 +32,7 @@ export function InvitationEmail({
     >
       <Text style={{ margin: 0, marginBottom: 16 }}>
         {inviterName} te ha invitado a unirte a <strong>{tenantName}</strong> en TrasterOS como{' '}
-        <strong>{role}</strong>. Acepta la invitacion para crear tu cuenta:
+        <strong>{ROLE_LABEL[role] ?? role}</strong>. Acepta la invitación para crear tu cuenta:
       </Text>
 
       <Button
@@ -39,11 +47,11 @@ export function InvitationEmail({
           display: 'inline-block',
         }}
       >
-        Aceptar invitacion
+        Aceptar invitación
       </Button>
 
       <Text style={{ marginTop: 24, marginBottom: 0, fontSize: 13, color: '#475569' }}>
-        Si el boton no funciona, copia este enlace en el navegador:
+        Si el botón no funciona, copia este enlace en el navegador:
         <br />
         <Link href={acceptUrl} style={{ color: '#2563eb' }}>
           {acceptUrl}
@@ -51,7 +59,7 @@ export function InvitationEmail({
       </Text>
 
       <Text style={{ marginTop: 24, marginBottom: 0, fontSize: 13, color: '#475569' }}>
-        El enlace caduca en 7 dias. Si no esperabas esta invitacion, puedes ignorar este email.
+        El enlace caduca en 7 días. Si no esperabas esta invitación, puedes ignorar este email.
       </Text>
     </EmailLayout>
   );

@@ -34,7 +34,14 @@ export type CustomerEmailData =
       dueDate: Date | null;
       payment: InvoicePaymentHint;
     }
-  | { kind: 'payment_received'; invoiceNumber: string; amount: number; paidAt: Date }
+  | {
+      kind: 'payment_received';
+      invoiceNumber: string;
+      amount: number;
+      paidAt: Date;
+      /** Justificante de fianza (FZ-…) cobrado aparte: no es una factura. */
+      depositReceipt?: boolean;
+    }
   | { kind: 'payment_failed'; invoiceNumber: string; amount: number; reason: string | null }
   | {
       kind: 'contract_signed';
@@ -182,6 +189,23 @@ function content(data: CustomerEmailData, l: Locale): Content {
               : 'Ver mis facturas',
       };
     case 'payment_received':
+      if (data.depositReceipt) {
+        return {
+          subject: en
+            ? `Deposit received — receipt ${data.invoiceNumber}`
+            : `Fianza recibida — justificante ${data.invoiceNumber}`,
+          paragraphs: en
+            ? [
+                `We have received your deposit of ${eur(data.amount, l)} (${day(data.paidAt, l)}). Receipt: ${data.invoiceNumber}.`,
+                'The deposit is returned at the end of the contract, minus any damage or amounts owed. You have the receipt in your customer area.',
+              ]
+            : [
+                `Hemos recibido tu fianza de ${eur(data.amount, l)} (${day(data.paidAt, l)}). Justificante: ${data.invoiceNumber}.`,
+                'La fianza se devuelve al terminar el contrato, descontando los daños o las cantidades pendientes. Tienes el justificante en tu área de clientes.',
+              ],
+          cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+        };
+      }
       return {
         subject: en
           ? `Payment received — invoice ${data.invoiceNumber}`

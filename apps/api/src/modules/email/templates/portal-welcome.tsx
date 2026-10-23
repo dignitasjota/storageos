@@ -33,8 +33,8 @@ export function PortalWelcomeEmail({
             ? `Hello ${customerName}, welcome to ${tenantName}`
             : `Welcome to ${tenantName}`
           : customerName
-            ? `Hola ${customerName}, bienvenido a ${tenantName}`
-            : `Bienvenido a ${tenantName}`
+            ? `Hola ${customerName}, te damos la bienvenida a ${tenantName}`
+            : `Te damos la bienvenida a ${tenantName}`
       }
     >
       <Text style={{ fontSize: '14px', lineHeight: '22px', color: '#444' }}>

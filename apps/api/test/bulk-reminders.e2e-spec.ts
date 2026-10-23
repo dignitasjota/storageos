@@ -85,6 +85,13 @@ describe('Recordatorios de pago en lote (e2e)', () => {
     });
     expect(comms.length).toBe(1);
     expect(comms[0]?.channel).toBe('email');
+    // Mismo contenido que el recordatorio automático: importe legible y enlace
+    // para pagar (antes salía «60.50» sin € y el botón «Pagar ahora» vacío).
+    const body = comms[0]!.bodyText;
+    expect(body).toMatch(/60,50\s€/);
+    expect(body).toContain(`/portal/login?slug=${owner.slug}`);
+    expect(comms[0]!.bodyHtml).toContain(`href="http`);
+    expect(comms[0]!.bodyHtml).not.toContain('href=""');
   });
 
   it('bulk/remind sin permiso communications:send responde 403 (readonly)', async () => {

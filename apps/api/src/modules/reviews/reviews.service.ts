@@ -312,8 +312,8 @@ export class ReviewsService {
           ...(tpl
             ? { templateCode: 'review_request_email', trigger: 'review_request' as const }
             : {
-                subject: `¿Que tal tu experiencia con ${tenantName}?`,
-                bodyText: `Hola ${args.scope.customerFirstName},\n\nNos encantaria conocer tu opinion sobre ${tenantName}. Solo te llevara un minuto:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
+                subject: `¿Qué tal tu experiencia con ${tenantName}?`,
+                bodyText: `Hola ${args.scope.customerFirstName},\n\nNos encantaría conocer tu opinión sobre ${tenantName}. Solo te llevará un minuto:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
               }),
           variables,
           customerId: args.customerId,
@@ -326,7 +326,7 @@ export class ReviewsService {
           tenantId: args.tenantId,
           channel: 'whatsapp',
           recipient: args.recipientPhone,
-          bodyText: `Hola ${args.scope.customerFirstName}, ¿que tal tu experiencia con ${tenantName}? Dejanos tu valoracion: ${url}`,
+          bodyText: `Hola ${args.scope.customerFirstName}, ¿qué tal tu experiencia con ${tenantName}? Déjanos tu valoración: ${url}`,
           customerId: args.customerId,
           contractId: args.contractId,
           source: args.source,

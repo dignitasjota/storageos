@@ -10,6 +10,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import {
@@ -23,7 +24,7 @@ import {
 import { Queue } from 'bullmq';
 
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
-import { todayInTimezone } from '../../common/format';
+import { emailLocale, formatDateLong, formatEur, todayInTimezone } from '../../common/format';
 import {
   addAmounts,
   isAtLeast,
@@ -33,6 +34,7 @@ import {
   toCents,
 } from '../../common/money';
 import { pageArgs, type PageRequest } from '../../common/pagination';
+import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
 import { HoldedSettingsService } from '../accounting/holded-settings.service';
@@ -57,6 +59,7 @@ import { InvoicingModeService } from './invoicing-mode.service';
 import { VerifactuService } from './verifactu.service';
 
 import type { VerifactuSendJobData } from './verifactu.processor';
+import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type { Invoice, InvoiceItem, InvoiceStatus, InvoiceType } from '@storageos/database';
 import type {
@@ -164,6 +167,7 @@ export class InvoicesService {
     private readonly invoicingMode: InvoicingModeService,
     private readonly holdedSettings: HoldedSettingsService,
     private readonly holdedSync: HoldedSyncService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
@@ -1000,6 +1004,7 @@ export class InvoicesService {
               lastName: true,
               companyName: true,
               customerType: true,
+              locale: true,
             },
           },
           contract: { select: { unit: { select: { facilityId: true } } } },
@@ -1008,15 +1013,15 @@ export class InvoicesService {
       if (!invoice) return null;
       const tenant = await tx.tenant.findUniqueOrThrow({
         where: { id: tenantId },
-        select: { name: true },
+        select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
       });
-      return { invoice, tenantName: tenant.name };
+      return { invoice, tenant };
     }, tenantId);
 
     if (!data) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
-    const { invoice, tenantName } = data;
+    const { invoice, tenant } = data;
 
     const facilityId = invoice.contract?.unit?.facilityId;
     if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
@@ -1042,6 +1047,7 @@ export class InvoicesService {
     const daysOverdue = invoice.dueDate
       ? Math.max(0, Math.floor((Date.now() - invoice.dueDate.getTime()) / 86_400_000))
       : 0;
+    const locale = emailLocale(customer.locale);
     const displayName =
       customer.customerType === 'business'
         ? (customer.companyName ?? 'Empresa sin nombre')
@@ -1055,16 +1061,21 @@ export class InvoicesService {
       contractId: invoice.contractId,
       templateCode: 'invoice_overdue_email',
       trigger: 'invoice_overdue',
+      // Las mismas variables que el recordatorio del escalado de impago: importes
+      // y fecha legibles y el enlace para pagar (sin él, «Pagar ahora» salía vacío).
       variables: {
         customer: { firstName: customer.firstName ?? '', displayName },
         invoice: {
           number: invoice.invoiceNumber,
-          total: Number(invoice.total).toFixed(2),
-          amountPending: amountPending.toFixed(2),
-          dueDate: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : '',
+          total: formatEur(invoice.total, locale),
+          amountPending: formatEur(amountPending, locale),
+          dueDate: invoice.dueDate ? formatDateLong(invoice.dueDate, 'Europe/Madrid', locale) : '',
           daysOverdue,
         },
-        tenant: { name: tenantName },
+        portal: {
+          url: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
+        },
+        tenant: { name: tenant.name },
       },
       customerId: invoice.customerId,
       source: 'bulk.manual_reminder',

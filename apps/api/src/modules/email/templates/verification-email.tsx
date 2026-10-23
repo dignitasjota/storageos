@@ -16,7 +16,7 @@ export function VerificationEmail({ fullName, verifyUrl, tenantSlug }: Verificat
       heading={`Hola ${fullName}, confirma tu email`}
     >
       <Text style={{ margin: 0, marginBottom: 16 }}>
-        Gracias por crear tu cuenta. Para activar el acceso, confirma tu email pulsando el boton:
+        Gracias por crear tu cuenta. Para activar el acceso, confirma tu email pulsando el botón:
       </Text>
 
       <Button
@@ -35,7 +35,7 @@ export function VerificationEmail({ fullName, verifyUrl, tenantSlug }: Verificat
       </Button>
 
       <Text style={{ marginTop: 24, marginBottom: 0, fontSize: 13, color: '#475569' }}>
-        Si el boton no funciona, copia este enlace en el navegador:
+        Si el botón no funciona, copia este enlace en el navegador:
         <br />
         <Link href={verifyUrl} style={{ color: '#2563eb' }}>
           {verifyUrl}

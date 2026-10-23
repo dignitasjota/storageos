@@ -433,7 +433,7 @@ export class PlatformSepaRemittanceService {
           to: email,
           kind: 'sepa_prenotice',
           subject,
-          html: lines.map((l) => `<p>${l}</p>`).join(''),
+          html: lines.map((l) => `<p>${escapeHtml(l)}</p>`).join(''),
           text: lines.join('\n\n'),
         });
         if (!res.suppressed) sent++;
@@ -769,4 +769,13 @@ export class PlatformSepaRemittanceService {
       pendingCount,
     };
   }
+}
+
+/** Los datos del acreedor y del mandato los escribe el super admin. */
+function escapeHtml(v: string): string {
+  return v
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }

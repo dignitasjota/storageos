@@ -74,7 +74,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     code: 'contract_ending_soon_email',
     kind: 'transactional',
     channel: 'email',
-    name: 'Aviso fin de contrato proximo',
+    name: 'Aviso de fin de contrato próximo',
     subject: 'Tu contrato {{contract.number}} finaliza pronto',
     bodyText:
       'Hola {{customer.firstName}},\n\nTu contrato {{contract.number}} finaliza el {{contract.endDate}}. Si quieres prorrogar, responde a este correo.\n\nUn saludo,\nEl equipo de {{tenant.name}}',
@@ -204,7 +204,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     code: 'lead_thanks_email',
     kind: 'transactional',
     channel: 'email',
-    name: 'Gracias por tu interes (widget)',
+    name: 'Gracias por tu interés (widget)',
     subject: 'Gracias por contactar con {{tenant.name}}',
     bodyText:
       'Hola {{lead.firstName}},\n\nGracias por interesarte en {{tenant.name}}. Te contactaremos en breve.\n\nUn saludo,\nEl equipo de {{tenant.name}}',

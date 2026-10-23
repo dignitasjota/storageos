@@ -236,10 +236,13 @@ export class BookingRecoveryService {
       `${hi}\n\nVimos que empezaste a reservar un trastero pero no llegaste a terminar. ` +
       `Tu sitio sigue disponible: puedes completar la reserva en un par de minutos aquí:\n\n${bookingUrl}\n\n` +
       `Si tienes cualquier duda, respóndenos a este correo. ¡Te esperamos!`;
+    // El nombre lo escribe el visitante en el formulario público: se escapa.
+    const esc = (v: string) =>
+      v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const bodyHtml =
-      `<p>${hi}</p><p>Vimos que empezaste a reservar un trastero pero no llegaste a terminar. ` +
+      `<p>${esc(hi)}</p><p>Vimos que empezaste a reservar un trastero pero no llegaste a terminar. ` +
       `Tu sitio sigue disponible: puedes completar la reserva en un par de minutos.</p>` +
-      `<p><a href="${bookingUrl}">Completar mi reserva</a></p>` +
+      `<p><a href="${esc(bookingUrl)}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">Completar mi reserva</a></p>` +
       `<p>Si tienes cualquier duda, respóndenos a este correo. ¡Te esperamos!</p>`;
 
     await this.communications.enqueue({

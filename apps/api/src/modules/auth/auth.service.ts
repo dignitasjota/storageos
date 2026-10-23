@@ -571,7 +571,7 @@ export class AuthService {
     await this.email.send({
       to: user.email,
       kind: 'password_reset',
-      subject: 'Restablece tu contrasena de TrasterOS',
+      subject: 'Restablece tu contraseña de TrasterOS',
       template: PasswordResetEmail({
         fullName: user.fullName,
         resetUrl,
