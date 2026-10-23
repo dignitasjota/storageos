@@ -128,3 +128,32 @@ export function sepaId(value: string, max = 35): string {
     .slice(0, max);
   return s.replace(/^\/+|\/+$/g, '');
 }
+
+/** Un mandato caduca si pasan 36 meses sin presentar ningún adeudo (Rulebook CORE). */
+export const SEPA_MANDATE_EXPIRY_MONTHS = 36;
+
+/**
+ * Fecha en que caduca un mandato: 36 meses después de su último adeudo o, si
+ * nunca se ha usado, de su firma (`YYYY-MM-DD`).
+ */
+export function sepaMandateExpiresOn(lastCollectedAt: string | null, signedAt: string): string {
+  const base = utcDate(lastCollectedAt ?? signedAt);
+  const d = new Date(
+    Date.UTC(
+      base.getUTCFullYear(),
+      base.getUTCMonth() + SEPA_MANDATE_EXPIRY_MONTHS,
+      base.getUTCDate(),
+    ),
+  );
+  // 29 feb + 36 meses → 1 mar: se queda en el último día del mes.
+  if (d.getUTCDate() !== base.getUTCDate()) d.setUTCDate(0);
+  return iso(d);
+}
+
+export function isSepaMandateExpired(
+  lastCollectedAt: string | null,
+  signedAt: string,
+  today: string,
+): boolean {
+  return sepaMandateExpiresOn(lastCollectedAt, signedAt) < today;
+}

@@ -42,3 +42,13 @@ describe('textos SEPA', () => {
     expect(sepaId('E'.repeat(50))).toHaveLength(35);
   });
 });
+
+describe('caducidad del mandato', () => {
+  it('36 meses desde el último cobro o desde la firma', async () => {
+    const { isSepaMandateExpired, sepaMandateExpiresOn } = await import('./collection');
+    expect(sepaMandateExpiresOn(null, '2023-10-20')).toBe('2026-10-20');
+    expect(sepaMandateExpiresOn('2024-02-29', '2020-01-01')).toBe('2027-02-28');
+    expect(isSepaMandateExpired(null, '2023-10-20', '2026-10-23')).toBe(true);
+    expect(isSepaMandateExpired('2024-01-10', '2023-10-20', '2026-10-23')).toBe(false);
+  });
+});

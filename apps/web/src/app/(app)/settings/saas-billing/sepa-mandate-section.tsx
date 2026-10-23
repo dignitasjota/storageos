@@ -171,6 +171,9 @@ export function SepaMandateSection({ billingMode }: { billingMode: string }) {
                 <Badge variant="outline">Firmado antes de la firma en la app</Badge>
               )}
             </p>
+            <p className="text-xs text-muted-foreground">
+              Caduca el {m.expiresOn} si no se cobra nada antes.
+            </p>
             {m.signatureStatus === 'signed' && m.signedAtTimestamp && (
               <p className="text-xs text-muted-foreground">
                 Firmado por {m.signedByName} el{' '}

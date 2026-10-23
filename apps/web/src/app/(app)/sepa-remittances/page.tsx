@@ -352,9 +352,9 @@ function CreateRemittanceDialog() {
                 {daysLeft < 0
                   ? 'Esa fecha ya ha pasado.'
                   : `Con esta fecha, tus inquilinos recibirán el aviso del cargo solo ${daysLeft} día(s) antes.`}{' '}
-                Tu plazo de preaviso es de {data.prenoticeDays} días (Ajustes → Facturación); la
-                normativa SEPA exige 14 salvo que tus contratos pacten otro plazo, y un cargo sin
-                preaviso suficiente puede ser devuelto.
+                Tu plazo de preaviso es de {data.prenoticeDays} días (Ajustes → Cobros): el banco
+                exige respetarlo y un cargo sin preaviso suficiente se puede devolver. Elige una
+                fecha posterior.
               </p>
               <Button
                 type="button"
@@ -436,6 +436,8 @@ function CreateRemittanceDialog() {
                   <FileText className="mr-1 inline h-3 w-3" />
                   {data.withoutMandate.length} factura(s) pendiente(s) de clientes sin mandato SEPA
                   firmado (no incluidas).
+                  {data.withoutMandate.some((w) => w.expiredMandate) &&
+                    ` ${data.withoutMandate.filter((w) => w.expiredMandate).length} tienen el mandato caducado (36 meses sin cobros): hay que firmar uno nuevo desde su ficha.`}
                   {data.withoutMandate.some((w) => w.pendingSignature) &&
                     ` De ellas, ${data.withoutMandate.filter((w) => w.pendingSignature).length} esperan a que el inquilino firme su mandato: puedes reenviarle el enlace desde su ficha.`}
                 </p>
@@ -451,7 +453,10 @@ function CreateRemittanceDialog() {
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancelar
           </Button>
-          <Button onClick={submit} disabled={create.isPending || selected.size === 0}>
+          <Button
+            onClick={submit}
+            disabled={create.isPending || selected.size === 0 || shortNotice}
+          >
             Generar remesa
           </Button>
         </DialogFooter>

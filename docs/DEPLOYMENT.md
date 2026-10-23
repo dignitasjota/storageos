@@ -1390,3 +1390,14 @@ Al redesplegar api, worker y web:
 - **Migraciones**: `customer_message_reads` (leído por usuario en la bandeja «Mensajes»; lo ya leído queda leído para todos), `tenant_platform_messages` (mensajes de TrasterOS en el panel del tenant) y `message_attachments` (adjuntos en tickets y chat).
 - **Comprobar**: responder un ticket desde el admin → el tenant ve el aviso y recibe el correo; escribir desde el portal → el equipo recibe el correo y aparece en **Operativa → Mensajes**; enviar un correo directo a un tenant desde el admin → aparece en su Soporte → «Mensajes de TrasterOS» con un ticket para responder; adjuntar una imagen en el chat.
 - Los avisos al móvil siguen necesitando las claves VAPID (§36); sin ellas, el correo es lo que asegura que el mensaje llegue.
+
+## 39. Adeudos SEPA conformes al contrato del banco (2026-10-23, #815–#818)
+
+Revisión frente al contrato de adeudos directos SEPA CORE (BBVA). Migraciones (se aplican solas al desplegar el api): `20261110100000_sepa_mandate_signature`, `20261110120000_platform_sepa_mandate_signature`, `20261110140000_sepa_mandate_last_collected`.
+
+- **Mandatos que ya existen**: quedan como «firmados fuera» (`external`) y siguen entrando en las remesas. Ten a mano el papel o la prueba de la firma de cada uno: el banco puede pedirla si un deudor reclama (hasta 13 meses).
+- **Tras desplegar, rellena el domicilio del acreedor** en Configuración → Cobros (tenants) y en Admin → SEPA de la plataforma (y revisa el preaviso: 5 días en la plataforma). Sin domicilio no se puede pedir la firma de un mandato nuevo.
+- **Mandatos nuevos**: el inquilino los firma por un enlace (le llega por correo) y el tenant firma el suyo en Suscripción. Hasta que firman no entran en la remesa.
+- **Fecha de cobro**: tiene que respetar el preaviso, ser día hábil TARGET2 y estar a menos de un año; si no, la remesa da 400 con la primera fecha válida.
+- **Caducidad**: un mandato sin cobros en 36 meses pasa a «caducado» y sale de la remesa (hay que firmar otro). Los que ya eran recurrentes cuentan desde su alta en la app.
+- **Antes de la primera remesa real**: sube el fichero al validador de ficheros de BBVA net cash para confirmar que lo acepta.

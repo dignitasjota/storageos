@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   buildSepaMandateDocument,
+  sepaMandateExpiresOn,
   sepaMandateText,
   type CreatePlatformSepaMandateInput,
   type PlatformSepaMandateDto,
@@ -55,7 +56,12 @@ export class PlatformSepaMandateService {
       bic: m.bic,
       signedAt: m.signedAt.toISOString().slice(0, 10),
       sequenceType: m.sequenceType as 'FRST' | 'RCUR',
-      status: m.status as 'active' | 'cancelled',
+      status: m.status as PlatformSepaMandateDto['status'],
+      lastCollectedAt: m.lastCollectedAt?.toISOString().slice(0, 10) ?? null,
+      expiresOn: sepaMandateExpiresOn(
+        m.lastCollectedAt?.toISOString().slice(0, 10) ?? null,
+        m.signedAt.toISOString().slice(0, 10),
+      ),
       signatureStatus: m.signatureStatus as PlatformSepaMandateDto['signatureStatus'],
       signedByName: m.signerName,
       signedAtTimestamp: m.signedAtTs?.toISOString() ?? null,

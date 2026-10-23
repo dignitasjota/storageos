@@ -210,6 +210,7 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
   const [downloading, setDownloading] = useState(false);
 
   const active = (mandates.data ?? []).find((m) => m.status === 'active');
+  const expired = !active ? (mandates.data ?? []).find((m) => m.status === 'expired') : undefined;
 
   async function add() {
     if (!iban.trim()) {
@@ -311,6 +312,8 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
                     : active.signatureStatus === 'external'
                       ? ` · firmado el ${active.signedAt}`
                       : ' · no entra en las remesas hasta que lo firme'}
+                  {active.signatureStatus !== 'pending' &&
+                    ` · caduca el ${active.expiresOn} si no se cobra nada antes`}
                 </p>
               </div>
               <div className="flex gap-1">
@@ -368,6 +371,12 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
           </div>
         ) : (
           <div className="space-y-2">
+            {expired && (
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                Su mandato {expired.reference} caducó el {expired.expiresOn} (36 meses sin cobros).
+                Para volver a domiciliar tiene que firmar uno nuevo.
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               Para domiciliar sus recibos, el inquilino tiene que firmar la orden de domiciliación
               (lo exige el banco). Le enviaremos un enlace para firmarla desde el móvil.

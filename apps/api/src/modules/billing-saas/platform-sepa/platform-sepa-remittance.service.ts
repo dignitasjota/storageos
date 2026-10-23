@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { nextSepaBusinessDay } from '@storageos/shared';
+import { isSepaMandateExpired, nextSepaBusinessDay } from '@storageos/shared';
 
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { formatDateLong, formatEur, todayInTimezone } from '../../../common/format';
@@ -148,7 +148,25 @@ export class PlatformSepaRemittanceService {
         select: { tenantId: true, periodCovered: true, itemStatus: true },
       }),
     ]);
-    const mandateByTenant = new Map(mandates.map((m) => [m.tenantId, m]));
+    // 36 meses sin presentar ningún adeudo: el mandato caduca.
+    const today = todayInTimezone('Europe/Madrid').toISOString().slice(0, 10);
+    const expired = mandates.filter((m) =>
+      isSepaMandateExpired(
+        m.lastCollectedAt?.toISOString().slice(0, 10) ?? null,
+        m.signedAt.toISOString().slice(0, 10),
+        today,
+      ),
+    );
+    if (expired.length > 0) {
+      await this.admin.platformSepaMandate.updateMany({
+        where: { id: { in: expired.map((m) => m.id) }, status: 'active' },
+        data: { status: 'expired' },
+      });
+    }
+    const expiredTenants = new Set(expired.map((m) => m.tenantId));
+    const mandateByTenant = new Map(
+      mandates.filter((m) => !expiredTenants.has(m.tenantId)).map((m) => [m.tenantId, m]),
+    );
     const keyOf = (tenantId: string, d: Date) => `${tenantId}:${d.toISOString().slice(0, 10)}`;
     const blockedKey = new Set(
       existingItems
@@ -173,6 +191,7 @@ export class PlatformSepaRemittanceService {
           tenantId: sub.tenantId,
           tenantName: sub.tenant.name,
           ...(mandate ? { pendingSignature: true } : {}),
+          ...(expiredTenants.has(sub.tenantId) ? { expiredMandate: true } : {}),
         });
         continue;
       }
@@ -481,6 +500,11 @@ export class PlatformSepaRemittanceService {
     await this.admin.platformSepaMandate.updateMany({
       where: { id: { in: mandateIds }, sequenceType: 'FRST', status: 'active' },
       data: { sequenceType: 'RCUR' },
+    });
+    // Último adeudo presentado: cuenta para la caducidad de 36 meses.
+    await this.admin.platformSepaMandate.updateMany({
+      where: { id: { in: mandateIds } },
+      data: { lastCollectedAt: remittance.collectionDate },
     });
     const updated = await this.findOrThrow(id);
     return this.toDto(updated, undefined, await this.pendingCount(id));
