@@ -127,8 +127,10 @@ export function DataTable<TData, TValue>({
   function rowProps(row: TData) {
     if (!clickable) return {};
     return {
+      // Sin rol de enlace: la fila ya contiene el enlace real a la ficha y un
+      // segundo «enlace» con todo el texto de la fila confundiría al lector de
+      // pantalla. Se puede enfocar y abrir con Intro.
       tabIndex: 0,
-      role: rowHref ? 'link' : 'button',
       className:
         'cursor-pointer focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
       onClick: (e: React.MouseEvent<HTMLElement>) => {
