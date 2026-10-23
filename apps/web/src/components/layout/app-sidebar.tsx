@@ -640,7 +640,7 @@ export function AppSidebar() {
       <SidebarHeader>
         <Link
           href="/dashboard"
-          className="flex h-14 items-center gap-2 px-2 transition-opacity hover:opacity-80"
+          className="flex h-14 min-w-0 items-center gap-2 px-2 transition-opacity hover:opacity-80"
         >
           {panelBrand ? (
             <PanelBrandMark brand={panelBrand} />
@@ -768,30 +768,32 @@ export function AppSidebar() {
 
 /**
  * Cabecera del menú con la marca del tenant («Panel con tu marca», plan Pro):
- * su logo o, sin logo, sus iniciales sobre su color y su nombre.
+ * su logo (o, sin logo, sus iniciales sobre su color) y su nombre al lado.
+ * Con el menú plegado solo queda el logo.
  */
 function PanelBrandMark({ brand }: { brand: NonNullable<ReturnType<typeof usePanelBrand>> }) {
   const color = brandColorOf(brand);
-  if (brand.logoUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={brand.logoUrl}
-        alt={brand.name}
-        title={brand.name}
-        className="h-9 w-auto max-w-[180px] object-contain object-left group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:max-w-8"
-      />
-    );
-  }
   return (
     <>
+      {brand.logoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={brand.logoUrl}
+          alt=""
+          className="h-8 w-auto max-w-[88px] shrink-0 object-contain object-left group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:max-w-8"
+        />
+      ) : (
+        <span
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold shadow-sm"
+          style={{ backgroundColor: color, color: textColorOn(color) }}
+        >
+          {appInitials(brand.name)}
+        </span>
+      )}
       <span
-        className="flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold shadow-sm"
-        style={{ backgroundColor: color, color: textColorOn(color) }}
+        className="min-w-0 truncate text-base font-semibold leading-tight tracking-tight group-data-[collapsible=icon]:hidden"
+        title={brand.name}
       >
-        {appInitials(brand.name)}
-      </span>
-      <span className="truncate text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
         {appName(brand.name)}
       </span>
     </>
