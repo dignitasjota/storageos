@@ -3,6 +3,11 @@ import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import {
+  futureCollectionDate,
+  PLATFORM_CREDITOR_ADDRESS,
+  platformMandateBody,
+} from './helpers/platform-sepa';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -53,6 +58,7 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
       .set({ Authorization: `Bearer ${superAdminToken}` })
       .send({
         creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
         creditorId: 'ES12ZZZ12345678',
         creditorIban: 'ES9121000418450200051332',
         enabled: true,
@@ -79,7 +85,7 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
     await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')
       .set(auth)
-      .send({ iban: 'ES9121000418450200051332', signedAt: '2026-09-01' });
+      .send(platformMandateBody('ES9121000418450200051332'));
     await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/billing-mode`)
       .set(adminAuth())
@@ -96,7 +102,7 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
       .set(adminAuth())
       .send({
         name: 'Remesa con devolución',
-        collectionDate: '2026-09-25',
+        collectionDate: futureCollectionDate(10),
         tenantIds: [owner.tenantId],
       });
     expect(created.status).toBe(201);
@@ -153,7 +159,11 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
     const retry = await request(app.getHttpServer())
       .post('/admin/platform-sepa/remittances')
       .set(adminAuth())
-      .send({ name: 'Reintento', collectionDate: '2026-09-30', tenantIds: [owner.tenantId] });
+      .send({
+        name: 'Reintento',
+        collectionDate: futureCollectionDate(15),
+        tenantIds: [owner.tenantId],
+      });
     expect(retry.status).toBe(201);
     const retryItem = await adminClient.platformSepaRemittanceItem.findFirstOrThrow({
       where: { tenantId: owner.tenantId, itemStatus: 'pending' },
@@ -214,7 +224,7 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
     await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')
       .set(auth)
-      .send({ iban: 'ES6621000418401234567891', signedAt: '2026-09-01' });
+      .send(platformMandateBody('ES6621000418401234567891'));
     await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/billing-mode`)
       .set(adminAuth())
@@ -230,7 +240,7 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
       .set(adminAuth())
       .send({
         name: 'Remesa sin confirmar',
-        collectionDate: '2026-09-25',
+        collectionDate: futureCollectionDate(10),
         tenantIds: [owner.tenantId],
       });
     expect(created.status).toBe(201);

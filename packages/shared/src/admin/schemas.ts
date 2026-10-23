@@ -816,6 +816,7 @@ export const PLATFORM_EMAIL_KINDS = [
   'trial_ending',
   'saas_invoice',
   'payment_pending',
+  'sepa_prenotice',
   'admin_message',
   'web_contact',
   'staff_notice',
@@ -845,6 +846,11 @@ export const PLATFORM_EMAIL_KIND_INFO: Record<
     category: 'billing',
     label: 'Pago pendiente / suspensión',
     defaultTipo: 'Aviso de pago',
+  },
+  sepa_prenotice: {
+    category: 'billing',
+    label: 'Preaviso de domiciliación SEPA',
+    defaultTipo: 'Preaviso de cargo',
   },
   admin_message: {
     category: 'admin_messages',

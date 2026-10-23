@@ -10,6 +10,7 @@ import type {
   CreatePortalSessionInput,
   PlatformInvoiceDto,
   PlatformSepaMandateDto,
+  PlatformSepaMandateTermsDto,
   SelfAssignAddonInput,
   SubscriptionPlanDto,
   TenantBillingDetailsDto,
@@ -146,6 +147,16 @@ export function useSaasSepaMandate() {
     queryFn: () =>
       apiFetch<{ mandate: PlatformSepaMandateDto | null }>('/settings/saas-billing/sepa-mandate'),
     select: (data) => data.mandate,
+  });
+}
+
+/** Acreedor, preaviso y datos del tenant para mostrar la orden antes de firmarla. */
+export function useSaasSepaMandateTerms(enabled = true) {
+  return useQuery({
+    queryKey: [...sepaMandateKey, 'terms'],
+    queryFn: () =>
+      apiFetch<PlatformSepaMandateTermsDto>('/settings/saas-billing/sepa-mandate/terms'),
+    enabled,
   });
 }
 

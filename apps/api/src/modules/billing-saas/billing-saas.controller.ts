@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Post,
   Req,
+  Res,
 } from '@nestjs/common';
 import {
   CreateCheckoutSessionSchema,
@@ -21,6 +22,7 @@ import {
   type TenantBillingDetailsDto,
   type PlatformInvoiceDto,
   type PlatformSepaMandateDto,
+  type PlatformSepaMandateTermsDto,
   type TenantSelfAddonsDto,
   type TenantSubscriptionDto,
   type TenantSubscriptionPaymentDto,
@@ -40,7 +42,7 @@ import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandat
 import { SaasAddonsService } from './saas-addons.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 class CreateCheckoutSessionDto extends createZodDto(CreateCheckoutSessionSchema) {}
 class CreatePortalSessionDto extends createZodDto(CreatePortalSessionSchema) {}
@@ -227,14 +229,36 @@ export class BillingSaasController {
     return { mandate: await this.sepaMandate.getMandate(user.tenantId) };
   }
 
-  /** Da de alta (o reemplaza) el mandato con el IBAN de la propia empresa. */
+  /** Datos para mostrar la orden de domiciliación antes de firmarla. */
+  @Get('sepa-mandate/terms')
+  sepaMandateTerms(@CurrentUser() user: AuthenticatedUser): Promise<PlatformSepaMandateTermsDto> {
+    return this.sepaMandate.terms(user.tenantId);
+  }
+
+  /** Da de alta (o reemplaza) el mandato: IBAN de la empresa y firma de la orden. */
   @Post('sepa-mandate')
   @HttpCode(HttpStatus.OK)
   createSepaMandate(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreatePlatformSepaMandateDto,
+    @Req() req: Request,
   ): Promise<PlatformSepaMandateDto> {
-    return this.sepaMandate.createMandate(user.tenantId, body);
+    return this.sepaMandate.createMandate(user.tenantId, user.sub, body, {
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
+  }
+
+  /** PDF del mandato firmado (con su constancia). */
+  @Get('sepa-mandate/document')
+  async sepaMandateDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { filename, pdf } = await this.sepaMandate.mandatePdf(user.tenantId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.end(pdf);
   }
 
   /** Cancela el mandato propio (bloqueado si el modo de cobro es 'sepa'). */

@@ -3,8 +3,10 @@ import { randomBytes } from 'node:crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { CryptoService } from '../../../common/crypto/crypto.service';
+import { formatDateLong, formatEur, todayInTimezone } from '../../../common/format';
 import { toCents } from '../../../common/money';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { EmailService } from '../../email/email.service';
 import { buildPain008, type Pain008Transaction } from '../../sepa/sepa-pain008';
 import { BillingSaasService } from '../billing-saas.service';
 import { amountToCharge, platformPricing } from '../platform-pricing';
@@ -20,8 +22,12 @@ import type {
 
 /** AAD fijo para el IBAN del acreedor de plataforma (sin scope de tenant). */
 const CREDITOR_AAD = 'platform-sepa-settings';
-/** Días de margen antes del vencimiento para poder generar la remesa (D+2 mínimo típico de SEPA CORE). */
+/**
+ * Días de margen, además del preaviso pactado, para poder generar la remesa
+ * antes del vencimiento (la fecha de cobro tiene que respetar el preaviso).
+ */
 const GRACE_DAYS_AHEAD = 5;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function rand(n = 6): string {
   return randomBytes(n).toString('hex').toUpperCase().slice(0, n);
@@ -35,6 +41,7 @@ function toDateOnly(d: Date): Date {
 type MandateRow = {
   id: string;
   reference: string;
+  ibanLast4: string;
   ibanEncrypted: string;
   bic: string | null;
   signedAt: Date;
@@ -84,7 +91,17 @@ export class PlatformSepaRemittanceService {
     private readonly crypto: CryptoService,
     private readonly saasAddons: SaasAddonsService,
     private readonly billingSaas: BillingSaasService,
+    private readonly email: EmailService,
   ) {}
+
+  /** Preaviso pactado en el mandato y primera fecha de cobro posible (hora de España). */
+  private async prenotice(): Promise<{ days: number; earliest: string }> {
+    const s = await this.admin.platformSepaSettings.findFirst({ select: { prenoticeDays: true } });
+    const days = s?.prenoticeDays ?? 5;
+    const today = todayInTimezone('Europe/Madrid');
+    const earliest = new Date(today.getTime() + days * DAY_MS).toISOString().slice(0, 10);
+    return { days, earliest };
+  }
 
   /**
    * Importe a domiciliar: plan + add-ons NO suspendidos y NO ya cobrados por
@@ -102,9 +119,10 @@ export class PlatformSepaRemittanceService {
 
   private async eligible(): Promise<{
     candidates: EligibleCandidate[];
-    withoutMandate: { tenantId: string; tenantName: string }[];
+    withoutMandate: { tenantId: string; tenantName: string; pendingSignature?: boolean }[];
   }> {
-    const graceDate = new Date(Date.now() + GRACE_DAYS_AHEAD * 24 * 60 * 60 * 1000);
+    const { days } = await this.prenotice();
+    const graceDate = new Date(Date.now() + (GRACE_DAYS_AHEAD + days) * DAY_MS);
     const subs = await this.admin.tenantSubscription.findMany({
       where: {
         billingMode: 'sepa',
@@ -140,11 +158,17 @@ export class PlatformSepaRemittanceService {
     }
 
     const candidates: EligibleCandidate[] = [];
-    const withoutMandate: { tenantId: string; tenantName: string }[] = [];
+    const withoutMandate: { tenantId: string; tenantName: string; pendingSignature?: boolean }[] =
+      [];
     for (const sub of subs) {
       const mandate = mandateByTenant.get(sub.tenantId);
-      if (!mandate) {
-        withoutMandate.push({ tenantId: sub.tenantId, tenantName: sub.tenant.name });
+      // Solo se cobra con un mandato firmado (en la app o antes de existir la firma).
+      if (!mandate || mandate.signatureStatus === 'pending') {
+        withoutMandate.push({
+          tenantId: sub.tenantId,
+          tenantName: sub.tenant.name,
+          ...(mandate ? { pendingSignature: true } : {}),
+        });
         continue;
       }
       const periodCovered = toDateOnly(sub.currentPeriodEnd);
@@ -177,7 +201,14 @@ export class PlatformSepaRemittanceService {
       sequenceType: c.mandate.sequenceType as 'FRST' | 'RCUR',
     }));
     const total = eligible.reduce((s, e) => s + toCents(e.amount), 0) / 100;
-    return { eligible, total, withoutMandate };
+    const { days, earliest } = await this.prenotice();
+    return {
+      eligible,
+      total,
+      withoutMandate,
+      prenoticeDays: days,
+      earliestCollectionDate: earliest,
+    };
   }
 
   async createRemittance(args: {
@@ -189,6 +220,15 @@ export class PlatformSepaRemittanceService {
       throw new BadRequestException({
         code: 'sepa_not_configured',
         message: 'Configura primero el acreedor SEPA de la plataforma',
+      });
+    }
+    // El mandato pacta el preaviso: no se puede cargar antes (contrato del banco, 4.1).
+    const { days, earliest } = await this.prenotice();
+    if (args.input.collectionDate < earliest) {
+      throw new BadRequestException({
+        code: 'collection_date_too_soon',
+        message: `La fecha de cobro tiene que respetar el preaviso de ${days} días pactado en el mandato: como pronto el ${earliest}.`,
+        details: { earliestCollectionDate: earliest, prenoticeDays: days },
       });
     }
     const { candidates } = await this.eligible();
@@ -217,10 +257,10 @@ export class PlatformSepaRemittanceService {
     // p.ej. otra remesa creada justo antes para el mismo tenant — se
     // descarta sin abortar el lote entero, igual que `confirmRemittance` del
     // módulo tenant-facing hace por item.
-    const committed: EligibleCandidate[] = [];
+    const committed: { c: EligibleCandidate; itemId: string }[] = [];
     for (const c of selected) {
       try {
-        await this.admin.platformSepaRemittanceItem.create({
+        const item = await this.admin.platformSepaRemittanceItem.create({
           data: {
             remittanceId: remittance.id,
             tenantId: c.tenantId,
@@ -231,7 +271,7 @@ export class PlatformSepaRemittanceService {
             periodCovered: c.periodCovered,
           },
         });
-        committed.push(c);
+        committed.push({ c, itemId: item.id });
       } catch (err) {
         this.logger.warn(
           `[platform-sepa] item de remesa para tenant ${c.tenantId} colisionó, se omite: ${err instanceof Error ? err.message : err}`,
@@ -247,7 +287,7 @@ export class PlatformSepaRemittanceService {
     }
 
     const creditorIban = this.crypto.decryptString(settings.creditorIbanEncrypted, CREDITOR_AAD);
-    const txs: Pain008Transaction[] = committed.map((c) => ({
+    const txs: Pain008Transaction[] = committed.map(({ c }) => ({
       endToEndId: platformEndToEndId(c.tenantSlug, c.periodCovered, c.retries),
       amountCents: toCents(c.amount),
       mandateReference: c.mandate.reference,
@@ -269,12 +309,73 @@ export class PlatformSepaRemittanceService {
       collectionDate: args.input.collectionDate,
       transactions: txs,
     });
-    const totalCents = committed.reduce((s, c) => s + toCents(c.amount), 0);
+    const totalCents = committed.reduce((s, { c }) => s + toCents(c.amount), 0);
     const updated = await this.admin.platformSepaRemittance.update({
       where: { id: remittance.id },
       data: { xml, itemCount: committed.length, totalAmount: totalCents },
     });
+    // Preaviso de cada cargo al tenant (importe y fecha), con constancia.
+    for (const { c, itemId } of committed) {
+      await this.sendPrenotice({
+        itemId,
+        candidate: c,
+        collectionDate: args.input.collectionDate,
+        creditorName: settings.creditorName,
+        creditorId: settings.creditorId,
+      }).catch((err) =>
+        this.logger.warn(
+          `[platform-sepa] preaviso a ${c.tenantId} falló: ${err instanceof Error ? err.message : err}`,
+        ),
+      );
+    }
     return this.toDto(updated, settings.updatedAt, updated.itemCount);
+  }
+
+  /** Destinatarios del preaviso: email de facturación o, si no hay, los propietarios. */
+  private async prenoticeRecipients(tenantId: string): Promise<string[]> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { billingEmail: true },
+    });
+    if (tenant?.billingEmail) return [tenant.billingEmail];
+    const owners = await this.admin.user.findMany({
+      where: { tenantId, role: 'owner', isActive: true, emailVerifiedAt: { not: null } },
+      select: { email: true },
+    });
+    return [...new Set(owners.map((o) => o.email.toLowerCase()))];
+  }
+
+  private async sendPrenotice(args: {
+    itemId: string;
+    candidate: EligibleCandidate;
+    collectionDate: string;
+    creditorName: string;
+    creditorId: string;
+  }): Promise<void> {
+    const { candidate: c } = args;
+    const to = await this.prenoticeRecipients(c.tenantId);
+    if (to.length === 0) return;
+    const amount = formatEur(c.amount);
+    const date = formatDateLong(new Date(`${args.collectionDate}T12:00:00Z`));
+    const lines = [
+      `Te avisamos de que el ${date} cargaremos ${amount} en tu cuenta terminada en ${c.mandate.ibanLast4} por tu suscripción a TrasterOS.`,
+      `Acreedor: ${args.creditorName} (${args.creditorId}). Referencia del mandato: ${c.mandate.reference}.`,
+      'Si algo no es correcto, responde a este correo antes de esa fecha.',
+    ];
+    const subject = `Preaviso de cargo: ${amount} el ${date}`;
+    for (const email of to) {
+      await this.email.sendRendered({
+        to: email,
+        kind: 'sepa_prenotice',
+        subject,
+        html: lines.map((l) => `<p>${l}</p>`).join(''),
+        text: lines.join('\n\n'),
+      });
+    }
+    await this.admin.platformSepaRemittanceItem.update({
+      where: { id: args.itemId },
+      data: { prenoticeSentAt: new Date(), prenoticeRecipients: to.join(', ') },
+    });
   }
 
   async listRemittances(): Promise<PlatformSepaRemittanceDto[]> {

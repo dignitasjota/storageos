@@ -3,6 +3,7 @@ import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { PLATFORM_CREDITOR_ADDRESS, platformMandateBody } from './helpers/platform-sepa';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -71,7 +72,12 @@ describe('Platform SEPA — billingMode (e2e)', () => {
     const noIban = await request(app.getHttpServer())
       .put('/admin/platform-sepa/settings')
       .set(adminAuth())
-      .send({ creditorName: 'TrasterOS SL', creditorId: 'ES12ZZZ12345678', enabled: false });
+      .send({
+        creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
+        creditorId: 'ES12ZZZ12345678',
+        enabled: false,
+      });
     expect(noIban.status).toBe(400);
     expect(noIban.body.code).toBe('iban_required');
 
@@ -81,6 +87,7 @@ describe('Platform SEPA — billingMode (e2e)', () => {
       .set(adminAuth())
       .send({
         creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
         creditorId: 'ES12ZZZ12345678',
         creditorIban: 'ES0000000000000000000000',
         enabled: false,
@@ -93,6 +100,7 @@ describe('Platform SEPA — billingMode (e2e)', () => {
       .set(adminAuth())
       .send({
         creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
         creditorId: 'ES12ZZZ12345678',
         creditorIban: 'ES9121000418450200051332',
         creditorBic: 'BBVAESMMXXX',
@@ -107,7 +115,12 @@ describe('Platform SEPA — billingMode (e2e)', () => {
     const keepIban = await request(app.getHttpServer())
       .put('/admin/platform-sepa/settings')
       .set(adminAuth())
-      .send({ creditorName: 'TrasterOS SL', creditorId: 'ES12ZZZ12345678', enabled: true });
+      .send({
+        creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
+        creditorId: 'ES12ZZZ12345678',
+        enabled: true,
+      });
     expect(keepIban.status).toBe(200);
     expect(keepIban.body.creditorIbanLast4).toBe('1332');
 
@@ -131,14 +144,14 @@ describe('Platform SEPA — billingMode (e2e)', () => {
     const badIban = await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')
       .set(auth)
-      .send({ iban: 'ES0000000000000000000000', signedAt: '2026-09-15' });
+      .send(platformMandateBody('ES0000000000000000000000'));
     expect(badIban.status).toBe(400);
 
     // Alta válida.
     const created = await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')
       .set(auth)
-      .send({ iban: 'ES9121000418450200051332', bic: 'BBVAESMMXXX', signedAt: '2026-09-15' });
+      .send(platformMandateBody('ES9121000418450200051332', 'BBVAESMMXXX'));
     expect(created.status).toBe(200);
     expect(created.body.reference).toMatch(/^MND-/);
     expect(created.body.ibanLast4).toBe('1332');
@@ -155,7 +168,7 @@ describe('Platform SEPA — billingMode (e2e)', () => {
     const replaced = await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')
       .set(auth)
-      .send({ iban: 'ES6621000418401234567891', signedAt: '2026-09-16' });
+      .send(platformMandateBody('ES6621000418401234567891'));
     expect(replaced.status).toBe(200);
     expect(replaced.body.id).not.toBe(created.body.id);
     const oldMandate = await adminClient.platformSepaMandate.findUnique({
@@ -219,7 +232,7 @@ describe('Platform SEPA — billingMode (e2e)', () => {
     await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')
       .set(auth)
-      .send({ iban: 'ES9121000418450200051332', signedAt: '2026-09-15' });
+      .send(platformMandateBody('ES9121000418450200051332'));
     const toSepa = await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/billing-mode`)
       .set(adminAuth())

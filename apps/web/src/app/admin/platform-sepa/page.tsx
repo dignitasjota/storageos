@@ -21,6 +21,10 @@ export default function PlatformSepaPage() {
   const [creditorId, setCreditorId] = useState('');
   const [creditorIban, setCreditorIban] = useState('');
   const [creditorBic, setCreditorBic] = useState('');
+  const [creditorAddress, setCreditorAddress] = useState('');
+  const [creditorPostalCode, setCreditorPostalCode] = useState('');
+  const [creditorCity, setCreditorCity] = useState('');
+  const [prenoticeDays, setPrenoticeDays] = useState(5);
   const [loaded, setLoaded] = useState(false);
 
   const s = settings.data;
@@ -28,6 +32,10 @@ export default function PlatformSepaPage() {
     setCreditorName(s.creditorName);
     setCreditorId(s.creditorId);
     setCreditorBic(s.creditorBic ?? '');
+    setCreditorAddress(s.creditorAddress ?? '');
+    setCreditorPostalCode(s.creditorPostalCode ?? '');
+    setCreditorCity(s.creditorCity ?? '');
+    setPrenoticeDays(s.prenoticeDays);
     setLoaded(true);
   }
 
@@ -49,6 +57,10 @@ export default function PlatformSepaPage() {
         ...(creditorIban.trim() ? { creditorIban: creditorIban.trim() } : {}),
         creditorBic,
         enabled,
+        creditorAddress: creditorAddress.trim(),
+        creditorPostalCode: creditorPostalCode.trim(),
+        creditorCity: creditorCity.trim(),
+        prenoticeDays,
       });
       toast.success('Configuración SEPA de la plataforma guardada.');
     } catch (err) {
@@ -120,6 +132,47 @@ export default function PlatformSepaPage() {
                 onChange={(e) => setCreditorBic(e.target.value)}
                 placeholder="BBVAESMMXXX"
               />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-sm font-medium">Domicilio del acreedor</label>
+              <Input
+                value={creditorAddress}
+                onChange={(e) => setCreditorAddress(e.target.value)}
+                placeholder="Calle y número"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  value={creditorPostalCode}
+                  onChange={(e) => setCreditorPostalCode(e.target.value)}
+                  placeholder="Código postal"
+                />
+                <Input
+                  value={creditorCity}
+                  onChange={(e) => setCreditorCity(e.target.value)}
+                  placeholder="Ciudad"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Sale en la orden de domiciliación que firman los tenants. Sin domicilio no pueden
+                firmarla.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Preaviso de cada cargo (días)</label>
+              <Input
+                type="number"
+                min={1}
+                max={30}
+                value={prenoticeDays}
+                onChange={(e) =>
+                  setPrenoticeDays(Math.min(30, Math.max(1, Number(e.target.value) || 5)))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Queda pactado en el mandato que firma cada tenant (en vez de los 14 días por
+                defecto). Cambiarlo no afecta a los mandatos ya firmados: avisa con el plazo que
+                firmaron.
+              </p>
             </div>
           </div>
           <div className="flex gap-2">

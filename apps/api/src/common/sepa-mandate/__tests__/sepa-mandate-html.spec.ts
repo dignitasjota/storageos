@@ -1,7 +1,6 @@
 import { buildSepaMandateDocument, sepaMandateText } from '@storageos/shared';
 
-import { renderMandateHtml } from '../sepa-mandate-html';
-import { parseStoredDocument } from '../sepa.service';
+import { parseStoredDocument, renderMandateHtml } from '../sepa-mandate-html';
 
 describe('mandato SEPA firmado (PDF)', () => {
   const doc = buildSepaMandateDocument({

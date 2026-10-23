@@ -22,14 +22,17 @@ import {
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { subtractAmounts, toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
+import {
+  parseStoredDocument,
+  renderMandateHtml,
+} from '../../common/sepa-mandate/sepa-mandate-html';
+import { SepaMandatePdfService } from '../../common/sepa-mandate/sepa-mandate-pdf.service';
 import { DOMAIN_EVENTS, type SepaRemittanceCreatedPayload } from '../automations/domain-events';
 import { InvoicesService, lockInvoiceRow } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
-import { renderMandateHtml } from './sepa-mandate-html';
-import { SepaMandatePdfService } from './sepa-mandate-pdf.service';
 import { buildPain008, type Pain008Transaction } from './sepa-pain008';
 
 import type { Env } from '../../config/env.schema';
@@ -59,25 +62,6 @@ function customerName(c: {
 }): string {
   if (c.customerType === 'business') return c.companyName ?? 'Empresa';
   return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
-}
-
-/**
- * Vuelve a armar el documento desde el texto guardado (el que se firmó), para
- * el PDF: título, «campo: valor» y las cláusulas.
- */
-export function parseStoredDocument(text: string): SepaMandateDocument {
-  const [title = '', ...rest] = text.split('\n');
-  const blank = rest.indexOf('', 1);
-  const fieldLines = rest.slice(1, blank === -1 ? undefined : blank);
-  const clauses = blank === -1 ? [] : rest.slice(blank + 1).filter(Boolean);
-  return {
-    title,
-    fields: fieldLines.map((l) => {
-      const i = l.indexOf(': ');
-      return { label: l.slice(0, i), value: l.slice(i + 2) };
-    }),
-    clauses,
-  };
 }
 
 type ItemStatusCounts = { collected: number; failed: number; returned: number; pending: number };
