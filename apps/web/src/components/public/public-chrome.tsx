@@ -51,6 +51,7 @@ export function PublicChrome({
     pathname?.startsWith('/s/') ||
     pathname?.startsWith('/book/') ||
     pathname?.startsWith('/sign/') ||
+    pathname?.startsWith('/sepa-mandate/') ||
     // Valoración y vuelta del pago: las ve el inquilino, con la marca del negocio.
     pathname?.startsWith('/review/') ||
     pathname?.startsWith('/pay/') ||

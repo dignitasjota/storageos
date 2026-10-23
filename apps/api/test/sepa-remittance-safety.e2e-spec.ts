@@ -71,7 +71,7 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
     const m = await http()
       .post('/sepa/mandates')
       .set(auth())
-      .send({ customerId, iban: DEBTOR_IBAN, signedAt: '2026-01-15' })
+      .send({ customerId, iban: DEBTOR_IBAN, signedOutside: true, signedAt: '2026-01-15' })
       .expect(201);
     mandateId = m.body.id as string;
   });
@@ -224,7 +224,12 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
     const m2 = await http()
       .post('/sepa/mandates')
       .set(auth())
-      .send({ customerId: customer2, iban: DEBTOR_IBAN, signedAt: '2026-01-15' })
+      .send({
+        customerId: customer2,
+        iban: DEBTOR_IBAN,
+        signedOutside: true,
+        signedAt: '2026-01-15',
+      })
       .expect(201);
     const id = await createDraftInvoice(app, token, customer2, { unitPrice: 100 });
     await http().post(`/invoices/${id}/issue`).set(auth()).expect(200);

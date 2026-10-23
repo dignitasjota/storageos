@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { SepaMandateSignatureStatus } from './mandate';
+
 /** Normaliza un IBAN (sin espacios, mayúsculas). */
 export function normalizeIban(raw: string): string {
   return raw.replace(/\s+/g, '').toUpperCase();
@@ -49,6 +51,16 @@ export const UpdateSepaSettingsSchema = z.object({
    */
   prenoticeDays: z.number().int().min(1).max(30).default(14),
   enabled: z.boolean().default(false),
+  /** Domicilio del acreedor: sale en el mandato que firman los deudores. */
+  creditorAddress: z.string().trim().max(140).optional(),
+  creditorPostalCode: z.string().trim().max(16).optional(),
+  creditorCity: z.string().trim().max(70).optional(),
+  creditorCountry: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/)
+    .optional(),
 });
 export type UpdateSepaSettingsInput = z.infer<typeof UpdateSepaSettingsSchema>;
 
@@ -60,19 +72,33 @@ export interface SepaSettingsDto {
   creditorBic: string | null;
   prenoticeDays: number;
   enabled: boolean;
+  creditorAddress: string | null;
+  creditorPostalCode: string | null;
+  creditorCity: string | null;
+  creditorCountry: string;
 }
 
 // ---------------------------------------------------------------------------
 // Mandatos
 // ---------------------------------------------------------------------------
 
-export const CreateSepaMandateSchema = z.object({
-  customerId: z.string().uuid(),
-  iban: ibanSchema,
-  bic: bicSchema,
-  /** Fecha de firma del mandato (YYYY-MM-DD). */
-  signedAt: dateOnly,
-});
+export const CreateSepaMandateSchema = z
+  .object({
+    customerId: z.string().uuid(),
+    iban: ibanSchema,
+    bic: bicSchema,
+    /**
+     * El inquilino ya firmó el mandato en papel (lo guarda el tenant): no se le
+     * pide firmar en la app. Exige la fecha de firma.
+     */
+    signedOutside: z.boolean().default(false),
+    /** Fecha de firma del mandato en papel (YYYY-MM-DD). */
+    signedAt: dateOnly.optional(),
+  })
+  .refine((v) => !v.signedOutside || !!v.signedAt, {
+    message: 'Indica la fecha en que firmó el mandato en papel',
+    path: ['signedAt'],
+  });
 export type CreateSepaMandateInput = z.infer<typeof CreateSepaMandateSchema>;
 
 export interface SepaMandateDto {
@@ -84,6 +110,13 @@ export interface SepaMandateDto {
   signedAt: string;
   sequenceType: 'FRST' | 'RCUR';
   status: 'active' | 'cancelled';
+  /** pending = falta la firma del inquilino (no entra en remesas). */
+  signatureStatus: SepaMandateSignatureStatus;
+  /** Quién firmó y cuándo (solo firmados en la app). */
+  signedByName: string | null;
+  signedAtTimestamp: string | null;
+  /** Enlace de firma (solo al crearlo o reenviarlo). */
+  signingUrl?: string;
   createdAt: string;
 }
 
@@ -114,7 +147,13 @@ export interface RemittancePreviewDto {
   eligible: RemittanceEligibleInvoiceDto[];
   total: number;
   /** Facturas domiciliables pero sin mandato activo (no se pueden incluir). */
-  withoutMandate: { invoiceId: string; invoiceNumber: string; customerName: string }[];
+  withoutMandate: {
+    invoiceId: string;
+    invoiceNumber: string;
+    customerName: string;
+    /** Tiene mandato pero el inquilino aún no lo ha firmado. */
+    pendingSignature?: boolean;
+  }[];
   /** Plazo de preaviso configurado (días): la fecha de cargo debería respetarlo. */
   prenoticeDays: number;
 }
@@ -199,3 +238,5 @@ export function daysUntilCollection(collectionDate: string, today: Date = new Da
   const c = Date.parse(`${collectionDate}T00:00:00Z`);
   return Math.round((c - t) / 86_400_000);
 }
+
+export * from './mandate';

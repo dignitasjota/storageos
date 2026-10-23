@@ -240,6 +240,9 @@ export function SepaSettingsCard() {
   const [creditorIban, setCreditorIban] = useState('');
   const [creditorBic, setCreditorBic] = useState('');
   const [prenoticeDays, setPrenoticeDays] = useState(14);
+  const [creditorAddress, setCreditorAddress] = useState('');
+  const [creditorPostalCode, setCreditorPostalCode] = useState('');
+  const [creditorCity, setCreditorCity] = useState('');
   const [loaded, setLoaded] = useState(false);
 
   if (!canConfigure || settings.isLoading || !settings.data) return null;
@@ -249,6 +252,9 @@ export function SepaSettingsCard() {
     setCreditorId(s.creditorId);
     setCreditorBic(s.creditorBic ?? '');
     setPrenoticeDays(s.prenoticeDays);
+    setCreditorAddress(s.creditorAddress ?? '');
+    setCreditorPostalCode(s.creditorPostalCode ?? '');
+    setCreditorCity(s.creditorCity ?? '');
     setLoaded(true);
   }
 
@@ -270,6 +276,9 @@ export function SepaSettingsCard() {
         creditorBic,
         prenoticeDays,
         enabled,
+        creditorAddress: creditorAddress.trim(),
+        creditorPostalCode: creditorPostalCode.trim(),
+        creditorCity: creditorCity.trim(),
       });
       toast.success('Ajustes SEPA guardados.');
     } catch (err) {
@@ -330,6 +339,29 @@ export function SepaSettingsCard() {
               placeholder="CAIXESBBXXX"
             />
           </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-sm font-medium">Domicilio del acreedor</label>
+            <Input
+              value={creditorAddress}
+              onChange={(e) => setCreditorAddress(e.target.value)}
+              placeholder="Calle y número"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                value={creditorPostalCode}
+                onChange={(e) => setCreditorPostalCode(e.target.value)}
+                placeholder="Código postal"
+              />
+              <Input
+                value={creditorCity}
+                onChange={(e) => setCreditorCity(e.target.value)}
+                placeholder="Ciudad"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Sale en la orden de domiciliación que firman tus inquilinos (lo exige el banco).
+            </p>
+          </div>
           <div className="space-y-1">
             <label className="text-sm font-medium" htmlFor="sepa-prenotice">
               Preaviso de los cargos (días)
@@ -345,8 +377,9 @@ export function SepaSettingsCard() {
               }
             />
             <p className="text-xs text-muted-foreground">
-              La normativa SEPA exige 14 días salvo que tus contratos pacten otro plazo. Al generar
-              una remesa te avisamos si la fecha de cargo no lo respeta.
+              La normativa SEPA exige 14 días salvo que se pacte otro plazo: el que pongas aquí
+              figura en la orden de domiciliación que firma el inquilino. Al generar una remesa te
+              avisamos si la fecha de cargo no lo respeta.
             </p>
           </div>
         </div>

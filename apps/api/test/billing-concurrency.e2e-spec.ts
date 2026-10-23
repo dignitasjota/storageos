@@ -242,7 +242,7 @@ describe('Facturación: operaciones simultáneas (e2e)', () => {
     await request(app.getHttpServer())
       .post('/sepa/mandates')
       .set(auth)
-      .send({ customerId, iban: DEBTOR_IBAN, signedAt: '2026-01-15' })
+      .send({ customerId, iban: DEBTOR_IBAN, signedOutside: true, signedAt: '2026-01-15' })
       .expect(201);
     const id = await issuedInvoice(owner, customerId);
     const rem = await request(app.getHttpServer())

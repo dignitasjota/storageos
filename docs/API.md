@@ -2099,6 +2099,16 @@ Todo con la feature `multi_owner`.
 - Respuesta del tenant → aviso al feed del super admin (`support_ticket`, también push). Responder en un ticket `resolved` lo reabre (`open`); la pantalla del tenant deja responder hasta que se cierra.
 - Asignar un ticket avisa en el feed del admin (`support_ticket.assigned`).
 
+### SEPA: mandato firmado por el inquilino
+
+Contrato de adeudos del banco (cláusulas 4.1 y 4.3): no se puede cobrar sin la orden de domiciliación firmada por el deudor, con referencia, datos y domicilio de acreedor y deudor, IBAN, tipo de pago, lugar y fecha y firma, y hay que conservarla.
+
+- `PUT /sepa/settings` acepta `creditorAddress`, `creditorPostalCode`, `creditorCity`, `creditorCountry` (salen en el mandato; sin domicilio, 400 `sepa_creditor_address_required` al pedir una firma).
+- `POST /sepa/mandates {customerId, iban, bic?, signedOutside?, signedAt?}`: por defecto el mandato queda **`pending`** y se envía al inquilino un enlace (30 días) para firmarlo; `signingUrl` en la respuesta. Con `signedOutside: true` (firmado en papel, lo guarda el tenant) exige `signedAt` y queda `external`. Los mandatos importados y los que ya existían son `external`.
+- `POST /sepa/mandates/:id/signing-link` reenvía el enlace; `GET /sepa/mandates/:id/document` descarga el PDF del mandato firmado con su constancia.
+- Público: `GET /public/sepa-mandates/:token` (el mandato con los campos del banco e IBAN enmascarado) y `POST /public/sepa-mandates/:token/sign {signerName, address, postalCode, city, country, place, method: drawn|typed, signatureImage|typedSignature, accept: true}`. Guarda el texto firmado (IBAN enmascarado), la huella SHA-256 (con el IBAN completo), la firma, la IP, el navegador y la hora; el enlace se gasta.
+- **Solo los mandatos `signed` o `external` entran en la remesa**; los `pending` salen en `withoutMandate` con `pendingSignature: true`. `SepaMandateDto.signatureStatus/signedByName/signedAtTimestamp`.
+
 ### Mensajería: adjuntos en tickets y chat
 
 - Migración `20261109180000_message_attachments` (`attachment_key`/`_mime`/`_name` en `support_ticket_messages` y `customer_messages`). Un adjunto por mensaje: imagen (JPG/PNG/WebP) o PDF, máx. 10 MB, bucket privado `uploads` (`<tenant>/support/…` y `<tenant>/chat/<customer>/…`), bytes comprobados al guardar (400 `invalid_attachment` si la clave no es de esa conversación).

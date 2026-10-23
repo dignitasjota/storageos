@@ -57,7 +57,7 @@ describe('Remesas SEPA (e2e)', () => {
     const mandate = await request(app.getHttpServer())
       .post('/sepa/mandates')
       .set(auth)
-      .send({ customerId, iban: DEBTOR_IBAN, signedAt: '2026-01-15' });
+      .send({ customerId, iban: DEBTOR_IBAN, signedOutside: true, signedAt: '2026-01-15' });
     expect(mandate.status).toBe(201);
     expect(mandate.body.sequenceType).toBe('FRST');
     expect(mandate.body.ibanLast4).toBe('6789');
@@ -218,7 +218,7 @@ describe('Remesas SEPA (e2e)', () => {
     await request(app.getHttpServer())
       .post('/sepa/mandates')
       .set(auth)
-      .send({ customerId, iban: DEBTOR_IBAN, signedAt: '2026-01-15' })
+      .send({ customerId, iban: DEBTOR_IBAN, signedOutside: true, signedAt: '2026-01-15' })
       .expect(201);
     const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId);
     await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);

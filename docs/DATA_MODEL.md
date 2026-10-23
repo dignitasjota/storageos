@@ -707,6 +707,7 @@ recordManualPayment` (provider `'sepa'`, mismo candado/dedup/extensión de
 - `customer_message_reads` (RLS, PK `customer_id`+`user_id`, `last_read_at`): hasta cuándo ha leído cada usuario del equipo la conversación con un inquilino (bandeja «Mensajes» y badges por usuario). Sin fila, cuenta desde el alta del usuario. `customer_messages.read_at` sigue siendo el leído del equipo (avisos sin repetir) y el del inquilino en el portal.
 - `tenant_platform_messages` (RLS): mensajes de TrasterOS al tenant (`kind` direct/announcement/retention, asunto, cuerpo, `ticket_id` del correo directo, `super_admin_id`). Los lee el tenant en Soporte.
 - Adjuntos de mensajes: `support_ticket_messages` y `customer_messages` ganan `attachment_key`, `attachment_mime`, `attachment_name` (imagen o PDF en `uploads`).
+- Mandato SEPA firmado: `sepa_settings.creditor_address/_postal_code/_city/_country`; `sepa_mandates.signature_status` (`pending` | `signed` | `external`, los que ya existían quedan `external`), `signing_token_hash/_expires_at`, datos del deudor (`debtor_*`), firma (`signer_name`, `signature_method`, `signature_image`, `typed_signature`) y constancia (`document_text`, `document_hash`, `signed_ip`, `signed_user_agent`, `signed_at_ts`).
 
 ## 15. Pendiente / post-MVP
 

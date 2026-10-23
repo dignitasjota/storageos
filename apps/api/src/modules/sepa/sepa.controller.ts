@@ -11,6 +11,7 @@ import {
   Post,
   Put,
   Query,
+  Res,
 } from '@nestjs/common';
 import {
   ConfirmRemittanceSchema,
@@ -33,6 +34,8 @@ import { RequireFeature } from '../../common/decorators/require-feature.decorato
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { SepaService } from './sepa.service';
+
+import type { Response } from 'express';
 
 class UpdateSepaSettingsDto extends createZodDto(UpdateSepaSettingsSchema) {}
 class CreateSepaMandateDto extends createZodDto(CreateSepaMandateSchema) {}
@@ -78,6 +81,31 @@ export class SepaController {
     @Body() body: CreateSepaMandateDto,
   ): Promise<SepaMandateDto> {
     return this.sepa.createMandate(user.tenantId, body);
+  }
+
+  /** Vuelve a enviar al inquilino el enlace para firmar el mandato (y lo devuelve). */
+  @RequirePermission('payments:charge')
+  @Post('mandates/:id/signing-link')
+  @HttpCode(HttpStatus.OK)
+  resendSigningLink(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<SepaMandateDto> {
+    return this.sepa.resendSigningLink(user.tenantId, id);
+  }
+
+  /** PDF del mandato firmado en la app, con la constancia de la firma. */
+  @RequirePermission('payments:read')
+  @Get('mandates/:id/document')
+  async mandateDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { filename, pdf } = await this.sepa.mandatePdf(user.tenantId, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.end(pdf);
   }
 
   @RequirePermission('payments:charge')

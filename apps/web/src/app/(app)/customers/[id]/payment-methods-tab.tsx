@@ -1,6 +1,6 @@
 'use client';
 
-import { CreditCard, Landmark, Loader2, Plus, Trash2 } from 'lucide-react';
+import { Copy, CreditCard, Download, Landmark, Loader2, Plus, Send, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { ApiError } from '@/lib/auth/api';
+import { ApiError, apiFetchBlob } from '@/lib/auth/api';
 import {
   useCreateSetupIntent,
   usePaymentOptions,
@@ -30,7 +30,12 @@ import {
 } from '@/lib/billing/hooks';
 import { localDateString } from '@/lib/dates';
 import { useGoCardlessSettings, useStartGoCardlessMandate } from '@/lib/payments/gocardless';
-import { useCancelSepaMandate, useCreateSepaMandate, useSepaMandates } from '@/lib/sepa/hooks';
+import {
+  useCancelSepaMandate,
+  useCreateSepaMandate,
+  useResendMandateSigning,
+  useSepaMandates,
+} from '@/lib/sepa/hooks';
 
 export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }) {
   const ask = useConfirm();
@@ -196,9 +201,13 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
   const mandates = useSepaMandates(customerId);
   const create = useCreateSepaMandate();
   const cancel = useCancelSepaMandate();
+  const resend = useResendMandateSigning();
   const [iban, setIban] = useState('');
   const [bic, setBic] = useState('');
+  const [onPaper, setOnPaper] = useState(false);
   const [signedAt, setSignedAt] = useState(localDateString());
+  const [link, setLink] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const active = (mandates.data ?? []).find((m) => m.status === 'active');
 
@@ -208,17 +217,50 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
       return;
     }
     try {
-      await create.mutateAsync({
+      const m = await create.mutateAsync({
         customerId,
         iban: iban.trim(),
         bic: bic.trim() || undefined,
-        signedAt,
+        signedOutside: onPaper,
+        ...(onPaper ? { signedAt } : {}),
       });
       setIban('');
       setBic('');
-      toast.success('Mandato SEPA registrado.');
+      setLink(m.signingUrl ?? null);
+      toast.success(
+        onPaper
+          ? 'Mandato registrado.'
+          : 'Mandato creado. Le hemos enviado al inquilino el enlace para firmarlo.',
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'IBAN no válido.');
+    }
+  }
+
+  async function resendLink(id: string) {
+    try {
+      const m = await resend.mutateAsync(id);
+      setLink(m.signingUrl ?? null);
+      toast.success('Enlace reenviado al inquilino.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo reenviar.');
+    }
+  }
+
+  async function download(id: string, reference: string) {
+    setDownloading(true);
+    try {
+      const blob = await apiFetchBlob(`/sepa/mandates/${id}/document`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mandato-${reference}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('No se pudo descargar el mandato.');
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -226,6 +268,7 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
     if (!(await ask({ title: '¿Cancelar el mandato SEPA?', destructive: true }))) return;
     try {
       await cancel.mutateAsync(id);
+      setLink(null);
       toast.success('Mandato cancelado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -241,29 +284,95 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
       </CardHeader>
       <CardContent className="space-y-3">
         {active ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
-            <div className="text-sm">
-              <p className="font-medium">
-                IBAN ····{active.ibanLast4}{' '}
-                <Badge variant="secondary" className="ml-1">
-                  {active.sequenceType}
-                </Badge>
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Ref {active.reference} · firmado {active.signedAt}
-              </p>
+          <div className="space-y-3 rounded-md border p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="text-sm">
+                <p className="font-medium">
+                  IBAN ····{active.ibanLast4}{' '}
+                  <Badge variant="secondary" className="ml-1">
+                    {active.sequenceType}
+                  </Badge>{' '}
+                  {active.signatureStatus === 'pending' ? (
+                    <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                      Pendiente de firma
+                    </Badge>
+                  ) : active.signatureStatus === 'signed' ? (
+                    <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      Firmado
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Firmado en papel</Badge>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Ref {active.reference}
+                  {active.signatureStatus === 'signed' && active.signedAtTimestamp
+                    ? ` · firmado por ${active.signedByName ?? 'el inquilino'} el ${new Date(active.signedAtTimestamp).toLocaleString('es-ES')}`
+                    : active.signatureStatus === 'external'
+                      ? ` · firmado el ${active.signedAt}`
+                      : ' · no entra en las remesas hasta que lo firme'}
+                </p>
+              </div>
+              <div className="flex gap-1">
+                {active.signatureStatus === 'pending' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => resendLink(active.id)}
+                    disabled={resend.isPending}
+                  >
+                    <Send className="mr-1 h-4 w-4" /> Reenviar enlace
+                  </Button>
+                )}
+                {active.signatureStatus === 'signed' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => download(active.id, active.reference)}
+                    disabled={downloading}
+                  >
+                    <Download className="mr-1 h-4 w-4" /> Mandato
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => revoke(active.id)}
+                  aria-label="Cancelar mandato"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => revoke(active.id)}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {active.signatureStatus === 'pending' && link && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  Enlace para firmar (también le ha llegado por correo; puedes abrirlo en una tablet
+                  si está en el local):
+                </p>
+                <div className="flex gap-2">
+                  <Input readOnly value={link} className="font-mono text-xs" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(link);
+                      toast.success('Enlace copiado.');
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Registra el mandato para poder domiciliar las facturas de este cliente en las remesas
-              SEPA.
+              Para domiciliar sus recibos, el inquilino tiene que firmar la orden de domiciliación
+              (lo exige el banco). Le enviaremos un enlace para firmarla desde el móvil.
             </p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Input
                 placeholder="IBAN ES91…"
                 value={iban}
@@ -274,10 +383,30 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
                 value={bic}
                 onChange={(e) => setBic(e.target.value)}
               />
-              <Input type="date" value={signedAt} onChange={(e) => setSignedAt(e.target.value)} />
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4"
+                checked={onPaper}
+                onChange={(e) => setOnPaper(e.target.checked)}
+              />
+              Ya lo firmó en papel (lo guardas tú)
+            </label>
+            {onPaper && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Fecha de firma</span>
+                <Input
+                  type="date"
+                  className="w-44"
+                  value={signedAt}
+                  onChange={(e) => setSignedAt(e.target.value)}
+                />
+              </div>
+            )}
             <Button size="sm" onClick={add} disabled={create.isPending}>
-              <Plus className="mr-1 h-4 w-4" /> Registrar mandato
+              <Plus className="mr-1 h-4 w-4" />
+              {onPaper ? 'Registrar mandato' : 'Enviar para firmar'}
             </Button>
           </div>
         )}
