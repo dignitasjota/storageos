@@ -11,6 +11,7 @@ import {
 } from '@storageos/shared';
 
 import { CryptoService } from '../../../common/crypto/crypto.service';
+import { todayInTimezone } from '../../../common/format';
 import {
   parseStoredDocument,
   renderMandateHtml,
@@ -192,7 +193,10 @@ export class PlatformSepaMandateService {
           ibanEncrypted: this.crypto.encryptString(input.iban, tenantId),
           ibanLast4: input.iban.slice(-4),
           bic: input.bic || null,
-          signedAt: new Date(`${now.toISOString().slice(0, 10)}T00:00:00Z`),
+          // El mismo día que dice el documento (hora de España).
+          signedAt: todayInTimezone('Europe/Madrid', now),
+          // El preaviso que acepta al firmar: lo respetan todas sus remesas.
+          prenoticeDays: c.prenoticeDays,
           sequenceType: 'FRST',
           status: 'active',
           signatureStatus: 'signed',
@@ -238,6 +242,17 @@ export class PlatformSepaMandateService {
       ip: m.signedIp,
       userAgent: m.signedUserAgent,
       documentHash: m.documentHash ?? '',
+      annex: {
+        iban: this.crypto.decryptString(m.ibanEncrypted, tenantId),
+        signerAccount: m.signerUserId
+          ? ((
+              await this.admin.user.findUnique({
+                where: { id: m.signerUserId },
+                select: { email: true },
+              })
+            )?.email ?? null)
+          : null,
+      },
     });
     return { filename: `mandato-${m.reference}.pdf`, pdf: await this.pdf.render(html) };
   }

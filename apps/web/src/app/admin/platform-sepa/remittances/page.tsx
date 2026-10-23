@@ -1,7 +1,16 @@
 'use client';
 
 import { type ColumnDef } from '@tanstack/react-table';
-import { AlertTriangle, CheckCircle2, Download, Eye, FileText, Plus, Undo2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  Eye,
+  FileText,
+  Plus,
+  Undo2,
+  XCircle,
+} from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -40,7 +49,9 @@ import {
   useAdminPlatformSepaRemittances,
   useAdminPlatformSepaSettings,
   useBouncePlatformSepaRemittanceItem,
+  useCancelPlatformSepaRemittance,
   useConfirmPlatformSepaRemittance,
+  useRetryPlatformSepaPrenotices,
   useCreatePlatformSepaRemittance,
   usePlatformSepaRemittancePreview,
 } from '@/lib/admin/hooks';
@@ -65,7 +76,25 @@ export default function PlatformSepaRemittancesPage() {
   const list = useAdminPlatformSepaRemittances();
   const settings = useAdminPlatformSepaSettings();
   const confirmMut = useConfirmPlatformSepaRemittance();
+  const cancelMut = useCancelPlatformSepaRemittance();
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  async function handleCancel(id: string) {
+    const ok = await confirm({
+      title: 'Cancelar la remesa',
+      description:
+        'Úsalo si no la has subido al banco, si el banco la rechazó entera o si algún preaviso no llegó a tiempo. Sus cuotas se podrán domiciliar en otra remesa.',
+      confirmLabel: 'Cancelar remesa',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await cancelMut.mutateAsync(id);
+      toast.success('Remesa cancelada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
 
   async function handleConfirm(id: string) {
     const row = list.data?.find((r) => r.id === id);
@@ -133,12 +162,22 @@ export default function PlatformSepaRemittancesPage() {
               <CheckCircle2 className="mr-1 h-4 w-4" /> Confirmar cobro
             </Button>
           )}
+          {canEdit && row.original.status === 'generated' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleCancel(row.original.id)}
+              disabled={cancelMut.isPending}
+            >
+              <XCircle className="mr-1 h-4 w-4" /> Cancelar
+            </Button>
+          )}
           {canEdit && row.original.status === 'confirmed' && row.original.pendingCount > 0 && (
             <Button variant="outline" size="sm" onClick={() => handleConfirm(row.original.id)}>
               <CheckCircle2 className="mr-1 h-4 w-4" /> Terminar de confirmar
             </Button>
           )}
-          {row.original.status === 'confirmed' && (
+          {row.original.status !== 'cancelled' && (
             <Button variant="outline" size="sm" onClick={() => setDetailId(row.original.id)}>
               <Eye className="mr-1 h-4 w-4" /> Ver detalle
             </Button>
@@ -187,6 +226,7 @@ function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: (
   const canEdit = useIsSuperadmin();
   const detail = useAdminPlatformSepaRemittance(id ?? '', id !== null);
   const bounce = useBouncePlatformSepaRemittanceItem();
+  const retry = useRetryPlatformSepaPrenotices();
 
   async function handleBounce(item: PlatformSepaRemittanceItemDto) {
     const ok = await confirm({
@@ -210,7 +250,30 @@ function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: (
     pending: 'Pendiente',
     collected: 'Cobrado',
     bounced: 'Devuelto',
+    cancelled: 'Cancelado',
   };
+  const PRENOTICE: Record<NonNullable<PlatformSepaRemittanceItemDto['prenoticeStatus']>, string> = {
+    sent: 'Preaviso enviado',
+    failed: 'Preaviso no enviado (error)',
+    no_email: 'Preaviso no enviado (sin email)',
+  };
+  const items = detail.data?.items ?? [];
+  const missingPrenotices = items.filter(
+    (i) => i.itemStatus === 'pending' && i.prenoticeStatus !== 'sent',
+  ).length;
+
+  async function handleRetryPrenotices() {
+    try {
+      const r = await retry.mutateAsync(id!);
+      if (r.failed + r.noEmail === 0) toast.success(`Preavisos enviados: ${r.sent}`);
+      else
+        toast.warning(
+          `Enviados ${r.sent}; sin enviar ${r.failed + r.noEmail}. Revisa el email de facturación de esos tenants.`,
+        );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
 
   return (
     <Dialog open={id !== null} onOpenChange={(o) => !o && onClose()}>
@@ -233,7 +296,7 @@ function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: (
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(detail.data?.items ?? []).map((item) => (
+                {items.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className="text-xs">{item.tenantName}</TableCell>
                     <TableCell className="text-xs">{item.periodCovered}</TableCell>
@@ -243,6 +306,17 @@ function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: (
                       {item.itemStatus === 'bounced' && item.bounceReason && (
                         <span className="block text-muted-foreground">{item.bounceReason}</span>
                       )}
+                      <span
+                        className={
+                          item.prenoticeStatus === 'sent'
+                            ? 'block text-muted-foreground'
+                            : 'block text-amber-700 dark:text-amber-400'
+                        }
+                      >
+                        {item.prenoticeStatus
+                          ? PRENOTICE[item.prenoticeStatus]
+                          : 'Preaviso pendiente de enviar'}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {item.itemStatus === 'collected' && (
@@ -262,7 +336,24 @@ function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: (
             </Table>
           </div>
         )}
+        {detail.data?.status === 'generated' && missingPrenotices > 0 && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            {missingPrenotices === 1
+              ? 'A 1 tenant no le ha llegado el preaviso.'
+              : `A ${missingPrenotices} tenants no les ha llegado el preaviso.`}{' '}
+            Sin preaviso a tiempo pueden devolver el cargo: reenvíalo o cancela la remesa.
+          </p>
+        )}
         <DialogFooter>
+          {detail.data?.status === 'generated' && missingPrenotices > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => void handleRetryPrenotices()}
+              disabled={retry.isPending || !canEdit}
+            >
+              Reenviar preavisos
+            </Button>
+          )}
           <Button variant="outline" onClick={onClose}>
             Cerrar
           </Button>

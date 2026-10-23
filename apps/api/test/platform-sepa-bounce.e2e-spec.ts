@@ -59,7 +59,7 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
       .send({
         creditorName: 'TrasterOS SL',
         ...PLATFORM_CREDITOR_ADDRESS,
-        creditorId: 'ES12ZZZ12345678',
+        creditorId: 'ES98ZZZ12345678',
         creditorIban: 'ES9121000418450200051332',
         enabled: true,
       });

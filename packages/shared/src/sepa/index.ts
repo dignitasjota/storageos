@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { isValidCreditorId, normalizeCreditorId } from './collection';
+
 import type { SepaMandateSignatureStatus } from './mandate';
 
 /** Normaliza un IBAN (sin espacios, mayúsculas). */
@@ -34,14 +36,23 @@ const bicSchema = z
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
 
+/** Identificador del acreedor con sus dígitos de control comprobados. */
+export const creditorIdSchema = z
+  .string()
+  .trim()
+  .transform(normalizeCreditorId)
+  .refine(isValidCreditorId, {
+    message: 'Identificador del acreedor no válido (revisa los dígitos de control)',
+  });
+
 // ---------------------------------------------------------------------------
 // Settings del acreedor
 // ---------------------------------------------------------------------------
 
 export const UpdateSepaSettingsSchema = z.object({
   creditorName: z.string().trim().min(2).max(140),
-  /** Identificador del acreedor SEPA (p.ej. ES12ZZZB12345678). */
-  creditorId: z.string().trim().min(8).max(35),
+  /** Identificador del acreedor SEPA (p.ej. ES97ZZZB12345678). */
+  creditorId: creditorIdSchema,
   /** Opcional al actualizar: si se omite, se conserva el IBAN ya guardado. */
   creditorIban: ibanSchema.optional(),
   creditorBic: bicSchema,

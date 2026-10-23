@@ -15,6 +15,8 @@ import {
   buildSepaMandateDocument,
   earliestCollectionDate,
   isSepaMandateExpired,
+  isValidCreditorId,
+  requiredPrenoticeDays,
   nextSepaBusinessDay,
   mandateIsSigned,
   sepaMandateExpiresOn,
@@ -153,6 +155,9 @@ export class SepaService {
         message: 'El IBAN del acreedor es obligatorio en la primera configuración',
       });
     }
+    if (existing && existing.creditorId !== input.creditorId) {
+      await this.assertCreditorIdChangeable(tenantId, existing.creditorId);
+    }
     const creditorIbanEncrypted = input.creditorIban
       ? this.crypto.encryptString(input.creditorIban, tenantId)
       : existing!.creditorIbanEncrypted;
@@ -182,6 +187,32 @@ export class SepaService {
       tenantId,
     );
     return this.getSettings(tenantId);
+  }
+
+  /**
+   * El identificador del acreedor va impreso en los mandatos firmados: si
+   * cambia, el banco exige presentar cada adeudo siguiente como una
+   * modificación del mandato. Solo se deja cambiar si ningún mandato activo
+   * está firmado, o si el anterior era incorrecto (el banco no aceptó ningún
+   * fichero con él).
+   */
+  private async assertCreditorIdChangeable(tenantId: string, current: string): Promise<void> {
+    if (!isValidCreditorId(current)) return;
+    const signed = await this.prisma.withTenant(
+      (tx) =>
+        tx.sepaMandate.count({
+          where: { tenantId, status: 'active', signatureStatus: { in: ['signed', 'external'] } },
+        }),
+      tenantId,
+    );
+    if (signed > 0) {
+      throw new ConflictException({
+        code: 'creditor_id_locked',
+        message:
+          'No puedes cambiar el identificador del acreedor: aparece en los mandatos ya firmados por tus inquilinos.',
+        details: { signedMandates: signed },
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -234,10 +265,23 @@ export class SepaService {
     opts: { reference?: string; sequenceType?: 'FRST' | 'RCUR' } = {},
   ): Promise<SepaMandateDto> {
     const reference = opts.reference ?? `MND-${rand(12)}`;
+    const today = todayInTimezone('Europe/Madrid').toISOString().slice(0, 10);
+    const signedAt = input.signedAt ?? today;
+    // Una firma con fecha futura saldría en el fichero posterior al cobro: el banco la rechaza.
+    if (signedAt > today) {
+      throw new BadRequestException({
+        code: 'invalid_signed_at',
+        message: 'La fecha de firma del mandato no puede ser posterior a hoy',
+      });
+    }
     // Firmado fuera (papel o migrado): cuenta ya para cobrar. Si no, el inquilino
     // tiene que firmarlo aquí antes de que entre en ninguna remesa.
     const external = input.signedOutside || !!opts.reference;
     if (!external) await this.creditorForMandate(tenantId);
+    const settings = await this.prisma.withTenant(
+      (tx) => tx.sepaSettings.findUnique({ where: { tenantId }, select: { prenoticeDays: true } }),
+      tenantId,
+    );
     const created = await this.prisma
       .withTenant(async (tx) => {
         const customer = await tx.customer.findFirst({
@@ -263,9 +307,10 @@ export class SepaService {
             ibanEncrypted: this.crypto.encryptString(input.iban, tenantId),
             ibanLast4: input.iban.slice(-4),
             bic: input.bic || null,
-            signedAt: new Date(
-              `${input.signedAt ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`,
-            ),
+            signedAt: new Date(`${signedAt}T00:00:00Z`),
+            // El preaviso que rige este mandato: el del acreedor al darlo de alta
+            // (si lo firma aquí, el que acepte al firmar).
+            prenoticeDays: settings?.prenoticeDays ?? 14,
             sequenceType: opts.sequenceType ?? 'FRST',
             // Importado como «ya cobrado»: cuenta como usado hoy para la caducidad.
             ...(opts.sequenceType === 'RCUR' ? { lastCollectedAt: todayInTimezone() } : {}),
@@ -350,6 +395,14 @@ export class SepaService {
       tenantId,
     );
     if (customer?.email) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.sepaMandate.update({
+            where: { id: mandate.id },
+            data: { signingLinkSentTo: customer.email },
+          }),
+        tenantId,
+      );
       const name = tenant?.name ?? '';
       await this.communications.enqueue({
         tenantId,
@@ -443,7 +496,7 @@ export class SepaService {
       city: c.city ?? '',
       country: c.country || 'ES',
     };
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayInTimezone('Europe/Madrid').toISOString().slice(0, 10);
     const { doc, iban, creditorName, prenoticeDays } = await this.mandateDocument(
       mandate,
       debtor,
@@ -488,7 +541,12 @@ export class SepaService {
       city: input.city,
       country: input.country,
     };
-    const { doc, iban } = await this.mandateDocument(mandate, debtor, input.place, date);
+    const { doc, iban, prenoticeDays } = await this.mandateDocument(
+      mandate,
+      debtor,
+      input.place,
+      date,
+    );
     const text = sepaMandateText(doc);
     const hash = createHash('sha256').update(`${text}\nIBAN: ${iban}`).digest('hex');
     // Reserva atómica: dos envíos a la vez no firman dos veces.
@@ -500,8 +558,10 @@ export class SepaService {
             signatureStatus: 'signed',
             signingTokenHash: null,
             signingTokenExpiresAt: null,
-            signedAt: new Date(`${now.toISOString().slice(0, 10)}T00:00:00Z`),
+            // El mismo día que dice el documento (hora de España).
+            signedAt: todayInTimezone('Europe/Madrid', now),
             signedAtTs: now,
+            prenoticeDays,
             debtorName: debtor.name,
             debtorAddress: debtor.address,
             debtorPostalCode: debtor.postalCode,
@@ -550,6 +610,10 @@ export class SepaService {
       ip: m.signedIp,
       userAgent: m.signedUserAgent,
       documentHash: m.documentHash ?? '',
+      annex: {
+        iban: this.crypto.decryptString(m.ibanEncrypted, tenantId),
+        signingLinkSentTo: m.signingLinkSentTo,
+      },
     });
     return { filename: `mandato-${m.reference}.pdf`, pdf: await this.pdf.render(html) };
   }
@@ -648,6 +712,7 @@ export class SepaService {
     const { invoices, byCustomer, unsigned, expiredCustomers } = await this.eligible(tenantId);
     const eligible: RemittanceEligibleInvoiceDto[] = [];
     const withoutMandate: RemittancePreviewDto['withoutMandate'] = [];
+    const usedMandates: SepaMandate[] = [];
     for (const inv of invoices) {
       const pending = Math.max(0, subtractAmounts(inv.total, inv.amountPaid));
       if (pending <= 0) continue;
@@ -663,6 +728,7 @@ export class SepaService {
         });
         continue;
       }
+      usedMandates.push(mandate);
       eligible.push({
         invoiceId: inv.id,
         invoiceNumber: inv.invoiceNumber,
@@ -679,7 +745,12 @@ export class SepaService {
       (tx) => tx.sepaSettings.findUnique({ where: { tenantId }, select: { prenoticeDays: true } }),
       tenantId,
     );
-    return { eligible, total, withoutMandate, prenoticeDays: settings?.prenoticeDays ?? 14 };
+    return {
+      eligible,
+      total,
+      withoutMandate,
+      prenoticeDays: requiredPrenoticeDays(settings?.prenoticeDays ?? 14, usedMandates),
+    };
   }
 
   async createRemittance(args: {
@@ -698,27 +769,39 @@ export class SepaService {
         message: 'Configura primero el acreedor SEPA en ajustes',
       });
     }
-    assertCollectionDate(input.collectionDate);
-    // Preaviso de cada adeudo (el pactado en el mandato, 14 días por defecto):
-    // un cargo sin el aviso a tiempo se puede devolver (contrato del banco, 4.1).
-    const earliest = earliestCollectionDate(
-      settings.prenoticeDays,
-      todayInTimezone('Europe/Madrid'),
-    );
-    if (input.collectionDate < earliest) {
+    // Con los dígitos de control mal, el banco rechaza el fichero entero.
+    if (!isValidCreditorId(settings.creditorId)) {
       throw new BadRequestException({
-        code: 'collection_date_too_soon',
-        message: `La fecha de cobro tiene que respetar el preaviso de ${settings.prenoticeDays} días a tus inquilinos: como pronto el ${nextSepaBusinessDay(earliest)}.`,
-        details: {
-          earliestCollectionDate: nextSepaBusinessDay(earliest),
-          prenoticeDays: settings.prenoticeDays,
-        },
+        code: 'invalid_creditor_id',
+        message:
+          'El identificador del acreedor no es válido (revisa los dígitos de control en Configuración → Cobros).',
       });
     }
+    assertCollectionDate(input.collectionDate);
     const { invoices, byCustomer } = await this.eligible(tenantId);
     const selected = input.invoiceIds
       ? invoices.filter((i) => input.invoiceIds!.includes(i.id))
       : invoices;
+    // Preaviso de cada adeudo: el pactado en su mandato (el mayor de la remesa).
+    // Un cargo sin el aviso a tiempo se puede devolver (contrato del banco, 4.1).
+    const days = requiredPrenoticeDays(
+      settings.prenoticeDays,
+      selected.flatMap((i) => {
+        const m = i.customerId ? byCustomer.get(i.customerId) : undefined;
+        return m ? [m] : [];
+      }),
+    );
+    const earliest = earliestCollectionDate(days, todayInTimezone('Europe/Madrid'));
+    if (input.collectionDate < earliest) {
+      throw new BadRequestException({
+        code: 'collection_date_too_soon',
+        message: `La fecha de cobro tiene que respetar el preaviso de ${days} días pactado con tus inquilinos: como pronto el ${nextSepaBusinessDay(earliest)}.`,
+        details: {
+          earliestCollectionDate: nextSepaBusinessDay(earliest),
+          prenoticeDays: days,
+        },
+      });
+    }
 
     const creditorIban = this.crypto.decryptString(settings.creditorIbanEncrypted, tenantId);
     const messageId = `REM-${Date.now().toString(36).toUpperCase()}-${rand(6)}`;

@@ -75,7 +75,7 @@ describe('Platform SEPA — billingMode (e2e)', () => {
       .send({
         creditorName: 'TrasterOS SL',
         ...PLATFORM_CREDITOR_ADDRESS,
-        creditorId: 'ES12ZZZ12345678',
+        creditorId: 'ES98ZZZ12345678',
         enabled: false,
       });
     expect(noIban.status).toBe(400);
@@ -88,7 +88,7 @@ describe('Platform SEPA — billingMode (e2e)', () => {
       .send({
         creditorName: 'TrasterOS SL',
         ...PLATFORM_CREDITOR_ADDRESS,
-        creditorId: 'ES12ZZZ12345678',
+        creditorId: 'ES98ZZZ12345678',
         creditorIban: 'ES0000000000000000000000',
         enabled: false,
       });
@@ -101,7 +101,7 @@ describe('Platform SEPA — billingMode (e2e)', () => {
       .send({
         creditorName: 'TrasterOS SL',
         ...PLATFORM_CREDITOR_ADDRESS,
-        creditorId: 'ES12ZZZ12345678',
+        creditorId: 'ES98ZZZ12345678',
         creditorIban: 'ES9121000418450200051332',
         creditorBic: 'BBVAESMMXXX',
         enabled: true,
@@ -118,7 +118,7 @@ describe('Platform SEPA — billingMode (e2e)', () => {
       .send({
         creditorName: 'TrasterOS SL',
         ...PLATFORM_CREDITOR_ADDRESS,
-        creditorId: 'ES12ZZZ12345678',
+        creditorId: 'ES98ZZZ12345678',
         enabled: true,
       });
     expect(keepIban.status).toBe(200);

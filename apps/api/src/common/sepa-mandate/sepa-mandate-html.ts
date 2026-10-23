@@ -13,6 +13,12 @@ export interface MandateEvidence {
   ip: string | null;
   userAgent: string | null;
   documentHash: string;
+  /**
+   * Solo para el acreedor (prueba ante una reclamación del deudor): la cuenta
+   * completa y a qué email se envió el enlace de firma. No forma parte del
+   * texto firmado.
+   */
+  annex?: { iban: string; signingLinkSentTo?: string | null; signerAccount?: string | null };
 }
 
 function esc(v: string): string {
@@ -21,6 +27,18 @@ function esc(v: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function annexHtml(annex: MandateEvidence['annex']): string {
+  if (!annex) return '';
+  const iban = annex.iban.replace(/(.{4})/g, '$1 ').trim();
+  return `<div class="ev" style="border-top:1px solid #ccc;padding-top:8px">
+<div><strong>Anexo para el acreedor</strong> (no forma parte del documento firmado)</div>
+<div>Cuenta del deudor (IBAN completo): ${esc(iban)}</div>
+${annex.signingLinkSentTo ? `<div>Enlace de firma enviado a: ${esc(annex.signingLinkSentTo)}</div>` : ''}
+${annex.signerAccount ? `<div>Firmado con la cuenta de usuario: ${esc(annex.signerAccount)}</div>` : ''}
+<div>La huella se calcula sobre el texto firmado seguido de «IBAN: » y esta cuenta.</div>
+</div>`;
 }
 
 export function renderMandateHtml(doc: SepaMandateDocument, ev: MandateEvidence): string {
@@ -56,6 +74,7 @@ ${ev.ip ? `<div>Dirección IP: ${esc(ev.ip)}</div>` : ''}
 ${ev.userAgent ? `<div>Navegador: ${esc(ev.userAgent)}</div>` : ''}
 <div>Huella del documento (SHA-256): ${esc(ev.documentHash)}</div>
 </div>
+${annexHtml(ev.annex)}
 </body></html>`;
 }
 

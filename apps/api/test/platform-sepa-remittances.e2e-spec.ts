@@ -118,7 +118,7 @@ describe('Platform SEPA — remesas (e2e)', () => {
       .send({
         creditorName: 'TrasterOS SL',
         ...PLATFORM_CREDITOR_ADDRESS,
-        creditorId: 'ES12ZZZ12345678',
+        creditorId: 'ES98ZZZ12345678',
         creditorIban: 'ES9121000418450200051332',
         creditorBic: 'BBVAESMMXXX',
         enabled: true,
@@ -257,7 +257,7 @@ describe('Platform SEPA — remesas (e2e)', () => {
       .send({
         creditorName: 'TrasterOS SL',
         ...PLATFORM_CREDITOR_ADDRESS,
-        creditorId: 'ES12ZZZ12345678',
+        creditorId: 'ES98ZZZ12345678',
         enabled: true,
       });
     expect(settings.status).toBe(200);
@@ -297,7 +297,7 @@ describe('Platform SEPA — remesas (e2e)', () => {
       .send({
         creditorName: 'TrasterOS SL',
         ...PLATFORM_CREDITOR_ADDRESS,
-        creditorId: 'ES12ZZZ12345678',
+        creditorId: 'ES98ZZZ12345678',
         creditorIban: 'ES9121000418450200051332',
         enabled: true,
       })
@@ -362,6 +362,75 @@ describe('Platform SEPA — remesas (e2e)', () => {
     });
     expect(item?.prenoticeSentAt).not.toBeNull();
     expect(item?.prenoticeRecipients).toContain('@');
+    expect(item?.prenoticeStatus).toBe('sent');
+    // El mandato guarda el preaviso que firmó el tenant.
+    expect(row?.prenoticeDays).toBe(5);
+
+    // Nada que reenviar: todos los preavisos salieron.
+    const retry = await request(app.getHttpServer())
+      .post(`/admin/platform-sepa/remittances/${created.body.id}/prenotices/retry`)
+      .set(adminAuth());
+    expect(retry.status).toBe(200);
+    expect(retry.body).toEqual({ sent: 0, failed: 0, noEmail: 0 });
+    const detail = await request(app.getHttpServer())
+      .get(`/admin/platform-sepa/remittances/${created.body.id}`)
+      .set(adminAuth());
+    expect(detail.body.items[0].prenoticeStatus).toBe('sent');
+
+    // Con mandatos firmados no se puede cambiar el identificador del acreedor.
+    const locked = await request(app.getHttpServer())
+      .put('/admin/platform-sepa/settings')
+      .set(adminAuth())
+      .send({
+        creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
+        creditorId: 'ES97ZZZB12345678',
+        enabled: true,
+      });
+    expect(locked.status).toBe(409);
+    expect(locked.body.code).toBe('creditor_id_locked');
+    // Identificador con los dígitos de control mal → 400.
+    const badId = await request(app.getHttpServer())
+      .put('/admin/platform-sepa/settings')
+      .set(adminAuth())
+      .send({
+        creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
+        creditorId: 'ES12ZZZ12345678',
+        enabled: true,
+      });
+    expect(badId.status).toBe(400);
+
+    // Bajar el preaviso no afecta a lo que ya firmó el tenant (5 días).
+    await request(app.getHttpServer())
+      .put('/admin/platform-sepa/settings')
+      .set(adminAuth())
+      .send({
+        creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
+        creditorId: 'ES98ZZZ12345678',
+        enabled: true,
+        prenoticeDays: 2,
+      })
+      .expect(200);
+
+    // Cancelar la remesa libera el periodo para otra remesa.
+    const cancelled = await request(app.getHttpServer())
+      .post(`/admin/platform-sepa/remittances/${created.body.id}/cancel`)
+      .set(adminAuth());
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.status).toBe('cancelled');
+    const again = await request(app.getHttpServer())
+      .post('/admin/platform-sepa/remittances/preview')
+      .set(adminAuth());
+    expect(again.body.prenoticeDays).toBe(5);
+    expect(again.body.eligible.map((e: { tenantId: string }) => e.tenantId)).toContain(
+      owner.tenantId,
+    );
+    const reCancel = await request(app.getHttpServer())
+      .post(`/admin/platform-sepa/remittances/${created.body.id}/cancel`)
+      .set(adminAuth());
+    expect(reCancel.status).toBe(400);
   });
 
   it('fecha de cobro en festivo o fin de semana → 400 con la primera válida', async () => {

@@ -32,7 +32,7 @@ describe('Mandatos SEPA: caducidad y preaviso (e2e)', () => {
       .set(auth)
       .send({
         creditorName: 'Trasteros SL',
-        creditorId: 'ES12ZZZB12345678',
+        creditorId: 'ES97ZZZB12345678',
         creditorIban: 'ES9121000418450200051332',
         enabled: true,
       })

@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { isValidCreditorId } from '@storageos/shared';
 
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
@@ -62,6 +63,25 @@ export class PlatformSepaSettingsService {
         code: 'iban_required',
         message: 'El IBAN del acreedor es obligatorio en la primera configuración',
       });
+    }
+    // El identificador va impreso en los mandatos firmados: cambiarlo obligaría
+    // a presentar cada adeudo siguiente como una modificación del mandato.
+    if (
+      existing?.creditorId &&
+      existing.creditorId !== input.creditorId &&
+      isValidCreditorId(existing.creditorId)
+    ) {
+      const signed = await this.admin.platformSepaMandate.count({
+        where: { status: 'active', signatureStatus: { in: ['signed', 'external'] } },
+      });
+      if (signed > 0) {
+        throw new ConflictException({
+          code: 'creditor_id_locked',
+          message:
+            'No puedes cambiar el identificador del acreedor: aparece en los mandatos ya firmados por los tenants.',
+          details: { signedMandates: signed },
+        });
+      }
     }
     const creditorIbanEncrypted = input.creditorIban
       ? this.crypto.encryptString(input.creditorIban, CREDITOR_AAD)

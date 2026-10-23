@@ -35,15 +35,23 @@ describe('Remesas SEPA (e2e)', () => {
     // Config del acreedor (rechaza IBAN inválido).
     const bad = await request(app.getHttpServer()).put('/sepa/settings').set(auth).send({
       creditorName: 'Trasteros SL',
-      creditorId: 'ES12ZZZB12345678',
+      creditorId: 'ES97ZZZB12345678',
       creditorIban: 'ES0021000418450200051332',
       enabled: true,
     });
     expect(bad.status).toBe(400);
+    // Identificador del acreedor con los dígitos de control mal → 400.
+    const badId = await request(app.getHttpServer()).put('/sepa/settings').set(auth).send({
+      creditorName: 'Trasteros SL',
+      creditorId: 'ES12ZZZB12345678',
+      creditorIban: CREDITOR_IBAN,
+      enabled: true,
+    });
+    expect(badId.status).toBe(400);
 
     const settings = await request(app.getHttpServer()).put('/sepa/settings').set(auth).send({
       creditorName: 'Trasteros SL',
-      creditorId: 'ES12ZZZB12345678',
+      creditorId: 'ES97ZZZB12345678',
       creditorIban: CREDITOR_IBAN,
       enabled: true,
     });
@@ -61,6 +69,23 @@ describe('Remesas SEPA (e2e)', () => {
       .send({ customerId, iban: DEBTOR_IBAN, signedOutside: true, signedAt: '2026-01-15' });
     expect(mandate.status).toBe(201);
     expect(mandate.body.sequenceType).toBe('FRST');
+
+    // Una firma en papel con fecha futura saldría en el fichero posterior al cobro.
+    const future = await request(app.getHttpServer())
+      .post('/sepa/mandates')
+      .set(auth)
+      .send({ customerId, iban: DEBTOR_IBAN, signedOutside: true, signedAt: '2099-01-01' });
+    expect(future.status).toBe(400);
+    expect(future.body.code).toBe('invalid_signed_at');
+
+    // Con un mandato firmado, el identificador del acreedor queda bloqueado.
+    const locked = await request(app.getHttpServer()).put('/sepa/settings').set(auth).send({
+      creditorName: 'Trasteros SL',
+      creditorId: 'ES23ZZZ47690558N',
+      enabled: true,
+    });
+    expect(locked.status).toBe(409);
+    expect(locked.body.code).toBe('creditor_id_locked');
     expect(mandate.body.ibanLast4).toBe('6789');
     const mandateRef = mandate.body.reference as string;
 
@@ -83,17 +108,26 @@ describe('Remesas SEPA (e2e)', () => {
     // Plazo pactado en los contratos más corto → la previsualización lo refleja.
     const shorter = await request(app.getHttpServer()).put('/sepa/settings').set(auth).send({
       creditorName: 'Trasteros SL',
-      creditorId: 'ES12ZZZB12345678',
+      creditorId: 'ES97ZZZB12345678',
       prenoticeDays: 5,
       enabled: true,
     });
     expect(shorter.body.prenoticeDays).toBe(5);
+    // El mandato ya dado de alta conserva el plazo con el que se dio (14): bajar
+    // el ajuste no acorta lo pactado con ese inquilino.
     const preview2 = await request(app.getHttpServer()).post('/sepa/remittances/preview').set(auth);
-    expect(preview2.body.prenoticeDays).toBe(5);
+    expect(preview2.body.prenoticeDays).toBe(14);
+    const tooSoon = await request(app.getHttpServer())
+      .post('/sepa/remittances')
+      .set(auth)
+      .send({ name: 'Antes de 14 días', collectionDate: futureCollectionDate(7) });
+    expect(tooSoon.status).toBe(400);
+    expect(tooSoon.body.code).toBe('collection_date_too_soon');
+    expect(tooSoon.body.details.prenoticeDays).toBe(14);
     await request(app.getHttpServer())
       .put('/sepa/settings')
       .set(auth)
-      .send({ creditorName: 'Trasteros SL', creditorId: 'ES12ZZZB12345678', prenoticeDays: 0 })
+      .send({ creditorName: 'Trasteros SL', creditorId: 'ES97ZZZB12345678', prenoticeDays: 0 })
       .expect(400);
 
     // Crear remesa.
@@ -150,7 +184,7 @@ describe('Remesas SEPA (e2e)', () => {
     expect(xml).toContain('<PmtMtd>DD</PmtMtd>');
     expect(xml).toContain('<SeqTp>FRST</SeqTp>');
     expect(xml).toContain('<Cd>CORE</Cd>');
-    expect(xml).toContain(`<Id>ES12ZZZB12345678</Id>`); // creditor id
+    expect(xml).toContain(`<Id>ES97ZZZB12345678</Id>`); // creditor id
     expect(xml).toContain(`<IBAN>${CREDITOR_IBAN}</IBAN>`);
     expect(xml).toContain(`<IBAN>${DEBTOR_IBAN}</IBAN>`);
     expect(xml).toContain(`<MndtId>${mandateRef}</MndtId>`);
@@ -208,7 +242,7 @@ describe('Remesas SEPA (e2e)', () => {
       .set(auth)
       .send({
         creditorName: 'Trasteros SL',
-        creditorId: 'ES12ZZZB12345678',
+        creditorId: 'ES97ZZZB12345678',
         creditorIban: CREDITOR_IBAN,
         enabled: true,
       })
