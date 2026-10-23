@@ -98,6 +98,13 @@ export function LogoField({
         )}
         {logoUrl && <span className="h-1 w-16 rounded-full" style={{ backgroundColor: color }} />}
       </div>
+      {logoUrl && !logoUploaded && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          Tu logo es un enlace a otra web: se ve en tu web, en el portal y en el menú del panel,
+          pero el icono de la app (la de tus inquilinos y la de tu equipo) sale con tus iniciales.
+          Para que salga tu logo, súbelo como archivo con «Cambiar logo».
+        </p>
+      )}
       <p className="text-xs text-muted-foreground">
         PNG o JPG, máximo 2 MB. Mejor con fondo transparente y, si puede ser, un símbolo que se
         entienda en pequeño: también se usa en el icono de la app de tus inquilinos.
