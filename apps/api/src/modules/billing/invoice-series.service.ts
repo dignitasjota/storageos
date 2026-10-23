@@ -138,13 +138,16 @@ export class InvoiceSeriesService {
   }
 
   /**
-   * Reserva el siguiente número en la serie. Atomic: incrementa
-   * `next_number` y devuelve el valor que tenía antes. Llamado desde
-   * `InvoicesService.issue` dentro de su transacción.
+   * Reserva el siguiente número en la serie. Atómico: incrementa
+   * `next_number` y devuelve el valor que tenía antes. En una serie «por año»
+   * el primer número de un año nuevo vuelve a ser el 1 (`year` = año de la
+   * fecha de emisión). Llamado desde `InvoicesService.issue` dentro de su
+   * transacción.
    */
   async reserveNextNumber(
     tx: Prisma.TransactionClient,
     seriesId: string,
+    year: number,
   ): Promise<{ sequenceNumber: number; series: InvoiceSeries }> {
     const series = await tx.invoiceSeries.findUniqueOrThrow({
       where: { id: seriesId },
@@ -155,11 +158,20 @@ export class InvoiceSeriesService {
         message: 'La serie esta desactivada',
       });
     }
-    const updated = await tx.invoiceSeries.update({
-      where: { id: seriesId },
-      data: { nextNumber: { increment: 1 } },
-    });
-    return { sequenceNumber: updated.nextNumber - 1, series: updated };
+    // Una sola sentencia: la fila queda bloqueada y dos emisiones a la vez no
+    // pueden reiniciar el contador las dos.
+    const [row] = await tx.$queryRaw<{ next_number: number }[]>`
+      UPDATE "invoice_series"
+      SET "next_number" = CASE
+            WHEN "year_scope" AND "numbering_year" IS DISTINCT FROM ${year}::int THEN 2
+            ELSE "next_number" + 1
+          END,
+          "numbering_year" = CASE WHEN "year_scope" THEN ${year}::int ELSE "numbering_year" END,
+          "updated_at" = now()
+      WHERE "id" = ${seriesId}::uuid
+      RETURNING "next_number"`;
+    const updated = await tx.invoiceSeries.findUniqueOrThrow({ where: { id: seriesId } });
+    return { sequenceNumber: (row?.next_number ?? updated.nextNumber) - 1, series: updated };
   }
 
   /**

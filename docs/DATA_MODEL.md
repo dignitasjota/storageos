@@ -534,7 +534,8 @@ España exige Verifactu para sociedades desde 2026-07-01. Implementado.
 
 ### `invoice_series`
 
-- `id`, `tenant_id`, `code` (único por tenant), `name`, `prefix`, `year_scope` (boolean), `next_number`, `facility_id` (nullable), `is_active`.
+- `id`, `tenant_id`, `code` (único por tenant), `name`, `prefix`, `year_scope` (boolean), `next_number`, `numbering_year` (año de la numeración: en una serie por año, el primer número de un año nuevo vuelve a 1; migración `20261111100000_invoice_numbering_year`), `facility_id` (nullable), `is_active`.
+- Índice único `invoices_series_sequence_unique` sobre `(tenant_id, series_id, EXTRACT(YEAR FROM issue_date), sequence_number) WHERE sequence_number > 0`: el número se repite en años distintos, nunca dentro del año.
 
 ### `tenant_aeat_credentials` (Fase 10 + Fase 11A.2)
 

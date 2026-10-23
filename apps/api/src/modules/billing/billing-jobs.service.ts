@@ -233,7 +233,11 @@ export class BillingJobsService {
             seriesId: series.id,
             periodStart: cStart.toISOString().slice(0, 10),
             periodEnd: cEnd.toISOString().slice(0, 10),
-            dueDate: this.addDays(cEnd, 15).toISOString().slice(0, 10),
+            // Prepago semestral/anual: a los 15 días del inicio del periodo (con el
+            // fin del periodo vencía al cabo de un año y no entraba en impagos).
+            dueDate: this.addDays(interval > 1 ? cStart : cEnd, 15)
+              .toISOString()
+              .slice(0, 10),
             items: [
               {
                 description: rentDesc,

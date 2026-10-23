@@ -115,7 +115,7 @@ export class StripeWebhookController {
       case 'payment_intent.payment_failed': {
         const intent = (
           event.data as {
-            object: { id: string; last_payment_error?: { message?: string } };
+            object: { id: string; metadata?: unknown; last_payment_error?: { message?: string } };
           }
         ).object;
         if (tenantId) {
@@ -123,6 +123,8 @@ export class StripeWebhookController {
             tenantId,
             gatewayPaymentId: intent.id,
             newStatus: 'failed',
+            // Un cobro cuya respuesta se cortó no tiene aún el id del cobro.
+            paymentIdsHint: paymentIdsFromMetadata(intent.metadata),
             ...(intent.last_payment_error?.message
               ? { failureReason: intent.last_payment_error.message }
               : {}),

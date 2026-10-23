@@ -1676,6 +1676,9 @@ model InvoiceSeries {
   /// El siguiente numero a usar al emitir. Se actualiza junto con el
   /// invoice INSERT en la misma transaccion.
   nextNumber Int      @default(1) @map("next_number")
+  /// Año de la numeración de una serie «por año»: con el primer número de un
+  /// año nuevo el contador vuelve a 1.
+  numberingYear Int? @map("numbering_year")
   facilityId String?  @map("facility_id") @db.Uuid
   isActive   Boolean  @default(true) @map("is_active")
   isDefault  Boolean  @default(false) @map("is_default")

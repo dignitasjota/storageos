@@ -12,6 +12,13 @@ import { InvoicesService } from './invoices.service';
 import type { CreateInvoiceItemInput } from '@storageos/shared';
 
 const ymd = (d: Date): string => d.toISOString().slice(0, 10);
+
+/** Motivo legible de un error (los de Nest traen el mensaje en la respuesta). */
+function errorMessage(err: unknown): string {
+  const response = (err as { response?: { message?: unknown } } | null)?.response;
+  if (typeof response?.message === 'string') return response.message.replace(/\.$/, '');
+  return err instanceof Error ? err.message : String(err);
+}
 const eur = (cents: number): string =>
   `${(cents / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
@@ -65,6 +72,7 @@ export class FirstInvoiceService {
 
   /** Emite la 1ª factura si el contrato aún no tiene ninguna. No lanza. */
   async issueIfMissing(tenantId: string, contractId: string, customerId: string): Promise<void> {
+    let invoice: { id: string } | null = null;
     try {
       const existing = await this.admin.invoice.findFirst({
         where: { tenantId, contractId, deletedAt: null },
@@ -222,8 +230,11 @@ export class FirstInvoiceService {
         );
       }
 
-      const dueDate = addDays(periodEnd, 15);
-      const invoice = await this.invoices.create({
+      // Un mes: vence a los 15 días del fin del mes (como la recurrente). Varios
+      // meses por adelantado: a los 15 días del inicio (si no, un anual vencía
+      // al cabo de un año y no entraba nunca en impagos).
+      const dueDate = months > 1 ? addDays(periodStart, 15) : addDays(periodEnd, 15);
+      invoice = await this.invoices.create({
         tenantId,
         userId: null,
         input: {
@@ -266,11 +277,25 @@ export class FirstInvoiceService {
       // acceso espere a que se pague). La fianza se paga sola en el portal.
       await this.settleIfZero(tenantId, invoice.id);
     } catch (err) {
+      const reason = errorMessage(err);
       this.logger.error(
-        `[first-invoice] no se pudo emitir la 1ª factura del contrato ${contractId}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `[first-invoice] no se pudo emitir la 1ª factura del contrato ${contractId}: ${reason}`,
       );
+      // Sin factura el inquilino no puede pagar y la reserva caduca sola: el
+      // equipo tiene que saberlo (p. ej. un NIF que la AEAT no admite).
+      await this.admin.notification
+        .create({
+          data: {
+            tenantId,
+            type: 'invoice.first_invoice_failed',
+            title: 'No se pudo emitir la primera factura',
+            body: `${reason}. Corrígelo y emite la factura${
+              invoice ? '' : ' desde el contrato'
+            }; si no, el inquilino no puede pagar y la reserva caduca.`,
+            link: invoice ? `/invoices/${invoice.id}` : `/contracts/${contractId}`,
+          },
+        })
+        .catch(() => undefined);
     }
   }
 
