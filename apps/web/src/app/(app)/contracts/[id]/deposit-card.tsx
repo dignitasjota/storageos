@@ -26,6 +26,7 @@ import {
   useSetDepositPaymentMethod,
   useSettleDeposit,
 } from '@/lib/customers/hooks';
+import { formatDate, formatEur } from '@/lib/format';
 
 const DEPOSIT_STATUS_LABEL: Record<string, string> = {
   none: 'Sin fianza',
@@ -80,7 +81,7 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
       <CardContent className="space-y-2 text-sm">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Importe retenido</span>
-          <span className="font-semibold tabular-nums">{contract.depositAmount.toFixed(2)} €</span>
+          <span className="font-semibold tabular-nums">{formatEur(contract.depositAmount)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Estado</span>
@@ -150,21 +151,19 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
           <div className="space-y-1 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
             <div className="flex justify-between">
               <span>Devuelto</span>
-              <span className="tabular-nums">{contract.depositReturnedAmount.toFixed(2)} €</span>
+              <span className="tabular-nums">{formatEur(contract.depositReturnedAmount)}</span>
             </div>
             <div className="flex justify-between">
               <span>Retenido</span>
               <span className="tabular-nums">
-                {(contract.depositAmount - contract.depositReturnedAmount).toFixed(2)} €
+                {formatEur(contract.depositAmount - contract.depositReturnedAmount)}
               </span>
             </div>
             {contract.depositRetentionReason && (
               <div>Motivo: {contract.depositRetentionReason}</div>
             )}
             {contract.depositSettledAt && (
-              <div>
-                Liquidada el {new Date(contract.depositSettledAt).toLocaleDateString('es-ES')}
-              </div>
+              <div>Liquidada el {formatDate(contract.depositSettledAt)}</div>
             )}
           </div>
         )}
@@ -223,14 +222,14 @@ function SettleDepositDialog({
         <DialogHeader>
           <DialogTitle>Liquidar fianza</DialogTitle>
           <DialogDescription>
-            Fianza retenida: <strong>{contract.depositAmount.toFixed(2)} €</strong>. Indica cuánto
+            Fianza retenida: <strong>{formatEur(contract.depositAmount)}</strong>. Indica cuánto
             devuelves al inquilino; el resto se retiene (indica el motivo).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           {pending > 0 && (
             <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-              Este contrato tiene <strong>{pending.toFixed(2)} €</strong> de facturas pendientes.
+              Este contrato tiene <strong>{formatEur(pending)}</strong> de facturas pendientes.
               Puedes retener ese importe de la fianza.
             </div>
           )}
@@ -244,9 +243,7 @@ function SettleDepositDialog({
               value={returnedAmount}
               onChange={(e) => setReturnedAmount(Number(e.target.value))}
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Se retienen {retained.toFixed(2)} €
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Se retienen {formatEur(retained)}</p>
           </div>
           {retained > 0 && (
             <div>

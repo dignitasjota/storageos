@@ -36,6 +36,7 @@ import {
   useGenerateRequirementPdf,
   useUploadCaseFile,
 } from '@/lib/collections/hooks';
+import { formatDate } from '@/lib/format';
 
 const FILE_KINDS = [
   { value: 'overlock_photo', label: 'Foto del candado' },
@@ -150,7 +151,7 @@ export default function CollectionsDetailPage() {
           </div>
           {c.finalNoticeDeadline && (
             <div>
-              Plazo del requerimiento: {new Date(c.finalNoticeDeadline).toLocaleDateString('es-ES')}{' '}
+              Plazo del requerimiento: {formatDate(c.finalNoticeDeadline)}{' '}
               {c.deadlineExpired && <Badge variant="destructive">vencido</Badge>}
             </div>
           )}
@@ -383,9 +384,7 @@ export default function CollectionsDetailPage() {
                       {CASE_FILE_KIND_LABELS[f.kind as keyof typeof CASE_FILE_KIND_LABELS] ??
                         f.kind}
                     </div>
-                    <div className="text-muted-foreground">
-                      {new Date(f.createdAt).toLocaleDateString('es-ES')}
-                    </div>
+                    <div className="text-muted-foreground">{formatDate(f.createdAt)}</div>
                   </a>
                 ))}
               </div>

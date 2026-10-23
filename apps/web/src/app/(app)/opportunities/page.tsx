@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { formatDate } from '@/lib/format';
 import {
   useOpportunities,
   useOpportunityDraft,
@@ -35,7 +36,7 @@ import {
 } from '@/lib/opportunities/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
+const day = (iso: string) => formatDate(iso);
 
 /** Teléfono español en formato internacional para wa.me. */
 function waNumber(phone: string | null): string | null {

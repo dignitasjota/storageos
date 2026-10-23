@@ -40,6 +40,7 @@ import {
   useUpdateUnitsLayout,
 } from '@/lib/facilities/hooks';
 import { proportionalPlanSize } from '@/lib/facilities/plan-size';
+import { formatEur, formatNumber } from '@/lib/format';
 
 interface Props {
   facilityId: string;
@@ -623,8 +624,8 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                 <div>
                   <p className="font-mono text-sm font-medium">{sel.code}</p>
                   <p className="text-xs text-muted-foreground">
-                    {fullUnit.unitTypeName} · {fullUnit.areaM2.toFixed(2)} m² ·{' '}
-                    {fullUnit.basePriceMonthly.toFixed(2)} €
+                    {fullUnit.unitTypeName} · {formatNumber(fullUnit.areaM2)} m² ·{' '}
+                    {formatEur(fullUnit.basePriceMonthly)}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

@@ -43,6 +43,7 @@ import {
   useUpdateWinbackSettings,
   useWinbackSettings,
 } from '@/lib/campaigns/hooks';
+import { formatDate } from '@/lib/format';
 
 const STATUS: Record<
   CampaignDto['status'],
@@ -104,7 +105,7 @@ export default function CampaignsPage() {
     {
       accessorKey: 'createdAt',
       header: 'Fecha',
-      cell: ({ row }) => new Date(row.original.createdAt).toLocaleDateString('es-ES'),
+      cell: ({ row }) => formatDate(row.original.createdAt),
     },
     {
       id: 'actions',

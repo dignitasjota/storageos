@@ -35,6 +35,7 @@ import {
   useModel347,
   useVatBook,
 } from '@/lib/fiscal/hooks';
+import { formatDate } from '@/lib/format';
 import { useOwners } from '@/lib/owners/hooks';
 
 const eur = (n: number) =>
@@ -168,7 +169,7 @@ function VatBookTab() {
               {(book.data?.rows ?? []).map((r) => (
                 <TableRow key={r.invoiceNumber}>
                   <TableCell className="text-xs font-mono">{r.invoiceNumber}</TableCell>
-                  <TableCell className="text-xs">{r.issueDate}</TableCell>
+                  <TableCell className="text-xs">{formatDate(r.issueDate)}</TableCell>
                   <TableCell className="text-xs">{r.customerName}</TableCell>
                   <TableCell className="text-xs">{r.customerNif ?? '—'}</TableCell>
                   <TableCell className="text-right text-xs">{eur(r.base)}</TableCell>
@@ -510,7 +511,7 @@ function AccountantExportTab() {
             <TableBody>
               {(d?.invoices ?? []).map((r, i) => (
                 <TableRow key={`${r.invoiceNumber}-${r.taxRate}-${i}`}>
-                  <TableCell className="text-xs">{r.issueDate}</TableCell>
+                  <TableCell className="text-xs">{formatDate(r.issueDate)}</TableCell>
                   <TableCell className="text-xs font-mono">{r.invoiceNumber}</TableCell>
                   <TableCell className="text-xs">{r.customerName}</TableCell>
                   <TableCell className="text-xs">{r.customerNif ?? '—'}</TableCell>

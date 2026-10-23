@@ -19,6 +19,7 @@ import {
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useCreateInteraction, useCustomerInteractions } from '@/lib/customers/hooks';
+import { formatDate } from '@/lib/format';
 
 /** Teléfono en formato internacional para wa.me (9 cifras → España). */
 function waNumber(phone: string | null): string | null {
@@ -126,7 +127,7 @@ export function QuickContact({ customer }: { customer: CustomerDto }) {
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           <StickyNote className="mt-0.5 size-3.5 shrink-0" />
           <span className="line-clamp-2">
-            Último apunte ({new Date(last.occurredAt).toLocaleDateString('es-ES')}
+            Último apunte ({formatDate(last.occurredAt)}
             {last.userName ? `, ${last.userName}` : ''}): {last.content}
           </span>
         </p>

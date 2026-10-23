@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
 import { useClearCustomerEmailBlock, useCustomerEmailStatus } from '@/lib/customers/hooks';
+import { formatDate } from '@/lib/format';
 
 /**
  * Aviso cuando el email del inquilino está en la lista de supresión: rebota de
@@ -51,9 +52,8 @@ export function EmailStatusCard({ customerId }: { customerId: string }) {
         <div className="space-y-1 text-muted-foreground">
           {hard ? (
             <p>
-              {hard.reasonLabel} desde el {new Date(hard.createdAt).toLocaleDateString('es-ES')}: no
-              se le envía ningún correo (facturas, avisos ni accesos). Pídele otro email o
-              compruébalo con él.
+              {hard.reasonLabel} desde el {formatDate(hard.createdAt)}: no se le envía ningún correo
+              (facturas, avisos ni accesos). Pídele otro email o compruébalo con él.
             </p>
           ) : (
             <p>

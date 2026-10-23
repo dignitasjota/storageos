@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { formatDate, formatEur } from '@/lib/format';
 import {
   useCreateOwner,
   useOwnerCertificate,
@@ -101,7 +102,7 @@ export default function OwnersPage() {
                 <p className="text-muted-foreground">
                   {o.facilitiesCount} {o.facilitiesCount === 1 ? 'local' : 'locales'} · Honorarios:{' '}
                   {o.feeType === 'fixed'
-                    ? `${o.feeValue.toFixed(2)} €/mes`
+                    ? `${formatEur(o.feeValue)}/mes`
                     : `${o.feeValue} % de lo cobrado`}
                   {o.ibanLast4 && <> · Cuenta …{o.ibanLast4}</>}
                 </p>
@@ -310,7 +311,7 @@ function OwnerCertificateRow({ ownerId }: { ownerId: string }) {
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
       <p className="text-xs text-muted-foreground">
         {c
-          ? `Certificado propio · ${c.certNif} · caduca ${new Date(c.certValidTo).toLocaleDateString('es-ES')}`
+          ? `Certificado propio · ${c.certNif} · caduca ${formatDate(c.certValidTo)}`
           : 'Veri*Factu: se envía con tu certificado como su representante'}
       </p>
       {canEdit && (

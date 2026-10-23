@@ -64,6 +64,7 @@ import {
   useSendPortalAccessEmail,
 } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { formatDate } from '@/lib/format';
 
 type Row = CustomerOverviewDto;
 
@@ -161,7 +162,7 @@ function writeStorage(key: string, value: unknown) {
 }
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '—');
+const day = (iso: string | null) => (iso ? formatDate(iso) : '—');
 function daysUntil(isoDate: string): number {
   return Math.ceil((new Date(isoDate).getTime() - Date.now()) / 86_400_000);
 }

@@ -24,10 +24,10 @@ import { useHasPermission } from '@/lib/auth/hooks';
 import { useBulkChargeInvoices, useBulkRemindInvoices } from '@/lib/billing/hooks';
 import { useMonthCollections } from '@/lib/collections-ops/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { formatDate } from '@/lib/format';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const day = (iso: string) =>
-  new Date(iso.length === 10 ? `${iso}T12:00:00` : iso).toLocaleDateString('es-ES');
+const day = (iso: string) => formatDate(iso.length === 10 ? `${iso}T12:00:00` : iso);
 
 const METHOD: Record<string, string> = {
   card: 'Tarjeta',

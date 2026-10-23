@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { formatDate } from '@/lib/format';
 import {
   useOwnerStatementPreview,
   useOwnerStatements,
@@ -178,9 +179,7 @@ export function OwnerStatementDialog({ owner, onClose }: { owner: OwnerDto; onCl
                 <span className="flex items-center gap-2">
                   <span className="tabular-nums">{eur(h.net)}</span>
                   {h.sentAt ? (
-                    <Badge variant="secondary">
-                      Enviada {new Date(h.sentAt).toLocaleDateString('es-ES')}
-                    </Badge>
+                    <Badge variant="secondary">Enviada {formatDate(h.sentAt)}</Badge>
                   ) : (
                     <Badge variant="outline">Sin enviar</Badge>
                   )}

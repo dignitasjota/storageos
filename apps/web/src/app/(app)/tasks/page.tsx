@@ -49,6 +49,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
+import { formatDate } from '@/lib/format';
 import {
   useAddTaskComment,
   useCreateIncident,
@@ -202,8 +203,7 @@ export default function TasksPage() {
     {
       accessorKey: 'dueDate',
       header: 'Vence',
-      cell: ({ row }) =>
-        row.original.dueDate ? new Date(row.original.dueDate).toLocaleDateString('es-ES') : '—',
+      cell: ({ row }) => (row.original.dueDate ? formatDate(row.original.dueDate) : '—'),
     },
     {
       accessorKey: 'status',
@@ -571,11 +571,7 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
               </div>
               <div>
                 <div className="text-muted-foreground">Vence</div>
-                <span>
-                  {task.data.dueDate
-                    ? new Date(task.data.dueDate).toLocaleDateString('es-ES')
-                    : '—'}
-                </span>
+                <span>{task.data.dueDate ? formatDate(task.data.dueDate) : '—'}</span>
               </div>
             </div>
             {task.data.description && (

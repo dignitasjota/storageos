@@ -31,6 +31,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useCommunicationChannels } from '@/lib/communications/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
+import { formatDate } from '@/lib/format';
 import {
   useRequestReview,
   useReviews,
@@ -219,9 +220,7 @@ function ReviewRow({ review }: { review: ReviewDto }) {
       >
         {review.comment ?? '—'}
       </td>
-      <td className="px-3 py-2 text-muted-foreground">
-        {new Date(review.createdAt).toLocaleDateString('es-ES')}
-      </td>
+      <td className="px-3 py-2 text-muted-foreground">{formatDate(review.createdAt)}</td>
     </tr>
   );
 }

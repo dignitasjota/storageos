@@ -14,8 +14,9 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { openDepositRegistryReceipt, useUpdateDepositRegistry } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
+import { formatDate } from '@/lib/format';
 
-const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '—');
+const day = (iso: string | null) => (iso ? formatDate(iso) : '—');
 
 /**
  * Vivienda: la fianza se deposita en el organismo de la comunidad autónoma

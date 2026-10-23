@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { DataTable } from '@/components/data-table';
 import { ReservationStatusBadge } from '@/components/reservation-status-badge';
 import { useReservations } from '@/lib/customers/hooks';
+import { formatDate, formatEur } from '@/lib/format';
 
 export function CustomerReservationsTab({ customerId }: { customerId: string }) {
   const reservations = useReservations({ customerId });
@@ -30,17 +31,17 @@ export function CustomerReservationsTab({ customerId }: { customerId: string }) 
     {
       accessorKey: 'validFrom',
       header: 'Desde',
-      cell: ({ row }) => new Date(row.original.validFrom).toLocaleDateString('es-ES'),
+      cell: ({ row }) => formatDate(row.original.validFrom),
     },
     {
       accessorKey: 'validUntil',
       header: 'Hasta',
-      cell: ({ row }) => new Date(row.original.validUntil).toLocaleDateString('es-ES'),
+      cell: ({ row }) => formatDate(row.original.validUntil),
     },
     {
       accessorKey: 'depositAmount',
       header: 'Fianza',
-      cell: ({ row }) => `${row.original.depositAmount.toFixed(2)} €`,
+      cell: ({ row }) => formatEur(row.original.depositAmount),
     },
     {
       accessorKey: 'status',

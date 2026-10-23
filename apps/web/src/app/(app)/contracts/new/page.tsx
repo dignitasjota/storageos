@@ -31,6 +31,7 @@ import { useValidateCoupon } from '@/lib/coupons/hooks';
 import { useCreateContract } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
 import { useFacilities, useUnitTypes, useUnits } from '@/lib/facilities/hooks';
+import { formatDate, formatEur, formatNumber } from '@/lib/format';
 import { useInsurancePlans } from '@/lib/insurance/hooks';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useUnitOffers, useValidatePromotion } from '@/lib/promotions/hooks';
@@ -311,11 +312,11 @@ function StepUnit({ onBack, onPick }: { onBack: () => void; onPick: (u: UnitDto)
               <div>
                 <p className="font-medium">{u.code}</p>
                 <p className="text-xs text-muted-foreground">
-                  {u.facilityName} · {u.floorName} · {u.unitTypeName} · {u.areaM2.toFixed(2)} m²
+                  {u.facilityName} · {u.floorName} · {u.unitTypeName} · {formatNumber(u.areaM2)} m²
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-sm tabular-nums">{u.basePriceMonthly.toFixed(2)} €</span>
+                <span className="text-sm tabular-nums">{formatEur(u.basePriceMonthly)}</span>
                 <StatusBadge status={u.status} />
               </div>
             </li>
@@ -432,7 +433,7 @@ function StepEconomics(props: {
           `${res.freeMonths} ${res.freeMonths === 1 ? 'mes' : 'meses'} gratis: las primeras facturas saldrán a 0 €.`,
         );
       } else {
-        toast.success(`Descuento aplicado: ${res.discountAmount.toFixed(2)} €/mes.`);
+        toast.success(`Descuento aplicado: ${formatEur(res.discountAmount)}/mes.`);
       }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -561,7 +562,7 @@ function StepEconomics(props: {
               <span>
                 Este trastero tiene una oferta: {offer.freeMonths}{' '}
                 {offer.freeMonths === 1 ? 'mes gratis' : 'meses gratis'} (código {offer.code}, hasta
-                el {new Date(offer.validUntil).toLocaleDateString('es-ES')}).
+                el {formatDate(offer.validUntil)}).
               </span>
               <Button
                 type="button"
@@ -660,7 +661,7 @@ function StepEconomics(props: {
                   Cupón {props.coupon.code}:{' '}
                   {props.coupon.freeMonths > 0
                     ? `${props.coupon.freeMonths} ${props.coupon.freeMonths === 1 ? 'mes gratis' : 'meses gratis'}`
-                    : `−${props.coupon.discountAmount.toFixed(2)} €`}{' '}
+                    : `−${formatEur(props.coupon.discountAmount)}`}{' '}
                   en el primer pago.
                 </p>
               ) : (
@@ -713,11 +714,11 @@ function StepEconomics(props: {
               return (
                 <>
                   Prepago {months === 12 ? 'anual' : 'semestral'}: paga{' '}
-                  <strong className="tabular-nums">{net.toFixed(2)} €</strong> por adelantado
+                  <strong className="tabular-nums">{formatEur(net)}</strong> por adelantado
                   {saving > 0 && (
                     <span className="text-green-600">
                       {' '}
-                      (ahorra {saving.toFixed(2)} € vs {gross.toFixed(2)} € mensual)
+                      (ahorra {formatEur(saving)} vs {formatEur(gross)} mensual)
                     </span>
                   )}
                   <span className="text-muted-foreground"> · el seguro se prorratea aparte</span>
@@ -732,14 +733,13 @@ function StepEconomics(props: {
                 <>
                   Primer pago ({props.firstPaymentMonths}{' '}
                   {props.firstPaymentMonths === 1 ? 'mes' : 'meses'}):{' '}
-                  <strong className="tabular-nums">{(gross - discount).toFixed(2)} €</strong> sin
-                  IVA
+                  <strong className="tabular-nums">{formatEur(gross - discount)}</strong> sin IVA
                   {discount > 0 && (
-                    <span className="text-green-600"> (−{discount.toFixed(2)} € de cupón)</span>
+                    <span className="text-green-600"> (−{formatEur(discount)} de cupón)</span>
                   )}
                   <span className="text-muted-foreground">
                     {' '}
-                    · después {monthly.toFixed(2)} €/mes · el seguro aparte
+                    · después {formatEur(monthly)}/mes · el seguro aparte
                   </span>
                 </>
               );
@@ -748,7 +748,7 @@ function StepEconomics(props: {
             <>
               Cuota efectiva mensual:{' '}
               <strong className="tabular-nums">
-                {Math.max(0, props.priceMonthly - props.discountAmount).toFixed(2)} €
+                {formatEur(Math.max(0, props.priceMonthly - props.discountAmount))}
               </strong>
               <span className="text-muted-foreground">
                 {' '}
@@ -806,7 +806,7 @@ function StepReview(props: {
           </div>
           <div>
             <dt className="text-muted-foreground">Inicio</dt>
-            <dd>{props.startDate}</dd>
+            <dd>{formatDate(props.startDate)}</dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Fin</dt>
@@ -814,16 +814,16 @@ function StepReview(props: {
           </div>
           <div>
             <dt className="text-muted-foreground">Cuota mensual</dt>
-            <dd className="tabular-nums">{props.priceMonthly.toFixed(2)} €</dd>
+            <dd className="tabular-nums">{formatEur(props.priceMonthly)}</dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Descuento</dt>
-            <dd className="tabular-nums">{props.discountAmount.toFixed(2)} €</dd>
+            <dd className="tabular-nums">{formatEur(props.discountAmount)}</dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Fianza</dt>
             <dd className="tabular-nums">
-              {props.depositAmount.toFixed(2)} €
+              {formatEur(props.depositAmount)}
               {props.depositAmount > 0 && props.depositPaymentMethod === 'cash' && (
                 <span className="text-muted-foreground"> · en efectivo en el local</span>
               )}
@@ -852,14 +852,14 @@ function StepReview(props: {
                 {props.coupon.code} ·{' '}
                 {props.coupon.freeMonths > 0
                   ? `${props.coupon.freeMonths} ${props.coupon.freeMonths === 1 ? 'mes gratis' : 'meses gratis'}`
-                  : `−${props.coupon.discountAmount.toFixed(2)} € en el primer pago`}
+                  : `−${formatEur(props.coupon.discountAmount)} en el primer pago`}
               </dd>
             </div>
           )}
           <div>
             <dt className="text-muted-foreground">Cuota efectiva</dt>
             <dd className="text-lg font-semibold tabular-nums">
-              {Math.max(0, props.priceMonthly - props.discountAmount).toFixed(2)} €
+              {formatEur(Math.max(0, props.priceMonthly - props.discountAmount))}
             </dd>
           </div>
         </dl>
@@ -895,7 +895,7 @@ function InsuranceSelect({ value, onChange }: { value: string; onChange: (v: str
           <SelectItem value="none">Sin seguro</SelectItem>
           {(plans.data ?? []).map((p) => (
             <SelectItem key={p.id} value={p.id}>
-              {p.name} · {p.monthlyPrice.toFixed(2)} €/mes
+              {p.name} · {formatEur(p.monthlyPrice)}/mes
             </SelectItem>
           ))}
         </SelectContent>

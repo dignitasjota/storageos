@@ -43,6 +43,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useContracts } from '@/lib/customers/hooks';
 import { useUnit, useUnitHistory, useUnitTypes, useUpdateUnit } from '@/lib/facilities/hooks';
+import { formatEur, formatNumber } from '@/lib/format';
 
 const STATUS_LABELS: Record<string, string> = {
   available: 'Disponible',
@@ -150,7 +151,7 @@ export default function UnitDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Área</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold">{u.areaM2.toFixed(2)} m²</p>
+            <p className="text-xl font-semibold">{formatNumber(u.areaM2)} m²</p>
             <p className="text-xs text-muted-foreground">
               {u.widthM} × {u.depthM} m
             </p>
@@ -161,7 +162,7 @@ export default function UnitDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Volumen</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold">{u.volumeM3.toFixed(2)} m³</p>
+            <p className="text-xl font-semibold">{formatNumber(u.volumeM3)} m³</p>
             <p className="text-xs text-muted-foreground">Alto {u.heightM} m</p>
           </CardContent>
         </Card>
@@ -172,7 +173,7 @@ export default function UnitDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold">{u.basePriceMonthly.toFixed(2)} €</p>
+            <p className="text-xl font-semibold">{formatEur(u.basePriceMonthly)}</p>
           </CardContent>
         </Card>
         <Card>

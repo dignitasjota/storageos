@@ -38,6 +38,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { formatDate } from '@/lib/format';
 import { useCreateWaitlistEntry, useUpdateWaitlistEntry, useWaitlist } from '@/lib/waitlist/hooks';
 
 const STATUS: Record<
@@ -163,7 +164,7 @@ export default function WaitlistPage() {
                       <Badge variant={STATUS[e.status].variant}>{STATUS[e.status].label}</Badge>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {new Date(e.createdAt).toLocaleDateString('es-ES')}
+                      {formatDate(e.createdAt)}
                     </TableCell>
                     <TableCell className="space-x-2 text-right">
                       {(e.status === 'waiting' || e.status === 'notified') && (

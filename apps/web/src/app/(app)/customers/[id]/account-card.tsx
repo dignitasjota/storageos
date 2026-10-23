@@ -10,9 +10,10 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useBulkRemindInvoices } from '@/lib/billing/hooks';
 import { useCustomerAccount } from '@/lib/customers/hooks';
+import { formatDate } from '@/lib/format';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
+const day = (iso: string) => formatDate(iso);
 
 const DEPOSIT: Record<string, string> = {
   none: 'sin fianza',
