@@ -49,6 +49,7 @@ export function CustomerContractsTab({ customerId }: { customerId: string }) {
 
   return (
     <DataTable
+      rowHref={(c) => `/contracts/${c.id}`}
       columns={columns}
       data={contracts.data ?? []}
       isLoading={contracts.isLoading}

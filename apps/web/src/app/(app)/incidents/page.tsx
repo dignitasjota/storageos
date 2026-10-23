@@ -263,6 +263,7 @@ export default function IncidentsPage() {
       </div>
 
       <DataTable
+        onRowClick={(i) => setDetailId(i.id)}
         columns={columns}
         data={incidents.rows}
         isLoading={incidents.isLoading}

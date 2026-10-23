@@ -509,28 +509,25 @@ export default function CustomersPage() {
       id: 'actions',
       header: '',
       enableSorting: false,
-      cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Acciones">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link href={`/customers/${row.original.id}`}>Abrir</Link>
-            </DropdownMenuItem>
-            {canDelete && (
+      meta: { mobileHidden: !canDelete },
+      cell: ({ row }) =>
+        canDelete ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Acciones">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
               <DropdownMenuItem
                 className="text-destructive"
                 onClick={() => handleDelete(row.original.id)}
               >
                 Borrar
               </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null,
     },
   ];
   const columns = allColumns.filter((c) => !c.key || show(c.key));
@@ -632,6 +629,7 @@ export default function CustomersPage() {
       </div>
 
       <DataTable
+        rowHref={(c) => `/customers/${c.id}`}
         columns={columns}
         data={rows}
         isLoading={overview.isLoading}

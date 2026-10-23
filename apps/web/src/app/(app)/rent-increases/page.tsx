@@ -158,6 +158,7 @@ export default function RentIncreasesPage() {
       {canManage && <PolicyCard />}
 
       <DataTable
+        onRowClick={(r) => setDetailId(r.id)}
         columns={columns}
         data={list.data ?? []}
         isLoading={list.isLoading}

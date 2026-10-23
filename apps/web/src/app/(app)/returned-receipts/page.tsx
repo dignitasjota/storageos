@@ -243,6 +243,7 @@ export default function ReturnedReceiptsPage() {
       )}
 
       <DataTable
+        rowHref={(r) => (r.invoiceId ? `/invoices/${r.invoiceId}` : null)}
         columns={columns}
         data={data?.items ?? []}
         isLoading={query.isLoading}

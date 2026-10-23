@@ -208,15 +208,16 @@ export default function UnitsPage() {
       {
         id: 'actions',
         header: '',
-        cell: ({ row }) => (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Acciones">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {canWrite && (
+        meta: { mobileHidden: !canWrite },
+        cell: ({ row }) =>
+          canWrite ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Acciones">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
                 <DropdownMenuItem
                   onClick={() => {
                     setTarget(row.original);
@@ -226,13 +227,9 @@ export default function UnitsPage() {
                 >
                   Cambiar estado
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuItem asChild>
-                <Link href={`/units/${row.original.id}`}>Ver historial</Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ),
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null,
       },
     ],
     [canWrite],
@@ -367,6 +364,7 @@ export default function UnitsPage() {
           </div>
 
           <DataTable
+            rowHref={(u) => `/units/${u.id}`}
             columns={columns}
             data={units.data?.items ?? []}
             isLoading={units.isLoading}

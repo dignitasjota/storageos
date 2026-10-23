@@ -13,7 +13,8 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronRight, ChevronsUpDown } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 // Metadatos opcionales por columna para afinar la vista móvil (tarjetas):
@@ -58,6 +59,36 @@ interface DataTableProps<TData, TValue> {
   serverSearch?: { value: string; onChange: (value: string) => void; placeholder: string };
   /** Lista paginada en el servidor: muestra todo lo cargado y «Cargar más». */
   loadMore?: { hasMore: boolean; loading: boolean; onLoadMore: () => void };
+  /**
+   * Ficha de cada fila: pulsar en cualquier punto de la fila (o de la tarjeta
+   * en el móvil) la abre. Ctrl/⌘ o el botón central la abren en otra pestaña.
+   */
+  rowHref?: (row: TData) => string | null | undefined;
+  /** Alternativa a `rowHref` cuando el detalle es un diálogo. */
+  onRowClick?: (row: TData) => void;
+}
+
+/**
+ * Elementos que tienen su propia acción dentro de una fila: el clic en ellos no
+ * abre la ficha (menús, casillas, enlaces a otras fichas, campos…).
+ */
+const INTERACTIVE =
+  'a, button, input, select, textarea, label, [role="checkbox"], [role="menuitem"], [role="combobox"], [data-row-click-ignore]';
+
+function isInteractiveTarget(target: EventTarget | null, row: HTMLElement): boolean {
+  if (!(target instanceof Element)) return false;
+  // Menús y diálogos abiertos desde la fila se pintan fuera de ella (portal),
+  // pero sus clics llegan a la fila por el árbol de React: no son de la fila.
+  if (!row.contains(target)) return true;
+  const hit = target.closest(INTERACTIVE);
+  // Un elemento interactivo dentro de la fila (no la propia fila).
+  return !!hit && hit !== row && row.contains(hit);
+}
+
+/** El usuario está seleccionando texto de la fila: no navegar. */
+function isSelectingText(): boolean {
+  const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+  return !!sel && sel.type === 'Range' && sel.toString().trim().length > 0;
 }
 
 /**
@@ -76,7 +107,52 @@ export function DataTable<TData, TValue>({
   isLoading,
   serverSearch,
   loadMore,
+  rowHref,
+  onRowClick,
 }: DataTableProps<TData, TValue>) {
+  const router = useRouter();
+  const clickable = !!rowHref || !!onRowClick;
+
+  /** Abre la fila. `newTab`: Ctrl/⌘ o botón central (solo con enlace). */
+  function openRow(row: TData, newTab: boolean) {
+    const href = rowHref?.(row);
+    if (href) {
+      if (newTab) window.open(href, '_blank', 'noopener');
+      else router.push(href);
+      return;
+    }
+    onRowClick?.(row);
+  }
+
+  function rowProps(row: TData) {
+    if (!clickable) return {};
+    return {
+      tabIndex: 0,
+      role: rowHref ? 'link' : 'button',
+      className:
+        'cursor-pointer focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+      onClick: (e: React.MouseEvent<HTMLElement>) => {
+        if (isInteractiveTarget(e.target, e.currentTarget) || isSelectingText()) return;
+        openRow(row, e.metaKey || e.ctrlKey);
+      },
+      onAuxClick: (e: React.MouseEvent<HTMLElement>) => {
+        if (e.button !== 1 || isInteractiveTarget(e.target, e.currentTarget)) return;
+        e.preventDefault();
+        openRow(row, true);
+      },
+      onMouseEnter: () => {
+        const href = rowHref?.(row);
+        if (href) router.prefetch(href);
+      },
+      onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || (!rowHref && e.key === ' ')) {
+          e.preventDefault();
+          openRow(row, e.metaKey || e.ctrlKey);
+        }
+      },
+    };
+  }
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
@@ -173,7 +249,11 @@ export function DataTable<TData, TValue>({
               </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && 'selected'}
+                  {...rowProps(row.original)}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -197,7 +277,21 @@ export function DataTable<TData, TValue>({
           <p className="py-8 text-center text-sm text-muted-foreground">{emptyText}</p>
         ) : (
           table.getRowModel().rows.map((row) => (
-            <div key={row.id} className="rounded-md border p-3">
+            <div
+              key={row.id}
+              {...rowProps(row.original)}
+              className={`rounded-md border p-3 ${
+                clickable
+                  ? 'relative cursor-pointer pr-8 transition-colors active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                  : ''
+              }`}
+            >
+              {clickable && (
+                <ChevronRight
+                  className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+              )}
               <dl className="space-y-1.5 text-sm">
                 {row
                   .getVisibleCells()

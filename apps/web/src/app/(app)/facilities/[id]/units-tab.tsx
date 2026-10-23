@@ -161,9 +161,6 @@ export function FacilityUnitsTab({ facilityId }: Props) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link href={`/units/${row.original.id}`}>Abrir</Link>
-            </DropdownMenuItem>
             <DropdownMenuItem
               className="text-destructive"
               onClick={() => handleDelete(row.original.id)}
@@ -180,6 +177,7 @@ export function FacilityUnitsTab({ facilityId }: Props) {
 
   return (
     <DataTable
+      rowHref={(u) => `/units/${u.id}`}
       columns={columns}
       data={units.data?.items ?? []}
       isLoading={units.isLoading}
