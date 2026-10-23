@@ -91,7 +91,7 @@ function VatBookTab() {
       ['Nº factura', 'Fecha', 'Tipo', 'Cliente', 'NIF', 'Base', 'IVA', 'Total'],
       ...book.data.rows.map((r) => [
         r.invoiceNumber,
-        r.issueDate ?? '',
+        r.issueDate ? formatDate(r.issueDate) : '',
         r.invoiceType,
         r.customerName,
         r.customerNif ?? '',

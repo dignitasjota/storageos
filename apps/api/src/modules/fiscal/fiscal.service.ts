@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { MODEL_347_THRESHOLD } from '@storageos/shared';
 
+import { rectifiedStatusLabel } from '../billing/rectified-status';
 import { PrismaService } from '../database/prisma.service';
 
 import type {
@@ -45,7 +46,6 @@ const STATUS_LABELS: Record<string, string> = {
   overdue: 'Vencida',
   refunded: 'Reembolsada',
   partially_refunded: 'Reembolsada (parcial)',
-  rectified: 'Anulada (con rectificativa)',
 };
 
 function parseRange(from: string, to: string): { fromD: Date; toD: Date } {
@@ -441,6 +441,11 @@ export class FiscalService {
                 },
               },
             },
+            // Sus rectificativas emitidas: dicen si está anulada o sustituida.
+            rectifiedBy: {
+              where: { deletedAt: null, status: { notIn: ['draft', 'cancelled'] } },
+              select: { invoiceNumber: true, correctionMethod: true },
+            },
           },
           orderBy: [{ issueDate: 'asc' }, { invoiceNumber: 'asc' }],
         }),
@@ -468,7 +473,10 @@ export class FiscalService {
           vat: v.vat,
           lineTotal: round2(v.base + v.vat),
           invoiceTotal,
-          status: STATUS_LABELS[inv.status] ?? inv.status,
+          status:
+            inv.status === 'rectified'
+              ? rectifiedStatusLabel(inv.rectifiedBy)
+              : (STATUS_LABELS[inv.status] ?? inv.status),
         });
       }
     }
