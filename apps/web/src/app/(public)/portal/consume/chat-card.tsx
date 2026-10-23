@@ -8,8 +8,17 @@ import { toast } from 'sonner';
 import { intlLocaleForPortal } from '../i18n/messages';
 import { usePortalLocale } from '../i18n/provider';
 
-import type { CustomerMessageDto, PortalSessionDto } from '@storageos/shared';
+import type {
+  CustomerMessageDto,
+  MessageAttachmentUploadDto,
+  PortalSessionDto,
+} from '@storageos/shared';
 
+import {
+  AttachmentPicker,
+  AttachmentView,
+  uploadMessageAttachment,
+} from '@/components/messages/attachments';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -21,6 +30,7 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
   const [messages, setMessages] = useState<CustomerMessageDto[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -48,17 +58,29 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
 
   async function send() {
     const body = text.trim();
-    if (!body) return;
+    if (!body && !file) return;
     setSending(true);
     try {
+      const headers = { Authorization: `Bearer ${session.accessToken}` };
+      const attachment = file
+        ? await uploadMessageAttachment(file, (mimeType) =>
+            apiFetch<MessageAttachmentUploadDto>('/portal/me/messages/upload-url', {
+              method: 'POST',
+              json: { mimeType },
+              headers,
+              requiresAuth: false,
+            }),
+          )
+        : undefined;
       const created = await apiFetch<CustomerMessageDto>('/portal/me/messages', {
         method: 'POST',
-        json: { body },
-        headers: { Authorization: `Bearer ${session.accessToken}` },
+        json: { body, ...(attachment ? { attachment } : {}) },
+        headers,
         requiresAuth: false,
       });
       setMessages((m) => [...m, created]);
       setText('');
+      setFile(null);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : t('sendError'));
     } finally {
@@ -94,7 +116,8 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
                   {m.senderType === 'staff' && m.senderName && (
                     <p className="text-xs font-medium opacity-70">{m.senderName}</p>
                   )}
-                  <p className="whitespace-pre-wrap">{m.body}</p>
+                  {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
+                  {m.attachment && <AttachmentView attachment={m.attachment} />}
                   <p className="mt-0.5 text-[10px] opacity-60">
                     {new Date(m.createdAt).toLocaleString(intlLocaleForPortal(locale), {
                       day: '2-digit',
@@ -122,7 +145,18 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
             placeholder={t('inputPlaceholder')}
             maxLength={5000}
           />
-          <Button onClick={send} disabled={sending || !text.trim()} aria-label={t('send')}>
+          <AttachmentPicker
+            file={file}
+            onChange={setFile}
+            disabled={sending}
+            label={t('attach')}
+            texts={{ wrongType: t('attachType'), tooBig: t('attachSize') }}
+          />
+          <Button
+            onClick={send}
+            disabled={sending || (!text.trim() && !file)}
+            aria-label={t('send')}
+          >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>

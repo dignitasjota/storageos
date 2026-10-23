@@ -706,6 +706,7 @@ recordManualPayment` (provider `'sepa'`, mismo candado/dedup/extensión de
   migración.**
 - `customer_message_reads` (RLS, PK `customer_id`+`user_id`, `last_read_at`): hasta cuándo ha leído cada usuario del equipo la conversación con un inquilino (bandeja «Mensajes» y badges por usuario). Sin fila, cuenta desde el alta del usuario. `customer_messages.read_at` sigue siendo el leído del equipo (avisos sin repetir) y el del inquilino en el portal.
 - `tenant_platform_messages` (RLS): mensajes de TrasterOS al tenant (`kind` direct/announcement/retention, asunto, cuerpo, `ticket_id` del correo directo, `super_admin_id`). Los lee el tenant en Soporte.
+- Adjuntos de mensajes: `support_ticket_messages` y `customer_messages` ganan `attachment_key`, `attachment_mime`, `attachment_name` (imagen o PDF en `uploads`).
 
 ## 15. Pendiente / post-MVP
 

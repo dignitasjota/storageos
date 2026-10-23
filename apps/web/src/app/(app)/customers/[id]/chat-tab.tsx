@@ -7,13 +7,22 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import {
+  AttachmentPicker,
+  AttachmentView,
+  uploadMessageAttachment,
+} from '@/components/messages/attachments';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useSuggestReply } from '@/lib/ai/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
-import { useCustomerMessages, useSendCustomerMessage } from '@/lib/customers/hooks';
+import {
+  presignCustomerMessageAttachment,
+  useCustomerMessages,
+  useSendCustomerMessage,
+} from '@/lib/customers/hooks';
 import { useCustomerWhatsappConversations } from '@/lib/whatsapp/hooks';
 
 export function CustomerChatTab({ customerId }: { customerId: string }) {
@@ -23,6 +32,8 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
   const hasAi = useHasFeature('ai_assistant');
   const qc = useQueryClient();
   const [text, setText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const items = messages.data ?? [];
@@ -57,12 +68,21 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
 
   async function submit() {
     const body = text.trim();
-    if (!body) return;
+    if (!body && !file) return;
+    setUploading(true);
     try {
-      await send.mutateAsync(body);
+      const attachment = file
+        ? await uploadMessageAttachment(file, (mime) =>
+            presignCustomerMessageAttachment(customerId, mime),
+          )
+        : undefined;
+      await send.mutateAsync({ body, ...(attachment ? { attachment } : {}) });
       setText('');
+      setFile(null);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -126,7 +146,8 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
                         Remitente no verificado: confírmalo antes de actuar
                       </p>
                     )}
-                    <p className="whitespace-pre-wrap">{m.body}</p>
+                    {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
+                    {m.attachment && <AttachmentView attachment={m.attachment} />}
                     <p className="mt-0.5 text-[10px] opacity-60">
                       {new Date(m.createdAt).toLocaleString('es-ES', {
                         day: '2-digit',
@@ -155,6 +176,7 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
             placeholder="Escribe una respuesta…"
             maxLength={5000}
           />
+          <AttachmentPicker file={file} onChange={setFile} disabled={uploading} />
           {hasAi && (
             <Button
               variant="outline"
@@ -170,8 +192,12 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
               )}
             </Button>
           )}
-          <Button onClick={submit} disabled={send.isPending || !text.trim()} aria-label="Enviar">
-            {send.isPending ? (
+          <Button
+            onClick={submit}
+            disabled={send.isPending || uploading || (!text.trim() && !file)}
+            aria-label="Enviar"
+          >
+            {send.isPending || uploading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />

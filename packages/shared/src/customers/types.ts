@@ -1,3 +1,4 @@
+import type { MessageAttachmentDto } from '../messages';
 import type {
   ContractBillingCycleValue,
   ContractDepositStatusValue,
@@ -276,6 +277,8 @@ export interface CustomerMessageDto {
   /** Nombre del staff que escribió (null si lo escribió el inquilino). */
   senderName: string | null;
   body: string;
+  /** Imagen o PDF adjunto (URL firmada), o null. */
+  attachment: MessageAttachmentDto | null;
   readAt: string | null;
   createdAt: string;
 }

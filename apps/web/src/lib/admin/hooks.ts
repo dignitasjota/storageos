@@ -4,6 +4,7 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  MessageAttachmentUploadDto,
   AdminSearchResultDto,
   AdminTenantOverviewDto,
   AdminBillingCalendarDto,
@@ -904,6 +905,14 @@ export function useAdminSupportTicket(id: string | undefined) {
     queryFn: () => adminApiFetch<SupportTicketDto>(`/admin/support/tickets/${id}`),
     enabled: Boolean(id),
   });
+}
+
+/** URL firmada para adjuntar una imagen o PDF a la respuesta de un ticket. */
+export function presignAdminTicketAttachment(ticketId: string, mimeType: string) {
+  return adminApiFetch<MessageAttachmentUploadDto>(
+    `/admin/support/tickets/${ticketId}/attachments/upload-url`,
+    { method: 'POST', json: { mimeType } },
+  );
 }
 
 export function useAddAdminTicketMessage() {

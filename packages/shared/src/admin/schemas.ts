@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { TenantFeatures } from '../features';
+import { MessageAttachmentSchema } from '../messages';
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
@@ -214,13 +215,20 @@ export const CreateSupportTicketSchema = z.object({
   body: z.string().trim().min(1).max(10_000),
   priority: SupportTicketPriorityEnum.default('normal'),
   category: optionalText(80),
+  attachment: MessageAttachmentSchema.optional(),
 });
 export type CreateSupportTicketInput = z.infer<typeof CreateSupportTicketSchema>;
 
-export const AddTicketMessageSchema = z.object({
-  body: z.string().trim().min(1).max(10_000),
-  isInternal: z.boolean().default(false),
-});
+export const AddTicketMessageSchema = z
+  .object({
+    body: z.string().trim().max(10_000).default(''),
+    isInternal: z.boolean().default(false),
+    attachment: MessageAttachmentSchema.optional(),
+  })
+  .refine((v) => v.body.length > 0 || v.attachment, {
+    message: 'Escribe un mensaje o adjunta un archivo',
+    path: ['body'],
+  });
 export type AddTicketMessageInput = z.infer<typeof AddTicketMessageSchema>;
 
 export const TransitionTicketSchema = z.object({

@@ -1,8 +1,6 @@
 'use client';
 
-import { zodResolver } from '@hookform/resolvers/zod';
 import {
-  AddTicketMessageSchema,
   type AddTicketMessageInput,
   type SupportTicketDto,
   type SupportTicketMessageDto,
@@ -13,10 +11,16 @@ import {
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { ResponseTime } from '@/components/admin/support-ticket-list';
+import {
+  AttachmentPicker,
+  AttachmentView,
+  uploadMessageAttachment,
+} from '@/components/messages/attachments';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +43,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useAdminAuthStore } from '@/lib/admin/auth-store';
 import {
+  presignAdminTicketAttachment,
   useAddAdminTicketMessage,
   useAdminSupportTicket,
   useSupportCannedResponses,
@@ -219,7 +224,8 @@ function MessageBubble({ message }: { message: SupportTicketMessageDto }) {
           )}
         </span>
       </div>
-      <p className="mt-1 whitespace-pre-wrap">{message.body}</p>
+      {message.body && <p className="mt-1 whitespace-pre-wrap">{message.body}</p>}
+      {message.attachment && <AttachmentView attachment={message.attachment} />}
     </div>
   );
 }
@@ -235,15 +241,30 @@ function ReplyForm({
 }) {
   const add = useAddAdminTicketMessage();
   const canned = useSupportCannedResponses();
+  const [file, setFile] = useState<File | null>(null);
+  // Sin resolver: la respuesta puede ir solo con el adjunto.
   const form = useForm<AddTicketMessageInput>({
-    resolver: zodResolver(AddTicketMessageSchema),
     defaultValues: { body: '', isInternal: false },
   });
 
   async function onSubmit(values: AddTicketMessageInput) {
+    const body = values.body.trim();
+    if (!body && !file) {
+      form.setError('body', { message: 'Escribe un mensaje o adjunta un archivo' });
+      return;
+    }
     try {
-      await add.mutateAsync({ id: ticketId, input: values });
+      const attachment = file
+        ? await uploadMessageAttachment(file, (mime) =>
+            presignAdminTicketAttachment(ticketId, mime),
+          )
+        : undefined;
+      await add.mutateAsync({
+        id: ticketId,
+        input: { ...values, body, ...(attachment ? { attachment } : {}) },
+      });
       form.reset({ body: '', isInternal: false });
+      setFile(null);
       toast.success('Mensaje añadido.');
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.body.message);
@@ -329,9 +350,16 @@ function ReplyForm({
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                Enviar
-              </Button>
+              <div className="flex items-center gap-2">
+                <AttachmentPicker
+                  file={file}
+                  onChange={setFile}
+                  disabled={form.formState.isSubmitting}
+                />
+                <Button type="submit" disabled={form.formState.isSubmitting}>
+                  Enviar
+                </Button>
+              </div>
             </div>
           </form>
         </Form>

@@ -6,6 +6,7 @@ import type {
   AddTicketMessageInput,
   CreateSupportTicketInput,
   SupportTicketDto,
+  MessageAttachmentUploadDto,
   TenantPlatformMessageDto,
 } from '@storageos/shared';
 
@@ -71,5 +72,13 @@ export function usePlatformMessages() {
   return useQuery({
     queryKey: ['support', 'platform-messages'] as const,
     queryFn: () => apiFetch<TenantPlatformMessageDto[]>('/support/platform-messages'),
+  });
+}
+
+/** URL firmada para subir un adjunto a un ticket. */
+export function presignTicketAttachment(mimeType: string) {
+  return apiFetch<MessageAttachmentUploadDto>('/support/tickets/attachments/upload-url', {
+    method: 'POST',
+    json: { mimeType },
   });
 }

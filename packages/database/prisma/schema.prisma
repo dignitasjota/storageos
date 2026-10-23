@@ -3789,6 +3789,9 @@ model SupportTicketMessage {
   authorAdminId String?  @map("author_admin_id") @db.Uuid
   body          String
   isInternal    Boolean  @default(false) @map("is_internal")
+  attachmentKey  String? @map("attachment_key")
+  attachmentMime String? @map("attachment_mime")
+  attachmentName String? @map("attachment_name")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
@@ -4343,6 +4346,9 @@ model CustomerMessage {
   /// Usuario del staff que escribió (null si lo escribió el inquilino).
   senderUserId String?   @map("sender_user_id") @db.Uuid
   body         String
+  attachmentKey  String? @map("attachment_key")
+  attachmentMime String? @map("attachment_mime")
+  attachmentName String? @map("attachment_name")
   /// Cuándo lo leyó el destinatario (null = no leído).
   readAt       DateTime? @map("read_at") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

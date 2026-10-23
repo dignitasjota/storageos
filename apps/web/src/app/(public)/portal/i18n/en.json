@@ -448,7 +448,10 @@
         "empty": "No messages yet. Start the conversation.",
         "inputPlaceholder": "Type a message…",
         "send": "Send",
-        "sendError": "Couldn't send the message."
+        "sendError": "Couldn't send the message.",
+        "attach": "Attach an image or PDF",
+        "attachType": "Attach an image (JPG, PNG or WebP) or a PDF.",
+        "attachSize": "Attachments can't be larger than 10 MB."
       },
       "documents": {
         "title": "My documents",

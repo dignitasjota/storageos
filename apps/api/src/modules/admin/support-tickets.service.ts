@@ -6,10 +6,21 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  attachmentLabel,
+  type MessageAttachmentInput,
+  type MessageAttachmentUploadDto,
+} from '@storageos/shared';
 
+import {
+  assertAttachment,
+  attachmentDto,
+  requestAttachmentUpload,
+} from '../../common/message-attachments';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
+import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PlatformService } from '../platform/platform.service';
 
@@ -78,6 +89,9 @@ type MessageRow = {
   isInternal: boolean;
   authorUserId: string | null;
   authorAdminId: string | null;
+  attachmentKey: string | null;
+  attachmentMime: string | null;
+  attachmentName: string | null;
   createdAt: Date;
   authorUser: { fullName: string } | null;
   authorAdmin: { fullName: string } | null;
@@ -112,6 +126,7 @@ export class SupportTicketsService {
     private readonly platform: PlatformService,
     private readonly notifications: NotificationsService,
     private readonly email: EmailService,
+    private readonly files: FilesService,
     config: ConfigService<Env, true>,
   ) {
     this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true });
@@ -146,6 +161,7 @@ export class SupportTicketsService {
   async createForTenant(
     args: TenantContext & { input: CreateSupportTicketInput },
   ): Promise<SupportTicketDto> {
+    const attachment = await this.attachmentFields(args.tenantId, args.input.attachment);
     const created = await this.admin.supportTicket.create({
       data: {
         tenantId: args.tenantId,
@@ -159,6 +175,7 @@ export class SupportTicketsService {
             authorUserId: args.userId,
             body: args.input.body,
             isInternal: false,
+            ...attachment,
           },
         },
       },
@@ -223,12 +240,14 @@ export class SupportTicketsService {
         message: 'Solo los administradores pueden crear notas internas',
       });
     }
+    const attachment = await this.attachmentFields(args.tenantId, args.input.attachment);
     const message = await this.admin.supportTicketMessage.create({
       data: {
         ticketId: args.ticketId,
         authorUserId: args.userId,
         body: args.input.body,
         isInternal: false,
+        ...attachment,
       },
       include: {
         authorUser: { select: { fullName: true } },
@@ -266,10 +285,10 @@ export class SupportTicketsService {
         ticket.status === 'resolved'
           ? `${ticket.tenant.name} reabre un ticket resuelto`
           : `Respuesta de ${ticket.tenant.name}`,
-      body: `${ticket.subject}: ${args.input.body.slice(0, 140)}`,
+      body: `${ticket.subject}: ${this.preview(args.input)}`,
       link: `/admin/support/${args.ticketId}`,
     });
-    return this.toMessageDto(message);
+    return await this.toMessageDto(message);
   }
 
   // ============================ admin facade ===============================
@@ -336,12 +355,14 @@ export class SupportTicketsService {
     },
   ): Promise<SupportTicketMessageDto> {
     const ticket = await this.findForAdmin(args.ticketId);
+    const attachment = await this.attachmentFields(ticket.tenantId, args.input.attachment);
     const message = await this.admin.supportTicketMessage.create({
       data: {
         ticketId: args.ticketId,
         authorAdminId: args.superAdminId,
         body: args.input.body,
         isInternal: args.input.isInternal,
+        ...attachment,
       },
       include: {
         authorUser: { select: { fullName: true } },
@@ -383,10 +404,10 @@ export class SupportTicketsService {
     if (!args.input.isInternal) {
       await this.noticeTenant(ticket, {
         title: 'Soporte de TrasterOS te ha respondido',
-        body: args.input.body,
+        body: this.preview(args.input),
       });
     }
-    return this.toMessageDto(message);
+    return await this.toMessageDto(message);
   }
 
   async transition(
@@ -498,6 +519,37 @@ export class SupportTicketsService {
     return this.toDto(updated);
   }
 
+  /** URL firmada para subir un adjunto a los tickets del tenant. */
+  async requestAttachmentUpload(
+    tenantId: string,
+    mimeType: string,
+  ): Promise<MessageAttachmentUploadDto> {
+    return requestAttachmentUpload(this.files, `${tenantId}/support/`, mimeType);
+  }
+
+  /** Igual, desde el admin para un ticket concreto. */
+  async requestAttachmentUploadAsAdmin(
+    ticketId: string,
+    mimeType: string,
+  ): Promise<MessageAttachmentUploadDto> {
+    const ticket = await this.findForAdmin(ticketId);
+    return requestAttachmentUpload(this.files, `${ticket.tenantId}/support/`, mimeType);
+  }
+
+  private async attachmentFields(tenantId: string, att: MessageAttachmentInput | undefined) {
+    return att ? assertAttachment(this.files, `${tenantId}/support/`, att) : {};
+  }
+
+  /** Texto del aviso: el mensaje o, si solo lleva adjunto, su nombre. */
+  private preview(input: {
+    body: string;
+    attachment?: MessageAttachmentInput | undefined;
+  }): string {
+    return (
+      input.body || (input.attachment ? attachmentLabel(input.attachment.filename) : '')
+    ).slice(0, 140);
+  }
+
   // ============================== helpers ==================================
 
   /**
@@ -606,7 +658,7 @@ export class SupportTicketsService {
       },
       orderBy: { createdAt: 'asc' },
     });
-    return rows.map((r) => this.toMessageDto(r));
+    return Promise.all(rows.map((r) => this.toMessageDto(r)));
   }
 
   private toDto(row: TicketWithRelations): SupportTicketDto {
@@ -631,7 +683,7 @@ export class SupportTicketsService {
     };
   }
 
-  private toMessageDto(row: MessageRow): SupportTicketMessageDto {
+  private async toMessageDto(row: MessageRow): Promise<SupportTicketMessageDto> {
     return {
       id: row.id,
       ticketId: row.ticketId,
@@ -641,6 +693,7 @@ export class SupportTicketsService {
       authorUserName: row.authorUser?.fullName ?? null,
       authorAdminId: row.authorAdminId,
       authorAdminName: row.authorAdmin?.fullName ?? null,
+      attachment: await attachmentDto(this.files, row),
       createdAt: row.createdAt.toISOString(),
     };
   }

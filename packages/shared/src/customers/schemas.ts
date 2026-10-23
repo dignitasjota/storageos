@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { FirstPaymentMonthsSchema } from '../coupons';
+import { MessageAttachmentSchema } from '../messages';
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
@@ -423,9 +424,15 @@ export const CreateCustomerInteractionSchema = z.object({
 export type CreateCustomerInteractionInput = z.infer<typeof CreateCustomerInteractionSchema>;
 
 /** Enviar un mensaje en el chat con el inquilino (staff o portal). */
-export const SendCustomerMessageSchema = z.object({
-  body: z.string().trim().min(1).max(5000),
-});
+export const SendCustomerMessageSchema = z
+  .object({
+    body: z.string().trim().max(5000).default(''),
+    attachment: MessageAttachmentSchema.optional(),
+  })
+  .refine((v) => v.body.length > 0 || v.attachment, {
+    message: 'Escribe un mensaje o adjunta un archivo',
+    path: ['body'],
+  });
 export type SendCustomerMessageInput = z.infer<typeof SendCustomerMessageSchema>;
 
 // --- Seguimientos / recordatorios del staff sobre un inquilino (CRM) ---
