@@ -30,6 +30,7 @@ declare module '@tanstack/react-table' {
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -247,34 +248,44 @@ export function DataTable<TData, TValue>({
         </div>
       )}
       {/* Escritorio (md+): tabla. */}
-      <div className="hidden rounded-md border md:block">
+      <div className="hidden rounded-md border md:block" aria-busy={isLoading || undefined}>
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((group) => (
               <TableRow key={group.id}>
                 {group.headers.map((header) => {
                   const canSort = header.column.getCanSort();
+                  const sorted = header.column.getIsSorted();
+                  const content = flexRender(header.column.columnDef.header, header.getContext());
                   return (
                     <TableHead
                       key={header.id}
-                      className={canSort ? 'cursor-pointer select-none' : ''}
+                      aria-sort={
+                        sorted === 'asc'
+                          ? 'ascending'
+                          : sorted === 'desc'
+                            ? 'descending'
+                            : undefined
+                      }
                     >
-                      {header.isPlaceholder ? null : (
-                        <div
-                          className="flex items-center gap-1"
-                          onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                      {header.isPlaceholder ? null : canSort ? (
+                        // Botón: se ordena también con el teclado (Tab + Intro).
+                        <button
+                          type="button"
+                          className="-mx-1 flex items-center gap-1 rounded px-1 py-0.5 select-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={header.column.getToggleSortingHandler()}
                         >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                          {canSort ? (
-                            header.column.getIsSorted() === 'asc' ? (
-                              <ArrowUp className="h-3 w-3" />
-                            ) : header.column.getIsSorted() === 'desc' ? (
-                              <ArrowDown className="h-3 w-3" />
-                            ) : (
-                              <ChevronsUpDown className="h-3 w-3 opacity-40" />
-                            )
-                          ) : null}
-                        </div>
+                          {content}
+                          {sorted === 'asc' ? (
+                            <ArrowUp className="h-3 w-3" />
+                          ) : sorted === 'desc' ? (
+                            <ArrowDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronsUpDown className="h-3 w-3 opacity-40" />
+                          )}
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-1">{content}</div>
                       )}
                     </TableHead>
                   );
@@ -284,11 +295,16 @@ export function DataTable<TData, TValue>({
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-center text-muted-foreground">
-                  Cargando...
-                </TableCell>
-              </TableRow>
+              // Esqueleto con la forma de la tabla: la página no salta al cargar.
+              Array.from({ length: 5 }, (_, i) => (
+                <TableRow key={`skeleton-${i}`} className="hover:bg-transparent" aria-hidden>
+                  {table.getVisibleLeafColumns().map((col) => (
+                    <TableCell key={col.id}>
+                      <Skeleton className="h-4 w-full max-w-[8rem]" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
             ) : table.getRowModel().rows.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={columns.length}>{emptyContent()}</TableCell>
@@ -318,7 +334,13 @@ export function DataTable<TData, TValue>({
           Comparte el mismo `table`, así respeta búsqueda, orden y paginación. */}
       <div className="space-y-2 md:hidden">
         {isLoading ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">Cargando...</p>
+          Array.from({ length: 3 }, (_, i) => (
+            <div key={`skeleton-${i}`} className="space-y-2 rounded-md border p-3" aria-hidden>
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ))
         ) : table.getRowModel().rows.length === 0 ? (
           <div className="rounded-md border">{emptyContent()}</div>
         ) : (
