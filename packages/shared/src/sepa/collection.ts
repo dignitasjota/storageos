@@ -157,3 +157,38 @@ export function isSepaMandateExpired(
 ): boolean {
   return sepaMandateExpiresOn(lastCollectedAt, signedAt) < today;
 }
+
+/**
+ * Identificador del acreedor SEPA (en España, `ES` + 2 dígitos de control +
+ * código de negocio de 3 caracteres —`ZZZ` si no hay— + NIF). Los dígitos de
+ * control son ISO 7064 mod 97-10 sobre la parte nacional seguida del país y
+ * `00`; el código de negocio no cuenta. El banco rechaza el fichero entero si
+ * no cuadran.
+ */
+export function normalizeCreditorId(raw: string): string {
+  return raw.replace(/[\s-]+/g, '').toUpperCase();
+}
+
+export function isValidCreditorId(raw: string): boolean {
+  const id = normalizeCreditorId(raw);
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{3}[A-Z0-9]{1,28}$/.test(id)) return false;
+  const numeric = `${id.slice(7)}${id.slice(0, 2)}00`.replace(/[A-Z]/g, (c) =>
+    String(c.charCodeAt(0) - 55),
+  );
+  let remainder = 0;
+  for (const ch of numeric) remainder = (remainder * 10 + Number(ch)) % 97;
+  return 98 - remainder === Number(id.slice(2, 4));
+}
+
+/**
+ * Días de preaviso que exige una remesa: el mayor de los pactados en sus
+ * mandatos (o el del acreedor si un mandato no guarda el suyo). Cada deudor
+ * tiene derecho al plazo que firmó, aunque luego cambie el ajuste.
+ */
+export function requiredPrenoticeDays(
+  settingsDays: number,
+  mandates: { prenoticeDays: number | null }[],
+): number {
+  if (mandates.length === 0) return settingsDays;
+  return Math.max(...mandates.map((m) => m.prenoticeDays ?? settingsDays));
+}

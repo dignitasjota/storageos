@@ -7,6 +7,7 @@ import {
 } from '@storageos/shared';
 import Papa from 'papaparse';
 
+import { todayInTimezone } from '../../common/format';
 import { PrismaService } from '../database/prisma.service';
 import { SepaService } from '../sepa/sepa.service';
 
@@ -79,6 +80,8 @@ interface MandatesCtx {
   /** Clientes con un mandato activo (importar otro lo sustituye). */
   withActiveMandate: Set<string>;
   existingReferences: Set<string>;
+  /** Hoy en hora de España (YYYY-MM-DD). */
+  today: string;
 }
 
 /**
@@ -153,6 +156,7 @@ export class SepaMandatesImportService {
         mandates.filter((m) => m.status === 'active').map((m) => m.customerId),
       ),
       existingReferences: new Set(mandates.map((m) => m.reference.toUpperCase())),
+      today: todayInTimezone('Europe/Madrid').toISOString().slice(0, 10),
     };
   }
 
@@ -195,6 +199,9 @@ export class SepaMandatesImportService {
         signedAt: normalizeDate(get('signedAt')),
       });
       if (!parsed.success) errors.push(...flattenZodErrors(parsed.error));
+      else if (parsed.data.signedAt && parsed.data.signedAt > ctx.today) {
+        errors.push('signedAt: la fecha de firma no puede ser posterior a hoy');
+      }
 
       if (errors.length || !customerId || !parsed.success) {
         return { status: 'error', errors };

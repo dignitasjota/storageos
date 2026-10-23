@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+  creditorIdSchema,
   isValidIban,
   normalizeIban,
   SignSepaMandateSchema,
@@ -38,7 +39,7 @@ const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
 export const UpdatePlatformSepaSettingsSchema = z.object({
   creditorName: z.string().trim().min(2).max(140),
   /** Identificador del acreedor SEPA de la plataforma (p.ej. ES12ZZZ+NIF). */
-  creditorId: z.string().trim().min(8).max(35),
+  creditorId: creditorIdSchema,
   /** Opcional al actualizar: si se omite, se conserva el IBAN ya guardado. */
   creditorIban: ibanSchema.optional(),
   creditorBic: bicSchema,
@@ -159,9 +160,13 @@ export interface PlatformSepaRemittanceItemDto {
   tenantName: string;
   amount: number;
   periodCovered: string;
-  itemStatus: 'pending' | 'collected' | 'bounced';
+  itemStatus: 'pending' | 'collected' | 'bounced' | 'cancelled';
   bouncedAt: string | null;
   bounceReason: string | null;
+  /** Preaviso del cargo: sent | failed | no_email; null = aún sin enviar. */
+  prenoticeStatus: 'sent' | 'failed' | 'no_email' | null;
+  prenoticeSentAt: string | null;
+  prenoticeRecipients: string | null;
 }
 
 export interface PlatformSepaRemittanceDto {

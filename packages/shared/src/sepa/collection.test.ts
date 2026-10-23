@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   collectionDateIssue,
+  isValidCreditorId,
   isSepaBusinessDay,
   nextSepaBusinessDay,
   sepaId,
@@ -50,5 +51,22 @@ describe('caducidad del mandato', () => {
     expect(sepaMandateExpiresOn('2024-02-29', '2020-01-01')).toBe('2027-02-28');
     expect(isSepaMandateExpired(null, '2023-10-20', '2026-10-23')).toBe(true);
     expect(isSepaMandateExpired('2024-01-10', '2023-10-20', '2026-10-23')).toBe(false);
+  });
+});
+
+describe('isValidCreditorId', () => {
+  it('acepta identificadores con los dígitos de control correctos', () => {
+    expect(isValidCreditorId('ES23ZZZ47690558N')).toBe(true);
+    expect(isValidCreditorId('ES97ZZZB12345678')).toBe(true);
+    // El código de negocio no cuenta para el control.
+    expect(isValidCreditorId('ES97001B12345678')).toBe(true);
+    expect(isValidCreditorId('es 23 zzz 47690558n')).toBe(true);
+  });
+
+  it('rechaza dígitos de control incorrectos o formato no válido', () => {
+    expect(isValidCreditorId('ES12ZZZB12345678')).toBe(false);
+    expect(isValidCreditorId('ES23ZZZ47690558M')).toBe(false);
+    expect(isValidCreditorId('ESXXZZZB12345678')).toBe(false);
+    expect(isValidCreditorId('ES97ZZZ')).toBe(false);
   });
 });

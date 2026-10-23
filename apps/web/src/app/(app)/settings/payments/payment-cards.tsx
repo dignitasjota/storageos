@@ -316,7 +316,7 @@ export function SepaSettingsCard() {
             <Input
               value={creditorId}
               onChange={(e) => setCreditorId(e.target.value)}
-              placeholder="ES12ZZZB12345678"
+              placeholder="ES97ZZZB12345678"
             />
           </div>
           <div className="space-y-1">

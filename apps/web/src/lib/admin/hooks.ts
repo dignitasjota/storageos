@@ -695,6 +695,33 @@ export function useConfirmPlatformSepaRemittance() {
   });
 }
 
+/** Cancela una remesa sin confirmar: sus adeudos vuelven a poder domiciliarse. */
+export function useCancelPlatformSepaRemittance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<PlatformSepaRemittanceDto>(`/admin/platform-sepa/remittances/${id}/cancel`, {
+        method: 'POST',
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: platformSepaRemittancesKey }),
+  });
+}
+
+/** Reenvía los preavisos que no salieron de una remesa sin confirmar. */
+export function useRetryPlatformSepaPrenotices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<{ sent: number; failed: number; noEmail: number }>(
+        `/admin/platform-sepa/remittances/${id}/prenotices/retry`,
+        { method: 'POST' },
+      ),
+    onSuccess: (_data, id) => {
+      void qc.invalidateQueries({ queryKey: [...platformSepaRemittancesKey, id] });
+    },
+  });
+}
+
 /** El banco devolvió un adeudo ya cobrado (R-transaction). */
 export function useBouncePlatformSepaRemittanceItem() {
   const qc = useQueryClient();

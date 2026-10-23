@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { isSepaMandateExpired, nextSepaBusinessDay } from '@storageos/shared';
+import {
+  isSepaMandateExpired,
+  isValidCreditorId,
+  nextSepaBusinessDay,
+  requiredPrenoticeDays,
+} from '@storageos/shared';
 
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { formatDateLong, formatEur, todayInTimezone } from '../../../common/format';
@@ -19,6 +24,7 @@ import type {
   CreatePlatformSepaRemittanceInput,
   PlatformSepaEligibleTenantDto,
   PlatformSepaRemittanceDto,
+  PlatformSepaRemittanceItemDto,
   PlatformSepaRemittancePreviewDto,
 } from '@storageos/shared';
 
@@ -48,6 +54,7 @@ type MandateRow = {
   bic: string | null;
   signedAt: Date;
   sequenceType: string;
+  prenoticeDays: number | null;
 };
 
 interface EligibleCandidate {
@@ -96,10 +103,15 @@ export class PlatformSepaRemittanceService {
     private readonly email: EmailService,
   ) {}
 
-  /** Preaviso pactado en el mandato y primera fecha de cobro posible (hora de España). */
-  private async prenotice(): Promise<{ days: number; earliest: string }> {
+  /**
+   * Preaviso pactado y primera fecha de cobro posible (hora de España). Con
+   * mandatos, el mayor de los que firmaron (cada tenant tiene derecho al suyo).
+   */
+  private async prenotice(
+    mandates?: { prenoticeDays: number | null }[],
+  ): Promise<{ days: number; earliest: string }> {
     const s = await this.admin.platformSepaSettings.findFirst({ select: { prenoticeDays: true } });
-    const days = s?.prenoticeDays ?? 5;
+    const days = requiredPrenoticeDays(s?.prenoticeDays ?? 5, mandates ?? []);
     const today = todayInTimezone('Europe/Madrid');
     // La primera fecha que respeta el preaviso y es día hábil SEPA.
     const earliest = nextSepaBusinessDay(
@@ -225,7 +237,7 @@ export class PlatformSepaRemittanceService {
       sequenceType: c.mandate.sequenceType as 'FRST' | 'RCUR',
     }));
     const total = eligible.reduce((s, e) => s + toCents(e.amount), 0) / 100;
-    const { days, earliest } = await this.prenotice();
+    const { days, earliest } = await this.prenotice(candidates.map((c) => c.mandate));
     return {
       eligible,
       total,
@@ -246,13 +258,12 @@ export class PlatformSepaRemittanceService {
         message: 'Configura primero el acreedor SEPA de la plataforma',
       });
     }
-    // El mandato pacta el preaviso: no se puede cargar antes (contrato del banco, 4.1).
-    const { days, earliest } = await this.prenotice();
-    if (args.input.collectionDate < earliest) {
+    // Con los dígitos de control mal, el banco rechaza el fichero entero.
+    if (!isValidCreditorId(settings.creditorId)) {
       throw new BadRequestException({
-        code: 'collection_date_too_soon',
-        message: `La fecha de cobro tiene que respetar el preaviso de ${days} días pactado en el mandato: como pronto el ${earliest}.`,
-        details: { earliestCollectionDate: earliest, prenoticeDays: days },
+        code: 'invalid_creditor_id',
+        message:
+          'El identificador del acreedor no es válido (revisa los dígitos de control en SEPA de la plataforma).',
       });
     }
     assertCollectionDate(args.input.collectionDate);
@@ -264,6 +275,15 @@ export class PlatformSepaRemittanceService {
       throw new BadRequestException({
         code: 'no_eligible_tenants',
         message: 'No hay tenants domiciliables con mandato activo',
+      });
+    }
+    // El mandato pacta el preaviso: no se puede cargar antes (contrato del banco, 4.1).
+    const { days, earliest } = await this.prenotice(selected.map((c) => c.mandate));
+    if (args.input.collectionDate < earliest) {
+      throw new BadRequestException({
+        code: 'collection_date_too_soon',
+        message: `La fecha de cobro tiene que respetar el preaviso de ${days} días pactado en el mandato: como pronto el ${earliest}.`,
+        details: { earliestCollectionDate: earliest, prenoticeDays: days },
       });
     }
 
@@ -343,15 +363,14 @@ export class PlatformSepaRemittanceService {
     for (const { c, itemId } of committed) {
       await this.sendPrenotice({
         itemId,
-        candidate: c,
+        tenantId: c.tenantId,
+        amount: c.amount,
+        ibanLast4: c.mandate.ibanLast4,
+        mandateReference: c.mandate.reference,
         collectionDate: args.input.collectionDate,
         creditorName: settings.creditorName,
         creditorId: settings.creditorId,
-      }).catch((err) =>
-        this.logger.warn(
-          `[platform-sepa] preaviso a ${c.tenantId} falló: ${err instanceof Error ? err.message : err}`,
-        ),
-      );
+      });
     }
     return this.toDto(updated, settings.updatedAt, updated.itemCount);
   }
@@ -370,37 +389,106 @@ export class PlatformSepaRemittanceService {
     return [...new Set(owners.map((o) => o.email.toLowerCase()))];
   }
 
+  /**
+   * Envía el preaviso de un adeudo y deja constancia de lo que pasó (enviado,
+   * sin destinatario o fallido): sin él, el tenant puede devolver el cargo.
+   */
   private async sendPrenotice(args: {
     itemId: string;
-    candidate: EligibleCandidate;
+    tenantId: string;
+    amount: number;
+    ibanLast4: string;
+    mandateReference: string;
     collectionDate: string;
     creditorName: string;
     creditorId: string;
-  }): Promise<void> {
-    const { candidate: c } = args;
-    const to = await this.prenoticeRecipients(c.tenantId);
-    if (to.length === 0) return;
-    const amount = formatEur(c.amount);
-    const date = formatDateLong(new Date(`${args.collectionDate}T12:00:00Z`));
-    const lines = [
-      `Te avisamos de que el ${date} cargaremos ${amount} en tu cuenta terminada en ${c.mandate.ibanLast4} por tu suscripción a TrasterOS.`,
-      `Acreedor: ${args.creditorName} (${args.creditorId}). Referencia del mandato: ${c.mandate.reference}.`,
-      'Si algo no es correcto, responde a este correo antes de esa fecha.',
-    ];
-    const subject = `Preaviso de cargo: ${amount} el ${date}`;
-    for (const email of to) {
-      await this.email.sendRendered({
-        to: email,
-        kind: 'sepa_prenotice',
-        subject,
-        html: lines.map((l) => `<p>${l}</p>`).join(''),
-        text: lines.join('\n\n'),
+  }): Promise<'sent' | 'no_email' | 'failed'> {
+    const record = (status: 'sent' | 'no_email' | 'failed', to: string[] = []) =>
+      this.admin.platformSepaRemittanceItem.update({
+        where: { id: args.itemId },
+        data: {
+          prenoticeStatus: status,
+          ...(status === 'sent'
+            ? { prenoticeSentAt: new Date(), prenoticeRecipients: to.join(', ') }
+            : {}),
+        },
+      });
+    try {
+      const to = await this.prenoticeRecipients(args.tenantId);
+      if (to.length === 0) {
+        await record('no_email');
+        return 'no_email';
+      }
+      const amount = formatEur(args.amount);
+      const date = formatDateLong(new Date(`${args.collectionDate}T12:00:00Z`));
+      const lines = [
+        `Te avisamos de que el ${date} cargaremos ${amount} en tu cuenta terminada en ${args.ibanLast4} por tu suscripción a TrasterOS.`,
+        `Acreedor: ${args.creditorName} (${args.creditorId}). Referencia del mandato: ${args.mandateReference}.`,
+        'Si algo no es correcto, responde a este correo antes de esa fecha.',
+      ];
+      const subject = `Preaviso de cargo: ${amount} el ${date}`;
+      let sent = 0;
+      for (const email of to) {
+        const res = await this.email.sendRendered({
+          to: email,
+          kind: 'sepa_prenotice',
+          subject,
+          html: lines.map((l) => `<p>${l}</p>`).join(''),
+          text: lines.join('\n\n'),
+        });
+        if (!res.suppressed) sent++;
+      }
+      const status = sent > 0 ? 'sent' : 'failed';
+      await record(status, to);
+      return status;
+    } catch (err) {
+      this.logger.warn(
+        `[platform-sepa] preaviso a ${args.tenantId} falló: ${err instanceof Error ? err.message : err}`,
+      );
+      await record('failed').catch(() => undefined);
+      return 'failed';
+    }
+  }
+
+  /**
+   * Vuelve a enviar los preavisos que no salieron (sin destinatario o con
+   * error) de una remesa aún sin confirmar. Si la fecha de cobro ya no respeta
+   * el preaviso, hay que cancelar la remesa y generar otra.
+   */
+  async retryPrenotices(id: string): Promise<{ sent: number; failed: number; noEmail: number }> {
+    const remittance = await this.findOrThrow(id);
+    if (remittance.status !== 'generated') {
+      throw new BadRequestException({
+        code: 'remittance_not_generated',
+        message: 'Solo se pueden reenviar los preavisos de una remesa sin confirmar',
       });
     }
-    await this.admin.platformSepaRemittanceItem.update({
-      where: { id: args.itemId },
-      data: { prenoticeSentAt: new Date(), prenoticeRecipients: to.join(', ') },
+    const settings = await this.admin.platformSepaSettings.findFirst();
+    const items = await this.admin.platformSepaRemittanceItem.findMany({
+      where: {
+        remittanceId: id,
+        itemStatus: 'pending',
+        OR: [{ prenoticeStatus: null }, { prenoticeStatus: { not: 'sent' } }],
+      },
+      include: { mandate: { select: { ibanLast4: true, reference: true } } },
     });
+    const out = { sent: 0, failed: 0, noEmail: 0 };
+    for (const item of items) {
+      const status = await this.sendPrenotice({
+        itemId: item.id,
+        tenantId: item.tenantId,
+        amount: item.amount / 100,
+        ibanLast4: item.mandate.ibanLast4,
+        mandateReference: item.mandate.reference,
+        collectionDate: remittance.collectionDate.toISOString().slice(0, 10),
+        creditorName: settings?.creditorName ?? '',
+        creditorId: settings?.creditorId ?? '',
+      });
+      if (status === 'sent') out.sent++;
+      else if (status === 'no_email') out.noEmail++;
+      else out.failed++;
+    }
+    return out;
   }
 
   async listRemittances(): Promise<PlatformSepaRemittanceDto[]> {
@@ -435,9 +523,12 @@ export class PlatformSepaRemittanceService {
         tenantName: i.tenant.name,
         amount: i.amount / 100,
         periodCovered: i.periodCovered.toISOString().slice(0, 10),
-        itemStatus: i.itemStatus as 'pending' | 'collected' | 'bounced',
+        itemStatus: i.itemStatus as PlatformSepaRemittanceItemDto['itemStatus'],
         bouncedAt: i.bouncedAt?.toISOString() ?? null,
         bounceReason: i.bounceReason,
+        prenoticeStatus: i.prenoticeStatus as 'sent' | 'failed' | 'no_email' | null,
+        prenoticeSentAt: i.prenoticeSentAt?.toISOString() ?? null,
+        prenoticeRecipients: i.prenoticeRecipients,
       })),
     };
   }
@@ -462,6 +553,7 @@ export class PlatformSepaRemittanceService {
     const items = await this.admin.platformSepaRemittanceItem.findMany({
       where: { remittanceId: id, itemStatus: 'pending' },
     });
+    const collectedMandates = new Set<string>();
     for (const item of items) {
       try {
         // Reanudación: el pago de este item ya se registró (la confirmación
@@ -489,14 +581,16 @@ export class PlatformSepaRemittanceService {
           where: { id: item.id, itemStatus: 'pending' },
           data: { itemStatus: 'collected', paymentId: payment.id },
         });
+        collectedMandates.add(item.mandateId);
       } catch (err) {
         this.logger.warn(
           `[platform-sepa] confirmar item ${item.id} (tenant ${item.tenantId}) falló: ${err instanceof Error ? err.message : err}`,
         );
       }
     }
-    // El primer cobro con éxito de un mandato pasa de FRST a RCUR.
-    const mandateIds = [...new Set(items.map((i) => i.mandateId))];
+    // El primer cobro con éxito de un mandato pasa de FRST a RCUR (solo los
+    // cobrados: un adeudo que no se pudo registrar no cuenta como usado).
+    const mandateIds = [...collectedMandates];
     await this.admin.platformSepaMandate.updateMany({
       where: { id: { in: mandateIds }, sequenceType: 'FRST', status: 'active' },
       data: { sequenceType: 'RCUR' },
@@ -508,6 +602,32 @@ export class PlatformSepaRemittanceService {
     });
     const updated = await this.findOrThrow(id);
     return this.toDto(updated, undefined, await this.pendingCount(id));
+  }
+
+  /**
+   * Cancela una remesa sin confirmar (no se envió al banco, el banco la rechazó
+   * entera o algún preaviso no llegó a tiempo): sus adeudos se pueden volver a
+   * domiciliar en otra remesa con otra fecha.
+   */
+  async cancelRemittance(id: string): Promise<PlatformSepaRemittanceDto> {
+    await this.findOrThrow(id);
+    await this.admin.$transaction(async (tx) => {
+      const { count } = await tx.platformSepaRemittance.updateMany({
+        where: { id, status: 'generated' },
+        data: { status: 'cancelled' },
+      });
+      if (count === 0) {
+        throw new BadRequestException({
+          code: 'remittance_not_cancellable',
+          message: 'Solo se puede cancelar una remesa sin confirmar',
+        });
+      }
+      await tx.platformSepaRemittanceItem.updateMany({
+        where: { remittanceId: id, itemStatus: 'pending' },
+        data: { itemStatus: 'cancelled' },
+      });
+    });
+    return this.toDto(await this.findOrThrow(id), undefined, 0);
   }
 
   /** Reserva la confirmación (o la reanuda si se cortó hace más de unos minutos). */

@@ -103,11 +103,11 @@ describe('renderCustomerEmail — preaviso SEPA', () => {
       ibanLast4: '4321',
       mandateReference: 'MND-ABC',
       creditorName: 'Trasteros García SL',
-      creditorId: 'ES12ZZZB12345678',
+      creditorId: 'ES97ZZZB12345678',
     });
     expect(r.subject).toMatch(/60,50\s€ el 05\/11\/2026/);
     expect(r.text).toContain('terminada en 4321');
-    expect(r.text).toContain('ES12ZZZB12345678');
+    expect(r.text).toContain('ES97ZZZB12345678');
     expect(r.text).toContain('MND-ABC');
   });
 

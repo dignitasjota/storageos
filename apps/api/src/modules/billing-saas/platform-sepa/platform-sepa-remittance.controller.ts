@@ -97,6 +97,40 @@ export class PlatformSepaRemittanceController {
     return this.remittances.getXml(id);
   }
 
+  /** Cancela una remesa sin confirmar: sus adeudos vuelven a poder domiciliarse. */
+  @RequireSuperadmin()
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancel(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<PlatformSepaRemittanceDto> {
+    const dto = await this.remittances.cancelRemittance(id);
+    const meta = extractMeta(req);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.platform_sepa.remittance_cancelled',
+      targetType: 'platform_sepa_remittance',
+      targetId: id,
+      targetTenantId: null,
+      changes: { itemCount: dto.itemCount },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return dto;
+  }
+
+  /** Reenvía los preavisos que no salieron (remesa aún sin confirmar). */
+  @RequireSuperadmin()
+  @Post(':id/prenotices/retry')
+  @HttpCode(HttpStatus.OK)
+  retryPrenotices(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ sent: number; failed: number; noEmail: number }> {
+    return this.remittances.retryPrenotices(id);
+  }
+
   @RequireSuperadmin()
   @Post(':id/confirm')
   @HttpCode(HttpStatus.OK)

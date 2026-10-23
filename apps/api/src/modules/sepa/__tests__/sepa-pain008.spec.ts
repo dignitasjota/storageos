@@ -6,7 +6,7 @@ describe('buildPain008 (AEB 19-14)', () => {
     creationDateTime: new Date('2026-10-23T10:00:00Z'),
     creditor: {
       name: 'Peña & Hijos, S.L.',
-      creditorId: 'ES12000B12345674',
+      creditorId: 'ES11000B12345674',
       iban: 'ES9121000418450200051332',
     },
     collectionDate: '2026-11-02',
@@ -26,7 +26,7 @@ describe('buildPain008 (AEB 19-14)', () => {
 
   it('identifica al presentador con el identificador del acreedor', () => {
     expect(xml).toContain(
-      '<InitgPty><Nm>Pena + Hijos, S.L.</Nm><Id><OrgId><Othr><Id>ES12000B12345674</Id></Othr></OrgId></Id></InitgPty>',
+      '<InitgPty><Nm>Pena + Hijos, S.L.</Nm><Id><OrgId><Othr><Id>ES11000B12345674</Id></Othr></OrgId></Id></InitgPty>',
     );
   });
 

@@ -6,7 +6,7 @@ const base = {
   reference: 'MND-ABC123',
   creditor: {
     name: 'Trasteros SL',
-    creditorId: 'ES12ZZZB12345678',
+    creditorId: 'ES97ZZZB12345678',
     address: 'Calle Mayor 1',
     postalCode: '46001',
     city: 'Valencia',

@@ -38,7 +38,7 @@ describe('Mandato SEPA firmado por el inquilino (e2e)', () => {
     await ensureDefaultSeries(app, owner.accessToken);
     const settings = {
       creditorName: 'Trasteros SL',
-      creditorId: 'ES12ZZZB12345678',
+      creditorId: 'ES97ZZZB12345678',
       creditorIban: CREDITOR_IBAN,
       enabled: true,
     };
@@ -137,6 +137,9 @@ describe('Mandato SEPA firmado por el inquilino (e2e)', () => {
     expect(row.documentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(row.documentText).toContain('Calle Sol 5, 46002 Valencia (ES)');
     expect(row.documentText).not.toContain(DEBTOR_IBAN);
+    // Queda el preaviso que aceptó y a quién se envió el enlace.
+    expect(row.prenoticeDays).toBe(14);
+    expect(row.signingLinkSentTo).toContain('@');
 
     const after = await http().post('/sepa/remittances/preview').set(auth).expect(200);
     expect(after.body.eligible.map((e: { invoiceId: string }) => e.invoiceId)).toContain(invoiceId);

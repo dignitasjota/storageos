@@ -2281,6 +2281,10 @@ model SepaMandate {
   signedIp              String?   @map("signed_ip")
   signedUserAgent       String?   @map("signed_user_agent")
   signedAtTs            DateTime? @map("signed_at_ts") @db.Timestamptz(6)
+  /// Preaviso pactado en este mandato (días); null = el del ajuste del acreedor.
+  prenoticeDays         Int?      @map("prenotice_days")
+  /// Email al que se envió el enlace de firma.
+  signingLinkSentTo     String?   @map("signing_link_sent_to")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5289,6 +5293,8 @@ model PlatformSepaMandate {
   signedIp        String?   @map("signed_ip")
   signedUserAgent String?   @map("signed_user_agent")
   signedAtTs      DateTime? @map("signed_at_ts") @db.Timestamptz(6)
+  /// Preaviso pactado en este mandato (días); null = el del ajuste de la plataforma.
+  prenoticeDays   Int?      @map("prenotice_days")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5341,12 +5347,14 @@ model PlatformSepaRemittanceItem {
   /// Preaviso del cargo enviado al tenant (constancia).
   prenoticeSentAt     DateTime? @map("prenotice_sent_at") @db.Timestamptz(6)
   prenoticeRecipients String?   @map("prenotice_recipients")
+  /// sent | failed | no_email (null = aún sin enviar).
+  prenoticeStatus     String?   @map("prenotice_status")
   /// Periodo de suscripción que este cargo cubre (= currentPeriodEnd del
   /// tenant al generar la remesa). Único junto a tenantId entre los adeudos
   /// pendientes o cobrados (índice parcial `platform_sepa_remittance_items_live_period`,
   /// solo en SQL): un adeudo devuelto se puede volver a domiciliar.
   periodCovered DateTime  @map("period_covered") @db.Date
-  /// pending | collected | bounced — estado de ESTE item; confirmar la
+  /// pending | collected | bounced | cancelled (remesa cancelada) — estado de ESTE item; confirmar la
   /// remesa pasa los no-bounced a collected. bounced lo pone un admin a
   /// mano cuando el banco devuelve el adeudo (Fase 3).
   itemStatus    String    @default("pending") @map("item_status")

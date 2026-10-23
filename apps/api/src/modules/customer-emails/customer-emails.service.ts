@@ -365,7 +365,7 @@ export class CustomerEmailsService {
           );
           outcome = { status: 'failed' };
         }
-        await this.recordPrenotice(p.tenantId, item.invoiceId, outcome);
+        await this.recordPrenotice(p.tenantId, p.remittanceId, item.invoiceId, outcome);
       }
     });
   }
@@ -376,11 +376,14 @@ export class CustomerEmailsService {
    */
   private async recordPrenotice(
     tenantId: string,
+    remittanceId: string,
     invoiceId: string,
     outcome: SendOutcome,
   ): Promise<void> {
     await this.admin.sepaRemittanceItem.updateMany({
-      where: { tenantId, invoiceId },
+      // Solo el adeudo de ESTA remesa: la constancia de una remesa anterior de
+      // la misma factura (devuelta o rechazada) no se pisa.
+      where: { tenantId, remittanceId, invoiceId },
       data:
         outcome.status === 'sent'
           ? {

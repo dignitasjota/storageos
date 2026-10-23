@@ -2127,6 +2127,16 @@ Contrato de adeudos del banco (cláusulas 4.1 y 4.3): no se puede cobrar sin la 
 - `SepaMandateDto`/`PlatformSepaMandateDto`: `status` puede ser `expired`; `lastCollectedAt` (último adeudo presentado) y `expiresOn` (36 meses después, o desde la firma si nunca se usó). Al preparar la remesa, un mandato caducado pasa a `expired` y sus facturas salen en `withoutMandate` con `expiredMandate: true`.
 - `POST /sepa/remittances`: con una fecha de cobro anterior a hoy + `prenoticeDays` → 400 `collection_date_too_soon` (antes solo avisaba).
 
+### Adeudos SEPA: revisión del mandato (2026-10-23)
+
+- **Identificador del acreedor** (`PUT /sepa/settings`, `PUT /admin/platform-sepa/settings`): se comprueban sus dígitos de control (ISO 7064 mod 97-10 sobre el NIF + `ES00`; el código de negocio no cuenta) → 400 si no cuadran. Shared `isValidCreditorId`/`normalizeCreditorId`/`creditorIdSchema`. Crear una remesa con un identificador guardado incorrecto → 400 `invalid_creditor_id`.
+- **El identificador no se puede cambiar con mandatos firmados** (`signed`/`external` activos) → 409 `creditor_id_locked` (`details.signedMandates`): va impreso en los mandatos y el banco exigiría presentar cada adeudo como modificación. Sí se puede si el anterior era incorrecto.
+- **Preaviso por mandato**: cada mandato guarda el plazo pactado al darse de alta o firmarse (`prenoticeDays`); la remesa exige el mayor de sus mandatos (shared `requiredPrenoticeDays`), aunque luego se baje el ajuste. La vista previa (`prenoticeDays`, `earliestCollectionDate`) ya lo tiene en cuenta y `collection_date_too_soon` lleva `details.prenoticeDays`.
+- `POST /sepa/mandates` (y la importación): fecha de firma posterior a hoy → 400 `invalid_signed_at` / error de fila. La fecha de firma en la app es la de hoy en hora de España (la misma que dice el documento).
+- `GET /sepa/mandates/:id/document` y el PDF del mandato de la plataforma llevan un **anexo para el acreedor** (no forma parte del texto firmado): IBAN completo, a qué email se envió el enlace de firma (inquilinos) o con qué cuenta de usuario se firmó (tenants).
+- Plataforma: `POST /admin/platform-sepa/remittances/:id/cancel` (superadmin, auditado; solo `generated`, si no 400 `remittance_not_cancellable`) → los adeudos pasan a `cancelled` y su periodo se puede domiciliar en otra remesa. `POST /admin/platform-sepa/remittances/:id/prenotices/retry` (superadmin; solo `generated`) reenvía los preavisos no enviados → `{sent, failed, noEmail}`. `PlatformSepaRemittanceItemDto` gana `prenoticeStatus` (`sent` | `failed` | `no_email` | null), `prenoticeSentAt`, `prenoticeRecipients`; `itemStatus` puede ser `cancelled`.
+- Confirmar una remesa de la plataforma solo pasa a RCUR y fecha el último cobro de los mandatos cuyo adeudo se registró.
+
 ### Mensajería: adjuntos en tickets y chat
 
 - Migración `20261109180000_message_attachments` (`attachment_key`/`_mime`/`_name` en `support_ticket_messages` y `customer_messages`). Un adjunto por mensaje: imagen (JPG/PNG/WebP) o PDF, máx. 10 MB, bucket privado `uploads` (`<tenant>/support/…` y `<tenant>/chat/<customer>/…`), bytes comprobados al guardar (400 `invalid_attachment` si la clave no es de esa conversación).
