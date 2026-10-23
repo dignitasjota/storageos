@@ -454,7 +454,17 @@ export default function CustomersPage() {
         return (
           <span className="text-xs">
             {days === null ? (
-              <span className="text-amber-700 dark:text-amber-400">Nunca ha entrado</span>
+              // Solo llama la atención si además debe dinero: es a quien conviene
+              // enviarle el acceso al portal para que pague.
+              <span
+                className={
+                  row.original.overdue > 0
+                    ? 'text-amber-700 dark:text-amber-400'
+                    : 'text-muted-foreground'
+                }
+              >
+                Nunca ha entrado
+              </span>
             ) : days === 0 ? (
               'Hoy'
             ) : (
