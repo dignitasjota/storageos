@@ -1382,3 +1382,11 @@ Al redesplegar api y web:
 - **Migraciones**: `tenant_logo_upload` (`tenants.portal_logo_key`) y `branded_panel_feature` (añade la función `branded_panel` a los planes Pro y Administrador ya existentes).
 - **Comprobar**: Configuración → Marca y SEO permite subir el logo (PNG/JPG); con un tenant Pro, el menú del panel muestra su logo y «con TrasterOS» abajo; en `/portal/app/<slug>/icon/192` sale el logo sobre blanco (sin logo subido, las iniciales).
 - Menús: el panel del tenant y el del admin cambian de agrupación (solo web); las direcciones de las páginas no cambian.
+
+## 38. Mensajería admin↔tenant y tenant↔inquilino (2026-10-23, #808–#813)
+
+Al redesplegar api, worker y web:
+
+- **Migraciones**: `customer_message_reads` (leído por usuario en la bandeja «Mensajes»; lo ya leído queda leído para todos), `tenant_platform_messages` (mensajes de TrasterOS en el panel del tenant) y `message_attachments` (adjuntos en tickets y chat).
+- **Comprobar**: responder un ticket desde el admin → el tenant ve el aviso y recibe el correo; escribir desde el portal → el equipo recibe el correo y aparece en **Operativa → Mensajes**; enviar un correo directo a un tenant desde el admin → aparece en su Soporte → «Mensajes de TrasterOS» con un ticket para responder; adjuntar una imagen en el chat.
+- Los avisos al móvil siguen necesitando las claves VAPID (§36); sin ellas, el correo es lo que asegura que el mensaje llegue.
