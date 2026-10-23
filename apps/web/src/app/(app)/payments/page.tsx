@@ -113,6 +113,7 @@ export default function PaymentsPage() {
         </p>
       </div>
       <DataTable
+        rowHref={(p) => (p.invoiceId ? `/invoices/${p.invoiceId}` : null)}
         columns={columns}
         data={payments.rows}
         isLoading={payments.isLoading}

@@ -146,6 +146,7 @@ export default function ContractsPage() {
       </div>
 
       <DataTable
+        rowHref={(c) => `/contracts/${c.id}`}
         columns={columns}
         data={contracts.rows}
         isLoading={contracts.isLoading}

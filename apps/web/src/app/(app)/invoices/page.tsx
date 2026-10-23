@@ -379,6 +379,7 @@ export default function InvoicesPage() {
       )}
 
       <DataTable
+        rowHref={(i) => `/invoices/${i.id}`}
         columns={columns}
         data={rows}
         isLoading={invoices.isLoading}

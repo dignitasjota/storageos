@@ -300,6 +300,7 @@ export default function TasksPage() {
       </div>
 
       <DataTable
+        onRowClick={(t) => setDetailId(t.id)}
         columns={columns}
         data={tasks.rows}
         isLoading={tasks.isLoading}
