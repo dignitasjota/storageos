@@ -220,55 +220,14 @@ export default function IncidentsPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Incidencias</h1>
-        <p className="text-sm text-muted-foreground">
-          Robos, daños, quejas o cualquier evento que requiera atención.
-        </p>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Select
-          value={status ?? 'all'}
-          onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as IncidentStatusValue))}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los estados</SelectItem>
-            {(Object.keys(STATUS_LABELS) as IncidentStatusValue[]).map((s) => (
-              <SelectItem key={s} value={s}>
-                {STATUS_LABELS[s].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={severity ?? 'all'}
-          onValueChange={(v) => setSeverity(v === 'all' ? undefined : (v as IncidentSeverityValue))}
-        >
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Severidad" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Cualquiera</SelectItem>
-            {(Object.keys(SEVERITY_LABELS) as IncidentSeverityValue[]).map((s) => (
-              <SelectItem key={s} value={s}>
-                {SEVERITY_LABELS[s].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <DataTable
-        onRowClick={(i) => setDetailId(i.id)}
-        columns={columns}
-        data={incidents.rows}
-        isLoading={incidents.isLoading}
-        emptyText="No hay incidencias registradas."
-        toolbarRight={
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Incidencias</h1>
+          <p className="text-sm text-muted-foreground">
+            Robos, daños, quejas o cualquier evento que requiera atención.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <Can permission="incidents:write">
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
@@ -389,7 +348,55 @@ export default function IncidentsPage() {
               </DialogContent>
             </Dialog>
           </Can>
-        }
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Select
+          value={status ?? 'all'}
+          onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as IncidentStatusValue))}
+        >
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Estado" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los estados</SelectItem>
+            {(Object.keys(STATUS_LABELS) as IncidentStatusValue[]).map((s) => (
+              <SelectItem key={s} value={s}>
+                {STATUS_LABELS[s].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={severity ?? 'all'}
+          onValueChange={(v) => setSeverity(v === 'all' ? undefined : (v as IncidentSeverityValue))}
+        >
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Severidad" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Cualquiera</SelectItem>
+            {(Object.keys(SEVERITY_LABELS) as IncidentSeverityValue[]).map((s) => (
+              <SelectItem key={s} value={s}>
+                {SEVERITY_LABELS[s].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <DataTable
+        filtersActive={!!status || !!severity}
+        onClearFilters={() => {
+          setStatus(undefined);
+          setSeverity(undefined);
+        }}
+        onRowClick={(i) => setDetailId(i.id)}
+        columns={columns}
+        data={incidents.rows}
+        isLoading={incidents.isLoading}
+        emptyText="No hay incidencias. Cuando un inquilino o tu equipo reporten una, aparecerá aquí."
         serverSearch={{
           value: searchText,
           onChange: setSearchText,

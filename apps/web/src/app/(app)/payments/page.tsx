@@ -117,7 +117,7 @@ export default function PaymentsPage() {
         columns={columns}
         data={payments.rows}
         isLoading={payments.isLoading}
-        emptyText="Aún no hay pagos registrados."
+        emptyText="Aún no hay cobros. Aparecen aquí cuando se cobra una factura (tarjeta, adeudo, efectivo o transferencia)."
         serverSearch={{
           value: searchText,
           onChange: setSearchText,
