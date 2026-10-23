@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -12,8 +13,6 @@ import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import {
   buildFirstPaymentQuote,
-  contractClausesTemplate,
-  renderContractClauses,
   rentTax,
   type FirstPaymentMonths,
   type FirstPaymentQuoteDto,
@@ -24,7 +23,7 @@ import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
-import { buildContractTermsText } from '../contracts/contract-terms';
+import { composeContractTerms, termsHash } from '../contracts/contract-terms';
 import { ContractsService } from '../contracts/contracts.service';
 import { CouponsService } from '../coupons/coupons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -35,6 +34,8 @@ import type { RequestMeta } from '../auth/auth.service';
 import type {
   ContractSignViewDto,
   ContractSignatureDto,
+  ContractSigningRecordDto,
+  SignPaymentSessionDto,
   PublicSignSubmitInput,
   RequestSignatureResultDto,
   SignResultDto,
@@ -102,8 +103,27 @@ export class SignaturesService {
   async requestSignature(
     tenantId: string,
     contractId: string,
-    opts: { selfServiceBooking?: boolean } = {},
+    opts: { selfServiceBooking?: boolean; facilityScope?: string[] | null } = {},
   ): Promise<RequestSignatureResultDto> {
+    if (opts.facilityScope !== undefined) {
+      await this.contracts.detail(tenantId, contractId, opts.facilityScope);
+    }
+    const { signingUrl, expiresAt, emailed } = await this.sendSigningLink(tenantId, contractId, {
+      selfServiceBooking: opts.selfServiceBooking ?? false,
+    });
+    return { signingUrl, expiresAt, emailed };
+  }
+
+  /**
+   * Genera el enlace de firma y lo envía por correo al inquilino. Devuelve
+   * también el token (la reserva online lo usa para seguir en la misma
+   * pantalla). Con `bestEffortEmail`, un fallo al encolar el correo no rompe.
+   */
+  async sendSigningLink(
+    tenantId: string,
+    contractId: string,
+    opts: { selfServiceBooking?: boolean; bestEffortEmail?: boolean } = {},
+  ): Promise<RequestSignatureResultDto & { token: string }> {
     const contract = await this.admin.contract.findFirst({
       where: { id: contractId, tenantId, deletedAt: null },
       include: { customer: { select: { email: true } } },
@@ -143,7 +163,7 @@ export class SignaturesService {
       const notMe = opts.selfServiceBooking
         ? 'Si no has hecho tú esta reserva, ignora este correo: el trastero se liberará solo en 72 horas.'
         : null;
-      await this.communications.enqueue({
+      const enqueue = this.communications.enqueue({
         tenantId,
         channel: 'email',
         recipient: email,
@@ -156,63 +176,44 @@ export class SignaturesService {
         customerId: contract.customerId,
         contractId,
       });
-      emailed = true;
+      if (opts.bestEffortEmail) {
+        emailed = await enqueue.then(
+          () => true,
+          (err: unknown) => {
+            this.logger.warn(
+              `[signing] no se pudo enviar el enlace del contrato ${contractId}: ${(err as Error).message}`,
+            );
+            return false;
+          },
+        );
+      } else {
+        await enqueue;
+        emailed = true;
+      }
     }
-    return { signingUrl, expiresAt: expiresAt.toISOString(), emailed };
+    return { signingUrl, expiresAt: expiresAt.toISOString(), emailed, token };
   }
 
   /** Público: vista del contrato a firmar (resuelta por token). */
   async getSignView(token: string): Promise<ContractSignViewDto> {
     const contract = await this.resolveToken(token);
     const customerName = displayName(contract.customer);
-    // Contrato aún sin firmar → renderiza las cláusulas del tenant en vivo (el
-    // snapshot `signedTermsText` no existe hasta firmar). Si ya está firmado y
-    // hay snapshot, se usa el texto congelado.
     const tenant = await this.admin.tenant.findUnique({
       where: { id: contract.tenantId },
       select: {
         name: true,
         slug: true,
-        contractClauses: true,
-        housingContractClauses: true,
         portalBrandColor: true,
         portalLogoUrl: true,
         googleAnalyticsId: true,
       },
     });
     const propertyKind = contract.unit.unitType?.propertyKind ?? 'storage';
-    const clausesTemplate = contractClausesTemplate({
-      propertyKind,
-      clauses: tenant?.contractClauses,
-      housingClauses: tenant?.housingContractClauses,
-    });
-    const renderedClauses = clausesTemplate
-      ? renderContractClauses(clausesTemplate, {
-          contractNumber: contract.contractNumber,
-          customerName,
-          unitCode: contract.unit.code,
-          facilityName: contract.unit.facility.name,
-          priceMonthly: `${Number(contract.priceMonthly).toFixed(2)} €`,
-          depositAmount: `${Number(contract.depositAmount).toFixed(2)} €`,
-          startDate: contract.startDate.toISOString().slice(0, 10),
-          cancellationNoticeDays: String(contract.cancellationNoticeDays),
-          tenantName: tenant?.name ?? '',
-        })
-      : null;
+    // Firmado: el texto congelado. Borrador: el mismo que se congelará al firmar.
     const termsText =
       contract.signedTermsText ??
-      buildContractTermsText({
-        propertyKind,
-        contractNumber: contract.contractNumber,
-        customerName,
-        unitCode: contract.unit.code,
-        facilityName: contract.unit.facility.name,
-        priceMonthly: Number(contract.priceMonthly),
-        depositAmount: Number(contract.depositAmount),
-        billingCycle: contract.billingCycle,
-        startDate: contract.startDate.toISOString().slice(0, 10),
-        customClauses: renderedClauses,
-      });
+      (await composeContractTerms(this.admin, contract.tenantId, contract.id)).text;
+    const signed = contract.status !== 'draft';
     return {
       contractNumber: contract.contractNumber,
       customerName,
@@ -224,13 +225,120 @@ export class SignaturesService {
       billingCycle: contract.billingCycle,
       startDate: contract.startDate.toISOString().slice(0, 10),
       termsText,
-      alreadySigned: contract.status !== 'draft',
+      termsHash: termsHash(termsText),
+      alreadySigned: signed,
+      signedAt: contract.signedAt?.toISOString() ?? null,
+      paymentPending: signed && (await this.firstPaymentPending(contract)),
       tenantName: tenant?.name ?? '',
       tenantSlug: tenant?.slug ?? '',
       brandColor: tenant?.portalBrandColor ?? null,
       logoUrl: tenant?.portalLogoUrl ?? null,
       googleAnalyticsId: tenant?.googleAnalyticsId ?? null,
       firstPayment: await this.firstPaymentOf(contract.id, propertyKind),
+    };
+  }
+
+  /** Contrato firmado y vigente con una factura suya aún por pagar. */
+  private async firstPaymentPending(contract: {
+    id: string;
+    tenantId: string;
+    status: string;
+  }): Promise<boolean> {
+    if (contract.status !== 'active' && contract.status !== 'ending') return false;
+    const unpaid = await this.admin.invoice.count({
+      where: {
+        tenantId: contract.tenantId,
+        contractId: contract.id,
+        kind: 'invoice',
+        status: { in: ['issued', 'overdue'] },
+        deletedAt: null,
+      },
+    });
+    return unpaid > 0;
+  }
+
+  /**
+   * Público: el inquilino vuelve al enlace de firma de un contrato ya firmado
+   * para pagar la 1ª factura (cerró la pestaña antes de pagar). Solo mientras
+   * haya algo por pagar y el enlace no haya caducado.
+   */
+  async paymentSession(token: string): Promise<SignPaymentSessionDto> {
+    const contract = await this.resolveToken(token);
+    if (contract.status === 'draft' || !(await this.firstPaymentPending(contract))) {
+      throw new ConflictException({
+        code: 'nothing_to_pay',
+        message: 'Este contrato no tiene ningún pago pendiente',
+      });
+    }
+    return { portalToken: await this.mintPortalToken(contract.tenantId, contract.customerId) };
+  }
+
+  /**
+   * Staff: lo que firmó (o firmará) el inquilino — texto, huella, firmas con
+   * su evidencia y estado del enlace y de la reserva.
+   */
+  async signingRecord(
+    tenantId: string,
+    contractId: string,
+    facilityScope?: string[] | null,
+  ): Promise<ContractSigningRecordDto> {
+    await this.contracts.detail(tenantId, contractId, facilityScope);
+    const c = await this.admin.contract.findFirstOrThrow({
+      where: { id: contractId, tenantId },
+      select: {
+        status: true,
+        signedAt: true,
+        signedTermsText: true,
+        signingTokenHash: true,
+        signingTokenExpiresAt: true,
+        firstPaymentDeadline: true,
+      },
+    });
+    const text =
+      c.signedTermsText ?? (await composeContractTerms(this.admin, tenantId, contractId)).text;
+    const hash = termsHash(text);
+    const rows = await this.admin.contractSignature.findMany({
+      where: { tenantId, contractId },
+      orderBy: { signedAt: 'desc' },
+    });
+    const now = Date.now();
+    const unpaid =
+      c.status !== 'draft' &&
+      (await this.firstPaymentPending({ id: contractId, tenantId, status: c.status }));
+    const holdActive =
+      !!c.firstPaymentDeadline &&
+      c.firstPaymentDeadline.getTime() > now &&
+      (c.status === 'draft' || unpaid);
+    return {
+      status: c.status,
+      signedAt: c.signedAt?.toISOString() ?? null,
+      termsText: text,
+      termsFrozen: !!c.signedTermsText,
+      termsHash: hash,
+      signatures: rows.map((r) => ({
+        id: r.id,
+        signerName: r.signerName,
+        signerEmail: r.signerEmail,
+        method: r.method,
+        channel: r.channel,
+        ipAddress: r.ipAddress,
+        signedAt: r.signedAt.toISOString(),
+        signatureImage: r.signatureImage,
+        typedSignature: r.typedSignature,
+        documentHash: r.documentHash,
+        userAgent: r.userAgent,
+        hashMatches: c.signedTermsText ? r.documentHash === hash : null,
+      })),
+      signingLinkActive:
+        c.status === 'draft' &&
+        !!c.signingTokenHash &&
+        !!c.signingTokenExpiresAt &&
+        c.signingTokenExpiresAt.getTime() > now,
+      signingLinkExpiresAt:
+        c.status === 'draft' && c.signingTokenHash
+          ? (c.signingTokenExpiresAt?.toISOString() ?? null)
+          : null,
+      holdUntil: holdActive ? c.firstPaymentDeadline!.toISOString() : null,
     };
   }
 
@@ -300,11 +408,13 @@ export class SignaturesService {
   ): Promise<SignResultDto> {
     const contract = await this.resolveToken(token);
     if (contract.status !== 'draft') {
-      // Idempotente: ya firmado.
+      // Idempotente: ya firmado. Solo da sesión si queda algo por pagar.
       return {
         contractId: contract.id,
         status: contract.status,
-        portalToken: await this.mintPortalToken(contract.tenantId, contract.customerId),
+        portalToken: (await this.firstPaymentPending(contract))
+          ? await this.mintPortalToken(contract.tenantId, contract.customerId)
+          : null,
       };
     }
 
@@ -323,6 +433,7 @@ export class SignaturesService {
       },
       // Self-service remoto: el acceso se emite al pagar la 1ª factura, no al firmar.
       deferAccessUntilPaid: true,
+      ...(input.termsHash ? { expectedTermsHash: input.termsHash } : {}),
     });
 
     await this.maybeIssueFirstInvoice(contract.tenantId, contract.id, contract.customerId);
@@ -335,7 +446,12 @@ export class SignaturesService {
   }
 
   /** Staff: lista las firmas de un contrato (registro probatorio). */
-  async listSignatures(tenantId: string, contractId: string): Promise<ContractSignatureDto[]> {
+  async listSignatures(
+    tenantId: string,
+    contractId: string,
+    facilityScope?: string[] | null,
+  ): Promise<ContractSignatureDto[]> {
+    await this.contracts.detail(tenantId, contractId, facilityScope);
     const rows = await this.admin.contractSignature.findMany({
       where: { tenantId, contractId },
       orderBy: { signedAt: 'desc' },

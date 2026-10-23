@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, NotFoundException, OnModuleDestroy } from '@nestjs/common';
 
 import { toCents } from '../../common/money';
+import { loadPuppeteer } from '../../common/puppeteer';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
@@ -233,7 +234,7 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
   }
 
   private async launchBrowser(): Promise<Browser> {
-    const { default: puppeteer } = await import('puppeteer');
+    const puppeteer = await loadPuppeteer();
     return puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],

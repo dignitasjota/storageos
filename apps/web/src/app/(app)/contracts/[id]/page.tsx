@@ -8,6 +8,7 @@ import {
   Loader2,
   Lock,
   Pause,
+  Pencil,
   PenTool,
   Send,
   Square,
@@ -19,9 +20,11 @@ import { toast } from 'sonner';
 
 import { DepositCard, depositStatusLabel } from './deposit-card';
 import { DepositRegistryCard } from './deposit-registry-card';
+import { EditDraftDialog } from './edit-draft-dialog';
 import { InspectionPhotosCard } from './inspection-photos-card';
 import { IrpfRetentionCard } from './irpf-retention-card';
 import { RetentionCard } from './retention-card';
+import { SigningCard } from './signing-card';
 
 import { ContractStatusBadge } from '@/components/contract-status-badge';
 import { SignaturePad } from '@/components/move-in/signature-pad';
@@ -119,6 +122,7 @@ export default function ContractDetailPage() {
   const [signOpen, setSignOpen] = useState(false);
   const [signName, setSignName] = useState('');
   const [signDrawn, setSignDrawn] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
   if (contract.isLoading || !contract.data) {
     return (
@@ -182,8 +186,16 @@ export default function ContractDetailPage() {
           <div className="flex flex-wrap gap-2">
             {c.status === 'draft' && canWriteC && (
               <>
-                <Button onClick={() => setSignOpen(true)}>
+                <Button
+                  onClick={() => {
+                    setSignName((n) => n || c.customerName);
+                    setSignOpen(true);
+                  }}
+                >
                   <PenTool className="mr-1 h-4 w-4" /> Firmar
+                </Button>
+                <Button variant="outline" onClick={() => setEditOpen(true)}>
+                  <Pencil className="mr-1 h-4 w-4" /> Editar
                 </Button>
                 <Button
                   variant="outline"
@@ -369,12 +381,16 @@ export default function ContractDetailPage() {
       {/* Retención: solo sobre una baja en curso. */}
       {c.status === 'ending' && canManageC && <RetentionCard contractId={c.id} />}
 
-      <Tabs defaultValue="billing">
+      <Tabs defaultValue={c.status === 'draft' ? 'signing' : 'billing'}>
         <TabsList className="flex-wrap">
+          <TabsTrigger value="signing">Firma</TabsTrigger>
           <TabsTrigger value="billing">Cobro y condiciones</TabsTrigger>
           <TabsTrigger value="photos">Fotos de entrada y salida</TabsTrigger>
           <TabsTrigger value="history">Historial</TabsTrigger>
         </TabsList>
+        <TabsContent value="signing">
+          <SigningCard contractId={c.id} />
+        </TabsContent>
         <TabsContent value="billing" className="space-y-4">
           <InsuranceCard
             contractId={c.id}
@@ -693,6 +709,10 @@ export default function ContractDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {c.status === 'draft' && (
+        <EditDraftDialog contract={c} open={editOpen} onOpenChange={setEditOpen} />
+      )}
 
       <Dialog open={signOpen} onOpenChange={setSignOpen}>
         <DialogContent>

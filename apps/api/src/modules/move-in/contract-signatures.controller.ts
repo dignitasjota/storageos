@@ -8,7 +8,11 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 
 import { SignaturesService } from './signatures.service';
 
-import type { ContractSignatureDto, RequestSignatureResultDto } from '@storageos/shared';
+import type {
+  ContractSignatureDto,
+  ContractSigningRecordDto,
+  RequestSignatureResultDto,
+} from '@storageos/shared';
 
 /** Endpoints de staff para la firma electrónica de contratos. */
 @Controller('contracts')
@@ -21,7 +25,9 @@ export class ContractSignaturesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<RequestSignatureResultDto> {
-    return this.signatures.requestSignature(user.tenantId, id);
+    return this.signatures.requestSignature(user.tenantId, id, {
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('contracts:read')
@@ -30,6 +36,16 @@ export class ContractSignaturesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<ContractSignatureDto[]> {
-    return this.signatures.listSignatures(user.tenantId, id);
+    return this.signatures.listSignatures(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  /** Lo que firmó (o firmará) el inquilino: texto, huella, firmas y enlace. */
+  @RequirePermission('contracts:read')
+  @Get(':id/signing')
+  signing(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ContractSigningRecordDto> {
+    return this.signatures.signingRecord(user.tenantId, id, user.facilityScope ?? null);
   }
 }

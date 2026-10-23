@@ -3,6 +3,7 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { INVOICE_TAX_CATEGORY_LEGAL_TEXT, isExemptCategory } from '@storageos/shared';
 
+import { loadPuppeteer } from '../../common/puppeteer';
 import { HoldedSyncService } from '../accounting/holded-sync.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -221,7 +222,7 @@ export class InvoicePdfService implements OnModuleDestroy {
   }
 
   private async launchBrowser(): Promise<Browser> {
-    const { default: puppeteer } = await import('puppeteer');
+    const puppeteer = await loadPuppeteer();
     return puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],

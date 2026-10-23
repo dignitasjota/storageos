@@ -12,7 +12,7 @@ export const CONTRACT_TEMPLATE_VARIABLES = [
   { key: 'facilityName', label: 'Local', example: 'Trasteros Centro' },
   { key: 'priceMonthly', label: 'Cuota mensual (€)', example: '75,00 €' },
   { key: 'depositAmount', label: 'Fianza (€)', example: '150,00 €' },
-  { key: 'startDate', label: 'Fecha de inicio', example: '2026-01-15' },
+  { key: 'startDate', label: 'Fecha de inicio', example: '15/01/2026' },
   { key: 'cancellationNoticeDays', label: 'Preaviso de baja (días)', example: '15' },
   { key: 'tenantName', label: 'Nombre de la empresa', example: 'Mi Self-Storage SL' },
 ] as const;
@@ -84,6 +84,26 @@ DÉCIMA. Entrega. Al terminar el contrato, el arrendatario devolverá la viviend
 UNDÉCIMA. Legislación. En lo no previsto se aplicará la Ley 29/1994, de 24 de noviembre, de Arrendamientos Urbanos, y supletoriamente el Código Civil.
 
 Arrendador: {{tenantName}} · Arrendatario: {{customerName}} · Contrato {{contractNumber}}`;
+
+/**
+ * Condiciones generales de un trastero cuando el tenant no ha escrito las
+ * suyas. Forman parte del texto que firma el inquilino (y de su huella).
+ */
+export const DEFAULT_STORAGE_CLAUSES = `1. Objeto. El trastero {{unitCode}} de {{facilityName}} se cede solo para guardar enseres. No se puede vivir en él, desarrollar una actividad ni cederlo o subarrendarlo a otra persona.
+
+2. Duración y baja. El contrato empieza el {{startDate}} y se renueva cada periodo de facturación. Cualquiera de las partes puede darlo por terminado avisando con {{cancellationNoticeDays}} días de antelación.
+
+3. Pago. Las cuotas se pagan por adelantado al inicio de cada periodo. Si una cuota no se paga a su vencimiento, el arrendador podrá suspender el acceso al trastero hasta que se regularice el pago, además de aplicar los recargos que tenga publicados.
+
+4. Contenido. El inquilino es el único responsable de lo que guarda. Está prohibido guardar productos perecederos, inflamables, explosivos, tóxicos, ilegales o seres vivos. El arrendador no responde de objetos de valor ni del dinero en efectivo.
+
+5. Acceso. Los códigos o tarjetas de acceso son personales. El inquilino entra en el horario del local y cierra el trastero con su propio candado.
+
+6. Fianza. La fianza de {{depositAmount}} garantiza el cumplimiento del contrato. Se devuelve al terminar, descontando los daños o las cantidades pendientes.
+
+7. Entrega. Al terminar, el inquilino retira todos sus enseres y deja el trastero vacío, limpio y en el estado en que lo recibió.
+
+Arrendador: {{tenantName}} · Inquilino: {{customerName}} · Contrato {{contractNumber}}`;
 
 /**
  * Plantilla de cláusulas que corresponde a un contrato. Una vivienda usa

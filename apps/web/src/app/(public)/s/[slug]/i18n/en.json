@@ -472,7 +472,11 @@
       "signatureEmpty": "Draw your signature in the box",
       "signatureFilled": "Signature captured",
       "signatureClear": "Clear",
-      "payWithBizum": "Pay with Bizum"
+      "payWithBizum": "Pay with Bizum",
+      "termsChanged": "The contract changed while you were reading it. Check the updated text and sign again.",
+      "payPendingButton": "Complete the payment",
+      "signedDoneBody": "Your contract {contractNumber} is already signed. You have a copy in your customer area.",
+      "viewSignedTerms": "View the signed contract"
     },
     "blog": {
       "title": "Blog",

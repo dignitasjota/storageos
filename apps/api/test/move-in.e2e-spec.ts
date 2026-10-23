@@ -194,6 +194,131 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
       });
     expect(signed.status).toBe(201);
     expect(signed.body.status).toBe('active');
+
+    // El inquilino nuevo también recibe el enlace por correo.
+    const comms = await request(app.getHttpServer())
+      .get('/communications?source=booking.signing_link')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(200);
+    expect((comms.body as { recipient: string }[]).map((c) => c.recipient)).toContain(
+      'bea@e2e.local',
+    );
+
+    // Volver al enlace tras firmar: «ya firmado» y se puede pagar la 1ª factura.
+    const again = await request(app.getHttpServer())
+      .get(`/public/move-in/sign/${booking.body.signingToken}`)
+      .expect(200);
+    expect(again.body.alreadySigned).toBe(true);
+    expect(again.body.signedAt).toEqual(expect.any(String));
+    expect(again.body.paymentPending).toBe(true);
+    const session = await request(app.getHttpServer())
+      .post(`/public/move-in/sign/${booking.body.signingToken}/payment`)
+      .expect(200);
+    expect(session.body.portalToken).toEqual(expect.any(String));
+  });
+
+  it('el equipo edita el borrador, el inquilino no firma un texto que no vio y queda el registro', async () => {
+    const owner = await registerVerifiedUser(app, 'movein-edit');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const customerId = await createCustomer(app, owner.accessToken, {
+      email: 'editado@e2e.local',
+    });
+    const created = await request(app.getHttpServer())
+      .post('/contracts')
+      .set(auth)
+      .send({ customerId, unitId: unitIds[0], startDate: '2026-04-01', priceMonthly: 60 })
+      .expect(201);
+    const contractId = created.body.id as string;
+
+    const reqSig = await request(app.getHttpServer())
+      .post(`/contracts/${contractId}/request-signature`)
+      .set(auth)
+      .expect(201);
+    const token = tokenFromUrl(reqSig.body.signingUrl as string);
+    const view = await request(app.getHttpServer())
+      .get(`/public/move-in/sign/${token}`)
+      .expect(200);
+    expect(view.body.termsText).toContain('Arrendador:');
+    expect(view.body.termsText).toContain('Condiciones generales:');
+    expect(view.body.termsText).toContain('Cuota mensual: 60,00 € + IVA (21 %)');
+    expect(view.body.termsHash).toMatch(/^[0-9a-f]{64}$/);
+
+    // Registro en la ficha: borrador con el enlace vigente.
+    const draftRecord = await request(app.getHttpServer())
+      .get(`/contracts/${contractId}/signing`)
+      .set(auth)
+      .expect(200);
+    expect(draftRecord.body).toMatchObject({
+      status: 'draft',
+      termsFrozen: false,
+      signingLinkActive: true,
+      termsHash: view.body.termsHash,
+      signatures: [],
+    });
+
+    // Sin firmar no hay nada que pagar desde el enlace.
+    const nothing = await request(app.getHttpServer()).post(
+      `/public/move-in/sign/${token}/payment`,
+    );
+    expect(nothing.status).toBe(409);
+    expect(nothing.body.code).toBe('nothing_to_pay');
+
+    // El equipo cambia el borrador mientras el inquilino lo tiene abierto.
+    const edited = await request(app.getHttpServer())
+      .patch(`/contracts/${contractId}`)
+      .set(auth)
+      .send({ priceMonthly: 65, startDate: '2026-04-15', depositAmount: 120 })
+      .expect(200);
+    expect(edited.body).toMatchObject({ priceMonthly: 65, depositAmount: 120 });
+    expect(edited.body.startDate.slice(0, 10)).toBe('2026-04-15');
+
+    const signBody = {
+      signerName: 'Eva Editada',
+      method: 'drawn',
+      signatureImage: 'data:image/png;base64,iVBORw0KGgo=',
+      accept: true,
+    };
+    const stale = await request(app.getHttpServer())
+      .post(`/public/move-in/sign/${token}`)
+      .send({ ...signBody, termsHash: view.body.termsHash });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('terms_changed');
+
+    const fresh = await request(app.getHttpServer())
+      .get(`/public/move-in/sign/${token}`)
+      .expect(200);
+    expect(fresh.body.termsText).toContain('Cuota mensual: 65,00 €');
+    await request(app.getHttpServer())
+      .post(`/public/move-in/sign/${token}`)
+      .send({ ...signBody, termsHash: fresh.body.termsHash })
+      .expect(201);
+
+    // Lo firmado queda con su evidencia y la huella del texto congelado.
+    const record = await request(app.getHttpServer())
+      .get(`/contracts/${contractId}/signing`)
+      .set(auth)
+      .expect(200);
+    expect(record.body.status).toBe('active');
+    expect(record.body.termsFrozen).toBe(true);
+    expect(record.body.termsHash).toBe(fresh.body.termsHash);
+    expect(record.body.signingLinkActive).toBe(false);
+    expect(record.body.signatures).toHaveLength(1);
+    expect(record.body.signatures[0]).toMatchObject({
+      signerName: 'Eva Editada',
+      method: 'drawn',
+      signatureImage: 'data:image/png;base64,iVBORw0KGgo=',
+      documentHash: fresh.body.termsHash,
+      hashMatches: true,
+    });
+
+    // Firmado: precio, inicio y fianza ya no se tocan desde la edición.
+    const locked = await request(app.getHttpServer())
+      .patch(`/contracts/${contractId}`)
+      .set(auth)
+      .send({ priceMonthly: 70 });
+    expect(locked.status).toBe(400);
+    expect(locked.body.code).toBe('contract_not_draft');
   });
 
   it('booking con honeypot relleno → 400', async () => {

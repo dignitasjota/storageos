@@ -9,6 +9,7 @@ import {
   type ContractSignViewDto,
   PublicBookingSchema,
   PublicSignSubmitSchema,
+  type SignPaymentSessionDto,
   type SignResultDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -104,5 +105,13 @@ export class MoveInPublicController {
     @Req() req: Request,
   ): Promise<SignResultDto> {
     return this.signatures.signViaToken(token, body, extractMeta(req));
+  }
+
+  /** Contrato ya firmado: sesión para pagar la 1ª factura pendiente. */
+  @Post('sign/:token/payment')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  payment(@Param('token') token: string): Promise<SignPaymentSessionDto> {
+    return this.signatures.paymentSession(token);
   }
 }

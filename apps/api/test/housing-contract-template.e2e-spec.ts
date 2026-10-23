@@ -64,7 +64,7 @@ describe('Plantilla de contrato de vivienda (e2e)', () => {
     const base = await signView(housing.unitIds[0]!, 700);
     expect(base).toContain('Contrato de arrendamiento de vivienda');
     expect(base).toContain('Ley 29/1994');
-    expect(base).toContain('La renta es de 700.00 €');
+    expect(base).toContain('La renta es de 700,00 €');
     expect(base).toContain('de la vivienda indicada');
     expect(base).not.toContain('{{');
 

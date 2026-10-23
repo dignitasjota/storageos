@@ -233,7 +233,14 @@ export type CreateContractInput = z.infer<typeof CreateContractSchema>;
 /** Solo se permite actualizar campos NO firmados o "meta" tras firmar. */
 export const UpdateContractSchema = z
   .object({
-    endDate: dateOnly.optional(),
+    /** Solo en borrador (antes de que lo firme el inquilino). */
+    priceMonthly: positiveDecimal.optional(),
+    /** Solo en borrador. */
+    startDate: dateOnly.optional(),
+    /** Solo en borrador. */
+    depositAmount: nonNegativeDecimal.optional(),
+    /** '' = sin fecha de fin. */
+    endDate: dateOnly.optional().or(z.literal('')),
     discountAmount: nonNegativeDecimal.optional(),
     discountReason: optionalText(200),
     autoRenew: z.boolean().optional(),
