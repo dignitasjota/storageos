@@ -507,7 +507,12 @@ export class BookingService {
         signingLinkSentTo: sent.emailed ? maskEmail(input.customer.email) : null,
       };
     }
-    const { token } = await this.signatures.generateSigningToken(contract.id);
+    // Inquilino nuevo: sigue en la misma pantalla y, además, recibe el enlace
+    // por correo por si cierra la página antes de firmar o pagar.
+    const { token } = await this.signatures.sendSigningLink(tenantId, contract.id, {
+      selfServiceBooking: true,
+      bestEffortEmail: true,
+    });
     return { contractId: contract.id, signingToken: token, signingLinkSentTo: null };
   }
 }

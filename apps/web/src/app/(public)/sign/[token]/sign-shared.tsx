@@ -53,11 +53,54 @@ export function SignPageBody({
   const [method, setMethod] = useState<'drawn' | 'typed'>('drawn');
   const [drawn, setDrawn] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
-  const [signerName, setSignerName] = useState('');
+  // El nombre del inquilino ya viene en la vista precargada en el servidor.
+  const [signerName, setSignerName] = useState(initialView?.customerName ?? '');
   const [accept, setAccept] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SignResultDto | null>(null);
   const [pending, setPending] = useState<PortalInvoiceDto[]>([]);
+  // Vuelve al enlace tras firmar: sesión para pagar lo pendiente.
+  const [payToken, setPayToken] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
+
+  async function loadPending(portalToken: string) {
+    try {
+      const invoices = await apiFetch<PortalInvoiceDto[]>('/portal/me/invoices', {
+        requiresAuth: false,
+        headers: { Authorization: `Bearer ${portalToken}` },
+      });
+      setPending(invoices.filter((i) => i.status === 'issued' || i.status === 'overdue'));
+    } catch {
+      /* el pago es opcional aquí */
+    }
+  }
+
+  async function reloadView() {
+    try {
+      const v = await apiFetch<ContractSignViewDto>(`/public/move-in/sign/${token}`, {
+        requiresAuth: false,
+      });
+      setView(v);
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.body.message : t('invalidFallback'));
+    }
+  }
+
+  async function openPayment() {
+    setOpening(true);
+    try {
+      const res = await apiFetch<{ portalToken: string }>(`/public/move-in/sign/${token}/payment`, {
+        method: 'POST',
+        requiresAuth: false,
+      });
+      setPayToken(res.portalToken);
+      await loadPending(res.portalToken);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : t('paymentStartError'));
+    } finally {
+      setOpening(false);
+    }
+  }
 
   useEffect(() => {
     // Ya resuelto en servidor (caso normal) — no repetir el fetch en cliente.
@@ -65,7 +108,7 @@ export function SignPageBody({
     apiFetch<ContractSignViewDto>(`/public/move-in/sign/${token}`, { requiresAuth: false })
       .then((v) => {
         setView(v);
-        setSignerName(v.customerName);
+        setSignerName((n) => n || v.customerName);
       })
       .catch((err) =>
         setLoadError(err instanceof ApiError ? err.body.message : t('invalidFallback')),
@@ -84,23 +127,21 @@ export function SignPageBody({
           method,
           accept: true,
           ...(method === 'drawn' ? { signatureImage: drawn } : { typedSignature: typed }),
+          // Lo que ha leído: si el contrato cambió entretanto, no se firma.
+          ...(view?.termsHash ? { termsHash: view.termsHash } : {}),
         },
       });
       trackEvent('sign_completed');
       setResult(res);
-      if (res.portalToken) {
-        try {
-          const invoices = await apiFetch<PortalInvoiceDto[]>('/portal/me/invoices', {
-            requiresAuth: false,
-            headers: { Authorization: `Bearer ${res.portalToken}` },
-          });
-          setPending(invoices.filter((i) => i.status === 'issued' || i.status === 'overdue'));
-        } catch {
-          /* el pago es opcional aquí */
-        }
-      }
+      if (res.portalToken) await loadPending(res.portalToken);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : t('submitError'));
+      if (err instanceof ApiError && err.body.code === 'terms_changed') {
+        toast.error(t('termsChanged'));
+        setAccept(false);
+        await reloadView();
+      } else {
+        toast.error(err instanceof ApiError ? err.body.message : t('submitError'));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -130,6 +171,7 @@ export function SignPageBody({
   const brandColor = view.brandColor ?? undefined;
 
   if (result || view.alreadySigned) {
+    const portalToken = result?.portalToken ?? payToken;
     return (
       <ContentShell>
         <Card className="w-full">
@@ -140,16 +182,32 @@ export function SignPageBody({
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p>
-              {t('signedBody', { contractNumber: view.contractNumber, unitCode: view.unitCode })}
+              {result || view.paymentPending
+                ? t('signedBody', { contractNumber: view.contractNumber, unitCode: view.unitCode })
+                : t('signedDoneBody', { contractNumber: view.contractNumber })}
             </p>
-            {pending.length > 0 && result?.portalToken ? (
-              <BookingPayment
-                portalToken={result.portalToken}
-                invoice={pending[0]!}
-                locale={locale}
-              />
+            {pending.length > 0 && portalToken ? (
+              <BookingPayment portalToken={portalToken} invoice={pending[0]!} locale={locale} />
+            ) : !result && view.paymentPending ? (
+              <Button
+                onClick={() => void openPayment()}
+                disabled={opening}
+                className={brandColor ? 'w-full text-white' : 'w-full'}
+                style={brandColor ? { backgroundColor: brandColor } : undefined}
+              >
+                {opening && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                {t('payPendingButton')}
+              </Button>
             ) : (
               <p className="text-muted-foreground">{t('emailNotice')}</p>
+            )}
+            {!result && (
+              <details className="rounded-md border bg-muted/30 p-3">
+                <summary className="cursor-pointer font-medium">{t('viewSignedTerms')}</summary>
+                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">
+                  {view.termsText}
+                </pre>
+              </details>
             )}
           </CardContent>
         </Card>

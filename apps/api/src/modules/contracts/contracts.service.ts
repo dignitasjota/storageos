@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import {
   BadRequestException,
   ConflictException,
@@ -10,13 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import {
-  CLOSED_CASE_STATUSES,
-  contractClausesTemplate,
-  renderContractClauses,
-  rentTax,
-  resolvePlanFeatures,
-} from '@storageos/shared';
+import { CLOSED_CASE_STATUSES, rentTax, resolvePlanFeatures } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
@@ -32,7 +24,7 @@ import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { PromotionsService } from '../promotions/promotions.service';
 
-import { buildContractTermsText } from './contract-terms';
+import { composeContractTerms, termsHash } from './contract-terms';
 import { creditForLine, unusedPrepaidMonths } from './prepay-credit';
 import { PricingService } from './pricing.service';
 
@@ -530,9 +522,58 @@ export class ContractsService {
     // dedicado para que sea auditeable.
     const data: Prisma.ContractUpdateInput = {};
     const changes: Record<string, unknown> = {};
+    // Precio, inicio y fianza solo se tocan antes de la firma: después el
+    // precio cambia con «Cambiar precio» (auditado) y lo firmado no se altera.
+    const draftOnly = (['priceMonthly', 'startDate', 'depositAmount'] as const).filter(
+      (k) => args.input[k] !== undefined,
+    );
+    if (draftOnly.length > 0 && existing.status !== 'draft') {
+      throw new BadRequestException({
+        code: 'contract_not_draft',
+        message: 'El precio, la fecha de inicio y la fianza solo se cambian antes de la firma',
+      });
+    }
+    if (
+      args.input.priceMonthly !== undefined &&
+      Number(existing.priceMonthly) !== args.input.priceMonthly
+    ) {
+      // El cupón se calculó con la cuota de entonces.
+      const withCoupon = await this.prisma.withTenant(
+        (tx) => tx.couponRedemption.count({ where: { contractId: existing.id } }),
+        args.tenantId,
+      );
+      if (withCoupon > 0) {
+        throw new BadRequestException({
+          code: 'coupon_price_locked',
+          message:
+            'Este contrato lleva un cupón calculado con su cuota: para cambiarla, cancélalo y crea otro',
+        });
+      }
+      data.priceMonthly = args.input.priceMonthly;
+      changes.priceMonthly = { from: Number(existing.priceMonthly), to: args.input.priceMonthly };
+    }
+    if (args.input.startDate !== undefined) {
+      data.startDate = new Date(`${args.input.startDate}T00:00:00.000Z`);
+      changes.startDate = args.input.startDate;
+    }
+    if (args.input.depositAmount !== undefined) {
+      data.depositAmount = args.input.depositAmount;
+      changes.depositAmount = args.input.depositAmount;
+    }
     if (args.input.endDate !== undefined) {
       data.endDate = args.input.endDate ? new Date(args.input.endDate) : null;
       changes.endDate = args.input.endDate;
+    }
+    const effectiveStart = args.input.startDate ?? existing.startDate.toISOString().slice(0, 10);
+    const effectiveEnd =
+      args.input.endDate !== undefined
+        ? args.input.endDate
+        : (existing.endDate?.toISOString().slice(0, 10) ?? null);
+    if (effectiveEnd && effectiveEnd < effectiveStart) {
+      throw new BadRequestException({
+        code: 'invalid_end_date',
+        message: 'La fecha de fin no puede ser anterior a la de inicio',
+      });
     }
     if (
       args.input.discountAmount !== undefined &&
@@ -635,6 +676,8 @@ export class ContractsService {
      * 1ª factura (reserva online con pago obligatorio). Lo marca el booking.
      */
     deferAccessUntilPaid?: boolean;
+    /** Huella del texto que vio el firmante (firma por enlace). */
+    expectedTermsHash?: string;
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'active');
@@ -665,9 +708,8 @@ export class ContractsService {
           data: {
             status: 'active',
             signedAt,
-            // La firma consume el token remoto (si lo había).
-            signingTokenHash: null,
-            signingTokenExpiresAt: null,
+            // El enlace de firma sigue valiendo hasta su caducidad: al reabrirlo
+            // muestra «ya firmado» y deja pagar la 1ª factura pendiente.
             // Si el contrato lleva fianza, queda RETENIDA al activarse (se liquida
             // al finalizar vía settleDeposit). No pisa un estado ya avanzado.
             ...(Number(existing.depositAmount) > 0 && existing.depositStatus === 'none'
@@ -715,60 +757,27 @@ export class ContractsService {
           `Contrato ${row.contractNumber} firmado`,
         );
 
-        // Texto de condiciones firmado = cabecera + cláusulas del tenant
-        // renderizadas + consentimiento eIDAS. Se congela en `signedTermsText`
-        // para que editar la plantilla después no altere este contrato.
-        const tenantRow = await tx.tenant.findUnique({
-          where: { id: args.tenantId },
-          select: { name: true, contractClauses: true, housingContractClauses: true },
-        });
-        const signedUnit = await tx.unit.findUnique({
-          where: { id: existing.unitId },
-          select: { unitType: { select: { propertyKind: true } } },
-        });
-        const propertyKind = signedUnit?.unitType.propertyKind ?? 'storage';
-        const clausesTemplate = contractClausesTemplate({
-          propertyKind,
-          clauses: tenantRow?.contractClauses,
-          housingClauses: tenantRow?.housingContractClauses,
-        });
-        const signerCustomerName =
-          row.customer.customerType === 'business'
-            ? (row.customer.companyName ?? '')
-            : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' ');
-        const renderedClauses = clausesTemplate
-          ? renderContractClauses(clausesTemplate, {
-              contractNumber: row.contractNumber,
-              customerName: signerCustomerName,
-              unitCode: row.unit.code,
-              facilityName: row.unit.facility.name,
-              priceMonthly: `${Number(row.priceMonthly).toFixed(2)} €`,
-              depositAmount: `${Number(row.depositAmount).toFixed(2)} €`,
-              startDate: row.startDate.toISOString().slice(0, 10),
-              cancellationNoticeDays: String(row.cancellationNoticeDays),
-              tenantName: tenantRow?.name ?? '',
-            })
-          : null;
-        const termsText = buildContractTermsText({
-          propertyKind,
-          contractNumber: row.contractNumber,
-          customerName: signerCustomerName,
-          unitCode: row.unit.code,
-          facilityName: row.unit.facility.name,
-          priceMonthly: Number(row.priceMonthly),
-          depositAmount: Number(row.depositAmount),
-          billingCycle: row.billingCycle,
-          startDate: row.startDate.toISOString().slice(0, 10),
-          customClauses: renderedClauses,
-        });
+        // Texto firmado = el mismo que ve el inquilino (arrendador, inquilino,
+        // condiciones económicas, cláusulas y consentimiento eIDAS). Se congela
+        // en `signedTermsText`: editar la plantilla después no altera este contrato.
+        const terms = await composeContractTerms(tx, args.tenantId, args.contractId);
+        const documentHash = termsHash(terms.text);
+        // Si el contrato cambió desde que el inquilino abrió el enlace, no firma
+        // un texto que no ha visto.
+        if (args.expectedTermsHash && args.expectedTermsHash !== documentHash) {
+          throw new ConflictException({
+            code: 'terms_changed',
+            message:
+              'El contrato ha cambiado mientras lo revisabas. Vuelve a leerlo antes de firmar.',
+          });
+        }
         await tx.contract.update({
           where: { id: args.contractId },
-          data: { signedTermsText: termsText, signedClausesText: renderedClauses },
+          data: { signedTermsText: terms.text, signedClausesText: terms.clauses },
         });
 
         // Registro probatorio de la firma electrónica simple.
         if (args.signature) {
-          const documentHash = createHash('sha256').update(termsText).digest('hex');
           await tx.contractSignature.create({
             data: {
               tenantId: args.tenantId,
@@ -2509,7 +2518,7 @@ export class ContractsService {
    */
   async attachSignedPdf(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     contractId: string;
     facilityScope?: string[] | null;
     pdfUrl: string;

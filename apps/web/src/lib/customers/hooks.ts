@@ -17,6 +17,7 @@ import type {
   ContractDto,
   ContractEventDto,
   ContractSignatureDto,
+  ContractSigningRecordDto,
   ConvertReservationInput,
   CreateContractInput,
   RequestSignatureResultDto,
@@ -276,10 +277,23 @@ export function useContractSignatures(id: string | undefined) {
   });
 }
 
+/** Lo que firmó (o firmará) el inquilino: texto, huella, firmas y enlace. */
+export function useContractSigning(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? (['contracts', id, 'signing'] as const) : ['contract', 'none', 'signing'],
+    queryFn: () => apiFetch<ContractSigningRecordDto>(`/contracts/${id}/signing`),
+    enabled: !!id,
+  });
+}
+
 export function useRequestSignature() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch<RequestSignatureResultDto>(`/contracts/${id}/request-signature`, { method: 'POST' }),
+    onSuccess: (_data, id) => {
+      void qc.invalidateQueries({ queryKey: ['contracts', id, 'signing'] });
+    },
   });
 }
 

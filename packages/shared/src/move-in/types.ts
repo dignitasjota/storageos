@@ -25,6 +25,17 @@ export interface ContractSignViewDto {
   googleAnalyticsId: string | null;
   /** Lo que se paga al activar (meses del primer pago, cupón, IVA y fianza). */
   firstPayment: FirstPaymentQuoteDto;
+  /** SHA-256 del texto mostrado: se devuelve al firmar para detectar cambios. */
+  termsHash: string;
+  /** Fecha de la firma (si ya está firmado). */
+  signedAt: string | null;
+  /** Firmado y con la 1ª factura sin pagar: la página ofrece pagarla. */
+  paymentPending: boolean;
+}
+
+/** Token de portal para pagar la 1ª factura de un contrato ya firmado. */
+export interface SignPaymentSessionDto {
+  portalToken: string;
 }
 
 /** Resultado de firmar: estado + token de portal para pagar la 1ª factura. */
@@ -44,6 +55,35 @@ export interface ContractSignatureDto {
   channel: string;
   ipAddress: string | null;
   signedAt: string;
+}
+
+/** Firma con su evidencia completa (ficha del contrato, pestaña Firma). */
+export interface ContractSignatureDetailDto extends ContractSignatureDto {
+  /** Data URL PNG de la firma dibujada, o null. */
+  signatureImage: string | null;
+  typedSignature: string | null;
+  /** SHA-256 del texto firmado. */
+  documentHash: string;
+  userAgent: string | null;
+  /** La huella coincide con el texto firmado guardado (null si no hay texto). */
+  hashMatches: boolean | null;
+}
+
+/** Lo que firmó (o firmará) el inquilino y cómo. */
+export interface ContractSigningRecordDto {
+  status: string;
+  signedAt: string | null;
+  /** Texto firmado (congelado) o, en borrador, el que verá el inquilino. */
+  termsText: string;
+  /** true = texto congelado al firmar; false = vista previa del borrador. */
+  termsFrozen: boolean;
+  termsHash: string;
+  signatures: ContractSignatureDetailDto[];
+  /** Enlace de firma vigente (borrador con enlace enviado y sin caducar). */
+  signingLinkActive: boolean;
+  signingLinkExpiresAt: string | null;
+  /** Reserva online: el trastero queda retenido hasta esta fecha si no se paga. */
+  holdUntil: string | null;
 }
 
 /** Resultado de solicitar la firma (staff): enlace para compartir. */

@@ -472,7 +472,11 @@
       "signatureEmpty": "Dibuja tu firma en el recuadro",
       "signatureFilled": "Firma capturada",
       "signatureClear": "Limpiar",
-      "payWithBizum": "Pagar con Bizum"
+      "payWithBizum": "Pagar con Bizum",
+      "termsChanged": "El contrato ha cambiado mientras lo leías. Revisa el texto actualizado y vuelve a firmar.",
+      "payPendingButton": "Completar el pago",
+      "signedDoneBody": "Tu contrato {contractNumber} ya está firmado. Tienes una copia en tu área de clientes.",
+      "viewSignedTerms": "Ver el contrato firmado"
     },
     "blog": {
       "title": "Blog",

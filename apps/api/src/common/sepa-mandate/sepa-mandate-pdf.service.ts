@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 
+import { loadPuppeteer } from '../puppeteer';
+
 type Browser = import('puppeteer').Browser;
 
 /**
@@ -46,7 +48,7 @@ export class SepaMandatePdfService implements OnModuleDestroy {
   }
 
   private async launch(): Promise<Browser> {
-    const { default: puppeteer } = await import('puppeteer');
+    const puppeteer = await loadPuppeteer();
     return puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   }
 }

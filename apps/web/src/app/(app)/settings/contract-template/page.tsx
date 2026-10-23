@@ -3,6 +3,7 @@
 import {
   CONTRACT_TEMPLATE_VARIABLES,
   DEFAULT_HOUSING_CLAUSES,
+  DEFAULT_STORAGE_CLAUSES,
   renderContractClauses,
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
@@ -37,11 +38,10 @@ export default function ContractTemplatePage() {
   const storageEditor = (
     <ClausesEditor
       field="clauses"
-      initial={data.clauses ?? ''}
-      emptyText="Sin cláusulas personalizadas: se usarán las condiciones estándar de trastero."
-      placeholder={
-        'Ej.:\n1. El presente contrato se renueva automáticamente salvo baja con {{cancellationNoticeDays}} días de preaviso.\n2. El trastero {{unitCode}} de {{facilityName}} se destina exclusivamente a almacenaje.\n…'
-      }
+      initial={data.clauses ?? DEFAULT_STORAGE_CLAUSES}
+      defaultText={DEFAULT_STORAGE_CLAUSES}
+      emptyText="Sin texto: se usarán las condiciones generales de trastero."
+      placeholder=""
     />
   );
 
@@ -50,9 +50,10 @@ export default function ContractTemplatePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Plantilla de contrato</h1>
         <p className="text-sm text-muted-foreground">
-          Escribe tus propias cláusulas. Sustituyen a las condiciones por defecto en el PDF y en la
-          firma. La firma electrónica y su huella son la prueba legal de cada contrato; editar la
-          plantilla no cambia los ya firmados.
+          Las condiciones que firma el inquilino. Parten de unas condiciones generales que puedes
+          cambiar a tu medida; los datos del contrato (partes, trastero, cuota, IVA, fianza,
+          preaviso, descuentos y seguro) se añaden solos encima. La firma electrónica y su huella
+          son la prueba de cada contrato; editar la plantilla no cambia los ya firmados.
         </p>
       </div>
 

@@ -14,6 +14,14 @@ export const PublicSignSubmitSchema = z
     signatureImage: z.string().max(2_000_000).optional(),
     typedSignature: z.string().trim().max(160).optional(),
     accept: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar para firmar' }) }),
+    /**
+     * Huella del texto que vio el firmante (`termsHash` de la vista). Si el
+     * contrato cambió entretanto, la firma se rechaza (409 `terms_changed`).
+     */
+    termsHash: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
   })
   .refine((v) => (v.method === 'drawn' ? !!v.signatureImage : !!v.typedSignature?.trim()), {
     message: 'Falta la firma',

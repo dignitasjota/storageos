@@ -13,6 +13,7 @@ import {
 import StripeSDK from 'stripe';
 
 import { isUniqueViolation } from '../../common/prisma-errors';
+import { loadPuppeteer } from '../../common/puppeteer';
 import { assertTaxIdFree } from '../../common/tax-id-unique';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -1267,7 +1268,7 @@ export class PlatformInvoicesService {
   }
 
   private async launchBrowser(): Promise<Browser> {
-    const { default: puppeteer } = await import('puppeteer');
+    const puppeteer = await loadPuppeteer();
     return puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   }
 
