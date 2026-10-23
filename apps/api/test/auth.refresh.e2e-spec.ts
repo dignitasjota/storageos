@@ -65,10 +65,22 @@ describe('POST /auth/refresh (e2e)', () => {
     expect(sessions[1]?.revokedAt).toBeNull();
   });
 
+  const refreshCookieOf = (res: request.Response): string => {
+    const raw = res.headers['set-cookie'];
+    const list = Array.isArray(raw) ? raw : [raw];
+    return (list.find((c) => c?.startsWith('refresh_token=')) ?? '').split(';')[0] ?? '';
+  };
+
   it('reusar un refresh rotado FUERA del margen de gracia revoca todas las sesiones (paranoid)', async () => {
     const { cookie, tenantId, userId } = await registerNewTenant();
     const ok = await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie);
     expect(ok.status).toBe(200);
+    // La sesión heredera se usa (el dueño legítimo, o quien robó el token):
+    // presentar el token anterior ya no puede ser una respuesta perdida.
+    const used = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', refreshCookieOf(ok));
+    expect(used.status).toBe(200);
     // Simula que la rotación ocurrió hace más de REFRESH_REUSE_GRACE_MS.
     await admin.session.updateMany({
       where: { tenantId, userId, revokedReason: 'rotated' },
@@ -78,11 +90,57 @@ describe('POST /auth/refresh (e2e)', () => {
     expect(replay.status).toBe(401);
 
     const sessions = await admin.session.findMany({ where: { tenantId, userId } });
-    expect(sessions).toHaveLength(2);
+    expect(sessions).toHaveLength(3);
     for (const s of sessions) {
       expect(s.revokedAt).not.toBeNull();
     }
     expect(sessions.map((s) => s.revokedReason)).toContain('refresh_reuse');
+  });
+
+  it('respuesta perdida en el móvil (fuera del margen de gracia): se sustituye la sesión sin expulsar', async () => {
+    const { cookie, tenantId, userId } = await registerNewTenant();
+    // La app del móvil se congela: el servidor rota pero la cookie nueva no llega.
+    const lost = await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie);
+    expect(lost.status).toBe(200);
+    await admin.session.updateMany({
+      where: { tenantId, userId, revokedReason: 'rotated' },
+      data: { revokedAt: new Date(Date.now() - REFRESH_REUSE_GRACE_MS - 3_600_000) },
+    });
+    // Al abrirla una hora después presenta el token anterior.
+    const reopened = await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie);
+    expect(reopened.status).toBe(200);
+    expect(reopened.body.accessToken).toBeTruthy();
+
+    const sessions = await admin.session.findMany({ where: { tenantId, userId } });
+    expect(sessions.map((s) => s.revokedReason)).not.toContain('refresh_reuse');
+    expect(sessions.map((s) => s.revokedReason)).toContain('lost_response');
+    expect(sessions.filter((s) => s.revokedAt === null)).toHaveLength(1);
+    // El token perdido ya no sirve: quien lo tuviera recibe 401 (y se revoca todo).
+    const stale = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', refreshCookieOf(lost));
+    expect(stale.status).toBe(401);
+    // La sesión nueva sigue funcionando hasta que la detección la cierra.
+  });
+
+  it('respuesta perdida desde OTRO navegador: no se recupera (revoke-all)', async () => {
+    const { cookie, tenantId, userId } = await registerNewTenant();
+    const lost = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', cookie)
+      .set('User-Agent', 'Mobile Safari');
+    expect(lost.status).toBe(200);
+    await admin.session.updateMany({
+      where: { tenantId, userId, revokedReason: 'rotated' },
+      data: { revokedAt: new Date(Date.now() - REFRESH_REUSE_GRACE_MS - 60_000) },
+    });
+    const other = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', cookie)
+      .set('User-Agent', 'Otro navegador');
+    expect(other.status).toBe(401);
+    const sessions = await admin.session.findMany({ where: { tenantId, userId } });
+    expect(sessions.every((s) => s.revokedAt !== null)).toBe(true);
   });
 
   it('reusar un refresh recién rotado desde el mismo navegador (recarga que aborta el refresh) NO expulsa al usuario', async () => {

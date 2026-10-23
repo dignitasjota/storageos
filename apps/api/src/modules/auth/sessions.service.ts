@@ -29,7 +29,12 @@ export interface RotateResult {
   userId: string;
 }
 
-export type RevocationReason = 'logout' | 'logout_all' | 'rotated' | 'refresh_reuse';
+export type RevocationReason =
+  | 'logout'
+  | 'logout_all'
+  | 'rotated'
+  | 'refresh_reuse'
+  | 'lost_response';
 
 /**
  * Margen de gracia para reutilizar un refresh RECIÉN rotado. Sin él, la
@@ -207,6 +212,8 @@ export class SessionsService {
       (session.userAgent ?? null) === (args.userAgent ?? null);
 
     if (!withinGrace) {
+      const recovered = await this.recoverLostResponse(session, tenantId, args);
+      if (recovered) return recovered;
       await this.revokeAllAndFlagReuse(session, tenantId, args, 'revoked_session');
       throw new UnauthorizedException('Refresh invalido');
     }
@@ -311,6 +318,65 @@ export class SessionsService {
       args.tenantId,
     );
     return result.count;
+  }
+
+  /**
+   * Respuesta perdida: el servidor rotó la sesión pero la cookie nueva no llegó
+   * al navegador (en el móvil pasa mucho: iOS congela la app instalada a mitad
+   * de la petición). La siguiente apertura presenta el token anterior pasados
+   * los 30 s de gracia. Si la sesión que se emitió a partir de él NO se ha
+   * llegado a usar (sigue sin rotar) y la petición viene del mismo navegador,
+   * nadie más tiene ese token: se sustituye por una nueva en vez de cerrar
+   * todas las sesiones. Si la heredera ya se usó, es un reuso real (otro tiene
+   * el token) y se mantiene la política paranoid.
+   */
+  private async recoverLostResponse(
+    session: Session,
+    tenantId: string,
+    args: RotateSessionArgs,
+  ): Promise<RotateResult | null> {
+    if (session.revokedReason !== 'rotated') return null;
+    if ((session.userAgent ?? null) !== (args.userAgent ?? null)) return null;
+    const { secret, secretHash } = await this.tokens.generateRefreshSecret();
+    const replacement = await this.prisma.withTenant(async (tx) => {
+      const heirs = await tx.session.findMany({
+        where: { rotatedFromId: session.id },
+        select: { id: true, revokedAt: true, revokedReason: true },
+      });
+      if (heirs.length === 0) return null;
+      // Alguna heredera ya se renovó o se cerró: el token anterior lo tiene otro.
+      if (heirs.some((h) => h.revokedAt !== null && h.revokedReason !== 'lost_response')) {
+        return null;
+      }
+      const live = heirs.filter((h) => h.revokedAt === null).map((h) => h.id);
+      // Compare-and-swap: si otra petición acaba de usar una heredera, no se sustituye.
+      const claimed = await tx.session.updateMany({
+        where: { id: { in: live }, revokedAt: null },
+        data: { revokedAt: new Date(), revokedReason: 'lost_response' },
+      });
+      if (claimed.count !== live.length) return null;
+      return tx.session.create({
+        data: {
+          tenantId,
+          userId: session.userId,
+          refreshTokenHash: secretHash,
+          userAgent: args.userAgent ?? null,
+          ipAddress: args.ipAddress ?? null,
+          expiresAt: this.computeExpiresAt(),
+          rotatedFromId: session.id,
+        },
+      });
+    }, tenantId);
+    if (!replacement) return null;
+    this.logger.log(
+      `Respuesta de refresh perdida en la sesion ${session.id}; sesion sustituida sin revoke-all`,
+    );
+    return {
+      session: replacement,
+      refreshToken: this.tokens.formatRefreshToken(tenantId, replacement.id, secret),
+      tenantId,
+      userId: session.userId,
+    };
   }
 
   private computeExpiresAt(): Date {
