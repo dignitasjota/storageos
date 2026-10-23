@@ -570,7 +570,11 @@ export class InvoicesService {
         return holdedWithheld;
       }
 
-      const { sequenceNumber, series } = await this.series.reserveNextNumber(tx, existing.seriesId);
+      const { sequenceNumber, series } = await this.series.reserveNextNumber(
+        tx,
+        existing.seriesId,
+        issueDate.getUTCFullYear(),
+      );
       // La numeración va en orden de fecha: no se emite con una fecha anterior
       // a la última factura de la serie (la serie ya está bloqueada).
       const lastInSeries = await tx.invoice.findFirst({

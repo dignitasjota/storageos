@@ -1403,3 +1403,12 @@ Revisión frente al contrato de adeudos directos SEPA CORE (BBVA). Migraciones (
 - **Antes de la primera remesa real**: sube el fichero al validador de ficheros de BBVA net cash para confirmar que lo acepta.
 - **Revisión del mandato** (migración `20261110160000_sepa_mandate_review`): el identificador del acreedor se comprueba con sus dígitos de control. **Si el que tienes guardado no cuadra, la remesa da 400 `invalid_creditor_id`**: corrígelo en Configuración → Cobros / Admin → SEPA de la plataforma (con un identificador incorrecto el cambio no se bloquea). Una vez hay mandatos firmados, el identificador ya no se puede cambiar. Cada mandato conserva el preaviso que firmó: bajar el ajuste solo afecta a los mandatos nuevos. En la plataforma, una remesa sin confirmar se puede cancelar y reenviar sus preavisos.
 - **En el validador de BBVA, comprueba además**: que acepta `pain.008.001.02` (el fichero valida contra el XSD oficial de ISO 20022), la hora de corte para la fecha de cobro (con preaviso de 1 día, deja al menos 2 días hábiles) y que el presentador (`InitgPty/Id` = identificador del acreedor) coincide con el del contrato.
+
+## 40. Revisión de facturación (2026-10-23)
+
+Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar el api).
+
+- **Numeración por año**: las series «por año» (`FA/2026/…`) vuelven a `00001` con la primera factura de 2027. La migración guarda en cada serie el año de su última factura, así que este año no cambia nada. Las series sin año (`FA/00001`) siguen seguidas.
+- **Vencimiento**: el pago de varios meses (primer pago de 3/6/12 meses o prepago semestral/anual) vence a los 15 días del inicio del periodo (antes, al final: un anual no entraba en impagos en un año). El mensual no cambia.
+- **Primera factura**: si no se puede emitir (un NIF que la AEAT no admite, falta de certificado…), el equipo recibe la notificación «No se pudo emitir la primera factura» con el motivo.
+- **Reserva online con envío real a la AEAT** (`AEAT_MODE` distinto de `stub`): el DNI/NIE tiene que ser válido (400 `invalid_tax_id`).

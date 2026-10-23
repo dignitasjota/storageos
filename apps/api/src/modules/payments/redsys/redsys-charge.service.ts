@@ -61,6 +61,8 @@ export class RedsysChargeService {
     cofTxnId: string | null;
     amountCents: number;
     description: string;
+    /** Pagos ya reservados para este cobro (la factura y su fianza). */
+    paymentIds?: string[];
   }): Promise<ChargeResult> {
     const order = generateRedsysOrder();
     const cfg = await this.settings.getResolved(args.tenantId);
@@ -84,6 +86,15 @@ export class RedsysChargeService {
         status: 'charging',
       },
     });
+    // Los pagos reservados llevan ya el número de orden: si la notificación de
+    // Redsys llega antes que la respuesta, resuelve esos mismos pagos (antes
+    // creaba otros y los reservados quedaban como fallidos en el historial).
+    if (args.paymentIds && args.paymentIds.length > 0) {
+      await this.admin.payment.updateMany({
+        where: { id: { in: args.paymentIds }, status: 'processing' },
+        data: { gatewayPaymentId: order },
+      });
+    }
     if (this.stub) {
       // `stub-noresponse`: el banco no contesta (la orden queda `charging`).
       if (args.identifier.startsWith('stub-noresponse')) {

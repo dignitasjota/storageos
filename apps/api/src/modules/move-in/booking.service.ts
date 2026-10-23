@@ -5,8 +5,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { rentTax } from '@storageos/shared';
+import { isValidSpanishTaxId, normalizeTaxId, rentTax } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
 import { DOMAIN_EVENTS, type BookingCreatedPayload } from '../automations/domain-events';
@@ -18,6 +19,7 @@ import { ReferralsService } from '../referrals/referrals.service';
 
 import { SignaturesService } from './signatures.service';
 
+import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   BookingQuoteInput,
@@ -50,6 +52,7 @@ export class BookingService {
     private readonly referrals: ReferralsService,
     private readonly coupons: CouponsService,
     private readonly events: EventEmitter2,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /**
@@ -269,6 +272,18 @@ export class BookingService {
       throw new BadRequestException({
         code: 'start_date_too_far',
         message: 'La fecha de entrada puede ser como mucho dentro de un año',
+      });
+    }
+    // Con envío real a la AEAT la factura de un cliente español exige un NIF o
+    // NIE válido: si no, la primera factura no se emitiría y la reserva
+    // caducaría sin que el inquilino pudiera pagar.
+    if (
+      this.config.get('AEAT_MODE', { infer: true }) !== 'stub' &&
+      !isValidSpanishTaxId(normalizeTaxId(input.customer.documentNumber))
+    ) {
+      throw new BadRequestException({
+        code: 'invalid_tax_id',
+        message: 'El DNI o NIE no es válido: revisa los números y la letra',
       });
     }
     const tenant = await this.admin.tenant.findUnique({ where: { slug } });

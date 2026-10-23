@@ -929,7 +929,8 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 
 - Los tamaños de cada local (`PublicLandingUnitTypeDto`, disponibilidad de la reserva) solo incluyen los que tiene ese local; `priceMonthly` es el del **trastero más barato disponible** de ese tamaño (agotado: el más barato que tenga) y la reserva asigna ese trastero; `taxRate` es el IVA del alquiler (21, o 0 en viviendas).
 - `PublicSitemapEntryDto.customDomain`: con dominio propio verificado, sus páginas van en `https://<dominio>/sitemap.xml` (y su `robots.txt`), no en el de la plataforma.
-- `POST /public/move-in/book/:slug`: 400 `start_date_too_far` si la entrada es a más de un año.
+- `POST /public/move-in/book/:slug`: 400 `start_date_too_far` si la entrada es a más de un año. Con envío real a la AEAT (`AEAT_MODE` ≠ `stub`), 400 `invalid_tax_id` si el DNI/NIE no es válido.
+- Notificación `invoice.first_invoice_failed`: la primera factura de un contrato no se pudo emitir (motivo en el cuerpo; enlaza a la factura si llegó a crearse).
 - Las llamadas del servidor del web con `x-internal-token` = `INTERNAL_API_TOKEN` no cuentan en el límite de peticiones.
 
 ### Codigos `code` (Fase 5)

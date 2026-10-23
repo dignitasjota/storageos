@@ -300,7 +300,7 @@ export class PaymentsService {
         const live = await tx.payment.count({
           where: {
             invoiceId: r.id,
-            gateway: { in: ['stripe', 'gocardless'] },
+            gateway: { in: ['stripe', 'gocardless', 'redsys'] },
             status: { in: ['pending', 'processing', 'succeeded'] },
           },
         });
@@ -375,6 +375,7 @@ export class PaymentsService {
               cofTxnId: reserved.networkTxnId,
               amountCents: toCents(chargeAmount),
               description: `Factura ${invoice.invoiceNumber}`,
+              paymentIds: [reserved.paymentId, ...reserved.bundledPayments.map((b) => b.paymentId)],
             })
           : reserved.gateway === 'gocardless'
             ? await this.goCardlessCharge.charge({
