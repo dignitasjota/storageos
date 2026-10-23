@@ -414,7 +414,9 @@ function CreateRemittanceDialog() {
                 <p className="text-xs text-amber-700 dark:text-amber-300">
                   <FileText className="mr-1 inline h-3 w-3" />
                   {data.withoutMandate.length} factura(s) pendiente(s) de clientes sin mandato SEPA
-                  activo (no incluidas).
+                  firmado (no incluidas).
+                  {data.withoutMandate.some((w) => w.pendingSignature) &&
+                    ` De ellas, ${data.withoutMandate.filter((w) => w.pendingSignature).length} esperan a que el inquilino firme su mandato: puedes reenviarle el enlace desde su ficha.`}
                 </p>
               )}
               <p className="text-sm">

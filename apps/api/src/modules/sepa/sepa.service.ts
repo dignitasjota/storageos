@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import {
   BadRequestException,
@@ -6,19 +6,34 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
+import {
+  buildSepaMandateDocument,
+  mandateIsSigned,
+  maskIban,
+  sepaMandateText,
+  type SepaMandateDocument,
+} from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { subtractAmounts, toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { DOMAIN_EVENTS, type SepaRemittanceCreatedPayload } from '../automations/domain-events';
 import { InvoicesService, lockInvoiceRow } from '../billing/invoices.service';
+import { CommunicationsService } from '../communications/communications.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
+import { renderMandateHtml } from './sepa-mandate-html';
+import { SepaMandatePdfService } from './sepa-mandate-pdf.service';
 import { buildPain008, type Pain008Transaction } from './sepa-pain008';
 
-import type { Prisma } from '@storageos/database';
+import type { Env } from '../../config/env.schema';
+import type { Prisma, SepaMandate } from '@storageos/database';
 import type {
   ConfirmRemittanceInput,
   CreateRemittanceInput,
@@ -26,11 +41,13 @@ import type {
   RemittanceEligibleInvoiceDto,
   RemittancePreviewDto,
   SepaMandateDto,
+  SepaMandateSignViewDto,
   SepaPrenoticeStatus,
   SepaRemittanceItemStatus,
   SepaRemittanceDto,
   SepaRemittancePrenoticeDto,
   SepaSettingsDto,
+  SignSepaMandateInput,
   UpdateSepaSettingsInput,
 } from '@storageos/shared';
 
@@ -44,10 +61,36 @@ function customerName(c: {
   return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
 }
 
+/**
+ * Vuelve a armar el documento desde el texto guardado (el que se firmó), para
+ * el PDF: título, «campo: valor» y las cláusulas.
+ */
+export function parseStoredDocument(text: string): SepaMandateDocument {
+  const [title = '', ...rest] = text.split('\n');
+  const blank = rest.indexOf('', 1);
+  const fieldLines = rest.slice(1, blank === -1 ? undefined : blank);
+  const clauses = blank === -1 ? [] : rest.slice(blank + 1).filter(Boolean);
+  return {
+    title,
+    fields: fieldLines.map((l) => {
+      const i = l.indexOf(': ');
+      return { label: l.slice(0, i), value: l.slice(i + 2) };
+    }),
+    clauses,
+  };
+}
+
 type ItemStatusCounts = { collected: number; failed: number; returned: number; pending: number };
 
 /** Una confirmación cortada a medias se puede reanudar pasado este tiempo. */
 const RESUME_AFTER_MS = 5 * 60_000;
+/** Validez del enlace para firmar el mandato. */
+const MANDATE_SIGNING_TTL_MS = 30 * 24 * 3600 * 1000;
+
+interface RequestMeta {
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
 
 function rand(n = 8): string {
   return randomBytes(n).toString('hex').toUpperCase().slice(0, n);
@@ -62,6 +105,10 @@ export class SepaService {
     private readonly crypto: CryptoService,
     private readonly invoices: InvoicesService,
     private readonly events: EventEmitter2,
+    private readonly communications: CommunicationsService,
+    private readonly pdf: SepaMandatePdfService,
+    private readonly config: ConfigService<Env, true>,
+    private readonly adminDb: PrismaAdminService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -82,6 +129,10 @@ export class SepaService {
         creditorBic: null,
         prenoticeDays: 14,
         enabled: false,
+        creditorAddress: null,
+        creditorPostalCode: null,
+        creditorCity: null,
+        creditorCountry: 'ES',
       };
     }
     const iban = this.crypto.decryptString(s.creditorIbanEncrypted, tenantId);
@@ -93,6 +144,10 @@ export class SepaService {
       creditorBic: s.creditorBic,
       prenoticeDays: s.prenoticeDays,
       enabled: s.enabled,
+      creditorAddress: s.creditorAddress,
+      creditorPostalCode: s.creditorPostalCode,
+      creditorCity: s.creditorCity,
+      creditorCountry: s.creditorCountry,
     };
   }
 
@@ -118,6 +173,14 @@ export class SepaService {
       creditorBic: input.creditorBic || null,
       prenoticeDays: input.prenoticeDays,
       enabled: input.enabled,
+      ...(input.creditorAddress !== undefined
+        ? { creditorAddress: input.creditorAddress || null }
+        : {}),
+      ...(input.creditorPostalCode !== undefined
+        ? { creditorPostalCode: input.creditorPostalCode || null }
+        : {}),
+      ...(input.creditorCity !== undefined ? { creditorCity: input.creditorCity || null } : {}),
+      ...(input.creditorCountry ? { creditorCountry: input.creditorCountry } : {}),
     };
     await this.prisma.withTenant(
       (tx) =>
@@ -135,17 +198,7 @@ export class SepaService {
   // Mandatos
   // -------------------------------------------------------------------------
 
-  private mandateDto(m: {
-    id: string;
-    customerId: string;
-    reference: string;
-    ibanLast4: string;
-    bic: string | null;
-    signedAt: Date;
-    sequenceType: string;
-    status: string;
-    createdAt: Date;
-  }): SepaMandateDto {
+  private mandateDto(m: SepaMandate, signingUrl?: string): SepaMandateDto {
     return {
       id: m.id,
       customerId: m.customerId,
@@ -155,6 +208,10 @@ export class SepaService {
       signedAt: m.signedAt.toISOString().slice(0, 10),
       sequenceType: m.sequenceType as 'FRST' | 'RCUR',
       status: m.status as 'active' | 'cancelled',
+      signatureStatus: m.signatureStatus as SepaMandateDto['signatureStatus'],
+      signedByName: m.signerName,
+      signedAtTimestamp: m.signedAtTs?.toISOString() ?? null,
+      ...(signingUrl ? { signingUrl } : {}),
       createdAt: m.createdAt.toISOString(),
     };
   }
@@ -182,6 +239,10 @@ export class SepaService {
     opts: { reference?: string; sequenceType?: 'FRST' | 'RCUR' } = {},
   ): Promise<SepaMandateDto> {
     const reference = opts.reference ?? `MND-${rand(12)}`;
+    // Firmado fuera (papel o migrado): cuenta ya para cobrar. Si no, el inquilino
+    // tiene que firmarlo aquí antes de que entre en ninguna remesa.
+    const external = input.signedOutside || !!opts.reference;
+    if (!external) await this.creditorForMandate(tenantId);
     const created = await this.prisma
       .withTenant(async (tx) => {
         const customer = await tx.customer.findFirst({
@@ -207,9 +268,12 @@ export class SepaService {
             ibanEncrypted: this.crypto.encryptString(input.iban, tenantId),
             ibanLast4: input.iban.slice(-4),
             bic: input.bic || null,
-            signedAt: new Date(`${input.signedAt}T00:00:00Z`),
+            signedAt: new Date(
+              `${input.signedAt ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`,
+            ),
             sequenceType: opts.sequenceType ?? 'FRST',
             status: 'active',
+            signatureStatus: external ? 'external' : 'pending',
           },
         });
       }, tenantId)
@@ -222,7 +286,275 @@ export class SepaService {
         }
         throw err;
       });
-    return this.mandateDto(created);
+    if (external) return this.mandateDto(created);
+    const signingUrl = await this.sendSigningLink(tenantId, created);
+    return this.mandateDto(created, signingUrl);
+  }
+
+  /** Vuelve a mandar al inquilino el enlace para firmar su mandato. */
+  async resendSigningLink(tenantId: string, id: string): Promise<SepaMandateDto> {
+    const mandate = await this.prisma.withTenant(
+      (tx) => tx.sepaMandate.findFirst({ where: { id, tenantId } }),
+      tenantId,
+    );
+    if (!mandate || mandate.status !== 'active') {
+      throw new NotFoundException({ code: 'mandate_not_found', message: 'Mandato no encontrado' });
+    }
+    if (mandate.signatureStatus !== 'pending') {
+      throw new BadRequestException({
+        code: 'mandate_already_signed',
+        message: 'Este mandato ya está firmado',
+      });
+    }
+    const signingUrl = await this.sendSigningLink(tenantId, mandate);
+    return this.mandateDto(mandate, signingUrl);
+  }
+
+  /** Datos del acreedor para el mandato (con su domicilio, que lo exige el banco). */
+  private async creditorForMandate(tenantId: string) {
+    const s = await this.prisma.withTenant(
+      (tx) => tx.sepaSettings.findUnique({ where: { tenantId } }),
+      tenantId,
+    );
+    if (!s?.creditorAddress || !s.creditorPostalCode || !s.creditorCity) {
+      throw new BadRequestException({
+        code: 'sepa_creditor_address_required',
+        message:
+          'Completa el domicilio del acreedor en Configuración → Cobros (sale en el mandato que firma el inquilino).',
+      });
+    }
+    return s;
+  }
+
+  /** Enlace de firma (token de un solo propietario, 30 días) y correo al inquilino. */
+  private async sendSigningLink(tenantId: string, mandate: SepaMandate): Promise<string> {
+    const secret = randomBytes(32).toString('hex');
+    await this.prisma.withTenant(
+      async (tx) =>
+        tx.sepaMandate.update({
+          where: { id: mandate.id },
+          data: {
+            signingTokenHash: await argonHash(secret),
+            signingTokenExpiresAt: new Date(Date.now() + MANDATE_SIGNING_TTL_MS),
+          },
+        }),
+      tenantId,
+    );
+    const url = `${this.config.get('WEB_BASE_URL', { infer: true })}/sepa-mandate/${mandate.id}.${secret}`;
+    const [customer, tenant] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.customer.findFirst({
+            where: { id: mandate.customerId, tenantId },
+            select: { email: true },
+          }),
+          tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
+        ]),
+      tenantId,
+    );
+    if (customer?.email) {
+      const name = tenant?.name ?? '';
+      await this.communications.enqueue({
+        tenantId,
+        channel: 'email',
+        recipient: customer.email,
+        subject: `Firma la domiciliación de tus recibos${name ? ` con ${name}` : ''}`,
+        bodyText: [
+          'Hola,',
+          '',
+          `Para cobrarte los recibos por domiciliación bancaria necesitamos que firmes la orden de domiciliación (mandato SEPA) de tu cuenta terminada en ${mandate.ibanLast4}.`,
+          '',
+          `Revísala y fírmala aquí: ${url}`,
+          '',
+          'Si no la reconoces, no la firmes y avísanos.',
+          ...(name ? ['', `Un saludo,`, name] : []),
+        ].join('\n'),
+        customerId: mandate.customerId,
+        source: 'sepa.mandate_signature',
+      });
+    }
+    return url;
+  }
+
+  /** Mandato por su enlace de firma (público). */
+  private async mandateByToken(token: string): Promise<SepaMandate> {
+    const [id, secret] = token.split('.');
+    const unauthorized = () =>
+      new UnauthorizedException({ code: 'signing_token_invalid', message: 'Enlace no válido' });
+    if (!id || !secret || !/^[0-9a-f-]{36}$/i.test(id)) throw unauthorized();
+    const mandate = await this.adminDb.sepaMandate.findUnique({ where: { id } });
+    if (!mandate || !mandate.signingTokenHash || mandate.status !== 'active') throw unauthorized();
+    if (mandate.signingTokenExpiresAt && mandate.signingTokenExpiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedException({
+        code: 'signing_token_expired',
+        message: 'El enlace ha caducado: pide uno nuevo',
+      });
+    }
+    if (!(await argonVerify(mandate.signingTokenHash, secret))) throw unauthorized();
+    return mandate;
+  }
+
+  /** El documento del mandato con los datos que se den del deudor. */
+  private async mandateDocument(
+    mandate: SepaMandate,
+    debtor: { name: string; address: string; postalCode: string; city: string; country: string },
+    place: string,
+    date: string,
+  ): Promise<{
+    doc: SepaMandateDocument;
+    iban: string;
+    creditorName: string;
+    prenoticeDays: number;
+  }> {
+    const settings = await this.creditorForMandate(mandate.tenantId);
+    const iban = this.crypto.decryptString(mandate.ibanEncrypted, mandate.tenantId);
+    const doc = buildSepaMandateDocument({
+      reference: mandate.reference,
+      creditor: {
+        name: settings.creditorName,
+        creditorId: settings.creditorId,
+        address: settings.creditorAddress!,
+        postalCode: settings.creditorPostalCode!,
+        city: settings.creditorCity!,
+        country: settings.creditorCountry,
+      },
+      debtor,
+      iban,
+      bic: mandate.bic,
+      prenoticeDays: settings.prenoticeDays,
+      place,
+      date,
+    });
+    return {
+      doc,
+      iban,
+      creditorName: settings.creditorName,
+      prenoticeDays: settings.prenoticeDays,
+    };
+  }
+
+  /** Público: lo que ve el inquilino antes de firmar. */
+  async getSignView(token: string): Promise<SepaMandateSignViewDto> {
+    const mandate = await this.mandateByToken(token);
+    const c = await this.adminDb.customer.findUniqueOrThrow({
+      where: { id: mandate.customerId },
+    });
+    const debtor = {
+      name: customerName(c),
+      address: c.address ?? '',
+      postalCode: c.postalCode ?? '',
+      city: c.city ?? '',
+      country: c.country || 'ES',
+    };
+    const today = new Date().toISOString().slice(0, 10);
+    const { doc, iban, creditorName, prenoticeDays } = await this.mandateDocument(
+      mandate,
+      debtor,
+      debtor.city || '—',
+      today,
+    );
+    return {
+      document: doc,
+      creditorName,
+      debtor,
+      ibanMasked: maskIban(iban),
+      prenoticeDays,
+      signed: mandate.signatureStatus !== 'pending',
+    };
+  }
+
+  /**
+   * Público: el inquilino firma su mandato. Se guarda el texto firmado, la
+   * firma y la constancia (IP, navegador, hora y huella con el IBAN completo).
+   */
+  async signByToken(
+    token: string,
+    input: SignSepaMandateInput,
+    meta: RequestMeta,
+  ): Promise<{ signed: true }> {
+    const mandate = await this.mandateByToken(token);
+    if (mandate.signatureStatus !== 'pending') {
+      throw new BadRequestException({
+        code: 'mandate_already_signed',
+        message: 'Este mandato ya está firmado',
+      });
+    }
+    const now = new Date();
+    const date = new Intl.DateTimeFormat('es-ES', {
+      dateStyle: 'long',
+      timeZone: 'Europe/Madrid',
+    }).format(now);
+    const debtor = {
+      name: input.signerName,
+      address: input.address,
+      postalCode: input.postalCode,
+      city: input.city,
+      country: input.country,
+    };
+    const { doc, iban } = await this.mandateDocument(mandate, debtor, input.place, date);
+    const text = sepaMandateText(doc);
+    const hash = createHash('sha256').update(`${text}\nIBAN: ${iban}`).digest('hex');
+    // Reserva atómica: dos envíos a la vez no firman dos veces.
+    const res = await this.prisma.withTenant(
+      (tx) =>
+        tx.sepaMandate.updateMany({
+          where: { id: mandate.id, signatureStatus: 'pending' },
+          data: {
+            signatureStatus: 'signed',
+            signingTokenHash: null,
+            signingTokenExpiresAt: null,
+            signedAt: new Date(`${now.toISOString().slice(0, 10)}T00:00:00Z`),
+            signedAtTs: now,
+            debtorName: debtor.name,
+            debtorAddress: debtor.address,
+            debtorPostalCode: debtor.postalCode,
+            debtorCity: debtor.city,
+            debtorCountry: debtor.country,
+            signerName: input.signerName,
+            signatureMethod: input.method,
+            signatureImage: input.method === 'drawn' ? (input.signatureImage ?? null) : null,
+            typedSignature: input.method === 'typed' ? (input.typedSignature ?? null) : null,
+            documentText: text,
+            documentHash: hash,
+            signedIp: meta.ipAddress ?? null,
+            signedUserAgent: meta.userAgent?.slice(0, 400) ?? null,
+          },
+        }),
+      mandate.tenantId,
+    );
+    if (res.count === 0) {
+      throw new BadRequestException({
+        code: 'mandate_already_signed',
+        message: 'Este mandato ya está firmado',
+      });
+    }
+    return { signed: true };
+  }
+
+  /** PDF del mandato firmado en la app (con su constancia). */
+  async mandatePdf(tenantId: string, id: string): Promise<{ filename: string; pdf: Buffer }> {
+    const m = await this.prisma.withTenant(
+      (tx) => tx.sepaMandate.findFirst({ where: { id, tenantId } }),
+      tenantId,
+    );
+    if (!m || m.signatureStatus !== 'signed' || !m.documentText || !m.signedAtTs) {
+      throw new NotFoundException({
+        code: 'mandate_document_not_found',
+        message: 'Este mandato no se firmó en la app',
+      });
+    }
+    const doc = parseStoredDocument(m.documentText);
+    const html = renderMandateHtml(doc, {
+      signerName: m.signerName ?? '',
+      method: m.signatureMethod ?? 'typed',
+      signatureImage: m.signatureImage,
+      typedSignature: m.typedSignature,
+      signedAt: m.signedAtTs,
+      ip: m.signedIp,
+      userAgent: m.signedUserAgent,
+      documentHash: m.documentHash ?? '',
+    });
+    return { filename: `mandato-${m.reference}.pdf`, pdf: await this.pdf.render(html) };
   }
 
   async cancelMandate(tenantId: string, id: string): Promise<void> {
@@ -278,12 +610,19 @@ export class SepaService {
       tenantId,
     );
     const inPlan = new Set(plans.flatMap((p) => p.invoiceIds));
-    const byCustomer = new Map(mandates.map((m) => [m.customerId, m]));
-    return { invoices: invoices.filter((i) => !inPlan.has(i.id)), byCustomer };
+    // Solo cuentan los mandatos firmados (en la app o fuera): sin firma no se
+    // puede cobrar (contrato de adeudos del banco, 4.1 y 4.3).
+    const byCustomer = new Map(
+      mandates.filter((m) => mandateIsSigned(m.signatureStatus)).map((m) => [m.customerId, m]),
+    );
+    const unsigned = new Set(
+      mandates.filter((m) => !mandateIsSigned(m.signatureStatus)).map((m) => m.customerId),
+    );
+    return { invoices: invoices.filter((i) => !inPlan.has(i.id)), byCustomer, unsigned };
   }
 
   async previewRemittance(tenantId: string): Promise<RemittancePreviewDto> {
-    const { invoices, byCustomer } = await this.eligible(tenantId);
+    const { invoices, byCustomer, unsigned } = await this.eligible(tenantId);
     const eligible: RemittanceEligibleInvoiceDto[] = [];
     const withoutMandate: RemittancePreviewDto['withoutMandate'] = [];
     for (const inv of invoices) {
@@ -296,6 +635,7 @@ export class SepaService {
           invoiceId: inv.id,
           invoiceNumber: inv.invoiceNumber,
           customerName: name,
+          pendingSignature: !!inv.customerId && unsigned.has(inv.customerId),
         });
         continue;
       }

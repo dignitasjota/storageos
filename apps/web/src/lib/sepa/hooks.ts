@@ -51,6 +51,16 @@ export function useCreateSepaMandate() {
   });
 }
 
+/** Vuelve a mandar al inquilino el enlace para firmar el mandato. */
+export function useResendMandateSigning() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<SepaMandateDto>(`/sepa/mandates/${id}/signing-link`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: mandatesKey }),
+  });
+}
+
 export function useCancelSepaMandate() {
   const qc = useQueryClient();
   return useMutation({

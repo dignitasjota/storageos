@@ -44,7 +44,7 @@ describe('Importar mandatos SEPA (e2e)', () => {
     await request(app.getHttpServer())
       .post('/sepa/mandates')
       .set(auth)
-      .send({ customerId: marta, iban: IBAN_OK, signedAt: '2025-01-01' })
+      .send({ customerId: marta, iban: IBAN_OK, signedOutside: true, signedAt: '2025-01-01' })
       .expect(201);
 
     const csv = [

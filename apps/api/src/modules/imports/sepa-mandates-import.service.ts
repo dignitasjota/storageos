@@ -188,6 +188,7 @@ export class SepaMandatesImportService {
       }
 
       const parsed = CreateSepaMandateSchema.safeParse({
+        signedOutside: true,
         customerId: customerId ?? '00000000-0000-0000-0000-000000000000',
         iban: get('iban'),
         ...(get('bic') ? { bic: get('bic') } : {}),

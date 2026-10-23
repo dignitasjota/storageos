@@ -2234,6 +2234,10 @@ model SepaSettings {
   /// Días de preaviso de los adeudos pactados con los inquilinos (14 = reglamento SEPA).
   prenoticeDays         Int      @default(14) @map("prenotice_days")
   enabled               Boolean  @default(false)
+  creditorAddress       String?  @map("creditor_address")
+  creditorPostalCode    String?  @map("creditor_postal_code")
+  creditorCity          String?  @map("creditor_city")
+  creditorCountry       String   @default("ES") @map("creditor_country")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2256,6 +2260,25 @@ model SepaMandate {
   sequenceType  String   @default("FRST") @map("sequence_type")
   /// active | cancelled
   status        String   @default("active")
+  /// pending (falta la firma del deudor) | signed (firmado aquí) | external (papel o migrado)
+  signatureStatus       String    @default("external") @map("signature_status")
+  signingTokenHash      String?   @map("signing_token_hash")
+  signingTokenExpiresAt DateTime? @map("signing_token_expires_at") @db.Timestamptz(6)
+  debtorName            String?   @map("debtor_name")
+  debtorAddress         String?   @map("debtor_address")
+  debtorPostalCode      String?   @map("debtor_postal_code")
+  debtorCity            String?   @map("debtor_city")
+  debtorCountry         String?   @map("debtor_country")
+  signerName            String?   @map("signer_name")
+  signatureMethod       String?   @map("signature_method")
+  signatureImage        String?   @map("signature_image")
+  typedSignature        String?   @map("typed_signature")
+  /// Texto del mandato firmado (IBAN enmascarado) y su huella (con el IBAN completo).
+  documentText          String?   @map("document_text")
+  documentHash          String?   @map("document_hash")
+  signedIp              String?   @map("signed_ip")
+  signedUserAgent       String?   @map("signed_user_agent")
+  signedAtTs            DateTime? @map("signed_at_ts") @db.Timestamptz(6)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
