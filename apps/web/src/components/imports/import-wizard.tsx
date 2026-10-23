@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Download, Loader2, Upload } from 'lucide-react';
+import { Download, Loader2, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -13,6 +13,7 @@ import type {
   ImportRowStatus,
 } from '@storageos/shared';
 
+import { BackLink } from '@/components/layout/back-link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,6 +50,8 @@ interface ImportWizardProps {
   description: string;
   templateFilename: string;
   backHref: string;
+  /** Texto de la vuelta («← Inquilinos»); por defecto, el de la lista. */
+  backLabel?: string;
   doneHref: string;
   doneLabel: string;
   /** Texto informativo extra (p. ej. "los contratos se importan como borradores"). */
@@ -57,12 +60,20 @@ interface ImportWizardProps {
   afterCommit?: (result: ImportCommitDto) => ReactNode;
 }
 
+const BACK_LABELS: Record<string, string> = {
+  '/customers': 'Inquilinos',
+  '/units': 'Trasteros',
+  '/contracts': 'Contratos',
+  '/sepa-remittances': 'Remesas SEPA',
+};
+
 export function ImportWizard({
   entity,
   title,
   description,
   templateFilename,
   backHref,
+  backLabel,
   doneHref,
   doneLabel,
   note,
@@ -126,16 +137,10 @@ export function ImportWizard({
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href={backHref}>
-            <ArrowLeft className="mr-1 h-4 w-4" /> Volver
-          </Link>
-        </Button>
+      <div>
+        <BackLink href={backHref} label={backLabel ?? BACK_LABELS[backHref] ?? 'Volver'} />
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight">{title}</h1>
+        <p className="text-sm text-muted-foreground">{description}</p>
       </div>
 
       {note && (

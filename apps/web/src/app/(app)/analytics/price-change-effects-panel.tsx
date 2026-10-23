@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { usePriceChangeEffects } from '@/lib/analytics/hooks';
+import { formatDate } from '@/lib/format';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const days = (n: number) => `${Math.round(n)} ${Math.round(n) === 1 ? 'día' : 'días'}`;
@@ -86,7 +87,7 @@ export function PriceChangeEffectsPanel() {
                         {e.changePct}%
                       </Badge>
                       <div className="text-xs text-muted-foreground">
-                        {new Date(e.changedAt).toLocaleDateString('es-ES')}
+                        {formatDate(e.changedAt)}
                         {e.source === 'suggestion' ? ' · sugerencia' : ''}
                       </div>
                     </TableCell>

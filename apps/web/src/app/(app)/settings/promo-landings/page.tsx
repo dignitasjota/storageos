@@ -30,6 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission, useMe } from '@/lib/auth/hooks';
 import { useTenantBranding } from '@/lib/branding/hooks';
+import { formatDate } from '@/lib/format';
 import {
   useDeletePromoLanding,
   useDuplicatePromoLanding,
@@ -37,7 +38,7 @@ import {
   useUpdatePromoLanding,
 } from '@/lib/promo-landings/hooks';
 
-const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
+const day = (iso: string) => formatDate(iso);
 
 export default function PromoLandingsPage() {
   const ask = useConfirm();

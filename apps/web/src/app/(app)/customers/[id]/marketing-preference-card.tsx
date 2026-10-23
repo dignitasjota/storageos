@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
 import { useSetCustomerMarketing } from '@/lib/customers/hooks';
+import { formatDate } from '@/lib/format';
 
 /**
  * Comunicaciones comerciales (campañas, win-back). Un cliente las recibe
@@ -49,7 +50,7 @@ export function MarketingPreferenceCard({
       <CardContent className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <p className="text-muted-foreground">
           {optOutAt
-            ? `Se dio de baja el ${new Date(optOutAt).toLocaleDateString('es-ES')}: no recibe campañas ni ofertas.`
+            ? `Se dio de baja el ${formatDate(optOutAt)}: no recibe campañas ni ofertas.`
             : 'Recibe campañas y ofertas. Cada correo comercial lleva un enlace para darse de baja.'}
         </p>
         <Can permission="customers:write">

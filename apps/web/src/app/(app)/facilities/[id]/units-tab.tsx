@@ -20,6 +20,7 @@ import {
 import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
 import { ApiError } from '@/lib/auth/api';
 import { useDeleteUnit, useUnits, useUnitTypes } from '@/lib/facilities/hooks';
+import { formatEur, formatNumber } from '@/lib/format';
 
 interface Props {
   facilityId: string;
@@ -77,12 +78,12 @@ export function FacilityUnitsTab({ facilityId }: Props) {
     {
       accessorKey: 'areaM2',
       header: 'm²',
-      cell: ({ row }) => row.original.areaM2.toFixed(2),
+      cell: ({ row }) => formatNumber(row.original.areaM2),
     },
     {
       accessorKey: 'basePriceMonthly',
       header: 'Precio (sin IVA)',
-      cell: ({ row }) => `${row.original.basePriceMonthly.toFixed(2)} €`,
+      cell: ({ row }) => formatEur(row.original.basePriceMonthly),
     },
     {
       accessorKey: 'status',

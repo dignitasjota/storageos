@@ -6,12 +6,12 @@ import {
   type SupportTicketStatusValue,
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { BackLink } from '@/components/layout/back-link';
 import {
   AttachmentPicker,
   AttachmentView,
@@ -73,10 +73,8 @@ export default function SupportTicketPage() {
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
-        <Link href="/support" className="text-xs text-muted-foreground hover:underline">
-          ← Volver a soporte
-        </Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">{t.subject}</h1>
+        <BackLink href="/support" label="Soporte" />
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight">{t.subject}</h1>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <Badge variant="secondary">{STATUS_LABELS[t.status]}</Badge>
           <span>Abierto el {new Date(t.createdAt).toLocaleString('es-ES')}</span>

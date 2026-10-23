@@ -56,6 +56,7 @@ import {
   useUnitTypes,
   useUpdateUnitType,
 } from '@/lib/facilities/hooks';
+import { formatEur } from '@/lib/format';
 
 export function FacilityUnitTypesTab() {
   const ask = useConfirm();
@@ -160,7 +161,7 @@ export function FacilityUnitTypesTab() {
     {
       accessorKey: 'defaultPriceMonthly',
       header: 'Precio mensual (sin IVA)',
-      cell: ({ row }) => `${row.original.defaultPriceMonthly.toFixed(2)} €`,
+      cell: ({ row }) => formatEur(row.original.defaultPriceMonthly),
     },
     {
       accessorKey: 'unitsCount',

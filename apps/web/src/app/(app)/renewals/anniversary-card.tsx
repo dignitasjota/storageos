@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { formatDate } from '@/lib/format';
 import {
   useAnniversaryDue,
   useAnniversarySettings,
@@ -29,7 +30,7 @@ import {
 } from '@/lib/renewals/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString('es-ES');
+const day = (iso: string) => formatDate(`${iso}T00:00:00`);
 
 /**
  * Actualización anual de la renta en el aniversario de cada contrato (índice

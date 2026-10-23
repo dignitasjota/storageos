@@ -50,6 +50,7 @@ import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCameraEventsByIncident } from '@/lib/cameras/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { formatDate } from '@/lib/format';
 import {
   useAddIncidentComment,
   useCreateIncident,
@@ -198,7 +199,7 @@ export default function IncidentsPage() {
     {
       accessorKey: 'createdAt',
       header: 'Reportada',
-      cell: ({ row }) => new Date(row.original.createdAt).toLocaleDateString('es-ES'),
+      cell: ({ row }) => formatDate(row.original.createdAt),
     },
     {
       accessorKey: 'status',

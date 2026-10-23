@@ -45,6 +45,7 @@ import {
   useCreateInvoice,
 } from '@/lib/billing/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { formatDate, formatEur } from '@/lib/format';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 const SIMPLIFIED_JUSTIFICATION_LABELS: Record<SimplifiedJustificationValue, string> = {
@@ -239,14 +240,12 @@ export default function InvoicesPage() {
     {
       accessorKey: 'issueDate',
       header: 'Emitida',
-      cell: ({ row }) =>
-        row.original.issueDate ? new Date(row.original.issueDate).toLocaleDateString('es-ES') : '—',
+      cell: ({ row }) => (row.original.issueDate ? formatDate(row.original.issueDate) : '—'),
     },
     {
       accessorKey: 'dueDate',
       header: 'Vencimiento',
-      cell: ({ row }) =>
-        row.original.dueDate ? new Date(row.original.dueDate).toLocaleDateString('es-ES') : '—',
+      cell: ({ row }) => (row.original.dueDate ? formatDate(row.original.dueDate) : '—'),
     },
     {
       accessorKey: 'total',
@@ -465,8 +464,8 @@ export default function InvoicesPage() {
 
             {newType === 'F2' && exceedsBasicF2 && !newJustification && (
               <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                El total ({newTotal.toFixed(2)}€) supera el limite F2 sin justificacion (400€).
-                Anade una justificacion para llegar a 3000€.
+                El total ({formatEur(newTotal)}) supera el limite F2 sin justificacion (400€). Anade
+                una justificacion para llegar a 3000€.
               </div>
             )}
 
@@ -601,7 +600,7 @@ export default function InvoicesPage() {
                 </table>
               </div>
               <p className="text-right text-sm tabular-nums">
-                Total: <span className="font-semibold">{newTotal.toFixed(2)} €</span>
+                Total: <span className="font-semibold">{formatEur(newTotal)}</span>
               </p>
             </div>
           </div>

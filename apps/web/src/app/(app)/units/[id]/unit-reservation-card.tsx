@@ -33,6 +33,7 @@ import {
   useReservations,
 } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
+import { formatDate } from '@/lib/format';
 
 /** Fecha (YYYY-MM-DD) → ISO al final de ese día, para que la reserva cubra el día completo. */
 function endOfDayIso(date: string): string {
@@ -134,7 +135,7 @@ export function UnitReservationCard({
                 <span className="font-medium">{active.customerName ?? 'Sin cliente'}</span>
               )}
               <p className="text-xs text-muted-foreground">
-                Hasta {new Date(active.validUntil).toLocaleDateString('es-ES')}
+                Hasta {formatDate(active.validUntil)}
                 {active.notes ? ` · ${active.notes}` : ''}
               </p>
             </div>

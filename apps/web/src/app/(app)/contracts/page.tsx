@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
+import { formatDate, formatEur } from '@/lib/format';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 const STATUS_LABELS: Record<ContractStatusValue, string> = {
@@ -81,12 +82,12 @@ export default function ContractsPage() {
     {
       accessorKey: 'startDate',
       header: 'Inicio',
-      cell: ({ row }) => new Date(row.original.startDate).toLocaleDateString('es-ES'),
+      cell: ({ row }) => formatDate(row.original.startDate),
     },
     {
       accessorKey: 'effectivePrice',
       header: 'Cuota',
-      cell: ({ row }) => `${row.original.effectivePrice.toFixed(2)} €`,
+      cell: ({ row }) => formatEur(row.original.effectivePrice),
     },
     {
       accessorKey: 'status',

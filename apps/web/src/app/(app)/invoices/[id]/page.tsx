@@ -62,6 +62,7 @@ import {
   useRectifyInvoice,
   useRefundInvoice,
 } from '@/lib/billing/hooks';
+import { formatEur } from '@/lib/format';
 import { fetchRedsysRedirect, submitRedsysForm, useRedsysSettings } from '@/lib/payments/redsys';
 
 /**
@@ -189,7 +190,7 @@ export default function InvoiceDetailPage() {
       return;
     try {
       const fee = await lateFee.mutateAsync({ id: i.id });
-      toast.success(`Recargo emitido: ${fee.invoiceNumber ?? fee.id} (${fee.total.toFixed(2)} €).`);
+      toast.success(`Recargo emitido: ${fee.invoiceNumber ?? fee.id} (${formatEur(fee.total)}).`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -472,12 +473,12 @@ export default function InvoiceDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Total</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold tabular-nums">{i.total.toFixed(2)} €</p>
-            <p className="text-xs text-muted-foreground">IVA {i.taxAmount.toFixed(2)} €</p>
+            <p className="text-xl font-semibold tabular-nums">{formatEur(i.total)}</p>
+            <p className="text-xs text-muted-foreground">IVA {formatEur(i.taxAmount)}</p>
             {i.withholdingAmount > 0 && (
               <p className="text-xs text-muted-foreground">
-                Retención IRPF ({i.withholdingPct} %) −{i.withholdingAmount.toFixed(2)} € · a pagar{' '}
-                {i.amountDue.toFixed(2)} €
+                Retención IRPF ({i.withholdingPct} %) −{formatEur(i.withholdingAmount)} · a pagar{' '}
+                {formatEur(i.amountDue)}
               </p>
             )}
           </CardContent>
@@ -488,11 +489,11 @@ export default function InvoiceDetailPage() {
           </CardHeader>
           <CardContent>
             <p className="text-xl font-semibold tabular-nums">
-              {(i.amountPaid - i.withholdingAmount).toFixed(2)} €
+              {formatEur(i.amountPaid - i.withholdingAmount)}
             </p>
             {i.amountRefunded > 0 && (
               <p className="text-xs text-muted-foreground">
-                Reembolsado {i.amountRefunded.toFixed(2)} €
+                Reembolsado {formatEur(i.amountRefunded)}
               </p>
             )}
           </CardContent>
@@ -507,7 +508,7 @@ export default function InvoiceDetailPage() {
                 i.amountPending > 0 ? 'text-destructive' : ''
               }`}
             >
-              {i.amountPending.toFixed(2)} €
+              {formatEur(i.amountPending)}
             </p>
           </CardContent>
         </Card>
@@ -549,13 +550,13 @@ export default function InvoiceDetailPage() {
                       )}
                     </td>
                     <td className="py-2 text-right">{item.quantity}</td>
-                    <td className="py-2 text-right">{item.unitPrice.toFixed(2)} €</td>
+                    <td className="py-2 text-right">{formatEur(item.unitPrice)}</td>
                     <td className="py-2 text-right">
                       {item.taxCategory === 'S1'
                         ? `${item.taxRate}%`
                         : INVOICE_TAX_CATEGORY_LABELS[item.taxCategory]}
                     </td>
-                    <td className="py-2 text-right tabular-nums">{item.total.toFixed(2)} €</td>
+                    <td className="py-2 text-right tabular-nums">{formatEur(item.total)}</td>
                   </tr>
                 ))}
               </tbody>

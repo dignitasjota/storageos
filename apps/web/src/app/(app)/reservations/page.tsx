@@ -43,6 +43,7 @@ import {
 import { localDateString } from '@/lib/dates';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
+import { formatDate, formatEur } from '@/lib/format';
 
 const STATUS_LABELS: Record<ReservationStatusValue, string> = {
   pending: 'Pendiente',
@@ -104,17 +105,17 @@ export default function ReservationsPage() {
     {
       accessorKey: 'validFrom',
       header: 'Desde',
-      cell: ({ row }) => new Date(row.original.validFrom).toLocaleDateString('es-ES'),
+      cell: ({ row }) => formatDate(row.original.validFrom),
     },
     {
       accessorKey: 'validUntil',
       header: 'Hasta',
-      cell: ({ row }) => new Date(row.original.validUntil).toLocaleDateString('es-ES'),
+      cell: ({ row }) => formatDate(row.original.validUntil),
     },
     {
       accessorKey: 'depositAmount',
       header: 'Fianza',
-      cell: ({ row }) => `${row.original.depositAmount.toFixed(2)} €`,
+      cell: ({ row }) => formatEur(row.original.depositAmount),
     },
     {
       accessorKey: 'status',

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { ContractStatusBadge } from '@/components/contract-status-badge';
 import { DataTable } from '@/components/data-table';
 import { useContracts } from '@/lib/customers/hooks';
+import { formatDate, formatEur } from '@/lib/format';
 
 export function CustomerContractsTab({ customerId }: { customerId: string }) {
   const contracts = useContracts({ customerId });
@@ -33,12 +34,12 @@ export function CustomerContractsTab({ customerId }: { customerId: string }) {
     {
       accessorKey: 'startDate',
       header: 'Inicio',
-      cell: ({ row }) => new Date(row.original.startDate).toLocaleDateString('es-ES'),
+      cell: ({ row }) => formatDate(row.original.startDate),
     },
     {
       accessorKey: 'effectivePrice',
       header: 'Cuota',
-      cell: ({ row }) => `${row.original.effectivePrice.toFixed(2)} €`,
+      cell: ({ row }) => formatEur(row.original.effectivePrice),
     },
     {
       accessorKey: 'status',

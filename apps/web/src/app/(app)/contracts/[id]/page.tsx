@@ -64,6 +64,7 @@ import {
 } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
 import { useUnits } from '@/lib/facilities/hooks';
+import { formatDate, formatEur } from '@/lib/format';
 import { useInsurancePlans, useSetContractInsurance } from '@/lib/insurance/hooks';
 
 const EVENT_LABELS: Record<string, string> = {
@@ -304,14 +305,13 @@ export default function ContractDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold tabular-nums">{c.effectivePrice.toFixed(2)} €</p>
+            <p className="text-xl font-semibold tabular-nums">{formatEur(c.effectivePrice)}</p>
             <p className="text-xs text-muted-foreground">
-              Base {c.priceMonthly.toFixed(2)} − descuento {c.discountAmount.toFixed(2)} €
+              Base {formatEur(c.priceMonthly)} − descuento {formatEur(c.discountAmount)}
             </p>
             {c.discountAmount > 0 && c.discountExpiresAt && (
               <p className="text-xs text-muted-foreground">
-                Descuento hasta el {new Date(c.discountExpiresAt).toLocaleDateString('es-ES')}{' '}
-                (luego vuelve a la cuota base)
+                Descuento hasta el {formatDate(c.discountExpiresAt)} (luego vuelve a la cuota base)
               </p>
             )}
             {c.billingIntervalMonths > 1 && (
@@ -333,7 +333,7 @@ export default function ContractDetailPage() {
                 Cupón {c.coupon.code}:{' '}
                 {c.coupon.freeMonths > 0
                   ? `${c.coupon.freeMonths} ${c.coupon.freeMonths === 1 ? 'mes gratis' : 'meses gratis'}`
-                  : `−${c.coupon.discountAmount.toFixed(2)} € en el primer pago`}
+                  : `−${formatEur(c.coupon.discountAmount)} en el primer pago`}
               </p>
             )}
           </CardContent>
@@ -343,7 +343,7 @@ export default function ContractDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Fianza</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold tabular-nums">{c.depositAmount.toFixed(2)} €</p>
+            <p className="text-xl font-semibold tabular-nums">{formatEur(c.depositAmount)}</p>
             <p className="text-xs text-muted-foreground">{depositStatusLabel(c.depositStatus)}</p>
           </CardContent>
         </Card>
@@ -352,7 +352,7 @@ export default function ContractDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Inicio</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm">{c.startDate}</p>
+            <p className="text-sm">{formatDate(c.startDate)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -360,7 +360,7 @@ export default function ContractDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Fin</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm">{c.endDate ?? 'Sin fecha'}</p>
+            <p className="text-sm">{c.endDate ? formatDate(c.endDate) : 'Sin fecha'}</p>
           </CardContent>
         </Card>
       </div>
@@ -416,7 +416,7 @@ export default function ContractDetailPage() {
                   <p className="text-sm">
                     <strong>{EVENT_LABELS[e.eventType] ?? e.eventType}</strong>
                     {e.eventType === 'price_changed' &&
-                      ` · ${(e.payload.from as number).toFixed(2)} → ${(e.payload.to as number).toFixed(2)} €`}
+                      ` · ${formatEur(e.payload.from as number)} → ${formatEur(e.payload.to as number)}`}
                     {e.eventType === 'note_added' && e.payload.event === 'prepay_credit_note' ? (
                       <span className="block text-muted-foreground">
                         Abono por baja anticipada ({String(e.payload.unusedMonths)} meses no
@@ -554,8 +554,8 @@ export default function ContractDetailPage() {
                 onChange={(e) => setRenewMonths(Number(e.target.value))}
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Se suma al fin actual{c.endDate ? ` (${c.endDate})` : ' (desde hoy)'}. Si el
-                contrato está en baja, vuelve a activo.
+                Se suma al fin actual{c.endDate ? ` (${formatDate(c.endDate)})` : ' (desde hoy)'}.
+                Si el contrato está en baja, vuelve a activo.
               </p>
             </div>
           </div>
@@ -595,7 +595,7 @@ export default function ContractDetailPage() {
                 <option value="">Elige un trastero…</option>
                 {(availableUnits.data?.items ?? []).map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.code} · {u.facilityName} ({u.basePriceMonthly.toFixed(2)} €/mes)
+                    {u.code} · {u.facilityName} ({formatEur(u.basePriceMonthly)}/mes)
                   </option>
                 ))}
               </select>
@@ -777,7 +777,7 @@ function InsuranceCard({
         {planId ? (
           <p className="text-sm">
             <span className="font-medium">{planName}</span>
-            {price != null && ` · ${price.toFixed(2)} €/mes`}{' '}
+            {price != null && ` · ${formatEur(price)}/mes`}{' '}
             <span className="text-muted-foreground">(se factura con el alquiler)</span>
           </p>
         ) : (
@@ -792,7 +792,7 @@ function InsuranceCard({
               <SelectItem value="none">Sin seguro</SelectItem>
               {(plans.data ?? []).map((p) => (
                 <SelectItem key={p.id} value={p.id}>
-                  {p.name} · {p.monthlyPrice.toFixed(2)} €/mes
+                  {p.name} · {formatEur(p.monthlyPrice)}/mes
                 </SelectItem>
               ))}
             </SelectContent>

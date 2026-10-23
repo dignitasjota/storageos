@@ -55,6 +55,7 @@ import {
   useReviewCompetitor,
 } from '@/lib/competitors/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { formatDate } from '@/lib/format';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
@@ -232,7 +233,7 @@ function CompetitorCard({
           className={`mt-2 text-xs ${reviewStale ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
         >
           {facility.lastReviewedAt
-            ? `Última revisión: ${new Date(facility.lastReviewedAt).toLocaleDateString('es-ES')}${reviewStale ? ' · conviene revisarlo' : ''}`
+            ? `Última revisión: ${formatDate(facility.lastReviewedAt)}${reviewStale ? ' · conviene revisarlo' : ''}`
             : 'Sin revisar todavía'}
         </p>
       </CardContent>
@@ -452,7 +453,7 @@ function CompetitorUnits({
                     <HistorySummary unit={u} />
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {new Date(u.lastCheckedAt).toLocaleDateString('es-ES')}
+                    {formatDate(u.lastCheckedAt)}
                   </TableCell>
                   <TableCell className="space-x-1 whitespace-nowrap text-right">
                     <Button
@@ -650,9 +651,7 @@ function UnitHistoryDialog({
               const diff = prev ? o.priceMonthly - prev.priceMonthly : 0;
               return (
                 <TableRow key={o.id}>
-                  <TableCell className="text-sm">
-                    {new Date(o.observedAt).toLocaleDateString('es-ES')}
-                  </TableCell>
+                  <TableCell className="text-sm">{formatDate(o.observedAt)}</TableCell>
                   <TableCell className="text-sm">
                     {eur(o.priceMonthly)}
                     {diff !== 0 && (

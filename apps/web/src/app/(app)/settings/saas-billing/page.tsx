@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
+import { formatDate } from '@/lib/format';
 import {
   useCancelAddon,
   useChangePlan,
@@ -190,7 +191,7 @@ export default function SaasBillingPage() {
                 label="Periodo actual"
                 value={`${new Date(sub.currentPeriodStart).toLocaleDateString(
                   'es-ES',
-                )} → ${new Date(sub.currentPeriodEnd).toLocaleDateString('es-ES')}`}
+                )} → ${formatDate(sub.currentPeriodEnd)}`}
               />
             </>
           )}
@@ -412,7 +413,7 @@ function SaasInvoicesSection() {
 
   const eur = (n: number, currency = 'EUR') =>
     new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(n);
-  const date = (s: string | null) => (s ? new Date(s).toLocaleDateString('es-ES') : '—');
+  const date = (s: string | null) => (s ? formatDate(s) : '—');
 
   async function openPdf(invoiceId: string) {
     try {
@@ -566,7 +567,7 @@ function SelfAddonsSection() {
   const trials = data.data?.trials ?? [];
   const trialUntil = (addonId: string) => {
     const t = trials.find((x) => x.addonId === addonId);
-    return t ? new Date(t.expiresAt).toLocaleDateString('es-ES') : null;
+    return t ? formatDate(t.expiresAt) : null;
   };
   const includedInPlan = data.data?.includedInPlan ?? [];
   const exempt = data.data?.billingExempt ?? false;

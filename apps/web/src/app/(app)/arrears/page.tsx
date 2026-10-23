@@ -24,10 +24,10 @@ import { useBulkChargeInvoices, useBulkRemindInvoices } from '@/lib/billing/hook
 import { useOpenCase } from '@/lib/collections/hooks';
 import { useArrears, useCancelPaymentPlan, usePaymentPlans } from '@/lib/collections-ops/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { formatDate } from '@/lib/format';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const day = (iso: string) =>
-  new Date(iso.length === 10 ? `${iso}T12:00:00` : iso).toLocaleDateString('es-ES');
+const day = (iso: string) => formatDate(iso.length === 10 ? `${iso}T12:00:00` : iso);
 
 const PLAN_STATUS: Record<string, string> = {
   active: 'Al día',

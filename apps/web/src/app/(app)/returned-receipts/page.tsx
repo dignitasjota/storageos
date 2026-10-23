@@ -22,9 +22,10 @@ import { useReturnedReceipts } from '@/lib/billing/hooks';
 import { downloadCsv } from '@/lib/csv';
 import { localDateString } from '@/lib/dates';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { formatDate } from '@/lib/format';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
+const day = (iso: string) => formatDate(iso);
 
 const KIND_LABELS: Record<ReturnedReceiptKind, string> = {
   direct_debit_return: 'Domiciliación devuelta',

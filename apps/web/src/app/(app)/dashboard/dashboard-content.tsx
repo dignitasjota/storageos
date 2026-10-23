@@ -25,6 +25,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useHasFeature, useHasPermission, useMe } from '@/lib/auth/hooks';
 
+const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
+  trial: 'En prueba',
+  active: 'Activa',
+  past_due: 'Pago pendiente',
+  cancelled: 'Cancelada',
+  expired: 'Caducada',
+};
+
 function daysUntil(iso: string | null): number | null {
   if (!iso) return null;
   const ms = new Date(iso).getTime() - Date.now();
@@ -89,8 +97,8 @@ export function DashboardContent() {
               {trialDate ? ` · ${format.dateTime(trialDate, 'long')}` : ''}
             </Badge>
           ) : (
-            <Badge variant="outline" className="capitalize">
-              {subscription.status}
+            <Badge variant="outline">
+              {SUBSCRIPTION_STATUS_LABELS[subscription.status] ?? subscription.status}
             </Badge>
           )}
         </div>

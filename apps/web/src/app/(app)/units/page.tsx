@@ -55,6 +55,7 @@ import {
   useUnitTypes,
 } from '@/lib/facilities/hooks';
 import { useFacilityStore } from '@/lib/facilities/store';
+import { formatEur, formatNumber } from '@/lib/format';
 
 // Konva no funciona en SSR; el plano se carga solo en cliente.
 const PlanViewer = dynamic(() => import('./plan-viewer').then((m) => m.PlanViewer), {
@@ -194,12 +195,12 @@ export default function UnitsPage() {
       {
         accessorKey: 'areaM2',
         header: 'm²',
-        cell: ({ row }) => row.original.areaM2.toFixed(2),
+        cell: ({ row }) => formatNumber(row.original.areaM2),
       },
       {
         accessorKey: 'basePriceMonthly',
         header: 'Precio',
-        cell: ({ row }) => `${row.original.basePriceMonthly.toFixed(2)} €`,
+        cell: ({ row }) => formatEur(row.original.basePriceMonthly),
       },
       {
         accessorKey: 'status',

@@ -46,6 +46,7 @@ import {
 } from '@/lib/expenses/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
+import { formatDate } from '@/lib/format';
 import { useMarketingChannels } from '@/lib/marketing/hooks';
 import { usePagedList } from '@/lib/pagination';
 
@@ -314,7 +315,7 @@ export default function ExpensesPage() {
                 <tbody>
                   {expenses.rows.map((e) => (
                     <tr key={e.id} className="border-t">
-                      <td className="p-2 tabular-nums">{e.expenseDate}</td>
+                      <td className="p-2 tabular-nums">{formatDate(e.expenseDate)}</td>
                       <td className="p-2">{EXPENSE_CATEGORY_LABELS[e.category]}</td>
                       <td className="p-2 text-muted-foreground">{e.facilityName ?? '— General'}</td>
                       <td className="p-2">

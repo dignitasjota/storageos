@@ -85,6 +85,7 @@ import { useAccessSettings, useUpdateAccessSettings } from '@/lib/access/setting
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { formatDate } from '@/lib/format';
 
 const METHOD_LABELS: Record<AccessMethodValue, { label: string; Icon: React.ElementType }> = {
   pin: { label: 'PIN', Icon: KeyRound },
@@ -212,13 +213,12 @@ export default function CredentialsPage() {
     {
       accessorKey: 'expiresAt',
       header: 'Expira',
-      cell: ({ row }) =>
-        row.original.expiresAt ? new Date(row.original.expiresAt).toLocaleDateString('es-ES') : '—',
+      cell: ({ row }) => (row.original.expiresAt ? formatDate(row.original.expiresAt) : '—'),
     },
     {
       accessorKey: 'createdAt',
       header: 'Creada',
-      cell: ({ row }) => new Date(row.original.createdAt).toLocaleDateString('es-ES'),
+      cell: ({ row }) => formatDate(row.original.createdAt),
     },
     {
       id: 'actions',

@@ -45,10 +45,11 @@ import {
   useUpdateCoupon,
 } from '@/lib/coupons/hooks';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
+import { formatDate } from '@/lib/format';
 
 const eur = (n: number) =>
   n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 });
-const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
+const day = (iso: string) => formatDate(iso);
 
 function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.body.message : 'Error';

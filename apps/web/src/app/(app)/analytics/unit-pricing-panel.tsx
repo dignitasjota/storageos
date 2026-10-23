@@ -40,6 +40,7 @@ import { useApplyUnitPricing, useUnitPricingSuggestions } from '@/lib/analytics/
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { formatDate } from '@/lib/format';
 import { useCancelUnitOffer, useCreateUnitOffer } from '@/lib/promotions/hooks';
 
 const ACTION: Record<
@@ -239,8 +240,7 @@ export function UnitPricingPanel() {
                           <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
                             Oferta activa: {s.activeOffer.freeMonths}{' '}
                             {s.activeOffer.freeMonths === 1 ? 'mes gratis' : 'meses gratis'} hasta
-                            el {new Date(s.activeOffer.validUntil).toLocaleDateString('es-ES')} (
-                            {s.activeOffer.code})
+                            el {formatDate(s.activeOffer.validUntil)} ({s.activeOffer.code})
                           </p>
                         )}
                       </TableCell>

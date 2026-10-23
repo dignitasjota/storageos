@@ -42,6 +42,7 @@ import {
   useUpdateBankReconciliationSettings,
 } from '@/lib/bank-reconciliation/hooks';
 import { useInvoices } from '@/lib/billing/hooks';
+import { formatDate } from '@/lib/format';
 
 const eur = (n: number) =>
   new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
@@ -128,8 +129,8 @@ export default function BankReconciliationPage() {
                 >
                   <p className="font-medium">{s.accountLabel}</p>
                   <p className="text-xs text-muted-foreground">
-                    {s.startDate} → {s.endDate} · {s.transactionCount} mov. · {s.matchedCount}{' '}
-                    conciliados
+                    {formatDate(s.startDate)} → {formatDate(s.endDate)} · {s.transactionCount} mov.
+                    · {s.matchedCount} conciliados
                   </p>
                 </button>
               ))
@@ -249,7 +250,7 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
           <TableBody>
             {detail.data.transactions.map((t) => (
               <TableRow key={t.id}>
-                <TableCell className="text-xs">{t.operationDate}</TableCell>
+                <TableCell className="text-xs">{formatDate(t.operationDate)}</TableCell>
                 <TableCell className="text-xs">
                   <span className="line-clamp-1">{t.description || t.reference || '—'}</span>
                 </TableCell>
