@@ -62,6 +62,17 @@ function withVersion(path: string): string {
 let refreshInFlight: Promise<string | null> | null = null;
 
 /**
+ * La renovación no ha podido hacerse (sin conexión, servidor caído…): la
+ * sesión puede seguir siendo válida, así que no se borra ni se manda al login.
+ */
+export class RefreshUnavailableError extends Error {
+  constructor() {
+    super('refresh_unavailable');
+    this.name = 'RefreshUnavailableError';
+  }
+}
+
+/**
  * Lanza la rotacion del refresh token; deduplica si ya hay una en curso.
  * Exportado para que `AuthBootstrap` comparta la MISMA promesa: dos refresh
  * simultáneos con la misma cookie se interpretan en el backend como reuso de
@@ -78,10 +89,18 @@ export async function performRefresh(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const res = await fetch(`${env.apiUrl}${withVersion('/auth/refresh')}`, {
-        method: 'POST',
-        credentials: 'include',
-      });
+      let res: Response;
+      try {
+        res = await fetch(`${env.apiUrl}${withVersion('/auth/refresh')}`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch {
+        // Sin red (p. ej. al abrir la app del móvil antes de que haya cobertura).
+        throw new RefreshUnavailableError();
+      }
+      // Servidor caído o límite de peticiones: tampoco dice que la sesión acabó.
+      if (res.status >= 500 || res.status === 429) throw new RefreshUnavailableError();
       if (!res.ok) {
         useAuthStore.getState().clear();
         return null;
@@ -89,9 +108,6 @@ export async function performRefresh(): Promise<string | null> {
       const data = (await res.json()) as { accessToken: string };
       useAuthStore.getState().setAccessToken(data.accessToken);
       return data.accessToken;
-    } catch {
-      useAuthStore.getState().clear();
-      return null;
     } finally {
       refreshInFlight = null;
     }

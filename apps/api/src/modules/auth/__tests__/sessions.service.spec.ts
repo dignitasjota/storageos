@@ -39,6 +39,7 @@ interface TxMock {
     update: jest.Mock;
     updateMany: jest.Mock;
     count: jest.Mock;
+    findMany: jest.Mock;
   };
 }
 
@@ -58,6 +59,8 @@ function buildTx(): TxMock {
       update: jest.fn(),
       updateMany: jest.fn(),
       count: jest.fn().mockResolvedValue(1),
+      // Sesiones emitidas a partir de la presentada (ninguna por defecto).
+      findMany: jest.fn().mockResolvedValue([]),
     },
   };
 }
@@ -240,6 +243,30 @@ describe('SessionsService', () => {
         }),
       );
       expect(tx.session.create).not.toHaveBeenCalled();
+    });
+
+    it('respuesta perdida: la heredera no se usó y es el mismo navegador → se sustituye sin revoke-all', async () => {
+      const { secret, secretHash } = await tokens.generateRefreshSecret();
+      const session = buildSession({
+        refreshTokenHash: secretHash,
+        revokedAt: new Date(Date.now() - REFRESH_REUSE_GRACE_MS - 3_600_000),
+        revokedReason: 'rotated',
+        userAgent: 'Mobile Safari',
+      });
+      tx.session.findUnique.mockResolvedValue(session);
+      tx.session.findMany.mockResolvedValue([{ id: 'heir', revokedAt: null, revokedReason: null }]);
+      tx.session.updateMany.mockResolvedValueOnce({ count: 1 });
+      tx.session.create.mockResolvedValue(buildSession({ id: 'replacement' }));
+
+      const refreshToken = tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
+      const result = await svc.rotate({ refreshToken, userAgent: 'Mobile Safari' });
+      expect(result.session.id).toBe('replacement');
+      expect(tx.session.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: { in: ['heir'] }, revokedAt: null },
+          data: expect.objectContaining({ revokedReason: 'lost_response' }),
+        }),
+      );
     });
 
     describe('margen de gracia (carreras benignas del navegador)', () => {
