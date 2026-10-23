@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-import { isValidIban, normalizeIban } from '../sepa';
+import {
+  isValidIban,
+  normalizeIban,
+  SignSepaMandateSchema,
+  type SepaMandateParty,
+  type SepaMandateSignatureStatus,
+} from '../sepa';
 
 /**
  * Cobro de la cuota de suscripción SaaS por domiciliación SEPA directa
@@ -37,6 +43,18 @@ export const UpdatePlatformSepaSettingsSchema = z.object({
   creditorIban: ibanSchema.optional(),
   creditorBic: bicSchema,
   enabled: z.boolean().default(false),
+  /** Domicilio del acreedor (sale en el mandato que firman los tenants). */
+  creditorAddress: z.string().trim().max(140).optional(),
+  creditorPostalCode: z.string().trim().max(16).optional(),
+  creditorCity: z.string().trim().max(70).optional(),
+  creditorCountry: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/)
+    .optional(),
+  /** Preaviso de cada cargo pactado en el mandato (5 días por defecto). */
+  prenoticeDays: z.number().int().min(1).max(30).optional(),
 });
 export type UpdatePlatformSepaSettingsInput = z.infer<typeof UpdatePlatformSepaSettingsSchema>;
 
@@ -47,19 +65,37 @@ export interface PlatformSepaSettingsDto {
   creditorIbanLast4: string | null;
   creditorBic: string | null;
   enabled: boolean;
+  creditorAddress: string | null;
+  creditorPostalCode: string | null;
+  creditorCity: string | null;
+  creditorCountry: string;
+  prenoticeDays: number;
 }
 
 // ---------------------------------------------------------------------------
 // Mandato (deudor = el tenant; autoservicio, nunca lo crea el admin)
 // ---------------------------------------------------------------------------
 
-export const CreatePlatformSepaMandateSchema = z.object({
-  iban: ibanSchema,
-  bic: bicSchema,
-  /** Fecha de firma del mandato (YYYY-MM-DD). */
-  signedAt: dateOnly,
-});
+/**
+ * El tenant da su IBAN y firma la orden de domiciliación (firma dibujada o
+ * escrita, con constancia), como exige el contrato de adeudos del banco.
+ */
+export const CreatePlatformSepaMandateSchema = z
+  .object({
+    iban: ibanSchema,
+    bic: bicSchema,
+  })
+  .and(SignSepaMandateSchema);
 export type CreatePlatformSepaMandateInput = z.infer<typeof CreatePlatformSepaMandateSchema>;
+
+/** Lo que necesita la pantalla del tenant para mostrar la orden antes de firmarla. */
+export interface PlatformSepaMandateTermsDto {
+  available: boolean;
+  creditor: (SepaMandateParty & { creditorId: string }) | null;
+  prenoticeDays: number;
+  /** Datos fiscales del tenant para rellenar el deudor. */
+  debtor: SepaMandateParty;
+}
 
 export interface PlatformSepaMandateDto {
   id: string;
@@ -70,6 +106,9 @@ export interface PlatformSepaMandateDto {
   signedAt: string;
   sequenceType: 'FRST' | 'RCUR';
   status: 'active' | 'cancelled';
+  signatureStatus: SepaMandateSignatureStatus;
+  signedByName: string | null;
+  signedAtTimestamp: string | null;
   createdAt: string;
 }
 
@@ -99,8 +138,12 @@ export interface PlatformSepaEligibleTenantDto {
 export interface PlatformSepaRemittancePreviewDto {
   eligible: PlatformSepaEligibleTenantDto[];
   total: number;
-  /** Tenants en modo 'sepa' sin mandato activo (no se pueden incluir). */
-  withoutMandate: { tenantId: string; tenantName: string }[];
+  /** Tenants en modo 'sepa' sin mandato activo y firmado (no se pueden incluir). */
+  withoutMandate: { tenantId: string; tenantName: string; pendingSignature?: boolean }[];
+  /** Preaviso pactado: la fecha de cobro tiene que ser al menos hoy + estos días. */
+  prenoticeDays: number;
+  /** Primera fecha de cobro posible. */
+  earliestCollectionDate: string;
 }
 
 export interface PlatformSepaRemittanceItemDto {

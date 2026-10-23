@@ -31,6 +31,11 @@ export class PlatformSepaSettingsService {
         creditorIbanLast4: null,
         creditorBic: row?.creditorBic ?? null,
         enabled: row?.enabled ?? false,
+        creditorAddress: row?.creditorAddress ?? null,
+        creditorPostalCode: row?.creditorPostalCode ?? null,
+        creditorCity: row?.creditorCity ?? null,
+        creditorCountry: row?.creditorCountry ?? 'ES',
+        prenoticeDays: row?.prenoticeDays ?? 5,
       };
     }
     const iban = this.crypto.decryptString(row.creditorIbanEncrypted, CREDITOR_AAD);
@@ -41,6 +46,11 @@ export class PlatformSepaSettingsService {
       creditorIbanLast4: iban.slice(-4),
       creditorBic: row.creditorBic,
       enabled: row.enabled,
+      creditorAddress: row.creditorAddress,
+      creditorPostalCode: row.creditorPostalCode,
+      creditorCity: row.creditorCity,
+      creditorCountry: row.creditorCountry,
+      prenoticeDays: row.prenoticeDays,
     };
   }
 
@@ -62,6 +72,15 @@ export class PlatformSepaSettingsService {
       creditorIbanEncrypted,
       creditorBic: input.creditorBic || null,
       enabled: input.enabled,
+      ...(input.creditorAddress !== undefined
+        ? { creditorAddress: input.creditorAddress || null }
+        : {}),
+      ...(input.creditorPostalCode !== undefined
+        ? { creditorPostalCode: input.creditorPostalCode || null }
+        : {}),
+      ...(input.creditorCity !== undefined ? { creditorCity: input.creditorCity || null } : {}),
+      ...(input.creditorCountry ? { creditorCountry: input.creditorCountry } : {}),
+      ...(input.prenoticeDays ? { prenoticeDays: input.prenoticeDays } : {}),
     };
     if (existing) {
       await this.admin.platformSepaSettings.update({ where: { id: existing.id }, data });

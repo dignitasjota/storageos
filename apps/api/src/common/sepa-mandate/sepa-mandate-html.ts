@@ -58,3 +58,22 @@ ${ev.userAgent ? `<div>Navegador: ${esc(ev.userAgent)}</div>` : ''}
 </div>
 </body></html>`;
 }
+
+/**
+ * Vuelve a armar el documento desde el texto guardado (el que se firmó), para
+ * el PDF: título, «campo: valor» y las cláusulas.
+ */
+export function parseStoredDocument(text: string): SepaMandateDocument {
+  const [title = '', ...rest] = text.split('\n');
+  const blank = rest.indexOf('', 1);
+  const fieldLines = rest.slice(1, blank === -1 ? undefined : blank);
+  const clauses = blank === -1 ? [] : rest.slice(blank + 1).filter(Boolean);
+  return {
+    title,
+    fields: fieldLines.map((l) => {
+      const i = l.indexOf(': ');
+      return { label: l.slice(0, i), value: l.slice(i + 2) };
+    }),
+    clauses,
+  };
+}

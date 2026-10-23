@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 
+import { SepaMandatePdfService } from '../../common/sepa-mandate/sepa-mandate-pdf.service';
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { CommunicationsModule } from '../communications/communications.module';
 
-import { SepaMandatePdfService } from './sepa-mandate-pdf.service';
 import { SepaMandatePublicController } from './sepa-mandate-public.controller';
 import { SepaController } from './sepa.controller';
 import { SepaService } from './sepa.service';
@@ -19,6 +19,6 @@ import { SepaService } from './sepa.service';
   imports: [AuthModule, BillingModule, CommunicationsModule],
   controllers: [SepaController, SepaMandatePublicController],
   providers: [SepaService, SepaMandatePdfService],
-  exports: [SepaService, SepaMandatePdfService],
+  exports: [SepaService],
 })
 export class SepaModule {}

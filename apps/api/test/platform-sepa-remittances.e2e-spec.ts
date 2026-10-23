@@ -3,6 +3,11 @@ import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import {
+  futureCollectionDate,
+  PLATFORM_CREDITOR_ADDRESS,
+  platformMandateBody,
+} from './helpers/platform-sepa';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -72,7 +77,7 @@ describe('Platform SEPA — remesas (e2e)', () => {
     await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')
       .set(auth)
-      .send({ iban: 'ES9121000418450200051332', signedAt: '2026-09-01' });
+      .send(platformMandateBody('ES9121000418450200051332'));
     const toSepa = await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/billing-mode`)
       .set(adminAuth())
@@ -89,12 +94,18 @@ describe('Platform SEPA — remesas (e2e)', () => {
     return { owner, periodEnd };
   }
 
-  it('sin acreedor configurado → 400 al crear remesa', async () => {
-    await setupSepaTenant('sepa-rem-noconf');
+  it('sin acreedor configurado → 400 al crear remesa (y el tenant no puede firmar el mandato)', async () => {
+    const owner = await registerVerifiedUser(app, 'sepa-rem-noconf');
+    const mandate = await request(app.getHttpServer())
+      .post('/settings/saas-billing/sepa-mandate')
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .send(platformMandateBody('ES9121000418450200051332'));
+    expect(mandate.status).toBe(400);
+    expect(mandate.body.code).toBe('platform_sepa_not_available');
     const create = await request(app.getHttpServer())
       .post('/admin/platform-sepa/remittances')
       .set(adminAuth())
-      .send({ name: 'Remesa test', collectionDate: '2026-09-25' });
+      .send({ name: 'Remesa test', collectionDate: futureCollectionDate(10) });
     expect(create.status).toBe(400);
     expect(create.body.code).toBe('sepa_not_configured');
   });
@@ -106,6 +117,7 @@ describe('Platform SEPA — remesas (e2e)', () => {
       .set(adminAuth())
       .send({
         creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
         creditorId: 'ES12ZZZ12345678',
         creditorIban: 'ES9121000418450200051332',
         creditorBic: 'BBVAESMMXXX',
@@ -132,7 +144,7 @@ describe('Platform SEPA — remesas (e2e)', () => {
       .set(adminAuth())
       .send({
         name: 'Remesa septiembre',
-        collectionDate: '2026-09-25',
+        collectionDate: futureCollectionDate(10),
         tenantIds: [owner.tenantId],
       });
     expect(created.status).toBe(201);
@@ -165,7 +177,7 @@ describe('Platform SEPA — remesas (e2e)', () => {
       .set(adminAuth())
       .send({
         name: 'Remesa duplicada',
-        collectionDate: '2026-09-26',
+        collectionDate: futureCollectionDate(11),
         tenantIds: [owner.tenantId],
       });
     expect(dup.status).toBe(400);
@@ -242,7 +254,12 @@ describe('Platform SEPA — remesas (e2e)', () => {
     const settings = await request(app.getHttpServer())
       .put('/admin/platform-sepa/settings')
       .set(adminAuth())
-      .send({ creditorName: 'TrasterOS SL', creditorId: 'ES12ZZZ12345678', enabled: true });
+      .send({
+        creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
+        creditorId: 'ES12ZZZ12345678',
+        enabled: true,
+      });
     expect(settings.status).toBe(200);
 
     const { owner } = await setupSepaTenant('sepa-rem-addon');
@@ -271,5 +288,79 @@ describe('Platform SEPA — remesas (e2e)', () => {
     expect(row).toBeTruthy();
     // Solo el plan (79), NO +15 del add-on en modo Stripe.
     expect(row.amount).toBe(79);
+  });
+
+  it('mandato firmado con constancia, preaviso pactado y correo de preaviso al tenant', async () => {
+    await request(app.getHttpServer())
+      .put('/admin/platform-sepa/settings')
+      .set(adminAuth())
+      .send({
+        creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
+        creditorId: 'ES12ZZZ12345678',
+        creditorIban: 'ES9121000418450200051332',
+        enabled: true,
+      })
+      .expect(200);
+    const { owner } = await setupSepaTenant('sepa-rem-prenotice');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    // El mandato queda firmado en la app, con la constancia.
+    const mandate = await request(app.getHttpServer())
+      .get('/settings/saas-billing/sepa-mandate')
+      .set(auth);
+    expect(mandate.body.mandate.signatureStatus).toBe('signed');
+    expect(mandate.body.mandate.signedByName).toBe('Empresa de Prueba SL');
+    const row = await adminClient.platformSepaMandate.findFirst({
+      where: { tenantId: owner.tenantId, status: 'active' },
+    });
+    expect(row?.documentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(row?.documentText).toContain('5 días');
+    expect(row?.documentText).toContain('Calle Mayor 1');
+    expect(row?.documentText).not.toContain('ES9121000418450200051332');
+
+    const terms = await request(app.getHttpServer())
+      .get('/settings/saas-billing/sepa-mandate/terms')
+      .set(auth);
+    expect(terms.body.available).toBe(true);
+    expect(terms.body.prenoticeDays).toBe(5);
+
+    // Sin aceptar no se firma.
+    const noAccept = await request(app.getHttpServer())
+      .post('/settings/saas-billing/sepa-mandate')
+      .set(auth)
+      .send({ ...platformMandateBody('ES9121000418450200051332'), accept: false });
+    expect(noAccept.status).toBe(400);
+
+    // Fecha de cobro dentro del preaviso → 400.
+    const preview = await request(app.getHttpServer())
+      .post('/admin/platform-sepa/remittances/preview')
+      .set(adminAuth());
+    expect(preview.body.prenoticeDays).toBe(5);
+    const tooSoon = await request(app.getHttpServer())
+      .post('/admin/platform-sepa/remittances')
+      .set(adminAuth())
+      .send({
+        name: 'Demasiado pronto',
+        collectionDate: futureCollectionDate(2),
+        tenantIds: [owner.tenantId],
+      });
+    expect(tooSoon.status).toBe(400);
+    expect(tooSoon.body.code).toBe('collection_date_too_soon');
+
+    const created = await request(app.getHttpServer())
+      .post('/admin/platform-sepa/remittances')
+      .set(adminAuth())
+      .send({
+        name: 'Con preaviso',
+        collectionDate: futureCollectionDate(preview.body.prenoticeDays),
+        tenantIds: [owner.tenantId],
+      });
+    expect(created.status).toBe(201);
+    const item = await adminClient.platformSepaRemittanceItem.findFirst({
+      where: { remittanceId: created.body.id, tenantId: owner.tenantId },
+    });
+    expect(item?.prenoticeSentAt).not.toBeNull();
+    expect(item?.prenoticeRecipients).toContain('@');
   });
 });

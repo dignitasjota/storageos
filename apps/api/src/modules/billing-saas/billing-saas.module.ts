@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 
+import { SepaMandatePdfService } from '../../common/sepa-mandate/sepa-mandate-pdf.service';
 import { AdminGuard } from '../admin/admin.guard';
 import { SuperAdminAuditService } from '../admin/super-admin-audit.service';
 import { AuthModule } from '../auth/auth.module';
@@ -91,6 +92,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformDunningCron,
     PlatformSepaSettingsService,
     PlatformSepaMandateService,
+    SepaMandatePdfService,
     PlatformSepaRemittanceService,
     AdminGuard,
     // Auditoría del super admin sobre el catálogo de add-ons/planes. Solo

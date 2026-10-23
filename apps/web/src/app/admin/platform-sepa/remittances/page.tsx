@@ -289,6 +289,9 @@ function CreateRemittanceDialog() {
         const res = await preview.mutateAsync();
         setData(res);
         setSelected(new Set(res.eligible.map((e) => e.tenantId)));
+        setCollectionDate((d) =>
+          d && d >= res.earliestCollectionDate ? d : res.earliestCollectionDate,
+        );
       } catch (err) {
         toast.error(err instanceof ApiError ? err.body.message : 'Error');
       }
@@ -355,8 +358,16 @@ function CreateRemittanceDialog() {
               <Input
                 type="date"
                 value={collectionDate}
+                min={data?.earliestCollectionDate}
                 onChange={(e) => setCollectionDate(e.target.value)}
               />
+              {data && (
+                <p className="text-xs text-muted-foreground">
+                  Como pronto el {data.earliestCollectionDate}: el mandato pacta{' '}
+                  {data.prenoticeDays} días de preaviso. Al crear la remesa avisamos por correo a
+                  cada tenant del importe y la fecha.
+                </p>
+              )}
             </div>
           </div>
 
@@ -409,8 +420,8 @@ function CreateRemittanceDialog() {
               {data && data.withoutMandate.length > 0 && (
                 <p className="text-xs text-amber-700 dark:text-amber-300">
                   <FileText className="mr-1 inline h-3 w-3" />
-                  {data.withoutMandate.length} tenant(s) en modo SEPA sin mandato activo (no
-                  incluidos).
+                  {data.withoutMandate.length} tenant(s) en modo SEPA sin mandato activo y firmado
+                  (no incluidos).
                 </p>
               )}
               <p className="text-sm">

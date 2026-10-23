@@ -13,6 +13,7 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -79,7 +80,7 @@ import { RequireSuperadmin } from './require-superadmin.decorator';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 import { TenantDataExportService } from './tenant-data-export.service';
 
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
 class SuspendTenantDto extends createZodDto(SuspendTenantSchema) {}
@@ -504,6 +505,18 @@ export class AdminTenantsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ mandate: PlatformSepaMandateDto | null }> {
     return { mandate: await this.sepaMandate.getMandate(id) };
+  }
+
+  /** PDF del mandato firmado por el tenant (prueba ante una reclamación). */
+  @Get(':id/sepa-mandate/document')
+  async sepaMandateDocument(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { filename, pdf } = await this.sepaMandate.mandatePdf(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.end(pdf);
   }
 
   /** Cancela el mandato del tenant por soporte (nunca lo crea el admin). */

@@ -81,6 +81,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { adminApiFetchBlob } from '@/lib/admin/api';
 import { CHURN_REASONS } from '@/lib/admin/churn';
 import {
   useAdminSubscriptionPlans,
@@ -1102,11 +1103,40 @@ function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billi
           mandate.isLoading
             ? '…'
             : hasMandate
-              ? `····${mandate.data!.ibanLast4} (${mandate.data!.status === 'active' ? 'activo' : 'cancelado'})`
+              ? `····${mandate.data!.ibanLast4} (${mandate.data!.status === 'active' ? 'activo' : 'cancelado'}${
+                  mandate.data!.signatureStatus === 'signed'
+                    ? `, firmado por ${mandate.data!.signedByName ?? 'el tenant'}`
+                    : mandate.data!.signatureStatus === 'external'
+                      ? ', firmado antes de la firma en la app'
+                      : ''
+                })`
               : 'Sin mandato'
         }
       />
       <div className="flex flex-wrap gap-2">
+        {hasMandate && mandate.data!.signatureStatus === 'signed' && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              try {
+                const blob = await adminApiFetchBlob(
+                  `/admin/tenants/${tenantId}/sepa-mandate/document`,
+                );
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `mandato-${mandate.data!.reference}.pdf`;
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch {
+                toast.error('No se pudo descargar el mandato.');
+              }
+            }}
+          >
+            Descargar mandato
+          </Button>
+        )}
         {billingMode !== 'manual' && (
           <Button variant="secondary" size="sm" onClick={() => setConfirmMode('manual')}>
             Pasar a manual

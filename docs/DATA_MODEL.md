@@ -708,6 +708,7 @@ recordManualPayment` (provider `'sepa'`, mismo candado/dedup/extensión de
 - `tenant_platform_messages` (RLS): mensajes de TrasterOS al tenant (`kind` direct/announcement/retention, asunto, cuerpo, `ticket_id` del correo directo, `super_admin_id`). Los lee el tenant en Soporte.
 - Adjuntos de mensajes: `support_ticket_messages` y `customer_messages` ganan `attachment_key`, `attachment_mime`, `attachment_name` (imagen o PDF en `uploads`).
 - Mandato SEPA firmado: `sepa_settings.creditor_address/_postal_code/_city/_country`; `sepa_mandates.signature_status` (`pending` | `signed` | `external`, los que ya existían quedan `external`), `signing_token_hash/_expires_at`, datos del deudor (`debtor_*`), firma (`signer_name`, `signature_method`, `signature_image`, `typed_signature`) y constancia (`document_text`, `document_hash`, `signed_ip`, `signed_user_agent`, `signed_at_ts`).
+- Mandato SEPA de la plataforma firmado: `platform_sepa_settings.creditor_address/_postal_code/_city/_country` y `prenotice_days` (5); `platform_sepa_mandates.signature_status` (`signed` | `external`, los existentes `external`), datos del deudor, firma (`signer_name`, `signer_user_id`, `signature_*`, `typed_signature`) y constancia (`document_text`, `document_hash`, `signed_ip`, `signed_user_agent`, `signed_at_ts`); `platform_sepa_remittance_items.prenotice_sent_at/_recipients`.
 
 ## 15. Pendiente / post-MVP
 

@@ -5240,6 +5240,11 @@ model PlatformSepaSettings {
   creditorIbanEncrypted String?  @map("creditor_iban_encrypted")
   creditorBic           String?  @map("creditor_bic")
   enabled               Boolean  @default(false)
+  creditorAddress       String?  @map("creditor_address")
+  creditorPostalCode    String?  @map("creditor_postal_code")
+  creditorCity          String?  @map("creditor_city")
+  creditorCountry       String   @default("ES") @map("creditor_country")
+  prenoticeDays         Int      @default(5) @map("prenotice_days")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5263,6 +5268,23 @@ model PlatformSepaMandate {
   /// active | cancelled. "Un mandato activo por tenant" se aplica en código
   /// (soft-cancel-and-replace), igual que `SepaMandate` hoy.
   status        String   @default("active")
+  /// pending | signed (firmado en el panel) | external (anterior a la firma en la app)
+  signatureStatus String    @default("external") @map("signature_status")
+  debtorName      String?   @map("debtor_name")
+  debtorAddress   String?   @map("debtor_address")
+  debtorPostalCode String?  @map("debtor_postal_code")
+  debtorCity      String?   @map("debtor_city")
+  debtorCountry   String?   @map("debtor_country")
+  signerName      String?   @map("signer_name")
+  signerUserId    String?   @map("signer_user_id") @db.Uuid
+  signatureMethod String?   @map("signature_method")
+  signatureImage  String?   @map("signature_image")
+  typedSignature  String?   @map("typed_signature")
+  documentText    String?   @map("document_text")
+  documentHash    String?   @map("document_hash")
+  signedIp        String?   @map("signed_ip")
+  signedUserAgent String?   @map("signed_user_agent")
+  signedAtTs      DateTime? @map("signed_at_ts") @db.Timestamptz(6)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5312,6 +5334,9 @@ model PlatformSepaRemittanceItem {
   amount        Int
   sequenceType  String    @map("sequence_type")
   endToEndId    String    @map("end_to_end_id")
+  /// Preaviso del cargo enviado al tenant (constancia).
+  prenoticeSentAt     DateTime? @map("prenotice_sent_at") @db.Timestamptz(6)
+  prenoticeRecipients String?   @map("prenotice_recipients")
   /// Periodo de suscripción que este cargo cubre (= currentPeriodEnd del
   /// tenant al generar la remesa). Único junto a tenantId entre los adeudos
   /// pendientes o cobrados (índice parcial `platform_sepa_remittance_items_live_period`,
