@@ -532,6 +532,10 @@ España exige Verifactu para sociedades desde 2026-07-01. Implementado.
 - `aeat_response` (jsonb, nullable) — payload de respuesta + diagnóstico (`raw` AEAT + `mode`).
 - `aeat_csv` (text, nullable) — Código Seguro de Verificación devuelto por AEAT.
 
+### `sessions` (refresh del panel)
+
+- `installed_app` (boolean): sesión abierta desde la app instalada en el móvil; caduca a los `JWT_REFRESH_APP_TTL_SECONDS` (90 días) en vez de 7 y lo heredan las sesiones que salen de ella al renovar. `revoked_reason` `lost_response`: sustituida porque la respuesta de la renovación no llegó al navegador.
+
 ### `invoice_series`
 
 - `id`, `tenant_id`, `code` (único por tenant), `name`, `prefix`, `year_scope` (boolean), `next_number`, `numbering_year` (año de la numeración: en una serie por año, el primer número de un año nuevo vuelve a 1; migración `20261111100000_invoice_numbering_year`), `facility_id` (nullable), `is_active`.

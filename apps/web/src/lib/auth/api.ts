@@ -1,4 +1,5 @@
 import { env } from '../env';
+import { isInstalledApp } from '../pwa/installed';
 
 import { getImpersonation, leaveImpersonation } from './impersonation';
 import { useAuthStore } from './store';
@@ -94,6 +95,7 @@ export async function performRefresh(): Promise<string | null> {
         res = await fetch(`${env.apiUrl}${withVersion('/auth/refresh')}`, {
           method: 'POST',
           credentials: 'include',
+          ...(isInstalledApp() ? { headers: { 'X-App-Mode': 'installed' } } : {}),
         });
       } catch {
         // Sin red (p. ej. al abrir la app del móvil antes de que haya cobertura).
@@ -140,6 +142,8 @@ async function executeFetch(
   // `requiresAuth: false`). Hay que partir de ellos, no de `init.headers`
   // (que `apiFetch` nunca rellena), o se perderían y el portal daría 401.
   const headers = new Headers(options.headers);
+  // Desde la app instalada en el móvil la sesión dura 90 días (no 7).
+  if (isInstalledApp()) headers.set('X-App-Mode', 'installed');
   if (options.json !== undefined && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }

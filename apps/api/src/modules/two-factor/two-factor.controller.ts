@@ -21,6 +21,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Throttle2fa } from '../../common/decorators/throttle-presets';
+import { isInstalledAppRequest } from '../../common/http/app-mode';
 
 import { TwoFactorService } from './two-factor.service';
 
@@ -40,6 +41,7 @@ function extractMeta(req: Request): RequestMeta {
   const ip = req.ip;
   return {
     ...(ua ? { userAgent: ua } : {}),
+    ...(isInstalledAppRequest(req) ? { installedApp: true } : {}),
     ...(ip ? { ipAddress: ip } : {}),
   };
 }

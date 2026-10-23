@@ -342,6 +342,7 @@ export class InvitationsService {
       userId: user.id,
       userAgent: meta.userAgent,
       ipAddress: meta.ipAddress,
+      installedApp: meta.installedApp,
     });
     const { token: accessToken, expiresIn } = await this.tokens.signAccess({
       sub: user.id,

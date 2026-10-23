@@ -1412,3 +1412,8 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - **Vencimiento**: el pago de varios meses (primer pago de 3/6/12 meses o prepago semestral/anual) vence a los 15 días del inicio del periodo (antes, al final: un anual no entraba en impagos en un año). El mensual no cambia.
 - **Primera factura**: si no se puede emitir (un NIF que la AEAT no admite, falta de certificado…), el equipo recibe la notificación «No se pudo emitir la primera factura» con el motivo.
 - **Reserva online con envío real a la AEAT** (`AEAT_MODE` distinto de `stub`): el DNI/NIE tiene que ser válido (400 `invalid_tax_id`).
+
+## 41. Sesión del panel en el móvil (2026-10-24)
+
+- La sesión ya no se cierra en el móvil cuando iOS congela la app a mitad de una renovación, ni manda al login sin conexión (muestra «Sin conexión» y entra sola al volver la red).
+- **App instalada (pantalla de inicio)**: la sesión del panel dura 90 días y se renueva al usarla (en el navegador, 7). Variable nueva opcional `JWT_REFRESH_APP_TTL_SECONDS` (por defecto `7776000`), ya en el compose de Portainer. Migración `20261111120000_session_installed_app` (se aplica sola). Las sesiones abiertas antes de desplegar siguen con 7 días: hay que volver a iniciar sesión una vez desde la app para que pase a 90.

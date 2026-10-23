@@ -43,6 +43,7 @@ import {
   ThrottleRefresh,
   ThrottleRegister,
 } from '../../common/decorators/throttle-presets';
+import { isInstalledAppRequest } from '../../common/http/app-mode';
 import { respondThenRun } from '../../common/security/respond-then-run';
 
 import { AuthService, type RequestMeta } from './auth.service';
@@ -213,6 +214,7 @@ export class AuthController {
     const ip = req.ip;
     return {
       ...(ua ? { userAgent: ua } : {}),
+      ...(isInstalledAppRequest(req) ? { installedApp: true } : {}),
       ...(ip ? { ipAddress: ip } : {}),
     };
   }
