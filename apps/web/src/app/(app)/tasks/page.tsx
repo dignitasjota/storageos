@@ -225,87 +225,14 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Tareas</h1>
-        <p className="text-sm text-muted-foreground">
-          Limpieza, mantenimiento, inspecciones y otros encargos operativos del local.
-        </p>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Select
-          value={status ?? 'all'}
-          onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as TaskStatusValue))}
-        >
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los estados</SelectItem>
-            {(Object.keys(STATUS_LABELS) as TaskStatusValue[]).map((s) => (
-              <SelectItem key={s} value={s}>
-                {STATUS_LABELS[s].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={type ?? 'all'}
-          onValueChange={(v) => setType(v === 'all' ? undefined : (v as TaskTypeValue))}
-        >
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Tipo" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los tipos</SelectItem>
-            {(Object.keys(TYPE_LABELS) as TaskTypeValue[]).map((t) => (
-              <SelectItem key={t} value={t}>
-                {TYPE_LABELS[t]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={facilityId ?? 'all'}
-          onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Local" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los locales</SelectItem>
-            {(facilities.data ?? []).map((f) => (
-              <SelectItem key={f.id} value={f.id}>
-                {f.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={assignedToUserId ?? 'all'}
-          onValueChange={(v) => setAssignedToUserId(v === 'all' ? undefined : v)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Asignada a" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Cualquiera</SelectItem>
-            {(users.data ?? []).map((u) => (
-              <SelectItem key={u.id} value={u.id}>
-                {u.fullName}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <DataTable
-        onRowClick={(t) => setDetailId(t.id)}
-        columns={columns}
-        data={tasks.rows}
-        isLoading={tasks.isLoading}
-        emptyText="No hay tareas. Crea la primera para empezar."
-        toolbarRight={
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Tareas</h1>
+          <p className="text-sm text-muted-foreground">
+            Limpieza, mantenimiento, inspecciones y otros encargos operativos del local.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <Can permission="tasks:write">
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
@@ -480,7 +407,88 @@ export default function TasksPage() {
               </DialogContent>
             </Dialog>
           </Can>
-        }
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Select
+          value={status ?? 'all'}
+          onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as TaskStatusValue))}
+        >
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Estado" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los estados</SelectItem>
+            {(Object.keys(STATUS_LABELS) as TaskStatusValue[]).map((s) => (
+              <SelectItem key={s} value={s}>
+                {STATUS_LABELS[s].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={type ?? 'all'}
+          onValueChange={(v) => setType(v === 'all' ? undefined : (v as TaskTypeValue))}
+        >
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los tipos</SelectItem>
+            {(Object.keys(TYPE_LABELS) as TaskTypeValue[]).map((t) => (
+              <SelectItem key={t} value={t}>
+                {TYPE_LABELS[t]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={facilityId ?? 'all'}
+          onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
+        >
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Local" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los locales</SelectItem>
+            {(facilities.data ?? []).map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                {f.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={assignedToUserId ?? 'all'}
+          onValueChange={(v) => setAssignedToUserId(v === 'all' ? undefined : v)}
+        >
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Asignada a" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Cualquiera</SelectItem>
+            {(users.data ?? []).map((u) => (
+              <SelectItem key={u.id} value={u.id}>
+                {u.fullName}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <DataTable
+        filtersActive={!!status || !!type || !!assignedToUserId}
+        onClearFilters={() => {
+          setStatus(undefined);
+          setType(undefined);
+          setAssignedToUserId(undefined);
+        }}
+        onRowClick={(t) => setDetailId(t.id)}
+        columns={columns}
+        data={tasks.rows}
+        isLoading={tasks.isLoading}
+        emptyText="No hay tareas. Crea la primera con «Nueva tarea»."
         serverSearch={{
           value: searchText,
           onChange: setSearchText,

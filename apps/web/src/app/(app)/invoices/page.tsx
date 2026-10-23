@@ -379,6 +379,12 @@ export default function InvoicesPage() {
       )}
 
       <DataTable
+        filtersActive={!!status || !!customerId || overdueOnly}
+        onClearFilters={() => {
+          setStatus(undefined);
+          setCustomerId(undefined);
+          setOverdueOnly(false);
+        }}
         rowHref={(i) => `/invoices/${i.id}`}
         columns={columns}
         data={rows}
@@ -389,7 +395,7 @@ export default function InvoicesPage() {
           placeholder: 'Buscar por número o inquilino…',
         }}
         loadMore={invoices.loadMore}
-        emptyText="No hay facturas que coincidan."
+        emptyText="Aún no hay facturas. Las de alquiler se crean solas cada mes; también puedes crear una con «Nueva factura»."
       />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

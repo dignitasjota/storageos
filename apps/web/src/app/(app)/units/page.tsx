@@ -43,6 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
@@ -271,6 +272,9 @@ export default function UnitsPage() {
               </Link>
             </Button>
           </Can>
+          <Can permission="units:write">
+            <CreateUnitDialog />
+          </Can>
         </div>
       </div>
 
@@ -364,12 +368,17 @@ export default function UnitsPage() {
           </div>
 
           <DataTable
+            filtersActive={!!status || !!unitTypeId}
+            onClearFilters={() => {
+              setStatus(undefined);
+              setUnitTypeId(undefined);
+            }}
             rowHref={(u) => `/units/${u.id}`}
             columns={columns}
             data={units.data?.items ?? []}
             isLoading={units.isLoading}
             searchPlaceholder="Buscar por código..."
-            emptyText="No hay trasteros que coincidan con los filtros."
+            emptyText="Aún no hay trasteros. Crea el primero con «Nuevo trastero» o impórtalos desde un Excel."
           />
         </>
       ) : (

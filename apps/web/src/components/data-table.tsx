@@ -66,6 +66,11 @@ interface DataTableProps<TData, TValue> {
   rowHref?: (row: TData) => string | null | undefined;
   /** Alternativa a `rowHref` cuando el detalle es un diálogo. */
   onRowClick?: (row: TData) => void;
+  /** Acción bajo el texto vacío cuando no hay nada (p. ej. «Crear el primero»). */
+  emptyAction?: React.ReactNode;
+  /** Hay filtros de la página puestos: el vacío ofrece quitarlos. */
+  filtersActive?: boolean;
+  onClearFilters?: () => void;
 }
 
 /**
@@ -109,6 +114,9 @@ export function DataTable<TData, TValue>({
   loadMore,
   rowHref,
   onRowClick,
+  emptyAction,
+  filtersActive,
+  onClearFilters,
 }: DataTableProps<TData, TValue>) {
   const router = useRouter();
   const clickable = !!rowHref || !!onRowClick;
@@ -122,6 +130,40 @@ export function DataTable<TData, TValue>({
       return;
     }
     onRowClick?.(row);
+  }
+
+  /** Lo que se ve cuando no hay filas: por qué y cómo salir. */
+  function emptyContent() {
+    const searchValue = serverSearch ? serverSearch.value : globalFilter;
+    if (searchValue.trim()) {
+      return (
+        <EmptyBlock
+          text={`No hay resultados para «${searchValue.trim()}».`}
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => (serverSearch ? serverSearch.onChange('') : setGlobalFilter(''))}
+            >
+              Borrar la búsqueda
+            </Button>
+          }
+        />
+      );
+    }
+    if (filtersActive && onClearFilters) {
+      return (
+        <EmptyBlock
+          text="No hay resultados con estos filtros."
+          action={
+            <Button variant="outline" size="sm" onClick={onClearFilters}>
+              Quitar los filtros
+            </Button>
+          }
+        />
+      );
+    }
+    return <EmptyBlock text={emptyText} action={emptyAction} />;
   }
 
   function rowProps(row: TData) {
@@ -244,10 +286,8 @@ export function DataTable<TData, TValue>({
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-center text-muted-foreground">
-                  {emptyText}
-                </TableCell>
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={columns.length}>{emptyContent()}</TableCell>
               </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => (
@@ -276,7 +316,7 @@ export function DataTable<TData, TValue>({
         {isLoading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">Cargando...</p>
         ) : table.getRowModel().rows.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">{emptyText}</p>
+          <div className="rounded-md border">{emptyContent()}</div>
         ) : (
           table.getRowModel().rows.map((row) => (
             <div
@@ -357,6 +397,15 @@ export function DataTable<TData, TValue>({
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+function EmptyBlock({ text, action }: { text: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+      <p className="max-w-md text-sm text-muted-foreground">{text}</p>
+      {action}
     </div>
   );
 }

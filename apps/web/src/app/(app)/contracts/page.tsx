@@ -97,11 +97,31 @@ export default function ContractsPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Contratos</h1>
-        <p className="text-sm text-muted-foreground">
-          Alquileres en curso, finalizados y borradores pendientes de firma.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Contratos</h1>
+          <p className="text-sm text-muted-foreground">
+            Alquileres en curso, finalizados y borradores pendientes de firma.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <>
+            <Can permission="imports:manage">
+              <Button asChild variant="outline">
+                <Link href="/contracts/import">
+                  <Upload className="mr-1 h-4 w-4" /> Importar
+                </Link>
+              </Button>
+            </Can>
+            <Can permission="contracts:write">
+              <Button asChild>
+                <Link href="/contracts/new">
+                  <Plus className="mr-1 h-4 w-4" /> Nuevo contrato
+                </Link>
+              </Button>
+            </Can>
+          </>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -146,29 +166,16 @@ export default function ContractsPage() {
       </div>
 
       <DataTable
+        filtersActive={!!status || !!customerId}
+        onClearFilters={() => {
+          setStatus(undefined);
+          setCustomerId(undefined);
+        }}
         rowHref={(c) => `/contracts/${c.id}`}
         columns={columns}
         data={contracts.rows}
         isLoading={contracts.isLoading}
-        toolbarRight={
-          <>
-            <Can permission="imports:manage">
-              <Button asChild variant="outline">
-                <Link href="/contracts/import">
-                  <Upload className="mr-1 h-4 w-4" /> Importar
-                </Link>
-              </Button>
-            </Can>
-            <Can permission="contracts:write">
-              <Button asChild>
-                <Link href="/contracts/new">
-                  <Plus className="mr-1 h-4 w-4" /> Nuevo contrato
-                </Link>
-              </Button>
-            </Can>
-          </>
-        }
-        emptyText="No hay contratos que coincidan con los filtros."
+        emptyText="Aún no hay contratos. Crea el primero con «Nuevo contrato»."
         serverSearch={{
           value: searchText,
           onChange: setSearchText,
