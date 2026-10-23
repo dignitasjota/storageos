@@ -709,6 +709,7 @@ recordManualPayment` (provider `'sepa'`, mismo candado/dedup/extensión de
 - Adjuntos de mensajes: `support_ticket_messages` y `customer_messages` ganan `attachment_key`, `attachment_mime`, `attachment_name` (imagen o PDF en `uploads`).
 - Mandato SEPA firmado: `sepa_settings.creditor_address/_postal_code/_city/_country`; `sepa_mandates.signature_status` (`pending` | `signed` | `external`, los que ya existían quedan `external`), `signing_token_hash/_expires_at`, datos del deudor (`debtor_*`), firma (`signer_name`, `signature_method`, `signature_image`, `typed_signature`) y constancia (`document_text`, `document_hash`, `signed_ip`, `signed_user_agent`, `signed_at_ts`).
 - Mandato SEPA de la plataforma firmado: `platform_sepa_settings.creditor_address/_postal_code/_city/_country` y `prenotice_days` (5); `platform_sepa_mandates.signature_status` (`signed` | `external`, los existentes `external`), datos del deudor, firma (`signer_name`, `signer_user_id`, `signature_*`, `typed_signature`) y constancia (`document_text`, `document_hash`, `signed_ip`, `signed_user_agent`, `signed_at_ts`); `platform_sepa_remittance_items.prenotice_sent_at/_recipients`.
+- Caducidad del mandato: `sepa_mandates.last_collected_at` y `platform_sepa_mandates.last_collected_at` (DATE, último adeudo presentado; estado `expired` a los 36 meses sin cobros).
 
 ## 15. Pendiente / post-MVP
 

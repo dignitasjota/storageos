@@ -2258,6 +2258,8 @@ model SepaMandate {
   signedAt      DateTime @map("signed_at") @db.Date
   /// FRST hasta el primer cobro con éxito; luego RCUR.
   sequenceType  String   @default("FRST") @map("sequence_type")
+  /// Fecha del último adeudo presentado (caduca a los 36 meses sin cobros).
+  lastCollectedAt DateTime? @map("last_collected_at") @db.Date
   /// active | cancelled
   status        String   @default("active")
   /// pending (falta la firma del deudor) | signed (firmado aquí) | external (papel o migrado)
@@ -5265,6 +5267,8 @@ model PlatformSepaMandate {
   signedAt      DateTime @map("signed_at") @db.Date
   /// FRST hasta el primer cobro con éxito; luego RCUR.
   sequenceType  String   @default("FRST") @map("sequence_type")
+  /// Fecha del último adeudo presentado (caduca a los 36 meses sin cobros).
+  lastCollectedAt DateTime? @map("last_collected_at") @db.Date
   /// active | cancelled. "Un mandato activo por tenant" se aplica en código
   /// (soft-cancel-and-replace), igual que `SepaMandate` hoy.
   status        String   @default("active")

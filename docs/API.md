@@ -2122,6 +2122,11 @@ Contrato de adeudos del banco (cláusulas 4.1 y 4.3): no se puede cobrar sin la 
 - El fichero pain.008 (inquilinos y plataforma) identifica al presentador en `InitgPty/Id/OrgId/Othr/Id` con el identificador del acreedor, pasa nombres y conceptos al juego de caracteres SEPA (sin acentos ni ñ; `sepaText`) y los recorta (nombre 70, concepto 140), y limpia los identificadores (`sepaId`: 35, sin espacios ni `//`).
 - `POST /sepa/remittances` y `POST /admin/platform-sepa/remittances`: 400 `invalid_collection_date` si la fecha de cobro ya pasó, está a más de un año o no es día hábil TARGET2 (`details.suggestion` = la primera válida). Shared `isSepaBusinessDay`, `nextSepaBusinessDay`, `collectionDateIssue`.
 
+### SEPA: caducidad del mandato y preaviso obligatorio
+
+- `SepaMandateDto`/`PlatformSepaMandateDto`: `status` puede ser `expired`; `lastCollectedAt` (último adeudo presentado) y `expiresOn` (36 meses después, o desde la firma si nunca se usó). Al preparar la remesa, un mandato caducado pasa a `expired` y sus facturas salen en `withoutMandate` con `expiredMandate: true`.
+- `POST /sepa/remittances`: con una fecha de cobro anterior a hoy + `prenoticeDays` → 400 `collection_date_too_soon` (antes solo avisaba).
+
 ### Mensajería: adjuntos en tickets y chat
 
 - Migración `20261109180000_message_attachments` (`attachment_key`/`_mime`/`_name` en `support_ticket_messages` y `customer_messages`). Un adjunto por mensaje: imagen (JPG/PNG/WebP) o PDF, máx. 10 MB, bucket privado `uploads` (`<tenant>/support/…` y `<tenant>/chat/<customer>/…`), bytes comprobados al guardar (400 `invalid_attachment` si la clave no es de esa conversación).

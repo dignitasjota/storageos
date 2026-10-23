@@ -1103,7 +1103,7 @@ function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billi
           mandate.isLoading
             ? '…'
             : hasMandate
-              ? `····${mandate.data!.ibanLast4} (${mandate.data!.status === 'active' ? 'activo' : 'cancelado'}${
+              ? `····${mandate.data!.ibanLast4} (${mandate.data!.status === 'active' ? 'activo' : mandate.data!.status === 'expired' ? 'caducado' : 'cancelado'}${
                   mandate.data!.signatureStatus === 'signed'
                     ? `, firmado por ${mandate.data!.signedByName ?? 'el tenant'}`
                     : mandate.data!.signatureStatus === 'external'

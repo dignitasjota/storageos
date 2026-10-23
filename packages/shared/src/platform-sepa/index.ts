@@ -105,7 +105,9 @@ export interface PlatformSepaMandateDto {
   bic: string | null;
   signedAt: string;
   sequenceType: 'FRST' | 'RCUR';
-  status: 'active' | 'cancelled';
+  status: 'active' | 'cancelled' | 'expired';
+  lastCollectedAt: string | null;
+  expiresOn: string;
   signatureStatus: SepaMandateSignatureStatus;
   signedByName: string | null;
   signedAtTimestamp: string | null;
@@ -139,7 +141,12 @@ export interface PlatformSepaRemittancePreviewDto {
   eligible: PlatformSepaEligibleTenantDto[];
   total: number;
   /** Tenants en modo 'sepa' sin mandato activo y firmado (no se pueden incluir). */
-  withoutMandate: { tenantId: string; tenantName: string; pendingSignature?: boolean }[];
+  withoutMandate: {
+    tenantId: string;
+    tenantName: string;
+    pendingSignature?: boolean;
+    expiredMandate?: boolean;
+  }[];
   /** Preaviso pactado: la fecha de cobro tiene que ser al menos hoy + estos días. */
   prenoticeDays: number;
   /** Primera fecha de cobro posible. */

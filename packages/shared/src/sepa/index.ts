@@ -109,7 +109,11 @@ export interface SepaMandateDto {
   bic: string | null;
   signedAt: string;
   sequenceType: 'FRST' | 'RCUR';
-  status: 'active' | 'cancelled';
+  /** expired = 36 meses sin cobros: hay que firmar uno nuevo. */
+  status: 'active' | 'cancelled' | 'expired';
+  /** Último adeudo presentado y fecha en que caduca si no hay más. */
+  lastCollectedAt: string | null;
+  expiresOn: string;
   /** pending = falta la firma del inquilino (no entra en remesas). */
   signatureStatus: SepaMandateSignatureStatus;
   /** Quién firmó y cuándo (solo firmados en la app). */
@@ -153,6 +157,8 @@ export interface RemittancePreviewDto {
     customerName: string;
     /** Tiene mandato pero el inquilino aún no lo ha firmado. */
     pendingSignature?: boolean;
+    /** Su mandato caducó (36 meses sin cobros). */
+    expiredMandate?: boolean;
   }[];
   /** Plazo de preaviso configurado (días): la fecha de cargo debería respetarlo. */
   prenoticeDays: number;

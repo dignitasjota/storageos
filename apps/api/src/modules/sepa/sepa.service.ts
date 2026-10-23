@@ -13,13 +13,18 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import {
   buildSepaMandateDocument,
+  earliestCollectionDate,
+  isSepaMandateExpired,
+  nextSepaBusinessDay,
   mandateIsSigned,
+  sepaMandateExpiresOn,
   maskIban,
   sepaMandateText,
   type SepaMandateDocument,
 } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { todayInTimezone } from '../../common/format';
 import { subtractAmounts, toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { assertCollectionDate } from '../../common/sepa-mandate/collection-date';
@@ -192,7 +197,12 @@ export class SepaService {
       bic: m.bic,
       signedAt: m.signedAt.toISOString().slice(0, 10),
       sequenceType: m.sequenceType as 'FRST' | 'RCUR',
-      status: m.status as 'active' | 'cancelled',
+      status: m.status as SepaMandateDto['status'],
+      lastCollectedAt: m.lastCollectedAt?.toISOString().slice(0, 10) ?? null,
+      expiresOn: sepaMandateExpiresOn(
+        m.lastCollectedAt?.toISOString().slice(0, 10) ?? null,
+        m.signedAt.toISOString().slice(0, 10),
+      ),
       signatureStatus: m.signatureStatus as SepaMandateDto['signatureStatus'],
       signedByName: m.signerName,
       signedAtTimestamp: m.signedAtTs?.toISOString() ?? null,
@@ -257,6 +267,8 @@ export class SepaService {
               `${input.signedAt ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`,
             ),
             sequenceType: opts.sequenceType ?? 'FRST',
+            // Importado como «ya cobrado»: cuenta como usado hoy para la caducidad.
+            ...(opts.sequenceType === 'RCUR' ? { lastCollectedAt: todayInTimezone() } : {}),
             status: 'active',
             signatureStatus: external ? 'external' : 'pending',
           },
@@ -595,19 +607,45 @@ export class SepaService {
       tenantId,
     );
     const inPlan = new Set(plans.flatMap((p) => p.invoiceIds));
+    // 36 meses sin presentar ningún adeudo: el mandato caduca y ya no vale.
+    const today = todayInTimezone('Europe/Madrid').toISOString().slice(0, 10);
+    const expired = mandates.filter((m) =>
+      isSepaMandateExpired(
+        m.lastCollectedAt?.toISOString().slice(0, 10) ?? null,
+        m.signedAt.toISOString().slice(0, 10),
+        today,
+      ),
+    );
+    if (expired.length > 0) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.sepaMandate.updateMany({
+            where: { id: { in: expired.map((m) => m.id) }, status: 'active' },
+            data: { status: 'expired' },
+          }),
+        tenantId,
+      );
+    }
+    const expiredCustomers = new Set(expired.map((m) => m.customerId));
+    const live = mandates.filter((m) => !expiredCustomers.has(m.customerId));
     // Solo cuentan los mandatos firmados (en la app o fuera): sin firma no se
     // puede cobrar (contrato de adeudos del banco, 4.1 y 4.3).
     const byCustomer = new Map(
-      mandates.filter((m) => mandateIsSigned(m.signatureStatus)).map((m) => [m.customerId, m]),
+      live.filter((m) => mandateIsSigned(m.signatureStatus)).map((m) => [m.customerId, m]),
     );
     const unsigned = new Set(
-      mandates.filter((m) => !mandateIsSigned(m.signatureStatus)).map((m) => m.customerId),
+      live.filter((m) => !mandateIsSigned(m.signatureStatus)).map((m) => m.customerId),
     );
-    return { invoices: invoices.filter((i) => !inPlan.has(i.id)), byCustomer, unsigned };
+    return {
+      invoices: invoices.filter((i) => !inPlan.has(i.id)),
+      byCustomer,
+      unsigned,
+      expiredCustomers,
+    };
   }
 
   async previewRemittance(tenantId: string): Promise<RemittancePreviewDto> {
-    const { invoices, byCustomer, unsigned } = await this.eligible(tenantId);
+    const { invoices, byCustomer, unsigned, expiredCustomers } = await this.eligible(tenantId);
     const eligible: RemittanceEligibleInvoiceDto[] = [];
     const withoutMandate: RemittancePreviewDto['withoutMandate'] = [];
     for (const inv of invoices) {
@@ -621,6 +659,7 @@ export class SepaService {
           invoiceNumber: inv.invoiceNumber,
           customerName: name,
           pendingSignature: !!inv.customerId && unsigned.has(inv.customerId),
+          expiredMandate: !!inv.customerId && expiredCustomers.has(inv.customerId),
         });
         continue;
       }
@@ -660,6 +699,22 @@ export class SepaService {
       });
     }
     assertCollectionDate(input.collectionDate);
+    // Preaviso de cada adeudo (el pactado en el mandato, 14 días por defecto):
+    // un cargo sin el aviso a tiempo se puede devolver (contrato del banco, 4.1).
+    const earliest = earliestCollectionDate(
+      settings.prenoticeDays,
+      todayInTimezone('Europe/Madrid'),
+    );
+    if (input.collectionDate < earliest) {
+      throw new BadRequestException({
+        code: 'collection_date_too_soon',
+        message: `La fecha de cobro tiene que respetar el preaviso de ${settings.prenoticeDays} días a tus inquilinos: como pronto el ${nextSepaBusinessDay(earliest)}.`,
+        details: {
+          earliestCollectionDate: nextSepaBusinessDay(earliest),
+          prenoticeDays: settings.prenoticeDays,
+        },
+      });
+    }
     const { invoices, byCustomer } = await this.eligible(tenantId);
     const selected = input.invoiceIds
       ? invoices.filter((i) => input.invoiceIds!.includes(i.id))
@@ -991,6 +1046,11 @@ export class SepaService {
         await tx.sepaMandate.updateMany({
           where: { id: { in: [...collectedMandates] }, sequenceType: 'FRST', status: 'active' },
           data: { sequenceType: 'RCUR' },
+        });
+        // El último adeudo presentado: cuenta para la caducidad de 36 meses.
+        await tx.sepaMandate.updateMany({
+          where: { id: { in: [...collectedMandates] } },
+          data: { lastCollectedAt: remittance.collectionDate },
         });
       }
       return tx.sepaRemittance.findUniqueOrThrow({ where: { id } });
