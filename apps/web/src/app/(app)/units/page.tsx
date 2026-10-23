@@ -247,7 +247,7 @@ export default function UnitsPage() {
             Vista global de todos tus trasteros con filtros.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center rounded-md border p-0.5">
             <Button
               variant={view === 'table' ? 'secondary' : 'ghost'}
@@ -280,7 +280,9 @@ export default function UnitsPage() {
       </div>
 
       {occupancy.data && occupancy.data.totalUnits > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        // En el móvil, una tira compacta que se desliza (antes, cinco tarjetas
+        // grandes ocupaban la pantalla antes del primer trastero).
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-5">
           {STATUS_KPIS.map((k) => {
             const count = occupancy.data.byStatus[k.status] ?? 0;
             const active = status === k.status;
@@ -289,7 +291,8 @@ export default function UnitsPage() {
                 key={k.status}
                 type="button"
                 onClick={() => setStatus(active ? undefined : k.status)}
-                className={`rounded-xl border bg-card p-4 text-left transition-colors hover:bg-muted/50 ${
+                aria-pressed={active}
+                className={`shrink-0 rounded-xl border bg-card px-3 py-2 text-left transition-colors hover:bg-muted/50 sm:p-4 ${
                   active ? 'ring-2 ring-primary' : ''
                 }`}
               >
@@ -300,7 +303,9 @@ export default function UnitsPage() {
                   />
                   {k.label}
                 </span>
-                <span className="mt-1 block text-2xl font-semibold tabular-nums">{count}</span>
+                <span className="mt-0.5 block text-lg font-semibold tabular-nums sm:mt-1 sm:text-2xl">
+                  {count}
+                </span>
               </button>
             );
           })}
@@ -309,12 +314,12 @@ export default function UnitsPage() {
 
       {view === 'table' ? (
         <>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Select
               value={facilityId ?? 'all'}
               onValueChange={(v) => selectFacility(v === 'all' ? undefined : v)}
             >
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger className="w-full sm:w-[200px]">
                 <SelectValue placeholder="Local" />
               </SelectTrigger>
               <SelectContent>
@@ -330,7 +335,7 @@ export default function UnitsPage() {
               value={status ?? 'all'}
               onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as UnitStatusValue))}
             >
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger className="w-full sm:w-[200px]">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
@@ -354,7 +359,7 @@ export default function UnitsPage() {
               value={unitTypeId ?? 'all'}
               onValueChange={(v) => setUnitTypeId(v === 'all' ? undefined : v)}
             >
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger className="w-full sm:w-[200px]">
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
               <SelectContent>

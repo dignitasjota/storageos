@@ -43,6 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
@@ -365,90 +366,102 @@ export default function ContractDetailPage() {
         </Card>
       </div>
 
-      <InsuranceCard
-        contractId={c.id}
-        planId={c.insurancePlanId}
-        planName={c.insurancePlanName}
-        price={c.insurancePrice}
-      />
-
-      <DepositCard contract={c} />
-      <DepositRegistryCard contract={c} />
-      <IrpfRetentionCard contract={c} />
-
       {/* Retención: solo sobre una baja en curso. */}
       {c.status === 'ending' && canManageC && <RetentionCard contractId={c.id} />}
 
-      <InspectionPhotosCard contractId={c.id} kind="checkin" />
-      <InspectionPhotosCard contractId={c.id} kind="checkout" />
+      <Tabs defaultValue="billing">
+        <TabsList className="flex-wrap">
+          <TabsTrigger value="billing">Cobro y condiciones</TabsTrigger>
+          <TabsTrigger value="photos">Fotos de entrada y salida</TabsTrigger>
+          <TabsTrigger value="history">Historial</TabsTrigger>
+        </TabsList>
+        <TabsContent value="billing" className="space-y-4">
+          <InsuranceCard
+            contractId={c.id}
+            planId={c.insurancePlanId}
+            planName={c.insurancePlanName}
+            price={c.insurancePrice}
+          />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Timeline</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Textarea
-              placeholder="Añadir nota interna..."
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-            />
-            <Button
-              onClick={() =>
-                handle(async () => {
-                  await addNote.mutateAsync({ id: c.id, input: { note } });
-                  setNote('');
-                }, 'Nota añadida.')
-              }
-              disabled={!note.trim()}
-            >
-              Añadir
-            </Button>
-          </div>
-          {events.data && events.data.length === 0 && (
-            <p className="text-sm text-muted-foreground">Sin eventos.</p>
-          )}
-          {events.data && events.data.length > 0 && (
-            <ul className="space-y-3">
-              {events.data.map((e) => (
-                <li key={e.id} className="border-l-2 border-muted pl-3">
-                  <p className="text-sm">
-                    <strong>{EVENT_LABELS[e.eventType] ?? e.eventType}</strong>
-                    {e.eventType === 'price_changed' &&
-                      ` · ${formatEur(e.payload.from as number)} → ${formatEur(e.payload.to as number)}`}
-                    {e.eventType === 'note_added' && e.payload.event === 'prepay_credit_note' ? (
-                      <span className="block text-muted-foreground">
-                        Abono por baja anticipada ({String(e.payload.unusedMonths)} meses no
-                        consumidos) en borrador ·{' '}
-                        <Link
-                          href={`/invoices/${String(e.payload.invoiceId)}`}
-                          className="text-primary hover:underline"
-                        >
-                          revisar, emitir y reembolsar
-                        </Link>
-                      </span>
-                    ) : e.eventType === 'note_added' ? (
-                      <span className="block whitespace-pre-line text-muted-foreground">
-                        {String(e.payload.note ?? '')}
-                      </span>
-                    ) : null}
-                    {e.eventType === 'cancelled' && e.payload.reason ? (
-                      <span className="block text-muted-foreground">
-                        Motivo: {String(e.payload.reason)}
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(e.occurredAt).toLocaleString('es-ES')}
-                    {e.createdByName && ` · ${e.createdByName}`}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+          <DepositCard contract={c} />
+          <DepositRegistryCard contract={c} />
+          <IrpfRetentionCard contract={c} />
+        </TabsContent>
+        <TabsContent value="photos" className="space-y-4">
+          <InspectionPhotosCard contractId={c.id} kind="checkin" />
+          <InspectionPhotosCard contractId={c.id} kind="checkout" />
+        </TabsContent>
+        <TabsContent value="history">
+          <Card>
+            <CardHeader>
+              <CardTitle>Historial del contrato</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-2">
+                <Textarea
+                  placeholder="Añadir nota interna..."
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={2}
+                />
+                <Button
+                  onClick={() =>
+                    handle(async () => {
+                      await addNote.mutateAsync({ id: c.id, input: { note } });
+                      setNote('');
+                    }, 'Nota añadida.')
+                  }
+                  disabled={!note.trim()}
+                >
+                  Añadir
+                </Button>
+              </div>
+              {events.data && events.data.length === 0 && (
+                <p className="text-sm text-muted-foreground">Sin eventos.</p>
+              )}
+              {events.data && events.data.length > 0 && (
+                <ul className="space-y-3">
+                  {events.data.map((e) => (
+                    <li key={e.id} className="border-l-2 border-muted pl-3">
+                      <p className="text-sm">
+                        <strong>{EVENT_LABELS[e.eventType] ?? e.eventType}</strong>
+                        {e.eventType === 'price_changed' &&
+                          ` · ${formatEur(e.payload.from as number)} → ${formatEur(e.payload.to as number)}`}
+                        {e.eventType === 'note_added' &&
+                        e.payload.event === 'prepay_credit_note' ? (
+                          <span className="block text-muted-foreground">
+                            Abono por baja anticipada ({String(e.payload.unusedMonths)} meses no
+                            consumidos) en borrador ·{' '}
+                            <Link
+                              href={`/invoices/${String(e.payload.invoiceId)}`}
+                              className="text-primary hover:underline"
+                            >
+                              revisar, emitir y reembolsar
+                            </Link>
+                          </span>
+                        ) : e.eventType === 'note_added' ? (
+                          <span className="block whitespace-pre-line text-muted-foreground">
+                            {String(e.payload.note ?? '')}
+                          </span>
+                        ) : null}
+                        {e.eventType === 'cancelled' && e.payload.reason ? (
+                          <span className="block text-muted-foreground">
+                            Motivo: {String(e.payload.reason)}
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(e.occurredAt).toLocaleString('es-ES')}
+                        {e.createdByName && ` · ${e.createdByName}`}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={priceOpen} onOpenChange={setPriceOpen}>
         <DialogContent>
