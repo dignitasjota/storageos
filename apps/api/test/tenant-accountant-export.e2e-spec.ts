@@ -48,6 +48,17 @@ describe('Exportación para la asesoría del tenant (e2e)', () => {
       .send({ amount: 121, methodType: 'cash' })
       .expect(200);
 
+    // Emitida y anulada: queda «Anulada (abono R…)», no «sustituida».
+    const cancelledId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 40,
+    });
+    await http().post(`/invoices/${cancelledId}/issue`).set(auth).expect(200);
+    await http()
+      .post(`/invoices/${cancelledId}/cancel`)
+      .set(auth)
+      .send({ reason: 'Error en el importe' })
+      .expect(200);
+
     // Contrato con fianza de 100 €: justificante cobrado y liquidación (70 devueltos).
     const contract = await http().post('/contracts').set(auth).send({
       customerId,
@@ -87,9 +98,18 @@ describe('Exportación para la asesoría del tenant (e2e)', () => {
       .get(`/fiscal/accountant-export?from=${today}&to=${today}`)
       .set(auth)
       .expect(200);
-    const invoiceRows = res.body.invoices as { base: number; vat: number }[];
-    expect(invoiceRows).toHaveLength(1);
-    expect(invoiceRows[0]).toMatchObject({ base: 100, vat: 21 });
+    const invoiceRows = res.body.invoices as {
+      base: number;
+      vat: number;
+      status: string;
+      issueDate: string;
+    }[];
+    // La cobrada, la anulada y su abono (en negativo).
+    expect(invoiceRows.map((r) => r.base).sort((a, b) => a - b)).toEqual([-40, 40, 100]);
+    expect(invoiceRows.find((r) => r.base === 100)).toMatchObject({ vat: 21, status: 'Cobrada' });
+    expect(invoiceRows.find((r) => r.base === 40)!.status).toMatch(/^Anulada \(abono R/);
+    expect(invoiceRows.find((r) => r.base === -40)!.status).toBe('Cobrada');
+    expect(invoiceRows[0]!.issueDate).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
     // Los cobros no incluyen la fianza (no es un ingreso).
     expect(res.body.payments).toEqual([expect.objectContaining({ amount: 121 })]);
     const deposits = res.body.deposits as { movement: string; amount: number }[];

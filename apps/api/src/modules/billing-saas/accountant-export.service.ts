@@ -16,6 +16,7 @@ import {
 import ExcelJS from 'exceljs';
 
 import { zonedDayStart, zonedNextDayStart } from '../../common/format';
+import { rectifiedStatusLabel } from '../billing/rectified-status';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -37,7 +38,6 @@ const STATUS_LABELS: Record<string, string> = {
   paid: 'Cobrada',
   overdue: 'Vencida',
   cancelled: 'Anulada',
-  rectified: 'Rectificada (sustituida)',
   refunded: 'Reembolsada',
   partially_refunded: 'Reembolsada parcialmente',
 };
@@ -178,7 +178,15 @@ export class AccountantExportService {
     ) => {
       const ws = wb.addWorksheet(name);
       ws.addRow(columns.map((c) => c.header)).font = { bold: true };
-      for (const row of rows) ws.addRow(columns.map((c) => c.value(row)));
+      for (const row of rows) {
+        const added = ws.addRow(columns.map((c) => c.value(row)));
+        // Importes con dos decimales (el % de IVA se deja tal cual).
+        added.eachCell((cell, col) => {
+          if (typeof cell.value === 'number' && columns[col - 1]!.header !== '% IVA') {
+            cell.numFmt = '#,##0.00';
+          }
+        });
+      }
       ws.columns.forEach((col, i) => {
         col.width = Math.max(12, columns[i]!.header.length + 2);
       });
@@ -313,6 +321,11 @@ export class AccountantExportService {
             items: { select: { taxRate: true, taxCategory: true, taxAmount: true, total: true } },
           },
         },
+        // Sus rectificativas emitidas: dicen si está anulada o sustituida.
+        rectifiedBy: {
+          where: { deletedAt: null, status: { notIn: ['draft', 'cancelled'] } },
+          select: { invoiceNumber: true, correctionMethod: true },
+        },
         customer: {
           select: {
             customerType: true,
@@ -383,7 +396,10 @@ export class AccountantExportService {
           vat: round2(v.vat),
           lineTotal: round2(v.base + v.vat),
           invoiceTotal: round2(Number(inv.total) - (replaced ? Number(replaced.total) : 0)),
-          status: STATUS_LABELS[inv.status] ?? inv.status,
+          status:
+            inv.status === 'rectified'
+              ? rectifiedStatusLabel(inv.rectifiedBy)
+              : (STATUS_LABELS[inv.status] ?? inv.status),
         });
       }
       // Una factura completa (no simplificada) necesita NIF y domicilio del cliente.

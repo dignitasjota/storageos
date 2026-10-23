@@ -59,19 +59,4 @@ export function useAccountantExport(from: string, to: string, enabled = true) {
   });
 }
 
-/** Descarga un CSV (separador `;`, BOM UTF-8 para Excel español). */
-export function downloadCsv(filename: string, rows: (string | number)[][]): void {
-  const escape = (v: string | number) => {
-    const s = String(v);
-    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const csv = rows.map((r) => r.map(escape).join(';')).join('\n');
-  // BOM (\uFEFF) para que Excel detecte UTF-8.
-  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+export { downloadCsv } from '@/lib/csv';
