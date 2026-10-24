@@ -1,65 +1,15 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
 import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button';
+import { RedsysSettingsForm } from '@/components/payments/redsys-settings-form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useRedsysSettings, useUpdateRedsysSettings } from '@/lib/payments/redsys';
 
 export function RedsysCard() {
   const settings = useRedsysSettings();
   const update = useUpdateRedsysSettings();
-
-  const [merchantCode, setMerchantCode] = useState('');
-  const [terminal, setTerminal] = useState('1');
-  const [environment, setEnvironment] = useState<'test' | 'live'>('test');
-  const [secretKey, setSecretKey] = useState('');
-  const [enabled, setEnabled] = useState(false);
-  const [bizumEnabled, setBizumEnabled] = useState(false);
-  const [cardOnFileEnabled, setCardOnFileEnabled] = useState(false);
-  const [initialized, setInitialized] = useState(false);
-
-  const data = settings.data;
-  if (data && !initialized) {
-    setMerchantCode(data.merchantCode);
-    setTerminal(data.terminal);
-    setEnvironment(data.environment);
-    setEnabled(data.enabled);
-    setBizumEnabled(data.bizumEnabled);
-    setCardOnFileEnabled(data.cardOnFileEnabled);
-    setInitialized(true);
-  }
-
-  async function save() {
-    try {
-      await update.mutateAsync({
-        merchantCode,
-        terminal,
-        environment,
-        enabled,
-        bizumEnabled,
-        cardOnFileEnabled,
-        ...(secretKey ? { secretKey } : {}),
-      });
-      setSecretKey('');
-      toast.success('Redsys guardado.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error al guardar');
-    }
-  }
 
   return (
     <Card>
@@ -68,81 +18,26 @@ export function RedsysCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Permite a los inquilinos pagar sus facturas con tarjeta vía la pasarela de tu banco. La
-          clave secreta se guarda cifrada.
+          Permite a los inquilinos pagar sus facturas con tarjeta o Bizum en la pasarela de tu
+          banco. Copia los datos de tu TPV virtual (te los da el banco).
         </p>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
-            <Label>Código de comercio (FUC)</Label>
-            <Input value={merchantCode} onChange={(e) => setMerchantCode(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label>Terminal</Label>
-            <Input value={terminal} onChange={(e) => setTerminal(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label>Entorno</Label>
-            <Select value={environment} onValueChange={(v) => setEnvironment(v as 'test' | 'live')}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="test">Pruebas</SelectItem>
-                <SelectItem value="live">Producción</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div className="space-y-1">
-          <Label>Clave secreta del comercio</Label>
-          <Input
-            type="password"
-            value={secretKey}
-            onChange={(e) => setSecretKey(e.target.value)}
-            placeholder={data?.hasSecretKey ? '•••••••• (guardada)' : 'Clave SHA-256 del comercio'}
+        {settings.data ? (
+          <RedsysSettingsForm
+            data={settings.data}
+            saving={update.isPending}
+            onSave={async (input) => {
+              try {
+                await update.mutateAsync(input);
+                toast.success('Redsys guardado.');
+                return true;
+              } catch (err) {
+                toast.error(err instanceof ApiError ? err.body.message : 'Error al guardar');
+                return false;
+              }
+            }}
+            cardOnFileHint="El inquilino puede guardar su tarjeta al pagar y las siguientes cuotas se cobran solas. Actívalo solo si tu banco ha habilitado el «pago por referencia» (COF) en tu TPV; si no, los cobros automáticos fallarán. Para que se cobre al emitir cada factura, activa también el cobro automático."
           />
-        </div>
-
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />
-          Activar pago por Redsys
-        </label>
-
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={bizumEnabled}
-            onCheckedChange={(v) => setBizumEnabled(v === true)}
-            disabled={!enabled}
-          />
-          Aceptar Bizum
-          <span className="text-xs text-muted-foreground">
-            (tu banco debe tenerlo activo en el TPV)
-          </span>
-        </label>
-
-        <div className="space-y-1">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={cardOnFileEnabled}
-              onCheckedChange={(v) => setCardOnFileEnabled(v === true)}
-              disabled={!enabled}
-            />
-            Pago por referencia (tarjeta guardada y cobro automático)
-          </label>
-          <p className="pl-6 text-xs text-muted-foreground">
-            El inquilino puede guardar su tarjeta al pagar y las siguientes cuotas se cobran solas.
-            Actívalo solo si tu banco ha habilitado el «pago por referencia» (COF) en tu TPV; si no,
-            los cobros automáticos fallarán. Para que se cobre al emitir cada factura, activa
-            también el cobro automático.
-          </p>
-        </div>
-
-        <Button onClick={save} disabled={update.isPending}>
-          {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-          Guardar
-        </Button>
+        ) : null}
       </CardContent>
     </Card>
   );

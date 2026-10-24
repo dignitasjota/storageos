@@ -18,6 +18,9 @@ import type {
   TenantSelfAddonsDto,
   TenantSubscriptionDto,
   TenantSubscriptionPaymentDto,
+  RedsysPayMethod,
+  RedsysRedirectDto,
+  TenantRedsysPaymentOptionsDto,
 } from '@storageos/shared';
 
 /**
@@ -199,5 +202,22 @@ export function useUpdateSaasBillingDetails() {
         json: input,
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: billingDetailsKey }),
+  });
+}
+
+// ---------------- Pago con tarjeta o Bizum (TPV de la plataforma) ----------------
+
+export function useSaasRedsysOptions() {
+  return useQuery({
+    queryKey: ['saas-billing', 'redsys'] as const,
+    queryFn: () => apiFetch<TenantRedsysPaymentOptionsDto>('/settings/saas-billing/redsys'),
+  });
+}
+
+/** Formulario firmado para pagar un mes de la suscripción en el TPV. */
+export function fetchSaasRedsysRedirect(payMethod?: RedsysPayMethod): Promise<RedsysRedirectDto> {
+  return apiFetch<RedsysRedirectDto>('/settings/saas-billing/redsys/redirect', {
+    method: 'POST',
+    json: payMethod ? { payMethod } : {},
   });
 }

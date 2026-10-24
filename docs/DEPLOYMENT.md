@@ -1417,3 +1417,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 
 - La sesión ya no se cierra en el móvil cuando iOS congela la app a mitad de una renovación, ni manda al login sin conexión (muestra «Sin conexión» y entra sola al volver la red).
 - **App instalada (pantalla de inicio)**: la sesión del panel dura 90 días y se renueva al usarla (en el navegador, 7). Variable nueva opcional `JWT_REFRESH_APP_TTL_SECONDS` (por defecto `7776000`), ya en el compose de Portainer. Migración `20261111120000_session_installed_app` (se aplica sola). Las sesiones abiertas antes de desplegar siguen con 7 días: hay que volver a iniciar sesión una vez desde la app para que pase a 90.
+
+## 42. TPV Redsys de la plataforma (cobro de la suscripción)
+
+- Panel admin → **Cobros → TPV Redsys**: código de comercio (FUC), terminal, entorno y clave SHA-256 del TPV virtual de TrasterOS (los mismos datos con cualquier banco que use Redsys). Bizum solo si el banco lo tiene activo en el TPV.
+- En el TPV, la notificación online debe ser «HTTP» síncrona. La dirección de aviso (`<API_BASE_URL>/webhooks/redsys/platform`) la manda la aplicación en cada pago; `API_BASE_URL` tiene que ser la pública (`https://api.trasteros.pro`).
+- Los tenants que pagan a mano ven «Pagar con tarjeta» (y «Pagar con Bizum») en Ajustes → Suscripción; cada pago cubre un mes del plan. Migración `20261111160000_platform_redsys` (se aplica sola). Para probar: entorno de pruebas con el comercio público de Redsys (`999008881`, terminal `1`, clave `sq7HjrUOBfKmC576ILgskD5srU870gJ7`) y la tarjeta de pruebas `4548810000000003`.

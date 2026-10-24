@@ -22,6 +22,11 @@ import { PlatformHoldedService } from './platform-holded.service';
 import { PlatformInvoicesController } from './platform-invoices.controller';
 import { PlatformInvoicesService } from './platform-invoices.service';
 import { PlatformOwnTenantInvoicingService } from './platform-own-tenant-invoicing.service';
+import {
+  PlatformRedsysController,
+  PlatformRedsysWebhookController,
+} from './platform-redsys/platform-redsys.controller';
+import { PlatformRedsysService } from './platform-redsys/platform-redsys.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
 import {
   PlatformSepaRemittanceController,
@@ -78,6 +83,8 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformSepaController,
     PlatformSepaRemittanceController,
     PlatformSepaRemittanceItemController,
+    PlatformRedsysController,
+    PlatformRedsysWebhookController,
   ],
   providers: [
     BillingSaasService,
@@ -94,6 +101,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformSepaMandateService,
     SepaMandatePdfService,
     PlatformSepaRemittanceService,
+    PlatformRedsysService,
     AdminGuard,
     // Auditoría del super admin sobre el catálogo de add-ons/planes. Solo
     // depende de PrismaAdminService (DatabaseModule es @Global), así que se
