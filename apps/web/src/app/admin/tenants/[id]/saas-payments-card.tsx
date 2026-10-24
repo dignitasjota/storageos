@@ -69,6 +69,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   paypal: 'PayPal',
   cash: 'Efectivo',
   bank_transfer: 'Transferencia',
+  redsys: 'Tarjeta o Bizum (Redsys)',
+  sepa: 'Domiciliación SEPA',
   other: 'Otro',
 };
 

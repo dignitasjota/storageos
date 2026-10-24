@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { BillingDetailsSection } from './billing-details-section';
+import { RedsysPaySection } from './redsys-pay-section';
 import { SepaMandateSection } from './sepa-mandate-section';
 
 import { Badge } from '@/components/ui/badge';
@@ -219,6 +220,8 @@ export default function SaasBillingPage() {
           </div>
         </CardContent>
       </Card>
+
+      {exempt ? null : <RedsysPaySection />}
 
       <section className="space-y-3">
         <div>

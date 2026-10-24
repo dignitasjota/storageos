@@ -169,6 +169,8 @@ import type {
   TenantInteractionDto,
   TenantSubscriptionPaymentDto,
   TransitionTicketInput,
+  RedsysSettingsDto as PlatformRedsysSettingsDto,
+  UpdateRedsysSettingsInput as UpdatePlatformRedsysSettingsInput,
 } from '@storageos/shared';
 
 // ============================================================================
@@ -2758,5 +2760,28 @@ export function useSendAdminQuote() {
       void qc.invalidateQueries({ queryKey: ['admin', 'tenants', v.tenantId] });
       void qc.invalidateQueries({ queryKey: ['admin', 'followups'] });
     },
+  });
+}
+
+// ---------------- TPV Redsys de la plataforma ----------------
+
+const platformRedsysKey = ['admin', 'platform-redsys', 'settings'] as const;
+
+export function useAdminPlatformRedsysSettings() {
+  return useQuery({
+    queryKey: platformRedsysKey,
+    queryFn: () => adminApiFetch<PlatformRedsysSettingsDto>('/admin/platform-redsys/settings'),
+  });
+}
+
+export function useUpdatePlatformRedsysSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformRedsysSettingsInput) =>
+      adminApiFetch<PlatformRedsysSettingsDto>('/admin/platform-redsys/settings', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: platformRedsysKey }),
   });
 }

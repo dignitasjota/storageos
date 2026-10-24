@@ -15,6 +15,7 @@ import {
   CreateCheckoutSessionSchema,
   CreatePlatformSepaMandateSchema,
   CreatePortalSessionSchema,
+  RedsysRedirectRequestSchema,
   SelfAssignAddonSchema,
   SelfChangePlanSchema,
   TenantBillingDetailsSchema,
@@ -23,6 +24,8 @@ import {
   type PlatformInvoiceDto,
   type PlatformSepaMandateDto,
   type PlatformSepaMandateTermsDto,
+  type RedsysRedirectDto,
+  type TenantRedsysPaymentOptionsDto,
   type TenantSelfAddonsDto,
   type TenantSubscriptionDto,
   type TenantSubscriptionPaymentDto,
@@ -38,6 +41,7 @@ import { AuditService } from '../auth/audit.service';
 
 import { BillingSaasService } from './billing-saas.service';
 import { PlatformInvoicesService } from './platform-invoices.service';
+import { PlatformRedsysService } from './platform-redsys/platform-redsys.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
 import { SaasAddonsService } from './saas-addons.service';
 
@@ -50,6 +54,7 @@ class SelfAssignAddonDto extends createZodDto(SelfAssignAddonSchema) {}
 class SelfChangePlanDto extends createZodDto(SelfChangePlanSchema) {}
 class CreatePlatformSepaMandateDto extends createZodDto(CreatePlatformSepaMandateSchema) {}
 class TenantBillingDetailsBody extends createZodDto(TenantBillingDetailsSchema) {}
+class RedsysRedirectBody extends createZodDto(RedsysRedirectRequestSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -79,8 +84,25 @@ export class BillingSaasController {
     private readonly addons_: SaasAddonsService,
     private readonly invoices: PlatformInvoicesService,
     private readonly sepaMandate: PlatformSepaMandateService,
+    private readonly redsys: PlatformRedsysService,
     private readonly audit: AuditService,
   ) {}
+
+  /** ¿Puede pagar la suscripción con tarjeta o Bizum (TPV de la plataforma)? */
+  @Get('redsys')
+  redsysOptions(@CurrentUser() user: AuthenticatedUser): Promise<TenantRedsysPaymentOptionsDto> {
+    return this.redsys.paymentOptions(user.tenantId);
+  }
+
+  /** Formulario firmado para pagar un mes de la suscripción en el TPV. */
+  @Post('redsys/redirect')
+  @HttpCode(HttpStatus.OK)
+  redsysRedirect(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: RedsysRedirectBody,
+  ): Promise<RedsysRedirectDto> {
+    return this.redsys.createRedirect(user.tenantId, { payMethod: body.payMethod });
+  }
 
   /** Datos fiscales del tenant para sus facturas de suscripción (razón social, NIF, domicilio). */
   @Get('billing-details')

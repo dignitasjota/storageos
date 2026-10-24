@@ -546,6 +546,7 @@ model Tenant {
   platformEmailLogs       PlatformEmailLog[]
   notificationReads       NotificationRead[]
   pushSubscriptions       PushSubscription[]
+  platformRedsysOrders    PlatformRedsysOrder[]
   faqEntries              FaqEntry[]
   blogPosts               BlogPost[]
   promoLandings           PromoLanding[]
@@ -5260,6 +5261,45 @@ model PlatformSepaSettings {
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_sepa_settings")
+}
+
+/// TPV virtual (Redsys) de LA PLATAFORMA para que los tenants paguen su
+/// suscripción con tarjeta o Bizum. Singleton (`findFirst() ?? create()`).
+model PlatformRedsysSettings {
+  id                 String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  merchantCode       String   @default("") @map("merchant_code")
+  terminal           String   @default("1")
+  /// Clave secreta del comercio, cifrada (AAD `platform-redsys-settings`).
+  secretKeyEncrypted String?  @map("secret_key_encrypted")
+  environment        String   @default("test")
+  enabled            Boolean  @default(false)
+  bizumEnabled       Boolean  @default(false) @map("bizum_enabled")
+  cardOnFileEnabled  Boolean  @default(false) @map("card_on_file_enabled")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_redsys_settings")
+}
+
+/// Intento de pago de la suscripción de un tenant por el TPV de la plataforma.
+model PlatformRedsysOrder {
+  order       String    @id
+  tenantId    String    @map("tenant_id") @db.Uuid
+  amountCents Int       @map("amount_cents")
+  /// `card` | `bizum` | null (lo que ofrezca el TPV).
+  payMethod   String?   @map("pay_method")
+  /// `pending` | `paid` | `failed` | `replaced`.
+  status      String    @default("pending")
+  dsResponse  String?   @map("ds_response")
+  /// Pago de la suscripción registrado al confirmarse.
+  paymentId   String?   @map("payment_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status], map: "platform_redsys_orders_tenant_status_idx")
+  @@map("platform_redsys_orders")
 }
 
 /// Mandato SEPA de un TENANT autorizando a la plataforma a domiciliar su

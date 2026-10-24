@@ -536,6 +536,10 @@ España exige Verifactu para sociedades desde 2026-07-01. Implementado.
 
 - `installed_app` (boolean): sesión abierta desde la app instalada en el móvil; caduca a los `JWT_REFRESH_APP_TTL_SECONDS` (90 días) en vez de 7 y lo heredan las sesiones que salen de ella al renovar. `revoked_reason` `lost_response`: sustituida porque la respuesta de la renovación no llegó al navegador.
 
+### `platform_redsys_settings` / `platform_redsys_orders` (globales)
+
+- TPV Redsys de la plataforma para cobrar la suscripción: `merchant_code`, `terminal`, `secret_key_encrypted` (AAD `platform-redsys-settings`), `environment`, `enabled`, `bizum_enabled`, `card_on_file_enabled`. Cada pago es una orden (`order` = número de pedido del TPV; `tenant_id`, `amount_cents`, `pay_method`, `status` pending/paid/failed/replaced, `ds_response`, `payment_id` del pago de la suscripción). REVOKE para `storageos_app`.
+
 ### `invoice_series`
 
 - `id`, `tenant_id`, `code` (único por tenant), `name`, `prefix`, `year_scope` (boolean), `next_number`, `numbering_year` (año de la numeración: en una serie por año, el primer número de un año nuevo vuelve a 1; migración `20261111100000_invoice_numbering_year`), `facility_id` (nullable), `is_active`.

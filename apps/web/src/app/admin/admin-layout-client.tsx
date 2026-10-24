@@ -127,6 +127,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
       { href: '/admin/platform-dunning', label: 'Recordatorios de impago', icon: BellRing },
       { href: '/admin/platform-sepa', label: 'Cuenta SEPA (BBVA)', icon: Landmark },
       { href: '/admin/platform-sepa/remittances', label: 'Remesas SEPA', icon: Landmark },
+      { href: '/admin/platform-redsys', label: 'TPV Redsys (tarjeta y Bizum)', icon: CreditCard },
     ],
   },
   {

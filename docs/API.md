@@ -1908,6 +1908,13 @@ Páginas propias por promoción en la web del tenant, con el estilo de su planti
 - `POST /portal/me/push/unsubscribe` (sesión de portal, throttle): body `{ endpoint }`.
 - Web Push (`web-push`) por `VAPID_*`. Listeners `invoice_overdue`/`invoice_paid` envían un push al inquilino.
 
+### Suscripción — pago con tarjeta o Bizum (TPV Redsys de la plataforma, 2026-10-24)
+
+- `GET /admin/platform-redsys/settings` → `RedsysSettingsDto` (la clave nunca se devuelve) y `PUT …/settings` (mismo cuerpo que `/settings/redsys`; solo superadmin; 400 `redsys_secret_required` al activar sin clave).
+- `GET /settings/saas-billing/redsys` (`billing:configure`) → `{available, cardEnabled, bizumEnabled, amount, currency, currentPeriodEnd, pastDue, planName, reason}`; `reason` = `not_configured` | `not_manual` (paga por Stripe o SEPA) | `free_plan` | `exempt` | `no_subscription`.
+- `POST /settings/saas-billing/redsys/redirect {payMethod?: 'card'|'bizum'}` → formulario firmado (`url`, `signatureVersion`, `merchantParameters`, `signature`). 400 `redsys_not_enabled` / `redsys_not_available` / `bizum_not_enabled`.
+- `POST /webhooks/redsys/platform` (público, urlencoded): aviso de Redsys. Pago aprobado → pago de la suscripción `provider: 'redsys'` de un mes (extiende el periodo y emite la factura). Idempotente.
+
 ### Equipo — avisos en el dispositivo (`/me/push`, 2026-10-22)
 
 - `GET /me/push?endpoint=` (cualquier usuario del panel): `{ publicKey, subscribed }` (null sin VAPID; `subscribed` = ese dispositivo ya lo tiene activado).
