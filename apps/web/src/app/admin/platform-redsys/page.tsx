@@ -35,6 +35,7 @@ export default function PlatformRedsysPage() {
             <RedsysSettingsForm
               data={settings.data}
               readOnly={!canEdit}
+              cardOnFileHint="El tenant puede guardar su tarjeta al pagar y la suscripción se cobra sola cada mes (hasta 3 intentos si la rechaza el banco). Actívalo solo si tu banco ha habilitado el «pago por referencia» (COF) en el TPV."
               saving={update.isPending}
               onSave={async (input) => {
                 try {
@@ -66,6 +67,12 @@ export default function PlatformRedsysPage() {
             Suscripción «Pagar con tarjeta» y, si lo activas, «Pagar con Bizum». Cada pago cubre un
             mes del plan: extiende el periodo, emite la factura y, si había impago, la cuenta vuelve
             a estar al día.
+          </p>
+          <p>
+            Con el pago por referencia activo pueden marcar «Guardar la tarjeta y cobrar cada mes»:
+            la suscripción pasa a «Tarjeta (Redsys)» y se cobra sola el día que vence (06:00). Si el
+            banco la rechaza se reintenta a los 2 días, hasta 3 veces; después te llega un aviso y
+            el tenant queda con el pago pendiente.
           </p>
           <p>
             En el TPV la notificación online debe estar en «HTTP» (síncrona). La dirección de aviso

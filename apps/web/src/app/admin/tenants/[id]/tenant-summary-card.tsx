@@ -23,6 +23,7 @@ const MODE_LABELS: Record<string, string> = {
   stripe: 'Stripe',
   manual: 'Manual',
   sepa: 'SEPA',
+  redsys: 'Tarjeta (Redsys)',
 };
 
 /**

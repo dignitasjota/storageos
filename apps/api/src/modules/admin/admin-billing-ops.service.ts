@@ -56,7 +56,7 @@ const STEP_LABEL: Record<AdminDunningStepDto['step'], string> = {
 };
 
 function asMethod(mode: string | null | undefined): AdminChargeMethod {
-  return mode === 'stripe' || mode === 'sepa' ? mode : 'manual';
+  return mode === 'stripe' || mode === 'sepa' || mode === 'redsys' ? mode : 'manual';
 }
 
 /**
@@ -491,7 +491,12 @@ export class AdminBillingOpsService {
     }
     charges.sort((a, b) => a.date.localeCompare(b.date));
 
-    const scheduledByMethod: Record<AdminChargeMethod, number> = { stripe: 0, sepa: 0, manual: 0 };
+    const scheduledByMethod: Record<AdminChargeMethod, number> = {
+      stripe: 0,
+      sepa: 0,
+      redsys: 0,
+      manual: 0,
+    };
     for (const c of charges) {
       if (c.state === 'scheduled')
         scheduledByMethod[c.method] = round2(scheduledByMethod[c.method] + c.amount);

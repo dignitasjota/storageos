@@ -12,7 +12,12 @@ import { useAdminTenantAccount } from '@/lib/admin/hooks';
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
 
-const METHOD: Record<string, string> = { stripe: 'Stripe', sepa: 'SEPA', manual: 'pago manual' };
+const METHOD: Record<string, string> = {
+  stripe: 'Stripe',
+  sepa: 'SEPA',
+  redsys: 'tarjeta guardada (Redsys)',
+  manual: 'pago manual',
+};
 
 const EVENT: Record<AdminAccountEventDto['kind'], { label: string; className: string }> = {
   payment: { label: 'Pago', className: 'text-emerald-700 dark:text-emerald-400' },

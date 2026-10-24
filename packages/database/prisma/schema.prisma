@@ -548,6 +548,7 @@ model Tenant {
   pushSubscriptions       PushSubscription[]
   platformRedsysOrders    PlatformRedsysOrder[]
   userPasskeys            UserPasskey[]
+  platformRedsysCard      PlatformRedsysCard?
   faqEntries              FaqEntry[]
   blogPosts               BlogPost[]
   promoLandings           PromoLanding[]
@@ -5301,6 +5302,10 @@ model PlatformRedsysOrder {
   dsResponse  String?   @map("ds_response")
   /// Pago de la suscripción registrado al confirmarse.
   paymentId   String?   @map("payment_id") @db.Uuid
+  /// Guardar la tarjeta para cobrar sola cada mes (pago por referencia).
+  saveCard    Boolean   @default(false) @map("save_card")
+  /// `redirect` (paga el tenant en el TPV) | `auto` (cobro con la tarjeta guardada).
+  kind        String    @default("redirect")
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
 
@@ -5308,6 +5313,26 @@ model PlatformRedsysOrder {
 
   @@index([tenantId, status], map: "platform_redsys_orders_tenant_status_idx")
   @@map("platform_redsys_orders")
+}
+
+/// Tarjeta guardada de un tenant en el TPV de la plataforma (cobro automático).
+model PlatformRedsysCard {
+  tenantId            String   @id @map("tenant_id") @db.Uuid
+  /// Referencia de Redsys (Ds_Merchant_Identifier), cifrada con AAD = tenant.
+  identifierEncrypted String   @map("identifier_encrypted")
+  cofTxnId            String?  @map("cof_txn_id")
+  last4               String?
+  brand               String?
+  expMonth            Int?     @map("exp_month")
+  expYear             Int?     @map("exp_year")
+  /// Último rechazo del cobro automático.
+  lastError           String?  @map("last_error")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("platform_redsys_cards")
 }
 
 /// Mandato SEPA de un TENANT autorizando a la plataforma a domiciliar su

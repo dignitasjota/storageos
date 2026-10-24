@@ -18,6 +18,18 @@ export interface TenantRedsysPaymentOptionsDto {
   /** La suscripción tiene un pago pendiente. */
   pastDue: boolean;
   planName: string | null;
+  /** El TPV admite guardar la tarjeta y cobrar solo cada mes. */
+  cardOnFileAvailable: boolean;
+  /** La suscripción se cobra sola con la tarjeta guardada. */
+  autoCharge: boolean;
+  savedCard: {
+    last4: string | null;
+    brand: string | null;
+    expMonth: number | null;
+    expYear: number | null;
+    /** Motivo del último cobro automático rechazado. */
+    lastError: string | null;
+  } | null;
   /** Por qué no se ofrece (cuando `available` es false). */
   reason: 'not_configured' | 'not_manual' | 'free_plan' | 'exempt' | 'no_subscription' | null;
 }

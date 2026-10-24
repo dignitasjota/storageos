@@ -47,6 +47,7 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 const MODE_LABEL: Record<string, string> = {
   stripe: 'Stripe',
   sepa: 'SEPA',
+  redsys: 'Tarjeta (Redsys)',
   manual: 'Manual',
 };
 
@@ -486,6 +487,7 @@ export default function AdminTenantsPage() {
             ['all', 'Cualquier cobro'],
             ['stripe', 'Stripe'],
             ['sepa', 'SEPA'],
+            ['redsys', 'Tarjeta (Redsys)'],
             ['manual', 'Manual'],
             ['exempt', 'Exentas'],
           ]}

@@ -30,7 +30,12 @@ import { ApiError } from '@/lib/auth/api';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
-const METHOD: Record<string, string> = { stripe: 'Stripe', sepa: 'SEPA', manual: 'Manual' };
+const METHOD: Record<string, string> = {
+  stripe: 'Stripe',
+  sepa: 'SEPA',
+  redsys: 'Tarjeta (Redsys)',
+  manual: 'Manual',
+};
 const PROVIDERS = [
   { value: 'bank_transfer', label: 'Transferencia' },
   { value: 'cash', label: 'Efectivo' },

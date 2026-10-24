@@ -7,21 +7,38 @@ import { toast } from 'sonner';
 
 import type { RedsysPayMethod } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ApiError } from '@/lib/auth/api';
 import { formatDate, formatEur } from '@/lib/format';
 import { submitRedsysForm } from '@/lib/payments/redsys';
-import { fetchSaasRedsysRedirect, useSaasRedsysOptions } from '@/lib/saas-billing/hooks';
+import {
+  fetchSaasRedsysRedirect,
+  useDisableSaasRedsysAutoCharge,
+  useSaasRedsysOptions,
+} from '@/lib/saas-billing/hooks';
+
+const BRANDS: Record<string, string> = {
+  visa: 'Visa',
+  mastercard: 'Mastercard',
+  amex: 'American Express',
+  diners: 'Diners',
+  jcb: 'JCB',
+};
 
 /**
- * Pagar la suscripción con tarjeta o Bizum en el TPV de TrasterOS. Solo si se
- * paga a mano (sin Stripe ni domiciliación) y el TPV está activo.
+ * Pagar la suscripción con tarjeta o Bizum en el TPV de TrasterOS y, si el
+ * banco lo permite, guardar la tarjeta para que se cobre sola cada mes.
  */
 export function RedsysPaySection() {
   const options = useSaasRedsysOptions();
+  const disable = useDisableSaasRedsysAutoCharge();
+  const ask = useConfirm();
   const qc = useQueryClient();
   const [busy, setBusy] = useState<RedsysPayMethod | null>(null);
+  const [saveCard, setSaveCard] = useState(true);
 
   // Vuelta del TPV: Redsys avisa al servidor por su cuenta; puede tardar unos segundos.
   useEffect(() => {
@@ -46,38 +63,95 @@ export function RedsysPaySection() {
   async function pay(method: RedsysPayMethod) {
     setBusy(method);
     try {
-      submitRedsysForm(await fetchSaasRedsysRedirect(method));
+      const keepCard = method === 'card' && o!.cardOnFileAvailable && saveCard;
+      submitRedsysForm(await fetchSaasRedsysRedirect(method, keepCard));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo abrir el pago');
       setBusy(null);
     }
   }
 
+  const card = o.savedCard;
+  const cardName = card
+    ? `${card.brand ? (BRANDS[card.brand] ?? card.brand) : 'Tarjeta'}${card.last4 ? ` ···· ${card.last4}` : ''}`
+    : '';
+  const cardExpiry =
+    card?.expMonth && card.expYear
+      ? `${String(card.expMonth).padStart(2, '0')}/${String(card.expYear).slice(-2)}`
+      : null;
+
   return (
     <Card className={o.pastDue ? 'border-destructive/50' : undefined}>
       <CardHeader>
-        <CardTitle className="text-base">Pagar con tarjeta o Bizum</CardTitle>
+        <CardTitle className="text-base">
+          {o.autoCharge ? 'Cobro automático con tarjeta' : 'Pagar con tarjeta o Bizum'}
+        </CardTitle>
         <CardDescription>
           {o.pastDue
             ? 'Tienes un pago pendiente. Págalo ahora y tu cuenta vuelve a estar al día.'
-            : 'Paga el siguiente mes de tu suscripción cuando quieras.'}
+            : o.autoCharge
+              ? 'Tu suscripción se cobra sola cada mes con tu tarjeta guardada.'
+              : 'Paga el siguiente mes de tu suscripción cuando quieras.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <p>
-          <span className="font-medium">{formatEur(o.amount)}</span> (IVA incluido) · un mes del
-          plan {o.planName}
-          {o.currentPeriodEnd ? ` desde el ${formatDate(o.currentPeriodEnd)}` : ''}.
-        </p>
+        {o.autoCharge && card ? (
+          <div className="rounded-md border p-3">
+            <p className="font-medium">
+              {cardName}
+              {cardExpiry ? (
+                <span className="font-normal text-muted-foreground"> · caduca {cardExpiry}</span>
+              ) : null}
+            </p>
+            <p className="text-muted-foreground">
+              Próximo cobro: {formatEur(o.amount)}
+              {o.currentPeriodEnd ? ` el ${formatDate(o.currentPeriodEnd)}` : ''}.
+            </p>
+            {card.lastError ? (
+              <p className="mt-1 text-destructive">
+                El último cobro no se pudo hacer: {card.lastError}. Paga ahora con otra tarjeta.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p>
+            <span className="font-medium">{formatEur(o.amount)}</span> (IVA incluido) · un mes del
+            plan {o.planName}
+            {o.currentPeriodEnd ? ` desde el ${formatDate(o.currentPeriodEnd)}` : ''}.
+          </p>
+        )}
+
+        {o.cardOnFileAvailable ? (
+          <label className="flex items-start gap-2">
+            <Checkbox
+              checked={saveCard}
+              onCheckedChange={(v) => setSaveCard(v === true)}
+              className="mt-0.5"
+            />
+            <span>
+              {o.autoCharge
+                ? 'Guardar la tarjeta con la que pague ahora para los próximos cobros'
+                : 'Guardar la tarjeta y cobrar automáticamente cada mes'}
+              <span className="block text-xs text-muted-foreground">
+                Solo con tarjeta. Puedes desactivarlo cuando quieras.
+              </span>
+            </span>
+          </label>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           {o.cardEnabled ? (
-            <Button onClick={() => void pay('card')} disabled={busy !== null}>
+            <Button
+              variant={o.autoCharge && !o.pastDue ? 'outline' : 'default'}
+              onClick={() => void pay('card')}
+              disabled={busy !== null}
+            >
               {busy === 'card' ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <CreditCard className="mr-2 h-4 w-4" />
               )}
-              Pagar con tarjeta
+              {o.autoCharge ? 'Pagar ahora con otra tarjeta' : 'Pagar con tarjeta'}
             </Button>
           ) : null}
           {o.bizumEnabled ? (
@@ -88,6 +162,30 @@ export function RedsysPaySection() {
                 <Smartphone className="mr-2 h-4 w-4" />
               )}
               Pagar con Bizum
+            </Button>
+          ) : null}
+          {o.autoCharge ? (
+            <Button
+              variant="ghost"
+              disabled={disable.isPending}
+              onClick={async () => {
+                const ok = await ask({
+                  title: 'Desactivar el cobro automático',
+                  description:
+                    'Se borra la tarjeta guardada y tendrás que pagar cada mes desde aquí o por transferencia.',
+                  confirmLabel: 'Desactivar',
+                  destructive: true,
+                });
+                if (!ok) return;
+                try {
+                  await disable.mutateAsync();
+                  toast.success('Cobro automático desactivado.');
+                } catch (err) {
+                  toast.error(err instanceof ApiError ? err.body.message : 'No se pudo desactivar');
+                }
+              }}
+            >
+              Desactivar el cobro automático
             </Button>
           ) : null}
         </div>

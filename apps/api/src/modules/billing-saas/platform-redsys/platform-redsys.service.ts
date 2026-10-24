@@ -4,11 +4,13 @@ import { ConfigService } from '@nestjs/config';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { toCents } from '../../../common/money';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { savedCardFromNotification } from '../../payments/redsys/redsys-charge.service';
 import {
   decodeMerchantParameters,
   encodeMerchantParameters,
   generateRedsysOrder,
   REDSYS_ENDPOINTS,
+  REDSYS_REST_ENDPOINTS,
   REDSYS_SIGNATURE_VERSION,
   signRequest,
   verifyNotification,
@@ -28,6 +30,12 @@ import type {
 
 /** AAD fijo para la clave del TPV de la plataforma (sin scope de tenant). */
 const SECRET_AAD = 'platform-redsys-settings';
+
+/** Intentos del cobro automático por periodo, y días entre uno y otro. */
+const AUTO_CHARGE_MAX_ATTEMPTS = 3;
+const AUTO_CHARGE_RETRY_DAYS = 2;
+const DAY_MS = 86_400_000;
+const REST_TIMEOUT_MS = 20_000;
 
 interface ResolvedSettings {
   merchantCode: string;
@@ -53,6 +61,8 @@ interface ResolvedSettings {
 @Injectable()
 export class PlatformRedsysService {
   private readonly logger = new Logger(PlatformRedsysService.name);
+  /** Sin red en tests: una referencia `stub-decline…` se deniega, `stub-noresponse…` no contesta. */
+  private readonly stub = process.env.NODE_ENV === 'test' || process.env.REDSYS_MODE === 'stub';
 
   constructor(
     private readonly admin: PrismaAdminService,
@@ -123,13 +133,14 @@ export class PlatformRedsysService {
 
   /** Qué puede pagar el tenant con el TPV de la plataforma y cuánto. */
   async paymentOptions(tenantId: string): Promise<TenantRedsysPaymentOptionsDto> {
-    const [cfg, sub, tenant] = await Promise.all([
+    const [cfg, sub, tenant, card] = await Promise.all([
       this.resolved(),
       this.admin.tenantSubscription.findUnique({
         where: { tenantId },
         include: { plan: { select: { name: true, priceMonthly: true } } },
       }),
       this.admin.tenant.findUnique({ where: { id: tenantId }, select: { billingExempt: true } }),
+      this.admin.platformRedsysCard.findUnique({ where: { tenantId } }),
     ]);
     const base: TenantRedsysPaymentOptionsDto = {
       available: false,
@@ -140,12 +151,25 @@ export class PlatformRedsysService {
       currentPeriodEnd: sub?.currentPeriodEnd.toISOString() ?? null,
       pastDue: sub?.status === 'past_due',
       planName: sub?.plan.name ?? null,
+      cardOnFileAvailable: false,
+      autoCharge: false,
+      savedCard: card
+        ? {
+            last4: card.last4,
+            brand: card.brand,
+            expMonth: card.expMonth,
+            expYear: card.expYear,
+            lastError: card.lastError,
+          }
+        : null,
       reason: null,
     };
     if (!cfg?.enabled) return { ...base, reason: 'not_configured' };
     if (!sub) return { ...base, reason: 'no_subscription' };
     if (tenant?.billingExempt) return { ...base, reason: 'exempt' };
-    if (sub.billingMode !== 'manual') return { ...base, reason: 'not_manual' };
+    if (sub.billingMode !== 'manual' && sub.billingMode !== 'redsys') {
+      return { ...base, reason: 'not_manual' };
+    }
     const amount = await this.amountDue(tenantId);
     if (amount <= 0) return { ...base, reason: 'free_plan' };
     return {
@@ -153,6 +177,8 @@ export class PlatformRedsysService {
       available: true,
       cardEnabled: true,
       bizumEnabled: cfg.bizumEnabled,
+      cardOnFileAvailable: cfg.cardOnFileEnabled,
+      autoCharge: sub.billingMode === 'redsys' && !!card,
       amount,
       reason: null,
     };
@@ -165,7 +191,7 @@ export class PlatformRedsysService {
    */
   async createRedirect(
     tenantId: string,
-    opts: { payMethod?: RedsysPayMethod | undefined },
+    opts: { payMethod?: RedsysPayMethod | undefined; saveCard?: boolean | undefined },
   ): Promise<RedsysRedirectDto> {
     const cfg = await this.resolved();
     const options = await this.paymentOptions(tenantId);
@@ -186,13 +212,20 @@ export class PlatformRedsysService {
     }
     const amountCents = toCents(options.amount);
     const payMethod = opts.payMethod ?? null;
+    // Guardar la tarjeta para cobrar sola cada mes (solo tarjeta, si el banco lo permite).
+    const saveCard = !!opts.saveCard && cfg.cardOnFileEnabled && payMethod !== 'bizum';
     const orderRow = await this.admin.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`platform-redsys:${tenantId}`}))`;
       const existing = await tx.platformRedsysOrder.findFirst({
         where: { tenantId, status: 'pending' },
         orderBy: { createdAt: 'desc' },
       });
-      if (existing && existing.amountCents === amountCents && existing.payMethod === payMethod) {
+      if (
+        existing &&
+        existing.amountCents === amountCents &&
+        existing.payMethod === payMethod &&
+        existing.saveCard === saveCard
+      ) {
         return existing;
       }
       if (existing) {
@@ -202,7 +235,14 @@ export class PlatformRedsysService {
         });
       }
       return tx.platformRedsysOrder.create({
-        data: { order: generateRedsysOrder(), tenantId, amountCents, payMethod, status: 'pending' },
+        data: {
+          order: generateRedsysOrder(),
+          tenantId,
+          amountCents,
+          payMethod,
+          saveCard,
+          status: 'pending',
+        },
       });
     });
 
@@ -223,6 +263,15 @@ export class PlatformRedsysService {
         .slice(0, 125),
       // 'z' = Bizum, 'C' = tarjeta; sin el campo el TPV ofrece lo que tenga activo.
       ...(payMethod ? { DS_MERCHANT_PAYMETHODS: payMethod === 'bizum' ? 'z' : 'C' } : {}),
+      // Pago por referencia: Redsys guarda la tarjeta y la devuelve en el aviso.
+      ...(orderRow.saveCard
+        ? {
+            DS_MERCHANT_PAYMETHODS: 'C',
+            DS_MERCHANT_IDENTIFIER: 'REQUIRED',
+            DS_MERCHANT_COF_INI: 'S',
+            DS_MERCHANT_COF_TYPE: 'R',
+          }
+        : {}),
     };
     const merchantParameters = encodeMerchantParameters(params);
     return {
@@ -272,16 +321,38 @@ export class PlatformRedsysService {
     const approved = Number.isFinite(code) && code >= 0 && code <= 99;
 
     // Solo la primera notificación cambia el estado (Redsys puede reenviarla).
+    // `charging` = cobro automático cuya respuesta aún no ha llegado.
     const { count } = await this.admin.platformRedsysOrder.updateMany({
-      where: { order, status: { in: ['pending', 'replaced'] } },
+      where: { order, status: { in: ['pending', 'replaced', 'charging'] } },
       data: {
         status: approved ? 'paid' : 'failed',
         dsResponse,
         ...(approved ? { paidAt: new Date() } : {}),
       },
     });
-    if (count === 0 || !approved) return;
+    if (count === 0) return;
+    if (!approved) {
+      if (orderRow.kind === 'auto')
+        await this.autoChargeFailed(orderRow.tenantId, `Redsys ${dsResponse}`);
+      return;
+    }
+    if (orderRow.saveCard) await this.saveCard(orderRow.tenantId, params);
+    await this.recordPayment(orderRow);
+  }
 
+  /** Registra el pago de la suscripción de una orden cobrada (una sola vez). */
+  private async recordPayment(orderRow: {
+    order: string;
+    tenantId: string;
+    amountCents: number;
+    payMethod: string | null;
+    kind: string;
+  }): Promise<void> {
+    const order = orderRow.order;
+    const how =
+      orderRow.kind === 'auto'
+        ? 'Cobro automático con tarjeta (Redsys)'
+        : `${orderRow.payMethod === 'bizum' ? 'Bizum' : 'Tarjeta'} (Redsys)`;
     try {
       const payment = await this.billing.recordManualPayment({
         tenantId: orderRow.tenantId,
@@ -290,12 +361,18 @@ export class PlatformRedsysService {
         currency: 'EUR',
         durationMonths: 1,
         extendsPeriod: true,
-        description: `${orderRow.payMethod === 'bizum' ? 'Bizum' : 'Tarjeta'} (Redsys) · pedido ${order}`,
+        description: `${how} · pedido ${order}`,
       });
       await this.admin.platformRedsysOrder.update({
         where: { order },
         data: { paymentId: payment.id },
       });
+      if (orderRow.kind === 'auto') {
+        await this.admin.platformRedsysCard.updateMany({
+          where: { tenantId: orderRow.tenantId },
+          data: { lastError: null },
+        });
+      }
     } catch (err) {
       // El dinero ya está cobrado: que no quede solo en un log.
       const reason = err instanceof Error ? err.message : String(err);
@@ -311,6 +388,235 @@ export class PlatformRedsysService {
         })
         .catch(() => undefined);
     }
+  }
+
+  /**
+   * Guarda la tarjeta que devuelve Redsys y pasa la suscripción a cobro
+   * automático (si se pagaba a mano). Nunca rompe la confirmación del pago.
+   */
+  private async saveCard(tenantId: string, params: Record<string, string>): Promise<void> {
+    const card = savedCardFromNotification(params);
+    if (!card) {
+      this.logger.warn(`[redsys-platform] pago con «guardar tarjeta» sin referencia (${tenantId})`);
+      return;
+    }
+    try {
+      const data = {
+        identifierEncrypted: this.crypto.encryptString(card.identifier, tenantId),
+        cofTxnId: card.cofTxnId,
+        last4: card.last4,
+        brand: card.brand,
+        expMonth: card.expMonth,
+        expYear: card.expYear,
+        lastError: null,
+      };
+      await this.admin.platformRedsysCard.upsert({
+        where: { tenantId },
+        create: { tenantId, ...data },
+        update: data,
+      });
+      await this.admin.tenantSubscription.updateMany({
+        where: { tenantId, billingMode: 'manual' },
+        data: { billingMode: 'redsys' },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[redsys-platform] no se pudo guardar la tarjeta de ${tenantId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /** El tenant deja de pagar con la tarjeta guardada: vuelve al pago a mano. */
+  async disableAutoCharge(tenantId: string): Promise<void> {
+    await this.admin.$transaction([
+      this.admin.platformRedsysCard.deleteMany({ where: { tenantId } }),
+      this.admin.tenantSubscription.updateMany({
+        where: { tenantId, billingMode: 'redsys' },
+        data: { billingMode: 'manual' },
+      }),
+    ]);
+  }
+
+  // --------------------------- cobro automático ---------------------------
+
+  /**
+   * Cobra con la tarjeta guardada las suscripciones en modo `redsys` cuyo
+   * periodo ha vencido. Hasta 3 intentos por periodo, separados 2 días; un
+   * cobro sin respuesta queda en curso y lo resuelve el aviso de Redsys.
+   */
+  async runAutoCharges(now = new Date()): Promise<{ charged: number; failed: number }> {
+    const cfg = await this.resolved();
+    if (!cfg?.enabled || !cfg.cardOnFileEnabled) return { charged: 0, failed: 0 };
+    const subs = await this.admin.tenantSubscription.findMany({
+      where: {
+        billingMode: 'redsys',
+        status: { in: ['active', 'past_due'] },
+        currentPeriodEnd: { lte: now },
+        plan: { priceMonthly: { gt: 0 } },
+        tenant: { deletedAt: null, billingExempt: false, platformRedsysCard: { isNot: null } },
+      },
+      select: { tenantId: true, currentPeriodEnd: true },
+    });
+    let charged = 0;
+    let failed = 0;
+    for (const sub of subs) {
+      const since = new Date(sub.currentPeriodEnd.getTime() - DAY_MS);
+      const attempts = await this.admin.platformRedsysOrder.findMany({
+        where: { tenantId: sub.tenantId, kind: 'auto', createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true, createdAt: true },
+      });
+      if (attempts.some((a) => a.status === 'charging')) continue;
+      if (attempts.length >= AUTO_CHARGE_MAX_ATTEMPTS) continue;
+      const last = attempts[0];
+      if (last && now.getTime() - last.createdAt.getTime() < AUTO_CHARGE_RETRY_DAYS * DAY_MS) {
+        continue;
+      }
+      const result = await this.chargeSavedCard(sub.tenantId, cfg);
+      if (result === 'paid') charged++;
+      if (result === 'failed') failed++;
+    }
+    return { charged, failed };
+  }
+
+  /** Un cobro con la tarjeta guardada (operación sin el cliente, MIT). */
+  async chargeSavedCard(
+    tenantId: string,
+    cfg: ResolvedSettings,
+  ): Promise<'paid' | 'failed' | 'unknown'> {
+    const card = await this.admin.platformRedsysCard.findUnique({ where: { tenantId } });
+    if (!card) return 'failed';
+    const amountCents = toCents(await this.amountDue(tenantId));
+    if (amountCents <= 0) return 'failed';
+    const identifier = this.crypto.decryptString(card.identifierEncrypted, tenantId);
+    const order = generateRedsysOrder();
+    // Orden registrada ANTES de cobrar: si se pierde la respuesta, el aviso de
+    // Redsys la aplica; si llega la respuesta, el aviso posterior no hace nada.
+    const orderRow = await this.admin.platformRedsysOrder.create({
+      data: { order, tenantId, amountCents, status: 'charging', kind: 'auto', payMethod: 'card' },
+    });
+
+    let approved: boolean | null;
+    let dsResponse = '';
+    if (this.stub) {
+      approved = identifier.startsWith('stub-noresponse')
+        ? null
+        : !identifier.startsWith('stub-decline');
+      dsResponse = approved ? '0000' : '0190';
+    } else {
+      const res = await this.callRest(cfg, {
+        DS_MERCHANT_AMOUNT: String(amountCents),
+        DS_MERCHANT_ORDER: order,
+        DS_MERCHANT_MERCHANTCODE: cfg.merchantCode,
+        DS_MERCHANT_CURRENCY: '978',
+        DS_MERCHANT_TRANSACTIONTYPE: '0',
+        DS_MERCHANT_TERMINAL: cfg.terminal,
+        DS_MERCHANT_IDENTIFIER: identifier,
+        DS_MERCHANT_DIRECTPAYMENT: 'true',
+        DS_MERCHANT_EXCEP_SCA: 'MIT',
+        DS_MERCHANT_COF_INI: 'N',
+        DS_MERCHANT_COF_TYPE: 'R',
+        ...(card.cofTxnId ? { DS_MERCHANT_COF_TXNID: card.cofTxnId } : {}),
+        DS_MERCHANT_PRODUCTDESCRIPTION: 'Suscripción TrasterOS',
+        DS_MERCHANT_MERCHANTURL: `${this.config.get('API_BASE_URL', { infer: true })}/webhooks/redsys/platform`,
+      });
+      approved = res.approved;
+      dsResponse = res.dsResponse;
+    }
+    if (approved === null) return 'unknown';
+
+    const { count } = await this.admin.platformRedsysOrder.updateMany({
+      where: { order, status: 'charging' },
+      data: {
+        status: approved ? 'paid' : 'failed',
+        dsResponse,
+        ...(approved ? { paidAt: new Date() } : {}),
+      },
+    });
+    // El aviso de Redsys llegó antes y ya lo aplicó.
+    if (count === 0) return approved ? 'paid' : 'failed';
+    if (approved) {
+      await this.recordPayment(orderRow);
+      return 'paid';
+    }
+    await this.autoChargeFailed(tenantId, `Denegada por el banco (${dsResponse || 'sin código'})`);
+    return 'failed';
+  }
+
+  /** Anota el rechazo; al último intento del periodo, avisa al super admin. */
+  private async autoChargeFailed(tenantId: string, reason: string): Promise<void> {
+    await this.admin.platformRedsysCard.updateMany({
+      where: { tenantId },
+      data: { lastError: reason },
+    });
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: { currentPeriodEnd: true },
+    });
+    if (!sub) return;
+    const failures = await this.admin.platformRedsysOrder.count({
+      where: {
+        tenantId,
+        kind: 'auto',
+        status: 'failed',
+        createdAt: { gte: new Date(sub.currentPeriodEnd.getTime() - DAY_MS) },
+      },
+    });
+    if (failures < AUTO_CHARGE_MAX_ATTEMPTS) return;
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    await this.admin.superAdminNotification
+      .create({
+        data: {
+          type: 'platform_redsys.auto_charge_failed',
+          title: `No se pudo cobrar la suscripción de ${tenant?.name ?? 'un tenant'}`,
+          body: `Tres intentos con la tarjeta guardada rechazados (${reason}). Queda en impago hasta que pague o cambie la tarjeta.`,
+          link: `/admin/tenants/${tenantId}?tab=payments`,
+        },
+      })
+      .catch(() => undefined);
+  }
+
+  /** Petición a la API REST de Redsys; `approved` null = sin respuesta fiable. */
+  private async callRest(
+    cfg: ResolvedSettings,
+    params: Record<string, string>,
+  ): Promise<{ approved: boolean | null; dsResponse: string }> {
+    const order = params.DS_MERCHANT_ORDER ?? '';
+    const merchantParameters = encodeMerchantParameters(params);
+    let json: Record<string, string>;
+    try {
+      const res = await fetch(REDSYS_REST_ENDPOINTS[cfg.environment], {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          Ds_SignatureVersion: REDSYS_SIGNATURE_VERSION,
+          Ds_MerchantParameters: merchantParameters,
+          Ds_Signature: signRequest(merchantParameters, order, cfg.secretKey),
+        }),
+        signal: AbortSignal.timeout(REST_TIMEOUT_MS),
+      });
+      json = (await res.json()) as Record<string, string>;
+    } catch (err) {
+      this.logger.warn(
+        `[redsys-platform] cobro ${order} sin respuesta: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { approved: null, dsResponse: '' };
+    }
+    if (json.errorCode) return { approved: false, dsResponse: json.errorCode };
+    if (!json.Ds_MerchantParameters || !json.Ds_Signature)
+      return { approved: null, dsResponse: '' };
+    const { valid, params: response } = verifyNotification(
+      json.Ds_MerchantParameters,
+      json.Ds_Signature,
+      cfg.secretKey,
+    );
+    if (!valid) return { approved: null, dsResponse: '' };
+    const dsResponse = response.Ds_Response ?? response.DS_RESPONSE ?? '';
+    const code = Number(dsResponse);
+    return { approved: Number.isFinite(code) && code >= 0 && code <= 99, dsResponse };
   }
 
   /** Cuota mensual del plan (con IVA si los precios son +IVA). */

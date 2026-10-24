@@ -3,7 +3,7 @@
  * de un tenant, cobros pendientes de todos y calendario de cobros.
  */
 
-export type AdminChargeMethod = 'stripe' | 'sepa' | 'manual';
+export type AdminChargeMethod = 'stripe' | 'sepa' | 'redsys' | 'manual';
 
 export interface AdminChargeLineDto {
   label: string;

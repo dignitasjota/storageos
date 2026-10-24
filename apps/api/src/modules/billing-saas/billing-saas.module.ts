@@ -26,6 +26,7 @@ import {
   PlatformRedsysController,
   PlatformRedsysWebhookController,
 } from './platform-redsys/platform-redsys.controller';
+import { PlatformRedsysCron } from './platform-redsys/platform-redsys.cron';
 import { PlatformRedsysService } from './platform-redsys/platform-redsys.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
 import {
@@ -102,6 +103,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     SepaMandatePdfService,
     PlatformSepaRemittanceService,
     PlatformRedsysService,
+    PlatformRedsysCron,
     AdminGuard,
     // Auditoría del super admin sobre el catálogo de add-ons/planes. Solo
     // depende de PrismaAdminService (DatabaseModule es @Global), así que se

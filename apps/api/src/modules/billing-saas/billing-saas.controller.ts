@@ -101,7 +101,17 @@ export class BillingSaasController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: RedsysRedirectBody,
   ): Promise<RedsysRedirectDto> {
-    return this.redsys.createRedirect(user.tenantId, { payMethod: body.payMethod });
+    return this.redsys.createRedirect(user.tenantId, {
+      payMethod: body.payMethod,
+      saveCard: body.saveCard,
+    });
+  }
+
+  /** Deja de cobrar solo con la tarjeta guardada (vuelve al pago a mano). */
+  @Delete('redsys/card')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async redsysDisableAutoCharge(@CurrentUser() user: AuthenticatedUser): Promise<void> {
+    await this.redsys.disableAutoCharge(user.tenantId);
   }
 
   /** Datos fiscales del tenant para sus facturas de suscripción (razón social, NIF, domicilio). */
