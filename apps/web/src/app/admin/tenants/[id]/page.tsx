@@ -1059,6 +1059,7 @@ const BILLING_MODE_LABELS: Record<string, string> = {
   stripe: 'Stripe',
   manual: 'Manual',
   sepa: 'SEPA (BBVA)',
+  redsys: 'Tarjeta guardada (Redsys)',
 };
 
 /**

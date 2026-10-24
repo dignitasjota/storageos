@@ -215,9 +215,22 @@ export function useSaasRedsysOptions() {
 }
 
 /** Formulario firmado para pagar un mes de la suscripción en el TPV. */
-export function fetchSaasRedsysRedirect(payMethod?: RedsysPayMethod): Promise<RedsysRedirectDto> {
+export function fetchSaasRedsysRedirect(
+  payMethod?: RedsysPayMethod,
+  /** Guardar la tarjeta y cobrar sola cada mes (pago por referencia). */
+  saveCard?: boolean,
+): Promise<RedsysRedirectDto> {
   return apiFetch<RedsysRedirectDto>('/settings/saas-billing/redsys/redirect', {
     method: 'POST',
-    json: payMethod ? { payMethod } : {},
+    json: { ...(payMethod ? { payMethod } : {}), ...(saveCard ? { saveCard: true } : {}) },
+  });
+}
+
+/** Deja de cobrar solo con la tarjeta guardada (vuelve al pago a mano). */
+export function useDisableSaasRedsysAutoCharge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<void>('/settings/saas-billing/redsys/card', { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['saas-billing'] }),
   });
 }

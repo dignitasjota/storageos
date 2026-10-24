@@ -2,6 +2,7 @@ import { hash as argonHash } from '@node-rs/argon2';
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { PlatformRedsysService } from '../src/modules/billing-saas/platform-redsys/platform-redsys.service';
 import {
   decodeMerchantParameters,
   encodeMerchantParameters,
@@ -171,6 +172,181 @@ describe('TPV Redsys de la plataforma (e2e)', () => {
     await admin.tenant.update({ where: { id: owner.tenantId }, data: { billingExempt: true } });
     const exempt = await http().get('/settings/saas-billing/redsys').set(auth);
     expect(exempt.body).toMatchObject({ available: false, reason: 'exempt' });
+  });
+
+  /** Paga un mes guardando la tarjeta: el aviso trae la referencia de Redsys. */
+  async function payAndSaveCard(token: string, identifier: string): Promise<void> {
+    const auth = { Authorization: `Bearer ${token}` };
+    const redirect = await http()
+      .post('/settings/saas-billing/redsys/redirect')
+      .set(auth)
+      .send({ payMethod: 'card', saveCard: true });
+    expect(redirect.status).toBe(200);
+    const params = decodeMerchantParameters(redirect.body.merchantParameters);
+    expect(params).toMatchObject({
+      DS_MERCHANT_IDENTIFIER: 'REQUIRED',
+      DS_MERCHANT_COF_INI: 'S',
+      DS_MERCHANT_COF_TYPE: 'R',
+    });
+    const order = params.DS_MERCHANT_ORDER as string;
+    const mp = encodeMerchantParameters({
+      Ds_Order: order,
+      Ds_Response: '0000',
+      Ds_Merchant_Identifier: identifier,
+      Ds_Merchant_Cof_Txnid: 'TXN123',
+      Ds_Card_Number: '454881******0003',
+      Ds_ExpiryDate: '2912',
+      Ds_Card_Brand: '1',
+    });
+    await http()
+      .post('/webhooks/redsys/platform')
+      .send({ Ds_MerchantParameters: mp, Ds_Signature: signRequest(mp, order, TEST_KEY) })
+      .expect(200);
+  }
+
+  async function enableCardOnFile(): Promise<void> {
+    const res = await http()
+      .put('/admin/platform-redsys/settings')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        merchantCode: '999008881',
+        terminal: '1',
+        secretKey: TEST_KEY,
+        environment: 'test',
+        enabled: true,
+        bizumEnabled: true,
+        cardOnFileEnabled: true,
+      });
+    expect(res.status).toBe(200);
+  }
+
+  /** Deja la suscripción vencida (le toca el cobro automático). */
+  async function makeDue(tenantId: string): Promise<void> {
+    await admin.tenantSubscription.update({
+      where: { tenantId },
+      data: { currentPeriodEnd: new Date(Date.now() - 10 * 86_400_000), status: 'active' },
+    });
+  }
+
+  it('guardar la tarjeta pasa a cobro automático y se cobra sola al vencer', async () => {
+    await enableCardOnFile();
+    const owner = await registerVerifiedUser(app, 'platredsysauto');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await payAndSaveCard(owner.accessToken, 'stub-ok-card');
+
+    const sub = await admin.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub.billingMode).toBe('redsys');
+    const options = await http().get('/settings/saas-billing/redsys').set(auth);
+    expect(options.body).toMatchObject({
+      available: true,
+      autoCharge: true,
+      cardOnFileAvailable: true,
+      savedCard: { last4: '0003', brand: 'visa', expMonth: 12, expYear: 2029 },
+    });
+
+    const service = app.get(PlatformRedsysService);
+    // Aún no vence: no cobra.
+    expect(await service.runAutoCharges()).toEqual({ charged: 0, failed: 0 });
+
+    await makeDue(owner.tenantId);
+    const run = await service.runAutoCharges();
+    expect(run.charged).toBeGreaterThanOrEqual(1);
+    const payments = await admin.tenantSubscriptionPayment.findMany({
+      where: { tenantId: owner.tenantId, provider: 'redsys' },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(payments).toHaveLength(2);
+    expect(payments[1]!.description).toMatch(/Cobro automático/);
+    const after = await admin.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(after.currentPeriodEnd.getTime()).toBeGreaterThan(Date.now());
+
+    // Desactivar: vuelve a pago a mano y se borra la tarjeta.
+    await http().delete('/settings/saas-billing/redsys/card').set(auth).expect(204);
+    const manual = await admin.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(manual.billingMode).toBe('manual');
+    expect(await admin.platformRedsysCard.count({ where: { tenantId: owner.tenantId } })).toBe(0);
+  });
+
+  it('tarjeta rechazada: reintenta cada 2 días hasta 3 veces y avisa al super admin', async () => {
+    await enableCardOnFile();
+    const owner = await registerVerifiedUser(app, 'platredsysdecline');
+    await payAndSaveCard(owner.accessToken, 'stub-decline-card');
+    await makeDue(owner.tenantId);
+    const service = app.get(PlatformRedsysService);
+
+    await service.runAutoCharges();
+    const card = await admin.platformRedsysCard.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(card.lastError).toMatch(/Denegada/);
+    // Sin esperar 2 días no reintenta.
+    await service.runAutoCharges();
+    const auto = () =>
+      admin.platformRedsysOrder.count({ where: { tenantId: owner.tenantId, kind: 'auto' } });
+    expect(await auto()).toBe(1);
+
+    for (let i = 0; i < 3; i++) {
+      await admin.platformRedsysOrder.updateMany({
+        where: { tenantId: owner.tenantId, kind: 'auto' },
+        data: { createdAt: new Date(Date.now() - 3 * 86_400_000) },
+      });
+      await service.runAutoCharges();
+    }
+    expect(await auto()).toBe(3);
+    const note = await admin.superAdminNotification.findFirst({
+      where: { type: 'platform_redsys.auto_charge_failed', link: { contains: owner.tenantId } },
+    });
+    expect(note).toBeTruthy();
+    expect(
+      await admin.tenantSubscriptionPayment.count({
+        where: {
+          tenantId: owner.tenantId,
+          provider: 'redsys',
+          description: { contains: 'automático' },
+        },
+      }),
+    ).toBe(0);
+  });
+
+  it('sin respuesta del banco: queda en curso y el aviso de Redsys lo registra una vez', async () => {
+    await enableCardOnFile();
+    const owner = await registerVerifiedUser(app, 'platredsysnoresp');
+    await payAndSaveCard(owner.accessToken, 'stub-noresponse-card');
+    await makeDue(owner.tenantId);
+    const service = app.get(PlatformRedsysService);
+    await service.runAutoCharges();
+    const charging = await admin.platformRedsysOrder.findFirstOrThrow({
+      where: { tenantId: owner.tenantId, kind: 'auto' },
+    });
+    expect(charging.status).toBe('charging');
+    // Con un cobro en curso no se intenta otro.
+    await service.runAutoCharges();
+    expect(
+      await admin.platformRedsysOrder.count({ where: { tenantId: owner.tenantId, kind: 'auto' } }),
+    ).toBe(1);
+
+    const mp = encodeMerchantParameters({ Ds_Order: charging.order, Ds_Response: '0000' });
+    const signed = {
+      Ds_MerchantParameters: mp,
+      Ds_Signature: signRequest(mp, charging.order, TEST_KEY),
+    };
+    await http().post('/webhooks/redsys/platform').send(signed).expect(200);
+    await http().post('/webhooks/redsys/platform').send(signed).expect(200);
+    expect(
+      await admin.tenantSubscriptionPayment.count({
+        where: {
+          tenantId: owner.tenantId,
+          provider: 'redsys',
+          description: { contains: 'automático' },
+        },
+      }),
+    ).toBe(1);
   });
 
   it('sin sesión no hay acceso', async () => {

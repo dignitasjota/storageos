@@ -12,7 +12,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminBillingCalendar } from '@/lib/admin/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const METHOD: Record<string, string> = { stripe: 'Stripe', sepa: 'SEPA', manual: 'Manual' };
+const METHOD: Record<string, string> = {
+  stripe: 'Stripe',
+  sepa: 'SEPA',
+  redsys: 'Tarjeta (Redsys)',
+  manual: 'Manual',
+};
 const STATE: Record<AdminCalendarChargeDto['state'], { label: string; className: string }> = {
   scheduled: { label: 'Previsto', className: 'bg-muted text-foreground' },
   paid: {
@@ -59,7 +64,7 @@ export default function BillingCalendarPage() {
 
   if (cal.isError) return <AdminError onRetry={() => void cal.refetch()} />;
   const by = cal.data?.scheduledByMethod;
-  const scheduledTotal = by ? by.stripe + by.sepa + by.manual : 0;
+  const scheduledTotal = by ? by.stripe + by.sepa + (by.redsys ?? 0) + by.manual : 0;
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
