@@ -14,12 +14,16 @@ export interface CreateSessionArgs {
   userId: string;
   userAgent?: string | undefined;
   ipAddress?: string | undefined;
+  /** Desde la app instalada en el móvil: sesión larga. */
+  installedApp?: boolean | undefined;
 }
 
 export interface RotateSessionArgs {
   refreshToken: string;
   userAgent?: string | undefined;
   ipAddress?: string | undefined;
+  /** Desde la app instalada en el móvil: la sesión nueva pasa a ser larga. */
+  installedApp?: boolean | undefined;
 }
 
 export interface RotateResult {
@@ -78,7 +82,8 @@ export class SessionsService {
     args: CreateSessionArgs,
   ): Promise<{ session: Session; refreshToken: string }> {
     const { secret, secretHash } = await this.tokens.generateRefreshSecret();
-    const expiresAt = this.computeExpiresAt();
+    const installedApp = args.installedApp === true;
+    const expiresAt = this.computeExpiresAt(installedApp);
 
     const session = await this.prisma.withTenant(
       (tx) =>
@@ -90,6 +95,7 @@ export class SessionsService {
             userAgent: args.userAgent ?? null,
             ipAddress: args.ipAddress ?? null,
             expiresAt,
+            installedApp,
           },
         }),
       args.tenantId,
@@ -152,7 +158,8 @@ export class SessionsService {
     //    nivel de fila: la que llega segunda ve `revokedAt` ya puesto por la
     //    primera y su `count` sale en 0 -> mismo camino que "ya revocada".
     const { secret: newSecret, secretHash: newHash } = await this.tokens.generateRefreshSecret();
-    const newExpiresAt = this.computeExpiresAt();
+    const installedApp = session.installedApp || args.installedApp === true;
+    const newExpiresAt = this.computeExpiresAt(installedApp);
 
     const newSession = await this.prisma.withTenant(async (tx) => {
       const claimed = await tx.session.updateMany({
@@ -168,6 +175,7 @@ export class SessionsService {
           userAgent: args.userAgent ?? null,
           ipAddress: args.ipAddress ?? null,
           expiresAt: newExpiresAt,
+          installedApp,
           rotatedFromId: session.id,
         },
       });
@@ -229,7 +237,8 @@ export class SessionsService {
           refreshTokenHash: secretHash,
           userAgent: args.userAgent ?? null,
           ipAddress: args.ipAddress ?? null,
-          expiresAt: this.computeExpiresAt(),
+          expiresAt: this.computeExpiresAt(session.installedApp || args.installedApp === true),
+          installedApp: session.installedApp || args.installedApp === true,
           rotatedFromId: session.id,
         },
       });
@@ -362,7 +371,8 @@ export class SessionsService {
           refreshTokenHash: secretHash,
           userAgent: args.userAgent ?? null,
           ipAddress: args.ipAddress ?? null,
-          expiresAt: this.computeExpiresAt(),
+          expiresAt: this.computeExpiresAt(session.installedApp || args.installedApp === true),
+          installedApp: session.installedApp || args.installedApp === true,
           rotatedFromId: session.id,
         },
       });
@@ -379,8 +389,11 @@ export class SessionsService {
     };
   }
 
-  private computeExpiresAt(): Date {
-    const ttl = this.config.get('JWT_REFRESH_TTL_SECONDS', { infer: true });
+  /** 7 días en el navegador; 90 en la app instalada en el móvil (por defecto). */
+  private computeExpiresAt(installedApp = false): Date {
+    const ttl = installedApp
+      ? this.config.get('JWT_REFRESH_APP_TTL_SECONDS', { infer: true })
+      : this.config.get('JWT_REFRESH_TTL_SECONDS', { infer: true });
     return new Date(Date.now() + ttl * 1000);
   }
 }

@@ -59,6 +59,8 @@ import type {
 export interface RequestMeta {
   userAgent?: string | undefined;
   ipAddress?: string | undefined;
+  /** Petición desde la app instalada en el móvil (cabecera `X-App-Mode: installed`). */
+  installedApp?: boolean | undefined;
 }
 
 /** Resultado de los flujos que emiten cookie + body distintos. */
@@ -463,6 +465,7 @@ export class AuthService {
       refreshToken,
       userAgent: meta.userAgent,
       ipAddress: meta.ipAddress,
+      installedApp: meta.installedApp,
     });
 
     const user = await this.admin.user.findUnique({ where: { id: result.userId } });
@@ -781,6 +784,7 @@ export class AuthService {
       userId: user.id,
       userAgent: meta.userAgent,
       ipAddress: meta.ipAddress,
+      installedApp: meta.installedApp,
     });
     const { token: accessToken, expiresIn } = await this.tokens.signAccess({
       sub: user.id,

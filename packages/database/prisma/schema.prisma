@@ -867,6 +867,8 @@ model Session {
   revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
   revokedReason    String?   @map("revoked_reason")
   rotatedFromId    String?   @map("rotated_from_id") @db.Uuid
+  /// Abierta desde la app instalada en el móvil: dura `JWT_REFRESH_APP_TTL_SECONDS`.
+  installedApp     Boolean   @default(false) @map("installed_app")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)

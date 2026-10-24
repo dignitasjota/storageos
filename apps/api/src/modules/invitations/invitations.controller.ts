@@ -28,6 +28,7 @@ import {
 import { Public } from '../../common/decorators/public.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
+import { isInstalledAppRequest } from '../../common/http/app-mode';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { InvitationsService } from './invitations.service';
@@ -44,6 +45,7 @@ function extractMeta(req: Request): RequestMeta {
   const ip = req.ip;
   return {
     ...(ua ? { userAgent: ua } : {}),
+    ...(isInstalledAppRequest(req) ? { installedApp: true } : {}),
     ...(ip ? { ipAddress: ip } : {}),
   };
 }

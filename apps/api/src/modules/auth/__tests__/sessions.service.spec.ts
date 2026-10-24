@@ -79,6 +79,7 @@ function buildSession(overrides: Partial<Session> = {}): Session {
     revokedAt: null,
     revokedReason: null,
     rotatedFromId: null,
+    installedApp: false,
     createdAt: now,
     ...overrides,
   };

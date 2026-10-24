@@ -184,6 +184,42 @@ describe('POST /auth/refresh (e2e)', () => {
     for (const s of active) expect(s.rotatedFromId).toBe(original.id);
   });
 
+  it('app instalada en el móvil: la sesión dura 90 días y lo conserva al renovar', async () => {
+    const user = await registerVerifiedUser(app, 'refapp');
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .set('X-App-Mode', 'installed')
+      .send({ tenantSlug: user.slug, email: user.email, password: user.password });
+    expect(login.status).toBe(200);
+    const days = (d: Date) => (d.getTime() - Date.now()) / 86_400_000;
+    const appSession = await admin.session.findFirstOrThrow({
+      where: { userId: user.userId, installedApp: true },
+    });
+    expect(days(appSession.expiresAt)).toBeGreaterThan(89);
+
+    // Renovar (aunque la cabecera no llegue) mantiene la sesión larga.
+    const renewed = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', refreshCookieOf(login));
+    expect(renewed.status).toBe(200);
+    const heir = await admin.session.findFirstOrThrow({
+      where: { rotatedFromId: appSession.id },
+    });
+    expect(heir.installedApp).toBe(true);
+    expect(days(heir.expiresAt)).toBeGreaterThan(89);
+
+    // En el navegador sigue siendo de 7 días.
+    const browser = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ tenantSlug: user.slug, email: user.email, password: user.password });
+    expect(browser.status).toBe(200);
+    const web = await admin.session.findFirstOrThrow({
+      where: { userId: user.userId, installedApp: false, rotatedFromId: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(days(web.expiresAt)).toBeLessThan(8);
+  });
+
   it('responde 401 cuando no hay cookie', async () => {
     const res = await request(app.getHttpServer()).post('/auth/refresh');
     expect(res.status).toBe(401);

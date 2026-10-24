@@ -43,6 +43,8 @@ const envSchemaBase = z.object({
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET debe tener al menos 32 caracteres'),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   JWT_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(604_800),
+  /** Sesión del panel abierta desde la app instalada en el móvil. Default 90 días. */
+  JWT_REFRESH_APP_TTL_SECONDS: z.coerce.number().int().positive().default(7_776_000),
   /** Secret independiente para firmar el pendingToken del flujo 2FA. */
   // Secret dedicado del token del portal del inquilino. Opcional: sin él se
   // usa JWT_2FA_PENDING_SECRET (compatibilidad con despliegues existentes).

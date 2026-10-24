@@ -28,7 +28,12 @@ export function setTenantRefreshCookie(
     domain: config.get('COOKIE_DOMAIN', { infer: true }),
     secure: config.get('COOKIE_SECURE', { infer: true }),
     sameSite: config.get('COOKIE_SAMESITE', { infer: true }),
-    maxAgeSeconds: config.get('JWT_REFRESH_TTL_SECONDS', { infer: true }),
+    // La cookie vive lo que la sesión más larga (la de la app instalada); la
+    // caducidad real de cada sesión la decide el servidor (`sessions.expires_at`).
+    maxAgeSeconds: Math.max(
+      config.get('JWT_REFRESH_TTL_SECONDS', { infer: true }),
+      config.get('JWT_REFRESH_APP_TTL_SECONDS', { infer: true }),
+    ),
   });
 }
 
