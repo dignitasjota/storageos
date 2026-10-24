@@ -43,7 +43,7 @@ export class LeadQuotesService {
       (tx) =>
         tx.lead.findFirst({
           where: { id: leadId, deletedAt: null },
-          select: { firstName: true, companyName: true },
+          select: { firstName: true, companyName: true, email: true },
         }),
       tenantId,
     );
@@ -90,6 +90,19 @@ export class LeadQuotesService {
       });
     }
 
+    // Un contacto que ya fue cliente (contrato firmado) no puede usar un cupón
+    // «solo clientes nuevos»: la reserva online se lo rechazaría.
+    const isNewCustomer = lead.email
+      ? !(await this.admin.customer.findFirst({
+          where: {
+            tenantId,
+            deletedAt: null,
+            email: { equals: lead.email, mode: 'insensitive' },
+            contracts: { some: { signedAt: { not: null } } },
+          },
+          select: { id: true },
+        }))
+      : true;
     const base = await this.coupons.quoteFirstPayment(tenantId, {
       monthlyPrice: Number(unit.basePriceMonthly),
       months: input.months,
@@ -98,7 +111,7 @@ export class LeadQuotesService {
       propertyKind: unit.unitType.propertyKind,
       deposit: Number(unit.unitType.defaultDepositAmount ?? 0),
       couponCode: input.couponCode,
-      isNewCustomer: true,
+      isNewCustomer,
     });
     const insurance = plan
       ? round2(Number(plan.monthlyPrice) * (1 + Number(plan.taxRate) / 100) * input.months)

@@ -13,6 +13,8 @@ export interface ReviewDto {
   channel: ReviewChannelValue | null;
   requestedAt: string;
   submittedAt: string | null;
+  /** El equipo la ha publicado en la web pública (testimonio). */
+  publishedOnWeb: boolean;
   createdAt: string;
 }
 

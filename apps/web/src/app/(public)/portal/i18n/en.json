@@ -317,10 +317,15 @@
       },
       "referrals": {
         "title": "Refer and earn",
-        "subtitle": "Share your code. When your referral signs their contract, you'll get a reward.",
+        "subtitle": "Share your code. When your referral signs their contract, we'll take the reward off your next invoice.",
         "copy": "Copy",
         "copied": "Code copied.",
         "rewardsLabel": "Your rewards: ",
+        "rewardPercent": "{value}% off",
+        "rewardFixed": "{amount} off",
+        "rewardPending": "on your next invoice",
+        "rewardApplied": "applied to invoice {invoice}",
+        "rewardAppliedNoInvoice": "applied",
         "statusConverted": "reward granted",
         "statusPending": "pending"
       },

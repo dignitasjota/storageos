@@ -34,6 +34,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -43,6 +44,7 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { formatDate } from '@/lib/format';
 import {
   useCreatePromotion,
   useDeletePromotion,
@@ -100,6 +102,21 @@ export default function PromotionsPage() {
       header: 'Usos',
       cell: ({ row }) =>
         `${row.original.usedCount}${row.original.maxUses ? ` / ${row.original.maxUses}` : ''}`,
+    },
+    {
+      id: 'validity',
+      header: 'Vigencia',
+      cell: ({ row }) => {
+        const p = row.original;
+        if (!p.validFrom && !p.validUntil)
+          return <span className="text-muted-foreground">Siempre</span>;
+        return (
+          <span className="text-sm">
+            {p.validFrom ? formatDate(p.validFrom) : '—'} →{' '}
+            {p.validUntil ? formatDate(p.validUntil) : '—'}
+          </span>
+        );
+      },
     },
     {
       accessorKey: 'isActive',
@@ -175,11 +192,25 @@ function CreatePromotionDialog() {
     },
   });
 
+  const [fromDay, setFromDay] = useState('');
+  const [untilDay, setUntilDay] = useState('');
+
   async function onSubmit(values: CreatePromotionInput) {
+    if (fromDay && untilDay && untilDay < fromDay) {
+      toast.error('La fecha de fin no puede ser anterior a la de inicio.');
+      return;
+    }
     try {
-      await create.mutateAsync(values);
+      await create.mutateAsync({
+        ...values,
+        // Días completos en hora local: desde las 00:00 hasta las 23:59.
+        ...(fromDay ? { validFrom: new Date(`${fromDay}T00:00:00`).toISOString() } : {}),
+        ...(untilDay ? { validUntil: new Date(`${untilDay}T23:59:59`).toISOString() } : {}),
+      });
       toast.success('Promoción creada.');
       form.reset();
+      setFromDay('');
+      setUntilDay('');
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -290,10 +321,29 @@ function CreatePromotionDialog() {
                 </FormItem>
               )}
             />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="promo-from">Válida desde (opcional)</Label>
+                <Input
+                  id="promo-from"
+                  type="date"
+                  value={fromDay}
+                  onChange={(e) => setFromDay(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="promo-until">Válida hasta (opcional)</Label>
+                <Input
+                  id="promo-until"
+                  type="date"
+                  value={untilDay}
+                  onChange={(e) => setUntilDay(e.target.value)}
+                />
+              </div>
+            </div>
             {form.watch('discountType') === 'free_months' && (
               <p className="text-xs text-muted-foreground">
-                Nota: los códigos de “meses gratis” aún no se aplican automáticamente en el alta de
-                contrato (próximamente).
+                Los meses gratis se aplican a las primeras facturas mensuales del contrato.
               </p>
             )}
             <DialogFooter>

@@ -1425,3 +1425,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - En el TPV, la notificación online debe ser «HTTP» síncrona. La dirección de aviso (`<API_BASE_URL>/webhooks/redsys/platform`) la manda la aplicación en cada pago; `API_BASE_URL` tiene que ser la pública (`https://api.trasteros.pro`).
 - Los tenants que pagan a mano ven «Pagar con tarjeta» (y «Pagar con Bizum») en Ajustes → Suscripción; cada pago cubre un mes del plan. Migración `20261111160000_platform_redsys` (se aplica sola). Para probar: entorno de pruebas con el comercio público de Redsys (`999008881`, terminal `1`, clave `sq7HjrUOBfKmC576ILgskD5srU870gJ7`) y la tarjeta de pruebas `4548810000000003`.
 - **Cobro automático (PR 2)**: con «Pago por referencia» marcado en el TPV de la plataforma (el banco tiene que haber habilitado el pago por referencia / COF), el tenant puede «Guardar la tarjeta y cobrar automáticamente cada mes»: su suscripción pasa al modo de cobro «Tarjeta (Redsys)» y el cron `platform-redsys.auto-charge` (06:00, antes del control de impagos) la cobra el día que vence. Si el banco la rechaza se reintenta a los 2 días, hasta 3 veces por periodo; al tercero llega un aviso al super admin y el tenant queda con el pago pendiente. Migración `20261111180000_platform_redsys_card_on_file` (se aplica sola).
+
+## 43. Revisión del CRM (2026-10-24)
+
+- Migración `20261112100000_crm_review` (se aplica sola): recompensa de referidos guardada en el referido y aplicada como descuento en la siguiente factura del que recomienda (`referrals.reward_*`), y `reviews.published_on_web` (las respondidas con NPS ≥ 9 y comentario quedan publicadas, para no vaciar la web de nadie).
+- Tras desplegar, revisar en **Valoraciones** qué testimonios se muestran en la web: a partir de ahora solo salen los marcados «En la web».
+- Las recompensas de referidos ya concedidas como código `REF-…` siguen valiendo como antes.

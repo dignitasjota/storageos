@@ -8,6 +8,7 @@ import { AuthModule } from '../auth/auth.module';
 import { GoCardlessCoreModule } from '../payments/gocardless/gocardless-core.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { QUEUE_BILLING, QUEUE_VERIFACTU } from '../queues/queues.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 
 import { AEAT_CLIENT } from './aeat-client/aeat-client';
 import { RealAeatClient } from './aeat-client/real-aeat.client';
@@ -47,6 +48,7 @@ import type { Env } from '../../config/env.schema';
     AccountingModule,
     PaymentsModule,
     GoCardlessCoreModule,
+    ReferralsModule,
     BullModule.registerQueue({ name: QUEUE_BILLING }, { name: QUEUE_VERIFACTU }),
   ],
   controllers: [

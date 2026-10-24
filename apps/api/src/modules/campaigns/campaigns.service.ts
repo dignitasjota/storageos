@@ -85,6 +85,7 @@ export class CampaignsService {
         marketingOptOutAt: null,
         ...(segment.leadStatus ? { status: segment.leadStatus } : {}),
         ...(segment.leadSource ? { source: segment.leadSource } : {}),
+        ...(segment.facilityId ? { preferredFacilityId: segment.facilityId } : {}),
       };
       const leads = await this.prisma.withTenant(
         (tx) =>
@@ -120,8 +121,12 @@ export class CampaignsService {
       // Clientes: mientras no se den de baja.
       marketingOptOutAt: null,
     };
+    // Con un local elegido, el contrato que cuenta es el de ese local.
+    const inFacility: Prisma.ContractWhereInput = segment.facilityId
+      ? { unit: { facilityId: segment.facilityId } }
+      : {};
     const activeContract: Prisma.ContractListRelationFilter = {
-      some: { status: { in: ['active', 'ending'] }, deletedAt: null },
+      some: { status: { in: ['active', 'ending'] }, deletedAt: null, ...inFacility },
     };
     if (segment.contractStatus === 'active') where.contracts = activeContract;
     else if (segment.contractStatus === 'none')
@@ -129,9 +134,29 @@ export class CampaignsService {
     else if (segment.contractStatus === 'former')
       // Win-back: tuvieron un contrato finalizado y no tienen ninguno activo.
       where.AND = [
-        { contracts: { some: { status: { in: ['ended', 'cancelled'] }, deletedAt: null } } },
+        {
+          contracts: {
+            some: {
+              status: { in: ['ended', 'cancelled'] },
+              deletedAt: null,
+              signedAt: { not: null },
+              ...inFacility,
+            },
+          },
+        },
         { contracts: { none: { status: { in: ['active', 'ending'] }, deletedAt: null } } },
       ];
+    if (
+      segment.facilityId &&
+      segment.contractStatus !== 'active' &&
+      segment.contractStatus !== 'former'
+    ) {
+      // «Todos» o «sin contrato activo» de un local = quien ha tenido contrato allí.
+      where.AND = [
+        ...((where.AND as Prisma.CustomerWhereInput[] | undefined) ?? []),
+        { contracts: { some: { deletedAt: null, ...inFacility } } },
+      ];
+    }
     if (segment.overdueOnly) where.invoices = { some: { status: 'overdue' } };
     if (segment.tag && segment.tag.trim()) where.tags = { has: segment.tag.trim() };
 
@@ -301,11 +326,16 @@ export class CampaignsService {
     }
 
     const sent = await this.admin.communication.count({ where: { tenantId, source } });
+    // Programada a futuro: los correos salen en su fecha; hasta entonces queda
+    // «programada» (se puede cancelar) y el cron la pasa a «enviada».
+    const future = !!scheduledFor && scheduledFor.getTime() > Date.now();
     await this.prisma.withTenant(
       (tx) =>
         tx.campaign.updateMany({
           where: { id, status: 'sending' },
-          data: { status: 'sent', sentCount: sent, sentAt: new Date() },
+          data: future
+            ? { status: 'scheduled', sentCount: sent }
+            : { status: 'sent', sentCount: sent, sentAt: new Date() },
         }),
       tenantId,
     );
@@ -338,6 +368,53 @@ export class CampaignsService {
       );
     }
     return resumed;
+  }
+
+  /**
+   * Cancela un borrador o una campaña programada que aún no ha salido: los
+   * correos encolados que no se han enviado quedan omitidos.
+   */
+  async cancel(tenantId: string, id: string): Promise<CampaignDto> {
+    const campaign = await this.findOrThrow(tenantId, id);
+    const scheduledPending =
+      campaign.status === 'scheduled' &&
+      !!campaign.scheduledFor &&
+      campaign.scheduledFor.getTime() > Date.now();
+    if (campaign.status !== 'draft' && !scheduledPending) {
+      throw new ConflictException({
+        code: 'campaign_not_cancellable',
+        message: 'Solo se puede cancelar un borrador o una campaña programada que aún no ha salido',
+      });
+    }
+    const claimed = await this.prisma.withTenant(
+      (tx) =>
+        tx.campaign.updateMany({
+          where: { id, status: campaign.status },
+          data: { status: 'cancelled' },
+        }),
+      tenantId,
+    );
+    if (claimed.count === 0) {
+      throw new ConflictException({
+        code: 'campaign_not_cancellable',
+        message: 'La campaña ha cambiado de estado; recarga la página',
+      });
+    }
+    await this.admin.communication.updateMany({
+      where: { tenantId, source: `campaign:${id}`, status: 'pending' },
+      data: { status: 'skipped', errorMessage: 'Campaña cancelada' },
+    });
+    return this.toDto(await this.findOrThrow(tenantId, id));
+  }
+
+  /** Las programadas cuya fecha ya pasó pasan a «enviada» (lo llama el cron). */
+  async completeScheduled(): Promise<number> {
+    const now = new Date();
+    const res = await this.admin.campaign.updateMany({
+      where: { status: 'scheduled', scheduledFor: { lte: now } },
+      data: { status: 'sent', sentAt: now },
+    });
+    return res.count;
   }
 
   private async touch(

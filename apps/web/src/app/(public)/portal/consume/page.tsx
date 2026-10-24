@@ -1703,14 +1703,36 @@ function PortalConsumeContent() {
                     </Button>
                   </div>
                   {referrals.rewards.length > 0 && (
-                    <p className="text-sm">
+                    <div className="text-sm">
                       {tReferrals('rewardsLabel')}
-                      {referrals.rewards.map((c) => (
-                        <span key={c} className="mr-1 font-mono text-xs">
-                          {c}
-                        </span>
-                      ))}
-                    </p>
+                      <ul className="mt-1 space-y-0.5">
+                        {referrals.rewards.map((rw, i) => (
+                          <li key={i}>
+                            {rw.code ? (
+                              <span className="font-mono text-xs">{rw.code}</span>
+                            ) : (
+                              <>
+                                {rw.type === 'percentage'
+                                  ? tReferrals('rewardPercent', { value: rw.value })
+                                  : tReferrals('rewardFixed', {
+                                      amount: rw.value.toLocaleString(intlLocaleForPortal(locale), {
+                                        style: 'currency',
+                                        currency: 'EUR',
+                                      }),
+                                    })}{' '}
+                                <span className="text-muted-foreground">
+                                  {rw.appliedAt
+                                    ? rw.invoiceNumber
+                                      ? tReferrals('rewardApplied', { invoice: rw.invoiceNumber })
+                                      : tReferrals('rewardAppliedNoInvoice')
+                                    : tReferrals('rewardPending')}
+                                </span>
+                              </>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                   {referrals.referrals.length > 0 && (
                     <ul className="text-sm text-muted-foreground">

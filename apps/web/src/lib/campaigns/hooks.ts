@@ -74,6 +74,15 @@ export function useCreateCampaign() {
   });
 }
 
+export function useCancelCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<CampaignDto>(`/campaigns/${id}/cancel`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: campaignsKey }),
+  });
+}
+
 export function useSendCampaign() {
   const qc = useQueryClient();
   return useMutation({

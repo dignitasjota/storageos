@@ -958,3 +958,8 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `20261106100000_local_seo_courtesy`: override `local_seo` (`manual`) para los tenants con páginas de zona publicadas.
 - **`tenant_search_console`** (una por tenant): `site_url` (`sc-domain:…` o `https://…/`), `status` (pending/connected/error), `last_error`, `connected_at`, `last_synced_at`, `monthly_report` (por defecto sí), `last_report_month` (`AAAA-MM`, no se repite el informe).
 - **`search_console_rows`**: `date`, `query`, `page`, `clicks`, `impressions`, `position` (media del día) — búsquedas descargadas de Google; se guardan unos 16 meses.
+
+### Revisión del CRM (2026-10-24, migración `20261112100000_crm_review`)
+
+- `referrals.reward_type` / `reward_value` / `reward_applied_at` / `reward_invoice_id` (FK invoices SET NULL): la recompensa del que recomienda se descuenta una vez del alquiler de su siguiente factura recurrente (reserva atómica; si la factura falla, se libera).
+- `reviews.published_on_web`: solo las valoraciones publicadas por el equipo salen como testimonios en la web pública.

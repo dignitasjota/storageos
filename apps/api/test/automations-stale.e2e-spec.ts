@@ -83,13 +83,19 @@ describe('Automatizaciones que ya no aplican al ejecutarse (e2e)', () => {
       .set(auth)
       .send({ firstName: 'Ya', email: `stale-${Date.now()}@e2e.local` })
       .expect(201);
-    for (const status of ['contacted', 'qualified', 'won']) {
+    for (const status of ['contacted', 'qualified']) {
       await request(app.getHttpServer())
         .post(`/leads/${lead.body.id}/transition`)
         .set(auth)
         .send({ status })
         .expect(201);
     }
+    // «Ganado» solo se alcanza convirtiéndolo en cliente.
+    await request(app.getHttpServer())
+      .post(`/leads/${lead.body.id}/convert`)
+      .set(auth)
+      .send({})
+      .expect(201);
 
     const automations = app.get(AutomationsService);
     const base = { tenantId, recipientEmail: null, recipientPhone: null, leadId: null, scope: {} };

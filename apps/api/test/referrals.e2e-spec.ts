@@ -1,6 +1,9 @@
 import request from 'supertest';
 
+import { BillingJobsService } from '../src/modules/billing/billing-jobs.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
@@ -54,7 +57,7 @@ describe('Referrals (e2e)', () => {
 
     // Referidor + su código (vía portal).
     const referrerEmail = `referrer-${Date.now()}@e2e.local`;
-    await createCustomer(app, owner.accessToken, { email: referrerEmail });
+    const referrerId = await createCustomer(app, owner.accessToken, { email: referrerEmail });
     const portalToken = await portalLogin(owner.slug, referrerEmail);
     const portalView = await request(app.getHttpServer())
       .get('/portal/me/referrals')
@@ -88,8 +91,25 @@ describe('Referrals (e2e)', () => {
     expect(listPending.body[0].status).toBe('pending');
     expect(listPending.body[0].referredCustomerId).toBe(referredId);
 
-    // Contrato del referido + firma → dispara la conversión.
-    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    // Contratos: el del referidor (para recibir el descuento) y el del referido.
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 2 });
+    await ensureDefaultSeries(app, owner.accessToken);
+    const referrerContract = await request(app.getHttpServer())
+      .post('/contracts')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        customerId: referrerId,
+        unitId: unitIds[1],
+        startDate: '2026-01-01',
+        priceMonthly: 100,
+        depositAmount: 0,
+      });
+    expect(referrerContract.status).toBe(201);
+    await request(app.getHttpServer())
+      .post(`/contracts/${referrerContract.body.id}/sign`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(200);
+
     const contract = await request(app.getHttpServer())
       .post('/contracts')
       .set('Authorization', `Bearer ${owner.accessToken}`)
@@ -107,7 +127,12 @@ describe('Referrals (e2e)', () => {
     expect(sign.status).toBe(200);
 
     // La conversión es async (listener): reintentar.
-    let converted: { status: string; rewardCode: string | null } | null = null;
+    type Row = {
+      status: string;
+      rewardCode: string | null;
+      reward: { type: string; value: number; appliedAt: string | null } | null;
+    };
+    let converted: Row | null = null;
     for (let i = 0; i < 20; i++) {
       const list = await request(app.getHttpServer())
         .get('/referrals')
@@ -117,22 +142,46 @@ describe('Referrals (e2e)', () => {
       await sleep(300);
     }
     expect(converted?.status).toBe('converted');
-    expect(converted?.rewardCode).toMatch(/^REF-[0-9A-F]{8}$/);
+    // La recompensa es un descuento en la siguiente factura (ya no un código).
+    expect(converted?.rewardCode).toBeNull();
+    expect(converted?.reward).toMatchObject({ type: 'fixed', value: 15, appliedAt: null });
 
-    // El referidor ve su recompensa en el portal.
+    // La siguiente factura recurrente del referidor lleva el descuento.
+    await app.get(BillingJobsService).processGenerateRecurring({
+      tenantId: owner.tenantId,
+      periodStart: '2026-02-01',
+      periodEnd: '2026-02-28',
+    });
+    const invoices = await request(app.getHttpServer())
+      .get('/invoices')
+      .query({ customerId: referrerId })
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    const feb = invoices.body.find((i: { periodStart: string }) => i.periodStart === '2026-02-01');
+    expect(feb).toBeTruthy();
+    expect(feb.items[0].unitPrice).toBe(85);
+    expect(feb.items[0].description).toContain('descuento por recomendar');
+
+    // Una sola vez: la factura del mes siguiente va sin descuento.
+    await app.get(BillingJobsService).processGenerateRecurring({
+      tenantId: owner.tenantId,
+      periodStart: '2026-03-01',
+      periodEnd: '2026-03-31',
+    });
+    const after = await request(app.getHttpServer())
+      .get('/invoices')
+      .query({ customerId: referrerId })
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    const mar = after.body.find((i: { periodStart: string }) => i.periodStart === '2026-03-01');
+    expect(mar.items[0].unitPrice).toBe(100);
+
+    // El referidor lo ve en el portal como aplicado.
     const portalAfter = await request(app.getHttpServer())
       .get('/portal/me/referrals')
       .set('Authorization', `Bearer ${portalToken}`);
-    expect(portalAfter.body.rewards).toContain(converted!.rewardCode);
-
-    // La promoción-recompensa existe y es de un solo uso.
-    const promos = await request(app.getHttpServer())
-      .get('/promotions')
-      .set('Authorization', `Bearer ${owner.accessToken}`);
-    const reward = promos.body.find((p: { code: string }) => p.code === converted!.rewardCode);
-    expect(reward).toBeTruthy();
-    expect(reward.maxUses).toBe(1);
-    expect(reward.discountValue).toBe(15);
+    expect(portalAfter.body.rewards).toEqual([
+      expect.objectContaining({ type: 'fixed', value: 15, code: null }),
+    ]);
+    expect(portalAfter.body.rewards[0].appliedAt).not.toBeNull();
   });
 
   it('programa desactivado: el portal no expone código y no se registra referral', async () => {

@@ -1838,6 +1838,7 @@ model Invoice {
   @@index([tenantId, issueDate])
   @@index([tenantId, facilityId])
   @@map("invoices")
+  referralRewards Referral[] @relation("ReferralRewardInvoice")
 }
 
 /// Linea de factura. `unit_price` snapshot del precio aplicado tras
@@ -2102,6 +2103,11 @@ model Referral {
   /// pending | converted | cancelled
   status             String    @default("pending")
   rewardPromotionId  String?   @map("reward_promotion_id") @db.Uuid
+  /// Recompensa para quien recomienda: `percentage` | `fixed` (descuento en su siguiente factura).
+  rewardType         String?   @map("reward_type")
+  rewardValue        Decimal?  @map("reward_value") @db.Decimal(10, 2)
+  rewardAppliedAt    DateTime? @map("reward_applied_at") @db.Timestamptz(6)
+  rewardInvoiceId    String?   @map("reward_invoice_id") @db.Uuid
   convertedAt        DateTime? @map("converted_at") @db.Timestamptz(6)
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2110,6 +2116,7 @@ model Referral {
   referrer        Customer   @relation("ReferralReferrer", fields: [referrerCustomerId], references: [id], onDelete: Cascade)
   referred        Customer   @relation("ReferralReferred", fields: [referredCustomerId], references: [id], onDelete: Cascade)
   rewardPromotion Promotion? @relation(fields: [rewardPromotionId], references: [id], onDelete: SetNull)
+  rewardInvoice   Invoice?   @relation("ReferralRewardInvoice", fields: [rewardInvoiceId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status])
   @@index([referrerCustomerId])
@@ -4047,6 +4054,8 @@ model Review {
   submittedAt    DateTime? @map("submitted_at") @db.Timestamptz(6)
   ip             String?
   userAgent      String?   @map("user_agent")
+  /// El equipo la ha elegido para mostrarla en la web pública.
+  publishedOnWeb Boolean   @default(false) @map("published_on_web")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

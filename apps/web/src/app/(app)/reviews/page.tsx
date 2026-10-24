@@ -34,6 +34,7 @@ import { useCustomers } from '@/lib/customers/hooks';
 import { formatDate } from '@/lib/format';
 import {
   useRequestReview,
+  usePublishReview,
   useReviews,
   useReviewStats,
   useReviewsSettings,
@@ -53,6 +54,7 @@ export default function ReviewsPage() {
   const stats = useReviewStats();
   const reviews = useReviews();
   const canWrite = useHasPermission('reviews:write');
+  const canPublish = canWrite;
   const canManageSettings = useHasPermission('settings:manage');
 
   return (
@@ -126,11 +128,12 @@ export default function ReviewsPage() {
                   <th className="px-3 py-2">Estrellas</th>
                   <th className="px-3 py-2">Comentario</th>
                   <th className="px-3 py-2">Fecha</th>
+                  <th className="px-3 py-2">En la web</th>
                 </tr>
               </thead>
               <tbody>
                 {(reviews.data?.items ?? []).map((r) => (
-                  <ReviewRow key={r.id} review={r} />
+                  <ReviewRow key={r.id} review={r} canPublish={canPublish} />
                 ))}
               </tbody>
             </table>
@@ -178,8 +181,10 @@ function StatCard({
   );
 }
 
-function ReviewRow({ review }: { review: ReviewDto }) {
+function ReviewRow({ review, canPublish }: { review: ReviewDto; canPublish: boolean }) {
   const s = STATUS_LABELS[review.status];
+  const publish = usePublishReview();
+  const publishable = review.status === 'submitted' && !!review.comment?.trim();
   return (
     <tr className="border-b last:border-b-0">
       <td className="px-3 py-2 font-medium">{review.customerName}</td>
@@ -221,6 +226,28 @@ function ReviewRow({ review }: { review: ReviewDto }) {
         {review.comment ?? '—'}
       </td>
       <td className="px-3 py-2 text-muted-foreground">{formatDate(review.createdAt)}</td>
+      <td className="px-3 py-2">
+        {publishable ? (
+          <label className="inline-flex items-center gap-2 text-xs">
+            <Checkbox
+              checked={review.publishedOnWeb}
+              disabled={!canPublish || publish.isPending}
+              onCheckedChange={async (v) => {
+                try {
+                  await publish.mutateAsync({ id: review.id, published: v === true });
+                  toast.success(v === true ? 'Publicada en tu web.' : 'Retirada de tu web.');
+                } catch (err) {
+                  toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cambiar');
+                }
+              }}
+              aria-label="Mostrar en la web"
+            />
+            {review.publishedOnWeb ? 'Publicada' : 'No'}
+          </label>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
     </tr>
   );
 }
