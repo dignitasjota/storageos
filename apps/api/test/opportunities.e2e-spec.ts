@@ -80,6 +80,15 @@ describe('Oportunidades sobre los inquilinos (e2e)', () => {
       });
     }
 
+    // «Cobro automático» solo se propone si el tenant tiene cómo cobrar solo.
+    await db.goCardlessSettings.create({
+      data: {
+        tenantId: owner.tenantId,
+        accessTokenEncrypted: 'x',
+        webhookSecretEncrypted: 'x',
+        enabled: true,
+      },
+    });
     const list = await http().get('/opportunities').set(auth).expect(200);
     const mine = list.body.items.filter((i: { customerId: string }) => i.customerId === customerId);
     const insurance = mine.find((i: { kind: string }) => i.kind === 'insurance');
