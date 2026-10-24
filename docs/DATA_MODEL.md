@@ -540,6 +540,10 @@ España exige Verifactu para sociedades desde 2026-07-01. Implementado.
 
 - TPV Redsys de la plataforma para cobrar la suscripción: `merchant_code`, `terminal`, `secret_key_encrypted` (AAD `platform-redsys-settings`), `environment`, `enabled`, `bizum_enabled`, `card_on_file_enabled`. Cada pago es una orden (`order` = número de pedido del TPV; `tenant_id`, `amount_cents`, `pay_method`, `status` pending/paid/failed/replaced, `ds_response`, `payment_id` del pago de la suscripción). REVOKE para `storageos_app`.
 
+### `user_passkeys` (bloqueo de la app del móvil)
+
+- Llave de acceso (Face ID / huella) de un usuario del panel: `credential_id` (único), `public_key`, `counter`, `transports`, `label`, `last_used_at`. RLS por tenant. En `users`: `app_pin_hash` (argon2id, PIN de respaldo de 4-6 cifras), `app_pin_failed_attempts` (5 seguidos cierran todas las sesiones) y `webauthn_challenge`/`webauthn_challenge_expires_at` (reto de un solo uso, 5 min).
+
 ### `invoice_series`
 
 - `id`, `tenant_id`, `code` (único por tenant), `name`, `prefix`, `year_scope` (boolean), `next_number`, `numbering_year` (año de la numeración: en una serie por año, el primer número de un año nuevo vuelve a 1; migración `20261111100000_invoice_numbering_year`), `facility_id` (nullable), `is_active`.

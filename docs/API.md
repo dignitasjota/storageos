@@ -1915,6 +1915,15 @@ Páginas propias por promoción en la web del tenant, con el estilo de su planti
 - `POST /settings/saas-billing/redsys/redirect {payMethod?: 'card'|'bizum'}` → formulario firmado (`url`, `signatureVersion`, `merchantParameters`, `signature`). 400 `redsys_not_enabled` / `redsys_not_available` / `bizum_not_enabled`.
 - `POST /webhooks/redsys/platform` (público, urlencoded): aviso de Redsys. Pago aprobado → pago de la suscripción `provider: 'redsys'` de un mes (extiende el periodo y emite la factura). Idempotente.
 
+### Equipo — sesión y bloqueo de la app del móvil (2026-10-24)
+
+- **`POST /auth/refresh` con la respuesta perdida**: si se presenta un refresh ya rotado fuera de los 30 s de gracia, pero las sesiones que salieron de él no se han usado y la petición viene del mismo navegador, se sustituyen (`revoked_reason = lost_response`) por una nueva y responde 200. Si alguna ya se usó (o es otro navegador) sigue la detección de reuso: se cierran todas.
+- **`X-App-Mode: installed`** (la web la manda cuando corre como app instalada) en `POST /auth/login`, el reto 2FA, aceptar invitación y `POST /auth/refresh`: la sesión dura `JWT_REFRESH_APP_TTL_SECONDS` (90 días) y las que salen de ella al renovar lo heredan.
+- `GET /me/app-lock` → `{ pinSet, passkeys: [{id, label, createdAt, lastUsedAt}], idleMinutes }` (cualquier usuario del panel, solo lo suyo).
+- `PUT /me/app-lock/pin {pin}` (4-6 cifras; 204) y `DELETE /me/app-lock/pin` (204).
+- `POST /me/app-lock/passkeys/options` → opciones WebAuthn de alta (autenticador del dispositivo, verificación del usuario obligatoria); `POST /me/app-lock/passkeys {response, label}` (204; 400 `passkey_invalid` / `passkey_challenge_expired`); `DELETE /me/app-lock/passkeys/:id` (204; 404 `passkey_not_found`).
+- `POST /me/app-lock/unlock/options` → opciones WebAuthn de desbloqueo (400 `no_passkeys`); `POST /me/app-lock/unlock/passkey {response}` → `{unlocked: true}` (401 `passkey_unknown` / `passkey_failed`); `POST /me/app-lock/unlock/pin {pin}` → `{unlocked: true}` (400 `wrong_pin` con `details.attemptsLeft`, 400 `no_pin`; al 5.º fallo seguido 401 `app_lock_exhausted` y se cierran todas las sesiones). Ambos con el límite de peticiones del login.
+
 ### Equipo — avisos en el dispositivo (`/me/push`, 2026-10-22)
 
 - `GET /me/push?endpoint=` (cualquier usuario del panel): `{ publicKey, subscribed }` (null sin VAPID; `subscribed` = ese dispositivo ya lo tiene activado).

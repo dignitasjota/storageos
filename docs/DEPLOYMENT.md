@@ -1417,6 +1417,7 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 
 - La sesión ya no se cierra en el móvil cuando iOS congela la app a mitad de una renovación, ni manda al login sin conexión (muestra «Sin conexión» y entra sola al volver la red).
 - **App instalada (pantalla de inicio)**: la sesión del panel dura 90 días y se renueva al usarla (en el navegador, 7). Variable nueva opcional `JWT_REFRESH_APP_TTL_SECONDS` (por defecto `7776000`), ya en el compose de Portainer. Migración `20261111120000_session_installed_app` (se aplica sola). Las sesiones abiertas antes de desplegar siguen con 7 días: hay que volver a iniciar sesión una vez desde la app para que pase a 90.
+- **Bloqueo de la app (PR 3)**: tras 15 min sin uso la app instalada pide Face ID / huella o un PIN (lo configura cada usuario en Perfil → App del móvil). Migración `20261111140000_staff_app_lock` (se aplica sola). Face ID / huella usa llaves de acceso ligadas al dominio de `WEB_BASE_URL`: si el panel cambia de dominio, cada usuario tendrá que volver a activarlo. Necesita https (en producción ya lo es).
 
 ## 42. TPV Redsys de la plataforma (cobro de la suscripción)
 

@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { AppLockPanel } from './app-lock-panel';
 import { EmailNoticesForm } from './email-notices-form';
 import { TwoFactorPanel } from './two-factor-panel';
 
@@ -41,7 +42,8 @@ export default function ProfileSettingsPage() {
   const [tab, setTab] = useState('profile');
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get('tab');
-    if (wanted && ['profile', 'password', '2fa', 'notices'].includes(wanted)) setTab(wanted);
+    if (wanted && ['profile', 'password', '2fa', 'app-lock', 'notices'].includes(wanted))
+      setTab(wanted);
   }, []);
 
   return (
@@ -56,6 +58,7 @@ export default function ProfileSettingsPage() {
           <TabsTrigger value="profile">{t('tabs.profile')}</TabsTrigger>
           <TabsTrigger value="password">{t('tabs.password')}</TabsTrigger>
           <TabsTrigger value="2fa">Verificación en dos pasos</TabsTrigger>
+          <TabsTrigger value="app-lock">App del móvil</TabsTrigger>
           <TabsTrigger value="notices">Avisos</TabsTrigger>
         </TabsList>
         <TabsContent value="profile" className="mt-6 max-w-lg">
@@ -76,6 +79,9 @@ export default function ProfileSettingsPage() {
         </TabsContent>
         <TabsContent value="2fa" className="mt-6">
           <TwoFactorPanel />
+        </TabsContent>
+        <TabsContent value="app-lock" className="mt-6">
+          <AppLockPanel />
         </TabsContent>
         <TabsContent value="notices" className="mt-6 max-w-lg space-y-6">
           <DevicePushCard

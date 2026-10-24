@@ -547,6 +547,7 @@ model Tenant {
   notificationReads       NotificationRead[]
   pushSubscriptions       PushSubscription[]
   platformRedsysOrders    PlatformRedsysOrder[]
+  userPasskeys            UserPasskey[]
   faqEntries              FaqEntry[]
   blogPosts               BlogPost[]
   promoLandings           PromoLanding[]
@@ -634,6 +635,12 @@ model User {
   lastLoginAt                     DateTime? @map("last_login_at") @db.Timestamptz(6)
   /// Avisos por correo al equipo que el usuario cambió ({tipo: bool}); el resto, por rol.
   emailNoticePrefs                Json      @default("{}") @map("email_notice_prefs")
+  /// PIN de respaldo para desbloquear la app del panel en el móvil (argon2id).
+  appPinHash                      String?   @map("app_pin_hash")
+  appPinFailedAttempts            Int       @default(0) @map("app_pin_failed_attempts")
+  /// Reto pendiente de una llave de acceso (alta o desbloqueo), de un solo uso.
+  webauthnChallenge               String?   @map("webauthn_challenge")
+  webauthnChallengeExpiresAt      DateTime? @map("webauthn_challenge_expires_at") @db.Timestamptz(6)
   isActive                        Boolean   @default(true) @map("is_active")
   createdAt                       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -687,6 +694,7 @@ model User {
   pushSubscriptions  PushSubscription[]
 
   customerMessageReads CustomerMessageRead[]
+  passkeys             UserPasskey[]
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
@@ -6045,4 +6053,25 @@ model CustomerOffer {
 
   @@index([tenantId, customerId, createdAt(sort: Desc)])
   @@map("customer_offers")
+}
+
+/// Llave de acceso (Face ID / huella) de un usuario del panel para desbloquear
+/// la app instalada en el móvil.
+model UserPasskey {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  credentialId String    @unique @map("credential_id")
+  publicKey    Bytes     @map("public_key")
+  counter      BigInt    @default(0)
+  transports   String[]  @default([])
+  label        String
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId], map: "user_passkeys_user_idx")
+  @@map("user_passkeys")
 }
