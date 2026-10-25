@@ -104,12 +104,19 @@ describe('Fase 6: tasks + incidents + products + analytics + reports (e2e)', () 
     expect(resolved.body.resolvedAt).toBeTruthy();
     expect(resolved.body.resolution).toBe('Cambiada cerradura');
 
-    // resolved es terminal
+    // Una resuelta se puede reabrir (vuelve a «reportada» sin fecha de cierre).
     const reopen = await request(app.getHttpServer())
       .post(`/incidents/${create.body.id}/transition`)
       .set('Authorization', `Bearer ${owner.accessToken}`)
       .send({ status: 'reported' });
-    expect(reopen.status).toBe(409);
+    expect(reopen.status).toBe(201);
+    expect(reopen.body.resolvedAt).toBeNull();
+    // Ya reportada, no se puede volver a reportar.
+    const again = await request(app.getHttpServer())
+      .post(`/incidents/${create.body.id}/transition`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ status: 'reported' });
+    expect(again.status).toBe(409);
   });
 
   it('products: CRUD + stock por facility', async () => {

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 import { useHeaderFacilityId } from '../facilities/store';
@@ -276,6 +276,33 @@ export function useAccessLogs(params?: {
   return useQuery({
     queryKey: accessLogsKey(flat),
     queryFn: () => apiFetch<AccessLogDto[]>(`/access/logs${toQuery(flat)}`),
+  });
+}
+
+/** Registro de accesos por páginas de 200 (las más recientes primero). */
+export function useAccessLogPages(params?: {
+  deviceId?: string;
+  result?: AccessResultValue;
+  from?: string;
+  to?: string;
+}) {
+  const facilityId = useHeaderFacilityId();
+  const flat: Record<string, string | undefined> = {
+    facilityId,
+    deviceId: params?.deviceId,
+    result: params?.result,
+    from: params?.from,
+    to: params?.to,
+  };
+  return useInfiniteQuery({
+    queryKey: [...accessLogsKey(flat), 'pages'] as const,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      apiFetch<AccessLogDto[]>(
+        `/access/logs${toQuery({ ...flat, ...(pageParam ? { before: pageParam } : {}) })}`,
+      ),
+    getNextPageParam: (last) =>
+      last.length >= 200 ? last[last.length - 1]!.occurredAt : undefined,
   });
 }
 

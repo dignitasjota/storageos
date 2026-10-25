@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { pageArgs, type PageRequest } from '../../common/pagination';
@@ -224,7 +224,25 @@ export class CustomersService {
     meta: RequestMeta;
   }): Promise<void> {
     const existing = await this.findOrThrow(args.tenantId, args.customerId);
-    // No bloqueamos si tiene contratos: el soft delete preserva el historial.
+    // Con contratos vivos seguiría facturando y ocupando el trastero sin ficha.
+    const live = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.count({
+          where: {
+            customerId: args.customerId,
+            status: { in: ['draft', 'active', 'ending'] },
+            deletedAt: null,
+          },
+        }),
+      args.tenantId,
+    );
+    if (live > 0) {
+      throw new ConflictException({
+        code: 'customer_has_live_contracts',
+        message: `Tiene ${live} contrato(s) sin cerrar: finalízalos o cancélalos antes de borrarlo.`,
+      });
+    }
+    // Sin contratos vivos: el borrado es lógico y conserva el historial.
     await this.prisma.withTenant(
       (tx) =>
         tx.customer.update({

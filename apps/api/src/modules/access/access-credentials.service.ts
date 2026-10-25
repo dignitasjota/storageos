@@ -1025,6 +1025,51 @@ export class AccessCredentialsService {
   }
 
   /**
+   * Rehace el alcance de las credenciales del inquilino con sus contratos vivos
+   * (tras un traslado de trastero). Solo toca las que ya estaban acotadas a sus
+   * trasteros o locales (las emitidas solas al firmar/pagar); una sin alcance
+   * (abre todo) o un pase nocturno de un local concreto se quedan como estaban.
+   */
+  async rescopeForCustomer(tenantId: string, customerId: string): Promise<number> {
+    const scope = await this.customerScope(tenantId, customerId);
+    if (scope.allowedFacilityIds.length === 0) return 0;
+    const creds = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findMany({
+          where: { customerId, status: { in: ['active', 'suspended', 'pending'] } },
+          select: { id: true, allowedFacilityIds: true, allowedUnitIds: true, metadata: true },
+        }),
+      tenantId,
+    );
+    let changed = 0;
+    for (const c of creds) {
+      const source = (c.metadata as { source?: string } | null)?.source;
+      if (source === 'night_pass') continue;
+      if (c.allowedFacilityIds.length === 0 && c.allowedUnitIds.length === 0) continue;
+      const sameFacilities =
+        [...c.allowedFacilityIds].sort().join() === [...scope.allowedFacilityIds].sort().join();
+      const sameUnits =
+        [...c.allowedUnitIds].sort().join() === [...scope.allowedUnitIds].sort().join();
+      if (sameFacilities && sameUnits) continue;
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.accessCredential.update({
+            where: { id: c.id },
+            data: {
+              allowedFacilityIds: scope.allowedFacilityIds,
+              // Una credencial de local (sin trasteros) sigue siéndolo.
+              allowedUnitIds: c.allowedUnitIds.length > 0 ? scope.allowedUnitIds : [],
+            },
+          }),
+        tenantId,
+      );
+      await this.sync.syncCredential(tenantId, c.id).catch(() => undefined);
+      changed += 1;
+    }
+    return changed;
+  }
+
+  /**
    * ¿El staff (con `facilityScope`) puede gestionar credenciales de este
    * cliente? Una credencial no tiene un `facilityId` propio (puede abarcar
    * varios locales vía `allowedFacilityIds`, que además suele venir VACÍO =

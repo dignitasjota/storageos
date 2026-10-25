@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 import { DataTable } from '@/components/data-table';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -14,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAccessLogs, useDevices } from '@/lib/access/hooks';
+import { useAccessLogPages, useDevices } from '@/lib/access/hooks';
 
 const METHOD_LABELS: Record<string, string> = { pin: 'PIN', qr: 'QR', rfid: 'RFID' };
 
@@ -58,11 +59,16 @@ const RESULTS = Object.keys(RESULT_LABELS) as AccessResultValue[];
 export default function AccessLogsPage() {
   const [result, setResult] = useState<AccessResultValue | undefined>();
   const [deviceId, setDeviceId] = useState<string | undefined>();
+  const [from, setFrom] = useState<string | undefined>();
+  const [to, setTo] = useState<string | undefined>();
 
-  const logs = useAccessLogs({
+  const logs = useAccessLogPages({
     ...(result ? { result } : {}),
     ...(deviceId ? { deviceId } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
   });
+  const rows = logs.data?.pages.flat() ?? [];
   const devices = useDevices();
 
   const columns: ColumnDef<AccessLogDto>[] = [
@@ -172,12 +178,25 @@ export default function AccessLogsPage() {
             ))}
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Desde</span>
+          <DateSelect value={from} onChange={setFrom} />
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Hasta</span>
+          <DateSelect value={to} onChange={setTo} />
+        </div>
       </div>
 
       <DataTable
         columns={columns}
-        data={logs.data ?? []}
+        data={rows}
         isLoading={logs.isLoading}
+        loadMore={{
+          hasMore: !!logs.hasNextPage,
+          loading: logs.isFetchingNextPage,
+          onLoadMore: () => void logs.fetchNextPage(),
+        }}
         searchPlaceholder="Buscar..."
         emptyText="No hay intentos de acceso registrados todavía."
       />

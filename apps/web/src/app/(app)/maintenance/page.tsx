@@ -5,12 +5,14 @@ import {
   type MaintenanceFreqValue,
   type TaskPriorityValue,
   type TaskTypeValue,
+  type MaintenancePlanDto,
 } from '@storageos/shared';
-import { CalendarClock, Loader2, Pause, Play, Plus, Trash2, Wrench } from 'lucide-react';
+import { CalendarClock, Loader2, Pause, Pencil, Play, Plus, Trash2, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -82,6 +84,7 @@ export default function MaintenancePage() {
   const update = useUpdateMaintenancePlan();
   const del = useDeleteMaintenancePlan();
   const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<MaintenancePlanDto | null>(null);
 
   async function action(fn: () => Promise<unknown>, ok: string) {
     try {
@@ -111,7 +114,7 @@ export default function MaintenancePage() {
                 <Plus className="mr-1 h-4 w-4" /> Nuevo plan
               </Button>
             </DialogTrigger>
-            <CreatePlanDialog onDone={() => setCreateOpen(false)} />
+            <PlanDialog onDone={() => setCreateOpen(false)} />
           </Dialog>
         )}
       </div>
@@ -149,6 +152,14 @@ export default function MaintenancePage() {
                         }
                       >
                         Generar ahora
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditing(p)}
+                        aria-label="Editar"
+                      >
+                        <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
                         size="sm"
@@ -201,25 +212,33 @@ export default function MaintenancePage() {
           ))}
         </div>
       )}
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+        {editing && <PlanDialog key={editing.id} plan={editing} onDone={() => setEditing(null)} />}
+      </Dialog>
     </div>
   );
 }
 
-function CreatePlanDialog({ onDone }: { onDone: () => void }) {
+function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () => void }) {
   const create = useCreateMaintenancePlan();
+  const updatePlan = useUpdateMaintenancePlan();
   const facilities = useFacilities();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [type, setType] = useState<TaskTypeValue>('maintenance');
-  const [priority, setPriority] = useState<TaskPriorityValue>('normal');
-  const [facilityId, setFacilityId] = useState<string>('');
-  const [freq, setFreq] = useState<MaintenanceFreqValue>('monthly');
-  const [interval, setIntervalValue] = useState('1');
-  const [weekdays, setWeekdays] = useState<number[]>([1]);
-  const [dayOfMonth, setDayOfMonth] = useState('1');
+  const [title, setTitle] = useState(plan?.title ?? '');
+  const [description, setDescription] = useState(plan?.description ?? '');
+  const [type, setType] = useState<TaskTypeValue>(plan?.type ?? 'maintenance');
+  const [priority, setPriority] = useState<TaskPriorityValue>(plan?.priority ?? 'normal');
+  const [facilityId, setFacilityId] = useState<string>(plan?.facilityId ?? '');
+  const [freq, setFreq] = useState<MaintenanceFreqValue>(plan?.freq ?? 'monthly');
+  const [interval, setIntervalValue] = useState(String(plan?.interval ?? 1));
+  const [weekdays, setWeekdays] = useState<number[]>(
+    plan && plan.weekdays.length > 0 ? plan.weekdays : [1],
+  );
+  const [dayOfMonth, setDayOfMonth] = useState(String(plan?.dayOfMonth ?? 1));
   const today = localDateString();
-  const [startDate, setStartDate] = useState(today);
-  const [checklist, setChecklist] = useState<string[]>([]);
+  const [startDate, setStartDate] = useState(plan ? plan.nextRunDate : today);
+  const [checklist, setChecklist] = useState<string[]>(
+    plan?.checklistTemplate.map((c) => c.label) ?? [],
+  );
 
   function toggleWeekday(v: number) {
     setWeekdays((prev) => (prev.includes(v) ? prev.filter((d) => d !== v) : [...prev, v]));
@@ -247,8 +266,29 @@ function CreatePlanDialog({ onDone }: { onDone: () => void }) {
       startDate,
     };
     try {
-      await create.mutateAsync(input);
-      toast.success('Plan creado.');
+      if (plan) {
+        const changedStart = startDate !== plan.nextRunDate;
+        await updatePlan.mutateAsync({
+          id: plan.id,
+          input: {
+            title: input.title,
+            description: input.description ?? '',
+            type,
+            priority,
+            facilityId: facilityId || null,
+            freq,
+            interval: input.interval,
+            weekdays: input.weekdays,
+            dayOfMonth: freq === 'monthly' ? (input.dayOfMonth ?? 1) : null,
+            checklistTemplate: input.checklistTemplate,
+            ...(changedStart ? { startDate } : {}),
+          },
+        });
+        toast.success('Plan actualizado.');
+      } else {
+        await create.mutateAsync(input);
+        toast.success('Plan creado.');
+      }
       onDone();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear el plan.');
@@ -258,7 +298,7 @@ function CreatePlanDialog({ onDone }: { onDone: () => void }) {
   return (
     <DialogContent className="max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle>Nuevo plan de mantenimiento</DialogTitle>
+        <DialogTitle>{plan ? 'Editar plan' : 'Nuevo plan de mantenimiento'}</DialogTitle>
       </DialogHeader>
       <div className="space-y-4">
         <div className="space-y-1.5">
@@ -443,20 +483,16 @@ function CreatePlanDialog({ onDone }: { onDone: () => void }) {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="m-start">Empieza el</Label>
-          <Input
-            id="m-start"
-            type="date"
-            className="w-44"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
+          <Label>{plan ? 'Próxima tarea a partir del' : 'Empieza el'}</Label>
+          <DateSelect value={startDate} onChange={(v) => v && setStartDate(v)} future />
         </div>
       </div>
       <DialogFooter>
-        <Button onClick={() => void submit()} disabled={create.isPending}>
-          {create.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-          Crear plan
+        <Button onClick={() => void submit()} disabled={create.isPending || updatePlan.isPending}>
+          {(create.isPending || updatePlan.isPending) && (
+            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+          )}
+          {plan ? 'Guardar' : 'Crear plan'}
         </Button>
       </DialogFooter>
     </DialogContent>

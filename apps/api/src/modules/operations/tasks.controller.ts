@@ -111,7 +111,7 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<TaskDto> {
-    return this.service.detail(user.tenantId, id);
+    return this.service.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @Post()
@@ -124,6 +124,7 @@ export class TasksController {
     return this.service.create({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       input: body,
       meta: extractMeta(req),
     });
@@ -140,6 +141,7 @@ export class TasksController {
     return this.service.update({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       id,
       input: body,
       meta: extractMeta(req),
@@ -157,6 +159,7 @@ export class TasksController {
     return this.service.transition({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       id,
       input: body,
       meta: extractMeta(req),
@@ -174,6 +177,7 @@ export class TasksController {
     await this.service.remove({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       id,
       meta: extractMeta(req),
     });
@@ -185,7 +189,7 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<TaskCommentDto[]> {
-    return this.service.listComments(user.tenantId, id);
+    return this.service.listComments(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @Post(':id/comments')
@@ -199,6 +203,7 @@ export class TasksController {
     return this.service.addComment({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       taskId: id,
       input: body,
       meta: extractMeta(req),
@@ -217,6 +222,7 @@ export class TasksController {
     return this.service.updateChecklistItem({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       taskId: id,
       itemId,
       input: body,

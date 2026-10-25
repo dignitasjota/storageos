@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { rentTax } from '@storageos/shared';
 
-import { optionalFacilityWhere } from '../../common/facility-scope';
+import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { toActiveUnitOffer } from '../promotions/promotions.service';
@@ -208,10 +208,15 @@ export class UnitRequestsService {
     userId: string;
     id: string;
     input: ResolveUnitRequestInput;
+    facilityScope?: string[] | null;
   }): Promise<UnitRequestDto> {
     const { tenantId, userId, id, input } = args;
     const existing = await this.prisma.withTenant(
-      (tx) => tx.unitRequest.findFirst({ where: { id, tenantId }, select: { status: true } }),
+      (tx) =>
+        tx.unitRequest.findFirst({
+          where: { id, tenantId },
+          select: { status: true, facilityId: true },
+        }),
       tenantId,
     );
     if (!existing) {
@@ -220,6 +225,8 @@ export class UnitRequestsService {
         message: 'Solicitud no encontrada',
       });
     }
+    const facilityId = existing.facilityId;
+    if (facilityId) assertFacilityAllowed(args.facilityScope, facilityId);
     if (existing.status !== 'pending') {
       throw new BadRequestException({
         code: 'already_resolved',

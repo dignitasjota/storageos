@@ -68,6 +68,7 @@ export class MaintenanceController {
     return this.service.create({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });
@@ -84,6 +85,7 @@ export class MaintenanceController {
     return this.service.update({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       planId: id,
       input,
       meta: extractMeta(req),
@@ -98,7 +100,11 @@ export class MaintenanceController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ generated: boolean }> {
-    const generated = await this.service.generateFromPlan(user.tenantId, id);
+    const generated = await this.service.generateFromPlan(
+      user.tenantId,
+      id,
+      user.facilityScope ?? null,
+    );
     return { generated };
   }
 
@@ -113,6 +119,7 @@ export class MaintenanceController {
     await this.service.remove({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       planId: id,
       meta: extractMeta(req),
     });

@@ -196,6 +196,8 @@ export interface ReservationDto {
   validUntil: string;
   depositPaid: boolean;
   depositAmount: number;
+  /** Precio del trastero (sin IVA): la cuota que se propone al convertirla. */
+  unitPriceMonthly: number;
   notes: string | null;
   convertedContractId: string | null;
   cancelledAt: string | null;

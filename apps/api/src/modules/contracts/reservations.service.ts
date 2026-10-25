@@ -27,7 +27,12 @@ import type {
 } from '@storageos/shared';
 
 type ReservationWithRelations = Reservation & {
-  unit: { code: string; facilityId: string; facility: { name: string } };
+  unit: {
+    code: string;
+    facilityId: string;
+    basePriceMonthly: Prisma.Decimal;
+    facility: { name: string };
+  };
   customer: {
     firstName: string | null;
     lastName: string | null;
@@ -73,6 +78,7 @@ export class ReservationsService {
               select: {
                 code: true,
                 facilityId: true,
+                basePriceMonthly: true,
                 facility: { select: { name: true } },
               },
             },
@@ -157,6 +163,7 @@ export class ReservationsService {
               select: {
                 code: true,
                 facilityId: true,
+                basePriceMonthly: true,
                 facility: { select: { name: true } },
               },
             },
@@ -250,6 +257,18 @@ export class ReservationsService {
     this.assertTransition(existing.status, 'confirmed');
 
     const updated = await this.prisma.withTenant(async (tx) => {
+      // Desde que se creó pudo alquilarse o quedar fuera de servicio.
+      const current = await tx.unit.findUniqueOrThrow({ where: { id: existing.unitId } });
+      if (
+        current.status === 'occupied' ||
+        current.status === 'maintenance' ||
+        current.status === 'blocked'
+      ) {
+        throw new ConflictException({
+          code: 'unit_not_reservable',
+          message: `El trastero está en estado ${current.status}: no se puede confirmar la reserva`,
+        });
+      }
       let row;
       try {
         row = await tx.reservation.update({
@@ -260,6 +279,7 @@ export class ReservationsService {
               select: {
                 code: true,
                 facilityId: true,
+                basePriceMonthly: true,
                 facility: { select: { name: true } },
               },
             },
@@ -346,6 +366,7 @@ export class ReservationsService {
             select: {
               code: true,
               facilityId: true,
+              basePriceMonthly: true,
               facility: { select: { name: true } },
             },
           },
@@ -594,6 +615,7 @@ export class ReservationsService {
               select: {
                 code: true,
                 facilityId: true,
+                basePriceMonthly: true,
                 facility: { select: { name: true } },
               },
             },
@@ -674,6 +696,7 @@ export class ReservationsService {
       validUntil: row.validUntil.toISOString(),
       depositPaid: row.depositPaid,
       depositAmount: Number(row.depositAmount),
+      unitPriceMonthly: Number(row.unit.basePriceMonthly),
       notes: row.notes,
       convertedContractId: row.convertedContractId,
       cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,

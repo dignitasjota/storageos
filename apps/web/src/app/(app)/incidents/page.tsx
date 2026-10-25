@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { Can } from '@/components/auth/can';
 import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { DataTable } from '@/components/data-table';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -48,7 +49,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCameraEventsByIncident } from '@/lib/cameras/hooks';
-import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilities, useUnits } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate } from '@/lib/format';
 import {
@@ -92,8 +93,8 @@ const STATUS_LABELS: Record<
 const NEXT_STATUS: Record<IncidentStatusValue, IncidentStatusValue[]> = {
   reported: ['investigating', 'resolved', 'dismissed'],
   investigating: ['resolved', 'dismissed'],
-  resolved: [],
-  dismissed: [],
+  resolved: ['reported'],
+  dismissed: ['reported'],
 };
 
 export default function IncidentsPage() {
@@ -323,6 +324,39 @@ export default function IncidentsPage() {
                         )}
                       />
                     </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <FormField
+                        control={form.control}
+                        name="unitId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Trastero</FormLabel>
+                            <IncidentUnitSelect
+                              facilityId={form.watch('facilityId')}
+                              value={field.value ?? undefined}
+                              onChange={(v) => field.onChange(v)}
+                            />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="occurredAt"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Cuándo pasó</FormLabel>
+                            <DateSelect
+                              value={field.value ? field.value.slice(0, 10) : undefined}
+                              onChange={(d) =>
+                                field.onChange(
+                                  d ? new Date(`${d}T12:00:00.000Z`).toISOString() : undefined,
+                                )
+                              }
+                            />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                     <FormField
                       control={form.control}
                       name="description"
@@ -491,7 +525,9 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
                     onClick={() => handleTransition(next)}
                     disabled={transition.isPending}
                   >
-                    Marcar como {STATUS_LABELS[next].label.toLowerCase()}
+                    {next === 'reported'
+                      ? 'Reabrir'
+                      : `Marcar como ${STATUS_LABELS[next].label.toLowerCase()}`}
                   </Button>
                 ))}
               </div>
@@ -576,5 +612,37 @@ function CameraEventsSection({ incidentId }: { incidentId: string }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/** Trasteros del local elegido (sin local, no se puede elegir trastero). */
+function IncidentUnitSelect({
+  facilityId,
+  value,
+  onChange,
+}: {
+  facilityId: string | undefined;
+  value: string | undefined;
+  onChange: (v: string | undefined) => void;
+}) {
+  const units = useUnits(facilityId ? { facilityId } : {});
+  return (
+    <Select
+      value={value ?? 'none'}
+      onValueChange={(v) => onChange(v === 'none' ? undefined : v)}
+      disabled={!facilityId}
+    >
+      <SelectTrigger>
+        <SelectValue placeholder={facilityId ? '(sin trastero)' : 'Elige antes el local'} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none">(sin trastero)</SelectItem>
+        {(facilityId ? (units.data?.items ?? []) : []).map((u) => (
+          <SelectItem key={u.id} value={u.id}>
+            {u.code}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

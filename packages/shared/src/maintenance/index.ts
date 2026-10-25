@@ -56,6 +56,12 @@ export const UpdateMaintenancePlanSchema = z.object({
   assignedToUserId: z.string().uuid().nullable().optional(),
   isActive: z.boolean().optional(),
   checklistTemplate: z.array(ChecklistTemplateItemSchema).max(50).optional(),
+  /** Cambiar la frecuencia recalcula la próxima fecha (desde hoy o `startDate`). */
+  freq: MaintenanceFreqEnum.optional(),
+  interval: z.number().int().min(1).max(60).optional(),
+  weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  dayOfMonth: z.number().int().min(1).max(28).nullable().optional(),
+  startDate: dateOnly.optional(),
 });
 export type UpdateMaintenancePlanInput = z.infer<typeof UpdateMaintenancePlanSchema>;
 

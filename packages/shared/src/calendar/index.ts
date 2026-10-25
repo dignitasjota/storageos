@@ -1,5 +1,10 @@
 /** Tipo de evento del calendario operativo. */
-export type CalendarEventType = 'task' | 'maintenance' | 'contract_ending' | 'reservation_expiring';
+export type CalendarEventType =
+  | 'task'
+  | 'maintenance'
+  | 'contract_starting'
+  | 'contract_ending'
+  | 'reservation_expiring';
 
 /** Un evento del calendario operativo (vencimiento, tarea, mantenimiento…). */
 export interface CalendarEventDto {

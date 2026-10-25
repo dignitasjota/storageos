@@ -32,6 +32,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type {
   DomainEventPayload,
   MoveOutCancelledPayload,
+  ContractUnitChangedPayload,
   UnitAvailablePayload,
 } from '../automations/domain-events';
 import type { Contract, ContractStatus, Prisma, UnitStatus } from '@storageos/database';
@@ -51,6 +52,17 @@ import type {
   SignedDownloadDto,
   UpdateContractInput,
 } from '@storageos/shared';
+
+/** Meses del plazo de un contrato (mínimo 1), para prorrogarlo por lo mismo. */
+export function termMonths(start: Date, end: Date): number {
+  // El día siguiente al fin cierra el plazo (1 ene → 31 dic = 12 meses).
+  const e = new Date(end.getTime() + 86_400_000);
+  const months =
+    (e.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+    (e.getUTCMonth() - start.getUTCMonth()) -
+    (e.getUTCDate() < start.getUTCDate() ? 1 : 0);
+  return Math.min(120, Math.max(1, months));
+}
 
 const ALLOWED_TRANSITIONS: Record<ContractStatusValue, ContractStatusValue[]> = {
   draft: ['active', 'cancelled'],
@@ -702,6 +714,29 @@ export class ContractsService {
           throw new ConflictException({
             code: 'unit_not_available',
             message: `No se puede firmar: el trastero esta en estado ${unit.status}`,
+          });
+        }
+        // Una reserva viva del trastero para OTRO inquilino lo bloquea; la del
+        // mismo inquilino queda convertida en este contrato.
+        const liveReservations = await tx.reservation.findMany({
+          where: { unitId: existing.unitId, status: { in: ['pending', 'confirmed'] } },
+          select: { id: true, customerId: true },
+        });
+        const foreign = liveReservations.find(
+          (r) => r.customerId && r.customerId !== existing.customerId,
+        );
+        if (foreign) {
+          throw new ConflictException({
+            code: 'unit_reserved_for_other',
+            message:
+              'Este trastero está reservado para otro inquilino. Cancela esa reserva antes de firmar.',
+          });
+        }
+        const own = liveReservations.filter((r) => r.customerId === existing.customerId);
+        if (own.length > 0) {
+          await tx.reservation.updateMany({
+            where: { id: { in: own.map((r) => r.id) } },
+            data: { status: 'converted', convertedContractId: existing.id },
           });
         }
 
@@ -1456,6 +1491,92 @@ export class ContractsService {
    * desactivado. Se avisa al equipo para que haga el check-out y liquide la
    * fianza. Cross-tenant; lo lanza el cron diario.
    */
+  /**
+   * Contratos activos cuya fecha de fin ya pasó. Con renovación automática se
+   * prorrogan por el mismo plazo que tenían (y siguen facturando); sin ella
+   * pasan a «en baja» con esa fecha, y `autoEndDue` los cierra. Antes se
+   * quedaban activos, con el trastero ocupado y el acceso abierto, sin facturar.
+   */
+  async autoRenewDue(now = new Date()): Promise<{ renewed: number; ending: number }> {
+    const today = todayInTimezone('Europe/Madrid', now);
+    const due = await this.admin.contract.findMany({
+      where: { status: 'active', deletedAt: null, endDate: { lt: today } },
+      select: {
+        id: true,
+        tenantId: true,
+        startDate: true,
+        endDate: true,
+        autoRenew: true,
+        contractNumber: true,
+        unit: { select: { facilityId: true } },
+      },
+      take: 500,
+    });
+    let renewed = 0;
+    let ending = 0;
+    for (const c of due) {
+      if (!c.endDate) continue;
+      try {
+        if (c.autoRenew) {
+          const months = termMonths(c.startDate, c.endDate);
+          let newEnd = this.addMonths(c.endDate, months);
+          let guard = 0;
+          while (newEnd < today && guard < 120) {
+            newEnd = this.addMonths(newEnd, months);
+            guard += 1;
+          }
+          await this.prisma.withTenant(async (tx) => {
+            const moved = await tx.contract.updateMany({
+              where: { id: c.id, status: 'active', endDate: c.endDate },
+              data: { endDate: newEnd, endingSoonNotifiedAt: null },
+            });
+            if (moved.count === 0) return;
+            await tx.contractEvent.create({
+              data: {
+                tenantId: c.tenantId,
+                contractId: c.id,
+                eventType: 'note_added',
+                payload: {
+                  event: 'auto_renewed',
+                  months,
+                  newEndDate: newEnd.toISOString().slice(0, 10),
+                },
+                createdByUserId: null,
+              },
+            });
+          }, c.tenantId);
+          renewed += 1;
+        } else {
+          await this.prisma.withTenant(async (tx) => {
+            const moved = await tx.contract.updateMany({
+              where: { id: c.id, status: 'active', endDate: c.endDate },
+              data: { status: 'ending', endingRequestedAt: new Date() },
+            });
+            if (moved.count === 0) return;
+            await tx.contractEvent.create({
+              data: {
+                tenantId: c.tenantId,
+                contractId: c.id,
+                eventType: 'ending_requested',
+                payload: {
+                  reason: 'term_reached',
+                  endDate: c.endDate!.toISOString().slice(0, 10),
+                },
+                createdByUserId: null,
+              },
+            });
+          }, c.tenantId);
+          ending += 1;
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[auto-renew] contrato ${c.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { renewed, ending };
+  }
+
   async autoEndDue(now = new Date()): Promise<{ ended: number }> {
     const today = todayInTimezone('Europe/Madrid', now);
     const due = await this.admin.contract.findMany({
@@ -2302,6 +2423,19 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    // El acceso del inquilino se rehace con sus trasteros (deja de abrir el
+    // antiguo y abre el nuevo) y el trastero que queda libre avisa a la lista de espera.
+    this.eventBus.emit(DOMAIN_EVENTS.contract_unit_changed, {
+      tenantId: args.tenantId,
+      contractId: updated.id,
+      customerId: updated.customerId,
+      fromUnitId: oldUnitId,
+      toUnitId: args.newUnitId,
+    } satisfies ContractUnitChangedPayload);
+    this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
+      tenantId: args.tenantId,
+      unitId: oldUnitId,
+    } satisfies UnitAvailablePayload);
 
     // Prorrateo del ajuste: si el traslado sube la cuota y se pidió prorate,
     // se emite una factura por la DIFERENCIA prorrateada por los días que restan
@@ -2310,7 +2444,16 @@ export class ContractsService {
     if (args.prorate && args.newPrice != null && existing.customerId) {
       const newPrice = args.newPrice;
       if (isGreaterThan(newPrice, oldPrice)) {
-        const now = new Date();
+        const tz = await this.prisma.withTenant(
+          (tx) =>
+            tx.unit.findUnique({
+              where: { id: args.newUnitId },
+              select: { facility: { select: { timezone: true } } },
+            }),
+          args.tenantId,
+        );
+        // El día de hoy en la zona del local (en UTC, de 00:00 a 02:00 era ayer).
+        const now = todayInTimezone(tz?.facility.timezone ?? 'Europe/Madrid');
         const y = now.getUTCFullYear();
         const m = now.getUTCMonth();
         const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();

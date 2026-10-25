@@ -144,7 +144,7 @@ export class IncidentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<IncidentDto> {
-    return this.incidents.detail(user.tenantId, id);
+    return this.incidents.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('incidents:write')
@@ -157,6 +157,7 @@ export class IncidentsController {
     return this.incidents.create({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });
@@ -173,6 +174,7 @@ export class IncidentsController {
     return this.incidents.update({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       id,
       input,
       meta: extractMeta(req),
@@ -190,6 +192,7 @@ export class IncidentsController {
     return this.incidents.transition({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       id,
       input,
       meta: extractMeta(req),
@@ -207,6 +210,7 @@ export class IncidentsController {
     await this.incidents.remove({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       id,
       meta: extractMeta(req),
     });
@@ -218,7 +222,7 @@ export class IncidentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<IncidentCommentDto[]> {
-    return this.incidents.listComments(user.tenantId, id);
+    return this.incidents.listComments(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('incidents:write')
@@ -232,6 +236,7 @@ export class IncidentsController {
     return this.incidents.addComment({
       tenantId: user.tenantId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
       incidentId: id,
       input,
       meta: extractMeta(req),

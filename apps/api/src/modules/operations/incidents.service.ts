@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { optionalFacilityWhere } from '../../common/facility-scope';
+import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import {
@@ -81,7 +81,7 @@ const INCLUDE = {
 const ALLOWED_TRANSITIONS: Record<IncidentStatusValue, IncidentStatusValue[]> = {
   reported: ['investigating', 'resolved', 'dismissed'],
   investigating: ['resolved', 'dismissed', 'reported'],
-  resolved: [],
+  resolved: ['reported'],
   dismissed: ['reported'],
 };
 
@@ -131,8 +131,12 @@ export class IncidentsService {
     return rows.map((r) => this.toDto(r as IncidentWithIncludes));
   }
 
-  async detail(tenantId: string, id: string): Promise<IncidentDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id));
+  async detail(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<IncidentDto> {
+    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
   }
 
   async create(args: {
@@ -140,7 +144,10 @@ export class IncidentsService {
     userId: string;
     input: CreateIncidentInput;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<IncidentDto> {
+    if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
     const data: Prisma.IncidentUncheckedCreateInput = {
       tenantId: args.tenantId,
       severity: args.input.severity,
@@ -320,8 +327,11 @@ export class IncidentsService {
     id: string;
     input: UpdateIncidentInput;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<IncidentDto> {
-    await this.findOrThrow(args.tenantId, args.id);
+    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
     const data: Prisma.IncidentUncheckedUpdateInput = {};
     if (args.input.severity !== undefined) data.severity = args.input.severity;
     if (args.input.title !== undefined) data.title = args.input.title;
@@ -350,8 +360,10 @@ export class IncidentsService {
     id: string;
     input: TransitionIncidentInput;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<IncidentDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.id);
+    const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const allowed = ALLOWED_TRANSITIONS[existing.status as IncidentStatusValue];
     if (!allowed.includes(args.input.status)) {
       throw new ConflictException({
@@ -403,8 +415,10 @@ export class IncidentsService {
     userId: string;
     id: string;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<void> {
-    await this.findOrThrow(args.tenantId, args.id);
+    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     await this.prisma.withTenant(
       (tx) => tx.incident.update({ where: { id: args.id }, data: { deletedAt: new Date() } }),
       args.tenantId,
@@ -412,8 +426,12 @@ export class IncidentsService {
     await this.writeAudit('incident.deleted', args, args.id);
   }
 
-  async listComments(tenantId: string, incidentId: string): Promise<IncidentCommentDto[]> {
-    await this.findOrThrow(tenantId, incidentId);
+  async listComments(
+    tenantId: string,
+    incidentId: string,
+    facilityScope?: string[] | null,
+  ): Promise<IncidentCommentDto[]> {
+    await this.findOrThrow(tenantId, incidentId, facilityScope);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.incidentComment.findMany({
@@ -432,8 +450,10 @@ export class IncidentsService {
     incidentId: string;
     input: IncidentCommentInput;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<IncidentCommentDto> {
-    await this.findOrThrow(args.tenantId, args.incidentId);
+    await this.findOrThrow(args.tenantId, args.incidentId, args.facilityScope);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.incidentComment.create({
@@ -451,7 +471,11 @@ export class IncidentsService {
     return this.commentToDto(created);
   }
 
-  private async findOrThrow(tenantId: string, id: string): Promise<IncidentWithIncludes> {
+  private async findOrThrow(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<IncidentWithIncludes> {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.incident.findFirst({
@@ -466,6 +490,9 @@ export class IncidentsService {
         message: 'Incidencia no encontrada',
       });
     }
+    // Alcance por local: lo de un local fuera del suyo no se ve ni se toca
+    // (lo de toda la empresa, sin local, sí).
+    if (row.facilityId) assertFacilityAllowed(facilityScope, row.facilityId);
     return row as IncidentWithIncludes;
   }
 
