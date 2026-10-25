@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatEur } from '@/lib/format';
 import {
   useReferrals,
   useReferralSettings,
@@ -47,7 +47,8 @@ export default function ReferralsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Referidos</h1>
         <p className="text-sm text-muted-foreground">
-          Tus inquilinos recomiendan y, al firmar el referido, el referidor recibe una recompensa.
+          Tus inquilinos recomiendan y, al firmar el referido, el que recomienda recibe un descuento
+          en su siguiente factura.
         </p>
       </div>
 
@@ -97,7 +98,22 @@ export default function ReferralsPage() {
                       <td className="px-3 py-2">
                         <Badge variant={s.variant}>{s.label}</Badge>
                       </td>
-                      <td className="px-3 py-2 font-mono text-xs">{r.rewardCode ?? '—'}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {r.reward ? (
+                          <>
+                            {r.reward.type === 'percentage'
+                              ? `${r.reward.value} %`
+                              : formatEur(r.reward.value)}{' '}
+                            <span className="text-muted-foreground">
+                              {r.reward.appliedAt
+                                ? `· aplicado${r.reward.invoiceNumber ? ` en ${r.reward.invoiceNumber}` : ''}`
+                                : '· en su próxima factura'}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="font-mono">{r.rewardCode ?? '—'}</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-muted-foreground">{formatDate(r.createdAt)}</td>
                     </tr>
                   );
@@ -183,8 +199,9 @@ function ReferralSettingsCard() {
           <div className="space-y-0.5">
             <Label htmlFor="ref-enabled">Activar el programa de referidos</Label>
             <p className="text-xs text-muted-foreground">
-              Cada inquilino obtiene un código. Al firmar el referido, el referidor recibe una
-              promoción de un solo uso con la recompensa indicada.
+              Cada inquilino obtiene un código. Al firmar el referido, al que recomienda se le
+              descuenta la recompensa de su siguiente factura (un porcentaje sobre su cuota o un
+              importe fijo).
             </p>
           </div>
         </div>

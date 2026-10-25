@@ -109,4 +109,15 @@ export class CampaignsController {
   ): Promise<CampaignDto> {
     return this.campaigns.send(user.tenantId, id);
   }
+
+  /** Cancela un borrador o una campaña programada que aún no ha salido. */
+  @RequirePermission('communications:send')
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancelCampaign(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<CampaignDto> {
+    return this.campaigns.cancel(user.tenantId, id);
+  }
 }

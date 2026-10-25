@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import {
+  PublishReviewSchema,
   RequestReviewSchema,
+  type ReviewDto,
   ReviewListQuerySchema,
   type ReviewListDto,
   type ReviewStatsDto,
@@ -18,6 +20,7 @@ import { ReviewsService } from './reviews.service';
 
 class RequestReviewDto extends createZodDto(RequestReviewSchema) {}
 class ReviewListQueryDto extends createZodDto(ReviewListQuerySchema) {}
+class PublishReviewDto extends createZodDto(PublishReviewSchema) {}
 
 /** Endpoints de staff para las valoraciones (NPS) del tenant. */
 @Controller('reviews')
@@ -46,5 +49,16 @@ export class ReviewsController {
     @Body() body: RequestReviewDto,
   ): Promise<RequestReviewResultDto> {
     return this.reviews.request({ tenantId: user.tenantId, input: body });
+  }
+
+  /** Publica o retira la valoración como testimonio en la web pública. */
+  @RequirePermission('reviews:write')
+  @Patch(':id/web')
+  publish(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: PublishReviewDto,
+  ): Promise<ReviewDto> {
+    return this.reviews.setPublished(user.tenantId, id, body.published);
   }
 }

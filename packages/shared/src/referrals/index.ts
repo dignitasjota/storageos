@@ -34,7 +34,9 @@ export interface ReferralDto {
   referredName: string;
   status: ReferralStatusValue;
   /** Código de la promoción-recompensa generada al convertir (si aplica). */
+  /** Código de promoción (solo recompensas antiguas). */
   rewardCode: string | null;
+  reward: ReferralRewardDto | null;
   createdAt: string;
   convertedAt: string | null;
 }
@@ -54,6 +56,18 @@ export interface PortalReferralDto {
     status: ReferralStatusValue;
     createdAt: string;
   }>;
-  /** Códigos de recompensa ganados (promociones de un solo uso). */
-  rewards: string[];
+  /**
+   * Recompensas ganadas: descuento en la siguiente factura (aplicado o pendiente).
+   * `code` solo en las antiguas, que eran códigos de promoción.
+   */
+  rewards: Array<ReferralRewardDto & { code: string | null }>;
+}
+
+/** Recompensa de un referido: descuento en la siguiente factura de quien recomienda. */
+export interface ReferralRewardDto {
+  type: 'percentage' | 'fixed';
+  value: number;
+  /** Cuándo se aplicó (null = pendiente de la próxima factura). */
+  appliedAt: string | null;
+  invoiceNumber: string | null;
 }

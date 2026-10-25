@@ -18,6 +18,7 @@ export class CampaignsResumeCron {
   async tick(): Promise<void> {
     try {
       await this.campaigns.resumeStale();
+      await this.campaigns.completeScheduled();
     } catch (err) {
       this.logger.error(`No se pudieron retomar campañas: ${(err as Error).message}`);
     }

@@ -317,10 +317,15 @@
       },
       "referrals": {
         "title": "Recomienda y gana",
-        "subtitle": "Comparte tu código. Cuando tu recomendado firme su contrato, recibirás una recompensa.",
+        "subtitle": "Comparte tu código. Cuando tu recomendado firme su contrato, te descontamos la recompensa de tu siguiente factura.",
         "copy": "Copiar",
         "copied": "Código copiado.",
         "rewardsLabel": "Tus recompensas: ",
+        "rewardPercent": "{value} % de descuento",
+        "rewardFixed": "{amount} de descuento",
+        "rewardPending": "en tu próxima factura",
+        "rewardApplied": "aplicado en la factura {invoice}",
+        "rewardAppliedNoInvoice": "aplicado",
         "statusConverted": "recompensa concedida",
         "statusPending": "pendiente"
       },

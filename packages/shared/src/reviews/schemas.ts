@@ -31,3 +31,7 @@ export const ReviewListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 export type ReviewListQueryInput = z.infer<typeof ReviewListQuerySchema>;
+
+/** Publicar (o retirar) una valoración como testimonio en la web pública. */
+export const PublishReviewSchema = z.object({ published: z.boolean() });
+export type PublishReviewInput = z.infer<typeof PublishReviewSchema>;

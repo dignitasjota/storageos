@@ -37,13 +37,15 @@ import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useCampaigns,
   useCreateCampaign,
+  useCancelCampaign,
   usePreviewCampaign,
   useRunWinback,
   useSendCampaign,
   useUpdateWinbackSettings,
   useWinbackSettings,
 } from '@/lib/campaigns/hooks';
-import { formatDate } from '@/lib/format';
+import { useFacilities } from '@/lib/facilities/hooks';
+import { formatDate, formatDateTime } from '@/lib/format';
 
 const STATUS: Record<
   CampaignDto['status'],
@@ -51,6 +53,7 @@ const STATUS: Record<
 > = {
   draft: { label: 'Borrador', variant: 'secondary' },
   sending: { label: 'Enviando', variant: 'default' },
+  scheduled: { label: 'Programada', variant: 'secondary' },
   sent: { label: 'Enviada', variant: 'default' },
   cancelled: { label: 'Cancelada', variant: 'outline' },
 };
@@ -59,17 +62,48 @@ export default function CampaignsPage() {
   const ask = useConfirm();
   const campaigns = useCampaigns();
   const send = useSendCampaign();
+  const cancel = useCancelCampaign();
   const canSend = useHasPermission('communications:send');
 
-  async function handleSend(id: string) {
-    if (!(await ask({ title: '¿Enviar la campaña ahora a toda la audiencia?' }))) return;
+  async function handleSend(c: CampaignDto) {
+    const scheduled = c.scheduledFor && new Date(c.scheduledFor).getTime() > Date.now();
+    if (
+      !(await ask({
+        title: scheduled
+          ? `¿Programar la campaña para el ${formatDateTime(c.scheduledFor!)}?`
+          : '¿Enviar la campaña ahora a toda la audiencia?',
+      }))
+    )
+      return;
     try {
-      const res = await send.mutateAsync(id);
+      const res = await send.mutateAsync(c.id);
       toast.success(
         res.status === 'sent'
           ? `Campaña enviada a ${res.sentCount} destinatarios.`
-          : 'Enviando la campaña… El estado se actualiza solo.',
+          : scheduled
+            ? 'Campaña programada. Puedes cancelarla hasta que salga.'
+            : 'Enviando la campaña… El estado se actualiza solo.',
       );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function handleCancel(c: CampaignDto) {
+    if (
+      !(await ask({
+        title: '¿Cancelar la campaña?',
+        description:
+          c.status === 'scheduled'
+            ? 'Los correos programados no se enviarán.'
+            : 'El borrador quedará cancelado.',
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await cancel.mutateAsync(c.id);
+      toast.success('Campaña cancelada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -105,17 +139,39 @@ export default function CampaignsPage() {
     {
       accessorKey: 'createdAt',
       header: 'Fecha',
-      cell: ({ row }) => formatDate(row.original.createdAt),
+      cell: ({ row }) => (
+        <span>
+          {formatDate(row.original.createdAt)}
+          {row.original.scheduledFor && (
+            <span className="block text-xs text-muted-foreground">
+              Envío: {formatDateTime(row.original.scheduledFor)}
+            </span>
+          )}
+        </span>
+      ),
     },
     {
       id: 'actions',
       header: '',
-      cell: ({ row }) =>
-        canSend && row.original.status === 'draft' ? (
-          <Button variant="outline" size="sm" onClick={() => handleSend(row.original.id)}>
-            <Send className="mr-1 h-4 w-4" /> Enviar
-          </Button>
-        ) : null,
+      cell: ({ row }) => {
+        const c = row.original;
+        if (!canSend) return null;
+        const future = !!c.scheduledFor && new Date(c.scheduledFor).getTime() > Date.now();
+        return (
+          <div className="flex flex-wrap justify-end gap-2">
+            {c.status === 'draft' && (
+              <Button variant="outline" size="sm" onClick={() => handleSend(c)}>
+                <Send className="mr-1 h-4 w-4" /> {future ? 'Programar' : 'Enviar'}
+              </Button>
+            )}
+            {(c.status === 'draft' || (c.status === 'scheduled' && future)) && (
+              <Button variant="ghost" size="sm" onClick={() => handleCancel(c)}>
+                Cancelar
+              </Button>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
@@ -155,13 +211,20 @@ function CreateCampaignDialog() {
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [tag, setTag] = useState('');
   const [leadStatus, setLeadStatus] = useState<string>('any');
+  const [facilityId, setFacilityId] = useState<string>('all');
+  const [schedule, setSchedule] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleHour, setScheduleHour] = useState('10');
   const [count, setCount] = useState<number | null>(null);
+  const facilities = useFacilities();
+  const facilityList = facilities.data ?? [];
 
   function buildSegment(): CampaignSegmentInput {
     if (audience === 'leads') {
       return {
         audience: 'leads',
         ...(leadStatus !== 'any' ? { leadStatus: leadStatus as 'new' } : {}),
+        ...(facilityId !== 'all' ? { facilityId } : {}),
       };
     }
     return {
@@ -169,6 +232,7 @@ function CreateCampaignDialog() {
       contractStatus,
       overdueOnly,
       ...(tag.trim() ? { tag: tag.trim() } : {}),
+      ...(facilityId !== 'all' ? { facilityId } : {}),
     };
   }
 
@@ -186,9 +250,32 @@ function CreateCampaignDialog() {
       toast.error('Completa nombre, asunto y cuerpo.');
       return;
     }
+    let scheduledFor: string | undefined;
+    if (schedule) {
+      if (!scheduleDate) {
+        toast.error('Elige el día del envío.');
+        return;
+      }
+      const at = new Date(`${scheduleDate}T${scheduleHour.padStart(2, '0')}:00:00`);
+      if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) {
+        toast.error('La fecha del envío tiene que ser futura.');
+        return;
+      }
+      scheduledFor = at.toISOString();
+    }
     try {
-      await create.mutateAsync({ name, subject, bodyText: body, segment: buildSegment() });
-      toast.success('Campaña creada en borrador. Pulsa "Enviar" cuando quieras.');
+      await create.mutateAsync({
+        name,
+        subject,
+        bodyText: body,
+        segment: buildSegment(),
+        ...(scheduledFor ? { scheduledFor } : {}),
+      });
+      toast.success(
+        scheduledFor
+          ? 'Campaña creada. Pulsa «Programar» para dejarla lista.'
+          : 'Campaña creada en borrador. Pulsa "Enviar" cuando quieras.',
+      );
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -304,6 +391,31 @@ function CreateCampaignDialog() {
             </div>
           )}
 
+          {facilityList.length > 1 && (
+            <div className="space-y-1">
+              <Label className="text-sm">Local</Label>
+              <Select
+                value={facilityId}
+                onValueChange={(v) => {
+                  setFacilityId(v);
+                  setCount(null);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los locales</SelectItem>
+                  {facilityList.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <Button
               type="button"
@@ -341,6 +453,42 @@ function CreateCampaignDialog() {
               placeholder="Escribe el mensaje. Variables: {{customer.firstName}} / {{lead.firstName}}, {{tenant.name}}"
             />
           </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={schedule}
+              onChange={(e) => setSchedule(e.target.checked)}
+            />
+            Programar el envío para otro momento
+          </label>
+          {schedule && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-sm">Día</Label>
+                <Input
+                  type="date"
+                  value={scheduleDate}
+                  onChange={(e) => setScheduleDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-sm">Hora</Label>
+                <Select value={scheduleHour} onValueChange={setScheduleHour}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <SelectItem key={h} value={String(h)}>
+                        {String(h).padStart(2, '0')}:00
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>

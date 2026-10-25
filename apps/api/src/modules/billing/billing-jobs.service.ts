@@ -7,6 +7,7 @@ import { toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_BILLING_GENERATE_RECURRING, QUEUE_BILLING } from '../queues/queues.module';
+import { ReferralsService } from '../referrals/referrals.service';
 
 import { InvoiceSeriesService } from './invoice-series.service';
 import { InvoicesService } from './invoices.service';
@@ -42,6 +43,7 @@ export class BillingJobsService {
     private readonly admin: PrismaAdminService,
     private readonly invoices: InvoicesService,
     private readonly series: InvoiceSeriesService,
+    private readonly referrals: ReferralsService,
   ) {}
 
   /**
@@ -206,9 +208,12 @@ export class BillingJobsService {
       const rentMonth = cStart.toISOString().slice(0, 7);
       // Alquiler del periodo: prepago = cuota × N meses × (1 − descuento prepago).
       const prepayPct = interval > 1 ? Number(c.prepayDiscountPct) : 0;
-      const rentUnitPrice = isFreeMonth
+      const baseRent = isFreeMonth
         ? 0
         : Math.round(toCents(effectivePrice) * interval * (1 - prepayPct / 100) * factor) / 100;
+      // Recompensa por recomendar: se descuenta de la cuota de esta factura.
+      const reward = await this.referrals.claimRewardsForInvoice(tenantId, c.customerId, baseRent);
+      const rentUnitPrice = Math.round(toCents(baseRent) - toCents(reward.discount)) / 100;
       const insuranceUnitPrice =
         Math.round(toCents(Number(c.insurancePrice ?? 0)) * interval * factor) / 100;
       const rentDesc =
@@ -220,7 +225,11 @@ export class BillingJobsService {
               prorated
                 ? `, ${cStart.toISOString().slice(0, 10)}–${cEnd.toISOString().slice(0, 10)}`
                 : ''
-            })${isFreeMonth ? ' — mes gratis (promoción)' : ''}`;
+            })${isFreeMonth ? ' — mes gratis (promoción)' : ''}${
+              reward.discount > 0
+                ? ` — incluye ${reward.discount.toFixed(2).replace('.', ',')} € de descuento por recomendar`
+                : ''
+            }`;
 
       try {
         const draft = await this.invoices.create({
@@ -272,6 +281,7 @@ export class BillingJobsService {
           },
           meta: {},
         });
+        await this.referrals.settleRewards(reward.referralIds, draft.id);
         // Emisión automática (opt-in): emite el borrador recién creado. Si el
         // issue falla (p. ej. sin serie o Verifactu) NO tumba el lote: la
         // factura queda en draft y se puede emitir a mano.
@@ -294,6 +304,7 @@ export class BillingJobsService {
         }
         created += 1;
       } catch (err) {
+        await this.referrals.settleRewards(reward.referralIds, null);
         // Índice parcial invoices_recurring_period_unique: otra réplica/run ya
         // creó la factura de este contrato+periodo → no es un error, se salta.
         if (isUniqueViolation(err)) {

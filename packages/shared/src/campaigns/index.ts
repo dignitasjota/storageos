@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 import { LeadStatusEnum } from '../communications/schemas';
 
-export const CampaignStatusEnum = z.enum(['draft', 'sending', 'sent', 'cancelled']);
+/** `scheduled` = correos ya encolados para la fecha programada (aún se puede cancelar). */
+export const CampaignStatusEnum = z.enum(['draft', 'sending', 'scheduled', 'sent', 'cancelled']);
 export type CampaignStatusValue = z.infer<typeof CampaignStatusEnum>;
 
 /**
@@ -22,12 +23,16 @@ export const CustomerSegmentSchema = z.object({
   overdueOnly: z.boolean().default(false),
   /** Solo clientes con este tag. */
   tag: z.string().trim().max(60).optional().or(z.literal('')),
+  /** Solo clientes de este local (por sus contratos). */
+  facilityId: z.string().uuid().optional(),
 });
 
 export const LeadSegmentSchema = z.object({
   audience: z.literal('leads'),
   leadStatus: LeadStatusEnum.optional(),
   leadSource: z.string().trim().min(1).max(60).optional(),
+  /** Solo contactos que prefieren este local. */
+  facilityId: z.string().uuid().optional(),
 });
 
 export const CampaignSegmentSchema = z.discriminatedUnion('audience', [

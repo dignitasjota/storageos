@@ -24,6 +24,9 @@ function displayName(c: {
  * Sub-bloque 14A.1: solo se registra cuando `ENABLE_WORKERS_IN_API=true`
  * (corre en el worker en producción).
  */
+/** Días tras el plazo en los que aún se pide la valoración. */
+const REVIEW_WINDOW_DAYS = 30;
+
 @Injectable()
 export class ReviewRequestCron {
   private readonly logger = new Logger(ReviewRequestCron.name);
@@ -44,12 +47,16 @@ export class ReviewRequestCron {
     let requested = 0;
     for (const tenant of tenants) {
       const threshold = new Date(now.getTime() - tenant.reviewRequestDelayDays * 86_400_000);
+      // Solo los firmados poco después del plazo: al activarlo (o con una cartera
+      // importada, que conserva la fecha de alta) no se escribe de golpe a gente
+      // que firmó hace años o que ya se fue.
+      const windowStart = new Date(threshold.getTime() - REVIEW_WINDOW_DAYS * 86_400_000);
       const contracts = await this.admin.contract.findMany({
         where: {
           tenantId: tenant.id,
           deletedAt: null,
-          status: { in: ['active', 'ending', 'ended'] },
-          signedAt: { not: null, lte: threshold },
+          status: { in: ['active', 'ending'] },
+          signedAt: { gte: windowStart, lte: threshold },
           reviews: { none: {} },
         },
         include: {

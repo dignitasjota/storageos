@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { LEAD_SOURCE_SUGGESTIONS, leadSourceLabel } from '@storageos/shared';
 
 import { pageArgs, type PageRequest } from '../../common/pagination';
@@ -221,6 +221,14 @@ export class LeadsService {
       this.logger.warn(`[widget] honeypot detectado tenant=${args.tenantId}, descartado`);
       throw new ConflictException({ code: 'invalid_payload', message: 'Solicitud invalida' });
     }
+    const repeated = await this.mergeRepeatContact(args.tenantId, {
+      email: args.input.email,
+      phone: args.input.phone,
+      message: args.input.message ?? null,
+      channel: 'widget',
+      marketingConsent: !!args.input.acceptsMarketing,
+    });
+    if (repeated) return repeated;
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.lead.create({
@@ -289,6 +297,14 @@ export class LeadsService {
     };
     meta: RequestMeta;
   }): Promise<LeadDto> {
+    const repeated = await this.mergeRepeatContact(args.tenantId, {
+      email: args.input.email,
+      phone: args.input.phone ?? null,
+      message: args.input.message ?? null,
+      channel: 'web',
+      marketingConsent: !!args.input.acceptsMarketing,
+    });
+    if (repeated) return repeated;
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.lead.create({
@@ -340,6 +356,14 @@ export class LeadsService {
     name: string | null;
     message: string;
   }): Promise<{ id: string }> {
+    const repeated = await this.mergeRepeatContact(args.tenantId, {
+      email: null,
+      phone: args.phone,
+      message: args.message.slice(0, 2000),
+      channel: 'whatsapp',
+      marketingConsent: false,
+    });
+    if (repeated) return { id: repeated.id };
     const [firstName, ...rest] = (args.name ?? '').trim().split(/\s+/).filter(Boolean);
     const created = await this.prisma.withTenant(
       (tx) =>
@@ -436,6 +460,14 @@ export class LeadsService {
     meta: RequestMeta;
   }): Promise<LeadDto> {
     const existing = await this.findOrThrow(args.tenantId, args.id);
+    // «Ganado» = convertido en cliente: un contacto ganado sin ficha de
+    // inquilino contaba como venta en analítica y marketing sin serlo.
+    if (args.input.status === 'won') {
+      throw new ConflictException({
+        code: 'lead_use_convert',
+        message: 'Para marcarlo como ganado, conviértelo en cliente.',
+      });
+    }
     const allowed = ALLOWED_TRANSITIONS[existing.status as LeadStatusValue];
     if (!allowed.includes(args.input.status)) {
       throw new ConflictException({
@@ -447,7 +479,6 @@ export class LeadsService {
     const data: Prisma.LeadUncheckedUpdateInput = { status: args.input.status };
     if (args.input.status === 'contacted') data.contactedAt = now;
     if (args.input.status === 'qualified') data.qualifiedAt = now;
-    if (args.input.status === 'won') data.wonAt = now;
     if (args.input.status === 'lost') {
       data.lostAt = now;
       if (args.input.reason) data.lostReason = args.input.reason;
@@ -505,6 +536,16 @@ export class LeadsService {
     }
     const result = await this.prisma.withTenant(async (tx) => {
       let customerId = args.input.customerId ?? null;
+      // Si ya hay un inquilino con ese email, se enlaza a él (como la reserva
+      // online, que trata el email como identidad) en vez de duplicarlo.
+      if (!customerId && existing.email) {
+        const same = await tx.customer.findFirst({
+          where: { email: { equals: existing.email, mode: 'insensitive' }, deletedAt: null },
+          select: { id: true },
+          orderBy: { createdAt: 'asc' },
+        });
+        customerId = same?.id ?? null;
+      }
       if (!customerId) {
         const customer = await tx.customer.create({
           data: {
@@ -627,6 +668,103 @@ export class LeadsService {
       ...(args.meta.userAgent ? { userAgent: args.meta.userAgent } : {}),
     });
     return this.toDto(updated);
+  }
+
+  /**
+   * Un contacto que vuelve a escribir (mismo email o teléfono, aún abierto)
+   * no crea otro: se añade su mensaje al existente. Devuelve null si es nuevo.
+   */
+  private async mergeRepeatContact(
+    tenantId: string,
+    c: {
+      email: string | null | undefined;
+      phone: string | null | undefined;
+      message: string | null;
+      channel: string;
+      marketingConsent: boolean;
+    },
+  ): Promise<LeadDto | null> {
+    const email = c.email?.trim() || null;
+    const phone = c.phone?.replace(/\s+/g, '') || null;
+    if (!email && !phone) return null;
+    const existing = await this.prisma.withTenant(
+      (tx) =>
+        tx.lead.findFirst({
+          where: {
+            deletedAt: null,
+            status: { in: ['new', 'contacted', 'qualified'] },
+            OR: [
+              ...(email ? [{ email: { equals: email, mode: 'insensitive' as const } }] : []),
+              ...(phone ? [{ phone }] : []),
+            ],
+          },
+          orderBy: { updatedAt: 'desc' },
+        }),
+      tenantId,
+    );
+    if (!existing) return null;
+    const stamp = new Date().toISOString().slice(0, 10);
+    const note = c.message?.trim()
+      ? `[${stamp} · ${c.channel}] ${c.message.trim()}`
+      : `[${stamp} · ${c.channel}] Ha vuelto a contactar.`;
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.lead.update({
+          where: { id: existing.id },
+          data: {
+            message: existing.message ? `${existing.message}\n\n${note}`.slice(-8000) : note,
+            ...(email && !existing.email ? { email } : {}),
+            ...(phone && !existing.phone ? { phone } : {}),
+            ...(c.marketingConsent && !existing.marketingConsentAt
+              ? { marketingConsentAt: new Date() }
+              : {}),
+          },
+          include: {
+            preferredFacility: { select: { name: true } },
+            preferredUnitType: { select: { name: true } },
+            assignedTo: { select: { fullName: true } },
+          },
+        }),
+      tenantId,
+    );
+    await this.audit.write({
+      tenantId,
+      action: 'lead.repeat_contact',
+      entityType: 'Lead',
+      entityId: existing.id,
+      changes: { channel: c.channel },
+    });
+    return this.toDto(updated);
+  }
+
+  /**
+   * Al firmar el primer contrato de un contacto que el equipo convirtió a mano,
+   * se enlaza el contrato al contacto: así cuenta en el rendimiento de su canal
+   * (antes solo lo enlazaba la reserva online).
+   */
+  @OnEvent(DOMAIN_EVENTS.contract_signed, { async: true, promisify: true })
+  async onContractSigned(p: DomainEventPayload): Promise<void> {
+    const customerId = p.customerId;
+    if (!customerId || p.entityType !== 'contract') return;
+    try {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.lead.updateMany({
+            where: {
+              convertedCustomerId: customerId,
+              convertedContractId: null,
+              status: 'won',
+              deletedAt: null,
+            },
+            data: { convertedContractId: p.entityId },
+          }),
+        p.tenantId,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[leads] no se pudo enlazar el contrato ${p.entityId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
   private async findOrThrow(

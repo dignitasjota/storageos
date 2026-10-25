@@ -20,6 +20,7 @@ import { AuditService } from '../auth/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { PaymentMethodsService } from '../payments/payment-methods.service';
 
 const DAY = 86_400_000;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -55,7 +56,32 @@ export class OpportunitiesService {
     private readonly communications: CommunicationsService,
     private readonly config: ConfigService,
     private readonly offers: CustomerOffersService,
+    private readonly paymentMethods: PaymentMethodsService,
   ) {}
+
+  /**
+   * ¿Puede el inquilino dejar el cobro automático? Tarjeta (Stripe o Redsys con
+   * pago por referencia), GoCardless o remesas SEPA. Sin ninguno, proponer
+   * «domiciliar» le pide algo que no puede hacer.
+   */
+  private async canAutopay(tenantId: string): Promise<boolean> {
+    if (await this.paymentMethods.cardPaymentsAvailable(tenantId)) return true;
+    const [redsys, gocardless, sepa] = await Promise.all([
+      this.admin.redsysSettings.findFirst({
+        where: { tenantId, enabled: true, cardOnFileEnabled: true },
+        select: { id: true },
+      }),
+      this.admin.goCardlessSettings.findFirst({
+        where: { tenantId, enabled: true },
+        select: { id: true },
+      }),
+      this.admin.sepaSettings.findFirst({
+        where: { tenantId, enabled: true },
+        select: { id: true },
+      }),
+    ]);
+    return !!(redsys || gocardless || sepa);
+  }
 
   /** Lo registra el área de clientes (una vez por hora y tipo). */
   async recordInterest(tenantId: string, customerId: string, input: PortalInterestInput) {
@@ -88,7 +114,10 @@ export class OpportunitiesService {
   }
 
   async list(tenantId: string, scope: FacilityScope, now = new Date()): Promise<OpportunitiesDto> {
-    const hasInsurance = await tenantHasFeature(this.admin, tenantId, 'insurance');
+    const [hasInsurance, autopayAvailable] = await Promise.all([
+      tenantHasFeature(this.admin, tenantId, 'insurance'),
+      this.canAutopay(tenantId),
+    ]);
     const items = await this.prisma.withTenant(async (tx) => {
       const [
         tenant,
@@ -110,6 +139,8 @@ export class OpportunitiesService {
           where: {
             deletedAt: null,
             status: 'active',
+            // Las propuestas son comunicaciones comerciales: no a quien se dio de baja.
+            customer: { marketingOptOutAt: null, deletedAt: null },
             ...(scope ? { unit: { facilityId: { in: scope } } } : {}),
           },
           select: {
@@ -332,7 +363,7 @@ export class OpportunitiesService {
         }
 
         // Domiciliar: paga a mano.
-        if (!chargeable.has(customerId) && !mandate.has(customerId)) {
+        if (autopayAvailable && !chargeable.has(customerId) && !mandate.has(customerId)) {
           push(rows, 'autopay', {
             reason: hadOverdue.has(customerId)
               ? 'Paga a mano y ha tenido facturas vencidas en los últimos 90 días.'
@@ -452,6 +483,8 @@ export class OpportunitiesService {
         source: `opportunity:${input.kind}`,
         subject: input.subject ?? draft.subject,
         bodyText: input.body ?? draft.body,
+        // Comercial: pie de baja y se omite si se da de baja antes de salir.
+        marketing: true,
       });
       emailSent = true;
     }

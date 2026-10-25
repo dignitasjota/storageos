@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 
@@ -72,13 +72,17 @@ export class ReviewsService {
       customerName: displayName(r.customer),
       contractId: r.contractId,
       contractNumber: r.contract?.contractNumber ?? null,
-      status: r.status as ReviewDto['status'],
+      // Caducada aunque nadie haya abierto el enlace (antes contaba como pendiente).
+      status: (r.status === 'pending' && r.tokenExpiresAt < new Date()
+        ? 'expired'
+        : r.status) as ReviewDto['status'],
       npsScore: r.npsScore,
       rating: r.rating,
       comment: r.comment,
       channel: r.channel as ReviewChannelValue | null,
       requestedAt: r.requestedAt.toISOString(),
       submittedAt: r.submittedAt?.toISOString() ?? null,
+      publishedOnWeb: r.publishedOnWeb,
       createdAt: r.createdAt.toISOString(),
     };
   }
@@ -126,10 +130,14 @@ export class ReviewsService {
       (tx) =>
         tx.review.findMany({
           where: { tenantId },
-          select: { status: true, npsScore: true, rating: true },
+          select: { status: true, npsScore: true, rating: true, tokenExpiresAt: true },
         }),
       tenantId,
     );
+    const now = new Date();
+    for (const r of rows) {
+      if (r.status === 'pending' && r.tokenExpiresAt < now) r.status = 'expired';
+    }
     const total = rows.length;
     const submitted = rows.filter((r) => r.status === 'submitted');
     const withNps = submitted.filter((r) => r.npsScore !== null);
@@ -160,6 +168,8 @@ export class ReviewsService {
   async request(args: {
     tenantId: string;
     input: RequestReviewInput;
+    /** Encuesta de salida (al pedir la baja): otro texto y otro origen. */
+    exit?: boolean;
   }): Promise<RequestReviewResultDto> {
     const { tenantId, input } = args;
     if (input.channel === 'whatsapp') this.communications.assertWhatsappAvailable();
@@ -205,7 +215,8 @@ export class ReviewsService {
       customerId: customer.id,
       contractId: input.contractId ?? null,
       channel: input.channel,
-      source: 'reviews.manual',
+      source: args.exit ? 'reviews.exit' : 'reviews.manual',
+      ...(args.exit ? { exit: true } : {}),
       recipientEmail: customer.email,
       recipientPhone: customer.phone,
       scope: {
@@ -230,6 +241,7 @@ export class ReviewsService {
       await this.request({
         tenantId: p.tenantId,
         input: { customerId: p.customerId, contractId: p.entityId, channel: 'email' },
+        exit: true,
       });
     } catch (err) {
       this.logger.warn(
@@ -251,6 +263,7 @@ export class ReviewsService {
     recipientEmail: string | null;
     recipientPhone: string | null;
     tenantName?: string;
+    exit?: boolean;
     scope: {
       customerFirstName: string;
       customerDisplayName: string;
@@ -304,17 +317,24 @@ export class ReviewsService {
         // Usa la plantilla `review_request_email` si el tenant la tiene seedeada
         // (editable); si no (tenants antiguos), envía con cuerpo inline para
         // garantizar la entrega.
-        const tpl = await this.templates.findByCode(args.tenantId, 'review_request_email');
+        const tpl = args.exit
+          ? null
+          : await this.templates.findByCode(args.tenantId, 'review_request_email');
         await this.communications.enqueue({
           tenantId: args.tenantId,
           channel: 'email',
           recipient: args.recipientEmail,
           ...(tpl
             ? { templateCode: 'review_request_email', trigger: 'review_request' as const }
-            : {
-                subject: `¿Qué tal tu experiencia con ${tenantName}?`,
-                bodyText: `Hola ${args.scope.customerFirstName},\n\nNos encantaría conocer tu opinión sobre ${tenantName}. Solo te llevará un minuto:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
-              }),
+            : args.exit
+              ? {
+                  subject: `Sentimos que te vayas de ${tenantName}`,
+                  bodyText: `Hola ${args.scope.customerFirstName},\n\nHemos recibido tu solicitud de baja. ¿Nos cuentas cómo ha sido tu experiencia y qué podríamos mejorar? Tu respuesta nos ayuda mucho y solo te llevará un minuto:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
+                }
+              : {
+                  subject: `¿Qué tal tu experiencia con ${tenantName}?`,
+                  bodyText: `Hola ${args.scope.customerFirstName},\n\nNos encantaría conocer tu opinión sobre ${tenantName}. Solo te llevará un minuto:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
+                }),
           variables,
           customerId: args.customerId,
           contractId: args.contractId,
@@ -341,6 +361,45 @@ export class ReviewsService {
     }
 
     return { id: review.id, reviewUrl: url, enqueued };
+  }
+
+  /**
+   * Publica (o retira) una valoración como testimonio en la web pública. Solo
+   * se pueden publicar las enviadas con comentario.
+   */
+  async setPublished(tenantId: string, id: string, published: boolean): Promise<ReviewDto> {
+    const review = await this.prisma.withTenant(
+      (tx) =>
+        tx.review.findFirst({ where: { id, tenantId }, select: { status: true, comment: true } }),
+      tenantId,
+    );
+    if (!review) {
+      throw new NotFoundException({
+        code: 'review_not_found',
+        message: 'Valoración no encontrada',
+      });
+    }
+    if (published && (review.status !== 'submitted' || !review.comment?.trim())) {
+      throw new BadRequestException({
+        code: 'review_not_publishable',
+        message: 'Solo se puede publicar una valoración enviada con comentario',
+      });
+    }
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.review.update({
+          where: { id },
+          data: { publishedOnWeb: published },
+          include: {
+            customer: {
+              select: { firstName: true, lastName: true, companyName: true, customerType: true },
+            },
+            contract: { select: { contractNumber: true } },
+          },
+        }),
+      tenantId,
+    );
+    return this.toDto(updated);
   }
 
   // ---------------------------------------------------------------------

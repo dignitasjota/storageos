@@ -1748,7 +1748,8 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 ### Reviews / NPS (`/reviews`, `/public/reviews`, `/settings/tenant/reviews`)
 
 - `POST /reviews/request` (`reviews:write`): solicita una valoración a un cliente (crea token + envía email/WhatsApp).
-- `GET /reviews` (`reviews:read`), `GET /reviews/stats` (`reviews:read`): NPS = %promotores(9-10) − %detractores(0-6), media de estrellas, tasa de respuesta.
+- `GET /reviews` (`reviews:read`), `GET /reviews/stats` (`reviews:read`): NPS = %promotores(9-10) − %detractores(0-6), media de estrellas, tasa de respuesta. Las pendientes con el enlace caducado cuentan como `expired`.
+- `PATCH /reviews/:id/web {published}` (`reviews:write`): publica o retira la valoración como testimonio de la web pública (solo respondidas con comentario; 400 `review_not_publishable`). La web solo muestra las publicadas.
 - `GET /public/reviews/:token` + `POST /public/reviews/:token` (`@Public`, throttle, honeypot): contexto + envío de la valoración (NPS 0-10 + estrellas 1-5 + comentario) → emite `domain.review_submitted`.
 - `GET/PATCH /settings/tenant/reviews` (`settings:read`/`settings:manage`): opt-in del cron `reviews.auto-request` (`reviews_auto_request` + `review_request_delay_days`).
 
@@ -1833,7 +1834,9 @@ Páginas propias por promoción en la web del tenant, con el estilo de su planti
 - `POST /campaigns/preview` (`communications:send`): cuenta la audiencia (clientes/leads con email) de un `segment` sin crear ni enviar.
 - `GET /campaigns` + `GET /campaigns/:id` (`communications:read`).
 - `POST /campaigns` (`communications:send`): crea una campaña en borrador (segmento + asunto + cuerpo Handlebars inline).
-- `POST /campaigns/:id/send` (`communications:send`): resuelve la audiencia, renderiza por destinatario y encola una `communications` por cada uno (`source=campaign:<id>`). Idempotente (409 `campaign_not_sendable` si no es borrador). v1 solo email.
+- `POST /campaigns/:id/send` (`communications:send`): resuelve la audiencia, renderiza por destinatario y encola una `communications` por cada uno (`source=campaign:<id>`). Idempotente (409 `campaign_not_sendable` si no es borrador). v1 solo email. Con `scheduledFor` futuro la campaña queda `scheduled` y pasa a `sent` cuando salen sus correos.
+- `POST /campaigns/:id/cancel` (`communications:send`): cancela un borrador o una programada que aún no ha salido (sus correos pendientes quedan `skipped`); 409 si ya salió.
+- Segmento: `facilityId` opcional (clientes con contrato en ese local; contactos con ese local preferido). Ex-clientes (`former`) = algún contrato firmado y terminado, ninguno vivo.
 - **Audiencia comercial** (LSSI art. 21): clientes sin `marketing_opt_out_at` y leads con `marketing_consent_at` y sin baja. Cada correo lleva enlace y cabeceras de baja.
 - `POST /customers/:id/marketing {subscribed}` (`customers:write`): da de baja (o de alta, si el cliente lo pide) de las comunicaciones comerciales.
 - `GET /public/unsubscribe/:token` (público): destinatario (email oculto) y si ya está de baja. `POST /public/unsubscribe/:token`: da de baja (idempotente; también lo usa la baja de un clic del cliente de correo). Token firmado, 404 `unsubscribe_link_invalid` si no es válido.

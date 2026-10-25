@@ -405,13 +405,14 @@ export class LandingService {
     return features.includes('web_premium');
   }
 
-  /** Testimonios: reseñas enviadas, promotoras (NPS ≥ 9) y con comentario. */
+  /** Testimonios: valoraciones con comentario que el equipo ha publicado. */
   private async loadTestimonials(tenantId: string): Promise<PublicTestimonialDto[]> {
     const rows = await this.admin.review.findMany({
       where: {
         tenantId,
         status: 'submitted',
-        npsScore: { gte: 9 },
+        // Solo las que el equipo ha elegido publicar.
+        publishedOnWeb: true,
         comment: { not: null },
       },
       select: {

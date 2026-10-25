@@ -5,6 +5,7 @@ import { apiFetch } from '../auth/api';
 import type {
   RequestReviewInput,
   RequestReviewResultDto,
+  ReviewDto,
   ReviewListDto,
   ReviewStatsDto,
   TenantReviewsSettingsResponse,
@@ -19,6 +20,19 @@ export function useReviews(status?: string) {
   return useQuery({
     queryKey: [...reviewsKey, status ?? 'all'] as const,
     queryFn: () => apiFetch<ReviewListDto>(`/reviews${status ? `?status=${status}` : ''}`),
+  });
+}
+
+/** Publica o retira una valoración como testimonio en la web pública. */
+export function usePublishReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; published: boolean }) =>
+      apiFetch<ReviewDto>(`/reviews/${args.id}/web`, {
+        method: 'PATCH',
+        json: { published: args.published },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: reviewsKey }),
   });
 }
 

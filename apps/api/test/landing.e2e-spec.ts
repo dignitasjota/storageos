@@ -665,6 +665,12 @@ describe('Landing pública por tenant (e2e)', () => {
       .post(`/public/reviews/${token}`)
       .send({ npsScore: 10, rating: 5, comment: 'Trato excelente y muy limpio' })
       .expect(201);
+    // Solo salen en la web las que el equipo publica.
+    await request(app.getHttpServer())
+      .patch(`/reviews/${reqRes.body.id}/web`)
+      .set(auth)
+      .send({ published: true })
+      .expect(200);
 
     // Una FAQ publicada.
     await request(app.getHttpServer())

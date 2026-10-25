@@ -65,7 +65,7 @@ export default function LeadsPage() {
   const convert = useConvertLead();
   const router = useRouter();
   const canWrite = useHasPermission('leads:write');
-  const [dragging, setDragging] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<LeadDto | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [editing, setEditing] = useState<LeadDto | null>(null);
   // Pasar a «Perdidos» pide el motivo (dato para precios e informes).
@@ -119,10 +119,24 @@ export default function LeadsPage() {
             canWrite={canWrite}
             onDrop={() => {
               if (!dragging) return;
-              if (col.status === 'lost') {
-                setLosing(dragging);
+              const lead = dragging;
+              if (lead.status === col.status) {
+                // Soltado en su misma columna.
+              } else if (col.status === 'lost') {
+                setLosing(lead.id);
+              } else if (col.status === 'won') {
+                // «Ganado» = convertido en cliente.
+                if (!lead.convertedCustomerId) void onConvert(lead);
               } else {
-                transition.mutate({ id: dragging, input: { status: col.status } });
+                transition.mutate(
+                  { id: lead.id, input: { status: col.status } },
+                  {
+                    onError: (err) =>
+                      toast.error(
+                        err instanceof ApiError ? err.body.message : 'No se pudo mover el lead',
+                      ),
+                  },
+                );
               }
               setDragging(null);
             }}
@@ -153,7 +167,7 @@ function LeadsColumn({
   label: string;
   canWrite: boolean;
   onDrop: () => void;
-  onDragStart: (id: string) => void;
+  onDragStart: (lead: LeadDto) => void;
   onEdit: (lead: LeadDto) => void;
   onConvert: (lead: LeadDto) => void;
 }) {
@@ -187,7 +201,7 @@ function LeadsColumn({
                 key={lead.id}
                 lead={lead}
                 canWrite={canWrite}
-                onDragStart={() => onDragStart(lead.id)}
+                onDragStart={() => onDragStart(lead)}
                 onEdit={() => onEdit(lead)}
                 onConvert={() => onConvert(lead)}
               />
@@ -413,7 +427,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {COLUMNS.map((c) => (
+                  {COLUMNS.filter((c) => c.status !== 'won' || lead?.status === 'won').map((c) => (
                     <SelectItem key={c.status} value={c.status}>
                       {c.label}
                     </SelectItem>
