@@ -756,11 +756,6 @@ export function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        {panelBrand && (
-          <p className="px-2 pb-1 text-[11px] text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden">
-            con TrasterOS
-          </p>
-        )}
       </SidebarFooter>
     </Sidebar>
   );
