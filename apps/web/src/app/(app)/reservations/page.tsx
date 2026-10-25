@@ -73,6 +73,8 @@ export default function ReservationsPage() {
   const [price, setPrice] = useState(0);
   const [deposit, setDeposit] = useState(0);
   const [startDate, setStartDate] = useState(localDateString());
+  const [cancelTarget, setCancelTarget] = useState<ReservationDto | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
 
   const columns: ColumnDef<ReservationDto>[] = [
     {
@@ -152,7 +154,7 @@ export default function ReservationsPage() {
                 <DropdownMenuItem
                   onClick={() => {
                     setTarget(r);
-                    setPrice(0);
+                    setPrice(r.unitPriceMonthly);
                     setDeposit(r.depositAmount);
                     setStartDate(localDateString(new Date(r.validFrom)));
                     setConvertOpen(true);
@@ -164,12 +166,10 @@ export default function ReservationsPage() {
               {(r.status === 'pending' || r.status === 'confirmed') && (
                 <DropdownMenuItem
                   className="text-destructive"
-                  onClick={() =>
-                    cancel.mutateAsync({ id: r.id, input: { reason: 'manual' } }).then(
-                      () => toast.success('Reserva cancelada.'),
-                      (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
-                    )
-                  }
+                  onClick={() => {
+                    setCancelTarget(r);
+                    setCancelReason('');
+                  }}
                 >
                   Cancelar
                 </DropdownMenuItem>
@@ -234,6 +234,53 @@ export default function ReservationsPage() {
         }
       />
 
+      <Dialog open={!!cancelTarget} onOpenChange={(o) => !o && setCancelTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancelar la reserva</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {cancelTarget?.customerName ?? 'Sin inquilino'} · {cancelTarget?.unitCode}. Si el
+            trastero estaba retenido para esta reserva, vuelve a estar disponible.
+          </p>
+          <div>
+            <Label htmlFor="cancel-reason">Motivo</Label>
+            <Input
+              id="cancel-reason"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Ej.: ya no lo necesita"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelTarget(null)}>
+              Volver
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={cancel.isPending}
+              onClick={() =>
+                cancelTarget &&
+                cancel
+                  .mutateAsync({
+                    id: cancelTarget.id,
+                    input: { reason: cancelReason.trim() || 'Cancelada por el equipo' },
+                  })
+                  .then(
+                    () => {
+                      toast.success('Reserva cancelada.');
+                      setCancelTarget(null);
+                    },
+                    (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
+                  )
+              }
+            >
+              Cancelar la reserva
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
         <DialogContent>
           <DialogHeader>
@@ -245,7 +292,7 @@ export default function ReservationsPage() {
               <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div>
-              <Label>Cuota mensual (€)</Label>
+              <Label>Cuota mensual sin IVA (€)</Label>
               <Input
                 type="number"
                 step="0.01"

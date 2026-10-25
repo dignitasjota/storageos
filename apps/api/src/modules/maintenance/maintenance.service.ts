@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   type CreateMaintenancePlanInput,
   firstOccurrence,
@@ -11,7 +11,7 @@ import {
   type UpdateMaintenancePlanInput,
 } from '@storageos/shared';
 
-import { optionalFacilityWhere } from '../../common/facility-scope';
+import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -86,8 +86,10 @@ export class MaintenanceService {
     userId: string;
     input: CreateMaintenancePlanInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<MaintenancePlanDto> {
     const { input } = args;
+    if (input.facilityId) assertFacilityAllowed(args.facilityScope, input.facilityId);
     const startDate = toDateOnly(input.startDate);
     const spec = specOf({
       freq: input.freq,
@@ -139,10 +141,46 @@ export class MaintenanceService {
     planId: string;
     input: UpdateMaintenancePlanInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<MaintenancePlanDto> {
-    await this.findOrThrow(args.tenantId, args.planId);
+    const current = await this.findOrThrow(args.tenantId, args.planId, args.facilityScope);
     const i = args.input;
+    if (i.facilityId) assertFacilityAllowed(args.facilityScope, i.facilityId);
     const data: Prisma.MaintenancePlanUncheckedUpdateInput = {};
+    // Frecuencia nueva: valida como en el alta y recalcula la próxima fecha.
+    const scheduleChanged =
+      i.freq !== undefined ||
+      i.interval !== undefined ||
+      i.weekdays !== undefined ||
+      i.dayOfMonth !== undefined ||
+      i.startDate !== undefined;
+    if (scheduleChanged) {
+      const spec = specOf({
+        freq: i.freq ?? current.freq,
+        interval: i.interval ?? current.interval,
+        weekdays: i.weekdays ?? current.weekdays,
+        dayOfMonth: i.dayOfMonth !== undefined ? i.dayOfMonth : current.dayOfMonth,
+      });
+      if (spec.freq === 'weekly' && spec.weekdays.length === 0) {
+        throw new BadRequestException({
+          code: 'weekdays_required',
+          message: 'Indica al menos un día de la semana',
+        });
+      }
+      if (spec.freq === 'monthly' && !spec.dayOfMonth) {
+        throw new BadRequestException({
+          code: 'day_of_month_required',
+          message: 'Indica el día del mes',
+        });
+      }
+      const from = i.startDate ? toDateOnly(i.startDate) : toDateOnly(undefined);
+      data.freq = spec.freq;
+      data.interval = spec.interval;
+      data.weekdays = spec.weekdays;
+      data.dayOfMonth = spec.dayOfMonth;
+      if (i.startDate) data.startDate = from;
+      data.nextRunDate = firstOccurrence(spec, from);
+    }
     if (i.title !== undefined) data.title = i.title.trim();
     if (i.description !== undefined) data.description = i.description?.trim() || null;
     if (i.type !== undefined) data.type = i.type;
@@ -175,8 +213,9 @@ export class MaintenanceService {
     userId: string;
     planId: string;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<void> {
-    await this.findOrThrow(args.tenantId, args.planId);
+    await this.findOrThrow(args.tenantId, args.planId, args.facilityScope);
     await this.prisma.withTenant(
       (tx) => tx.maintenancePlan.delete({ where: { id: args.planId } }),
       args.tenantId,
@@ -225,7 +264,12 @@ export class MaintenanceService {
    * Genera una tarea para el plan si su `nextRunDate` venció y pone el plan al
    * día (avanza `nextRunDate` hasta el futuro sin acumular tareas atrasadas).
    */
-  async generateFromPlan(tenantId: string, planId: string): Promise<boolean> {
+  async generateFromPlan(
+    tenantId: string,
+    planId: string,
+    facilityScope?: string[] | null,
+  ): Promise<boolean> {
+    if (facilityScope) await this.findOrThrow(tenantId, planId, facilityScope);
     const today = toDateOnly(undefined);
     return this.prisma.withTenant(async (tx) => {
       const plan = await tx.maintenancePlan.findUnique({ where: { id: planId } });
@@ -273,7 +317,11 @@ export class MaintenanceService {
     }, tenantId);
   }
 
-  private async findOrThrow(tenantId: string, planId: string): Promise<MaintenancePlan> {
+  private async findOrThrow(
+    tenantId: string,
+    planId: string,
+    facilityScope?: string[] | null,
+  ): Promise<MaintenancePlan> {
     const row = await this.prisma.withTenant(
       (tx) => tx.maintenancePlan.findUnique({ where: { id: planId } }),
       tenantId,
@@ -284,6 +332,7 @@ export class MaintenanceService {
         message: 'Plan no encontrado',
       });
     }
+    if (row.facilityId) assertFacilityAllowed(facilityScope, row.facilityId);
     return row;
   }
 

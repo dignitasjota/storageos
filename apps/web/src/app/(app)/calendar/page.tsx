@@ -13,6 +13,7 @@ import { useCalendar } from '@/lib/calendar/hooks';
 const TYPE_COLOR: Record<CalendarEventType, string> = {
   task: 'bg-blue-500',
   maintenance: 'bg-violet-500',
+  contract_starting: 'bg-emerald-500',
   contract_ending: 'bg-amber-500',
   reservation_expiring: 'bg-red-500',
 };
@@ -20,6 +21,7 @@ const TYPE_COLOR: Record<CalendarEventType, string> = {
 const TYPE_LABEL: Record<CalendarEventType, string> = {
   task: 'Tarea',
   maintenance: 'Mantenimiento',
+  contract_starting: 'Entrada',
   contract_ending: 'Fin de contrato',
   reservation_expiring: 'Fin de reserva',
 };

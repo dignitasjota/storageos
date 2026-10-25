@@ -2,6 +2,7 @@
 
 import { type ColumnDef } from '@tanstack/react-table';
 import { Check, X } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -95,6 +96,11 @@ export default function UnitChangeRequestsPage() {
             >
               <Check className="mr-1 h-4 w-4" /> Gestionar
             </Button>
+            {row.original.contractId && (
+              <Button variant="ghost" size="sm" asChild>
+                <Link href={`/contracts/${row.original.contractId}?action=move`}>Trasladar</Link>
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"

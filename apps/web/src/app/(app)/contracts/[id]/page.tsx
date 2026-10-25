@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { DepositCard, depositStatusLabel } from './deposit-card';
@@ -118,6 +118,10 @@ export default function ContractDetailPage() {
   const availableUnits = useUnits({ status: 'available' });
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  // `?action=move` (desde una solicitud de cambio) abre el traslado.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('action') === 'move') setMoveOpen(true);
+  }, []);
   const [note, setNote] = useState('');
   const [signOpen, setSignOpen] = useState(false);
   const [signName, setSignName] = useState('');
@@ -541,6 +545,19 @@ export default function ContractDetailPage() {
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
               />
+              {endDate && endDate < localDateString() && (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                  Es una fecha pasada: el contrato se cerrará en la próxima revisión diaria.
+                </p>
+              )}
+              {endDate &&
+                endDate >= localDateString() &&
+                endDate <
+                  localDateString(new Date(Date.now() + c.cancellationNoticeDays * 86_400_000)) && (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                    No respeta el preaviso del contrato ({c.cancellationNoticeDays} días).
+                  </p>
+                )}
               <p className="mt-1 text-xs text-muted-foreground">
                 Se propone hoy más el preaviso del contrato ({c.cancellationNoticeDays} días). No se
                 facturará más allá de esta fecha y, si está activada la finalización automática, el

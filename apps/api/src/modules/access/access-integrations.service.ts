@@ -3,7 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 
 import { tenantPortalLoginUrl } from '../../common/portal-url';
-import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import {
+  type ContractUnitChangedPayload,
+  DOMAIN_EVENTS,
+  type DomainEventPayload,
+} from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -356,6 +360,23 @@ export class AccessIntegrationsService {
     this.logger.log(
       `access_block ejecutado tenant=${args.tenantId} customer=${args.customerId} invoice=${args.invoiceId}`,
     );
+  }
+
+  /** Traslado de trastero: el acceso del inquilino pasa a abrir el trastero nuevo. */
+  @OnEvent(DOMAIN_EVENTS.contract_unit_changed, { async: true, promisify: true })
+  async onContractUnitChanged(payload: ContractUnitChangedPayload): Promise<void> {
+    try {
+      const changed = await this.credentials.rescopeForCustomer(
+        payload.tenantId,
+        payload.customerId,
+      );
+      if (changed > 0)
+        this.logger.log(
+          `contract_unit_changed: ${changed} credencial(es) del customer=${payload.customerId} con el trastero nuevo`,
+        );
+    } catch (err) {
+      this.logger.warn(`contract_unit_changed: ${String(err)}`);
+    }
   }
 
   /**

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { resolveFacilityFilter } from '../../common/facility-scope';
+import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { DOMAIN_EVENTS, type CustomerNotifyPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -155,10 +155,18 @@ export class UnitChangesService {
     userId: string;
     id: string;
     input: ResolveUnitChangeRequestInput;
+    facilityScope?: string[] | null;
   }): Promise<UnitChangeRequestDto> {
     const { tenantId, userId, id, input } = args;
     const existing = await this.prisma.withTenant(
-      (tx) => tx.unitChangeRequest.findFirst({ where: { id, tenantId }, select: { status: true } }),
+      (tx) =>
+        tx.unitChangeRequest.findFirst({
+          where: { id, tenantId },
+          select: {
+            status: true,
+            contract: { select: { unit: { select: { facilityId: true } } } },
+          },
+        }),
       tenantId,
     );
     if (!existing) {
@@ -167,6 +175,8 @@ export class UnitChangesService {
         message: 'Solicitud no encontrada',
       });
     }
+    const facilityId = existing.contract?.unit.facilityId;
+    if (facilityId) assertFacilityAllowed(args.facilityScope, facilityId);
     if (existing.status !== 'pending') {
       throw new BadRequestException({
         code: 'already_resolved',

@@ -51,7 +51,7 @@ export class CalendarService {
     const range = { gte: from, lte: to };
 
     return this.prisma.withTenant(async (tx) => {
-      const [tasks, maintenance, contracts, reservations] = await Promise.all([
+      const [tasks, maintenance, contracts, reservations, starting] = await Promise.all([
         tx.task.findMany({
           where: { status: { in: ['open', 'in_progress'] }, dueDate: range, ...own },
           select: { id: true, title: true, dueDate: true },
@@ -72,7 +72,8 @@ export class CalendarService {
           },
         }),
         tx.reservation.findMany({
-          where: { status: 'pending', validUntil: range, ...byUnit },
+          // Las confirmadas también retienen el trastero hasta su fecha.
+          where: { status: { in: ['pending', 'confirmed'] }, validUntil: range, ...byUnit },
           select: {
             id: true,
             validUntil: true,
@@ -82,9 +83,36 @@ export class CalendarService {
             unit: { select: { code: true } },
           },
         }),
+        // Entradas: contratos (firmados o por firmar) que empiezan en el rango.
+        tx.contract.findMany({
+          where: {
+            status: { in: ['draft', 'active'] },
+            deletedAt: null,
+            startDate: range,
+            ...byUnit,
+          },
+          select: {
+            id: true,
+            startDate: true,
+            customer: {
+              select: { customerType: true, firstName: true, lastName: true, companyName: true },
+            },
+            unit: { select: { code: true } },
+          },
+        }),
       ]);
 
       const events: CalendarEventDto[] = [];
+      for (const c of starting) {
+        events.push({
+          id: `start-${c.id}`,
+          type: 'contract_starting',
+          date: c.startDate.toISOString(),
+          label: customerName(c.customer),
+          detail: c.unit?.code ?? null,
+          href: `/contracts/${c.id}`,
+        });
+      }
       for (const t of tasks) {
         if (!t.dueDate) continue;
         events.push({

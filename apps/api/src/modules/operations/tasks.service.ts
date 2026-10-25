@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { optionalFacilityWhere } from '../../common/facility-scope';
+import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
@@ -80,8 +80,8 @@ export class TasksService {
     return rows.map((r) => this.toDto(r));
   }
 
-  async detail(tenantId: string, id: string): Promise<TaskDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id));
+  async detail(tenantId: string, id: string, facilityScope?: string[] | null): Promise<TaskDto> {
+    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
   }
 
   async create(args: {
@@ -89,7 +89,10 @@ export class TasksService {
     userId: string;
     input: CreateTaskInput;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<TaskDto> {
+    if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
     const data: Prisma.TaskUncheckedCreateInput = {
       tenantId: args.tenantId,
       type: args.input.type,
@@ -125,8 +128,11 @@ export class TasksService {
     id: string;
     input: UpdateTaskInput;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<TaskDto> {
-    await this.findOrThrow(args.tenantId, args.id);
+    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
     const data: Prisma.TaskUncheckedUpdateInput = {};
     if (args.input.type !== undefined) data.type = args.input.type;
     if (args.input.priority !== undefined) data.priority = args.input.priority;
@@ -163,8 +169,10 @@ export class TasksService {
     id: string;
     input: TransitionTaskInput;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<TaskDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.id);
+    const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const allowed = ALLOWED_TRANSITIONS[existing.status as TaskStatusValue];
     if (!allowed.includes(args.input.status)) {
       throw new ConflictException({
@@ -202,8 +210,10 @@ export class TasksService {
     userId: string;
     id: string;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<void> {
-    await this.findOrThrow(args.tenantId, args.id);
+    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     await this.prisma.withTenant(
       (tx) => tx.task.update({ where: { id: args.id }, data: { deletedAt: new Date() } }),
       args.tenantId,
@@ -211,8 +221,12 @@ export class TasksService {
     await this.writeAudit('task.deleted', args, args.id);
   }
 
-  async listComments(tenantId: string, taskId: string): Promise<TaskCommentDto[]> {
-    await this.findOrThrow(tenantId, taskId);
+  async listComments(
+    tenantId: string,
+    taskId: string,
+    facilityScope?: string[] | null,
+  ): Promise<TaskCommentDto[]> {
+    await this.findOrThrow(tenantId, taskId, facilityScope);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.taskComment.findMany({
@@ -231,8 +245,10 @@ export class TasksService {
     taskId: string;
     input: TaskCommentInput;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<TaskCommentDto> {
-    await this.findOrThrow(args.tenantId, args.taskId);
+    await this.findOrThrow(args.tenantId, args.taskId, args.facilityScope);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.taskComment.create({
@@ -258,8 +274,10 @@ export class TasksService {
     itemId: string;
     input: UpdateChecklistItemInput;
     meta: RequestMeta;
+    /** Locales del usuario (null = todos). */
+    facilityScope?: string[] | null;
   }): Promise<TaskDto> {
-    const task = await this.findOrThrow(args.tenantId, args.taskId);
+    const task = await this.findOrThrow(args.tenantId, args.taskId, args.facilityScope);
     const items = (task.checklist as ChecklistItemDto[] | null) ?? [];
     const idx = items.findIndex((it) => it.id === args.itemId);
     if (idx === -1) {
@@ -288,7 +306,11 @@ export class TasksService {
     return this.toDto(updated);
   }
 
-  private async findOrThrow(tenantId: string, id: string): Promise<TaskWithIncludes> {
+  private async findOrThrow(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<TaskWithIncludes> {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.task.findFirst({
@@ -304,6 +326,9 @@ export class TasksService {
     if (!row) {
       throw new NotFoundException({ code: 'task_not_found', message: 'Tarea no encontrada' });
     }
+    // Alcance por local: lo de un local fuera del suyo no se ve ni se toca
+    // (lo de toda la empresa, sin local, sí).
+    if (row.facilityId) assertFacilityAllowed(facilityScope, row.facilityId);
     return row as TaskWithIncludes;
   }
 

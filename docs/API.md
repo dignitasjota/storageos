@@ -987,6 +987,19 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 
 ## Operativa, productos, analytics y reports (Fase 6)
 
+**Revisión de la Operativa (2026-10-25, PR A).** Sin migración.
+
+- Contratos que llegan a su fecha de fin (cron `contracts.auto-end`, 05:30): con renovación automática se prorrogan por el mismo plazo (evento `note_added` `auto_renewed`); sin ella pasan a `ending` y se cierran como una baja.
+- `POST /contracts/:id/sign` → 409 `unit_reserved_for_other` si el trastero tiene una reserva viva de otro inquilino; la del mismo inquilino queda `converted`.
+- `POST /contracts/:id/change-unit` emite `contract_unit_changed` (el acceso del inquilino pasa a abrir el trastero nuevo) y `unit_available` del antiguo; el ajuste prorrateado usa el día en la zona del local.
+- `POST /reservations/:id/confirm` → 409 `unit_not_reservable` si el trastero ya está ocupado, en mantenimiento o bloqueado. `ReservationDto.unitPriceMonthly`.
+- `DELETE /customers/:id` → 409 `customer_has_live_contracts` con contratos sin cerrar.
+- Tareas, incidencias, planes de mantenimiento y peticiones de trastero comprueban el local del usuario también por id (403 `facility_not_in_scope`); lo que no tiene local es de toda la empresa.
+- Incidencias: una `resolved` se puede reabrir (`reported`).
+- `PATCH /maintenance-plans/:id` acepta `freq`, `interval`, `weekdays`, `dayOfMonth` y `startDate` (recalcula `nextRunDate`; 400 `weekdays_required`/`day_of_month_required`).
+- `GET /calendar` incluye `contract_starting` (entradas) y las reservas confirmadas.
+- `GET /access/logs?before=<ISO>` pagina de 200 en 200; `to=YYYY-MM-DD` incluye ese día; fecha no válida → 400 `invalid_date`.
+
 Modulos `apps/api/src/modules/{operations,products,analytics,reports}/`.
 
 ### Invariantes clave

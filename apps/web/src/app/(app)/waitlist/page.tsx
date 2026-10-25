@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { WaitlistStatus } from '@storageos/shared';
@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
+import { useFacilities, useUnitTypes, useUnits } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate } from '@/lib/format';
 import { useCreateWaitlistEntry, useUpdateWaitlistEntry, useWaitlist } from '@/lib/waitlist/hooks';
@@ -69,6 +69,12 @@ export default function WaitlistPage() {
     contactPhone: '',
     notes: '',
   });
+  // Solo los tamaños que tiene el local elegido.
+  const facilityUnits = useUnits(form.facilityId ? { facilityId: form.facilityId } : {});
+  const facilityTypeIds = useMemo(
+    () => new Set((facilityUnits.data?.items ?? []).map((u) => u.unitTypeId)),
+    [facilityUnits.data],
+  );
 
   async function onCreate() {
     if (!form.facilityId || !form.unitTypeId || !form.contactName || !form.contactEmail) {
@@ -205,7 +211,7 @@ export default function WaitlistPage() {
                 <Label>Local</Label>
                 <Select
                   value={form.facilityId}
-                  onValueChange={(v) => setForm((f) => ({ ...f, facilityId: v }))}
+                  onValueChange={(v) => setForm((f) => ({ ...f, facilityId: v, unitTypeId: '' }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Elige un local" />
@@ -229,11 +235,13 @@ export default function WaitlistPage() {
                     <SelectValue placeholder="Elige un tipo" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(unitTypes.data ?? []).map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
+                    {(unitTypes.data ?? [])
+                      .filter((t) => !form.facilityId || facilityTypeIds.has(t.id))
+                      .map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>

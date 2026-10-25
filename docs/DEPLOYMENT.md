@@ -1443,3 +1443,7 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Migración `20261113100000_inventory_features` (se aplica sola): movimientos y stock mínimo de productos, documentos de los locales y fecha prevista de mantenimiento.
 - Cron nuevo `facility-documents.expiry` (07:30, en el worker): avisa de los documentos de un local que caducan en 30 días.
 - Tras desplegar la PR de arreglos, las ventas en el mostrador piden la forma de pago: por defecto efectivo, con el cobro en su factura.
+
+## 46. Revisión de la Operativa (2026-10-25)
+
+- Sin migración. El cron `contracts.auto-end` (05:30, worker) ahora también trata los contratos activos que ya pasaron su fecha de fin: los que tienen renovación automática se prorrogan y los demás pasan a baja. La primera ejecución tras desplegar puede mover de golpe los contratos que llevaban tiempo vencidos: revisa «Contratos» al día siguiente.

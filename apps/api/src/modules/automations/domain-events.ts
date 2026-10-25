@@ -43,6 +43,8 @@ export const DOMAIN_EVENTS = {
   customer_message_from_customer: 'domain.customer_message_from_customer',
   /** Un trastero pasó a `available` (fin de contrato, cambio manual…) → lo oye la lista de espera. */
   unit_available: 'domain.unit_available',
+  /** Un contrato cambió de trastero → el acceso del inquilino se rehace con sus trasteros. */
+  contract_unit_changed: 'domain.contract_unit_changed',
   /** Un cobro automático (auto-charge, reintento, domiciliación) fue rechazado → aviso al inquilino. */
   payment_failed: 'domain.payment_failed',
   /** Remesa SEPA generada → preaviso de cargo a cada deudor. */
@@ -106,6 +108,15 @@ export interface PaymentFailedPayload {
 export interface UnitAvailablePayload {
   tenantId: string;
   unitId: string;
+}
+
+/** Payload de `contract_unit_changed` (no es trigger de automations). */
+export interface ContractUnitChangedPayload {
+  tenantId: string;
+  contractId: string;
+  customerId: string;
+  fromUnitId: string;
+  toUnitId: string;
 }
 
 export type DomainEventName = (typeof DOMAIN_EVENTS)[keyof typeof DOMAIN_EVENTS];

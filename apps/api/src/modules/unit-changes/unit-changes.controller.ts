@@ -54,6 +54,12 @@ export class UnitChangesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: ResolveUnitChangeRequestDto,
   ): Promise<UnitChangeRequestDto> {
-    return this.service.resolve({ tenantId: user.tenantId, userId: user.sub, id, input: body });
+    return this.service.resolve({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      id,
+      input: body,
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 }

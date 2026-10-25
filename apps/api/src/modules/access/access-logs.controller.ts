@@ -1,4 +1,12 @@
-import { Controller, Get, NotFoundException, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Query,
+} from '@nestjs/common';
 import {
   type AccessLogDto,
   type AccessMethodValue,
@@ -81,6 +89,8 @@ export class AccessLogsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('facilityId') facilityId?: string,
+    /** Página siguiente: registros anteriores a esta fecha (ISO). */
+    @Query('before') before?: string,
   ): Promise<AccessLogDto[]> {
     // Local del dispositivo (el elegido en la cabecera, dentro de los del usuario).
     const ids = resolveFacilityFilter(user.facilityScope ?? null, facilityId);
@@ -90,10 +100,23 @@ export class AccessLogsController {
     if (deviceId) where.deviceId = deviceId;
     const parsedResult = parseResult(result);
     if (parsedResult) where.result = parsedResult;
-    if (from || to) {
+    // Un día suelto (YYYY-MM-DD) en `to` incluye ese día entero.
+    const toDate = to
+      ? /^\d{4}-\d{2}-\d{2}$/.test(to)
+        ? new Date(`${to}T23:59:59.999Z`)
+        : new Date(to)
+      : null;
+    const beforeDate = before ? new Date(before) : null;
+    for (const d of [from ? new Date(from) : null, toDate, beforeDate]) {
+      if (d && Number.isNaN(d.getTime())) {
+        throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
+      }
+    }
+    if (from || toDate || beforeDate) {
       where.occurredAt = {
         ...(from ? { gte: new Date(from) } : {}),
-        ...(to ? { lte: new Date(to) } : {}),
+        ...(toDate ? { lte: toDate } : {}),
+        ...(beforeDate ? { lt: beforeDate } : {}),
       };
     }
     const rows = await this.prisma.withTenant(
@@ -102,7 +125,7 @@ export class AccessLogsController {
           where,
           include: INCLUDE,
           orderBy: { occurredAt: 'desc' },
-          take: 500,
+          take: 200,
         }),
       user.tenantId,
     );
