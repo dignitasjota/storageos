@@ -32,7 +32,12 @@ export class DashboardController {
     if (facilityId && !UUID_RE.test(facilityId)) {
       throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
     }
-    return this.today.getToday(user.tenantId, facilityId || undefined, user.facilityScope ?? null);
+    return this.today.getToday(
+      user.tenantId,
+      facilityId || undefined,
+      user.facilityScope ?? null,
+      user.sub,
+    );
   }
 
   /** Cifras del mes y actividad de las últimas 48 h (cabecera de «Hoy»). */

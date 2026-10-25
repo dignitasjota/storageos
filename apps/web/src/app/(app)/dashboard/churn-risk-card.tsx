@@ -6,11 +6,13 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useChurnRisk } from '@/lib/analytics/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 export function ChurnRiskCard() {
-  const q = useChurnRisk();
+  const facilityId = useHeaderFacilityId();
+  const q = useChurnRisk(facilityId);
 
   const summary = q.data?.summary;
   const top = (q.data?.items ?? []).slice(0, 5);

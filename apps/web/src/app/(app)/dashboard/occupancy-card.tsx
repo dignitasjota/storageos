@@ -6,6 +6,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useOccupancyDashboard } from '@/lib/facilities/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const STATUS_LABELS: Record<UnitStatusValue, string> = {
   available: 'Disponible',
@@ -24,7 +25,8 @@ const STATUS_COLORS: Record<UnitStatusValue, string> = {
 };
 
 export function OccupancyCard() {
-  const dash = useOccupancyDashboard();
+  const facilityId = useHeaderFacilityId();
+  const dash = useOccupancyDashboard(facilityId);
 
   if (dash.isLoading) {
     return (

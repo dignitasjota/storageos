@@ -1,10 +1,14 @@
 'use client';
 
-import { type ReservationDto, type ReservationStatusValue } from '@storageos/shared';
+import {
+  ReservationStatusEnum,
+  type ReservationDto,
+  type ReservationStatusValue,
+} from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { MoreHorizontal } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { DataTable } from '@/components/data-table';
@@ -56,6 +60,13 @@ const STATUS_LABELS: Record<ReservationStatusValue, string> = {
 
 export default function ReservationsPage() {
   const [status, setStatus] = useState<ReservationStatusValue | undefined>();
+  // Enlaces con filtro (`/reservations?status=pending` desde «Hoy»).
+  useEffect(() => {
+    const parsed = ReservationStatusEnum.safeParse(
+      new URLSearchParams(window.location.search).get('status'),
+    );
+    if (parsed.success) setStatus(parsed.data);
+  }, []);
   const [facilityId, setFacilityId] = useFacilityFilterState();
 
   const facilities = useFacilities();

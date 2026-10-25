@@ -5,6 +5,7 @@ import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAging } from '@/lib/analytics/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const eurShort = (n: number) =>
@@ -24,7 +25,8 @@ const RANGE_COLORS: Record<string, string> = {
 };
 
 export function AgingCard() {
-  const q = useAging();
+  const facilityId = useHeaderFacilityId();
+  const q = useAging({ facilityId });
 
   const buckets = (q.data?.buckets ?? []).map((b) => ({
     ...b,

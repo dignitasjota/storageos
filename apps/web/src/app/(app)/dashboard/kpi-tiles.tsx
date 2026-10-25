@@ -13,6 +13,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAging, useCustomerStats, useOccupancy, useRevenueKpis } from '@/lib/analytics/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const eur = (n: number) =>
   n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -34,10 +35,11 @@ const TONE: Record<NonNullable<Tile['tone']>, string> = {
 };
 
 export function KpiTiles() {
-  const revenue = useRevenueKpis();
-  const occupancy = useOccupancy();
-  const customers = useCustomerStats();
-  const aging = useAging();
+  const facilityId = useHeaderFacilityId();
+  const revenue = useRevenueKpis(facilityId);
+  const occupancy = useOccupancy({ facilityId });
+  const customers = useCustomerStats(facilityId);
+  const aging = useAging({ facilityId });
 
   const loading =
     revenue.isLoading || occupancy.isLoading || customers.isLoading || aging.isLoading;
