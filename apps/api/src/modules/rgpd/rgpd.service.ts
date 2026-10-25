@@ -221,6 +221,8 @@ export class RgpdService {
         data: { body: ANON, attachmentKey: null, attachmentMime: null, attachmentName: null },
       });
       await tx.customerInteraction.updateMany({ where: { customerId }, data: { content: ANON } });
+      // Las personas autorizadas son datos de terceros: se borran.
+      await tx.customerAuthorizedPerson.deleteMany({ where: { customerId } });
       await tx.customerFollowup.updateMany({
         where: { customerId },
         data: { title: ANON, note: null },

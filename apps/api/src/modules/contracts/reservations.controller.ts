@@ -109,6 +109,24 @@ export class ReservationsController {
     });
   }
 
+  /** Emite (o devuelve) la factura de la señal de la reserva. */
+  @RequirePermission('invoices:manage')
+  @Post(':id/deposit-invoice')
+  @HttpCode(HttpStatus.OK)
+  async depositInvoice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<ReservationDto> {
+    return this.reservations.issueDepositInvoice({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      reservationId: id,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
   @RequirePermission('reservations:write')
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)

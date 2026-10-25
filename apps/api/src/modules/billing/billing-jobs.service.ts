@@ -9,6 +9,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_BILLING_GENERATE_RECURRING, QUEUE_BILLING } from '../queues/queues.module';
 import { ReferralsService } from '../referrals/referrals.service';
 
+import { centsLabel, claimContractCredit } from './contract-credit';
 import { InvoiceSeriesService } from './invoice-series.service';
 import { InvoicesService } from './invoices.service';
 
@@ -213,7 +214,10 @@ export class BillingJobsService {
         : Math.round(toCents(effectivePrice) * interval * (1 - prepayPct / 100) * factor) / 100;
       // Recompensa por recomendar: se descuenta de la cuota de esta factura.
       const reward = await this.referrals.claimRewardsForInvoice(tenantId, c.customerId, baseRent);
-      const rentUnitPrice = Math.round(toCents(baseRent) - toCents(reward.discount)) / 100;
+      const rentBeforeCredit = Math.round(toCents(baseRent) - toCents(reward.discount)) / 100;
+      // Descuento pendiente del contrato (la señal de la reserva ya cobrada).
+      const credit = await claimContractCredit(this.admin, c.id, toCents(rentBeforeCredit));
+      const rentUnitPrice = (toCents(rentBeforeCredit) - credit.cents) / 100;
       const insuranceUnitPrice =
         Math.round(toCents(Number(c.insurancePrice ?? 0)) * interval * factor) / 100;
       const rentDesc =
@@ -229,7 +233,7 @@ export class BillingJobsService {
               reward.discount > 0
                 ? ` — incluye ${reward.discount.toFixed(2).replace('.', ',')} € de descuento por recomendar`
                 : ''
-            }`;
+            }${credit.cents > 0 ? ` — descontados ${centsLabel(credit.cents)} (${credit.reason ?? 'saldo a favor'})` : ''}`;
 
       try {
         const draft = await this.invoices.create({
@@ -305,6 +309,7 @@ export class BillingJobsService {
         created += 1;
       } catch (err) {
         await this.referrals.settleRewards(reward.referralIds, null);
+        await credit.restore().catch(() => undefined);
         // Índice parcial invoices_recurring_period_unique: otra réplica/run ya
         // creó la factura de este contrato+periodo → no es un error, se salta.
         if (isUniqueViolation(err)) {

@@ -18,6 +18,8 @@ const TABS: NavTab[] = [
   { href: '/access/devices', label: 'Dispositivos' },
   { href: '/access/night-passes', label: 'Pases nocturnos' },
   { href: '/access/logs', label: 'Registro' },
+  { href: '/access/report', label: 'Informe' },
+  { href: '/access/door', label: 'Puerta' },
 ];
 
 export default function AccessLayout({ children }: { children: ReactNode }) {
@@ -33,7 +35,7 @@ export default function AccessLayout({ children }: { children: ReactNode }) {
             salidas de inquilinos.
           </p>
         </div>
-        <nav className="flex gap-1 border-b">
+        <nav className="scrollbar-subtle flex gap-1 overflow-x-auto border-b">
           {TABS.map((tab) => {
             const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
             return (
@@ -41,7 +43,7 @@ export default function AccessLayout({ children }: { children: ReactNode }) {
                 key={tab.href}
                 href={tab.href}
                 className={cn(
-                  'border-b-2 px-3 py-2 text-sm transition-colors',
+                  'shrink-0 border-b-2 px-3 py-2 text-sm transition-colors',
                   active
                     ? 'border-foreground font-medium text-foreground'
                     : 'border-transparent text-muted-foreground hover:text-foreground',

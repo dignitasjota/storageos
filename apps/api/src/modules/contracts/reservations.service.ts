@@ -2,13 +2,17 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { rentTax } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
+import { toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
+import { InvoicesService } from '../billing/invoices.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -58,7 +62,10 @@ export class ReservationsService {
     private readonly audit: AuditService,
     private readonly contracts: ContractsService,
     private readonly eventBus: EventEmitter2,
+    private readonly invoices: InvoicesService,
   ) {}
+
+  private readonly logger = new Logger(ReservationsService.name);
 
   async list(tenantId: string, filters: ListFilters): Promise<ReservationDto[]> {
     const where: Prisma.ReservationWhereInput = {};
@@ -212,7 +219,11 @@ export class ReservationsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    if (created.status === 'confirmed') this.emitReservationConfirmed(args.tenantId, created);
+    if (created.status === 'confirmed') {
+      this.emitReservationConfirmed(args.tenantId, created);
+      const withDeposit = await this.autoDepositInvoice(args.tenantId, args.userId, created.id);
+      if (withDeposit) return withDeposit;
+    }
     return this.toDto(created);
   }
 
@@ -340,7 +351,145 @@ export class ReservationsService {
       userAgent: args.meta.userAgent ?? null,
     });
     this.emitReservationConfirmed(args.tenantId, updated);
-    return this.toDto(updated);
+    const withDeposit = await this.autoDepositInvoice(args.tenantId, args.userId, updated.id);
+    return withDeposit ?? this.toDto(updated);
+  }
+
+  /** Señal al confirmar (best-effort: si no se puede, se emite a mano). */
+  private async autoDepositInvoice(
+    tenantId: string,
+    userId: string | null,
+    reservationId: string,
+  ): Promise<ReservationDto | null> {
+    try {
+      const r = await this.prisma.withTenant(
+        (tx) =>
+          tx.reservation.findFirst({
+            where: { id: reservationId },
+            select: { depositAmount: true, customerId: true, depositInvoiceId: true },
+          }),
+        tenantId,
+      );
+      if (!r || Number(r.depositAmount) <= 0 || !r.customerId || r.depositInvoiceId) return null;
+      return await this.issueDepositInvoice({ tenantId, userId, reservationId, meta: {} });
+    } catch (err) {
+      this.logger.warn(`Señal de la reserva ${reservationId} sin emitir: ${String(err)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Emite la factura de la señal de una reserva (lo que el cliente paga para
+   * guardar el trastero). Al convertirla en contrato, lo cobrado se descuenta
+   * de su primera factura. Idempotente: si ya tiene señal, la devuelve.
+   */
+  async issueDepositInvoice(args: {
+    tenantId: string;
+    userId: string | null;
+    reservationId: string;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<ReservationDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.reservationId, args.facilityScope);
+    if (existing.depositInvoiceId) return this.detail(args.tenantId, args.reservationId);
+    if (existing.status !== 'pending' && existing.status !== 'confirmed') {
+      throw new BadRequestException({
+        code: 'reservation_not_active',
+        message: 'Solo se cobra la señal de una reserva pendiente o confirmada',
+      });
+    }
+    const amount = Number(existing.depositAmount);
+    if (amount <= 0) {
+      throw new BadRequestException({
+        code: 'no_deposit',
+        message: 'La reserva no tiene señal',
+      });
+    }
+    if (!existing.customerId) {
+      throw new BadRequestException({
+        code: 'customer_required',
+        message: 'La reserva no tiene inquilino: asígnale uno para facturar la señal',
+      });
+    }
+    const unit = await this.prisma.withTenant(
+      (tx) =>
+        tx.unit.findUniqueOrThrow({
+          where: { id: existing.unitId },
+          select: { code: true, unitType: { select: { propertyKind: true } } },
+        }),
+      args.tenantId,
+    );
+    const draft = await this.invoices.create({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      meta: args.meta,
+      input: {
+        invoiceType: 'F1',
+        customerId: existing.customerId,
+        items: [
+          {
+            description: `Señal de reserva — trastero ${unit.code} (se descuenta del alquiler)`,
+            quantity: 1,
+            unitPrice: amount,
+            ...rentTax(unit.unitType?.propertyKind),
+            relatedUnitId: existing.unitId,
+          },
+        ],
+        verifactuMode: 'verifactu',
+      },
+    });
+    const claimed = await this.prisma.withTenant(
+      (tx) =>
+        tx.reservation.updateMany({
+          where: { id: args.reservationId, depositInvoiceId: null },
+          data: { depositInvoiceId: draft.id },
+        }),
+      args.tenantId,
+    );
+    if (claimed.count === 0) {
+      // Otra petición la emitió a la vez: se descarta este borrador.
+      await this.invoices
+        .cancel({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          invoiceId: draft.id,
+          input: { reason: 'Señal duplicada' },
+          meta: args.meta,
+        })
+        .catch(() => undefined);
+      return this.detail(args.tenantId, args.reservationId);
+    }
+    await this.invoices.issue({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      invoiceId: draft.id,
+      meta: args.meta,
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'reservation.deposit_invoiced',
+      entityType: 'Reservation',
+      entityId: args.reservationId,
+      changes: { invoiceId: draft.id, amount },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.detail(args.tenantId, args.reservationId);
+  }
+
+  /** Al cobrarse la factura de una señal, la reserva queda con la señal pagada. */
+  @OnEvent(DOMAIN_EVENTS.invoice_paid, { async: true, promisify: true })
+  async onInvoicePaid(p: DomainEventPayload): Promise<void> {
+    if (p.entityType !== 'invoice') return;
+    try {
+      await this.admin.reservation.updateMany({
+        where: { tenantId: p.tenantId, depositInvoiceId: p.entityId, depositPaid: false },
+        data: { depositPaid: true },
+      });
+    } catch (err) {
+      this.logger.warn(`Señal cobrada sin marcar (factura ${p.entityId}): ${String(err)}`);
+    }
   }
 
   async cancel(args: {
@@ -470,6 +619,28 @@ export class ReservationsService {
         where: { id: args.reservationId },
         data: { status: 'converted', convertedContractId: created.id },
       });
+      // La señal cobrada se descuenta de la primera factura del contrato.
+      if (existing.depositInvoiceId) {
+        const signal = await tx.invoice.findFirst({
+          where: { id: existing.depositInvoiceId, status: 'paid' },
+          select: { invoiceNumber: true, items: { select: { total: true, taxAmount: true } } },
+        });
+        if (signal) {
+          const baseCents = signal.items.reduce(
+            (acc, it) => acc + toCents(Number(it.total) - Number(it.taxAmount)),
+            0,
+          );
+          if (baseCents > 0) {
+            await tx.contract.update({
+              where: { id: created.id },
+              data: {
+                pendingCreditAmount: baseCents / 100,
+                pendingCreditReason: `señal ${signal.invoiceNumber}`,
+              },
+            });
+          }
+        }
+      }
       return created;
     }, args.tenantId);
 
@@ -696,6 +867,7 @@ export class ReservationsService {
       validUntil: row.validUntil.toISOString(),
       depositPaid: row.depositPaid,
       depositAmount: Number(row.depositAmount),
+      depositInvoiceId: row.depositInvoiceId,
       unitPriceMonthly: Number(row.unit.basePriceMonthly),
       notes: row.notes,
       convertedContractId: row.convertedContractId,

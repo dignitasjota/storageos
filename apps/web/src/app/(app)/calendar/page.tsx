@@ -1,13 +1,17 @@
 'use client';
 
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 
 import type { CalendarEventDto, CalendarEventType } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { ApiError, apiFetch } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useCalendar } from '@/lib/calendar/hooks';
 
 const TYPE_COLOR: Record<CalendarEventType, string> = {
@@ -42,21 +46,51 @@ function startOfWeekMonday(d: Date): Date {
 }
 
 export default function CalendarPage() {
-  // Mes mostrado (primer día).
+  const qc = useQueryClient();
+  const canMoveTasks = useHasPermission('tasks:write');
+  const [mode, setMode] = useState<'month' | 'week'>('month');
+  // Mes mostrado (primer día) y semana mostrada (lunes).
   const [cursor, setCursor] = useState(() => {
     const n = new Date();
     return new Date(n.getFullYear(), n.getMonth(), 1);
   });
+  const [weekStart, setWeekStart] = useState(() => startOfWeekMonday(new Date()));
+  const [dragOver, setDragOver] = useState<string | null>(null);
 
   const firstOfMonth = cursor;
-  const gridStart = startOfWeekMonday(firstOfMonth);
-  // 6 semanas para cubrir cualquier mes.
+  const gridStart = mode === 'week' ? weekStart : startOfWeekMonday(firstOfMonth);
+  // Mes: 6 semanas para cubrir cualquier mes. Semana: 7 días.
+  const length = mode === 'week' ? 7 : 42;
   const days = useMemo(
-    () => Array.from({ length: 42 }, (_, i) => new Date(gridStart.getTime() + i * 86_400_000)),
-    [gridStart],
+    () =>
+      Array.from({ length }, (_, i) => {
+        const d = new Date(gridStart);
+        d.setDate(d.getDate() + i);
+        return d;
+      }),
+    [gridStart, length],
   );
   const from = ymd(days[0]!);
-  const to = ymd(days[41]!);
+  const to = ymd(days[days.length - 1]!);
+
+  // Arrastrar una tarea a otro día cambia su fecha.
+  const moveTask = useMutation({
+    mutationFn: ({ id, dueDate }: { id: string; dueDate: string }) =>
+      apiFetch(`/tasks/${id}`, { method: 'PATCH', json: { dueDate } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['calendar'] });
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+      toast.success('Tarea movida.');
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'No se pudo mover'),
+  });
+  function onDrop(e: React.DragEvent, key: string) {
+    e.preventDefault();
+    setDragOver(null);
+    const id = e.dataTransfer.getData('text/task-id');
+    const fromKey = e.dataTransfer.getData('text/task-day');
+    if (id && fromKey !== key) moveTask.mutate({ id, dueDate: key });
+  }
 
   const { data } = useCalendar(from, to);
 
@@ -71,20 +105,40 @@ export default function CalendarPage() {
     return map;
   }, [data]);
 
-  const monthLabel = firstOfMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+  const monthLabel =
+    mode === 'week'
+      ? `${days[0]!.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${days[6]!.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`
+      : firstOfMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   const todayKey = ymd(new Date());
 
   // Vista agenda (móvil): días del mes con eventos, en orden cronológico.
   const agenda = useMemo(
     () =>
       days
-        .filter((d) => d.getMonth() === firstOfMonth.getMonth() && (byDay.get(ymd(d)) ?? []).length)
+        .filter(
+          (d) =>
+            (mode === 'week' || d.getMonth() === firstOfMonth.getMonth()) &&
+            (byDay.get(ymd(d)) ?? []).length,
+        )
         .map((d) => ({ day: d, key: ymd(d), events: byDay.get(ymd(d)) ?? [] })),
-    [days, firstOfMonth, byDay],
+    [days, firstOfMonth, byDay, mode],
   );
 
   function shift(delta: number) {
-    setCursor((c) => new Date(c.getFullYear(), c.getMonth() + delta, 1));
+    if (mode === 'week') {
+      setWeekStart((w) => {
+        if (delta === 0) return startOfWeekMonday(new Date());
+        const d = new Date(w);
+        d.setDate(d.getDate() + delta * 7);
+        return d;
+      });
+      return;
+    }
+    setCursor((c) =>
+      delta === 0
+        ? new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+        : new Date(c.getFullYear(), c.getMonth() + delta, 1),
+    );
   }
 
   return (
@@ -96,12 +150,25 @@ export default function CalendarPage() {
             Tareas, mantenimientos y vencimientos de un vistazo.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => shift(-1)} aria-label="Mes anterior">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border p-0.5">
+            {(['month', 'week'] as const).map((m) => (
+              <Button
+                key={m}
+                size="sm"
+                variant={mode === m ? 'default' : 'ghost'}
+                className="h-7"
+                onClick={() => setMode(m)}
+              >
+                {m === 'month' ? 'Mes' : 'Semana'}
+              </Button>
+            ))}
+          </div>
+          <Button variant="outline" size="icon" onClick={() => shift(-1)} aria-label="Anterior">
             <ChevronLeft className="size-4" />
           </Button>
           <span className="min-w-40 text-center text-sm font-medium capitalize">{monthLabel}</span>
-          <Button variant="outline" size="icon" onClick={() => shift(1)} aria-label="Mes siguiente">
+          <Button variant="outline" size="icon" onClick={() => shift(1)} aria-label="Siguiente">
             <ChevronRight className="size-4" />
           </Button>
           <Button variant="ghost" size="sm" onClick={() => shift(0)} className="ml-1">
@@ -109,6 +176,12 @@ export default function CalendarPage() {
           </Button>
         </div>
       </div>
+
+      {canMoveTasks && (
+        <p className="hidden text-xs text-muted-foreground md:block">
+          Arrastra una tarea a otro día para cambiar su fecha.
+        </p>
+      )}
 
       {/* Leyenda */}
       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
@@ -123,7 +196,9 @@ export default function CalendarPage() {
       <div className="space-y-4 md:hidden">
         {agenda.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            No hay nada programado este mes.
+            {mode === 'week'
+              ? 'No hay nada programado esta semana.'
+              : 'No hay nada programado este mes.'}
           </p>
         ) : (
           agenda.map(({ day, key, events }) => (
@@ -177,12 +252,20 @@ export default function CalendarPage() {
           <div className="grid grid-cols-7 gap-1">
             {days.map((day) => {
               const key = ymd(day);
-              const inMonth = day.getMonth() === firstOfMonth.getMonth();
+              const inMonth = mode === 'week' || day.getMonth() === firstOfMonth.getMonth();
               const dayEvents = byDay.get(key) ?? [];
+              const limit = mode === 'week' ? dayEvents.length : 4;
               return (
                 <div
                   key={key}
-                  className={`min-h-24 rounded-md border p-1 ${inMonth ? '' : 'bg-muted/40'} ${key === todayKey ? 'border-primary' : 'border-border/60'}`}
+                  onDragOver={(e) => {
+                    if (!canMoveTasks) return;
+                    e.preventDefault();
+                    setDragOver(key);
+                  }}
+                  onDragLeave={() => setDragOver((k) => (k === key ? null : k))}
+                  onDrop={(e) => onDrop(e, key)}
+                  className={`${mode === 'week' ? 'min-h-72' : 'min-h-24'} rounded-md border p-1 ${inMonth ? '' : 'bg-muted/40'} ${key === todayKey ? 'border-primary' : 'border-border/60'} ${dragOver === key ? 'bg-primary/10' : ''}`}
                 >
                   <div
                     className={`px-1 text-xs ${inMonth ? 'text-foreground' : 'text-muted-foreground'} ${key === todayKey ? 'font-semibold text-primary' : ''}`}
@@ -190,10 +273,15 @@ export default function CalendarPage() {
                     {day.getDate()}
                   </div>
                   <div className="mt-0.5 space-y-0.5">
-                    {dayEvents.slice(0, 4).map((e) => (
+                    {dayEvents.slice(0, limit).map((e) => (
                       <Link
                         key={`${e.type}-${e.id}`}
                         href={e.href}
+                        draggable={canMoveTasks && e.type === 'task'}
+                        onDragStart={(ev) => {
+                          ev.dataTransfer.setData('text/task-id', e.id);
+                          ev.dataTransfer.setData('text/task-day', key);
+                        }}
                         title={`${TYPE_LABEL[e.type]}: ${e.label}${e.detail ? ` · ${e.detail}` : ''}`}
                         className="flex items-center gap-1 truncate rounded px-1 py-0.5 text-[11px] hover:bg-muted"
                       >
@@ -201,9 +289,9 @@ export default function CalendarPage() {
                         <span className="truncate">{e.label}</span>
                       </Link>
                     ))}
-                    {dayEvents.length > 4 && (
+                    {dayEvents.length > limit && (
                       <span className="px-1 text-[10px] text-muted-foreground">
-                        +{dayEvents.length - 4} más
+                        +{dayEvents.length - limit} más
                       </span>
                     )}
                   </div>

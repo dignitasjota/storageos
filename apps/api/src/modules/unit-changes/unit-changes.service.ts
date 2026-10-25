@@ -150,6 +150,46 @@ export class UnitChangesService {
     return rows.map((r) => this.toDto(r));
   }
 
+  /** Contrato de una solicitud pendiente, para trasladarlo desde ella. */
+  async pendingContractId(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<string> {
+    const r = await this.prisma.withTenant(
+      (tx) =>
+        tx.unitChangeRequest.findFirst({
+          where: { id, tenantId },
+          select: {
+            status: true,
+            contractId: true,
+            contract: { select: { unit: { select: { facilityId: true } } } },
+          },
+        }),
+      tenantId,
+    );
+    if (!r) {
+      throw new NotFoundException({
+        code: 'request_not_found',
+        message: 'Solicitud no encontrada',
+      });
+    }
+    if (r.contract) assertFacilityAllowed(facilityScope, r.contract.unit.facilityId);
+    if (r.status !== 'pending') {
+      throw new BadRequestException({
+        code: 'already_resolved',
+        message: 'La solicitud ya está resuelta',
+      });
+    }
+    if (!r.contractId) {
+      throw new BadRequestException({
+        code: 'request_without_contract',
+        message: 'La solicitud no indica qué contrato trasladar',
+      });
+    }
+    return r.contractId;
+  }
+
   async resolve(args: {
     tenantId: string;
     userId: string;

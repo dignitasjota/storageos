@@ -34,6 +34,8 @@ export const STAFF_PUSH_TYPES: Record<string, string> = {
   'whatsapp.handoff': 'El asistente de WhatsApp pide una persona',
   'whatsapp.booking': 'Reserva desde WhatsApp',
   'incident.created': 'Incidencia nueva',
+  'incident.assigned': 'Te han asignado una incidencia',
+  'task.assigned': 'Te han asignado una tarea',
   'contract.move_out_requested': 'Un inquilino pide la baja',
   'unit_request.created': 'Un inquilino quiere otro trastero',
   'unit_change.requested': 'Un inquilino pide cambiar de trastero',

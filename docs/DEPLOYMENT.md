@@ -1447,3 +1447,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 ## 46. Revisión de la Operativa (2026-10-25)
 
 - Sin migración. El cron `contracts.auto-end` (05:30, worker) ahora también trata los contratos activos que ya pasaron su fecha de fin: los que tienen renovación automática se prorrogan y los demás pasan a baja. La primera ejecución tras desplegar puede mover de golpe los contratos que llevaban tiempo vencidos: revisa «Contratos» al día siguiente.
+
+## 47. Funcionalidades de la Operativa (2026-10-25)
+
+- Migración `20261114100000_operations_features` (se aplica sola al arrancar). Redesplegar api, worker y web: el worker escucha ahora los eventos de contrato para las tareas automáticas.
+- Las tareas automáticas están apagadas en todos los tenants hasta que se activen en Tareas → «Tareas automáticas».
+- Una reserva con señal emite su factura al confirmarla: hace falta una serie de facturación por defecto (si no, se puede emitir después desde Reservas → «Facturar la señal»).

@@ -34,7 +34,7 @@ import {
   useReservations,
 } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatEur } from '@/lib/format';
 
 /** Fecha (YYYY-MM-DD) → ISO al final de ese día, para que la reserva cubra el día completo. */
 function endOfDayIso(date: string): string {
@@ -64,6 +64,7 @@ export function UnitReservationCard({
   const [customerId, setCustomerId] = useState('');
   const [until, setUntil] = useState('');
   const [notes, setNotes] = useState('');
+  const [signal, setSignal] = useState('');
   const customers = useCustomers(search);
 
   if (unitStatus !== 'available' && unitStatus !== 'reserved') return null;
@@ -91,15 +92,20 @@ export function UnitReservationCard({
         customerId,
         validFrom: new Date().toISOString(),
         validUntil: endOfDayIso(until),
-        depositAmount: 0,
+        depositAmount: Number(signal) > 0 ? Number(signal) : 0,
         notes: notes.trim() || undefined,
         confirmImmediately: true,
       });
-      toast.success('Trastero reservado para el cliente.');
+      toast.success(
+        Number(signal) > 0
+          ? 'Trastero reservado. La factura de la señal ya está emitida.'
+          : 'Trastero reservado para el cliente.',
+      );
       setOpen(false);
       setCustomerId('');
       setUntil('');
       setNotes('');
+      setSignal('');
       setSearch('');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo reservar.');
@@ -143,6 +149,20 @@ export function UnitReservationCard({
                 Hasta {formatDate(active.validUntil)}
                 {active.notes ? ` · ${active.notes}` : ''}
               </p>
+              {active.depositAmount > 0 && (
+                <p className="text-xs">
+                  Señal {formatEur(active.depositAmount)} ·{' '}
+                  {active.depositPaid ? (
+                    <span className="text-emerald-600">cobrada</span>
+                  ) : active.depositInvoiceId ? (
+                    <Link href={`/invoices/${active.depositInvoiceId}`} className="underline">
+                      pendiente de cobro
+                    </Link>
+                  ) : (
+                    'sin factura'
+                  )}
+                </p>
+              )}
             </div>
             {canManage && (
               <Button
@@ -206,6 +226,20 @@ export function UnitReservationCard({
                 value={until || undefined}
                 onChange={(v) => setUntil(v ?? '')}
               />
+            </div>
+            <div className="space-y-1">
+              <Label>Señal (€ sin IVA, opcional)</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={signal}
+                onChange={(e) => setSignal(e.target.value)}
+                placeholder="0"
+              />
+              <p className="text-xs text-muted-foreground">
+                Se emite su factura al reservar y, cobrada, se descuenta del alquiler del contrato.
+              </p>
             </div>
             <div className="space-y-1">
               <Label>Notas (opcional)</Label>

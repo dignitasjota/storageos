@@ -196,6 +196,8 @@ export interface ReservationDto {
   validUntil: string;
   depositPaid: boolean;
   depositAmount: number;
+  /** Factura de la señal (null si aún no se ha emitido). */
+  depositInvoiceId: string | null;
   /** Precio del trastero (sin IVA): la cuota que se propone al convertirla. */
   unitPriceMonthly: number;
   notes: string | null;

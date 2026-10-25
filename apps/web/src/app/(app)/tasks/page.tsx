@@ -11,8 +11,8 @@ import {
   type TaskTypeValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { AlertTriangle, Check, Loader2, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { AlertTriangle, Check, Loader2, Plus, Settings2, UserCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -47,9 +47,15 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission, useMe } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { formatDate } from '@/lib/format';
+import {
+  useBulkAssignTasks,
+  useTaskAutoRules,
+  useUpdateTaskAutoRules,
+} from '@/lib/operations/features-hooks';
 import {
   useAddTaskComment,
   useCreateIncident,
@@ -112,6 +118,22 @@ export default function TasksPage() {
   const [assignedToUserId, setAssignedToUserId] = useState<string | undefined>();
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [assignTo, setAssignTo] = useState<string>('');
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const me = useMe();
+  const myId = me.data?.user.id;
+  const canWrite = useHasPermission('tasks:write');
+  const canManage = useHasPermission('tasks:manage');
+  const bulkAssign = useBulkAssignTasks();
+
+  // `?mine=1` (desde el aviso de asignación) filtra mis tareas; `?task=` abre una.
+  useEffect(() => {
+    const qs = new URLSearchParams(window.location.search);
+    const task = qs.get('task');
+    if (task) setDetailId(task);
+    if (qs.get('mine') === '1' && myId) setAssignedToUserId(myId);
+  }, [myId]);
 
   const [searchText, search, setSearchText] = useDebouncedSearch();
   const tasks = usePagedList<TaskDto>('tasks', '/tasks', {
@@ -159,7 +181,54 @@ export default function TasksPage() {
     }
   }
 
+  async function assignSelected() {
+    try {
+      const res = await bulkAssign.mutateAsync({
+        taskIds: selected,
+        assignedToUserId: assignTo === 'none' ? null : assignTo,
+      });
+      toast.success(
+        `${res.updated} tarea${res.updated === 1 ? '' : 's'} asignada${res.updated === 1 ? '' : 's'}.`,
+      );
+      setSelected([]);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo asignar');
+    }
+  }
+
+  const rows = tasks.rows;
+  const allSelected = rows.length > 0 && rows.every((r) => selected.includes(r.id));
   const columns: ColumnDef<TaskDto>[] = [
+    ...(canWrite
+      ? [
+          {
+            id: 'select',
+            meta: { mobileHidden: true },
+            header: () => (
+              <input
+                type="checkbox"
+                aria-label="Seleccionar todas"
+                checked={allSelected}
+                onChange={(e) => setSelected(e.target.checked ? rows.map((r) => r.id) : [])}
+              />
+            ),
+            cell: ({ row }: { row: { original: TaskDto } }) => (
+              <input
+                type="checkbox"
+                aria-label={`Seleccionar ${row.original.title}`}
+                checked={selected.includes(row.original.id)}
+                onChange={(e) =>
+                  setSelected((prev) =>
+                    e.target.checked
+                      ? [...prev, row.original.id]
+                      : prev.filter((x) => x !== row.original.id),
+                  )
+                }
+              />
+            ),
+          } as ColumnDef<TaskDto>,
+        ]
+      : []),
     {
       accessorKey: 'priority',
       header: 'Prioridad',
@@ -233,6 +302,11 @@ export default function TasksPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {canManage && (
+            <Button variant="outline" onClick={() => setRulesOpen(true)}>
+              <Settings2 className="mr-1 h-4 w-4" /> Tareas automáticas
+            </Button>
+          )}
           <Can permission="tasks:write">
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
@@ -468,6 +542,7 @@ export default function TasksPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Cualquiera</SelectItem>
+            {myId && <SelectItem value={myId}>Mis tareas</SelectItem>}
             {(users.data ?? []).map((u) => (
               <SelectItem key={u.id} value={u.id}>
                 {u.fullName}
@@ -476,6 +551,35 @@ export default function TasksPage() {
           </SelectContent>
         </Select>
       </div>
+
+      {selected.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+          <span className="font-medium">
+            {selected.length} seleccionada{selected.length === 1 ? '' : 's'}
+          </span>
+          <Select value={assignTo} onValueChange={setAssignTo}>
+            <SelectTrigger className="h-9 w-[200px]">
+              <SelectValue placeholder="Asignar a…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Sin asignar</SelectItem>
+              {(users.data ?? [])
+                .filter((u) => u.isActive)
+                .map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.fullName}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <Button size="sm" onClick={assignSelected} disabled={!assignTo || bulkAssign.isPending}>
+            <UserCheck className="mr-1 h-4 w-4" /> Asignar
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
+            Quitar selección
+          </Button>
+        </div>
+      )}
 
       <DataTable
         filtersActive={!!status || !!type || !!assignedToUserId}
@@ -486,7 +590,7 @@ export default function TasksPage() {
         }}
         onRowClick={(t) => setDetailId(t.id)}
         columns={columns}
-        data={tasks.rows}
+        data={rows}
         isLoading={tasks.isLoading}
         emptyText="No hay tareas. Crea la primera con «Nueva tarea»."
         serverSearch={{
@@ -498,7 +602,136 @@ export default function TasksPage() {
       />
 
       {detailId && <TaskDetailDialog id={detailId} onClose={() => setDetailId(null)} />}
+      {rulesOpen && <AutoRulesDialog onClose={() => setRulesOpen(false)} />}
     </div>
+  );
+}
+
+/** Tareas que se crean solas con los contratos. */
+function AutoRulesDialog({ onClose }: { onClose: () => void }) {
+  const rules = useTaskAutoRules();
+  const save = useUpdateTaskAutoRules();
+  const [draft, setDraft] = useState(rules.data ?? null);
+  useEffect(() => {
+    if (rules.data && !draft) setDraft(rules.data);
+  }, [rules.data, draft]);
+
+  async function submit() {
+    if (!draft) return;
+    try {
+      await save.mutateAsync(draft);
+      toast.success('Tareas automáticas guardadas.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Tareas automáticas</DialogTitle>
+        </DialogHeader>
+        {!draft ? (
+          <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+        ) : (
+          <div className="space-y-4 text-sm">
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={draft.welcomeCall.enabled}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    welcomeCall: { ...draft.welcomeCall, enabled: e.target.checked },
+                  })
+                }
+              />
+              <span className="flex-1">
+                Llamada de bienvenida
+                <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                  a los
+                  <Input
+                    type="number"
+                    min={0}
+                    max={60}
+                    className="h-8 w-16"
+                    value={draft.welcomeCall.days}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        welcomeCall: { ...draft.welcomeCall, days: Number(e.target.value) || 0 },
+                      })
+                    }
+                  />
+                  días de firmar
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={draft.moveOutInspection.enabled}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    moveOutInspection: { ...draft.moveOutInspection, enabled: e.target.checked },
+                  })
+                }
+              />
+              <span className="flex-1">
+                Revisar el trastero tras la salida
+                <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                  a los
+                  <Input
+                    type="number"
+                    min={0}
+                    max={30}
+                    className="h-8 w-16"
+                    value={draft.moveOutInspection.days}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        moveOutInspection: {
+                          ...draft.moveOutInspection,
+                          days: Number(e.target.value) || 0,
+                        },
+                      })
+                    }
+                  />
+                  días del cierre
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={draft.renewalCall.enabled}
+                onChange={(e) => setDraft({ ...draft, renewalCall: { enabled: e.target.checked } })}
+              />
+              <span>
+                Llamar para renovar
+                <span className="block text-xs text-muted-foreground">
+                  Cuando un contrato sin renovación automática está a 30 días de vencer.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={submit} disabled={!draft || save.isPending}>
+            Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -1,8 +1,7 @@
 'use client';
 
 import { type ColumnDef } from '@tanstack/react-table';
-import { Check, X } from 'lucide-react';
-import Link from 'next/link';
+import { ArrowRightLeft, Check, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -12,8 +11,20 @@ import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { useUnits } from '@/lib/facilities/hooks';
+import { formatEur, formatNumber } from '@/lib/format';
+import { useMoveFromUnitChange } from '@/lib/operations/features-hooks';
 import { useResolveUnitChangeRequest, useUnitChangeRequests } from '@/lib/unit-changes/hooks';
 
 const STATUS: Record<
@@ -31,6 +42,8 @@ export default function UnitChangeRequestsPage() {
   const list = useUnitChangeRequests(statusFilter || undefined);
   const resolve = useResolveUnitChangeRequest();
   const canResolve = useHasPermission('contracts:write');
+  const canMove = useHasPermission('contracts:manage');
+  const [moving, setMoving] = useState<UnitChangeRequestDto | null>(null);
 
   async function doResolve(id: string, status: 'handled' | 'rejected') {
     let resolutionNote: string | undefined;
@@ -96,9 +109,9 @@ export default function UnitChangeRequestsPage() {
             >
               <Check className="mr-1 h-4 w-4" /> Gestionar
             </Button>
-            {row.original.contractId && (
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={`/contracts/${row.original.contractId}?action=move`}>Trasladar</Link>
+            {row.original.contractId && canMove && (
+              <Button variant="ghost" size="sm" onClick={() => setMoving(row.original)}>
+                <ArrowRightLeft className="mr-1 h-4 w-4" /> Trasladar
               </Button>
             )}
             <Button
@@ -144,6 +157,89 @@ export default function UnitChangeRequestsPage() {
         isLoading={list.isLoading}
         emptyText="No hay solicitudes."
       />
+      {moving && <MoveDialog request={moving} onClose={() => setMoving(null)} />}
     </div>
+  );
+}
+
+/** Traslada el contrato al trastero elegido y deja la solicitud gestionada. */
+function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClose: () => void }) {
+  const units = useUnits({ status: 'available' });
+  const move = useMoveFromUnitChange();
+  const [newUnitId, setNewUnitId] = useState('');
+  const [newPrice, setNewPrice] = useState('');
+  const [prorate, setProrate] = useState(false);
+
+  async function submit() {
+    try {
+      await move.mutateAsync({
+        id: request.id,
+        newUnitId,
+        ...(newPrice.trim() ? { newPrice: Number(newPrice) } : {}),
+        ...(prorate ? { prorate: true } : {}),
+      });
+      toast.success('Contrato trasladado y solicitud gestionada.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo trasladar');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Trasladar a {request.customerName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="rounded-md bg-muted px-3 py-2 text-sm">{request.note}</p>
+          <div className="space-y-1">
+            <Label>Nuevo trastero (disponible)</Label>
+            <select
+              className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
+              value={newUnitId}
+              onChange={(e) => setNewUnitId(e.target.value)}
+            >
+              <option value="">Elige un trastero…</option>
+              {(units.data?.items ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.code} · {u.facilityName}
+                  {u.areaM2 ? ` · ${formatNumber(u.areaM2)} m²` : ''} (
+                  {formatEur(u.basePriceMonthly)}
+                  /mes)
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label>Nueva cuota (€, opcional)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={newPrice}
+              onChange={(e) => setNewPrice(e.target.value)}
+              placeholder="Vacío: se mantiene la actual"
+            />
+          </div>
+          <label className="flex items-start gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={prorate}
+              onChange={(e) => setProrate(e.target.checked)}
+            />
+            <span>Cobrar la diferencia de los días que quedan del mes si la cuota sube.</span>
+          </label>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={submit} disabled={!newUnitId || move.isPending}>
+            Trasladar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

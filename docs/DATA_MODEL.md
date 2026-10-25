@@ -979,3 +979,11 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `product_stock_movements` (RLS): cada entrada o salida de stock (`adjust`, `set`, `sale`, `sale_cancelled`) con local, cantidad, stock resultante (en ajustes), venta y usuario.
 - `facility_documents` (RLS): documentos internos del local (`licence`, `insurance`, `lease`, `inspection`, `other`) en el bucket privado `uploads` (`<tenant>/facilities/<local>/documents/`), con `expires_on` y `expiry_notified_at` (un aviso por fecha).
 - `units.maintenance_until`: vuelta prevista al servicio de un trastero en mantenimiento (se borra al salir de mantenimiento).
+
+### Funcionalidades de la Operativa (2026-10-25, migración `20261114100000_operations_features`)
+
+- `notifications.user_id` (FK CASCADE): aviso para una sola persona (p. ej. a quien se le asigna una tarea); null = para el equipo que ve su local.
+- `tenants.task_auto_rules` (jsonb): tareas automáticas (bienvenida, revisión tras la salida, llamada para renovar); null = apagadas.
+- `reservations.deposit_invoice_id` (FK SET NULL a `invoices`): factura de la señal.
+- `contracts.pending_credit_amount` / `pending_credit_reason`: descuento pendiente (la señal cobrada) que se resta una vez del alquiler de la siguiente factura.
+- Tabla `customer_authorized_persons` (RLS): personas autorizadas por el inquilino (nombre, documento, teléfono, relación, puede entrar / recoger / gestionar, notas). Se borran al anonimizar al inquilino o al tenant.

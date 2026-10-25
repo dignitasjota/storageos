@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 
+import { CustomerAuthorizedPersonsController } from './customer-authorized-persons.controller';
+import { CustomerAuthorizedPersonsService } from './customer-authorized-persons.service';
 import { CustomerDocumentsController } from './customer-documents.controller';
 import { CustomerDocumentsService } from './customer-documents.service';
 import { CustomerExtrasController } from './customer-extras.controller';
@@ -22,6 +24,7 @@ import { CustomersService } from './customers.service';
     CustomersController,
     CustomerDocumentsController,
     CustomerInteractionsController,
+    CustomerAuthorizedPersonsController,
   ],
   providers: [
     CustomerOverviewService,
@@ -29,6 +32,7 @@ import { CustomersService } from './customers.service';
     CustomersService,
     CustomerDocumentsService,
     CustomerInteractionsService,
+    CustomerAuthorizedPersonsService,
   ],
   exports: [CustomersService],
 })

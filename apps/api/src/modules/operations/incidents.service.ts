@@ -10,6 +10,7 @@ import {
   type DomainEventPayload,
 } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
@@ -23,6 +24,7 @@ import type {
 import type {
   CreateIncidentInput,
   IncidentCommentDto,
+  IncidentContextDto,
   IncidentCommentInput,
   IncidentDto,
   IncidentSeverityValue,
@@ -93,7 +95,27 @@ export class IncidentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly events: EventEmitter2,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  /** Aviso a quien se le asigna una incidencia (no si se la asigna uno mismo). */
+  private async notifyAssignee(
+    tenantId: string,
+    actorId: string | null,
+    inc: { id: string; title: string; assignedToUserId: string | null; facilityId: string | null },
+  ): Promise<void> {
+    if (!inc.assignedToUserId || inc.assignedToUserId === actorId) return;
+    await this.notifications
+      .create(tenantId, {
+        type: 'incident.assigned',
+        title: 'Te han asignado una incidencia',
+        body: inc.title,
+        link: `/incidents?incident=${inc.id}`,
+        facilityId: inc.facilityId,
+        userId: inc.assignedToUserId,
+      })
+      .catch(() => undefined);
+  }
 
   /** Nº de incidencias abiertas por estado (para los badges del menú). */
   async countOpenByStatus(tenantId: string): Promise<{ reported: number; investigating: number }> {
@@ -167,6 +189,7 @@ export class IncidentsService {
       args.tenantId,
     );
     await this.writeAudit('incident.created', args, created.id);
+    await this.notifyAssignee(args.tenantId, args.userId, created);
 
     if (HIGH_SEVERITY.includes(created.severity as IncidentSeverityValue)) {
       const dto = this.toDto(created as IncidentWithIncludes);
@@ -330,7 +353,7 @@ export class IncidentsService {
     /** Locales del usuario (null = todos). */
     facilityScope?: string[] | null;
   }): Promise<IncidentDto> {
-    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    const before = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
     const data: Prisma.IncidentUncheckedUpdateInput = {};
     if (args.input.severity !== undefined) data.severity = args.input.severity;
@@ -351,6 +374,9 @@ export class IncidentsService {
       args.tenantId,
     );
     await this.writeAudit('incident.updated', args, args.id);
+    if (updated.assignedToUserId !== before.assignedToUserId) {
+      await this.notifyAssignee(args.tenantId, args.userId, updated);
+    }
     return this.toDto(updated as IncidentWithIncludes);
   }
 
@@ -469,6 +495,111 @@ export class IncidentsService {
     );
     await this.writeAudit('incident.comment_added', args, args.incidentId);
     return this.commentToDto(created);
+  }
+
+  /**
+   * Lo que rodea a una incidencia: su trastero, quién lo ha tenido (los últimos
+   * contratos) y los últimos accesos del trastero o del inquilino.
+   */
+  async getContext(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<IncidentContextDto> {
+    const inc = await this.findOrThrow(tenantId, id, facilityScope);
+    return this.prisma.withTenant(async (tx) => {
+      const unit = inc.unitId
+        ? await tx.unit.findFirst({
+            where: { id: inc.unitId },
+            select: { id: true, code: true, status: true, facility: { select: { name: true } } },
+          })
+        : null;
+      const contracts = await tx.contract.findMany({
+        where: {
+          deletedAt: null,
+          ...(inc.unitId
+            ? { unitId: inc.unitId }
+            : inc.customerId
+              ? { customerId: inc.customerId }
+              : { id: '00000000-0000-0000-0000-000000000000' }),
+        },
+        orderBy: { startDate: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          contractNumber: true,
+          customerId: true,
+          status: true,
+          startDate: true,
+          endDate: true,
+          customer: {
+            select: { customerType: true, firstName: true, lastName: true, companyName: true },
+          },
+        },
+      });
+      const customerIds = [
+        ...new Set(
+          [inc.customerId, ...contracts.slice(0, 2).map((c) => c.customerId)].filter(
+            (x): x is string => !!x,
+          ),
+        ),
+      ];
+      const or: Prisma.AccessLogWhereInput[] = [];
+      if (inc.unitId) or.push({ device: { unitId: inc.unitId } });
+      if (customerIds.length > 0) or.push({ customerId: { in: customerIds } });
+      const logs =
+        or.length === 0
+          ? []
+          : await tx.accessLog.findMany({
+              where: { OR: or },
+              orderBy: { occurredAt: 'desc' },
+              take: 15,
+              select: {
+                id: true,
+                occurredAt: true,
+                result: true,
+                device: { select: { name: true } },
+                customer: {
+                  select: {
+                    customerType: true,
+                    firstName: true,
+                    lastName: true,
+                    companyName: true,
+                  },
+                },
+              },
+            });
+      const name = (c: {
+        customerType: string;
+        firstName: string | null;
+        lastName: string | null;
+        companyName: string | null;
+      }) =>
+        c.customerType === 'business'
+          ? (c.companyName ?? 'Empresa')
+          : [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
+      return {
+        unit: unit
+          ? { id: unit.id, code: unit.code, status: unit.status, facilityName: unit.facility.name }
+          : null,
+        contracts: contracts.map((c) => ({
+          id: c.id,
+          contractNumber: c.contractNumber,
+          customerId: c.customerId,
+          customerName: name(c.customer),
+          status: c.status,
+          startDate: c.startDate.toISOString().slice(0, 10),
+          endDate: c.endDate?.toISOString().slice(0, 10) ?? null,
+        })),
+        accessLogs: logs.map((l) => ({
+          id: l.id,
+          occurredAt: l.occurredAt.toISOString(),
+          result: l.result,
+          customerName: l.customer ? name(l.customer) : null,
+          deviceName: l.device?.name ?? null,
+        })),
+      };
+    }, tenantId);
   }
 
   private async findOrThrow(

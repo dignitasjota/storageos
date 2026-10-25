@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { CustomerAccountCard } from './account-card';
+import { AuthorizedPersonsTab } from './authorized-persons-tab';
 import { CustomerChatTab } from './chat-tab';
 import { CustomerCommunicationsTab } from './communications-tab';
 import { CustomerContractsTab } from './contracts-tab';
@@ -45,6 +46,7 @@ const CUSTOMER_TABS = [
   { value: 'communications', label: 'Comunicaciones' },
   { value: 'chat', label: 'Mensajes' },
   { value: 'followups', label: 'Seguimientos' },
+  { value: 'authorized', label: 'Autorizados' },
   { value: 'history', label: 'Historial de pagos' },
   { value: 'payments', label: 'Métodos de pago' },
   { value: 'info', label: 'Datos' },
@@ -179,6 +181,7 @@ export default function CustomerDetailPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="followups">Seguimientos</TabsTrigger>
+          <TabsTrigger value="authorized">Autorizados</TabsTrigger>
           <TabsTrigger value="history">Historial de pagos</TabsTrigger>
           <TabsTrigger value="payments">Métodos de pago</TabsTrigger>
           <TabsTrigger value="info">Datos</TabsTrigger>
@@ -200,6 +203,9 @@ export default function CustomerDetailPage() {
         </TabsContent>
         <TabsContent value="followups" className="mt-6">
           <FollowupsCard customerId={c.id} />
+        </TabsContent>
+        <TabsContent value="authorized" className="mt-6">
+          <AuthorizedPersonsTab customerId={c.id} />
         </TabsContent>
         <TabsContent value="history" className="mt-6">
           <CustomerPaymentHistoryTab customerId={c.id} />
