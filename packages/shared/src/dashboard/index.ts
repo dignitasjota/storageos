@@ -11,6 +11,10 @@ export interface TodayItemDto {
   overdue?: boolean;
   /** Id secundario para enlazar al recurso exacto (p. ej. customerId de un mensaje/seguimiento). */
   linkId?: string | null;
+  /** Importe pendiente (facturas). */
+  amount?: number;
+  /** Factura: el inquilino tiene una tarjeta o domiciliación guardada para cobrarla ya. */
+  chargeable?: boolean;
 }
 
 /** Bandeja operativa «Hoy»: lo que el equipo debe atender, de un vistazo. */
@@ -48,9 +52,9 @@ export interface TodayDto {
   /** Reservas pendientes que expiran en los próximos 7 días. */
   reservationsExpiring: { count: number; items: TodayItemDto[] };
   /** Facturas que vencen hoy (issued con dueDate = hoy). */
-  invoicesDueToday: { count: number; totalDue: number };
+  invoicesDueToday: { count: number; totalDue: number; items: TodayItemDto[] };
   /** Facturas vencidas a reclamar. */
-  invoicesOverdue: { count: number; totalPending: number };
+  invoicesOverdue: { count: number; totalPending: number; items: TodayItemDto[] };
   /** Incidencias abiertas (reportadas + en investigación). */
   incidentsOpen: number;
   /** Solicitudes de cambio de trastero pendientes. */
@@ -113,6 +117,16 @@ export interface TodayKpisDto {
   moveOutsMonth: number;
   /** Inquilinos con deuda vencida que nunca han entrado en su área de clientes. */
   debtorsWithoutPortal: number;
+  /** Lo mismo del mes anterior hasta el mismo día, para comparar. */
+  previous: {
+    invoicedMonth: number;
+    collectedMonth: number;
+    moveInsMonth: number;
+    moveOutsMonth: number;
+  };
+  /** Ocupación objetivo del negocio (estrategia de precios) y trasteros que faltan. */
+  targetOccupancyPct: number;
+  unitsToTarget: number;
 }
 
 export type TodayActivityKind =

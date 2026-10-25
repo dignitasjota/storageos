@@ -18,12 +18,15 @@ import { RevenueTrendCard } from './revenue-trend-card';
 import { SeoNudgeCard } from './seo-nudge-card';
 import { SuggestedActionsCard } from './suggested-actions-card';
 
+import { MonthStrip } from '@/components/dashboard/month-strip';
 import { useOnboarding } from '@/components/onboarding/onboarding-steps';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useHasFeature, useHasPermission, useMe } from '@/lib/auth/hooks';
+import { useTodaySummary } from '@/lib/dashboard/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
   trial: 'En prueba',
@@ -46,6 +49,8 @@ export function DashboardContent() {
   const canSeeAnalytics = useHasPermission('analytics:read');
   const hasLocalSeo = useHasFeature('local_seo');
   const isMobile = useIsMobile();
+  const headerFacilityId = useHeaderFacilityId();
+  const summary = useTodaySummary(headerFacilityId);
   const onboarding = useOnboarding();
   // Hasta el primer contrato las cifras salen todas a cero: no se enseñan.
   const hasFirstContract = onboarding.data?.steps.find((s) => s.key === 'contract')?.done ?? true;
@@ -122,6 +127,8 @@ export function DashboardContent() {
           {hasLocalSeo && <SeoNudgeCard />}
 
           <KpiTiles />
+
+          <MonthStrip summary={summary.data} />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <RevenueTrendCard />

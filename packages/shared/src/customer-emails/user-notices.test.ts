@@ -18,4 +18,9 @@ describe('resolveUserEmailNotices', () => {
     expect(staff.new_booking).toBe(true);
     expect(staff.new_lead).toBe(false);
   });
+
+  it('el resumen del día va apagado salvo que el usuario lo active', () => {
+    expect(resolveUserEmailNotices({}, 'owner').daily_summary).toBe(false);
+    expect(resolveUserEmailNotices({ daily_summary: true }, 'staff').daily_summary).toBe(true);
+  });
 });

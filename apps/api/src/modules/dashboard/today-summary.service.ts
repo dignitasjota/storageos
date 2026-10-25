@@ -61,6 +61,16 @@ export class TodaySummaryService {
     const monthFrom = zonedDayStart(monthStartDay);
     const monthTo = zonedDayStart(nextMonthDay);
     const since = new Date(now.getTime() - ACTIVITY_HOURS * 3_600_000);
+    // Mes anterior hasta el mismo día (el 10 de mayo se compara con el 1-10 de
+    // abril), para que la comparación sea justa a mitad de mes.
+    const day = Number(today.slice(8, 10));
+    const prevStartDay = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
+    const prevLastDay = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+    const prevEndDay = new Date(Date.UTC(y, m - 2, Math.min(day, prevLastDay) + 1))
+      .toISOString()
+      .slice(0, 10);
+    const prevFrom = zonedDayStart(prevStartDay);
+    const prevTo = zonedDayStart(prevEndDay);
 
     return this.prisma.withTenant(async (tx) => {
       const [
@@ -78,6 +88,11 @@ export class TodaySummaryService {
         messages,
         incidents,
         debtorsWithoutPortal,
+        prevInvoiced,
+        prevCollected,
+        prevMoveIns,
+        prevMoveOuts,
+        tenantRow,
       ] = await Promise.all([
         tx.invoice.aggregate({
           where: {
@@ -204,11 +219,46 @@ export class TodaySummaryService {
             invoices: { some: { ...invWhere, deletedAt: null, status: 'overdue' } },
           },
         }),
+        tx.invoice.aggregate({
+          where: {
+            ...invWhere,
+            deletedAt: null,
+            kind: 'invoice',
+            status: { notIn: ['draft', 'cancelled', 'rectified'] },
+            issueDate: { gte: new Date(prevStartDay), lt: new Date(prevEndDay) },
+          },
+          _sum: { total: true },
+        }),
+        tx.payment.aggregate({
+          where: {
+            invoice: invWhere,
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+            paidAt: { gte: prevFrom, lt: prevTo },
+            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+          },
+          _sum: { amount: true },
+        }),
+        tx.contract.count({
+          where: { ...contractUnit, deletedAt: null, signedAt: { gte: prevFrom, lt: prevTo } },
+        }),
+        tx.contract.count({
+          where: {
+            ...contractUnit,
+            deletedAt: null,
+            status: 'ended',
+            endDate: { gte: new Date(prevStartDay), lt: new Date(prevEndDay) },
+          },
+        }),
+        tx.tenant.findFirst({
+          where: { id: tenantId },
+          select: { pricingTargetOccupancy: true },
+        }),
       ]);
 
       const count = (s: string) => unitsByStatus.find((u) => u.status === s)?._count._all ?? 0;
       const totalUnits = unitsByStatus.reduce((s, u) => s + u._count._all, 0);
       const occupied = count('occupied');
+      const target = tenantRow?.pricingTargetOccupancy ?? 88;
 
       const activity: TodayActivityDto[] = [
         ...signed.map((c) => ({
@@ -277,6 +327,14 @@ export class TodaySummaryService {
           moveInsMonth: moveIns,
           moveOutsMonth: moveOuts,
           debtorsWithoutPortal,
+          previous: {
+            invoicedMonth: round2(Number(prevInvoiced._sum.total ?? 0)),
+            collectedMonth: round2(Number(prevCollected._sum.amount ?? 0)),
+            moveInsMonth: prevMoveIns,
+            moveOutsMonth: prevMoveOuts,
+          },
+          targetOccupancyPct: target,
+          unitsToTarget: Math.max(0, Math.ceil((target * totalUnits) / 100) - occupied),
         },
         activity,
       };

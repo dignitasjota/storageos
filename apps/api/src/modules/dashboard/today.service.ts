@@ -38,6 +38,7 @@ export class TodayService {
     facilityId?: string,
     facilityScope: string[] | null = null,
     userId: string | null = null,
+    mine = false,
   ): Promise<TodayDto> {
     // Local elegido dentro de los del usuario (un local ajeno no devuelve nada).
     const ids = resolveFacilityFilter(facilityScope, facilityId);
@@ -86,7 +87,34 @@ export class TodayService {
     // `reservation → unit.facilityId`, `invoice → contract.unit.facilityId`,
     // y task/incident tienen `facilityId` propio.
     const facContract = fac ? { unit: { is: { facilityId: fac } } } : {};
-    const facTaskIncident = facOwn;
+    // «Lo mío»: tareas e incidencias asignadas al usuario, contactos asignados
+    // a él y seguimientos que creó. Lo demás (cobros, entradas…) es del local.
+    const me = mine && userId ? userId : null;
+    const facTaskIncident = me ? { ...facOwn, assignedToUserId: me } : facOwn;
+    const mineLead = me ? { assignedToUserId: me } : {};
+    const mineFollowup = me ? { userId: me } : {};
+    const chargeableTypes: ('card' | 'sepa_debit')[] = ['card', 'sepa_debit'];
+    const invoiceItemSelect = {
+      id: true,
+      invoiceNumber: true,
+      total: true,
+      amountPaid: true,
+      dueDate: true,
+      customer: {
+        select: {
+          customerType: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
+          // Tarjeta o domiciliación guardada: se puede cobrar desde aquí.
+          paymentMethods: {
+            where: { deletedAt: null, type: { in: chargeableTypes } },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
+    } as const;
     const facInvoice = fac ? { contract: { is: { unit: { is: { facilityId: fac } } } } } : {};
     const depositToRegisterWhere = {
       status: { in: ['active', 'ending'] as ('active' | 'ending')[] },
@@ -136,6 +164,8 @@ export class TodayService {
         dueTodayCount,
         invoicesAgg,
         invoicesCount,
+        dueTodayRows,
+        overdueRows,
         incidentsOpen,
         unitChangesPending,
         unreadMessages,
@@ -201,17 +231,17 @@ export class TodayService {
         }),
         // Seguimientos CRM vencidos o para hoy.
         tx.customerFollowup.findMany({
-          where: { status: 'pending', dueDate: { lt: startOfTomorrow } },
+          where: { status: 'pending', dueDate: { lt: startOfTomorrow }, ...mineFollowup },
           orderBy: [{ dueDate: 'asc' }],
           take: TAKE,
           include: { customer: customerSelect },
         }),
         tx.customerFollowup.count({
-          where: { status: 'pending', dueDate: { lt: startOfTomorrow } },
+          where: { status: 'pending', dueDate: { lt: startOfTomorrow }, ...mineFollowup },
         }),
         // Leads nuevos sin contactar.
         tx.lead.findMany({
-          where: { status: 'new', deletedAt: null },
+          where: { status: 'new', deletedAt: null, ...mineLead },
           orderBy: [{ createdAt: 'desc' }],
           take: TAKE,
           select: {
@@ -223,7 +253,7 @@ export class TodayService {
             createdAt: true,
           },
         }),
-        tx.lead.count({ where: { status: 'new', deletedAt: null } }),
+        tx.lead.count({ where: { status: 'new', deletedAt: null, ...mineLead } }),
         // Firmas pendientes: token de firma vigente sin firmar.
         tx.contract.findMany({
           where: {
@@ -309,6 +339,24 @@ export class TodayService {
           _sum: { total: true, amountPaid: true },
         }),
         tx.invoice.count({ where: { ...overdueInvoice, ...facInvoice } }),
+        tx.invoice.findMany({
+          where: {
+            kind: 'invoice',
+            deletedAt: null,
+            status: 'issued',
+            dueDate: today,
+            ...facInvoice,
+          },
+          orderBy: [{ total: 'desc' }],
+          take: TAKE,
+          select: invoiceItemSelect,
+        }),
+        tx.invoice.findMany({
+          where: { ...overdueInvoice, ...facInvoice },
+          orderBy: [{ dueDate: 'asc' }],
+          take: TAKE,
+          select: invoiceItemSelect,
+        }),
         tx.incident.count({
           where: {
             status: { in: ['reported', 'investigating'] },
@@ -377,7 +425,7 @@ export class TodayService {
             deletedAt: null,
             status: 'active',
             renewsOn: { not: null, gte: startOfToday, lte: marketingRenewalsLimit },
-            ...facTaskIncident,
+            ...facOwn,
           },
           orderBy: [{ renewsOn: 'asc' }],
           take: TAKE,
@@ -388,7 +436,7 @@ export class TodayService {
             deletedAt: null,
             status: 'active',
             renewsOn: { not: null, gte: startOfToday, lte: marketingRenewalsLimit },
-            ...facTaskIncident,
+            ...facOwn,
           },
         }),
         // Ofertas de retención (contraoferta de baja) esperando respuesta del inquilino.
@@ -421,6 +469,16 @@ export class TodayService {
         }),
         tx.contract.count({ where: depositToRegisterWhere }),
       ]);
+
+      const invoiceItem = (i: (typeof overdueRows)[number], overdue: boolean): TodayItemDto => ({
+        id: i.id,
+        label: i.customer ? customerName(i.customer) : 'Sin cliente',
+        detail: i.invoiceNumber,
+        date: i.dueDate ? i.dueDate.toISOString() : null,
+        overdue,
+        amount: Math.max(0, Math.round((Number(i.total) - Number(i.amountPaid)) * 100) / 100),
+        chargeable: (i.customer?.paymentMethods.length ?? 0) > 0,
+      });
 
       const totalPending =
         Number(invoicesAgg._sum.total ?? 0) - Number(invoicesAgg._sum.amountPaid ?? 0);
@@ -474,16 +532,25 @@ export class TodayService {
         contactedAt: null,
         deletedAt: null,
         createdAt: { lte: new Date(Date.now() - responseHours * 3_600_000) },
+        ...mineLead,
       };
       const [leadFollowups, leadFollowupsCount, unattended, unattendedCount] = await Promise.all([
         tx.leadFollowup.findMany({
-          where: { status: 'pending', dueDate: { lt: startOfTomorrow }, lead: { deletedAt: null } },
+          where: {
+            status: 'pending',
+            dueDate: { lt: startOfTomorrow },
+            lead: { deletedAt: null, ...mineLead },
+          },
           orderBy: [{ dueDate: 'asc' }],
           take: TAKE,
           include: { lead: { select: { firstName: true, lastName: true, companyName: true } } },
         }),
         tx.leadFollowup.count({
-          where: { status: 'pending', dueDate: { lt: startOfTomorrow }, lead: { deletedAt: null } },
+          where: {
+            status: 'pending',
+            dueDate: { lt: startOfTomorrow },
+            lead: { deletedAt: null, ...mineLead },
+          },
         }),
         tx.lead.findMany({
           where: unattendedWhere,
@@ -636,8 +703,16 @@ export class TodayService {
             date: r.validUntil.toISOString(),
           })),
         },
-        invoicesDueToday: { count: dueTodayCount, totalDue: Math.max(0, totalDueToday) },
-        invoicesOverdue: { count: invoicesCount, totalPending: Math.max(0, totalPending) },
+        invoicesDueToday: {
+          count: dueTodayCount,
+          totalDue: Math.max(0, totalDueToday),
+          items: dueTodayRows.map((i) => invoiceItem(i, false)),
+        },
+        invoicesOverdue: {
+          count: invoicesCount,
+          totalPending: Math.max(0, totalPending),
+          items: overdueRows.map((i) => invoiceItem(i, true)),
+        },
         collectionsDeadlines: {
           count: collectionsDeadlinesCount,
           items: collectionsDeadlines.map((c) => ({

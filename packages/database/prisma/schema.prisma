@@ -379,6 +379,8 @@ model Tenant {
   rentIncreaseMaxAnnualPct     Decimal               @default(0) @map("rent_increase_max_annual_pct") @db.Decimal(5, 2)
   /// Estrategia de precios: ocupación objetivo (%), cambio máximo por vez (%) y días mínimos entre cambios.
   pricingTargetOccupancy        Int                   @default(88) @map("pricing_target_occupancy")
+  /// Último día (hora del tenant) en que salió el resumen del día por correo.
+  dailySummaryLastDate          DateTime?             @map("daily_summary_last_date") @db.Date
   pricingMaxStepPct             Int                   @default(8) @map("pricing_max_step_pct")
   pricingMinDaysBetweenChanges  Int                   @default(30) @map("pricing_min_days_between_changes")
   rentIncreaseMinMonthsBetween Int                   @default(12) @map("rent_increase_min_months_between")

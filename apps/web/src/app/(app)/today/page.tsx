@@ -24,16 +24,13 @@ import {
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
-import type {
-  TodayActivityDto,
-  TodayActivityKind,
-  TodayItemDto,
-  TodaySummaryDto,
-} from '@storageos/shared';
+import type { TodayActivityDto, TodayActivityKind, TodayItemDto } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
+import { MonthStrip } from '@/components/dashboard/month-strip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -47,6 +44,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { useBulkRemindInvoices, useChargeInvoice } from '@/lib/billing/hooks';
+import { useRenewContract, useRequestSignature } from '@/lib/customers/hooks';
 import { useToday, useTodaySummary } from '@/lib/dashboard/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
@@ -74,6 +73,7 @@ function SectionCard({
   empty,
   onComplete,
   completeLabel,
+  renderActions,
 }: {
   title: string;
   icon: typeof ClipboardList;
@@ -84,6 +84,8 @@ function SectionCard({
   empty: string;
   onComplete?: (it: TodayItemDto) => void;
   completeLabel?: string;
+  /** Botones propios de cada fila (cobrar, reenviar, prorrogar…). */
+  renderActions?: (it: TodayItemDto) => ReactNode;
 }) {
   return (
     <Card>
@@ -119,6 +121,11 @@ function SectionCard({
                     {it.detail && (
                       <span className="shrink-0 text-xs text-muted-foreground">{it.detail}</span>
                     )}
+                    {it.amount !== undefined && (
+                      <span className="shrink-0 text-xs font-medium tabular-nums">
+                        {eur(it.amount)}
+                      </span>
+                    )}
                   </span>
                   {it.date && (
                     <span
@@ -129,6 +136,7 @@ function SectionCard({
                     </span>
                   )}
                 </Link>
+                {renderActions?.(it)}
                 {onComplete && (
                   <Button
                     variant="ghost"
@@ -158,65 +166,6 @@ function TabCount({ n, neutral }: { n: number; neutral?: boolean }) {
     >
       {n}
     </span>
-  );
-}
-
-/** Cifras del mes: lo cobrado frente a lo facturado, deuda, ocupación, altas y bajas. */
-function KpiStrip({ summary }: { summary: TodaySummaryDto | undefined }) {
-  if (!summary) return null;
-  const k = summary.kpis;
-  const pct = k.invoicedMonth > 0 ? Math.min(100, (k.collectedMonth / k.invoicedMonth) * 100) : 0;
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Card className="sm:col-span-2">
-        <CardContent className="space-y-2 pt-6">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className="text-xs text-muted-foreground">Cobrado este mes</p>
-            <p className="text-xs text-muted-foreground">
-              Facturado este mes: {eur(k.invoicedMonth)}
-            </p>
-          </div>
-          <p className="text-2xl font-semibold tabular-nums">{eur(k.collectedMonth)}</p>
-          <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Lo cobrado incluye facturas de meses anteriores.
-          </p>
-          {k.overduePending > 0 && (
-            <Link
-              href="/arrears"
-              className="block text-xs font-medium text-red-600 hover:underline"
-            >
-              {eur(k.overduePending)} vencido sin cobrar →
-            </Link>
-          )}
-        </CardContent>
-      </Card>
-      <Link href="/units">
-        <Card className="h-full">
-          <CardContent className="space-y-1 pt-6">
-            <p className="text-xs text-muted-foreground">Ocupación</p>
-            <p className="text-2xl font-semibold tabular-nums">{k.occupancyPct}%</p>
-            <p className="text-xs text-muted-foreground">
-              {k.freeUnits} libres de {k.totalUnits}
-            </p>
-          </CardContent>
-        </Card>
-      </Link>
-      <Link href="/contracts">
-        <Card className="h-full">
-          <CardContent className="space-y-1 pt-6">
-            <p className="text-xs text-muted-foreground">Este mes</p>
-            <p className="text-2xl font-semibold tabular-nums">
-              <span className="text-emerald-700 dark:text-emerald-400">+{k.moveInsMonth}</span>{' '}
-              <span className="text-red-600">−{k.moveOutsMonth}</span>
-            </p>
-            <p className="text-xs text-muted-foreground">altas y bajas</p>
-          </CardContent>
-        </Card>
-      </Link>
-    </div>
   );
 }
 
@@ -313,12 +262,31 @@ function StatTile({
   );
 }
 
+const MINE_KEY = 'storageos.today.mine';
+
 export default function TodayPage() {
   const [facilityFilterId, setFacilityFilterId] = useFacilityFilterState();
   const facilityId = facilityFilterId ?? 'all';
   const setFacilityId = (v: string) => setFacilityFilterId(v === 'all' ? undefined : v);
   const facilities = useFacilities();
-  const { data, isLoading } = useToday(facilityId === 'all' ? undefined : facilityId);
+  // «Lo mío» se recuerda en este navegador.
+  const [mine, setMine] = useState(false);
+  useEffect(() => {
+    try {
+      setMine(window.localStorage.getItem(MINE_KEY) === '1');
+    } catch {
+      /* almacenamiento no disponible */
+    }
+  }, []);
+  function changeMine(next: boolean) {
+    setMine(next);
+    try {
+      window.localStorage.setItem(MINE_KEY, next ? '1' : '0');
+    } catch {
+      /* almacenamiento no disponible */
+    }
+  }
+  const { data, isLoading } = useToday(facilityId === 'all' ? undefined : facilityId, mine);
   const summary = useTodaySummary(facilityId === 'all' ? undefined : facilityId);
   const [tab, setTab] = useState('collections');
   const counts = data
@@ -358,6 +326,93 @@ export default function TodayPage() {
   const updateFollowup = useUpdateFollowup();
   const updateLeadFollowup = useUpdateLeadFollowup();
   const canLeads = useHasPermission('leads:write');
+  const canCharge = useHasPermission('payments:charge');
+  const canRemind = useHasPermission('communications:send');
+  const canSign = useHasPermission('contracts:write');
+  const canRenew = useHasPermission('contracts:manage');
+  const charge = useChargeInvoice();
+  const remind = useBulkRemindInvoices();
+  const resend = useRequestSignature();
+  const renew = useRenewContract();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function run(key: string, fn: () => Promise<void>) {
+    setBusy(key);
+    try {
+      await fn();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    } finally {
+      setBusy(null);
+    }
+  }
+  function chargeNow(it: TodayItemDto) {
+    void run(`charge-${it.id}`, async () => {
+      if (
+        !(await confirm({
+          title: `¿Cobrar ${eur(it.amount ?? 0)} a ${it.label}?`,
+          description: 'Se cobra con su tarjeta o domiciliación guardada.',
+          confirmLabel: 'Cobrar',
+        }))
+      )
+        return;
+      const p = await charge.mutateAsync({ invoiceId: it.id, input: {} });
+      if (p.status === 'succeeded') toast.success('Cobrado.');
+      else if (p.status === 'processing')
+        toast.success('Cobro en curso: se confirmará en unos días.');
+      else toast.error(p.failureReason ?? 'El cobro ha sido rechazado.');
+    });
+  }
+  function remindNow(it: TodayItemDto) {
+    void run(`remind-${it.id}`, async () => {
+      const r = await remind.mutateAsync([it.id]);
+      if (r.succeeded.length > 0) toast.success(`Recordatorio enviado a ${it.label}.`);
+      else toast.error(r.failed[0]?.error ?? 'No se pudo enviar el recordatorio.');
+    });
+  }
+  function resendNow(it: TodayItemDto) {
+    void run(`sign-${it.id}`, async () => {
+      const r = await resend.mutateAsync(it.id);
+      toast.success(
+        r.emailed ? 'Enlace de firma reenviado por correo.' : 'Enlace nuevo creado (sin email).',
+      );
+    });
+  }
+  function renewNow(it: TodayItemDto) {
+    void run(`renew-${it.id}`, async () => {
+      if (
+        !(await confirm({
+          title: `¿Prorrogar 12 meses el contrato de ${it.label}?`,
+          description: 'La fecha de fin se alarga un año y el contrato sigue facturando.',
+          confirmLabel: 'Prorrogar',
+        }))
+      )
+        return;
+      await renew.mutateAsync({ id: it.id, body: { months: 12 } });
+      toast.success('Contrato prorrogado 12 meses.');
+    });
+  }
+  const rowButton = (key: string, label: string, onClick: () => void) => (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 shrink-0 px-2 text-xs"
+      disabled={busy !== null}
+      onClick={onClick}
+    >
+      {busy === key ? '…' : label}
+    </Button>
+  );
+  const invoiceActions = (it: TodayItemDto) => (
+    <>
+      {canCharge &&
+        it.chargeable &&
+        (it.amount ?? 0) > 0 &&
+        rowButton(`charge-${it.id}`, 'Cobrar', () => chargeNow(it))}
+      {canRemind && it.overdue && rowButton(`remind-${it.id}`, 'Recordar', () => remindNow(it))}
+    </>
+  );
 
   async function completeTask(it: TodayItemDto) {
     try {
@@ -406,22 +461,54 @@ export default function TodayPage() {
             )}
           </p>
         </div>
-        {(facilities.data?.length ?? 0) > 1 && (
-          <Select value={facilityId} onValueChange={setFacilityId}>
-            <SelectTrigger className="w-full sm:w-56">
-              <SelectValue placeholder="Todos los locales" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los locales</SelectItem>
-              {facilities.data?.map((f) => (
-                <SelectItem key={f.id} value={f.id}>
-                  {f.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="Qué ver">
+            <Button
+              size="sm"
+              variant={mine ? 'ghost' : 'secondary'}
+              className="h-7"
+              onClick={() => changeMine(false)}
+              aria-pressed={!mine}
+            >
+              Todo el equipo
+            </Button>
+            <Button
+              size="sm"
+              variant={mine ? 'secondary' : 'ghost'}
+              className="h-7"
+              onClick={() => changeMine(true)}
+              aria-pressed={mine}
+            >
+              Lo mío
+            </Button>
+          </div>
+          <Button asChild size="sm" variant="outline" className="h-8">
+            <Link href="/today/desk">Modo mostrador</Link>
+          </Button>
+          {(facilities.data?.length ?? 0) > 1 && (
+            <Select value={facilityId} onValueChange={setFacilityId}>
+              <SelectTrigger className="w-full sm:w-56">
+                <SelectValue placeholder="Todos los locales" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los locales</SelectItem>
+                {facilities.data?.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
+
+      {mine && (
+        <p className="text-xs text-muted-foreground">
+          Lo mío: tareas e incidencias asignadas a ti, tus contactos y los seguimientos que creaste.
+          Cobros, entradas y salidas son de todo el equipo.
+        </p>
+      )}
 
       {facilityId !== 'all' && (
         <p className="text-xs text-muted-foreground">
@@ -438,7 +525,7 @@ export default function TodayPage() {
         </div>
       ) : (
         <>
-          <KpiStrip summary={summary.data} />
+          <MonthStrip summary={summary.data} />
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="h-auto flex-wrap">
               <TabsTrigger value="collections">
@@ -465,30 +552,28 @@ export default function TodayPage() {
                     href="/customers?f=overdue,noPortal"
                   />
                 )}
-                <StatTile
-                  label="Vencen hoy"
-                  value={
-                    data.invoicesDueToday.count > 0
-                      ? `${data.invoicesDueToday.count} · ${eur(data.invoicesDueToday.totalDue)}`
-                      : '0'
-                  }
-                  icon={CreditCard}
-                  href="/invoices?status=issued"
-                  highlight={data.invoicesDueToday.count > 0}
-                />
-                <StatTile
-                  label="Facturas vencidas"
-                  value={
-                    data.invoicesOverdue.count > 0
-                      ? `${data.invoicesOverdue.count} · ${eur(data.invoicesOverdue.totalPending)}`
-                      : '0'
-                  }
-                  icon={CreditCard}
-                  href="/arrears"
-                  highlight={data.invoicesOverdue.count > 0}
-                />
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
+                <SectionCard
+                  title={`Vencen hoy · ${eur(data.invoicesDueToday.totalDue)}`}
+                  icon={CreditCard}
+                  count={data.invoicesDueToday.count}
+                  items={data.invoicesDueToday.items ?? []}
+                  href="/invoices?status=issued"
+                  itemHref={(it) => `/invoices/${it.id}`}
+                  empty="Ninguna factura vence hoy."
+                  renderActions={invoiceActions}
+                />
+                <SectionCard
+                  title={`Vencidas · ${eur(data.invoicesOverdue.totalPending)}`}
+                  icon={AlertTriangle}
+                  count={data.invoicesOverdue.count}
+                  items={data.invoicesOverdue.items ?? []}
+                  href="/arrears"
+                  itemHref={(it) => `/invoices/${it.id}`}
+                  empty="Ninguna factura vencida."
+                  renderActions={invoiceActions}
+                />
                 <SectionCard
                   title="Impagos: plazo vencido"
                   icon={Lock}
@@ -587,6 +672,11 @@ export default function TodayPage() {
                   href="/contracts"
                   itemHref={(it) => `/contracts/${it.id}`}
                   empty="Ningún contrato pendiente de firma."
+                  renderActions={
+                    canSign
+                      ? (it) => rowButton(`sign-${it.id}`, 'Reenviar', () => resendNow(it))
+                      : undefined
+                  }
                 />
                 <SectionCard
                   title="Contratos por vencer"
@@ -596,6 +686,11 @@ export default function TodayPage() {
                   href="/renewals"
                   itemHref={(it) => `/contracts/${it.id}`}
                   empty="Ningún contrato vence en 30 días."
+                  renderActions={
+                    canRenew
+                      ? (it) => rowButton(`renew-${it.id}`, 'Prorrogar', () => renewNow(it))
+                      : undefined
+                  }
                 />
                 <SectionCard
                   title="Reservas que expiran"

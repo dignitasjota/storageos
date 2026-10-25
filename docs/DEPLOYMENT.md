@@ -1453,3 +1453,8 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Migración `20261114100000_operations_features` (se aplica sola al arrancar). Redesplegar api, worker y web: el worker escucha ahora los eventos de contrato para las tareas automáticas.
 - Las tareas automáticas están apagadas en todos los tenants hasta que se activen en Tareas → «Tareas automáticas».
 - Una reserva con señal emite su factura al confirmarla: hace falta una serie de facturación por defecto (si no, se puede emitir después desde Reservas → «Facturar la señal»).
+
+## 48. «Hoy» y Resumen (2026-10-26)
+
+- Migración `20261115100000_today_daily_summary` (se aplica sola): `tenants.daily_summary_last_date`.
+- Cron nuevo `today.daily-summary` (cada hora en el minuto 5, en el API): a las 8:00 en la zona horaria de cada negocio envía el resumen del día a los usuarios que lo activen en Ajustes → Perfil → Avisos (apagado por defecto). Usa la cola `email`, así que lo entrega el worker.

@@ -34,7 +34,7 @@ describe('Dashboard: bandeja «Hoy» (e2e)', () => {
     expect(res.body.collectionsDeadlines).toEqual({ count: 0, items: [] });
     expect(res.body.depositsToSettle).toEqual({ count: 0, items: [] });
     expect(res.body.reservationsExpiring).toEqual({ count: 0, items: [] });
-    expect(res.body.invoicesOverdue).toEqual({ count: 0, totalPending: 0 });
+    expect(res.body.invoicesOverdue).toEqual({ count: 0, totalPending: 0, items: [] });
     expect(res.body.incidentsOpen).toBe(0);
     expect(res.body.unitChangesPending).toBe(0);
     expect(res.body.unreadMessages).toBe(0);
@@ -46,7 +46,7 @@ describe('Dashboard: bandeja «Hoy» (e2e)', () => {
     expect(res.body.followupsDue).toEqual({ count: 0, items: [] });
     expect(res.body.newLeads).toEqual({ count: 0, items: [] });
     expect(res.body.signaturesPending).toEqual({ count: 0, items: [] });
-    expect(res.body.invoicesDueToday).toEqual({ count: 0, totalDue: 0 });
+    expect(res.body.invoicesDueToday).toEqual({ count: 0, totalDue: 0, items: [] });
     expect(res.body.retentionOffersPending).toEqual({ count: 0, items: [] });
   });
 
