@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { CsvButton } from './period';
+
 import type { UnitPricingSuggestionDto } from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
@@ -112,6 +114,22 @@ export function UnitPricingPanel({ facilityId }: { facilityId?: string }) {
             />
             Incluir competencia
           </label>
+          <CsvButton
+            disabled={items.length === 0}
+            filename="precios-por-trastero.csv"
+            rows={() => [
+              ['Trastero', 'Tipo', 'Local', 'Ocupación', 'Días libre', 'Precio actual', 'Sugerido'],
+              ...items.map((i) => [
+                i.code,
+                i.unitTypeName ?? '',
+                i.facilityName,
+                Math.round(i.occupancyPct),
+                i.daysVacant,
+                i.currentPrice,
+                i.suggestedPrice,
+              ]),
+            ]}
+          />
         </div>
       </div>
 

@@ -39,6 +39,8 @@ import type {
   ApplyPricingResultDto,
   ApplyUnitPricingResultDto,
   ChurnRiskItemDto,
+  CompetitionAlertsDto,
+  CompetitionPriceDropDto,
   ChurnRiskKpiDto,
   ChurnRiskLevel,
   PriceChangeEffectDto,
@@ -76,6 +78,14 @@ const signed = (n: number) => `${n > 0 ? '+' : ''}${n} %`;
 
 /** Cobros fallidos y reclamaciones más antiguos no cuentan para el riesgo de baja. */
 const RISK_LOOKBACK_DAYS = 365;
+/** Dentro de este plazo un cobro fallido o una reclamación pesan entero. */
+const RISK_RECENT_DAYS = 90;
+/** Días sin entrar al local a partir de los que se avisa. */
+const INACTIVE_ACCESS_DAYS = 90;
+/** Un competidor sin revisar en más de estos días se avisa. */
+const COMPETITOR_STALE_DAYS = 30;
+/** Ventana de las bajadas de precio de la competencia que se avisan. */
+const COMPETITOR_DROP_DAYS = 30;
 
 function levelFor(score: number): ChurnRiskLevel {
   if (score >= 60) return 'high';
@@ -122,6 +132,8 @@ export class InsightsService {
           priceMonthly: true,
           endDate: true,
           autoRenew: true,
+          status: true,
+          signedAt: true,
           customer: {
             select: {
               id: true,
@@ -143,45 +155,55 @@ export class InsightsService {
 
       // Los cobros fallidos y las reclamaciones solo cuentan si son del último año.
       const since = new Date(Date.now() - RISK_LOOKBACK_DAYS * 86_400_000);
-      const [overdue, failedPayments, dunning, defaultPms, mandates] = await Promise.all([
-        tx.invoice.groupBy({
-          by: ['customerId'],
-          where: {
-            status: 'overdue',
-            kind: 'invoice',
-            deletedAt: null,
-            customerId: { in: customerIds },
-          },
-          _count: { _all: true },
-          _sum: { total: true, amountPaid: true },
-        }),
-        tx.payment.groupBy({
-          by: ['customerId'],
-          where: { status: 'failed', customerId: { in: customerIds }, createdAt: { gte: since } },
-          _count: { _all: true },
-        }),
-        tx.dunningAction.findMany({
-          where: {
-            status: 'executed',
-            executedAt: { gte: since },
-            invoice: { customerId: { in: customerIds } },
-          },
-          select: { invoice: { select: { customerId: true } } },
-        }),
-        tx.paymentMethod.findMany({
-          where: { customerId: { in: customerIds }, isDefault: true, deletedAt: null },
-          select: { customerId: true },
-        }),
-        // Quien paga por la remesa SEPA del negocio también tiene cómo pagar.
-        tx.sepaMandate.findMany({
-          where: {
-            customerId: { in: customerIds },
-            status: 'active',
-            signatureStatus: { in: ['signed', 'external'] },
-          },
-          select: { customerId: true },
-        }),
-      ]);
+      const [overdue, failedPayments, dunning, defaultPms, mandates, credentials, accesses] =
+        await Promise.all([
+          tx.invoice.groupBy({
+            by: ['customerId'],
+            where: {
+              status: 'overdue',
+              kind: 'invoice',
+              deletedAt: null,
+              customerId: { in: customerIds },
+            },
+            _count: { _all: true },
+            _sum: { total: true, amountPaid: true },
+          }),
+          tx.payment.findMany({
+            where: { status: 'failed', customerId: { in: customerIds }, createdAt: { gte: since } },
+            select: { customerId: true, createdAt: true },
+          }),
+          tx.dunningAction.findMany({
+            where: {
+              status: 'executed',
+              executedAt: { gte: since },
+              invoice: { customerId: { in: customerIds } },
+            },
+            select: { executedAt: true, invoice: { select: { customerId: true } } },
+          }),
+          tx.paymentMethod.findMany({
+            where: { customerId: { in: customerIds }, isDefault: true, deletedAt: null },
+            select: { customerId: true },
+          }),
+          // Quien paga por la remesa SEPA del negocio también tiene cómo pagar.
+          tx.sepaMandate.findMany({
+            where: {
+              customerId: { in: customerIds },
+              status: 'active',
+              signatureStatus: { in: ['signed', 'external'] },
+            },
+            select: { customerId: true },
+          }),
+          // Quién tiene un código de acceso activo y cuándo entró por última vez.
+          tx.accessCredential.findMany({
+            where: { customerId: { in: customerIds }, status: 'active' },
+            select: { customerId: true },
+          }),
+          tx.accessLog.groupBy({
+            by: ['customerId'],
+            where: { customerId: { in: customerIds }, result: 'allowed' },
+            _max: { occurredAt: true },
+          }),
+        ]);
 
       const overdueByCustomer = new Map(
         overdue.map((o) => [
@@ -192,12 +214,31 @@ export class InsightsService {
           },
         ]),
       );
-      const failedByCustomer = new Map(failedPayments.map((p) => [p.customerId, p._count._all]));
-      const dunningByCustomer = new Map<string, number>();
+      // Lo reciente pesa más: en los últimos 90 días cuenta entero, antes, la mitad.
+      const recentCut = Date.now() - RISK_RECENT_DAYS * 86_400_000;
+      const failedByCustomer = new Map<string, { count: number; recent: number }>();
+      for (const p of failedPayments) {
+        if (!p.customerId) continue;
+        const cur = failedByCustomer.get(p.customerId) ?? { count: 0, recent: 0 };
+        cur.count += 1;
+        if (p.createdAt.getTime() >= recentCut) cur.recent += 1;
+        failedByCustomer.set(p.customerId, cur);
+      }
+      const dunningByCustomer = new Map<string, { count: number; recent: number }>();
       for (const d of dunning) {
         const cid = d.invoice?.customerId;
-        if (cid) dunningByCustomer.set(cid, (dunningByCustomer.get(cid) ?? 0) + 1);
+        if (!cid) continue;
+        const cur = dunningByCustomer.get(cid) ?? { count: 0, recent: 0 };
+        cur.count += 1;
+        if (d.executedAt && d.executedAt.getTime() >= recentCut) cur.recent += 1;
+        dunningByCustomer.set(cid, cur);
       }
+      const withCredential = new Set(credentials.map((c) => c.customerId));
+      const lastAccess = new Map(
+        accesses
+          .filter((a) => a.customerId && a._max?.occurredAt)
+          .map((a) => [a.customerId!, a._max!.occurredAt!]),
+      );
       const customersWithPm = new Set([
         ...defaultPms.map((p) => p.customerId),
         ...mandates.map((m) => m.customerId),
@@ -220,16 +261,32 @@ export class InsightsService {
           }
         }
 
-        const failed = failedByCustomer.get(c.customerId) ?? 0;
-        if (failed > 0) {
-          score += 20;
-          factors.push(failed === 1 ? '1 cobro fallido' : `${failed} cobros fallidos`);
+        const failed = failedByCustomer.get(c.customerId);
+        if (failed) {
+          score += failed.recent > 0 ? 20 : 10;
+          const label = failed.count === 1 ? '1 cobro fallido' : `${failed.count} cobros fallidos`;
+          factors.push(failed.recent > 0 ? `${label} (reciente)` : `${label} en el último año`);
         }
 
-        const dun = dunningByCustomer.get(c.customerId) ?? 0;
-        if (dun > 0) {
-          score += 15;
-          factors.push('reclamado en el último año');
+        const dun = dunningByCustomer.get(c.customerId);
+        if (dun) {
+          score += dun.recent > 0 ? 15 : 8;
+          factors.push(dun.recent > 0 ? 'reclamado hace poco' : 'reclamado en el último año');
+        }
+
+        // Quien no usa su trastero suele acabar dándose de baja.
+        const seen = lastAccess.get(c.customerId) ?? null;
+        const signedLongAgo =
+          c.signedAt && now - c.signedAt.getTime() > INACTIVE_ACCESS_DAYS * 86_400_000;
+        if (
+          withCredential.has(c.customerId) &&
+          signedLongAgo &&
+          (!seen || now - seen.getTime() > INACTIVE_ACCESS_DAYS * 86_400_000)
+        ) {
+          score += 10;
+          factors.push(
+            seen ? `no entra desde hace más de ${INACTIVE_ACCESS_DAYS} días` : 'nunca ha entrado',
+          );
         }
 
         if (c.endDate) {
@@ -261,6 +318,8 @@ export class InsightsService {
           score,
           level: levelFor(score),
           factors,
+          contractStatus: c.status === 'ending' ? 'ending' : 'active',
+          lastAccessAt: seen ? seen.toISOString() : null,
         };
       });
 
@@ -287,13 +346,110 @@ export class InsightsService {
    * vencidas, contratos que vencen sin renovación). Determinista (no depende de la
    * IA) → funciona en cualquier entorno; cada acción enlaza al recurso exacto.
    */
+  /**
+   * Competencia que conviene mirar: fichas sin revisar en más de 30 días y
+   * bajadas de precio recientes en tamaños donde tus trasteros son más caros.
+   */
+  async getCompetitionAlerts(
+    tenantId: string,
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<CompetitionAlertsDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const now = Date.now();
+      const staleCut = new Date(now - COMPETITOR_STALE_DAYS * 86_400_000);
+      const since = new Date(now - COMPETITOR_DROP_DAYS * 86_400_000);
+      // Competidores ligados a un local que el usuario no ve quedan fuera.
+      const competitorScope: Prisma.CompetitorFacilityWhereInput = scope.ids
+        ? scope.explicit
+          ? { facilityId: { in: scope.ids } }
+          : { OR: [{ facilityId: { in: scope.ids } }, { facilityId: null }] }
+        : {};
+      const [competitors, myUnits] = await Promise.all([
+        tx.competitorFacility.findMany({
+          where: competitorScope,
+          select: {
+            id: true,
+            name: true,
+            facilityId: true,
+            lastReviewedAt: true,
+            units: {
+              select: {
+                id: true,
+                areaM2: true,
+                observations: {
+                  where: { observedAt: { gte: since } },
+                  orderBy: { observedAt: 'asc' },
+                  select: { priceMonthly: true, observedAt: true },
+                },
+              },
+            },
+          },
+          orderBy: { name: 'asc' },
+        }),
+        tx.unit.findMany({
+          where: { ...unitWhere(scope), status: { in: ['available', 'reserved', 'occupied'] } },
+          select: { facilityId: true, areaM2: true, basePriceMonthly: true },
+        }),
+      ]);
+
+      const stale = competitors
+        .filter((c) => !c.lastReviewedAt || c.lastReviewedAt < staleCut)
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          lastReviewedAt: c.lastReviewedAt ? c.lastReviewedAt.toISOString() : null,
+        }));
+
+      const myPriceFor = (area: number, facilityId: string | null): number | null => {
+        const near = myUnits.filter(
+          (u) =>
+            (!facilityId || u.facilityId === facilityId) &&
+            toNumber(u.areaM2) >= area * 0.75 &&
+            toNumber(u.areaM2) <= area * 1.25,
+        );
+        if (near.length === 0) return null;
+        return round2(near.reduce((sum, u) => sum + toNumber(u.basePriceMonthly), 0) / near.length);
+      };
+
+      const priceDrops: CompetitionPriceDropDto[] = [];
+      for (const c of competitors) {
+        for (const u of c.units) {
+          const obs = u.observations;
+          for (let i = obs.length - 1; i >= 1; i--) {
+            const prev = toNumber(obs[i - 1]!.priceMonthly);
+            const next = toNumber(obs[i]!.priceMonthly);
+            if (next >= prev) continue;
+            const area = toNumber(u.areaM2);
+            const mine = myPriceFor(area, c.facilityId);
+            if (mine !== null && mine > next) {
+              priceDrops.push({
+                competitorFacilityId: c.id,
+                competitorName: c.name,
+                competitorUnitId: u.id,
+                areaM2: area,
+                previousPrice: prev,
+                newPrice: next,
+                observedAt: obs[i]!.observedAt.toISOString(),
+                myPrice: mine,
+              });
+            }
+            break;
+          }
+        }
+      }
+      priceDrops.sort((a, b) => b.observedAt.localeCompare(a.observedAt));
+      return { stale, priceDrops };
+    }, tenantId);
+  }
+
   async getSuggestedActions(
     tenantId: string,
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<SuggestedActionsDto> {
-    const [churn, pricing, extra] = await Promise.all([
+    const [churn, pricing, competition, extra] = await Promise.all([
       this.getChurnRisk(tenantId, scope),
       this.getUnitPricingSuggestions(tenantId, scope),
+      this.getCompetitionAlerts(tenantId, scope),
       this.prisma.withTenant(async (tx) => {
         const now = new Date();
         const in30 = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
@@ -399,6 +555,34 @@ export class InsightsService {
         detail: `Contrato ${c.contractNumber} vence el ${when} sin renovación automática`,
         href: `/contracts/${c.id}`,
         cta: 'Ver contrato',
+      });
+    }
+
+    // 5) Competencia: bajadas de precio donde eres más caro y fichas sin revisar.
+    const drop = competition.priceDrops[0];
+    if (drop) {
+      actions.push({
+        id: `competition-drop-${drop.competitorUnitId}`,
+        category: 'competition',
+        priority: 'medium',
+        title: `${drop.competitorName} ha bajado precios`,
+        detail: `${drop.areaM2} m² a ${drop.newPrice.toFixed(2)} € (antes ${drop.previousPrice.toFixed(
+          2,
+        )} €); tú, ${drop.myPrice.toFixed(2)} €`,
+        href: '/competitors',
+        cta: 'Ver competencia',
+      });
+    }
+    if (competition.stale.length > 0) {
+      const n = competition.stale.length;
+      actions.push({
+        id: 'competition-stale',
+        category: 'competition',
+        priority: 'medium',
+        title: `Revisa ${n} competidor${n === 1 ? '' : 'es'}`,
+        detail: `Sin revisar en más de ${COMPETITOR_STALE_DAYS} días: los precios de mercado pierden fiabilidad`,
+        href: '/competitors',
+        cta: 'Revisar',
       });
     }
 

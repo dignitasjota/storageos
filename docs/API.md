@@ -1062,6 +1062,17 @@ Modulos `apps/api/src/modules/{operations,products,analytics,reports}/`.
 - **Precios**: `POST /analytics/unit-pricing-suggestions/apply` da 404 con un trastero de un local que el usuario no ve; `POST /analytics/pricing-suggestions/apply` y `PUT /analytics/pricing-strategy` dan 403 `facility_not_in_scope` a quien solo ve algunos locales (afectan a todos).
 - **Comparativa del sector** (`/benchmark`): solo operadores con algún contrato firmado.
 
+**Tendencias (2026-10-25, PR B).** Con `?facilityId=` y el alcance por local como el resto:
+
+| Método | Ruta                                     | Descripción                                                                                                                                                                                                      |
+| ------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/analytics/occupancy-history?months=`   | Ocupación al cerrar cada mes (el actual, hoy) a partir de los contratos: `points` (trasteros, ocupados, %, cuotas) + series `byFacility` y `byUnitType`. 1-36 meses, 12 por defecto                              |
+| GET    | `/analytics/revenue-breakdown?from=&to=` | Base sin IVA de las facturas emitidas por concepto (`rent`, `insurance`, `late_fee`, `shop`, `night_pass`, `other`; la fianza no cuenta), por local y (solo alquiler) por tipo. Por defecto los últimos 12 meses |
+| GET    | `/analytics/cohorts?months=`             | Contratos por mes de alta: cuántos, % que seguía a los 3/6/12 meses (null si aún no ha pasado), meses de media y facturado por contrato                                                                          |
+| GET    | `/analytics/competition-alerts`          | Competidores sin revisar en más de 30 días y bajadas de precio de los últimos 30 días en tamaños (±25 % m²) donde tu precio medio es mayor. También salen en «Sugerencias de hoy» (categoría `competition`)      |
+
+El riesgo de baja pesa entero lo de los últimos 90 días (antes, la mitad), suma 10 puntos a quien tiene un código de acceso activo y no entra en 90 días (o nunca) y devuelve `contractStatus` y `lastAccessAt`. Informes nuevos (`/reports/catalog`, ahora por tenant): `occupancy_snapshot` (ocupación por local), `collections_month` (cobros del mes por forma de pago), `move_outs_period` (bajas del periodo) y `owner_statement` (liquidación de un propietario; solo aparece si el tenant tiene propietarios, con ellos como opciones). El informe de morosidad ya no cuenta las fianzas. El informe mensual por correo compara facturado y cobrado con el mes anterior y añade la ocupación al cerrar el mes, las bajas y los inquilinos en riesgo alto.
+
 ### Endpoints — Reports
 
 | Metodo | Ruta               | Auth | Roles          | Descripcion                                                 |

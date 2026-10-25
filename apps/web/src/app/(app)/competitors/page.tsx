@@ -41,6 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useCompetitionAlerts } from '@/lib/analytics/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
@@ -110,6 +111,7 @@ export default function CompetitorsPage() {
         {canManage && <Button onClick={openNewFacility}>Añadir competidor</Button>}
       </div>
 
+      <CompetitionAlertsCard />
       <MarketOccupancyCard />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -880,6 +882,52 @@ function MarketOccupancyCard() {
           indicado ({data.competitors.filter((c) => c.occupancyPct !== null).length} de{' '}
           {data.competitors.length}).
         </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Lo que conviene mirar: fichas sin revisar y bajadas de precio donde eres más caro. */
+function CompetitionAlertsCard() {
+  const { data } = useCompetitionAlerts();
+  if (!data || (data.stale.length === 0 && data.priceDrops.length === 0)) return null;
+  const eur = (v: number) => v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+  return (
+    <Card className="border-amber-300 dark:border-amber-800">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Avisos</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {data.priceDrops.length > 0 && (
+          <div className="space-y-1">
+            <p className="font-medium">Han bajado precios donde tú eres más caro (30 días)</p>
+            <ul className="space-y-1">
+              {data.priceDrops.slice(0, 6).map((d) => (
+                <li key={d.competitorUnitId} className="text-muted-foreground">
+                  <span className="font-medium text-foreground">{d.competitorName}</span>:{' '}
+                  {d.areaM2} m² de {eur(d.previousPrice)} a {eur(d.newPrice)} el{' '}
+                  {new Date(d.observedAt).toLocaleDateString('es-ES')} · tus trasteros parecidos,{' '}
+                  {eur(d.myPrice)} de media.
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {data.stale.length > 0 && (
+          <div className="space-y-1">
+            <p className="font-medium">Sin revisar en más de 30 días</p>
+            <p className="text-muted-foreground">
+              {data.stale
+                .map(
+                  (c) =>
+                    `${c.name} (${c.lastReviewedAt ? new Date(c.lastReviewedAt).toLocaleDateString('es-ES') : 'nunca'})`,
+                )
+                .join(' · ')}
+              . Sus precios pesan menos en la sugerencia de precio cuanto más antiguos son: usa
+              «Revisar» en cada uno.
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

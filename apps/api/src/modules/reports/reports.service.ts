@@ -10,8 +10,12 @@ import { FilesService } from '../files/files.service';
 import { JOB_REPORTS_GENERATE, QUEUE_REPORTS } from '../queues/queues.module';
 
 import { AgingGenerator } from './generators/aging.generator';
+import { CollectionsMonthGenerator } from './generators/collections-month.generator';
 import { ContractsActiveGenerator } from './generators/contracts-active.generator';
 import { InvoicesPeriodGenerator } from './generators/invoices-period.generator';
+import { MoveOutsPeriodGenerator } from './generators/move-outs-period.generator';
+import { OccupancySnapshotGenerator } from './generators/occupancy-snapshot.generator';
+import { OwnerStatementGenerator } from './generators/owner-statement.generator';
 import { PdfRenderer } from './renderers/pdf-renderer';
 import { XlsxRenderer } from './renderers/xlsx-renderer';
 
@@ -41,6 +45,10 @@ export class ReportsService {
     private readonly invoicesGenerator: InvoicesPeriodGenerator,
     private readonly contractsGenerator: ContractsActiveGenerator,
     private readonly agingGenerator: AgingGenerator,
+    occupancyGenerator: OccupancySnapshotGenerator,
+    collectionsGenerator: CollectionsMonthGenerator,
+    moveOutsGenerator: MoveOutsPeriodGenerator,
+    ownerStatementGenerator: OwnerStatementGenerator,
     @InjectQueue(QUEUE_REPORTS) private readonly queue: Queue,
     private readonly files: FilesService,
     config: ConfigService<Env, true>,
@@ -48,6 +56,10 @@ export class ReportsService {
     this.register(this.invoicesGenerator);
     this.register(this.contractsGenerator);
     this.register(this.agingGenerator);
+    this.register(occupancyGenerator);
+    this.register(collectionsGenerator);
+    this.register(moveOutsGenerator);
+    this.register(ownerStatementGenerator);
 
     const endpoint = `${config.get('MINIO_USE_SSL', { infer: true }) ? 'https' : 'http'}://${config.get('MINIO_ENDPOINT', { infer: true })}:${config.get('MINIO_PORT', { infer: true })}`;
     this.s3 = new S3Client({
@@ -67,17 +79,29 @@ export class ReportsService {
     this.generators.set(g.code, g);
   }
 
-  catalog(): ReportGeneratorCatalogEntry[] {
-    return Array.from(this.generators.values()).map((g) => ({
-      code: g.code,
-      name: g.name,
-      description: g.description,
-      formats: g.formats,
-      paramsSchema: g.paramsSchema as Record<
+  async catalog(tenantId: string): Promise<ReportGeneratorCatalogEntry[]> {
+    const entries: ReportGeneratorCatalogEntry[] = [];
+    for (const g of this.generators.values()) {
+      const schema = { ...g.paramsSchema } as Record<
         string,
         ReportGeneratorCatalogEntry['paramsSchema'][string]
-      >,
-    }));
+      >;
+      if (g.loadOptions) {
+        const options = await g.loadOptions(tenantId);
+        if (!options) continue;
+        for (const [key, list] of Object.entries(options)) {
+          if (schema[key]) schema[key] = { ...schema[key], options: list };
+        }
+      }
+      entries.push({
+        code: g.code,
+        name: g.name,
+        description: g.description,
+        formats: g.formats,
+        paramsSchema: schema,
+      });
+    }
+    return entries;
   }
 
   async run(args: {
