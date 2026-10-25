@@ -972,3 +972,10 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `campaign_templates` (RLS): asunto y mensaje reutilizables.
 - `reviews.google_requested_at`.
 - `winback_sends.step` (1|2, único por tenant, cliente y paso) y `tenants.winback_second_*` (activado, días, asunto, mensaje, cupón).
+
+### Funcionalidades de Inventario (2026-10-25, migración `20261113100000_inventory_features`)
+
+- `products.min_stock` (null = sin aviso de reponer).
+- `product_stock_movements` (RLS): cada entrada o salida de stock (`adjust`, `set`, `sale`, `sale_cancelled`) con local, cantidad, stock resultante (en ajustes), venta y usuario.
+- `facility_documents` (RLS): documentos internos del local (`licence`, `insurance`, `lease`, `inspection`, `other`) en el bucket privado `uploads` (`<tenant>/facilities/<local>/documents/`), con `expires_on` y `expiry_notified_at` (un aviso por fecha).
+- `units.maintenance_until`: vuelta prevista al servicio de un trastero en mantenimiento (se borra al salir de mantenimiento).

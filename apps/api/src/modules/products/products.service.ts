@@ -18,7 +18,7 @@ interface ListFilters {
 }
 
 type ProductWithStock = Product & {
-  stocks: { quantity: number }[];
+  stocks: { quantity: number; facilityId: string }[];
 };
 
 @Injectable()
@@ -36,7 +36,12 @@ export class ProductsService {
       (tx) =>
         tx.product.findMany({
           where,
-          include: { stocks: { select: { quantity: true } } },
+          include: {
+            stocks: {
+              select: { quantity: true, facilityId: true },
+              where: { facility: { deletedAt: null } },
+            },
+          },
           orderBy: [{ name: 'asc' }],
           take: 500,
         }),
@@ -67,8 +72,14 @@ export class ProductsService {
             price: args.input.price,
             taxRate: args.input.taxRate,
             isActive: args.input.isActive,
+            minStock: args.input.minStock ?? null,
           },
-          include: { stocks: { select: { quantity: true } } },
+          include: {
+            stocks: {
+              select: { quantity: true, facilityId: true },
+              where: { facility: { deletedAt: null } },
+            },
+          },
         });
       } catch (err) {
         if (this.isUniqueViolation(err)) {
@@ -102,13 +113,19 @@ export class ProductsService {
     if (args.input.price !== undefined) data.price = args.input.price;
     if (args.input.taxRate !== undefined) data.taxRate = args.input.taxRate;
     if (args.input.isActive !== undefined) data.isActive = args.input.isActive;
+    if (args.input.minStock !== undefined) data.minStock = args.input.minStock;
 
     const updated = await this.prisma.withTenant(async (tx) => {
       try {
         return await tx.product.update({
           where: { id: args.id },
           data,
-          include: { stocks: { select: { quantity: true } } },
+          include: {
+            stocks: {
+              select: { quantity: true, facilityId: true },
+              where: { facility: { deletedAt: null } },
+            },
+          },
         });
       } catch (err) {
         if (this.isUniqueViolation(err)) {
@@ -177,7 +194,12 @@ export class ProductsService {
       (tx) =>
         tx.product.findFirst({
           where: { id, deletedAt: null },
-          include: { stocks: { select: { quantity: true } } },
+          include: {
+            stocks: {
+              select: { quantity: true, facilityId: true },
+              where: { facility: { deletedAt: null } },
+            },
+          },
         }),
       tenantId,
     );
@@ -208,6 +230,8 @@ export class ProductsService {
 
   private toDto(p: ProductWithStock): ProductDto {
     const totalStock = p.stocks.reduce((acc, s) => acc + s.quantity, 0);
+    const lowStock =
+      p.isActive && p.minStock != null && p.stocks.some((s) => s.quantity < p.minStock!);
     return {
       id: p.id,
       sku: p.sku,
@@ -218,6 +242,8 @@ export class ProductsService {
       taxRate: Number(p.taxRate),
       isActive: p.isActive,
       totalStock,
+      minStock: p.minStock,
+      lowStock,
       createdAt: p.createdAt.toISOString(),
       updatedAt: p.updatedAt.toISOString(),
     };

@@ -1,4 +1,4 @@
-import type { OpeningHours, UnitStatusValue } from './schemas';
+import type { FacilityDocumentKind, OpeningHours, UnitStatusValue } from './schemas';
 
 export interface FacilityDto {
   id: string;
@@ -93,6 +93,8 @@ export interface UnitDto {
   stackGroupId: string | null;
   stackLevel: number | null;
   notes: string | null;
+  /** En mantenimiento: fecha prevista de vuelta al servicio (YYYY-MM-DD). */
+  maintenanceUntil: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -142,4 +144,103 @@ export interface OccupancyDashboardDto {
     occupiedUnits: number;
     occupancyPct: number;
   }>;
+}
+
+export interface FacilityDocumentDto {
+  id: string;
+  facilityId: string;
+  kind: FacilityDocumentKind;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  expiresOn: string | null;
+  /** Días hasta que caduca (negativo = caducado); null sin caducidad. */
+  daysToExpiry: number | null;
+  notes: string | null;
+  uploadedByName: string | null;
+  createdAt: string;
+}
+
+export interface FacilityDocumentUploadDto {
+  uploadUrl: string;
+  key: string;
+  expiresIn: number;
+  requiredHeaders: Record<string, string>;
+}
+
+/** Ficha del trastero: precios, inquilinos y rentabilidad. */
+export interface UnitInsightsDto {
+  priceHistory: {
+    changedAt: string;
+    previousPrice: number;
+    newPrice: number;
+    source: string;
+    userName: string | null;
+  }[];
+  tenancies: {
+    contractId: string;
+    contractNumber: string;
+    customerId: string;
+    customerName: string;
+    startDate: string;
+    endDate: string | null;
+    status: string;
+    priceMonthly: number;
+    /** Facturado (con IVA, sin fianzas) en ese contrato. */
+    invoiced: number;
+  }[];
+  /** Días que lleva libre (null si no está libre). */
+  daysVacant: number | null;
+  /** Días que ha estado alquilado en los últimos 365. */
+  daysRentedLastYear: number;
+  /** Facturado en los últimos 12 meses (con IVA, sin fianzas). */
+  revenue12m: number;
+  /** Facturado en 12 meses por m². */
+  revenuePerM2: number | null;
+  maintenanceUntil: string | null;
+}
+
+/** Quién ocupa cada trastero de una planta (visor del plano). */
+export interface FloorOccupantDto {
+  unitId: string;
+  contractId: string;
+  contractNumber: string;
+  customerId: string;
+  customerName: string;
+  /** Deuda vencida del inquilino. */
+  overdue: number;
+}
+
+/** Resumen de cada local para comparar. */
+export interface FacilitySummaryDto {
+  facilityId: string;
+  /** Cuotas al mes de sus contratos vivos (menos descuentos). */
+  mrr: number;
+  /** Cuota media de los ocupados. */
+  avgPrice: number | null;
+  totalM2: number;
+  occupiedM2: number;
+  /** Facturado este mes (con IVA, sin fianzas). */
+  invoicedMonth: number;
+  /** El trastero que más lleva libre: días (null si no hay libres). */
+  longestVacantDays: number | null;
+  /** Trasteros en mantenimiento o bloqueados. */
+  outOfService: number;
+}
+
+/** Resumen por propietario (plan Administrador). */
+export interface OwnerSummaryDto {
+  ownerId: string;
+  facilities: { id: string; name: string; units: number; occupied: number }[];
+  units: number;
+  occupied: number;
+  mrr: number;
+  /** Cobrado el mes pasado de sus contratos. */
+  collectedLastMonth: number;
+}
+
+export interface OwnersOverviewDto {
+  owners: OwnerSummaryDto[];
+  /** Locales sin propietario (con el plan Administrador, sus facturas las emite el negocio). */
+  facilitiesWithoutOwner: { id: string; name: string }[];
 }

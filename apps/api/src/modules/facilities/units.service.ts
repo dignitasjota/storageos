@@ -617,6 +617,23 @@ export class UnitsService {
     const existing = await this.findOrThrow(args.tenantId, args.unitId, args.facilityScope);
     const from = existing.status as UnitStatusValue;
     const to = args.input.status;
+    if (from === to && to === 'maintenance' && args.input.until !== undefined) {
+      // Ya en mantenimiento: solo se mueve la fecha prevista.
+      const row = await this.prisma.withTenant(
+        (tx) =>
+          tx.unit.update({
+            where: { id: args.unitId },
+            data: { maintenanceUntil: new Date(`${args.input.until}T00:00:00Z`) },
+            include: {
+              facility: { select: { name: true } },
+              floor: { select: { name: true } },
+              unitType: { select: { name: true, color: true } },
+            },
+          }),
+        args.tenantId,
+      );
+      return this.toDto(row);
+    }
     if (from === to) return this.toDto(existing);
     if (to === 'occupied') {
       throw new BadRequestException({
@@ -635,7 +652,14 @@ export class UnitsService {
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.unit.update({
         where: { id: args.unitId },
-        data: { status: to as UnitStatus },
+        data: {
+          status: to as UnitStatus,
+          // Fecha prevista de vuelta al servicio: solo mientras está en mantenimiento.
+          maintenanceUntil:
+            to === 'maintenance' && args.input.until
+              ? new Date(`${args.input.until}T00:00:00Z`)
+              : null,
+        },
         include: {
           facility: { select: { name: true } },
           floor: { select: { name: true } },
@@ -652,6 +676,22 @@ export class UnitsService {
           reason: args.input.reason?.trim() || null,
         },
       });
+      if (to === 'maintenance' && args.input.createTask) {
+        await tx.task.create({
+          data: {
+            tenantId: args.tenantId,
+            type: 'maintenance',
+            priority: 'normal',
+            title: `Mantenimiento del trastero ${existing.code}`,
+            description: args.input.reason?.trim() || null,
+            facilityId: existing.facilityId,
+            unitId: args.unitId,
+            createdByUserId: args.userId,
+            dueDate: args.input.until ? new Date(`${args.input.until}T00:00:00Z`) : null,
+            metadata: { source: 'unit_maintenance' },
+          },
+        });
+      }
       return row;
     }, args.tenantId);
 
@@ -752,6 +792,9 @@ export class UnitsService {
       stackGroupId: row.stackGroupId,
       stackLevel: row.stackLevel,
       notes: row.notes,
+      maintenanceUntil: row.maintenanceUntil
+        ? row.maintenanceUntil.toISOString().slice(0, 10)
+        : null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

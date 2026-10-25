@@ -10,7 +10,12 @@ import {
   Put,
   Req,
 } from '@nestjs/common';
-import { AdjustStockSchema, type ProductStockDto, SetStockSchema } from '@storageos/shared';
+import {
+  AdjustStockSchema,
+  type ProductStockDto,
+  type ProductStockMovementDto,
+  SetStockSchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -48,6 +53,15 @@ export class ProductStockController {
     @Param('productId', new ParseUUIDPipe()) productId: string,
   ): Promise<ProductStockDto[]> {
     return this.stock.listByProduct(user.tenantId, productId, user.facilityScope ?? null);
+  }
+
+  @RequirePermission('products:read')
+  @Get('movements')
+  async movements(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('productId', new ParseUUIDPipe()) productId: string,
+  ): Promise<ProductStockMovementDto[]> {
+    return this.stock.listMovements(user.tenantId, productId, user.facilityScope ?? null);
   }
 
   @RequirePermission('products:write')

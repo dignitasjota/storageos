@@ -1437,3 +1437,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Migración `20261112120000_crm_features` (se aplica sola): seguimientos y actividad de contactos, reparto y plazo de respuesta por tenant, enlaces y clics de campañas, plantillas de campaña, reseña en Google pedida y win-back en dos pasos.
 - Los enlaces de las campañas pasan por `API_BASE_URL` (`/v1/public/campaign-click/…`): tiene que ser la URL pública del API.
 - El aviso de contactos sin atender corre cada hora en el API; el reparto automático está apagado hasta que el tenant lo active en Leads → Atención.
+
+## 45. Inventario (2026-10-25)
+
+- Migración `20261113100000_inventory_features` (se aplica sola): movimientos y stock mínimo de productos, documentos de los locales y fecha prevista de mantenimiento.
+- Cron nuevo `facility-documents.expiry` (07:30, en el worker): avisa de los documentos de un local que caducan en 30 días.
+- Tras desplegar la PR de arreglos, las ventas en el mostrador piden la forma de pago: por defecto efectivo, con el cobro en su factura.

@@ -209,6 +209,18 @@ export class ProductSalesService {
           items: { create: itemsData },
         },
       });
+      for (const item of args.input.items) {
+        await this.stock.recordMovement(tx, {
+          tenantId: args.tenantId,
+          productId: item.productId,
+          facilityId: args.input.facilityId,
+          delta: -item.quantity,
+          quantityAfter: null,
+          kind: 'sale',
+          saleId: sale.id,
+          userId: args.userId,
+        });
+      }
       return sale.id;
     }, args.tenantId);
 
@@ -335,6 +347,17 @@ export class ProductSalesService {
           productId: item.productId,
           facilityId: existing.facilityId,
           quantity: item.quantity,
+        });
+        await this.stock.recordMovement(tx, {
+          tenantId: args.tenantId,
+          productId: item.productId,
+          facilityId: existing.facilityId,
+          delta: item.quantity,
+          quantityAfter: null,
+          kind: 'sale_cancelled',
+          saleId: args.id,
+          userId: args.userId,
+          reason: args.reason ?? null,
         });
       }
       await tx.productSale.update({

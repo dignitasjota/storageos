@@ -6,7 +6,13 @@ import { PrismaService } from '../database/prisma.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma, ProductStock } from '@storageos/database';
-import type { AdjustStockInput, ProductStockDto, SetStockInput } from '@storageos/shared';
+import type {
+  AdjustStockInput,
+  ProductStockDto,
+  ProductStockMovementDto,
+  SetStockInput,
+  StockMovementKind,
+} from '@storageos/shared';
 
 type StockWithRelations = ProductStock & {
   facility: { name: string };
@@ -90,7 +96,7 @@ export class ProductStockService {
           update: { quantity: { increment: args.input.delta } },
         });
       }
-      return tx.productStock.findUniqueOrThrow({
+      const row = await tx.productStock.findUniqueOrThrow({
         where: {
           productId_facilityId: {
             productId: args.productId,
@@ -99,6 +105,17 @@ export class ProductStockService {
         },
         include: { facility: { select: { name: true } } },
       });
+      await this.recordMovement(tx, {
+        tenantId: args.tenantId,
+        productId: args.productId,
+        facilityId: args.input.facilityId,
+        delta: args.input.delta,
+        quantityAfter: row.quantity,
+        kind: 'adjust',
+        reason: args.input.notes ?? null,
+        userId: args.userId,
+      });
+      return row;
     }, args.tenantId);
 
     await this.audit.write({
@@ -129,26 +146,44 @@ export class ProductStockService {
   }): Promise<ProductStockDto> {
     await this.assertProductExists(args.tenantId, args.productId);
     await this.assertFacility(args.tenantId, args.input.facilityId);
-    const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.productStock.upsert({
-          where: {
-            productId_facilityId: {
-              productId: args.productId,
-              facilityId: args.input.facilityId,
-            },
-          },
-          create: {
-            tenantId: args.tenantId,
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const before = await tx.productStock.findUnique({
+        where: {
+          productId_facilityId: { productId: args.productId, facilityId: args.input.facilityId },
+        },
+        select: { quantity: true },
+      });
+      const row = await tx.productStock.upsert({
+        where: {
+          productId_facilityId: {
             productId: args.productId,
             facilityId: args.input.facilityId,
-            quantity: args.input.quantity,
           },
-          update: { quantity: args.input.quantity },
-          include: { facility: { select: { name: true } } },
-        }),
-      args.tenantId,
-    );
+        },
+        create: {
+          tenantId: args.tenantId,
+          productId: args.productId,
+          facilityId: args.input.facilityId,
+          quantity: args.input.quantity,
+        },
+        update: { quantity: args.input.quantity },
+        include: { facility: { select: { name: true } } },
+      });
+      const delta = args.input.quantity - (before?.quantity ?? 0);
+      if (delta !== 0) {
+        await this.recordMovement(tx, {
+          tenantId: args.tenantId,
+          productId: args.productId,
+          facilityId: args.input.facilityId,
+          delta,
+          quantityAfter: row.quantity,
+          kind: 'set',
+          reason: args.input.notes ?? null,
+          userId: args.userId,
+        });
+      }
+      return row;
+    }, args.tenantId);
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -214,6 +249,72 @@ export class ProductStockService {
         quantity: args.quantity,
       },
       update: { quantity: { increment: args.quantity } },
+    });
+  }
+
+  /** Movimientos del producto (lo más reciente primero), con el alcance por local. */
+  async listMovements(
+    tenantId: string,
+    productId: string,
+    facilityScope?: string[] | null,
+  ): Promise<ProductStockMovementDto[]> {
+    await this.assertProductExists(tenantId, productId);
+    const facFilter = resolveFacilityFilter(facilityScope);
+    if (facFilter === null) return [];
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.productStockMovement.findMany({
+          where: { productId, ...(facFilter ? { facilityId: { in: facFilter } } : {}) },
+          include: {
+            facility: { select: { name: true } },
+            user: { select: { fullName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 200,
+        }),
+      tenantId,
+    );
+    return rows.map((m) => ({
+      id: m.id,
+      facilityId: m.facilityId,
+      facilityName: m.facility.name,
+      delta: m.delta,
+      quantityAfter: m.quantityAfter,
+      kind: m.kind as StockMovementKind,
+      reason: m.reason,
+      saleId: m.saleId,
+      userName: m.user?.fullName ?? null,
+      createdAt: m.createdAt.toISOString(),
+    }));
+  }
+
+  /** Apunta una entrada o salida de stock (en la misma transacción que el cambio). */
+  async recordMovement(
+    tx: Prisma.TransactionClient,
+    m: {
+      tenantId: string;
+      productId: string;
+      facilityId: string;
+      delta: number;
+      quantityAfter: number | null;
+      kind: StockMovementKind;
+      reason?: string | null;
+      saleId?: string | null;
+      userId?: string | null;
+    },
+  ): Promise<void> {
+    await tx.productStockMovement.create({
+      data: {
+        tenantId: m.tenantId,
+        productId: m.productId,
+        facilityId: m.facilityId,
+        delta: m.delta,
+        quantityAfter: m.quantityAfter,
+        kind: m.kind,
+        reason: m.reason ?? null,
+        saleId: m.saleId ?? null,
+        userId: m.userId ?? null,
+      },
     });
   }
 

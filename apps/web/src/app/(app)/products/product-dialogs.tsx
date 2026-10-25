@@ -27,7 +27,12 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useFacilities } from '@/lib/facilities/hooks';
-import { useProductStock, useSetStock, useUpdateProduct } from '@/lib/products/hooks';
+import {
+  useProductStock,
+  useSetStock,
+  useStockMovements,
+  useUpdateProduct,
+} from '@/lib/products/hooks';
 
 export const PRODUCT_TYPE_LABELS: Record<ProductTypeValue, string> = {
   lock: 'Candado',
@@ -54,6 +59,7 @@ export function EditProductDialog({
     price: '0',
     taxRate: '21',
     isActive: true,
+    minStock: '',
   });
 
   useEffect(() => {
@@ -66,6 +72,7 @@ export function EditProductDialog({
       price: String(product.price),
       taxRate: String(product.taxRate),
       isActive: product.isActive,
+      minStock: product.minStock != null ? String(product.minStock) : '',
     });
   }, [product]);
 
@@ -77,6 +84,11 @@ export function EditProductDialog({
       toast.error('Revisa el precio y el IVA.');
       return;
     }
+    const minStock = form.minStock.trim() === '' ? null : Number(form.minStock);
+    if (minStock !== null && (!Number.isInteger(minStock) || minStock < 0)) {
+      toast.error('El stock mínimo tiene que ser un número entero.');
+      return;
+    }
     try {
       await update.mutateAsync({
         sku: form.sku.trim(),
@@ -86,6 +98,7 @@ export function EditProductDialog({
         price,
         taxRate,
         isActive: form.isActive,
+        minStock,
       });
       toast.success('Producto actualizado.');
       onClose();
@@ -168,6 +181,20 @@ export function EditProductDialog({
               />
             </div>
           </div>
+          <div className="space-y-1">
+            <Label htmlFor="ep-min">Stock mínimo por local (opcional)</Label>
+            <Input
+              id="ep-min"
+              type="number"
+              min={0}
+              className="w-32"
+              value={form.minStock}
+              onChange={(e) => setForm((f) => ({ ...f, minStock: e.target.value }))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Si en un local baja de aquí, sale en «Hoy» para reponerlo.
+            </p>
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
               checked={form.isActive}
@@ -224,6 +251,7 @@ export function ProductStockDialog({
   }
 
   const byFacility = new Map((stock.data ?? []).map((r) => [r.facilityId, r.quantity]));
+  const movements = useStockMovements(product?.id);
 
   return (
     <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
@@ -271,6 +299,39 @@ export function ProductStockDialog({
             })}
           </ul>
         )}
+        {(movements.data ?? []).length > 0 && (
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Movimientos</p>
+            <ul className="max-h-56 space-y-1 overflow-y-auto text-sm">
+              {(movements.data ?? []).map((m) => (
+                <li key={m.id} className="flex flex-wrap justify-between gap-x-3 border-b py-1">
+                  <span className="text-muted-foreground">
+                    {new Date(m.createdAt).toLocaleString('es-ES', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}{' '}
+                    · {m.facilityName} · {MOVEMENT_LABELS[m.kind]}
+                    {m.reason ? ` · ${m.reason}` : ''}
+                    {m.userName ? ` · ${m.userName}` : ''}
+                  </span>
+                  <span
+                    className={
+                      m.delta < 0
+                        ? 'font-medium text-rose-700 dark:text-rose-400'
+                        : 'font-medium text-emerald-700 dark:text-emerald-400'
+                    }
+                  >
+                    {m.delta > 0 ? '+' : ''}
+                    {m.delta}
+                    {m.quantityAfter !== null ? ` → ${m.quantityAfter}` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cerrar
@@ -280,3 +341,10 @@ export function ProductStockDialog({
     </Dialog>
   );
 }
+
+const MOVEMENT_LABELS: Record<string, string> = {
+  adjust: 'Ajuste',
+  set: 'Recuento',
+  sale: 'Venta',
+  sale_cancelled: 'Venta cancelada',
+};

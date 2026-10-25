@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { UnitInsightsCard } from './unit-insights-card';
 import { UnitReservationCard } from './unit-reservation-card';
 
 import { StatusBadge } from '@/components/status-badge';
@@ -39,6 +40,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { ChangeUnitStatusDialog } from '@/components/units/change-status-dialog';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useContracts } from '@/lib/customers/hooks';
@@ -68,6 +70,7 @@ export default function UnitDetailPage() {
   const contracts = useContracts(id ? { unitId: id } : {});
   const canWrite = useHasPermission('units:write');
   const [editOpen, setEditOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
 
   if (unit.isLoading || !unit.data) {
     return (
@@ -97,9 +100,16 @@ export default function UnitDetailPage() {
             <StatusBadge status={u.status} />
           </div>
           {canWrite && (
-            <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-              <Pencil className="mr-1 h-4 w-4" /> Editar trastero
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {u.status !== 'occupied' && (
+                <Button variant="outline" size="sm" onClick={() => setStatusOpen(true)}>
+                  Cambiar estado
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                <Pencil className="mr-1 h-4 w-4" /> Editar trastero
+              </Button>
+            </div>
           )}
         </div>
         <p className="text-sm text-muted-foreground">
@@ -119,6 +129,12 @@ export default function UnitDetailPage() {
           <div className="flex items-center gap-2">
             <StatusBadge status={u.status} />
             <span className="text-sm text-muted-foreground">{STATUS_LABELS[u.status]}</span>
+            {u.status === 'maintenance' && u.maintenanceUntil && (
+              <span className="text-sm text-muted-foreground">
+                · vuelve previsto el{' '}
+                {new Date(`${u.maintenanceUntil}T00:00:00`).toLocaleDateString('es-ES')}
+              </span>
+            )}
           </div>
           {activeContract ? (
             <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-3">
@@ -192,6 +208,8 @@ export default function UnitDetailPage() {
         </Card>
       </div>
 
+      <UnitInsightsCard unitId={u.id} />
+
       <Card>
         <CardHeader>
           <CardTitle>Historial de estados</CardTitle>
@@ -224,6 +242,7 @@ export default function UnitDetailPage() {
       </Card>
 
       <EditUnitDialog unit={u} rented={isRented} open={editOpen} onOpenChange={setEditOpen} />
+      <ChangeUnitStatusDialog unit={statusOpen ? u : null} onClose={() => setStatusOpen(false)} />
     </div>
   );
 }

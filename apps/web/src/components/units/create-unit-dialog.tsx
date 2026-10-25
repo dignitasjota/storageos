@@ -1,10 +1,10 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { type CreateUnitInput, CreateUnitSchema } from '@storageos/shared';
+import { type CreateUnitInput, CreateUnitSchema, type UnitDto } from '@storageos/shared';
 import { Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -44,13 +44,26 @@ const DIMENSIONS = { widthM: 2, depthM: 2, heightM: 2.5 };
  */
 export function CreateUnitDialog({
   facilityId,
+  floorId,
   onGoToTypes,
+  open: controlledOpen,
+  onOpenChange,
+  onCreated,
 }: {
   facilityId?: string;
+  /** Planta fija (p. ej. al crearlo desde el plano). */
+  floorId?: string;
   /** Sin tipos de trastero no se puede crear: a dónde llevar al usuario. */
   onGoToTypes?: () => void;
+  /** Modo controlado (sin botón): se abre desde fuera y se cierra al crear uno. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onCreated?: (unit: UnitDto) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : ownOpen;
+  const setOpen = (o: boolean) => (controlled ? onOpenChange?.(o) : setOwnOpen(o));
   const facilities = useFacilities();
   const types = useUnitTypes();
   const create = useCreateUnit();
@@ -58,6 +71,7 @@ export function CreateUnitDialog({
   const firstFacility = facilities.data?.[0]?.id;
   const defaults = (): Partial<CreateUnitInput> => ({
     ...(facilityId ? { facilityId } : {}),
+    ...(floorId ? { floorId } : {}),
     code: '',
     ...DIMENSIONS,
   });
@@ -66,6 +80,11 @@ export function CreateUnitDialog({
     resolver: zodResolver(CreateUnitSchema),
     defaultValues: defaults(),
   });
+  // Abierto desde fuera: empieza en blanco cada vez.
+  useEffect(() => {
+    if (controlled && controlledOpen) form.reset(defaults());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controlled, controlledOpen]);
   const chosenFacility = form.watch('facilityId') ?? facilityId;
   const floors = useFloors(open ? chosenFacility : undefined);
   const floorList = floors.data ?? [];
@@ -101,8 +120,19 @@ export function CreateUnitDialog({
 
   async function onSubmit(values: CreateUnitInput) {
     try {
-      await create.mutateAsync({ ...values, ...(facilityId ? { facilityId } : {}) });
+      const unit = await create.mutateAsync({
+        ...values,
+        ...(facilityId ? { facilityId } : {}),
+        ...(floorId ? { floorId } : {}),
+      });
       toast.success(`Trastero ${values.code} creado.`);
+      if (onCreated) {
+        onCreated(unit);
+        if (controlled) {
+          setOpen(false);
+          return;
+        }
+      }
       form.reset({
         facilityId: facilityId ?? values.facilityId,
         ...(values.floorId ? { floorId: values.floorId } : {}),
@@ -135,11 +165,13 @@ export function CreateUnitDialog({
         }
       }}
     >
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="mr-1 h-4 w-4" /> Nuevo trastero
-        </Button>
-      </DialogTrigger>
+      {!controlled && (
+        <DialogTrigger asChild>
+          <Button>
+            <Plus className="mr-1 h-4 w-4" /> Nuevo trastero
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Nuevo trastero</DialogTitle>
@@ -172,7 +204,7 @@ export function CreateUnitDialog({
                 )}
               />
             )}
-            {floorList.length > 1 && (
+            {!floorId && floorList.length > 1 && (
               <FormField
                 control={form.control}
                 name="floorId"

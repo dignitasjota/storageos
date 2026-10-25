@@ -5,6 +5,7 @@ import {
   type CreateFacilityInput,
   CreateFacilitySchema,
   type FacilityDto,
+  type FacilitySummaryDto,
 } from '@storageos/shared';
 import { Building2, Loader2, MapPin, MoreHorizontal, Plus } from 'lucide-react';
 import Link from 'next/link';
@@ -40,8 +41,10 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCreateFacility, useDeleteFacility, useFacilities } from '@/lib/facilities/hooks';
+import { useFacilitySummary } from '@/lib/facilities/inventory-hooks';
+import { formatEur, formatNumber } from '@/lib/format';
 
 function barColor(pct: number): string {
   if (pct >= 85) return '#16a34a';
@@ -53,6 +56,12 @@ function barColor(pct: number): string {
 export default function FacilitiesPage() {
   const ask = useConfirm();
   const facilities = useFacilities();
+  const summaries = useFacilitySummary();
+  const summaryOf = useMemo(
+    () => new Map((summaries.data ?? []).map((x) => [x.facilityId, x])),
+    [summaries.data],
+  );
+  const hasOwners = useHasFeature('multi_owner');
   const canManage = useHasPermission('facilities:manage');
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -220,7 +229,14 @@ export default function FacilitiesPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((f) => (
-            <FacilityCard key={f.id} facility={f} canManage={canManage} onDelete={handleDelete} />
+            <FacilityCard
+              key={f.id}
+              facility={f}
+              summary={summaryOf.get(f.id) ?? null}
+              showOwner={hasOwners}
+              canManage={canManage}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}
@@ -241,10 +257,14 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
 
 function FacilityCard({
   facility: f,
+  summary,
+  showOwner,
   canManage,
   onDelete,
 }: {
   facility: FacilityDto;
+  summary: FacilitySummaryDto | null;
+  showOwner: boolean;
   canManage: boolean;
   onDelete: (id: string) => void;
 }) {
@@ -267,11 +287,10 @@ function FacilityCard({
               <Building2 className="size-10 text-primary/40" />
             </div>
           )}
-          {!f.isActive && (
-            <Badge variant="secondary" className="absolute left-2 top-2">
-              Inactivo
-            </Badge>
-          )}
+          <div className="absolute left-2 top-2 flex flex-wrap gap-1">
+            {!f.isActive && <Badge variant="secondary">Inactivo</Badge>}
+            {showOwner && !f.ownerId && <Badge variant="secondary">Sin propietario</Badge>}
+          </div>
         </div>
       </Link>
       <CardContent className="space-y-3 p-4">
@@ -330,6 +349,34 @@ function FacilityCard({
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">Sin trasteros todavía</p>
+        )}
+        {summary && f.unitsTotal > 0 && (
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            <dt className="text-muted-foreground">Cuotas al mes</dt>
+            <dd className="text-right font-medium tabular-nums">{formatEur(summary.mrr)}</dd>
+            <dt className="text-muted-foreground">Cuota media</dt>
+            <dd className="text-right tabular-nums">
+              {summary.avgPrice === null ? '—' : formatEur(summary.avgPrice)}
+            </dd>
+            <dt className="text-muted-foreground">Facturado este mes</dt>
+            <dd className="text-right tabular-nums">{formatEur(summary.invoicedMonth)}</dd>
+            <dt className="text-muted-foreground">m² alquilados</dt>
+            <dd className="text-right tabular-nums">
+              {formatNumber(summary.occupiedM2)} / {formatNumber(summary.totalM2)}
+            </dd>
+            {summary.longestVacantDays !== null && (
+              <>
+                <dt className="text-muted-foreground">Más tiempo libre</dt>
+                <dd className="text-right tabular-nums">{summary.longestVacantDays} días</dd>
+              </>
+            )}
+            {summary.outOfService > 0 && (
+              <>
+                <dt className="text-muted-foreground">Fuera de servicio</dt>
+                <dd className="text-right tabular-nums">{summary.outOfService}</dd>
+              </>
+            )}
+          </dl>
         )}
       </CardContent>
     </Card>
