@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { LEAD_SOURCE_SUGGESTIONS, leadSourceLabel } from '@storageos/shared';
+import { LEAD_SOURCE_SUGGESTIONS, leadScore, leadSourceLabel } from '@storageos/shared';
 
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
@@ -845,6 +845,18 @@ export class LeadsService {
   private toDto(l: LeadWithIncludes): LeadDto {
     const displayName =
       l.companyName ?? `${l.firstName ?? ''} ${l.lastName ?? ''}`.trim() ?? 'Lead';
+    const scored = leadScore({
+      status: l.status,
+      source: l.source,
+      email: l.email,
+      phone: l.phone,
+      message: l.message,
+      preferredFacilityId: l.preferredFacilityId,
+      preferredUnitTypeId: l.preferredUnitTypeId,
+      preferredStartDate: l.preferredStartDate?.toISOString().slice(0, 10) ?? null,
+      budgetMonthly: l.budgetMonthly ? Number(l.budgetMonthly) : null,
+      createdAt: l.createdAt.toISOString(),
+    });
     return {
       id: l.id,
       marketingConsentAt: l.marketingConsentAt?.toISOString() ?? null,
@@ -879,6 +891,8 @@ export class LeadsService {
       utmSource: l.utmSource,
       utmMedium: l.utmMedium,
       utmCampaign: l.utmCampaign,
+      score: scored.score,
+      scoreReasons: scored.reasons,
       createdAt: l.createdAt.toISOString(),
       updatedAt: l.updatedAt.toISOString(),
     };

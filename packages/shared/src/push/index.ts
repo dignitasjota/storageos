@@ -26,6 +26,8 @@ export interface PushPublicKeyDto {
  */
 export const STAFF_PUSH_TYPES: Record<string, string> = {
   'lead.created': 'Contacto nuevo desde la web',
+  'lead.unattended': 'Un contacto lleva tiempo sin atender',
+  'lead.assigned': 'Te han asignado un contacto',
   'customer.message': 'Mensaje de un inquilino',
   'support.reply': 'Soporte de TrasterOS te ha respondido',
   'whatsapp.message': 'Mensaje de WhatsApp',

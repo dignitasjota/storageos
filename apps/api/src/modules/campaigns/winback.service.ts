@@ -1,7 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
   DEFAULT_WINBACK_BODY,
+  DEFAULT_WINBACK_SECOND_BODY,
+  DEFAULT_WINBACK_SECOND_SUBJECT,
   DEFAULT_WINBACK_SUBJECT,
+  type WinbackStatsDto,
   type UpdateWinbackSettingsInput,
   type WinbackRunResultDto,
   type WinbackSettingsResponse,
@@ -49,6 +52,11 @@ export class WinbackService {
         winbackDelayDays: true,
         winbackSubject: true,
         winbackBodyText: true,
+        winbackSecondEnabled: true,
+        winbackSecondDelayDays: true,
+        winbackSecondSubject: true,
+        winbackSecondBodyText: true,
+        winbackSecondCouponCode: true,
       },
     });
     return {
@@ -56,6 +64,11 @@ export class WinbackService {
       delayDays: t.winbackDelayDays,
       subject: t.winbackSubject,
       bodyText: t.winbackBodyText,
+      secondEnabled: t.winbackSecondEnabled,
+      secondDelayDays: t.winbackSecondDelayDays,
+      secondSubject: t.winbackSecondSubject,
+      secondBodyText: t.winbackSecondBodyText,
+      secondCouponCode: t.winbackSecondCouponCode,
     };
   }
 
@@ -68,6 +81,33 @@ export class WinbackService {
     if (input.delayDays !== undefined) data.winbackDelayDays = input.delayDays;
     if (input.subject !== undefined) data.winbackSubject = input.subject || null;
     if (input.bodyText !== undefined) data.winbackBodyText = input.bodyText || null;
+    if (input.secondEnabled !== undefined) data.winbackSecondEnabled = input.secondEnabled;
+    if (input.secondDelayDays !== undefined) data.winbackSecondDelayDays = input.secondDelayDays;
+    if (input.secondSubject !== undefined) data.winbackSecondSubject = input.secondSubject || null;
+    if (input.secondBodyText !== undefined) {
+      data.winbackSecondBodyText = input.secondBodyText || null;
+    }
+    if (input.secondCouponCode !== undefined) {
+      const code = input.secondCouponCode.trim().toUpperCase();
+      if (code) await this.assertUsableCoupon(tenantId, code);
+      data.winbackSecondCouponCode = code || null;
+    }
+    if (input.secondEnabled) {
+      const current = await this.admin.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: { winbackSecondCouponCode: true },
+      });
+      const code =
+        input.secondCouponCode !== undefined
+          ? input.secondCouponCode.trim()
+          : current.winbackSecondCouponCode;
+      if (!code) {
+        throw new BadRequestException({
+          code: 'winback_coupon_required',
+          message: 'Elige el cupón que se ofrece en el segundo aviso',
+        });
+      }
+    }
     if (Object.keys(data).length > 0) {
       await this.admin.tenant.update({ where: { id: tenantId }, data });
     }
@@ -89,7 +129,7 @@ export class WinbackService {
         winbackBodyText: true,
       },
     });
-    if (!t || !t.winbackEnabled) return { sent: 0 };
+    if (!t || !t.winbackEnabled) return { sent: 0, secondSent: 0 };
 
     const now = Date.now();
     const thresholdBefore = new Date(now - t.winbackDelayDays * DAY_MS); // se fue hace >= delay
@@ -191,7 +231,167 @@ export class WinbackService {
       }
     }
     if (sent > 0) this.logger.log(`[winback] tenant=${tenantId}: ${sent} oferta(s) de vuelta`);
-    return { sent };
+    const secondSent = await this.runSecondStep(tenantId, t.name, force);
+    return { sent, secondSent };
+  }
+
+  /**
+   * Segundo aviso, con cupón, a quien recibió el primero hace `secondDelayDays`
+   * y sigue sin volver. Una sola vez por cliente (`winback_sends.step = 2`).
+   */
+  private async runSecondStep(tenantId: string, tenantName: string, force: boolean) {
+    const t = await this.admin.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: {
+        winbackSecondEnabled: true,
+        winbackSecondDelayDays: true,
+        winbackSecondSubject: true,
+        winbackSecondBodyText: true,
+        winbackSecondCouponCode: true,
+      },
+    });
+    if (!t.winbackSecondEnabled || !t.winbackSecondCouponCode) return 0;
+    const coupon = await this.admin.coupon.findFirst({
+      where: { tenantId, code: t.winbackSecondCouponCode, isActive: true },
+      select: { code: true, validUntil: true },
+    });
+    if (!coupon || (coupon.validUntil && coupon.validUntil < new Date())) {
+      this.logger.warn(`[winback] tenant=${tenantId}: el cupón del segundo aviso no está activo`);
+      return 0;
+    }
+    const before = new Date(Date.now() - t.winbackSecondDelayDays * DAY_MS);
+    const after = force ? null : new Date(before.getTime() - WINBACK_WINDOW_DAYS * DAY_MS);
+    const candidates = await this.prisma.withTenant(
+      (tx) =>
+        tx.customer.findMany({
+          where: {
+            deletedAt: null,
+            email: { not: null },
+            marketingOptOutAt: null,
+            contracts: { none: { status: { in: ['active', 'ending'] }, deletedAt: null } },
+            AND: [
+              {
+                winbackSends: {
+                  some: {
+                    step: 1,
+                    sentAt: { lte: before, ...(after ? { gte: after } : {}) },
+                  },
+                },
+              },
+              { winbackSends: { none: { step: 2 } } },
+            ],
+          },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            companyName: true,
+            customerType: true,
+            email: true,
+          },
+        }),
+      tenantId,
+    );
+    const subjectTpl = t.winbackSecondSubject || DEFAULT_WINBACK_SECOND_SUBJECT;
+    const bodyTpl = (t.winbackSecondBodyText || DEFAULT_WINBACK_SECOND_BODY).replace(
+      /\{\{\s*coupon\.code\s*\}\}/g,
+      coupon.code,
+    );
+    let sent = 0;
+    for (const c of candidates) {
+      if (!c.email) continue;
+      try {
+        await this.prisma.withTenant(
+          (tx) => tx.winbackSend.create({ data: { tenantId, customerId: c.id, step: 2 } }),
+          tenantId,
+        );
+      } catch {
+        continue;
+      }
+      const scope = {
+        customer: {
+          firstName: c.firstName ?? '',
+          lastName: c.lastName ?? '',
+          displayName: this.displayName(c),
+        },
+        tenant: { name: tenantName },
+      };
+      try {
+        await this.communications.enqueue({
+          tenantId,
+          channel: 'email',
+          recipient: c.email,
+          subject: renderText(subjectTpl, scope, MANUAL_WHITELIST),
+          bodyText: renderText(bodyTpl, scope, MANUAL_WHITELIST),
+          customerId: c.id,
+          source: 'winback.second',
+          marketing: true,
+        });
+        sent += 1;
+      } catch (err) {
+        this.logger.warn(
+          `[winback] 2º aviso ${c.email} falló: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return sent;
+  }
+
+  /** Cuántos recibieron el win-back y cuántos volvieron a firmar después. */
+  async stats(tenantId: string): Promise<WinbackStatsDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const sends = await tx.winbackSend.findMany({
+        select: { customerId: true, step: true, sentAt: true },
+      });
+      const first = new Map<string, Date>();
+      let secondSent = 0;
+      for (const s of sends) {
+        if (s.step === 1) first.set(s.customerId, s.sentAt);
+        else secondSent += 1;
+      }
+      let recovered = 0;
+      if (first.size > 0) {
+        const signed = await tx.contract.findMany({
+          where: {
+            customerId: { in: [...first.keys()] },
+            signedAt: { not: null },
+            deletedAt: null,
+          },
+          select: { customerId: true, signedAt: true },
+        });
+        const back = new Set<string>();
+        for (const c of signed) {
+          const at = first.get(c.customerId);
+          if (at && c.signedAt && c.signedAt > at) back.add(c.customerId);
+        }
+        recovered = back.size;
+      }
+      return {
+        firstSent: first.size,
+        secondSent,
+        recovered,
+        recoveryRate: first.size ? Math.round((recovered / first.size) * 1000) / 10 : null,
+      };
+    }, tenantId);
+  }
+
+  private async assertUsableCoupon(tenantId: string, code: string): Promise<void> {
+    const coupon = await this.admin.coupon.findFirst({
+      where: { tenantId, code },
+      select: { isActive: true, newCustomersOnly: true },
+    });
+    if (!coupon || !coupon.isActive) {
+      throw new BadRequestException({
+        code: 'coupon_not_found',
+        message: 'No hay ningún cupón activo con ese código',
+      });
+    }
+    if (coupon.newCustomersOnly) {
+      throw new BadRequestException({
+        code: 'coupon_new_customers_only',
+        message: 'Ese cupón es solo para clientes nuevos y un ex-cliente no podría usarlo',
+      });
+    }
   }
 
   /** Ejecución cross-tenant (cron): todos los tenants con la feature activa. */
@@ -203,7 +403,8 @@ export class WinbackService {
     let sent = 0;
     for (const t of tenants) {
       try {
-        sent += (await this.runForTenant(t.id)).sent;
+        const res = await this.runForTenant(t.id);
+        sent += res.sent + res.secondSent;
       } catch (err) {
         this.logger.warn(
           `[winback] tenant ${t.id}: ${err instanceof Error ? err.message : String(err)}`,

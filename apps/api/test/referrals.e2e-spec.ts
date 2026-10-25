@@ -145,6 +145,19 @@ describe('Referrals (e2e)', () => {
     // La recompensa es un descuento en la siguiente factura (ya no un código).
     expect(converted?.rewardCode).toBeNull();
     expect(converted?.reward).toMatchObject({ type: 'fixed', value: 15, appliedAt: null });
+    // El que recomienda recibe un correo con su recompensa.
+    let rewardMail = 0;
+    for (let i = 0; i < 20 && rewardMail === 0; i++) {
+      const comms = await request(app.getHttpServer())
+        .get('/communications')
+        .query({ customerId: referrerId })
+        .set('Authorization', `Bearer ${owner.accessToken}`);
+      rewardMail = comms.body.filter(
+        (c: { source: string }) => c.source === 'referrals.reward',
+      ).length;
+      if (rewardMail === 0) await sleep(200);
+    }
+    expect(rewardMail).toBe(1);
 
     // La siguiente factura recurrente del referidor lleva el descuento.
     await app.get(BillingJobsService).processGenerateRecurring({

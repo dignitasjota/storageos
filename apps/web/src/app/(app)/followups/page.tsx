@@ -8,6 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDeleteFollowup, useFollowupsPending, useUpdateFollowup } from '@/lib/followups/hooks';
+import {
+  useDeleteLeadFollowup,
+  usePendingLeadFollowups,
+  useUpdateLeadFollowup,
+} from '@/lib/leads/hooks';
 
 function dueLabel(iso: string): { text: string; tone: string } {
   const today = new Date();
@@ -30,7 +35,8 @@ export default function FollowupsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Seguimientos</h1>
         <p className="text-sm text-muted-foreground">
-          Tus recordatorios sobre inquilinos (llamadas, renovaciones…), los más urgentes primero.
+          Tus recordatorios sobre inquilinos y contactos (llamadas, renovaciones…), los más urgentes
+          primero.
         </p>
       </div>
 
@@ -94,6 +100,71 @@ export default function FollowupsPage() {
           )}
         </CardContent>
       </Card>
+      <LeadFollowupsCard />
     </div>
+  );
+}
+
+function LeadFollowupsCard() {
+  const { data, isLoading } = usePendingLeadFollowups();
+  const update = useUpdateLeadFollowup();
+  const remove = useDeleteLeadFollowup();
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Contactos</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-12" />
+        ) : (data ?? []).length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Sin seguimientos de contactos pendientes.
+          </p>
+        ) : (
+          <ul className="divide-y">
+            {(data ?? []).map((f) => {
+              const due = dueLabel(f.dueDate);
+              return (
+                <li key={f.id} className="flex items-center gap-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{f.title}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      <Link href={`/leads?lead=${f.leadId}`} className="hover:underline">
+                        {f.leadName}
+                      </Link>
+                      {f.note ? ` · ${f.note}` : ''}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 text-xs ${due.tone}`}>{due.text}</span>
+                  <Can permission="leads:write">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 text-muted-foreground hover:text-emerald-600"
+                      title="Marcar hecho"
+                      onClick={() => update.mutate({ id: f.id, status: 'done' })}
+                      aria-label="Marcar como hecho"
+                    >
+                      <Check className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                      title="Borrar"
+                      onClick={() => remove.mutate(f.id)}
+                      aria-label="Eliminar"
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </Can>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }

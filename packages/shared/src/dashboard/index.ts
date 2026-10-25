@@ -27,6 +27,10 @@ export interface TodayDto {
   tasksDue: { count: number; items: TodayItemDto[] };
   /** Seguimientos CRM (customer_followups) vencidos o para hoy. */
   followupsDue: { count: number; items: TodayItemDto[] };
+  /** Seguimientos de contactos (lead_followups) vencidos o para hoy. */
+  leadFollowupsDue: { count: number; items: TodayItemDto[] };
+  /** Contactos nuevos que llevan más del plazo sin atender. */
+  unattendedLeads: { count: number; items: TodayItemDto[] };
   /** Leads nuevos sin contactar. */
   newLeads: { count: number; items: TodayItemDto[] };
   /** Contratos con firma solicitada aún sin firmar (token vigente). */

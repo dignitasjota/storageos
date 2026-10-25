@@ -410,9 +410,56 @@ export class TodayService {
         date: c.signingTokenExpiresAt ? c.signingTokenExpiresAt.toISOString() : null,
       }));
 
+      const responseHours =
+        (
+          await tx.tenant.findFirst({
+            where: { id: tenantId },
+            select: { leadResponseHours: true },
+          })
+        )?.leadResponseHours ?? 4;
+      const unattendedWhere = {
+        status: 'new' as const,
+        contactedAt: null,
+        deletedAt: null,
+        createdAt: { lte: new Date(Date.now() - responseHours * 3_600_000) },
+      };
+      const [leadFollowups, leadFollowupsCount, unattended, unattendedCount] = await Promise.all([
+        tx.leadFollowup.findMany({
+          where: { status: 'pending', dueDate: { lte: endOfToday }, lead: { deletedAt: null } },
+          orderBy: [{ dueDate: 'asc' }],
+          take: TAKE,
+          include: { lead: { select: { firstName: true, lastName: true, companyName: true } } },
+        }),
+        tx.leadFollowup.count({
+          where: { status: 'pending', dueDate: { lte: endOfToday }, lead: { deletedAt: null } },
+        }),
+        tx.lead.findMany({
+          where: unattendedWhere,
+          orderBy: [{ createdAt: 'asc' }],
+          take: TAKE,
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            companyName: true,
+            source: true,
+            createdAt: true,
+          },
+        }),
+        tx.lead.count({ where: unattendedWhere }),
+      ]);
+      const leadLabel = (l: {
+        firstName: string | null;
+        lastName: string | null;
+        companyName: string | null;
+      }) =>
+        l.companyName || [l.firstName, l.lastName].filter(Boolean).join(' ').trim() || 'Contacto';
+
       const urgentCount =
         tasksCount +
         followupsCount +
+        leadFollowupsCount +
+        unattendedCount +
         moveInsCount +
         moveOutsCount +
         dueTodayCount +
@@ -434,6 +481,28 @@ export class TodayService {
         moveOutsToday: { count: moveOutsCount, items: moveOuts.map((c) => contractItem(c)) },
         tasksDue: { count: tasksCount, items: taskItems },
         followupsDue: { count: followupsCount, items: followupItems },
+        leadFollowupsDue: {
+          count: leadFollowupsCount,
+          items: leadFollowups.map((f) => ({
+            id: f.id,
+            label: f.title,
+            detail: leadLabel(f.lead),
+            date: f.dueDate.toISOString(),
+            overdue: f.dueDate < startOfToday,
+            linkId: f.leadId,
+          })),
+        },
+        unattendedLeads: {
+          count: unattendedCount,
+          items: unattended.map((l) => ({
+            id: l.id,
+            label: leadLabel(l),
+            detail: l.source,
+            date: l.createdAt.toISOString(),
+            overdue: true,
+            linkId: l.id,
+          })),
+        },
         newLeads: { count: leadsCount, items: leadItems },
         signaturesPending: { count: signaturesCount, items: signatureItems },
         contractsEndingSoon: {

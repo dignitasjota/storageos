@@ -8,11 +8,13 @@ import {
   type LeadStatusValue,
   leadSourceLabel,
 } from '@storageos/shared';
-import { Loader2, Pencil, Plus, UserPlus } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { Copy, Gauge, Loader2, Pencil, Plus, Timer, UserPlus } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { LeadActivity } from './lead-activity';
 import { LeadConversation } from './lead-conversation';
 import { LeadQuote } from './lead-quote';
 
@@ -39,6 +41,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
+import { apiFetch } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useConvertLead,
@@ -60,6 +63,14 @@ const COLUMNS: { status: LeadStatusValue; label: string }[] = [
 ];
 
 export default function LeadsPage() {
+  return (
+    <Suspense fallback={null}>
+      <LeadsBoard />
+    </Suspense>
+  );
+}
+
+function LeadsBoard() {
   const ask = useConfirm();
   const transition = useTransitionLead();
   const convert = useConvertLead();
@@ -70,6 +81,21 @@ export default function LeadsPage() {
   const [editing, setEditing] = useState<LeadDto | null>(null);
   // Pasar a «Perdidos» pide el motivo (dato para precios e informes).
   const [losing, setLosing] = useState<string | null>(null);
+  // `/leads?lead=<id>` (desde «Hoy» y los avisos) abre la ficha del contacto.
+  const params = useSearchParams();
+  const openId = params.get('lead');
+  useEffect(() => {
+    if (!openId) return;
+    let cancelled = false;
+    apiFetch<LeadDto>(`/leads/${openId}`)
+      .then((lead) => {
+        if (!cancelled) setEditing(lead);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [openId]);
 
   async function onConvert(lead: LeadDto) {
     if (
@@ -99,11 +125,23 @@ export default function LeadsPage() {
             el selector de cada tarjeta.
           </p>
         </div>
-        {canWrite && (
-          <Button onClick={() => setNewOpen(true)}>
-            <Plus className="mr-1 h-4 w-4" /> Nuevo lead
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/leads/response">
+              <Timer className="mr-1 h-4 w-4" /> Atención
+            </Link>
           </Button>
-        )}
+          <Button variant="outline" asChild>
+            <Link href="/leads/duplicates">
+              <Copy className="mr-1 h-4 w-4" /> Duplicados
+            </Link>
+          </Button>
+          {canWrite && (
+            <Button onClick={() => setNewOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" /> Nuevo lead
+            </Button>
+          )}
+        </div>
       </div>
 
       {newOpen && <LeadFormDialog onClose={() => setNewOpen(false)} />}
@@ -172,7 +210,11 @@ function LeadsColumn({
   onConvert: (lead: LeadDto) => void;
 }) {
   const leads = usePagedList<LeadDto>('leads', '/leads', { status });
-  const items = leads.rows;
+  // Los abiertos, de más a menos probables de alquilar.
+  const items =
+    status === 'won' || status === 'lost'
+      ? leads.rows
+      : [...leads.rows].sort((a, b) => b.score - a.score);
   return (
     <Card
       className="min-h-[320px]"
@@ -244,7 +286,27 @@ function LeadCard({
       onDragStart={onDragStart}
       className="rounded-md border bg-card p-3 text-sm shadow-sm hover:shadow-md md:cursor-grab"
     >
-      <div className="font-medium">{lead.displayName}</div>
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-medium">{lead.displayName}</span>
+        {lead.status !== 'won' && lead.status !== 'lost' && (
+          <span
+            title={
+              lead.scoreReasons.length
+                ? `Probabilidad de alquilar: ${lead.scoreReasons.join(' · ')}`
+                : 'Probabilidad de alquilar'
+            }
+            className={`inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+              lead.score >= 60
+                ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+                : lead.score >= 35
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                  : 'bg-muted text-muted-foreground'
+            }`}
+          >
+            <Gauge className="h-3 w-3" aria-hidden /> {lead.score}
+          </span>
+        )}
+      </div>
       {lead.email && <div className="truncate text-xs text-muted-foreground">{lead.email}</div>}
       {/* Contacto + origen en una sola línea para ocupar menos. El local asignado
           no se muestra aquí (se ve/edita en «Editar»). */}
@@ -561,6 +623,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
           )}
         </div>
         {isEdit && lead && <LeadQuote lead={lead} />}
+        {isEdit && lead && <LeadActivity lead={lead} />}
         {isEdit && lead && <LeadConversation lead={lead} />}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>

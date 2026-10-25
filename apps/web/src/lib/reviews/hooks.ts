@@ -36,6 +36,16 @@ export function usePublishReview() {
   });
 }
 
+/** Pide al autor de una valoración publicada que la deje en Google. */
+export function useRequestGoogleReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<ReviewDto>(`/reviews/${id}/google-request`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: reviewsKey }),
+  });
+}
+
 export function useReviewStats() {
   return useQuery({
     queryKey: reviewStatsKey,

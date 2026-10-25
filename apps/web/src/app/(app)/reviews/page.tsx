@@ -35,6 +35,7 @@ import { formatDate } from '@/lib/format';
 import {
   useRequestReview,
   usePublishReview,
+  useRequestGoogleReview,
   useReviews,
   useReviewStats,
   useReviewsSettings,
@@ -184,6 +185,7 @@ function StatCard({
 function ReviewRow({ review, canPublish }: { review: ReviewDto; canPublish: boolean }) {
   const s = STATUS_LABELS[review.status];
   const publish = usePublishReview();
+  const google = useRequestGoogleReview();
   const publishable = review.status === 'submitted' && !!review.comment?.trim();
   return (
     <tr className="border-b last:border-b-0">
@@ -246,6 +248,31 @@ function ReviewRow({ review, canPublish }: { review: ReviewDto; canPublish: bool
           </label>
         ) : (
           <span className="text-muted-foreground">—</span>
+        )}
+        {review.publishedOnWeb && (
+          <div className="mt-1 text-xs">
+            {review.googleRequestedAt ? (
+              <span className="text-muted-foreground">
+                Reseña en Google pedida el {formatDate(review.googleRequestedAt)}
+              </span>
+            ) : canPublish ? (
+              <button
+                type="button"
+                className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                disabled={google.isPending}
+                onClick={async () => {
+                  try {
+                    await google.mutateAsync(review.id);
+                    toast.success('Le hemos pedido que la deje también en Google.');
+                  } catch (err) {
+                    toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar');
+                  }
+                }}
+              >
+                Pedir reseña en Google
+              </button>
+            ) : null}
+          </div>
         )}
       </td>
     </tr>

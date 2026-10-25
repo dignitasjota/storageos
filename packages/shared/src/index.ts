@@ -45,6 +45,7 @@ export * from './notifications';
 export * from './reviews';
 export * from './referrals';
 export * from './campaigns';
+export * from './crm';
 export * from './rent-increases';
 export * from './insurance';
 export * from './portal';

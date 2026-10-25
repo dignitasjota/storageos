@@ -963,3 +963,12 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 
 - `referrals.reward_type` / `reward_value` / `reward_applied_at` / `reward_invoice_id` (FK invoices SET NULL): la recompensa del que recomienda se descuenta una vez del alquiler de su siguiente factura recurrente (reserva atómica; si la factura falla, se libera).
 - `reviews.published_on_web`: solo las valoraciones publicadas por el equipo salen como testimonios en la web pública.
+
+### Funcionalidades del CRM (2026-10-25, migración `20261112120000_crm_features`)
+
+- `lead_followups` (RLS): recordatorios con fecha de un contacto (`pending`/`done`). `lead_activities` (RLS): llamadas, visitas y notas.
+- `leads.unattended_notified_at`; `tenants.lead_response_hours` (4) y `lead_auto_assign` (`off`|`round_robin`|`facility`).
+- `campaign_links` (RLS, único por campaña y posición) y `campaign_clicks` (RLS, único por enlace y destinatario `c:<id>`/`l:<id>`).
+- `campaign_templates` (RLS): asunto y mensaje reutilizables.
+- `reviews.google_requested_at`.
+- `winback_sends.step` (1|2, único por tenant, cliente y paso) y `tenants.winback_second_*` (activado, días, asunto, mensaje, cupón).

@@ -46,6 +46,9 @@ export interface LeadDto {
   utmSource: string | null;
   utmMedium: string | null;
   utmCampaign: string | null;
+  /** Probabilidad de que alquile (0-100, ver `leadScore`). */
+  score: number;
+  scoreReasons: string[];
   createdAt: string;
   updatedAt: string;
 }

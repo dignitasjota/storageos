@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   PublishReviewSchema,
   RequestReviewSchema,
@@ -53,6 +64,16 @@ export class ReviewsController {
 
   /** Publica o retira la valoración como testimonio en la web pública. */
   @RequirePermission('reviews:write')
+  @Post(':id/google-request')
+  @RequirePermission('reviews:write')
+  @HttpCode(HttpStatus.OK)
+  requestGoogle(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ReviewDto> {
+    return this.reviews.requestGoogleReview(user.tenantId, id);
+  }
+
   @Patch(':id/web')
   publish(
     @CurrentUser() user: AuthenticatedUser,
