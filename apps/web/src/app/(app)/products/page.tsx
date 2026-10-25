@@ -12,10 +12,12 @@ import {
   type ProductTypeValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
+
+import { EditProductDialog, PRODUCT_TYPE_LABELS, ProductStockDialog } from './product-dialogs';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
@@ -31,6 +33,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Form,
   FormControl,
@@ -61,14 +69,6 @@ import {
   useProductSales,
   useProducts,
 } from '@/lib/products/hooks';
-
-const PRODUCT_TYPE_LABELS: Record<ProductTypeValue, string> = {
-  lock: 'Candado',
-  box: 'Caja',
-  packaging: 'Embalaje',
-  insurance: 'Seguro',
-  other: 'Otro',
-};
 
 const SALE_STATUS_LABELS: Record<
   ProductSaleStatusValue,
@@ -115,7 +115,10 @@ function CatalogTab() {
   const create = useCreateProduct();
   const remove = useDeleteProduct();
   const canManage = useHasPermission('products:manage');
+  const canStock = useHasPermission('products:write');
   const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<ProductDto | null>(null);
+  const [stockOf, setStockOf] = useState<ProductDto | null>(null);
 
   const form = useForm<CreateProductInput>({
     resolver: zodResolver(CreateProductSchema),
@@ -151,10 +154,18 @@ function CatalogTab() {
   }
 
   async function handleDelete(id: string) {
-    if (!(await ask({ title: '¿Desactivar este producto?', destructive: true }))) return;
+    if (
+      !(await ask({
+        title: '¿Borrar este producto?',
+        description:
+          'Desaparece del catálogo; las ventas hechas se conservan. Para dejar de venderlo sin borrarlo, edítalo y quita «A la venta».',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await remove.mutateAsync(id);
-      toast.success('Producto desactivado.');
+      toast.success('Producto borrado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -199,16 +210,32 @@ function CatalogTab() {
       id: 'actions',
       header: '',
       cell: ({ row }) =>
-        row.original.isActive &&
-        canManage && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => handleDelete(row.original.id)}
-            aria-label="Eliminar"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+        (canManage || canStock) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Acciones">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {canManage && (
+                <DropdownMenuItem onClick={() => setEditing(row.original)}>Editar</DropdownMenuItem>
+              )}
+              {canStock && (
+                <DropdownMenuItem onClick={() => setStockOf(row.original)}>
+                  Stock por local
+                </DropdownMenuItem>
+              )}
+              {canManage && (
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={() => void handleDelete(row.original.id)}
+                >
+                  Borrar
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         ),
     },
   ];
@@ -222,33 +249,75 @@ function CatalogTab() {
   }
 
   return (
-    <DataTable
-      columns={columns}
-      data={products.data ?? []}
-      isLoading={products.isLoading}
-      searchPlaceholder="Buscar por SKU o nombre..."
-      emptyText="No hay productos. Añade el primero (ej. candado standard)."
-      toolbarRight={
-        <Can permission="products:manage">
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-1 h-4 w-4" /> Nuevo producto
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Nuevo producto</DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <>
+      <EditProductDialog product={editing} onClose={() => setEditing(null)} />
+      <ProductStockDialog product={stockOf} onClose={() => setStockOf(null)} />
+      <DataTable
+        columns={columns}
+        data={products.data ?? []}
+        isLoading={products.isLoading}
+        searchPlaceholder="Buscar por SKU o nombre..."
+        emptyText="No hay productos. Añade el primero (ej. candado standard)."
+        toolbarRight={
+          <Can permission="products:manage">
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-1 h-4 w-4" /> Nuevo producto
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Nuevo producto</DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="sku"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>SKU</FormLabel>
+                            <FormControl>
+                              <Input {...field} value={field.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="type"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Tipo</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value ?? 'other'}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {(Object.keys(PRODUCT_TYPE_LABELS) as ProductTypeValue[]).map(
+                                  (t) => (
+                                    <SelectItem key={t} value={t}>
+                                      {PRODUCT_TYPE_LABELS[t]}
+                                    </SelectItem>
+                                  ),
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                     <FormField
                       control={form.control}
-                      name="sku"
+                      name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>SKU</FormLabel>
+                          <FormLabel>Nombre</FormLabel>
                           <FormControl>
                             <Input {...field} value={field.value ?? ''} />
                           </FormControl>
@@ -258,112 +327,76 @@ function CatalogTab() {
                     />
                     <FormField
                       control={form.control}
-                      name="type"
+                      name="description"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Tipo</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value ?? 'other'}>
+                          <FormLabel>Descripción</FormLabel>
+                          <FormControl>
+                            <Textarea {...field} value={field.value ?? ''} rows={2} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="price"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Precio (EUR)</FormLabel>
                             <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                {...field}
+                                value={field.value ?? 0}
+                                onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                              />
                             </FormControl>
-                            <SelectContent>
-                              {(Object.keys(PRODUCT_TYPE_LABELS) as ProductTypeValue[]).map((t) => (
-                                <SelectItem key={t} value={t}>
-                                  {PRODUCT_TYPE_LABELS[t]}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Nombre</FormLabel>
-                        <FormControl>
-                          <Input {...field} value={field.value ?? ''} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Descripción</FormLabel>
-                        <FormControl>
-                          <Textarea {...field} value={field.value ?? ''} rows={2} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <FormField
-                      control={form.control}
-                      name="price"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Precio (EUR)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              {...field}
-                              value={field.value ?? 0}
-                              onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="taxRate"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>IVA (%)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              max="100"
-                              {...field}
-                              value={field.value ?? 21}
-                              onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
-                      Cancelar
-                    </Button>
-                    <Button type="submit" disabled={form.formState.isSubmitting}>
-                      {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-        </Can>
-      }
-    />
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="taxRate"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>IVA (%)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                max="100"
+                                {...field}
+                                value={field.value ?? 21}
+                                onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={form.formState.isSubmitting}>
+                        {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </Can>
+        }
+      />
+    </>
   );
 }
 
@@ -492,6 +525,7 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
       facilityId: '',
       items: [],
       notes: '',
+      paymentMethod: 'cash',
     },
   });
 
@@ -507,9 +541,14 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
         items: values.items,
         ...(values.customerId ? { customerId: values.customerId } : {}),
         ...(values.notes ? { notes: values.notes } : {}),
+        paymentMethod: values.paymentMethod,
       };
       await create.mutateAsync(payload);
-      toast.success('Venta creada.');
+      toast.success(
+        values.paymentMethod === 'pending'
+          ? 'Venta creada: la factura queda pendiente de cobro.'
+          : 'Venta cobrada.',
+      );
       form.reset();
       onDone();
     } catch (err) {
@@ -522,8 +561,10 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
   const estimatedTotal = watchItems.reduce((acc, it) => {
     const p = (products.data ?? []).find((x) => x.id === it.productId);
     if (!p) return acc;
-    return acc + p.price * (it.quantity || 0);
+    return acc + p.price * (1 + p.taxRate / 100) * (it.quantity || 0);
   }, 0);
+  const customerId = form.watch('customerId');
+  const paymentMethod = form.watch('paymentMethod');
 
   return (
     <Form {...form}>
@@ -658,8 +699,37 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
           )}
         />
 
+        <FormField
+          control={form.control}
+          name="paymentMethod"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Cobro</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value ?? 'cash'}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="cash">Efectivo</SelectItem>
+                  <SelectItem value="card">Tarjeta (datáfono)</SelectItem>
+                  <SelectItem value="bank_transfer">Transferencia</SelectItem>
+                  {customerId && (
+                    <SelectItem value="pending">Pendiente: se cobra con la factura</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        {!customerId && paymentMethod === 'pending' && (
+          <p className="text-xs text-destructive">Para cobrarla más tarde elige el inquilino.</p>
+        )}
+
         <div className="rounded-md border bg-muted/40 p-3 text-sm">
-          Total estimado:{' '}
+          Total (IVA incluido):{' '}
           <strong>
             {estimatedTotal.toLocaleString('es-ES', {
               style: 'currency',
@@ -667,7 +737,9 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
             })}
           </strong>
           <span className="ml-2 text-xs text-muted-foreground">
-            (incluye precio base; impuestos se calculan en el servidor)
+            {customerId
+              ? 'Se emite una factura a nombre del inquilino.'
+              : 'Sin inquilino se emite una factura simplificada (hasta 400 €).'}
           </span>
         </div>
 

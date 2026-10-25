@@ -1,14 +1,12 @@
 'use client';
 
-import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useChangeUnitStatus } from '@/lib/facilities/hooks';
-import { inventoryIssuesKey, useInventoryIssues } from '@/lib/inventory/hooks';
+import { useFixInventoryIssue, useInventoryIssues } from '@/lib/inventory/hooks';
 
 const STATUS_LABELS: Record<string, string> = {
   available: 'Disponible',
@@ -25,20 +23,15 @@ const STATUS_LABELS: Record<string, string> = {
 export function InventoryIssuesBanner() {
   const canManage = useHasPermission('units:write');
   const { data } = useInventoryIssues();
-  const change = useChangeUnitStatus();
-  const qc = useQueryClient();
+  const change = useFixInventoryIssue();
 
   const issues = data ?? [];
   if (issues.length === 0) return null;
 
-  async function fix(unitId: string, expected: string) {
+  async function fix(unitId: string) {
     try {
-      await change.mutateAsync({
-        id: unitId,
-        input: { status: expected as never, reason: 'Reconciliación de inventario' },
-      });
+      await change.mutateAsync(unitId);
       toast.success('Estado corregido.');
-      void qc.invalidateQueries({ queryKey: inventoryIssuesKey });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo corregir.');
     }
@@ -65,7 +58,7 @@ export function InventoryIssuesBanner() {
                 size="sm"
                 variant="outline"
                 disabled={change.isPending}
-                onClick={() => fix(i.unitId, i.expectedStatus)}
+                onClick={() => void fix(i.unitId)}
               >
                 Corregir a {STATUS_LABELS[i.expectedStatus] ?? i.expectedStatus}
               </Button>

@@ -7,9 +7,11 @@ import {
   WEEKDAYS,
   type CompetitorFeature,
 } from '@storageos/shared';
-import { ImagePlus, Loader2, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
+
+import { FacilityDetailsCard } from './details-card';
 
 import type { DayHours, FacilityDto, OpeningHours, Weekday } from '@storageos/shared';
 
@@ -39,6 +41,7 @@ import { useOwners } from '@/lib/owners/hooks';
 export function FacilitySettingsTab({ facility }: { facility: FacilityDto }) {
   return (
     <div className="space-y-6">
+      <FacilityDetailsCard facility={facility} />
       <OwnerCard facility={facility} />
       <OpeningHoursCard facility={facility} />
       <CurfewCard facility={facility} />
@@ -138,6 +141,14 @@ function OpeningHoursCard({ facility }: { facility: FacilityDto }) {
   }
 
   async function save() {
+    const wrong = WEEKDAYS.find((d) => {
+      const h = hours[d];
+      return h && h.close !== '00:00' && h.open >= h.close;
+    });
+    if (wrong) {
+      toast.error(`${DAY_LABELS[wrong]}: la apertura tiene que ser antes del cierre.`);
+      return;
+    }
     try {
       await update.mutateAsync({ id: facility.id, input: { openingHours: hours } });
       toast.success('Horario actualizado.');
@@ -258,6 +269,10 @@ function CurfewCard({ facility }: { facility: FacilityDto }) {
   const [end, setEnd] = useState(facility.accessCurfewEnd ?? '06:00');
 
   async function save() {
+    if (enabled && start === end) {
+      toast.error('El toque de queda tiene que empezar y acabar a horas distintas.');
+      return;
+    }
     try {
       await update.mutateAsync({
         id: facility.id,
@@ -506,6 +521,18 @@ function ImagesCard({ facility }: { facility: FacilityDto }) {
     }
   }
 
+  async function move(idx: number, dir: -1 | 1) {
+    const next = [...currentKeys];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target]!, next[idx]!];
+    try {
+      await setImages.mutateAsync({ id: facility.id, images: next });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
   async function remove(idx: number) {
     try {
       await setImages.mutateAsync({
@@ -522,8 +549,8 @@ function ImagesCard({ facility }: { facility: FacilityDto }) {
       <CardHeader>
         <CardTitle className="text-base">Imágenes del local</CardTitle>
         <CardDescription>
-          Se muestran en la página pública del local. Hasta 12 (PNG/JPG/WebP, máx. 2 MB — se
-          comprimen automáticamente al subirlas).
+          Se muestran en la página pública del local; la primera es la portada. Hasta 12
+          (PNG/JPG/WebP, máx. 2 MB — se comprimen automáticamente al subirlas).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -536,15 +563,42 @@ function ImagesCard({ facility }: { facility: FacilityDto }) {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={img.url} alt="" className="h-full w-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => remove(idx)}
-                  disabled={setImages.isPending}
-                  className="absolute right-1 top-1 rounded bg-black/60 p-1 text-white opacity-0 transition group-hover:opacity-100"
-                  aria-label="Eliminar imagen"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                {idx === 0 && (
+                  <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] font-medium text-white">
+                    Portada
+                  </span>
+                )}
+                <div className="absolute inset-x-1 bottom-1 flex justify-between gap-1 sm:opacity-0 sm:transition sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                  <span className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void move(idx, -1)}
+                      disabled={setImages.isPending || idx === 0}
+                      className="rounded bg-black/60 p-1 text-white disabled:opacity-40"
+                      aria-label="Mover a la izquierda"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void move(idx, 1)}
+                      disabled={setImages.isPending || idx === facility.images.length - 1}
+                      className="rounded bg-black/60 p-1 text-white disabled:opacity-40"
+                      aria-label="Mover a la derecha"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void remove(idx)}
+                    disabled={setImages.isPending}
+                    className="rounded bg-black/60 p-1 text-white"
+                    aria-label="Eliminar imagen"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

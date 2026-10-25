@@ -80,9 +80,11 @@ export function FacilityUnitTypesTab() {
     },
   });
   const hasHousing = useHasFeature('housing');
+  const [active, setActive] = useState(true);
 
   useEffect(() => {
     if (editing) {
+      setActive(editing.isActive);
       form.reset({
         name: editing.name,
         description: editing.description ?? '',
@@ -99,7 +101,7 @@ export function FacilityUnitTypesTab() {
   async function onSubmit(values: CreateUnitTypeInput) {
     try {
       if (editing) {
-        await update.mutateAsync({ id: editing.id, input: values });
+        await update.mutateAsync({ id: editing.id, input: { ...values, isActive: active } });
         toast.success('Tipo actualizado.');
       } else {
         await create.mutateAsync(values);
@@ -120,17 +122,21 @@ export function FacilityUnitTypesTab() {
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(type: UnitTypeDto) {
+    const hasUnits = type.unitsCount > 0;
     if (
       !(await ask({
-        title: '¿Borrar este tipo? Si tiene trasteros asignados, se desactivará.',
+        title: hasUnits ? '¿Desactivar este tipo?' : '¿Borrar este tipo?',
+        description: hasUnits
+          ? `Tiene ${type.unitsCount} trastero(s): no se borra, se desactiva (deja de ofrecerse en la web y al crear trasteros). Puedes reactivarlo editándolo.`
+          : undefined,
         destructive: true,
       }))
     )
       return;
     try {
-      await remove.mutateAsync(id);
-      toast.success('Tipo eliminado.');
+      await remove.mutateAsync(type.id);
+      toast.success(hasUnits ? 'Tipo desactivado.' : 'Tipo borrado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -203,9 +209,9 @@ export function FacilityUnitTypesTab() {
             </DropdownMenuItem>
             <DropdownMenuItem
               className="text-destructive"
-              onClick={() => handleDelete(row.original.id)}
+              onClick={() => void handleDelete(row.original)}
             >
-              Borrar
+              {row.original.unitsCount > 0 ? 'Desactivar' : 'Borrar'}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -351,6 +357,12 @@ export function FacilityUnitTypesTab() {
                     </FormItem>
                   )}
                 />
+                {editing && (
+                  <label className="flex items-center gap-2 rounded-md border p-3 text-sm">
+                    <Checkbox checked={active} onCheckedChange={(v) => setActive(v === true)} />
+                    Activo (se ofrece en la web y al crear trasteros)
+                  </label>
+                )}
                 <DialogFooter>
                   <Button
                     type="button"

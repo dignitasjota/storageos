@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { resolveFacilityFilter } from '../../common/facility-scope';
+import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Prisma } from '@storageos/database';
@@ -42,7 +45,69 @@ function toIssue(u: UnitRow, expected: UnitStatusValue, reason: string): Invento
  */
 @Injectable()
 export class InventoryService {
-  constructor(private readonly admin: PrismaAdminService) {}
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly audit: AuditService,
+    private readonly eventBus: EventEmitter2,
+  ) {}
+
+  /**
+   * Corrige un descuadre: vuelve a comprobarlo y pone el estado que le toca
+   * (también «ocupado», que el cambio de estado manual no permite porque solo
+   * lo da un contrato: aquí el contrato existe).
+   */
+  async fix(args: {
+    tenantId: string;
+    userId: string;
+    unitId: string;
+    facilityScope?: string[] | null;
+  }): Promise<InventoryIssueDto> {
+    const issues = await this.findIssues(args.tenantId, args.facilityScope);
+    const issue = issues.find((i) => i.unitId === args.unitId);
+    if (!issue) {
+      throw new ConflictException({
+        code: 'no_inventory_issue',
+        message: 'Este trastero ya no tiene ningún descuadre',
+      });
+    }
+    await this.admin.$transaction(async (tx) => {
+      const claimed = await tx.unit.updateMany({
+        where: { id: issue.unitId, tenantId: args.tenantId, status: issue.currentStatus },
+        data: { status: issue.expectedStatus },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException({
+          code: 'no_inventory_issue',
+          message: 'El trastero ha cambiado de estado mientras tanto',
+        });
+      }
+      await tx.unitStatusHistory.create({
+        data: {
+          tenantId: args.tenantId,
+          unitId: issue.unitId,
+          previousStatus: issue.currentStatus,
+          newStatus: issue.expectedStatus,
+          changedByUserId: args.userId,
+          reason: `Reconciliación de inventario: ${issue.reason}`,
+        },
+      });
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'unit.status_reconciled',
+      entityType: 'Unit',
+      entityId: issue.unitId,
+      changes: { from: issue.currentStatus, to: issue.expectedStatus },
+    });
+    if (issue.expectedStatus === 'available') {
+      this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
+        tenantId: args.tenantId,
+        unitId: issue.unitId,
+      } satisfies UnitAvailablePayload);
+    }
+    return issue;
+  }
 
   async findIssues(
     tenantId: string,
@@ -55,7 +120,12 @@ export class InventoryService {
     if (facFilter === null) return [];
     const find = (where: Prisma.UnitWhereInput) =>
       this.admin.unit.findMany({
-        where: { tenantId, ...(facFilter ? { facilityId: { in: facFilter } } : {}), ...where },
+        where: {
+          tenantId,
+          facility: { deletedAt: null },
+          ...(facFilter ? { facilityId: { in: facFilter } } : {}),
+          ...where,
+        },
         include: INCLUDE,
       }) as Promise<UnitRow[]>;
 

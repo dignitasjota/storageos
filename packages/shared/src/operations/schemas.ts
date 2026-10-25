@@ -159,5 +159,11 @@ export const CreateProductSaleSchema = z.object({
   notes: optionalText(500),
   /** Si se omite, se usa la default series del tenant. */
   invoiceSeriesId: z.string().uuid().optional(),
+  /**
+   * Cómo se cobra: en el mostrador (efectivo, tarjeta del TPV, transferencia)
+   * queda pagada en el acto; `pending` deja la factura pendiente (solo con
+   * inquilino: la paga después como cualquier otra).
+   */
+  paymentMethod: z.enum(['cash', 'card', 'bank_transfer', 'pending']).default('cash'),
 });
 export type CreateProductSaleInput = z.infer<typeof CreateProductSaleSchema>;

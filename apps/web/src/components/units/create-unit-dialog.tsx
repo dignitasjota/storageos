@@ -34,7 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useCreateUnit, useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
+import { useCreateUnit, useFacilities, useFloors, useUnitTypes } from '@/lib/facilities/hooks';
 
 const DIMENSIONS = { widthM: 2, depthM: 2, heightM: 2.5 };
 
@@ -66,6 +66,9 @@ export function CreateUnitDialog({
     resolver: zodResolver(CreateUnitSchema),
     defaultValues: defaults(),
   });
+  const chosenFacility = form.watch('facilityId') ?? facilityId;
+  const floors = useFloors(open ? chosenFacility : undefined);
+  const floorList = floors.data ?? [];
 
   if (types.isSuccess && activeTypes.length === 0) {
     // Sin tipo no se puede crear un trastero: en vez de un botón gris sin
@@ -102,6 +105,7 @@ export function CreateUnitDialog({
       toast.success(`Trastero ${values.code} creado.`);
       form.reset({
         facilityId: facilityId ?? values.facilityId,
+        ...(values.floorId ? { floorId: values.floorId } : {}),
         unitTypeId: values.unitTypeId,
         code: '',
         widthM: values.widthM,
@@ -157,6 +161,32 @@ export function CreateUnitDialog({
                       </FormControl>
                       <SelectContent>
                         {(facilities.data ?? []).map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            {floorList.length > 1 && (
+              <FormField
+                control={form.control}
+                name="floorId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Planta</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value ?? floorList[0]?.id}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {floorList.map((f) => (
                           <SelectItem key={f.id} value={f.id}>
                             {f.name}
                           </SelectItem>

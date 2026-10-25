@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useDeleteUnit, useUnits, useUnitTypes } from '@/lib/facilities/hooks';
 import { formatEur, formatNumber } from '@/lib/format';
 
@@ -33,6 +34,7 @@ export function FacilityUnitsTab({ facilityId }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const remove = useDeleteUnit();
+  const canDelete = useHasPermission('units:manage');
 
   async function handleDelete(id: string) {
     if (!(await ask({ title: '¿Borrar este trastero?', destructive: true }))) return;
@@ -40,8 +42,13 @@ export function FacilityUnitsTab({ facilityId }: Props) {
       await remove.mutateAsync(id);
       toast.success('Trastero borrado.');
     } catch (err) {
-      if (err instanceof ApiError && (err.body as { code?: string }).code === 'unit_occupied') {
+      const code = err instanceof ApiError ? (err.body as { code?: string }).code : undefined;
+      if (code === 'unit_occupied') {
         toast.error('No puedes borrar un trastero ocupado.');
+        return;
+      }
+      if (code === 'unit_has_history') {
+        toast.error('Tiene contratos o reservas: no se borra. Si ya no se alquila, bloquéalo.');
         return;
       }
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -93,23 +100,24 @@ export function FacilityUnitsTab({ facilityId }: Props) {
     {
       id: 'actions',
       header: '',
-      cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Acciones">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() => handleDelete(row.original.id)}
-            >
-              Borrar
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+      cell: ({ row }) =>
+        canDelete && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Acciones">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => handleDelete(row.original.id)}
+              >
+                Borrar
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
     },
   ];
 

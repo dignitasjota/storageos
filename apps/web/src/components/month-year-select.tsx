@@ -37,14 +37,19 @@ export function MonthYearSelect({
   value,
   onChange,
   years = 6,
+  future = false,
 }: {
   value?: string;
   onChange: (v: string) => void;
-  /** Cuántos años hacia atrás ofrecer (incluido el actual). */
+  /** Cuántos años ofrecer (incluido el actual). */
   years?: number;
+  /** Hacia delante (fechas futuras) en vez de hacia atrás. */
+  future?: boolean;
 }) {
   const now = new Date();
-  const yearList = Array.from({ length: years }, (_, i) => now.getFullYear() - i);
+  const yearList = Array.from({ length: years }, (_, i) =>
+    future ? now.getFullYear() + i : now.getFullYear() - i,
+  );
   const parsed = value ? value.split('-').map(Number) : null;
   const curMonth = parsed?.[1];
   const curYear = parsed?.[0];
@@ -94,10 +99,12 @@ export function DateSelect({
   value,
   onChange,
   years = 6,
+  future = false,
 }: {
   value?: string;
   onChange: (v: string | undefined) => void;
   years?: number;
+  future?: boolean;
 }) {
   const now = new Date();
   const parts = value ? value.split('-').map(Number) : null;
@@ -131,6 +138,7 @@ export function DateSelect({
       </Select>
       <MonthYearSelect
         years={years}
+        future={future}
         value={year && month ? ym(year, month) : undefined}
         onChange={(v) => {
           const [y, m] = v.split('-').map(Number);

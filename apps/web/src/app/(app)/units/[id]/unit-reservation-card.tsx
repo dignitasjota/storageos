@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -74,6 +75,10 @@ export function UnitReservationCard({
   async function onReserve() {
     if (!customerId) {
       toast.error('Elige un cliente.');
+      return;
+    }
+    if (until && until < localDateString()) {
+      toast.error('La fecha tiene que ser de hoy en adelante.');
       return;
     }
     if (!until) {
@@ -195,11 +200,11 @@ export function UnitReservationCard({
             </div>
             <div className="space-y-1">
               <Label>Reservar hasta</Label>
-              <Input
-                type="date"
-                min={localDateString()}
-                value={until}
-                onChange={(e) => setUntil(e.target.value)}
+              <DateSelect
+                years={2}
+                future
+                value={until || undefined}
+                onChange={(v) => setUntil(v ?? '')}
               />
             </div>
             <div className="space-y-1">

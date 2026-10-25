@@ -18,6 +18,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { assertFacilityAllowed } from '../../common/facility-scope';
 
 import { ProductStockService } from './product-stock.service';
 
@@ -46,7 +47,7 @@ export class ProductStockController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('productId', new ParseUUIDPipe()) productId: string,
   ): Promise<ProductStockDto[]> {
-    return this.stock.listByProduct(user.tenantId, productId);
+    return this.stock.listByProduct(user.tenantId, productId, user.facilityScope ?? null);
   }
 
   @RequirePermission('products:write')
@@ -58,6 +59,7 @@ export class ProductStockController {
     @Body() input: AdjustStockDto,
     @Req() req: Request,
   ): Promise<ProductStockDto> {
+    assertFacilityAllowed(user.facilityScope, input.facilityId);
     return this.stock.adjust({
       tenantId: user.tenantId,
       userId: user.sub,
@@ -75,6 +77,7 @@ export class ProductStockController {
     @Body() input: SetStockDto,
     @Req() req: Request,
   ): Promise<ProductStockDto> {
+    assertFacilityAllowed(user.facilityScope, input.facilityId);
     return this.stock.set({
       tenantId: user.tenantId,
       userId: user.sub,

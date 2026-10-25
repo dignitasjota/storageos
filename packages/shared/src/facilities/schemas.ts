@@ -30,7 +30,13 @@ export type Weekday = (typeof WEEKDAYS)[number];
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora HH:MM');
 
-export const DayHoursSchema = z.object({ open: hhmm, close: hhmm });
+/** Apertura antes del cierre («00:00» como cierre = medianoche). */
+export const DayHoursSchema = z
+  .object({ open: hhmm, close: hhmm })
+  .refine((d) => d.close === '00:00' || d.open < d.close, {
+    message: 'La hora de apertura tiene que ser anterior a la de cierre',
+    path: ['close'],
+  });
 export type DayHours = z.infer<typeof DayHoursSchema>;
 
 /** `null` = cerrado ese día; ausente = sin configurar (se trata como cerrado). */
@@ -140,6 +146,18 @@ export const UnitStatusEnum = z.enum([
   'blocked',
 ]);
 export type UnitStatusValue = z.infer<typeof UnitStatusEnum>;
+
+/**
+ * Cambios de estado manuales permitidos desde cada estado. `occupied` solo lo
+ * pone un contrato (o la reconciliación de inventario cuando hay contrato).
+ */
+export const UNIT_STATUS_TRANSITIONS: Record<UnitStatusValue, UnitStatusValue[]> = {
+  available: ['reserved', 'maintenance', 'blocked'],
+  reserved: ['available', 'maintenance', 'blocked'],
+  maintenance: ['available', 'blocked'],
+  blocked: ['available', 'maintenance'],
+  occupied: ['available', 'maintenance', 'blocked'],
+};
 
 export const CreateUnitSchema = z.object({
   facilityId: z.string().uuid(),

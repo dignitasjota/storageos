@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { UNIT_STATUS_TRANSITIONS } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
@@ -38,13 +39,7 @@ import type {
  *   `occupied -> available` SI es manual (admin cierra ocupacion sin
  *   contrato registrado).
  */
-const ALLOWED_TRANSITIONS: Record<UnitStatusValue, UnitStatusValue[]> = {
-  available: ['reserved', 'maintenance', 'blocked'],
-  reserved: ['available', 'maintenance', 'blocked'],
-  maintenance: ['available', 'blocked'],
-  blocked: ['available', 'maintenance'],
-  occupied: ['available', 'maintenance', 'blocked'],
-};
+const ALLOWED_TRANSITIONS = UNIT_STATUS_TRANSITIONS;
 
 /** Desplazamiento en px al desapilar, para que las dos taquillas no queden
  * dibujadas exactamente una encima de la otra tras separarse. */
@@ -76,7 +71,8 @@ export class UnitsService {
     tenantId: string,
     filters: ListUnitsFilters,
   ): Promise<{ items: UnitDto[]; nextCursor: string | null }> {
-    const where: Prisma.UnitWhereInput = {};
+    // Los trasteros de un local borrado ya no existen para el panel.
+    const where: Prisma.UnitWhereInput = { facility: { deletedAt: null } };
     const facFilter = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
     if (facFilter === null) return { items: [], nextCursor: null }; // local fuera de scope
     if (facFilter) where.facilityId = { in: facFilter };
@@ -94,7 +90,7 @@ export class UnitsService {
       (tx) =>
         tx.unit.findMany({
           where,
-          orderBy: [{ id: 'asc' }],
+          orderBy: [{ code: 'asc' }, { id: 'asc' }],
           take: limit + 1,
           ...(filters.cursor ? { cursor: { id: filters.cursor }, skip: 1 } : {}),
           include: {
@@ -160,7 +156,7 @@ export class UnitsService {
       // Enforcement del límite de trasteros (+ add-ons) DENTRO de la tx, con un
       // lock por tenant para que dos altas concurrentes no se salten el tope.
       await this.limits.lockForCreate(tx, tenantId, 'units');
-      const currentUnits = await tx.unit.count();
+      const currentUnits = await tx.unit.count({ where: { facility: { deletedAt: null } } });
       await this.limits.assertCanCreate(tenantId, 'units', currentUnits);
       const facility = await tx.facility.findFirst({
         where: { id: input.facilityId, deletedAt: null },
@@ -178,6 +174,8 @@ export class UnitsService {
           message: 'Tipo no encontrado',
         });
       }
+
+      await this.assertCodeFree(tx, input.facilityId, input.code);
 
       let floorId = input.floorId;
       if (floorId) {
@@ -265,6 +263,30 @@ export class UnitsService {
       data.floor = { connect: { id: args.input.floorId } };
       changes.floorId = args.input.floorId;
     }
+    if (args.input.unitTypeId !== undefined && args.input.unitTypeId !== existing.unitTypeId) {
+      const [newType, oldType, liveContracts] = await this.prisma.withTenant(
+        (tx) =>
+          Promise.all([
+            tx.unitType.findUnique({ where: { id: args.input.unitTypeId! } }),
+            tx.unitType.findUnique({ where: { id: existing.unitTypeId } }),
+            tx.contract.count({
+              where: { unitId: args.unitId, status: { in: ['active', 'ending'] }, deletedAt: null },
+            }),
+          ]),
+        args.tenantId,
+      );
+      if (!newType) {
+        throw new NotFoundException({ code: 'unit_type_not_found', message: 'Tipo no encontrado' });
+      }
+      // Trastero ↔ vivienda cambia el IVA de sus facturas: no con un contrato en vigor.
+      if (liveContracts > 0 && newType.propertyKind !== oldType?.propertyKind) {
+        throw new BadRequestException({
+          code: 'cannot_change_kind_while_rented',
+          message:
+            'Este trastero tiene un contrato en vigor: no se puede pasar de trastero a vivienda (o al revés) porque cambiaría el IVA de sus facturas',
+        });
+      }
+    }
     if (args.input.unitTypeId !== undefined) {
       // Un trastero apilado comparte hueco/tipo con su pareja (ver
       // `stackUnits`) — cambiar el tipo lo dejaría inconsistente. Hay que
@@ -279,6 +301,10 @@ export class UnitsService {
       changes.unitTypeId = args.input.unitTypeId;
     }
     if (args.input.code !== undefined) {
+      await this.prisma.withTenant(
+        (tx) => this.assertCodeFree(tx, existing.facilityId, args.input.code!, args.unitId),
+        args.tenantId,
+      );
       data.code = args.input.code.trim();
       changes.code = data.code;
     }
@@ -387,10 +413,11 @@ export class UnitsService {
           'Este trastero tiene contratos o reservas: no se puede borrar. Si ya no se alquila, cámbialo a «Bloqueado».',
       });
     }
-    await this.prisma.withTenant(
-      (tx) => tx.unit.delete({ where: { id: args.unitId } }),
-      args.tenantId,
-    );
+    // Sin contratos ni reservas, su historial de estados no es prueba de nada.
+    await this.prisma.withTenant(async (tx) => {
+      await tx.unitStatusHistory.deleteMany({ where: { unitId: args.unitId } });
+      await tx.unit.delete({ where: { id: args.unitId } });
+    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -654,18 +681,41 @@ export class UnitsService {
         tx.unit.findUnique({
           where: { id: unitId },
           include: {
-            facility: { select: { name: true } },
+            facility: { select: { name: true, deletedAt: true } },
             floor: { select: { name: true } },
             unitType: { select: { name: true, color: true } },
           },
         }),
       tenantId,
     );
-    if (!row) {
+    if (!row || row.facility.deletedAt) {
       throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
     }
     assertFacilityAllowed(facilityScope, row.facilityId);
     return row;
+  }
+
+  /** El código no se repite en el local, sin distinguir mayúsculas («A1» y «a1»). */
+  private async assertCodeFree(
+    tx: Prisma.TransactionClient,
+    facilityId: string,
+    code: string,
+    excludeUnitId?: string,
+  ): Promise<void> {
+    const clash = await tx.unit.findFirst({
+      where: {
+        facilityId,
+        code: { equals: code.trim(), mode: 'insensitive' },
+        ...(excludeUnitId ? { id: { not: excludeUnitId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new ConflictException({
+        code: 'unit_code_taken',
+        message: 'Ya existe un trastero con ese codigo en este local',
+      });
+    }
   }
 
   private toDto(

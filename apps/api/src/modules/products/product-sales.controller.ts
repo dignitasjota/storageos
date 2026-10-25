@@ -23,6 +23,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { assertFacilityAllowed } from '../../common/facility-scope';
 
 import { ProductSalesService } from './product-sales.service';
 
@@ -62,6 +63,7 @@ export class ProductSalesController {
       ...(facilityId ? { facilityId } : {}),
       ...(customerId ? { customerId } : {}),
       ...(parsedStatus ? { status: parsedStatus } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -71,7 +73,7 @@ export class ProductSalesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<ProductSaleDto> {
-    return this.sales.detail(user.tenantId, id);
+    return this.sales.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('products:write')
@@ -81,6 +83,7 @@ export class ProductSalesController {
     @Body() input: CreateProductSaleDto,
     @Req() req: Request,
   ): Promise<ProductSaleDto> {
+    assertFacilityAllowed(user.facilityScope, input.facilityId);
     return this.sales.create({
       tenantId: user.tenantId,
       userId: user.sub,
@@ -104,6 +107,7 @@ export class ProductSalesController {
       id,
       ...(input.reason ? { reason: input.reason } : {}),
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 }

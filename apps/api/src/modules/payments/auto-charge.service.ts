@@ -87,9 +87,19 @@ export class AutoChargeService {
     }
     const invoice = await this.admin.invoice.findFirst({
       where: { id: invoiceId, tenantId, deletedAt: null },
-      select: { id: true, status: true, customerId: true, total: true, amountPaid: true },
+      select: {
+        id: true,
+        status: true,
+        customerId: true,
+        total: true,
+        amountPaid: true,
+        productSale: { select: { id: true } },
+      },
     });
     if (!invoice) return this.skip(invoiceId, 'invoice_not_found');
+    // Las ventas de productos se cobran en el mostrador o desde el portal en el
+    // momento: cobrarlas aquí otra vez sería un doble cargo.
+    if (invoice.productSale) return this.skip(invoiceId, 'product_sale');
     if (invoice.status !== 'issued' && invoice.status !== 'overdue') {
       return this.skip(invoiceId, `status_${invoice.status}`);
     }

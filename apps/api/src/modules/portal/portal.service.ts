@@ -1211,7 +1211,7 @@ export class PortalService {
     const sale = await this.productSales.create({
       tenantId,
       userId: null,
-      input: { facilityId: contract.unit.facilityId, customerId, items },
+      input: { facilityId: contract.unit.facilityId, customerId, items, paymentMethod: 'pending' },
       meta: {},
     });
 

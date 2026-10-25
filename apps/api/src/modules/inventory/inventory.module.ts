@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
+import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 import { InventoryReconciliationCron } from './inventory-reconciliation.cron';
@@ -8,7 +9,7 @@ import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [AuthModule, NotificationsModule],
   controllers: [InventoryController],
   providers: [
     InventoryService,
