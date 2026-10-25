@@ -5,6 +5,8 @@ import { PrismaService } from '../database/prisma.service';
 
 import type { TodayDto, TodayItemDto } from '@storageos/shared';
 
+/** Días en mantenimiento o bloqueado a partir de los que se avisa. */
+const OUT_OF_SERVICE_DAYS = 7;
 const SOON_DAYS = 30; // contratos que vencen pronto
 const RESERVATION_SOON_DAYS = 7;
 const MARKETING_RENEWAL_SOON_DAYS = 7;
@@ -448,6 +450,68 @@ export class TodayService {
         }),
         tx.lead.count({ where: unattendedWhere }),
       ]);
+      // Inventario: stock bajo, trasteros parados y documentos que caducan.
+      const outOfServiceCut = new Date(now.getTime() - OUT_OF_SERVICE_DAYS * 86_400_000);
+      const docsLimit = new Date(now.getTime() + 30 * 86_400_000);
+      const [stocks, parked, docs] = await Promise.all([
+        tx.productStock.findMany({
+          where: {
+            product: { deletedAt: null, isActive: true, minStock: { not: null } },
+            facility: { deletedAt: null },
+            ...(fac ? { facilityId: fac } : {}),
+          },
+          select: {
+            quantity: true,
+            productId: true,
+            product: { select: { name: true, minStock: true } },
+            facility: { select: { name: true } },
+          },
+        }),
+        tx.unit.findMany({
+          where: {
+            status: { in: ['maintenance', 'blocked'] },
+            facility: { deletedAt: null },
+            ...(fac ? { facilityId: fac } : {}),
+          },
+          select: {
+            id: true,
+            code: true,
+            status: true,
+            maintenanceUntil: true,
+            createdAt: true,
+            facility: { select: { name: true } },
+            statusHistory: {
+              orderBy: { occurredAt: 'desc' },
+              take: 1,
+              select: { occurredAt: true },
+            },
+          },
+        }),
+        tx.facilityDocument.findMany({
+          where: {
+            expiresOn: { not: null, lte: docsLimit },
+            facility: { deletedAt: null },
+            ...(fac ? { facilityId: fac } : {}),
+          },
+          orderBy: { expiresOn: 'asc' },
+          select: {
+            id: true,
+            facilityId: true,
+            name: true,
+            expiresOn: true,
+            facility: { select: { name: true } },
+          },
+        }),
+      ]);
+      const low = stocks.filter((st) => st.quantity < (st.product.minStock ?? 0));
+      const stuck = parked
+        .map((u) => ({ ...u, since: u.statusHistory[0]?.occurredAt ?? u.createdAt }))
+        .filter(
+          (u) =>
+            (u.maintenanceUntil && u.maintenanceUntil < startOfToday) || u.since < outOfServiceCut,
+        )
+        .sort((a, b) => a.since.getTime() - b.since.getTime());
+
       const leadLabel = (l: {
         firstName: string | null;
         lastName: string | null;
@@ -469,7 +533,8 @@ export class TodayService {
         depositsToCollectCount +
         depositsToRegisterCount +
         marketingRenewalsCount +
-        retentionOffersCount;
+        retentionOffersCount +
+        docs.filter((d) => d.expiresOn! < startOfToday).length;
 
       return {
         date: startOfToday.toISOString(),
@@ -582,6 +647,37 @@ export class TodayService {
             label: customerName(r.customer),
             detail: r.contract.unit?.code ?? null,
             date: r.validUntil ? r.validUntil.toISOString() : null,
+          })),
+        },
+        lowStock: {
+          count: low.length,
+          // `id` = el producto (se abre su stock en Productos).
+          items: low.slice(0, TAKE).map((st) => ({
+            id: st.productId,
+            label: st.product.name,
+            detail: `${st.facility.name}: quedan ${st.quantity} (mínimo ${st.product.minStock})`,
+            date: null,
+          })),
+        },
+        unitsOutOfService: {
+          count: stuck.length,
+          items: stuck.slice(0, TAKE).map((u) => ({
+            id: u.id,
+            label: u.code,
+            detail: `${u.facility.name} · ${u.status === 'maintenance' ? 'mantenimiento' : 'bloqueado'} desde hace ${Math.floor((now.getTime() - u.since.getTime()) / 86_400_000)} días`,
+            date: u.maintenanceUntil ? u.maintenanceUntil.toISOString() : null,
+            overdue: !!u.maintenanceUntil && u.maintenanceUntil < startOfToday,
+          })),
+        },
+        facilityDocumentsExpiring: {
+          count: docs.length,
+          items: docs.slice(0, TAKE).map((d) => ({
+            id: d.id,
+            label: d.name,
+            detail: d.facility.name,
+            date: d.expiresOn!.toISOString(),
+            overdue: d.expiresOn! < startOfToday,
+            linkId: d.facilityId,
           })),
         },
       };

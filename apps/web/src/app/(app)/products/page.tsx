@@ -195,7 +195,19 @@ function CatalogTab() {
     {
       accessorKey: 'totalStock',
       header: 'Stock total',
-      cell: ({ row }) => row.original.totalStock,
+      cell: ({ row }) => (
+        <span className="flex items-center gap-2">
+          {row.original.totalStock}
+          {row.original.lowStock && (
+            <Badge
+              variant="outline"
+              className="border-amber-400 text-amber-800 dark:text-amber-300"
+            >
+              Stock bajo
+            </Badge>
+          )}
+        </span>
+      ),
     },
     {
       accessorKey: 'isActive',

@@ -1,14 +1,18 @@
 'use client';
 
 import { Loader2, Maximize, Minus, Plus } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image as KonvaImage, Layer, Rect, Stage, Text } from 'react-konva';
 
+import type { FloorOccupantDto } from '@storageos/shared';
 import type Konva from 'konva';
 
 import { Button } from '@/components/ui/button';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useFloors, useUnits } from '@/lib/facilities/hooks';
+import { useFloorOccupants } from '@/lib/facilities/inventory-hooks';
 import { proportionalPlanSize } from '@/lib/facilities/plan-size';
 
 interface Props {
@@ -125,6 +129,13 @@ export function PlanViewer({ facilityId, floorId }: Props) {
 
   // Tooltip al pasar el cursor (precio + detalle del trastero).
   const [hover, setHover] = useState<{ unit: UnitRect; x: number; y: number } | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const canSeeCustomers = useHasPermission('customers:read');
+  const occupants = useFloorOccupants(floorId, canSeeCustomers);
+  const occupantByUnit = useMemo(
+    () => new Map((occupants.data ?? []).map((o) => [o.unitId, o])),
+    [occupants.data],
+  );
 
   const sceneSize = useMemo(() => {
     if (planImage) return { width: planImage.naturalWidth, height: planImage.naturalHeight };
@@ -338,8 +349,8 @@ export function PlanViewer({ facilityId, floorId }: Props) {
                   stroke="#ffffff"
                   strokeWidth={1.5}
                   cornerRadius={3}
-                  onClick={() => router.push(`/units/${r.id}`)}
-                  onTap={() => router.push(`/units/${r.id}`)}
+                  onClick={() => setSelectedId(r.id)}
+                  onTap={() => setSelectedId(r.id)}
                   onMouseEnter={(e) => {
                     const stage = e.target.getStage();
                     if (stage) stage.container().style.cursor = 'pointer';
@@ -400,10 +411,74 @@ export function PlanViewer({ facilityId, floorId }: Props) {
           </div>
         )}
       </div>
+      {selectedId && (
+        <SelectedUnitPanel
+          unit={rects.find((x) => x.id === selectedId) ?? null}
+          occupant={occupantByUnit.get(selectedId) ?? null}
+          onOpen={() => router.push(`/units/${selectedId}`)}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
       <p className="text-xs text-muted-foreground">
-        Pasa el cursor por un trastero para ver el precio; haz clic para abrirlo. Rueda o pellizca
-        para hacer zoom; arrastra para mover.
+        Pasa el cursor por un trastero para ver el precio; haz clic para ver quién lo ocupa. Rueda o
+        pellizca para hacer zoom; arrastra para mover.
       </p>
+    </div>
+  );
+}
+
+function SelectedUnitPanel({
+  unit,
+  occupant,
+  onOpen,
+  onClose,
+}: {
+  unit: UnitRect | null;
+  occupant: FloorOccupantDto | null;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
+  if (!unit) return null;
+  const eur = (v: number) => v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-3 text-sm">
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">
+          {unit.code} · {STATUS_LABEL[unit.status]}
+        </p>
+        <p className="text-muted-foreground">
+          {unit.typeName} · {unit.areaM2.toFixed(1)} m² · {eur(unit.price)}/mes
+        </p>
+        {occupant && (
+          <p>
+            <Link
+              href={`/customers/${occupant.customerId}`}
+              className="font-medium hover:underline"
+            >
+              {occupant.customerName}
+            </Link>{' '}
+            ·{' '}
+            <Link href={`/contracts/${occupant.contractId}`} className="hover:underline">
+              {occupant.contractNumber}
+            </Link>
+            {occupant.overdue > 0 ? (
+              <span className="ml-2 font-medium text-rose-700 dark:text-rose-400">
+                Debe {eur(occupant.overdue)}
+              </span>
+            ) : (
+              <span className="ml-2 text-muted-foreground">Al día</span>
+            )}
+          </p>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={onOpen}>
+          Abrir ficha
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          Cerrar
+        </Button>
+      </div>
     </div>
   );
 }

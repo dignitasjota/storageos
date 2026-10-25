@@ -193,9 +193,15 @@ export const UpdateUnitSchema = z
   });
 export type UpdateUnitInput = z.infer<typeof UpdateUnitSchema>;
 
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha AAAA-MM-DD');
+
 export const ChangeUnitStatusSchema = z.object({
   status: UnitStatusEnum,
   reason: z.string().trim().max(500).optional().or(z.literal('')),
+  /** En mantenimiento: cuándo se prevé que vuelva al servicio. */
+  until: isoDay.optional(),
+  /** En mantenimiento: crea una tarea de mantenimiento ligada al trastero. */
+  createTask: z.boolean().optional(),
 });
 export type ChangeUnitStatusInput = z.infer<typeof ChangeUnitStatusSchema>;
 
@@ -282,3 +288,138 @@ export const SetFacilityImagesSchema = z.object({
   images: z.array(z.string().min(1).max(300)).max(12),
 });
 export type SetFacilityImagesInput = z.infer<typeof SetFacilityImagesSchema>;
+
+// ============================================================================
+// Acciones en lote y alta masiva de trasteros
+// ============================================================================
+
+export const BulkUnitsActionSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('status'),
+    unitIds: z.array(z.string().uuid()).min(1).max(500),
+    status: UnitStatusEnum,
+    reason: z.string().trim().max(500).optional(),
+  }),
+  z.object({
+    action: z.literal('type'),
+    unitIds: z.array(z.string().uuid()).min(1).max(500),
+    unitTypeId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal('floor'),
+    unitIds: z.array(z.string().uuid()).min(1).max(500),
+    floorId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal('price'),
+    unitIds: z.array(z.string().uuid()).min(1).max(500),
+    /** `set` = fijar el precio; `percent` = subir/bajar un %. */
+    mode: z.enum(['set', 'percent']),
+    value: z.number().finite().min(-90).max(100000),
+  }),
+]);
+export type BulkUnitsActionInput = z.infer<typeof BulkUnitsActionSchema>;
+
+export interface BulkUnitsResultDto {
+  updated: number;
+  failed: { unitId: string; code: string | null; error: string }[];
+}
+
+export const BulkCreateUnitsSchema = z.object({
+  facilityId: z.string().uuid(),
+  floorId: z.string().uuid().optional(),
+  unitTypeId: z.string().uuid(),
+  /** Prefijo del código («A-»). */
+  prefix: z
+    .string()
+    .trim()
+    .max(20)
+    .regex(/^[A-Za-z0-9_\-./]*$/, 'Solo letras, numeros y -_./'),
+  start: z.number().int().min(0).max(99999),
+  count: z.number().int().min(1).max(200),
+  /** Cifras del número (2 → A-01). */
+  padding: z.number().int().min(0).max(6).default(2),
+  widthM: positiveDecimal,
+  depthM: positiveDecimal,
+  heightM: positiveDecimal,
+  basePriceMonthly: nonNegativeDecimal.optional(),
+});
+export type BulkCreateUnitsInput = z.infer<typeof BulkCreateUnitsSchema>;
+
+/** Códigos que generaría el alta masiva. */
+export function bulkUnitCodes(input: {
+  prefix: string;
+  start: number;
+  count: number;
+  padding: number;
+}): string[] {
+  return Array.from(
+    { length: input.count },
+    (_, i) => `${input.prefix}${String(input.start + i).padStart(input.padding, '0')}`,
+  );
+}
+
+export interface BulkCreateUnitsResultDto {
+  created: number;
+  skipped: string[];
+}
+
+// ============================================================================
+// Documentos del local
+// ============================================================================
+
+export const FacilityDocumentKindEnum = z.enum([
+  'licence',
+  'insurance',
+  'lease',
+  'inspection',
+  'other',
+]);
+export type FacilityDocumentKind = z.infer<typeof FacilityDocumentKindEnum>;
+
+export const FACILITY_DOCUMENT_KIND_LABELS: Record<FacilityDocumentKind, string> = {
+  licence: 'Licencia o permiso',
+  insurance: 'Seguro',
+  lease: 'Contrato de la nave',
+  inspection: 'Inspección / certificado',
+  other: 'Otro',
+};
+
+export const FACILITY_DOCUMENT_MIME_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+] as const;
+
+export const RequestFacilityDocumentUploadSchema = z.object({
+  mimeType: z.enum(FACILITY_DOCUMENT_MIME_TYPES),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(20 * 1024 * 1024, 'Máximo 20 MB'),
+});
+export type RequestFacilityDocumentUploadInput = z.infer<
+  typeof RequestFacilityDocumentUploadSchema
+>;
+
+export const CreateFacilityDocumentSchema = z.object({
+  key: z.string().min(1).max(500),
+  kind: FacilityDocumentKindEnum,
+  name: z.string().trim().min(1).max(200),
+  mimeType: z.enum(FACILITY_DOCUMENT_MIME_TYPES),
+  sizeBytes: z.number().int().positive(),
+  expiresOn: isoDay.optional(),
+  notes: z.string().trim().max(1000).optional(),
+});
+export type CreateFacilityDocumentInput = z.infer<typeof CreateFacilityDocumentSchema>;
+
+export const UpdateFacilityDocumentSchema = z.object({
+  kind: FacilityDocumentKindEnum.optional(),
+  name: z.string().trim().min(1).max(200).optional(),
+  /** `null` quita la caducidad. */
+  expiresOn: isoDay.nullable().optional(),
+  notes: z.string().trim().max(1000).optional(),
+});
+export type UpdateFacilityDocumentInput = z.infer<typeof UpdateFacilityDocumentSchema>;

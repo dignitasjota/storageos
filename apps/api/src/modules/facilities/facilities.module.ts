@@ -6,10 +6,13 @@ import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
 import { FacilitiesController } from './facilities.controller';
 import { FacilitiesService } from './facilities.service';
+import { FacilityDocumentsService } from './facility-documents.service';
 import { FacilityFloorsController } from './facility-floors.controller';
 import { FacilityFloorsService } from './facility-floors.service';
+import { FacilityInsightsService } from './facility-insights.service';
 import { UnitTypesController } from './unit-types.controller';
 import { UnitTypesService } from './unit-types.service';
+import { UnitsInventoryService } from './units-inventory.service';
 import { UnitsController } from './units.controller';
 import { UnitsService } from './units.service';
 
@@ -28,6 +31,9 @@ import { UnitsService } from './units.service';
     UnitsService,
     FacilityFloorsService,
     DashboardService,
+    UnitsInventoryService,
+    FacilityInsightsService,
+    FacilityDocumentsService,
   ],
   exports: [UnitsService],
 })

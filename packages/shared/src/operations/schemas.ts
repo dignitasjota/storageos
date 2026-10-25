@@ -123,6 +123,8 @@ export const CreateProductSchema = z.object({
   price: z.number().positive().finite(),
   taxRate: z.number().min(0).max(100).default(21),
   isActive: z.boolean().default(true),
+  /** Aviso de reponer cuando el stock de un local baja de aquí (null = sin aviso). */
+  minStock: z.number().int().min(0).max(100000).nullable().optional(),
 });
 export type CreateProductInput = z.infer<typeof CreateProductSchema>;
 

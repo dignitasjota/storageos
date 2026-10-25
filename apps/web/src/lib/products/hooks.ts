@@ -9,6 +9,7 @@ import type {
   ProductDto,
   ProductSaleDto,
   ProductStockDto,
+  ProductStockMovementDto,
   SetStockInput,
   UpdateProductInput,
 } from '@storageos/shared';
@@ -88,6 +89,14 @@ export function useProductStock(productId: string | undefined) {
   return useQuery({
     queryKey: productId ? productStockKey(productId) : ['products', 'none', 'stock'],
     queryFn: () => apiFetch<ProductStockDto[]>(`/products/${productId}/stock`),
+    enabled: !!productId,
+  });
+}
+
+export function useStockMovements(productId: string | undefined) {
+  return useQuery({
+    queryKey: productId ? [...productStockKey(productId), 'movements'] : ['products', 'none'],
+    queryFn: () => apiFetch<ProductStockMovementDto[]>(`/products/${productId}/stock/movements`),
     enabled: !!productId,
   });
 }

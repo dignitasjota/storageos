@@ -19,6 +19,9 @@ import {
   Sparkles,
   UserPlus,
   Timer,
+  FileWarning,
+  Package,
+  Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -330,7 +333,10 @@ export default function TodayPage() {
           data.contractsEndingSoon.count +
           data.reservationsExpiring.count +
           data.incidentsOpen +
-          data.unitChangesPending,
+          data.unitChangesPending +
+          (data.lowStock?.count ?? 0) +
+          (data.unitsOutOfService?.count ?? 0) +
+          (data.facilityDocumentsExpiring?.count ?? 0),
         sales:
           data.newLeads.count +
           data.followupsDue.count +
@@ -595,6 +601,39 @@ export default function TodayPage() {
                   itemHref={() => '/reservations'}
                   empty="Ninguna reserva expira en 7 días."
                 />
+                {(data.unitsOutOfService?.count ?? 0) > 0 && (
+                  <SectionCard
+                    title="Trasteros parados"
+                    icon={Wrench}
+                    count={data.unitsOutOfService.count}
+                    items={data.unitsOutOfService.items}
+                    href="/units"
+                    itemHref={(it) => `/units/${it.id}`}
+                    empty=""
+                  />
+                )}
+                {(data.lowStock?.count ?? 0) > 0 && (
+                  <SectionCard
+                    title="Productos por reponer"
+                    icon={Package}
+                    count={data.lowStock.count}
+                    items={data.lowStock.items}
+                    href="/products"
+                    itemHref={() => '/products'}
+                    empty=""
+                  />
+                )}
+                {(data.facilityDocumentsExpiring?.count ?? 0) > 0 && (
+                  <SectionCard
+                    title="Documentos que caducan"
+                    icon={FileWarning}
+                    count={data.facilityDocumentsExpiring.count}
+                    items={data.facilityDocumentsExpiring.items}
+                    href="/facilities"
+                    itemHref={(it) => `/facilities/${it.linkId}?tab=documents`}
+                    empty=""
+                  />
+                )}
               </div>
             </TabsContent>
 

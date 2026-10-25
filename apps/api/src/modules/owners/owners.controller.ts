@@ -1,5 +1,10 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
-import { CreateOwnerSchema, type OwnerDto, UpdateOwnerSchema } from '@storageos/shared';
+import {
+  CreateOwnerSchema,
+  type OwnerDto,
+  type OwnersOverviewDto,
+  UpdateOwnerSchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -24,6 +29,13 @@ export class OwnersController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<OwnerDto[]> {
     return this.service.list(user.tenantId);
+  }
+
+  /** Locales, trasteros, ocupación e ingresos de cada propietario. */
+  @RequirePermission('facilities:read')
+  @Get('overview')
+  overview(@CurrentUser() user: AuthenticatedUser): Promise<OwnersOverviewDto> {
+    return this.service.overview(user.tenantId, user.facilityScope ?? null);
   }
 
   @RequirePermission('facilities:manage')

@@ -9,6 +9,7 @@ import type {
   OwnerStatementDto,
   SaveOwnerStatementInput,
   UpdateOwnerInput,
+  OwnersOverviewDto,
 } from '@storageos/shared';
 
 import { apiFetch } from '@/lib/auth/api';
@@ -17,6 +18,15 @@ import { useHasFeature } from '@/lib/auth/hooks';
 export const ownersKey = ['owners'] as const;
 
 /** Propietarios del tenant (plan Administrador). Vacío sin la funcionalidad. */
+export function useOwnersOverview() {
+  const enabled = useHasFeature('multi_owner');
+  return useQuery({
+    queryKey: [...ownersKey, 'overview'],
+    queryFn: () => apiFetch<OwnersOverviewDto>('/owners/overview'),
+    enabled,
+  });
+}
+
 export function useOwners() {
   const enabled = useHasFeature('multi_owner');
   return useQuery({

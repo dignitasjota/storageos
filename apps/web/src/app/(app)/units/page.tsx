@@ -3,7 +3,6 @@
 import {
   type FacilityDto,
   type FacilityFloorDto,
-  UNIT_STATUS_TRANSITIONS,
   type UnitDto,
   type UnitStatusValue,
 } from '@storageos/shared';
@@ -12,7 +11,6 @@ import { LayoutGrid, Map as MapIcon, MoreHorizontal, Upload } from 'lucide-react
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner';
 
 import { InventoryIssuesBanner } from './inventory-issues-banner';
 
@@ -21,22 +19,13 @@ import { DataTable } from '@/components/data-table';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -44,11 +33,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { BulkUnitsBar } from '@/components/units/bulk-actions-bar';
+import { BulkCreateUnitsDialog } from '@/components/units/bulk-create-dialog';
+import { ChangeUnitStatusDialog } from '@/components/units/change-status-dialog';
 import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
-import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
-  useChangeUnitStatus,
   useFacilities,
   useFloors,
   useOccupancyDashboard,
@@ -133,42 +123,43 @@ export default function UnitsPage() {
     ...(unitTypeId ? { unitTypeId } : {}),
   });
 
-  const changeStatus = useChangeUnitStatus();
   const canWrite = useHasPermission('units:write');
   const [target, setTarget] = useState<UnitDto | null>(null);
-  const [newStatus, setNewStatus] = useState<UnitStatusValue>('available');
-  const [reason, setReason] = useState('');
-
-  async function submitChange() {
-    if (!target) return;
-    try {
-      await changeStatus.mutateAsync({
-        id: target.id,
-        input: { status: newStatus, reason: reason || undefined },
-      });
-      toast.success('Estado actualizado.');
-      setTarget(null);
-      setReason('');
-    } catch (err) {
-      if (err instanceof ApiError) {
-        const code = (err.body as { code?: string }).code;
-        if (code === 'invalid_status_transition') {
-          toast.error(`Transición no permitida: ${target.status} → ${newStatus}`);
-          return;
-        }
-        if (code === 'occupied_via_contract_only') {
-          toast.error('El estado "ocupado" se asigna al firmar un contrato.');
-          return;
-        }
-        toast.error(err.body.message);
-        return;
-      }
-      toast.error('Error');
-    }
-  }
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const visibleIds = (units.data?.items ?? []).map((u) => u.id);
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const columns: ColumnDef<UnitDto>[] = useMemo(
     () => [
+      ...(canWrite
+        ? [
+            {
+              id: 'select',
+              header: () => (
+                <Checkbox
+                  aria-label="Seleccionar todos"
+                  checked={allSelected}
+                  onCheckedChange={(v) => setSelected(v === true ? new Set(visibleIds) : new Set())}
+                />
+              ),
+              meta: { mobileHidden: true },
+              cell: ({ row }: { row: { original: UnitDto } }) => (
+                <Checkbox
+                  aria-label={`Seleccionar ${row.original.code}`}
+                  checked={selected.has(row.original.id)}
+                  onCheckedChange={() => toggle(row.original.id)}
+                />
+              ),
+            } as ColumnDef<UnitDto>,
+          ]
+        : []),
       {
         accessorKey: 'code',
         header: 'Código',
@@ -228,13 +219,7 @@ export default function UnitsPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => {
-                    setTarget(row.original);
-                    setNewStatus(UNIT_STATUS_TRANSITIONS[row.original.status][0] ?? 'available');
-                    setReason('');
-                  }}
-                >
+                <DropdownMenuItem onClick={() => setTarget(row.original)}>
                   Cambiar estado
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -242,7 +227,8 @@ export default function UnitsPage() {
           ) : null,
       },
     ],
-    [canWrite],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canWrite, selected, allSelected, visibleIds.join(',')],
   );
 
   return (
@@ -282,6 +268,7 @@ export default function UnitsPage() {
             </Button>
           </Can>
           <Can permission="units:write">
+            <BulkCreateUnitsDialog />
             <CreateUnitDialog />
           </Can>
         </div>
@@ -399,6 +386,13 @@ export default function UnitsPage() {
             </Select>
           </div>
 
+          {canWrite && (
+            <BulkUnitsBar
+              unitIds={[...selected].filter((id) => visibleIds.includes(id))}
+              {...(facilityId ? { facilityId } : {})}
+              onDone={() => setSelected(new Set())}
+            />
+          )}
           <DataTable
             filtersActive={!!status || !!unitTypeId || !!tableFloorId}
             onClearFilters={() => {
@@ -425,45 +419,7 @@ export default function UnitsPage() {
         />
       )}
 
-      <Dialog open={!!target} onOpenChange={(o) => !o && setTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cambiar estado del trastero {target?.code}</DialogTitle>
-            <DialogDescription>
-              Estado actual: {target && STATUS_LABELS[target.status]}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Nuevo estado</Label>
-              <Select value={newStatus} onValueChange={(v) => setNewStatus(v as UnitStatusValue)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(target ? UNIT_STATUS_TRANSITIONS[target.status] : []).map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {STATUS_LABELS[s]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Motivo (opcional)</Label>
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTarget(null)}>
-              Cancelar
-            </Button>
-            <Button onClick={submitChange} disabled={changeStatus.isPending}>
-              {changeStatus.isPending ? 'Guardando...' : 'Cambiar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ChangeUnitStatusDialog unit={target} onClose={() => setTarget(null)} />
     </div>
   );
 }

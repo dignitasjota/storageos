@@ -6,7 +6,12 @@ import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Owner, Prisma } from '@storageos/database';
-import type { CreateOwnerInput, OwnerDto, UpdateOwnerInput } from '@storageos/shared';
+import type {
+  CreateOwnerInput,
+  OwnerDto,
+  OwnersOverviewDto,
+  UpdateOwnerInput,
+} from '@storageos/shared';
 
 const emptyToNull = (v: string) => v.trim() || null;
 
@@ -134,6 +139,79 @@ export class OwnersService {
       args.tenantId,
     );
     return this.toDto(row, count);
+  }
+
+  /**
+   * Por propietario: sus locales con trasteros y ocupados, la cuota mensual de
+   * sus contratos vivos y lo cobrado el mes pasado. Más los locales que no
+   * tienen propietario.
+   */
+  async overview(tenantId: string, facilityScope?: string[] | null): Promise<OwnersOverviewDto> {
+    const now = new Date();
+    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const scope = facilityScope ? { id: { in: facilityScope } } : {};
+    const data = await this.prisma.withTenant(async (tx) => {
+      const [owners, facilities, contracts, payments] = await Promise.all([
+        tx.owner.findMany({ where: { isActive: true }, select: { id: true } }),
+        tx.facility.findMany({
+          where: { deletedAt: null, ...scope },
+          select: {
+            id: true,
+            name: true,
+            ownerId: true,
+            units: { select: { status: true } },
+          },
+          orderBy: { name: 'asc' },
+        }),
+        tx.contract.findMany({
+          where: { status: { in: ['active', 'ending'] }, deletedAt: null, ownerId: { not: null } },
+          select: { ownerId: true, priceMonthly: true, discountAmount: true },
+        }),
+        tx.payment.findMany({
+          where: {
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+            paidAt: { gte: lastMonthStart, lt: monthStart },
+            methodType: { notIn: ['credit_note', 'withholding'] },
+            invoice: { ownerId: { not: null }, kind: 'invoice' },
+          },
+          select: { amount: true, refundedAmount: true, invoice: { select: { ownerId: true } } },
+        }),
+      ]);
+      return { owners, facilities, contracts, payments };
+    }, tenantId);
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const summaries = data.owners.map((o) => {
+      const facilities = data.facilities
+        .filter((f) => f.ownerId === o.id)
+        .map((f) => ({
+          id: f.id,
+          name: f.name,
+          units: f.units.length,
+          occupied: f.units.filter((u) => u.status === 'occupied').length,
+        }));
+      const mrr = data.contracts
+        .filter((c) => c.ownerId === o.id)
+        .reduce((s, c) => s + Math.max(0, Number(c.priceMonthly) - Number(c.discountAmount)), 0);
+      const collected = data.payments
+        .filter((p) => p.invoice?.ownerId === o.id)
+        .reduce((s, p) => s + Number(p.amount) - Number(p.refundedAmount ?? 0), 0);
+      return {
+        ownerId: o.id,
+        facilities,
+        units: facilities.reduce((s, f) => s + f.units, 0),
+        occupied: facilities.reduce((s, f) => s + f.occupied, 0),
+        mrr: round2(mrr),
+        collectedLastMonth: round2(collected),
+      };
+    });
+    return {
+      owners: summaries,
+      facilitiesWithoutOwner: data.facilities
+        .filter((f) => !f.ownerId)
+        .map((f) => ({ id: f.id, name: f.name })),
+    };
   }
 
   /** El propietario existe y es del tenant (404 si no). */

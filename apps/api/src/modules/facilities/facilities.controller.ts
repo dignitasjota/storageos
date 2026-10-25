@@ -13,7 +13,13 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  CreateFacilityDocumentSchema,
   CreateFacilitySchema,
+  type FacilityDocumentDto,
+  type FacilityDocumentUploadDto,
+  type FacilitySummaryDto,
+  RequestFacilityDocumentUploadSchema,
+  UpdateFacilityDocumentSchema,
   type FacilityDto,
   type FacilityImageUploadResponseDto,
   RequestFacilityImageUploadSchema,
@@ -30,6 +36,8 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { assertFacilityAllowed } from '../../common/facility-scope';
 
 import { FacilitiesService } from './facilities.service';
+import { FacilityDocumentsService } from './facility-documents.service';
+import { FacilityInsightsService } from './facility-insights.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
@@ -38,6 +46,9 @@ class CreateFacilityDto extends createZodDto(CreateFacilitySchema) {}
 class UpdateFacilityDto extends createZodDto(UpdateFacilitySchema) {}
 class RequestFacilityImageUploadDto extends createZodDto(RequestFacilityImageUploadSchema) {}
 class SetFacilityImagesDto extends createZodDto(SetFacilityImagesSchema) {}
+class RequestFacilityDocumentUploadDto extends createZodDto(RequestFacilityDocumentUploadSchema) {}
+class CreateFacilityDocumentDto extends createZodDto(CreateFacilityDocumentSchema) {}
+class UpdateFacilityDocumentDto extends createZodDto(UpdateFacilityDocumentSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -50,12 +61,109 @@ function extractMeta(req: Request): RequestMeta {
 
 @Controller('facilities')
 export class FacilitiesController {
-  constructor(private readonly facilities: FacilitiesService) {}
+  constructor(
+    private readonly facilities: FacilitiesService,
+    private readonly insights: FacilityInsightsService,
+    private readonly documents: FacilityDocumentsService,
+  ) {}
 
   @RequirePermission('facilities:read')
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<FacilityDto[]> {
     return this.facilities.list(user.tenantId, user.facilityScope);
+  }
+
+  /** Cuotas, m², facturado del mes y trasteros parados de cada local. */
+  @RequirePermission('facilities:read')
+  @Get('summary')
+  async summary(@CurrentUser() user: AuthenticatedUser): Promise<FacilitySummaryDto[]> {
+    return this.insights.summary(user.tenantId, user.facilityScope ?? null);
+  }
+
+  // --- Documentos del local -------------------------------------------------
+
+  @RequirePermission('facilities:read')
+  @Get(':id/documents')
+  async listDocuments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<FacilityDocumentDto[]> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.documents.list(user.tenantId, id);
+  }
+
+  @RequirePermission('facilities:manage')
+  @Post(':id/documents/upload-url')
+  @HttpCode(HttpStatus.OK)
+  async documentUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: RequestFacilityDocumentUploadDto,
+  ): Promise<FacilityDocumentUploadDto> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.documents.requestUpload({ tenantId: user.tenantId, facilityId: id, ...input });
+  }
+
+  @RequirePermission('facilities:manage')
+  @Post(':id/documents')
+  async addDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: CreateFacilityDocumentDto,
+  ): Promise<FacilityDocumentDto> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.documents.create({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      facilityId: id,
+      input,
+    });
+  }
+
+  @RequirePermission('facilities:manage')
+  @Patch(':id/documents/:documentId')
+  async updateDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('documentId', new ParseUUIDPipe()) documentId: string,
+    @Body() input: UpdateFacilityDocumentDto,
+  ): Promise<FacilityDocumentDto> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.documents.update({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      facilityId: id,
+      documentId,
+      input,
+    });
+  }
+
+  @RequirePermission('facilities:manage')
+  @Delete(':id/documents/:documentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('documentId', new ParseUUIDPipe()) documentId: string,
+  ): Promise<void> {
+    assertFacilityAllowed(user.facilityScope, id);
+    await this.documents.remove({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      facilityId: id,
+      documentId,
+    });
+  }
+
+  @RequirePermission('facilities:read')
+  @Get(':id/documents/:documentId/download')
+  async downloadDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('documentId', new ParseUUIDPipe()) documentId: string,
+  ): Promise<{ url: string }> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.documents.downloadUrl(user.tenantId, id, documentId);
   }
 
   @RequirePermission('facilities:read')

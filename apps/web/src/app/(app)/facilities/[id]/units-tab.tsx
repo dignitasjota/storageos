@@ -17,6 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { BulkCreateUnitsDialog } from '@/components/units/bulk-create-dialog';
 import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
@@ -131,10 +132,13 @@ export function FacilityUnitsTab({ facilityId }: Props) {
       isLoading={units.isLoading}
       searchPlaceholder="Buscar por código..."
       toolbarRight={
-        <CreateUnitDialog
-          facilityId={facilityId}
-          onGoToTypes={() => router.replace(`${pathname}?tab=unit-types`, { scroll: false })}
-        />
+        <div className="flex flex-wrap gap-2">
+          <BulkCreateUnitsDialog facilityId={facilityId} />
+          <CreateUnitDialog
+            facilityId={facilityId}
+            onGoToTypes={() => router.replace(`${pathname}?tab=unit-types`, { scroll: false })}
+          />
+        </div>
       }
       emptyText={
         activeTypes.length === 0

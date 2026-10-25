@@ -596,6 +596,8 @@ model Tenant {
   winbackSends            WinbackSend[]
   leadFollowups           LeadFollowup[]
   leadActivities          LeadActivity[]
+  productStockMovements   ProductStockMovement[]
+  facilityDocuments       FacilityDocument[]
   campaignLinks           CampaignLink[]
   campaignClicks          CampaignClick[]
   campaignTemplates       CampaignTemplate[]
@@ -697,6 +699,8 @@ model User {
   customerFollowups        CustomerFollowup[]        @relation("CustomerFollowupAuthor")
   leadFollowups            LeadFollowup[]            @relation("LeadFollowupAuthor")
   leadActivities           LeadActivity[]            @relation("LeadActivityAuthor")
+  stockMovements           ProductStockMovement[]    @relation("ProductStockMovementUser")
+  facilityDocuments        FacilityDocument[]        @relation("FacilityDocumentUploader")
   paymentPlansCreated      PaymentPlan[]             @relation("PaymentPlanAuthor")
   cashClosures             CashClosure[]             @relation("CashClosureAuthor")
   delinquencyCasesOpened   DelinquencyCase[]         @relation("DelinquencyCaseOpenedBy")
@@ -1029,6 +1033,8 @@ model Facility {
   maintenancePlans     MaintenancePlan[]
   incidents            Incident[]           @relation("IncidentFacility")
   productStocks        ProductStock[]       @relation("ProductStockFacility")
+  stockMovements       ProductStockMovement[] @relation("ProductStockMovementFacility")
+  documents            FacilityDocument[]
   productSales         ProductSale[]        @relation("ProductSaleFacility")
   accessDevices        AccessDevice[]       @relation("DeviceFacility")
   cameraDevices        CameraDevice[]
@@ -1125,6 +1131,8 @@ model Unit {
   areaM2           Decimal?   @map("area_m2") @db.Decimal(10, 4)
   volumeM3         Decimal?   @map("volume_m3") @db.Decimal(12, 4)
   status           UnitStatus @default(available)
+  /// Fecha prevista de vuelta al servicio de un trastero en mantenimiento.
+  maintenanceUntil DateTime?  @map("maintenance_until") @db.Date
   basePriceMonthly Decimal    @map("base_price_monthly") @db.Decimal(10, 2)
   planX            Decimal?   @map("plan_x") @db.Decimal(10, 3)
   planY            Decimal?   @map("plan_y") @db.Decimal(10, 3)
@@ -3436,17 +3444,71 @@ model Product {
   price       Decimal     @db.Decimal(10, 2)
   taxRate     Decimal     @default(21) @map("tax_rate") @db.Decimal(5, 2)
   isActive    Boolean     @default(true) @map("is_active")
+  /// Aviso de reponer cuando el stock de un local baja de aquí (null = sin aviso).
+  minStock    Int?        @map("min_stock")
   deletedAt   DateTime?   @map("deleted_at") @db.Timestamptz(6)
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  stocks    ProductStock[]
-  saleItems ProductSaleItem[]
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  stocks         ProductStock[]
+  saleItems      ProductSaleItem[]
+  stockMovements ProductStockMovement[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
   @@map("products")
+}
+
+/// Cada entrada o salida de stock (ventas, cancelaciones y ajustes a mano).
+model ProductStockMovement {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  facilityId    String   @map("facility_id") @db.Uuid
+  delta         Int
+  quantityAfter Int?     @map("quantity_after")
+  /// adjust | set | sale | sale_cancelled
+  kind          String
+  reason        String?
+  saleId        String?  @map("sale_id") @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product  Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  facility Facility     @relation("ProductStockMovementFacility", fields: [facilityId], references: [id], onDelete: Cascade)
+  sale     ProductSale? @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  user     User?        @relation("ProductStockMovementUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([productId, createdAt], map: "product_stock_movements_product_idx")
+  @@map("product_stock_movements")
+}
+
+/// Documentos internos del local (licencias, seguros, contrato de la nave…).
+model FacilityDocument {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  facilityId       String    @map("facility_id") @db.Uuid
+  /// licence | insurance | lease | inspection | other
+  kind             String
+  name             String
+  fileKey          String    @map("file_key")
+  mimeType         String    @map("mime_type")
+  sizeBytes        Int       @map("size_bytes")
+  expiresOn        DateTime? @map("expires_on") @db.Date
+  expiryNotifiedAt DateTime? @map("expiry_notified_at") @db.Timestamptz(6)
+  notes            String?
+  uploadedByUserId String?   @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  uploadedBy User?    @relation("FacilityDocumentUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([facilityId], map: "facility_documents_facility_idx")
+  @@index([tenantId, expiresOn], map: "facility_documents_expiry_idx")
+  @@map("facility_documents")
 }
 
 /// Stock por facility. Ajuste manual en MVP (sin movimientos). La venta
@@ -3493,6 +3555,7 @@ model ProductSale {
   invoice  Invoice?          @relation("ProductSaleInvoice", fields: [invoiceId], references: [id], onDelete: SetNull)
   soldBy   User?             @relation("ProductSaleSoldBy", fields: [soldByUserId], references: [id], onDelete: SetNull)
   items    ProductSaleItem[]
+  stockMovements ProductStockMovement[]
 
   @@index([tenantId])
   @@index([tenantId, facilityId, soldAt(sort: Desc)])

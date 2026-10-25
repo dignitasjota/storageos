@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { FacilityCamerasTab } from './cameras-tab';
+import { FacilityDocumentsTab } from './documents-tab';
 import { FacilityFloorsTab } from './floors-tab';
 import { FacilitySettingsTab } from './settings-tab';
 import { FacilityUnitTypesTab } from './unit-types-tab';
@@ -100,6 +101,7 @@ export default function FacilityDetailPage() {
           <TabsTrigger value="units">Trasteros</TabsTrigger>
           <TabsTrigger value="floors">Plantas y plano</TabsTrigger>
           <TabsTrigger value="unit-types">Tipos</TabsTrigger>
+          <TabsTrigger value="documents">Documentos</TabsTrigger>
           {canSeeCameras && <TabsTrigger value="cameras">Cámaras</TabsTrigger>}
           {canManage && <TabsTrigger value="settings">Ajustes</TabsTrigger>}
         </TabsList>
@@ -111,6 +113,9 @@ export default function FacilityDetailPage() {
         </TabsContent>
         <TabsContent value="unit-types" className="mt-6">
           <FacilityUnitTypesTab />
+        </TabsContent>
+        <TabsContent value="documents" className="mt-6">
+          <FacilityDocumentsTab facilityId={facility.data.id} />
         </TabsContent>
         {canSeeCameras && (
           <TabsContent value="cameras" className="mt-6">

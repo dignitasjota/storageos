@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image as KonvaImage, Layer, Rect, Stage, Text, Transformer } from 'react-konva';
 import { toast } from 'sonner';
 
+import type { UnitDto } from '@storageos/shared';
 import type Konva from 'konva';
 
 import { StatusBadge } from '@/components/status-badge';
@@ -28,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
 import { ApiError } from '@/lib/auth/api';
 import {
   useFloors,
@@ -46,6 +48,15 @@ interface Props {
   facilityId: string;
   floorId: string;
 }
+
+/** Colores por estado (los mismos que el visor del plano). */
+const STATUS_FILL: Record<string, string> = {
+  available: '#16a34a',
+  occupied: '#dc2626',
+  reserved: '#d97706',
+  maintenance: '#64748b',
+  blocked: '#475569',
+};
 
 const GRID = 20;
 const MIN_SCALE = 0.1;
@@ -113,6 +124,8 @@ export function PlanEditor({ facilityId, floorId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [planImage, setPlanImage] = useState<HTMLImageElement | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [colorBy, setColorBy] = useState<'type' | 'status'>('type');
+  const [newAt, setNewAt] = useState<{ x: number; y: number } | null>(null);
   const [rects, setRects] = useState<UnitRect[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -251,6 +264,37 @@ export function PlanEditor({ facilityId, floorId }: Props) {
       toast.error('No se pudo subir el plano.');
       void err;
     }
+  }
+
+  /** Doble clic en un hueco del plano: crear un trastero ahí. */
+  function openCreateAt(target: Konva.Node) {
+    const stage = stageRef.current;
+    if (!stage || (target !== stage && target.getClassName() !== 'Image')) return;
+    const p = stage.getPointerPosition();
+    if (!p) return;
+    setNewAt({ x: snap((p.x - pos.x) / scale), y: snap((p.y - pos.y) / scale) });
+  }
+
+  function placeCreated(u: UnitDto) {
+    if (!newAt) return;
+    const size = proportionalPlanSize(u.widthM, u.depthM);
+    setRects((prev) => [
+      ...prev,
+      {
+        id: u.id,
+        code: u.code,
+        x: newAt.x,
+        y: newAt.y,
+        width: size.width,
+        height: size.height,
+        color: u.unitTypeColor,
+        status: u.status,
+        areaM2: u.areaM2,
+        stackGroupId: u.stackGroupId,
+      },
+    ]);
+    setDirty(true);
+    setNewAt(null);
   }
 
   // Aviso al salir con la distribución sin guardar.
@@ -421,8 +465,27 @@ export function PlanEditor({ facilityId, floorId }: Props) {
         <Button onClick={saveLayout} disabled={!dirty || updateLayout.isPending}>
           <Save className="mr-1 h-4 w-4" /> Guardar layout
         </Button>
+        <div className="flex items-center rounded-md border p-0.5">
+          <Button
+            size="sm"
+            variant={colorBy === 'type' ? 'secondary' : 'ghost'}
+            className="h-7"
+            onClick={() => setColorBy('type')}
+          >
+            Por tipo
+          </Button>
+          <Button
+            size="sm"
+            variant={colorBy === 'status' ? 'secondary' : 'ghost'}
+            className="h-7"
+            onClick={() => setColorBy('status')}
+          >
+            Por estado
+          </Button>
+        </div>
         <span className="hidden text-sm text-muted-foreground sm:inline">
-          Arrastra para colocar; tira de una esquina para cambiar el tamaño. Snap a {GRID}px.
+          Arrastra para colocar; tira de una esquina para cambiar el tamaño; doble clic en un hueco
+          para crear un trastero ahí. Snap a {GRID}px.
         </span>
       </div>
 
@@ -461,6 +524,8 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                 setPos({ x: e.target.x(), y: e.target.y() });
               }
             }}
+            onDblClick={(e) => openCreateAt(e.target)}
+            onDblTap={(e) => openCreateAt(e.target)}
           >
             <Layer>
               {planImage && (
@@ -485,7 +550,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                     y={r.y - 5}
                     width={r.width}
                     height={r.height}
-                    fill={r.color}
+                    fill={colorBy === 'status' ? (STATUS_FILL[r.status] ?? r.color) : r.color}
                     opacity={0.35}
                     stroke={STATUS_COLOR[r.status] ?? '#222'}
                     strokeWidth={1.5}
@@ -505,7 +570,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                     y={r.y}
                     width={r.width}
                     height={r.height}
-                    fill={r.color}
+                    fill={colorBy === 'status' ? (STATUS_FILL[r.status] ?? r.color) : r.color}
                     opacity={STATUS_OPACITY[r.status] ?? 0.6}
                     stroke={isSelected ? '#000' : (STATUS_COLOR[r.status] ?? '#222')}
                     strokeWidth={isSelected ? 4 : 2.5}
@@ -752,6 +817,13 @@ export function PlanEditor({ facilityId, floorId }: Props) {
             </div>
           );
         })()}
+      <CreateUnitDialog
+        facilityId={facilityId}
+        floorId={floorId}
+        open={!!newAt}
+        onOpenChange={(o) => !o && setNewAt(null)}
+        onCreated={placeCreated}
+      />
     </div>
   );
 }

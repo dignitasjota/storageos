@@ -100,8 +100,26 @@ export interface ProductDto {
   taxRate: number;
   isActive: boolean;
   totalStock: number;
+  minStock: number | null;
+  /** Algún local por debajo del mínimo (o sin stock). */
+  lowStock: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type StockMovementKind = 'adjust' | 'set' | 'sale' | 'sale_cancelled';
+
+export interface ProductStockMovementDto {
+  id: string;
+  facilityId: string;
+  facilityName: string;
+  delta: number;
+  quantityAfter: number | null;
+  kind: StockMovementKind;
+  reason: string | null;
+  saleId: string | null;
+  userName: string | null;
+  createdAt: string;
 }
 
 export interface ProductStockDto {

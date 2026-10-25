@@ -13,7 +13,13 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  BulkCreateUnitsSchema,
+  type BulkCreateUnitsResultDto,
+  type BulkUnitsActionInput,
+  BulkUnitsActionSchema,
+  type BulkUnitsResultDto,
   ChangeUnitStatusSchema,
+  type UnitInsightsDto,
   CreateUnitSchema,
   StackUnitsSchema,
   type UnitDto,
@@ -21,7 +27,7 @@ import {
   UnitStatusEnum,
   UpdateUnitSchema,
 } from '@storageos/shared';
-import { createZodDto } from 'nestjs-zod';
+import { createZodDto, ZodValidationPipe } from 'nestjs-zod';
 
 import {
   type AuthenticatedUser,
@@ -30,6 +36,7 @@ import {
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { assertFacilityAllowed } from '../../common/facility-scope';
 
+import { UnitsInventoryService } from './units-inventory.service';
 import { UnitsService } from './units.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -39,6 +46,7 @@ class CreateUnitDto extends createZodDto(CreateUnitSchema) {}
 class UpdateUnitDto extends createZodDto(UpdateUnitSchema) {}
 class ChangeUnitStatusDto extends createZodDto(ChangeUnitStatusSchema) {}
 class StackUnitsDto extends createZodDto(StackUnitsSchema) {}
+class BulkCreateUnitsDto extends createZodDto(BulkCreateUnitsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -51,7 +59,55 @@ function extractMeta(req: Request): RequestMeta {
 
 @Controller('units')
 export class UnitsController {
-  constructor(private readonly units: UnitsService) {}
+  constructor(
+    private readonly units: UnitsService,
+    private readonly inventory: UnitsInventoryService,
+  ) {}
+
+  /** Cambia estado, tipo, planta o precio de varios trasteros. */
+  @RequirePermission('units:write')
+  @Post('bulk')
+  @HttpCode(HttpStatus.OK)
+  async bulk(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body(new ZodValidationPipe(BulkUnitsActionSchema)) input: BulkUnitsActionInput,
+    @Req() req: Request,
+  ): Promise<BulkUnitsResultDto> {
+    return this.inventory.bulk({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Alta de varios trasteros seguidos con un patrón de código. */
+  @RequirePermission('units:write')
+  @Post('bulk-create')
+  async bulkCreate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: BulkCreateUnitsDto,
+    @Req() req: Request,
+  ): Promise<BulkCreateUnitsResultDto> {
+    return this.inventory.bulkCreate({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Historial de precios e inquilinos, días libre y lo facturado por el trastero. */
+  @RequirePermission('units:read')
+  @Get(':id/insights')
+  async insights(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<UnitInsightsDto> {
+    return this.inventory.insights(user.tenantId, id, user.facilityScope ?? null);
+  }
 
   @RequirePermission('units:read')
   @Get()

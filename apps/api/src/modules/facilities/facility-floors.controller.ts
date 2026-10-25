@@ -14,6 +14,7 @@ import {
 import {
   CreateFloorSchema,
   type FacilityFloorDto,
+  type FloorOccupantDto,
   type PlanUploadResponseDto,
   RequestPlanUploadSchema,
   UpdateFloorPlanSchema,
@@ -31,6 +32,7 @@ import { assertFacilityAllowed } from '../../common/facility-scope';
 import { FilesService } from '../files/files.service';
 
 import { FacilityFloorsService } from './facility-floors.service';
+import { FacilityInsightsService } from './facility-insights.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
@@ -55,6 +57,7 @@ export class FacilityFloorsController {
   constructor(
     private readonly floors: FacilityFloorsService,
     private readonly files: FilesService,
+    private readonly insights: FacilityInsightsService,
   ) {}
 
   /** La planta existe y es de un local que el usuario ve. */
@@ -72,6 +75,16 @@ export class FacilityFloorsController {
   ): Promise<FacilityFloorDto[]> {
     assertFacilityAllowed(user.facilityScope, facilityId);
     return this.floors.list(user.tenantId, facilityId);
+  }
+
+  /** Quién ocupa cada trastero de la planta (para el visor del plano). */
+  @RequirePermission('customers:read')
+  @Get('floors/:id/occupants')
+  async occupants(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<FloorOccupantDto[]> {
+    return this.insights.occupants(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('facilities:manage')

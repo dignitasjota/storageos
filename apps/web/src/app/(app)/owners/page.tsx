@@ -1,12 +1,13 @@
 'use client';
 
 import { FileText, Loader2, Pencil, Plus } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { OwnerStatementDialog } from './statement-dialog';
 
-import type { OwnerDto } from '@storageos/shared';
+import type { OwnerDto, OwnerSummaryDto } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
@@ -36,6 +37,7 @@ import {
   useCreateOwner,
   useOwnerCertificate,
   useOwners,
+  useOwnersOverview,
   useRemoveOwnerCertificate,
   useUpdateOwner,
   useUploadOwnerCertificate,
@@ -43,6 +45,9 @@ import {
 
 export default function OwnersPage() {
   const owners = useOwners();
+  const overview = useOwnersOverview();
+  const summaryOf = new Map((overview.data?.owners ?? []).map((x) => [x.ownerId, x]));
+  const withoutOwner = overview.data?.facilitiesWithoutOwner ?? [];
   const [editing, setEditing] = useState<OwnerDto | 'new' | null>(null);
   const [statementOf, setStatementOf] = useState<OwnerDto | null>(null);
   const canStatements = useHasPermission('invoices:manage');
@@ -63,6 +68,24 @@ export default function OwnersPage() {
           </Button>
         </Can>
       </div>
+
+      {withoutOwner.length > 0 && (owners.data ?? []).length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          {withoutOwner.length === 1
+            ? 'Un local no tiene'
+            : `${withoutOwner.length} locales no tienen`}{' '}
+          propietario y sus facturas salen a nombre de tu empresa:{' '}
+          {withoutOwner.map((f, i) => (
+            <span key={f.id}>
+              {i > 0 && ', '}
+              <Link href={`/facilities/${f.id}?tab=settings`} className="font-medium underline">
+                {f.name}
+              </Link>
+            </span>
+          ))}
+          .
+        </div>
+      )}
 
       {owners.isLoading ? (
         <div className="flex justify-center py-12">
@@ -106,6 +129,7 @@ export default function OwnersPage() {
                     : `${o.feeValue} % de lo cobrado`}
                   {o.ibanLast4 && <> · Cuenta …{o.ibanLast4}</>}
                 </p>
+                {summaryOf.get(o.id) && <OwnerSummaryBlock summary={summaryOf.get(o.id)!} />}
                 <OwnerCertificateRow ownerId={o.id} />
                 {canStatements && (
                   <Button size="sm" variant="outline" onClick={() => setStatementOf(o)}>
@@ -376,6 +400,46 @@ function OwnerCertificateRow({ ownerId }: { ownerId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function OwnerSummaryBlock({ summary }: { summary: OwnerSummaryDto }) {
+  const pct = summary.units > 0 ? Math.round((summary.occupied / summary.units) * 100) : 0;
+  return (
+    <div className="space-y-2 rounded-md border bg-muted/30 p-2">
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div>
+          <p className="text-xs text-muted-foreground">Ocupación</p>
+          <p className="font-semibold">
+            {pct} %{' '}
+            <span className="text-xs font-normal">
+              ({summary.occupied}/{summary.units})
+            </span>
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Cuotas al mes</p>
+          <p className="font-semibold">{formatEur(summary.mrr)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Cobrado el mes pasado</p>
+          <p className="font-semibold">{formatEur(summary.collectedLastMonth)}</p>
+        </div>
+      </div>
+      {summary.facilities.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {summary.facilities.map((f, i) => (
+            <span key={f.id}>
+              {i > 0 && ' · '}
+              <Link href={`/facilities/${f.id}`} className="hover:underline">
+                {f.name}
+              </Link>{' '}
+              ({f.occupied}/{f.units})
+            </span>
+          ))}
+        </p>
+      )}
     </div>
   );
 }

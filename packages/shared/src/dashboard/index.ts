@@ -61,6 +61,12 @@ export interface TodayDto {
   marketingRenewalsDue: { count: number; items: TodayItemDto[] };
   /** Ofertas de retención (contraoferta de baja) pendientes de respuesta del inquilino. */
   retentionOffersPending: { count: number; items: TodayItemDto[] };
+  /** Productos por debajo del stock mínimo en algún local. */
+  lowStock: { count: number; items: TodayItemDto[] };
+  /** Trasteros en mantenimiento o bloqueados hace más de 7 días o pasada su fecha prevista. */
+  unitsOutOfService: { count: number; items: TodayItemDto[] };
+  /** Documentos de locales que caducan en 30 días o ya caducados. */
+  facilityDocumentsExpiring: { count: number; items: TodayItemDto[] };
 }
 
 /** Un paso de la puesta en marcha del operador. */

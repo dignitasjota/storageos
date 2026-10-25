@@ -4,6 +4,7 @@ import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
+import { FacilityDocumentsExpiryCron } from './facility-documents-expiry.cron';
 import { InventoryReconciliationCron } from './inventory-reconciliation.cron';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
@@ -14,7 +15,7 @@ import { InventoryService } from './inventory.service';
   providers: [
     InventoryService,
     // El cron solo se monta donde corren los workers (worker en prod).
-    ...(WORKERS_ENABLED_IN_API ? [InventoryReconciliationCron] : []),
+    ...(WORKERS_ENABLED_IN_API ? [InventoryReconciliationCron, FacilityDocumentsExpiryCron] : []),
   ],
   exports: [InventoryService],
 })
