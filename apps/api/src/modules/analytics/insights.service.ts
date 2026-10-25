@@ -1,9 +1,20 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
+import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { toActiveUnitOffer } from '../promotions/promotions.service';
 
+import {
+  ALL_FACILITIES,
+  contractLifecycle,
+  contractWhere,
+  invoiceWhere,
+  LIFECYCLE_SELECT,
+  liveMrr,
+  unitWhere,
+  type AnalyticsScope,
+} from './analytics-scope';
 import {
   daysBetween,
   decidePrice,
@@ -63,6 +74,9 @@ const PROMOTION_AFTER_DAYS = 45;
 
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n} %`;
 
+/** Cobros fallidos y reclamaciones más antiguos no cuentan para el riesgo de baja. */
+const RISK_LOOKBACK_DAYS = 365;
+
 function levelFor(score: number): ChurnRiskLevel {
   if (score >= 60) return 'high';
   if (score >= 30) return 'medium';
@@ -94,10 +108,13 @@ export class InsightsService {
   // ---------------------------------------------------------------------------
   // Riesgo de baja (churn) por contrato activo.
   // ---------------------------------------------------------------------------
-  async getChurnRisk(tenantId: string): Promise<ChurnRiskKpiDto> {
+  async getChurnRisk(
+    tenantId: string,
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<ChurnRiskKpiDto> {
     return this.prisma.withTenant(async (tx) => {
       const contracts = await tx.contract.findMany({
-        where: { status: { in: ['active', 'ending'] }, deletedAt: null },
+        where: { status: { in: ['active', 'ending'] }, deletedAt: null, ...contractWhere(scope) },
         select: {
           id: true,
           contractNumber: true,
@@ -124,24 +141,44 @@ export class InsightsService {
 
       const customerIds = [...new Set(contracts.map((c) => c.customerId))];
 
-      const [overdue, failedPayments, dunning, defaultPms] = await Promise.all([
+      // Los cobros fallidos y las reclamaciones solo cuentan si son del último año.
+      const since = new Date(Date.now() - RISK_LOOKBACK_DAYS * 86_400_000);
+      const [overdue, failedPayments, dunning, defaultPms, mandates] = await Promise.all([
         tx.invoice.groupBy({
           by: ['customerId'],
-          where: { status: 'overdue', customerId: { in: customerIds } },
+          where: {
+            status: 'overdue',
+            kind: 'invoice',
+            deletedAt: null,
+            customerId: { in: customerIds },
+          },
           _count: { _all: true },
           _sum: { total: true, amountPaid: true },
         }),
         tx.payment.groupBy({
           by: ['customerId'],
-          where: { status: 'failed', customerId: { in: customerIds } },
+          where: { status: 'failed', customerId: { in: customerIds }, createdAt: { gte: since } },
           _count: { _all: true },
         }),
         tx.dunningAction.findMany({
-          where: { status: 'executed', invoice: { customerId: { in: customerIds } } },
+          where: {
+            status: 'executed',
+            executedAt: { gte: since },
+            invoice: { customerId: { in: customerIds } },
+          },
           select: { invoice: { select: { customerId: true } } },
         }),
         tx.paymentMethod.findMany({
           where: { customerId: { in: customerIds }, isDefault: true, deletedAt: null },
+          select: { customerId: true },
+        }),
+        // Quien paga por la remesa SEPA del negocio también tiene cómo pagar.
+        tx.sepaMandate.findMany({
+          where: {
+            customerId: { in: customerIds },
+            status: 'active',
+            signatureStatus: { in: ['signed', 'external'] },
+          },
           select: { customerId: true },
         }),
       ]);
@@ -161,7 +198,10 @@ export class InsightsService {
         const cid = d.invoice?.customerId;
         if (cid) dunningByCustomer.set(cid, (dunningByCustomer.get(cid) ?? 0) + 1);
       }
-      const customersWithPm = new Set(defaultPms.map((p) => p.customerId));
+      const customersWithPm = new Set([
+        ...defaultPms.map((p) => p.customerId),
+        ...mandates.map((m) => m.customerId),
+      ]);
 
       const now = Date.now();
       const items: ChurnRiskItemDto[] = contracts.map((c) => {
@@ -189,7 +229,7 @@ export class InsightsService {
         const dun = dunningByCustomer.get(c.customerId) ?? 0;
         if (dun > 0) {
           score += 15;
-          factors.push('en proceso de reclamación (dunning)');
+          factors.push('reclamado en el último año');
         }
 
         if (c.endDate) {
@@ -247,16 +287,19 @@ export class InsightsService {
    * vencidas, contratos que vencen sin renovación). Determinista (no depende de la
    * IA) → funciona en cualquier entorno; cada acción enlaza al recurso exacto.
    */
-  async getSuggestedActions(tenantId: string): Promise<SuggestedActionsDto> {
+  async getSuggestedActions(
+    tenantId: string,
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<SuggestedActionsDto> {
     const [churn, pricing, extra] = await Promise.all([
-      this.getChurnRisk(tenantId),
-      this.getUnitPricingSuggestions(tenantId),
+      this.getChurnRisk(tenantId, scope),
+      this.getUnitPricingSuggestions(tenantId, scope),
       this.prisma.withTenant(async (tx) => {
         const now = new Date();
         const in30 = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
         const [overdue, endingSoon] = await Promise.all([
           tx.invoice.aggregate({
-            where: { status: 'overdue', deletedAt: null },
+            where: { status: 'overdue', deletedAt: null, kind: 'invoice', ...invoiceWhere(scope) },
             _count: { _all: true },
             _sum: { total: true, amountPaid: true },
           }),
@@ -266,6 +309,7 @@ export class InsightsService {
               autoRenew: false,
               deletedAt: null,
               endDate: { not: null, gte: now, lte: in30 },
+              ...contractWhere(scope),
             },
             select: {
               id: true,
@@ -655,13 +699,20 @@ export class InsightsService {
   }
 
   /** Sugerencia por TIPO de trastero (precio de catálogo para nuevos contratos). */
-  async getPricingSuggestions(tenantId: string): Promise<PricingSuggestionsDto> {
+  async getPricingSuggestions(
+    tenantId: string,
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<PricingSuggestionsDto> {
     return this.prisma.withTenant(async (tx) => {
       const ctx = await this.loadPricingContext(tx, tenantId);
       const areas = await tx.unit.groupBy({
         by: ['unitTypeId'],
+        where: unitWhere(scope),
         _avg: { areaM2: true },
       });
+      const facilitiesInScope = scope.ids
+        ? ctx.facilities.filter((f) => scope.ids!.includes(f.id))
+        : ctx.facilities;
       const avgArea = new Map(areas.map((a) => [a.unitTypeId, toNumber(a._avg.areaM2)]));
       const curve = ctx.marketCurve(null);
 
@@ -674,7 +725,7 @@ export class InsightsService {
         let free = 0;
         let rentals90 = 0;
         let positioningWeighted = 0;
-        for (const f of ctx.facilities) {
+        for (const f of facilitiesInScope) {
           const d = ctx.dim(f.id, ut.id);
           total += d.total;
           occupied += d.occupied;
@@ -752,12 +803,12 @@ export class InsightsService {
    */
   async getUnitPricingSuggestions(
     tenantId: string,
-    facilityId?: string,
+    scope: AnalyticsScope = ALL_FACILITIES,
     includeCompetition = true,
   ): Promise<UnitPricingSuggestionsDto> {
     return this.prisma.withTenant(async (tx) => {
       const units = await tx.unit.findMany({
-        where: { status: 'available', ...(facilityId ? { facilityId } : {}) },
+        where: { status: 'available', ...unitWhere(scope) },
         include: {
           unitType: { select: { id: true, name: true } },
           facility: { select: { name: true } },
@@ -918,11 +969,17 @@ export class InsightsService {
    * de los últimos 12 meses en un trastero libre, cuánto tardó luego en
    * alquilarse frente a lo que tardaba ese tamaño en los 180 días anteriores.
    */
-  async getPriceChangeEffects(tenantId: string): Promise<PriceChangeEffectsDto> {
+  async getPriceChangeEffects(
+    tenantId: string,
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<PriceChangeEffectsDto> {
     return this.prisma.withTenant(async (tx) => {
       const now = new Date();
       const changes = await tx.unitPriceHistory.findMany({
-        where: { changedAt: { gte: new Date(now.getTime() - 365 * 86_400_000) } },
+        where: {
+          changedAt: { gte: new Date(now.getTime() - 365 * 86_400_000) },
+          ...(scope.ids ? { unit: { facilityId: { in: scope.ids } } } : {}),
+        },
         orderBy: { changedAt: 'desc' },
         take: 200,
         include: {
@@ -1071,8 +1128,17 @@ export class InsightsService {
     userId: string;
     input: UpdatePricingStrategyInput;
     meta: RequestMeta;
+    facilityScope?: FacilityScope;
   }): Promise<PricingStrategyDto> {
     const { input } = args;
+    // La estrategia es de toda la empresa (objetivo, límites de cada tipo).
+    if (args.facilityScope) {
+      throw new ForbiddenException({
+        code: 'facility_not_in_scope',
+        message:
+          'La estrategia de precios es de toda la empresa: pídeselo a quien ve todos los locales',
+      });
+    }
     await this.prisma.withTenant(async (tx) => {
       if (
         input.targetOccupancy !== undefined ||
@@ -1127,10 +1193,12 @@ export class InsightsService {
     unitId: string;
     price: number;
     meta: RequestMeta;
+    facilityScope?: FacilityScope;
   }): Promise<ApplyUnitPricingResultDto> {
     const result = await this.prisma.withTenant(async (tx) => {
       const unit = await tx.unit.findUnique({ where: { id: args.unitId } });
-      if (!unit) {
+      // Un trastero de un local que el usuario no ve se trata como inexistente.
+      if (!unit || !isFacilityAllowed(args.facilityScope, unit.facilityId)) {
         throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
       }
       const previousPrice = toNumber(unit.basePriceMonthly);
@@ -1170,31 +1238,28 @@ export class InsightsService {
   async getRevenueForecast(
     tenantId: string,
     opts: { months?: number; trailingMonths?: number } = {},
+    scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<RevenueForecastDto> {
     const horizon = Math.min(24, Math.max(1, opts.months ?? 6));
     const trailing = Math.min(24, Math.max(1, opts.trailingMonths ?? 6));
 
     return this.prisma.withTenant(async (tx) => {
-      const [totalUnits, occupiedUnits, activeContracts, history] = await Promise.all([
-        tx.unit.count(),
-        tx.unit.count({ where: { status: 'occupied' } }),
+      const units = unitWhere(scope);
+      const [totalUnits, occupiedUnits, live, contracts] = await Promise.all([
+        tx.unit.count({ where: units }),
+        tx.unit.count({ where: { ...units, status: 'occupied' } }),
+        liveMrr(tx, scope),
         tx.contract.findMany({
-          where: { status: { in: ['active', 'ending'] }, deletedAt: null },
-          select: { priceMonthly: true, discountAmount: true },
-        }),
-        tx.contract.findMany({
-          where: { signedAt: { not: null } },
-          select: { signedAt: true, endedAt: true },
+          where: { signedAt: { not: null }, deletedAt: null, ...contractWhere(scope) },
+          select: LIFECYCLE_SELECT,
         }),
       ]);
+      const history = contracts
+        .map((c) => contractLifecycle(c))
+        .filter((l): l is NonNullable<typeof l> => l !== null);
 
-      const mrr = round2(
-        activeContracts.reduce(
-          (sum, c) => sum + (toNumber(c.priceMonthly) - toNumber(c.discountAmount)),
-          0,
-        ),
-      );
-      const activeCount = activeContracts.length;
+      const mrr = live.mrr;
+      const activeCount = live.contracts;
       const avgContractValue = activeCount > 0 ? round2(mrr / activeCount) : 0;
       const currentOccupancy = totalUnits > 0 ? round2(occupiedUnits / totalUnits) : 0;
 
@@ -1213,8 +1278,8 @@ export class InsightsService {
         let ended = 0;
         let adds = 0;
         for (const c of history) {
-          const signed = c.signedAt!.getTime();
-          const endedAt = c.endedAt?.getTime() ?? null;
+          const signed = c.begin.getTime();
+          const endedAt = c.end?.getTime() ?? null;
           if (signed < startMs && (endedAt === null || endedAt >= startMs)) activeAtStart += 1;
           if (endedAt !== null && endedAt >= startMs && endedAt < endMs) ended += 1;
           if (signed >= startMs && signed < endMs) adds += 1;
@@ -1271,7 +1336,16 @@ export class InsightsService {
     unitTypeId: string;
     price: number;
     meta: RequestMeta;
+    facilityScope?: FacilityScope;
   }): Promise<ApplyPricingResultDto> {
+    // El precio de catálogo de un tipo vale para todos los locales.
+    if (args.facilityScope) {
+      throw new ForbiddenException({
+        code: 'facility_not_in_scope',
+        message:
+          'El precio de un tipo de trastero afecta a todos los locales: pídeselo a quien los ve todos',
+      });
+    }
     const result = await this.prisma.withTenant(async (tx) => {
       const ut = await tx.unitType.findUnique({ where: { id: args.unitTypeId } });
       if (!ut) {

@@ -24,8 +24,8 @@ const days = (n: number) => `${Math.round(n)} ${Math.round(n) === 1 ? 'día' : '
  * frente a lo que tardaba ese tamaño antes. Informativo: ayuda a ajustar el
  * cambio máximo y la ocupación objetivo de la estrategia.
  */
-export function PriceChangeEffectsPanel() {
-  const { data, isLoading } = usePriceChangeEffects();
+export function PriceChangeEffectsPanel({ facilityId }: { facilityId?: string }) {
+  const { data, isLoading } = usePriceChangeEffects(facilityId);
 
   if (isLoading || !data) {
     return (

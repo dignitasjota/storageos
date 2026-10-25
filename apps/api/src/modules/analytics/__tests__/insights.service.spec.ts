@@ -11,6 +11,7 @@ interface TxMock {
   payment: { groupBy: jest.Mock };
   dunningAction: { findMany: jest.Mock };
   paymentMethod: { findMany: jest.Mock };
+  sepaMandate: { findMany: jest.Mock };
   unitType: { findMany: jest.Mock };
   unit: { groupBy: jest.Mock; count: jest.Mock };
   tenant: { findUnique: jest.Mock };
@@ -27,6 +28,7 @@ function buildTx(): TxMock {
     payment: { groupBy: jest.fn().mockResolvedValue([]) },
     dunningAction: { findMany: jest.fn().mockResolvedValue([]) },
     paymentMethod: { findMany: jest.fn().mockResolvedValue([]) },
+    sepaMandate: { findMany: jest.fn().mockResolvedValue([]) },
     unitType: { findMany: jest.fn().mockResolvedValue([]) },
     unit: { groupBy: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
     tenant: { findUnique: jest.fn().mockResolvedValue(null) },

@@ -8,20 +8,23 @@ import { useLeadsFunnel } from '@/lib/analytics/hooks';
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
-const STAGES: { key: 'new' | 'contacted' | 'qualified' | 'won'; label: string; color: string }[] = [
-  { key: 'new', label: 'Nuevos', color: '#94a3b8' },
-  { key: 'contacted', label: 'Contactados', color: '#60a5fa' },
-  { key: 'qualified', label: 'Cualificados', color: '#3b82f6' },
-  { key: 'won', label: 'Ganados', color: '#16a34a' },
-];
+const STAGES: { key: 'total' | 'contacted' | 'qualified' | 'won'; label: string; color: string }[] =
+  [
+    { key: 'total', label: 'Recibidos', color: '#94a3b8' },
+    { key: 'contacted', label: 'Contactados', color: '#60a5fa' },
+    { key: 'qualified', label: 'Cualificados', color: '#3b82f6' },
+    { key: 'won', label: 'Ganados', color: '#16a34a' },
+  ];
 
 export function LeadsCard() {
   const q = useLeadsFunnel();
 
   const totals = q.data?.totals;
   const conv = q.data?.conversion;
-  const data = totals
-    ? STAGES.map((s) => ({ label: s.label, value: totals[s.key], color: s.color }))
+  // Embudo acumulado: cuántos contactos del periodo llegaron a cada fase.
+  const reached = q.data ? { total: q.data.total, ...q.data.reached } : null;
+  const data = reached
+    ? STAGES.map((s) => ({ label: s.label, value: reached[s.key], color: s.color }))
     : [];
   const hasData = data.some((d) => d.value > 0) || (totals?.lost ?? 0) > 0;
 
@@ -30,7 +33,7 @@ export function LeadsCard() {
       <CardHeader>
         <CardTitle className="text-base">Captación de leads</CardTitle>
         <CardDescription>
-          Embudo comercial.{' '}
+          Contactos de los últimos 30 días.{' '}
           {conv && (
             <>
               Conversión a cliente{' '}

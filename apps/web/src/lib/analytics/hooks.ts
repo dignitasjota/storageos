@@ -47,6 +47,14 @@ export const analyticsKey = (
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
 
+/** Query string con los parámetros que tienen valor. */
+function query(params: Record<string, string | undefined>): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+  const str = qs.toString();
+  return str ? `?${str}` : '';
+}
+
 export function useBenchmark() {
   return useQuery({
     queryKey: analyticsKey('benchmark'),
@@ -55,35 +63,33 @@ export function useBenchmark() {
 }
 
 export function useMonthlyRevenue(
-  arg: number | { months?: number; from?: string; to?: string } = 12,
+  arg: number | { months?: number; from?: string; to?: string; facilityId?: string } = 12,
 ) {
   const params = typeof arg === 'number' ? { months: arg } : arg;
-  const qs = new URLSearchParams();
-  if (params.from) qs.set('from', params.from);
-  if (params.to) qs.set('to', params.to);
-  if (!params.from && !params.to && params.months) qs.set('months', String(params.months));
+  const ranged = !!(params.from && params.to);
+  const p = {
+    from: ranged ? params.from : undefined,
+    to: ranged ? params.to : undefined,
+    months: !ranged && params.months ? String(params.months) : undefined,
+    facilityId: 'facilityId' in params ? params.facilityId : undefined,
+  };
   return useQuery({
-    queryKey: analyticsKey('monthly-revenue', {
-      months: params.months ? String(params.months) : undefined,
-      from: params.from,
-      to: params.to,
-    }),
-    queryFn: () =>
-      apiFetch<MonthlyRevenueKpiDto>(`/analytics/monthly-revenue${qs.toString() ? `?${qs}` : ''}`),
+    queryKey: analyticsKey('monthly-revenue', p),
+    queryFn: () => apiFetch<MonthlyRevenueKpiDto>(`/analytics/monthly-revenue${query(p)}`),
   });
 }
 
-export function useCustomerStats() {
+export function useCustomerStats(facilityId?: string) {
   return useQuery({
-    queryKey: analyticsKey('customers'),
-    queryFn: () => apiFetch<CustomerStatsKpiDto>('/analytics/customers'),
+    queryKey: analyticsKey('customers', { facilityId }),
+    queryFn: () => apiFetch<CustomerStatsKpiDto>(`/analytics/customers${query({ facilityId })}`),
   });
 }
 
-export function useRevenueKpis() {
+export function useRevenueKpis(facilityId?: string) {
   return useQuery({
-    queryKey: analyticsKey('revenue'),
-    queryFn: () => apiFetch<RevenueKpiDto>('/analytics/revenue'),
+    queryKey: analyticsKey('revenue', { facilityId }),
+    queryFn: () => apiFetch<RevenueKpiDto>(`/analytics/revenue${query({ facilityId })}`),
   });
 }
 
@@ -97,43 +103,33 @@ export function useOccupancy(params: { facilityId?: string } = {}) {
   });
 }
 
-export function useChurn(params: { from?: string; to?: string } = {}) {
-  const qs = new URLSearchParams();
-  if (params.from) qs.set('from', params.from);
-  if (params.to) qs.set('to', params.to);
+type Range = { from?: string; to?: string; facilityId?: string };
+
+export function useChurn(params: Range = {}) {
   return useQuery({
-    queryKey: analyticsKey('churn', params as Record<string, string | undefined>),
-    queryFn: () => apiFetch<ChurnKpiDto>(`/analytics/churn${qs.toString() ? `?${qs}` : ''}`),
+    queryKey: analyticsKey('churn', params),
+    queryFn: () => apiFetch<ChurnKpiDto>(`/analytics/churn${query(params)}`),
   });
 }
 
-export function useAging(params: { atDate?: string } = {}) {
-  const qs = new URLSearchParams();
-  if (params.atDate) qs.set('atDate', params.atDate);
+export function useAging(params: { atDate?: string; facilityId?: string } = {}) {
   return useQuery({
-    queryKey: analyticsKey('aging', params as Record<string, string | undefined>),
-    queryFn: () => apiFetch<AgingKpiDto>(`/analytics/aging${qs.toString() ? `?${qs}` : ''}`),
+    queryKey: analyticsKey('aging', params),
+    queryFn: () => apiFetch<AgingKpiDto>(`/analytics/aging${query(params)}`),
   });
 }
 
-export function useLeadsFunnel(params: { from?: string; to?: string } = {}) {
-  const qs = new URLSearchParams();
-  if (params.from) qs.set('from', params.from);
-  if (params.to) qs.set('to', params.to);
+export function useLeadsFunnel(params: Range = {}) {
   return useQuery({
-    queryKey: analyticsKey('leads-funnel', params as Record<string, string | undefined>),
-    queryFn: () =>
-      apiFetch<LeadsFunnelKpiDto>(`/analytics/leads-funnel${qs.toString() ? `?${qs}` : ''}`),
+    queryKey: analyticsKey('leads-funnel', params),
+    queryFn: () => apiFetch<LeadsFunnelKpiDto>(`/analytics/leads-funnel${query(params)}`),
   });
 }
 
-export function useLeadsUtm(params: { from?: string; to?: string } = {}) {
-  const qs = new URLSearchParams();
-  if (params.from) qs.set('from', params.from);
-  if (params.to) qs.set('to', params.to);
+export function useLeadsUtm(params: Range = {}) {
   return useQuery({
-    queryKey: analyticsKey('leads-utm', params as Record<string, string | undefined>),
-    queryFn: () => apiFetch<LeadsUtmKpiDto>(`/analytics/leads-utm${qs.toString() ? `?${qs}` : ''}`),
+    queryKey: analyticsKey('leads-utm', params),
+    queryFn: () => apiFetch<LeadsUtmKpiDto>(`/analytics/leads-utm${query(params)}`),
   });
 }
 
@@ -145,17 +141,18 @@ export function useSeoChecklist() {
   });
 }
 
-export function useChurnRisk() {
+export function useChurnRisk(facilityId?: string) {
   return useQuery({
-    queryKey: analyticsKey('churn-risk'),
-    queryFn: () => apiFetch<ChurnRiskKpiDto>('/analytics/churn-risk'),
+    queryKey: analyticsKey('churn-risk', { facilityId }),
+    queryFn: () => apiFetch<ChurnRiskKpiDto>(`/analytics/churn-risk${query({ facilityId })}`),
   });
 }
 
-export function usePricingSuggestions() {
+export function usePricingSuggestions(facilityId?: string) {
   return useQuery({
-    queryKey: analyticsKey('pricing-suggestions'),
-    queryFn: () => apiFetch<PricingSuggestionsDto>('/analytics/pricing-suggestions'),
+    queryKey: analyticsKey('pricing-suggestions', { facilityId }),
+    queryFn: () =>
+      apiFetch<PricingSuggestionsDto>(`/analytics/pricing-suggestions${query({ facilityId })}`),
   });
 }
 
@@ -233,22 +230,22 @@ export function useUpdatePricingStrategy() {
   });
 }
 
-export function useRevenueForecast(params: { months?: number } = {}) {
-  const qs = new URLSearchParams();
-  if (params.months) qs.set('months', String(params.months));
+export function useRevenueForecast(params: { months?: number; facilityId?: string } = {}) {
+  const p = {
+    months: params.months ? String(params.months) : undefined,
+    facilityId: params.facilityId,
+  };
   return useQuery({
-    queryKey: analyticsKey('forecast', {
-      months: params.months ? String(params.months) : undefined,
-    }),
-    queryFn: () =>
-      apiFetch<RevenueForecastDto>(`/analytics/forecast${qs.toString() ? `?${qs}` : ''}`),
+    queryKey: analyticsKey('forecast', p),
+    queryFn: () => apiFetch<RevenueForecastDto>(`/analytics/forecast${query(p)}`),
   });
 }
 
 /** Efecto de tus cambios de precio en la demanda (informativo). */
-export function usePriceChangeEffects() {
+export function usePriceChangeEffects(facilityId?: string) {
   return useQuery({
-    queryKey: analyticsKey('price-change-effects'),
-    queryFn: () => apiFetch<PriceChangeEffectsDto>('/analytics/price-change-effects'),
+    queryKey: analyticsKey('price-change-effects', { facilityId }),
+    queryFn: () =>
+      apiFetch<PriceChangeEffectsDto>(`/analytics/price-change-effects${query({ facilityId })}`),
   });
 }

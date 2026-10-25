@@ -42,7 +42,21 @@ export class BenchmarkService {
     // operadores × units es asumible; si la plataforma creciera mucho, esto se
     // migraría a agregados SQL o a una tabla materializada periódica.
     const units = await this.admin.unit.findMany({
-      where: { tenant: { deletedAt: null, status: { in: ['active', 'trial'] } } },
+      // Operadores con actividad real: al menos un contrato firmado (fuera las
+      // cuentas de prueba recién creadas o con datos de demostración). El propio
+      // tenant entra siempre para poder situarlo.
+      where: {
+        OR: [
+          { tenantId },
+          {
+            tenant: {
+              deletedAt: null,
+              status: { in: ['active', 'trial'] },
+              contracts: { some: { signedAt: { not: null }, deletedAt: null } },
+            },
+          },
+        ],
+      },
       select: { tenantId: true, status: true, basePriceMonthly: true, areaM2: true },
     });
 

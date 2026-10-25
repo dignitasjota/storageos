@@ -5,10 +5,22 @@ import {
   NON_CASH_PAYMENT_METHODS,
 } from '@storageos/shared';
 
-import { resolveFacilityFilter } from '../../common/facility-scope';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+
+import {
+  ALL_FACILITIES,
+  contractLifecycle,
+  contractWhere,
+  invalidDate,
+  invoiceWhere,
+  leadWhere,
+  LIFECYCLE_SELECT,
+  liveMrr,
+  unitWhere,
+  type AnalyticsScope,
+} from './analytics-scope';
 
 import type { Prisma } from '@storageos/database';
 import type {
@@ -34,15 +46,12 @@ function toNumber(value: Prisma.Decimal | number | null | undefined): number {
   return Number(value);
 }
 
-function parseYearMonth(yearMonth: string): { year: number; month: number } {
+function parseYearMonth(yearMonth: string, field = 'mes'): { year: number; month: number } {
   const match = /^(\d{4})-(\d{2})$/.exec(yearMonth);
-  if (!match) {
-    throw new Error(`yearMonth invalido: ${yearMonth}`);
-  }
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  if (month < 1 || month > 12) {
-    throw new Error(`yearMonth invalido: ${yearMonth}`);
+  const year = match ? Number(match[1]) : NaN;
+  const month = match ? Number(match[2]) : NaN;
+  if (!match || month < 1 || month > 12 || year < 2000 || year > 2100) {
+    throw invalidDate(field, yearMonth);
   }
   return { year, month };
 }
@@ -115,12 +124,14 @@ function startOfDayUtc(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-function parseDate(value: string): Date {
+function parseDate(value: string, field = 'fecha'): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) {
-    throw new Error(`Fecha invalida: ${value}`);
+  if (!match) throw invalidDate(field, value);
+  const d = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (Number.isNaN(d.getTime()) || d.getUTCDate() !== Number(match[3])) {
+    throw invalidDate(field, value);
   }
-  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return d;
 }
 
 function bucketForDaysOverdue(days: number): AgingBucketRange {
@@ -142,46 +153,28 @@ export class AnalyticsService {
   // ---------------------------------------------------------------------------
   async getOccupancy(
     tenantId: string,
-    filters?: { facilityId?: string; facilityScope?: string[] | null },
+    scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<OccupancyKpiDto> {
-    // Permisos por local: combina el filtro explícito con el scope del usuario.
-    const facFilter = resolveFacilityFilter(filters?.facilityScope, filters?.facilityId);
-    const facIds = facFilter === null ? [] : facFilter; // null = pedido fuera de scope → vacío
-    const facilityFilter: Prisma.UnitWhereInput = facIds ? { facilityId: { in: facIds } } : {};
-    const facilityIdWhere = facIds ? { id: { in: facIds } } : {};
-    const contractFacilityWhere = facIds ? { unit: { facilityId: { in: facIds } } } : {};
+    const units = unitWhere(scope);
+    const facilityIdWhere = scope.ids ? { id: { in: scope.ids } } : {};
 
     return this.prisma.withTenant(async (tx) => {
-      const [byStatus, byUnitType, unitTypes, activeContracts, facilities, facilityCounts] =
-        await Promise.all([
-          tx.unit.groupBy({
-            by: ['status'],
-            where: facilityFilter,
-            _count: { _all: true },
-          }),
-          tx.unit.groupBy({
-            by: ['unitTypeId'],
-            where: facilityFilter,
-            _count: { _all: true },
-          }),
-          tx.unitType.findMany({
-            select: { id: true, defaultPriceMonthly: true },
-          }),
-          tx.contract.findMany({
-            where: { status: 'active', ...contractFacilityWhere },
-            select: { priceMonthly: true },
-          }),
-          tx.facility.findMany({
-            where: { deletedAt: null, ...facilityIdWhere },
-            select: { id: true, name: true },
-            orderBy: { name: 'asc' },
-          }),
-          tx.unit.groupBy({
-            by: ['facilityId', 'status'],
-            where: facilityFilter,
-            _count: { _all: true },
-          }),
-        ]);
+      const [byStatus, potential, live, facilities, facilityCounts] = await Promise.all([
+        tx.unit.groupBy({ by: ['status'], where: units, _count: { _all: true } }),
+        // Lo que se ingresaría con todo alquilado: el precio de cada trastero que
+        // se puede alquilar (los que están en mantenimiento o bloqueados no).
+        tx.unit.aggregate({
+          where: { ...units, status: { in: ['available', 'reserved', 'occupied'] } },
+          _sum: { basePriceMonthly: true },
+        }),
+        liveMrr(tx, scope),
+        tx.facility.findMany({
+          where: { deletedAt: null, ...facilityIdWhere },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        tx.unit.groupBy({ by: ['facilityId', 'status'], where: units, _count: { _all: true } }),
+      ]);
 
       let totalUnits = 0;
       let occupiedUnits = 0;
@@ -194,34 +187,27 @@ export class AnalyticsService {
         else if (row.status === 'reserved') reservedUnits += count;
         else if (row.status === 'available') availableUnits += count;
       }
-
+      const outOfServiceUnits = totalUnits - occupiedUnits - reservedUnits - availableUnits;
       const physicalOccupancy = totalUnits === 0 ? 0 : occupiedUnits / totalUnits;
-
-      const mrrActual = activeContracts.reduce((sum, c) => sum + toNumber(c.priceMonthly), 0);
-
-      const unitTypePrice = new Map<string, number>();
-      for (const ut of unitTypes) {
-        unitTypePrice.set(ut.id, toNumber(ut.defaultPriceMonthly));
-      }
-      const mrrPotential = byUnitType.reduce((sum, row) => {
-        const price = unitTypePrice.get(row.unitTypeId) ?? 0;
-        return sum + price * row._count._all;
-      }, 0);
-
-      const economicOccupancy = mrrPotential === 0 ? 0 : mrrActual / mrrPotential;
+      const mrrActual = live.mrr;
+      const mrrPotential = Math.round(toNumber(potential._sum.basePriceMonthly) * 100) / 100;
+      const economicOccupancy = mrrPotential === 0 ? 0 : Math.min(1, mrrActual / mrrPotential);
 
       const perFacility = facilities.map((f) => {
-        const total = facilityCounts
-          .filter((r) => r.facilityId === f.id)
-          .reduce((sum, r) => sum + r._count._all, 0);
-        const occupied =
-          facilityCounts.find((r) => r.facilityId === f.id && r.status === 'occupied')?._count
-            ._all ?? 0;
+        const rows = facilityCounts.filter((r) => r.facilityId === f.id);
+        const of = (status: string) => rows.find((r) => r.status === status)?._count._all ?? 0;
+        const total = rows.reduce((sum, r) => sum + r._count._all, 0);
+        const occupied = of('occupied');
+        const reserved = of('reserved');
+        const available = of('available');
         return {
           facilityId: f.id,
           facilityName: f.name,
           total,
           occupied,
+          reserved,
+          available,
+          outOfService: total - occupied - reserved - available,
         };
       });
 
@@ -230,6 +216,7 @@ export class AnalyticsService {
         occupiedUnits,
         reservedUnits,
         availableUnits,
+        outOfServiceUnits,
         physicalOccupancy,
         economicOccupancy,
         mrrActual,
@@ -242,89 +229,88 @@ export class AnalyticsService {
   // ---------------------------------------------------------------------------
   // 2. Churn
   // ---------------------------------------------------------------------------
-  async getChurn(tenantId: string, filters?: { from?: string; to?: string }): Promise<ChurnKpiDto> {
+  async getChurn(
+    tenantId: string,
+    filters?: { from?: string; to?: string },
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<ChurnKpiDto> {
     const now = new Date();
-    const currentYear = now.getUTCFullYear();
-    const currentMonth = now.getUTCMonth() + 1;
-
-    let fromYear: number;
-    let fromMonth: number;
-    let toYear: number;
-    let toMonth: number;
-
+    const curIdx = now.getUTCFullYear() * 12 + now.getUTCMonth();
+    let startIdx: number;
+    let endIdx: number;
     if (filters?.from && filters?.to) {
-      ({ year: fromYear, month: fromMonth } = parseYearMonth(filters.from));
-      ({ year: toYear, month: toMonth } = parseYearMonth(filters.to));
-    } else {
-      toYear = currentYear;
-      toMonth = currentMonth;
-      // Ultimos 6 meses incluyendo el actual.
-      const fromIndex = currentYear * 12 + (currentMonth - 1) - 5;
-      fromYear = Math.floor(fromIndex / 12);
-      fromMonth = (fromIndex % 12) + 1;
-    }
-
-    // Lista de meses a calcular (orden cronologico).
-    const months: { year: number; month: number }[] = [];
-    let y = fromYear;
-    let m = fromMonth;
-    while (y < toYear || (y === toYear && m <= toMonth)) {
-      months.push({ year: y, month: m });
-      if (m === 12) {
-        y += 1;
-        m = 1;
-      } else {
-        m += 1;
-      }
-    }
-
-    return this.prisma.withTenant(async (tx) => {
-      const results = await Promise.all(
-        months.map(async ({ year, month }) => {
-          const monthStart = monthStartUtc(year, month);
-          const monthEnd = nextMonthStartUtc(year, month);
-
-          const [endedInMonth, activeAtStart] = await Promise.all([
-            tx.contract.count({
-              where: {
-                status: 'ended',
-                endedAt: { gte: monthStart, lt: monthEnd },
-              },
-            }),
-            tx.contract.count({
-              where: {
-                startDate: { lt: monthStart },
-                OR: [{ endedAt: null }, { endedAt: { gte: monthStart } }],
-              },
-            }),
-          ]);
-
-          const churnRate = activeAtStart === 0 ? 0 : endedInMonth / activeAtStart;
-          return {
-            yearMonth: formatYearMonth(year, month),
-            activeAtStart,
-            ended: endedInMonth,
-            churnRate,
-          };
-        }),
+      const from = parseYearMonth(filters.from, 'from');
+      const to = parseYearMonth(filters.to, 'to');
+      startIdx = Math.min(from.year * 12 + from.month - 1, to.year * 12 + to.month - 1);
+      endIdx = Math.min(
+        curIdx,
+        Math.max(from.year * 12 + from.month - 1, to.year * 12 + to.month - 1),
       );
+      if (startIdx > endIdx) startIdx = endIdx;
+      if (endIdx - startIdx + 1 > MONTH_RANGE_MAX) startIdx = endIdx - (MONTH_RANGE_MAX - 1);
+    } else {
+      // Por defecto, los últimos 12 meses incluido el actual.
+      endIdx = curIdx;
+      startIdx = curIdx - 11;
+    }
 
-      return { months: results };
-    }, tenantId);
+    // Una sola lectura de los contratos firmados; el cálculo por mes va en memoria.
+    const contracts = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findMany({
+          where: { signedAt: { not: null }, deletedAt: null, ...contractWhere(scope) },
+          select: LIFECYCLE_SELECT,
+        }),
+      tenantId,
+    );
+    const lives = contracts
+      .map((c) => contractLifecycle(c))
+      .filter((l): l is NonNullable<typeof l> => l !== null);
+
+    const months: ChurnKpiDto['months'] = [];
+    for (let idx = startIdx; idx <= endIdx; idx++) {
+      const year = Math.floor(idx / 12);
+      const month = (idx % 12) + 1;
+      const start = monthStartUtc(year, month).getTime();
+      const end = nextMonthStartUtc(year, month).getTime();
+      let activeAtStart = 0;
+      let ended = 0;
+      for (const l of lives) {
+        const b = l.begin.getTime();
+        const e = l.end?.getTime() ?? null;
+        if (b < start && (e === null || e >= start)) activeAtStart += 1;
+        // Solo cuenta la baja de quien estaba al empezar el mes (si no, la tasa pasa de 100 %).
+        if (b < start && e !== null && e >= start && e < end) ended += 1;
+      }
+      months.push({
+        yearMonth: formatYearMonth(year, month),
+        activeAtStart,
+        ended,
+        churnRate: activeAtStart === 0 ? 0 : ended / activeAtStart,
+      });
+    }
+    return { months };
   }
 
   // ---------------------------------------------------------------------------
   // 3. Aging de facturas pendientes
   // ---------------------------------------------------------------------------
-  async getAging(tenantId: string, atDate?: string): Promise<AgingKpiDto> {
-    const at = atDate ? parseDate(atDate) : startOfDayUtc(new Date());
+  async getAging(
+    tenantId: string,
+    atDate?: string,
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<AgingKpiDto> {
+    const at = atDate ? parseDate(atDate, 'atDate') : startOfDayUtc(new Date());
 
     return this.prisma.withTenant(async (tx) => {
       const invoices = await tx.invoice.findMany({
         where: {
           status: { in: ['issued', 'overdue', 'partially_refunded'] },
           deletedAt: null,
+          // La fianza no es deuda del alquiler: se cobra y devuelve aparte.
+          kind: 'invoice',
           dueDate: { lt: at },
+          ...invoiceWhere(scope),
         },
         select: { dueDate: true, total: true, amountPaid: true },
       });
@@ -355,10 +341,10 @@ export class AnalyticsService {
       return {
         buckets: order.map((range) => ({
           range,
-          amount: buckets[range].amount,
+          amount: Math.round(buckets[range].amount * 100) / 100,
           invoiceCount: buckets[range].invoiceCount,
         })),
-        totalOutstanding,
+        totalOutstanding: Math.round(totalOutstanding * 100) / 100,
       };
     }, tenantId);
   }
@@ -369,67 +355,82 @@ export class AnalyticsService {
   async getLeadsFunnel(
     tenantId: string,
     filters?: { from?: string; to?: string },
+    scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<LeadsFunnelKpiDto> {
     const now = new Date();
     const defaultTo = startOfDayUtc(now);
     const defaultFrom = new Date(defaultTo.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const fromDate = filters?.from ? parseDate(filters.from) : defaultFrom;
+    const fromDate = filters?.from ? parseDate(filters.from, 'from') : defaultFrom;
     // Para incluir el dia "to" entero, sumamos 1 dia y usamos lt.
-    const toExclusive = filters?.to
-      ? new Date(parseDate(filters.to).getTime() + 24 * 60 * 60 * 1000)
-      : new Date(defaultTo.getTime() + 24 * 60 * 60 * 1000);
+    const toDay = filters?.to ? parseDate(filters.to, 'to') : defaultTo;
+    const toExclusive = new Date(toDay.getTime() + 24 * 60 * 60 * 1000);
 
     const rangeWhere: Prisma.LeadWhereInput = {
       deletedAt: null,
       createdAt: { gte: fromDate, lt: toExclusive },
+      ...leadWhere(scope),
     };
 
     return this.prisma.withTenant(async (tx) => {
-      const [
-        newCount,
-        contactedCount,
-        qualifiedCount,
-        wonCount,
-        lostCount,
-        bySourceRows,
-        lostReasonRows,
-      ] = await Promise.all([
-        tx.lead.count({ where: { ...rangeWhere, status: 'new' } }),
-        // Leads que llegaron al menos a "contacted" (incluye qualified/won/lost si tienen contactedAt).
-        tx.lead.count({ where: { ...rangeWhere, contactedAt: { not: null } } }),
-        tx.lead.count({ where: { ...rangeWhere, qualifiedAt: { not: null } } }),
-        tx.lead.count({ where: { ...rangeWhere, status: 'won' } }),
-        tx.lead.count({ where: { ...rangeWhere, status: 'lost' } }),
-        tx.lead.groupBy({
-          by: ['source'],
-          where: rangeWhere,
-          _count: { _all: true },
-        }),
-        tx.lead.groupBy({
-          by: ['lostReasonCode'],
-          where: { ...rangeWhere, status: 'lost' },
-          _count: { _all: true },
-        }),
-      ]);
+      const [byStatus, reachedContacted, reachedQualified, bySourceRows, lostReasonRows] =
+        await Promise.all([
+          tx.lead.groupBy({ by: ['status'], where: rangeWhere, _count: { _all: true } }),
+          // Llegó a «contactado» aunque luego avanzara o se perdiera.
+          tx.lead.count({
+            where: {
+              ...rangeWhere,
+              AND: [
+                {
+                  OR: [
+                    { contactedAt: { not: null } },
+                    { status: { in: ['contacted', 'qualified', 'won'] } },
+                  ],
+                },
+              ],
+            },
+          }),
+          tx.lead.count({
+            where: {
+              ...rangeWhere,
+              AND: [
+                { OR: [{ qualifiedAt: { not: null } }, { status: { in: ['qualified', 'won'] } }] },
+              ],
+            },
+          }),
+          tx.lead.groupBy({ by: ['source'], where: rangeWhere, _count: { _all: true } }),
+          tx.lead.groupBy({
+            by: ['lostReasonCode'],
+            where: { ...rangeWhere, status: 'lost' },
+            _count: { _all: true },
+          }),
+        ]);
 
-      const totalLeads = newCount + contactedCount + qualifiedCount + wonCount + lostCount;
-      const newToContacted = totalLeads === 0 ? 0 : contactedCount / totalLeads;
-      const contactedToQualified = contactedCount === 0 ? 0 : qualifiedCount / contactedCount;
-      const qualifiedToWon = qualifiedCount === 0 ? 0 : wonCount / qualifiedCount;
+      const of = (status: string) => byStatus.find((r) => r.status === status)?._count._all ?? 0;
+      const totals = {
+        new: of('new'),
+        contacted: of('contacted'),
+        qualified: of('qualified'),
+        won: of('won'),
+        lost: of('lost'),
+      };
+      const total = byStatus.reduce((sum, r) => sum + r._count._all, 0);
+      const reached = {
+        contacted: reachedContacted,
+        qualified: reachedQualified,
+        won: totals.won,
+      };
 
       return {
-        totals: {
-          new: newCount,
-          contacted: contactedCount,
-          qualified: qualifiedCount,
-          won: wonCount,
-          lost: lostCount,
-        },
+        totals,
+        reached,
+        total,
+        from: fromDate.toISOString().slice(0, 10),
+        to: toDay.toISOString().slice(0, 10),
         conversion: {
-          newToContacted,
-          contactedToQualified,
-          qualifiedToWon,
+          newToContacted: total === 0 ? 0 : reached.contacted / total,
+          contactedToQualified: reached.contacted === 0 ? 0 : reached.qualified / reached.contacted,
+          qualifiedToWon: reached.qualified === 0 ? 0 : reached.won / reached.qualified,
         },
         bySource: bySourceRows
           .map((r) => ({ source: r.source as string, count: r._count._all }))
@@ -452,17 +453,21 @@ export class AnalyticsService {
   async getLeadsUtm(
     tenantId: string,
     filters?: { from?: string; to?: string },
+    scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<LeadsUtmKpiDto> {
     const createdAt: Prisma.DateTimeFilter = {};
-    if (filters?.from) createdAt.gte = parseDate(filters.from);
+    if (filters?.from) createdAt.gte = parseDate(filters.from, 'from');
     if (filters?.to) {
-      const end = parseDate(filters.to);
+      const end = parseDate(filters.to, 'to');
       end.setUTCDate(end.getUTCDate() + 1); // `to` inclusivo (hasta fin de ese día)
       createdAt.lt = end;
     }
     const where: Prisma.LeadWhereInput = {
       deletedAt: null,
-      OR: [{ utmSource: { not: null } }, { utmCampaign: { not: null } }],
+      AND: [
+        { OR: [{ utmSource: { not: null } }, { utmCampaign: { not: null } }] },
+        leadWhere(scope),
+      ],
       ...(Object.keys(createdAt).length > 0 ? { createdAt } : {}),
     };
 
@@ -512,9 +517,9 @@ export class AnalyticsService {
     const now = new Date();
     const defaultTo = startOfDayUtc(now);
     const defaultFrom = new Date(defaultTo.getTime() - 90 * 24 * 60 * 60 * 1000);
-    const fromDate = filters?.from ? parseDate(filters.from) : defaultFrom;
+    const fromDate = filters?.from ? parseDate(filters.from, 'from') : defaultFrom;
     const toExclusive = filters?.to
-      ? new Date(parseDate(filters.to).getTime() + 24 * 60 * 60 * 1000)
+      ? new Date(parseDate(filters.to, 'to').getTime() + 24 * 60 * 60 * 1000)
       : new Date(defaultTo.getTime() + 24 * 60 * 60 * 1000);
 
     const WEB_SOURCES: { source: string; label: string }[] = [
@@ -575,17 +580,35 @@ export class AnalyticsService {
   // ---------------------------------------------------------------------------
   // 5. Inquilinos (recuentos)
   // ---------------------------------------------------------------------------
-  async getCustomerStats(tenantId: string): Promise<CustomerStatsKpiDto> {
+  async getCustomerStats(
+    tenantId: string,
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<CustomerStatsKpiDto> {
     const now = new Date();
     const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    // Con local: los inquilinos que tienen (o tuvieron) algún contrato en él.
+    const inScope: Prisma.CustomerWhereInput = scope.ids
+      ? { contracts: { some: contractWhere(scope) } }
+      : {};
 
     return this.prisma.withTenant(async (tx) => {
       const [total, withActiveContract, newThisMonth] = await Promise.all([
-        tx.customer.count({ where: { deletedAt: null } }),
+        tx.customer.count({ where: { deletedAt: null, ...inScope } }),
         tx.customer.count({
-          where: { deletedAt: null, contracts: { some: { status: 'active' } } },
+          where: {
+            deletedAt: null,
+            contracts: {
+              some: {
+                status: { in: ['active', 'ending'] },
+                deletedAt: null,
+                ...contractWhere(scope),
+              },
+            },
+          },
         }),
-        tx.customer.count({ where: { deletedAt: null, createdAt: { gte: startOfMonth } } }),
+        tx.customer.count({
+          where: { deletedAt: null, createdAt: { gte: startOfMonth }, ...inScope },
+        }),
       ]);
       return { total, withActiveContract, newThisMonth };
     }, tenantId);
@@ -604,6 +627,7 @@ export class AnalyticsService {
   async getMonthlyRevenue(
     tenantId: string,
     opts: { months?: number; from?: string; to?: string } = {},
+    scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<MonthlyRevenueKpiDto> {
     // Lista de meses (más antiguo → actual): rango from/to o últimos N.
     const list = resolveMonthList(opts);
@@ -626,6 +650,7 @@ export class AnalyticsService {
               // La fianza no es un ingreso (se devuelve): fuera de lo facturado y cobrado.
               kind: 'invoice',
               issueDate: { gte: fromDate, lt: toExclusive },
+              ...invoiceWhere(scope),
             },
             select: { issueDate: true, total: true },
           }),
@@ -634,7 +659,7 @@ export class AnalyticsService {
               tenantId,
               status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
               paidAt: { gte: fromDate, lt: toExclusive },
-              invoice: { kind: 'invoice' },
+              invoice: { kind: 'invoice', ...invoiceWhere(scope) },
               methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
             },
             select: { paidAt: true, amount: true, refundedAmount: true },
@@ -686,37 +711,41 @@ export class AnalyticsService {
   // ---------------------------------------------------------------------------
   // 6. Revenue management (RevPAU, length-of-stay, LTV)
   // ---------------------------------------------------------------------------
-  async getRevenue(tenantId: string): Promise<RevenueKpiDto> {
+  async getRevenue(
+    tenantId: string,
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<RevenueKpiDto> {
     return this.prisma.withTenant(async (tx) => {
-      const [totalUnits, occupiedUnits, activeContracts, stayRows, ltvRows] = await Promise.all([
-        tx.unit.count(),
-        tx.unit.count({ where: { status: 'occupied' } }),
+      const units = unitWhere(scope);
+      const [totalUnits, occupiedUnits, live, contracts, ltvRows] = await Promise.all([
+        tx.unit.count({ where: units }),
+        tx.unit.count({ where: { ...units, status: 'occupied' } }),
+        liveMrr(tx, scope),
         tx.contract.findMany({
-          where: { status: { in: ['active', 'ending'] }, deletedAt: null },
-          select: { priceMonthly: true, discountAmount: true },
-        }),
-        tx.contract.findMany({
-          where: { signedAt: { not: null } },
-          select: { signedAt: true, endedAt: true },
+          where: { signedAt: { not: null }, deletedAt: null, ...contractWhere(scope) },
+          select: LIFECYCLE_SELECT,
         }),
         tx.invoice.groupBy({
           by: ['customerId'],
-          where: { customerId: { not: null }, deletedAt: null, kind: 'invoice' },
+          where: {
+            customerId: { not: null },
+            deletedAt: null,
+            kind: 'invoice',
+            ...invoiceWhere(scope),
+          },
           _sum: { amountPaid: true },
         }),
       ]);
 
-      const mrr = activeContracts.reduce(
-        (sum, c) => sum + (Number(c.priceMonthly) - Number(c.discountAmount)),
-        0,
-      );
+      const mrr = live.mrr;
       const revPau = totalUnits > 0 ? mrr / totalUnits : 0;
 
-      const stayDays = stayRows.map((c) => {
-        const start = c.signedAt!.getTime();
-        const end = (c.endedAt ?? new Date()).getTime();
-        return Math.max(0, (end - start) / 86_400_000);
-      });
+      // Estancia: de la firma (o el inicio) a la baja; los vivos, hasta hoy.
+      const now = Date.now();
+      const stayDays = contracts
+        .map((c) => contractLifecycle(c))
+        .filter((l): l is NonNullable<typeof l> => l !== null)
+        .map((l) => Math.max(0, ((l.end?.getTime() ?? now) - l.begin.getTime()) / 86_400_000));
       const avgLengthOfStayDays =
         stayDays.length > 0 ? stayDays.reduce((a, b) => a + b, 0) / stayDays.length : 0;
 
@@ -724,7 +753,7 @@ export class AnalyticsService {
       const avgCustomerLtv = ltvs.length > 0 ? ltvs.reduce((a, b) => a + b, 0) / ltvs.length : 0;
 
       return {
-        mrr: Math.round(mrr * 100) / 100,
+        mrr,
         totalUnits,
         occupiedUnits,
         revPau: Math.round(revPau * 100) / 100,

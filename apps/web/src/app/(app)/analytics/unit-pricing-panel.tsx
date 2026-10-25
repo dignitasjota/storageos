@@ -39,7 +39,6 @@ import {
 import { useApplyUnitPricing, useUnitPricingSuggestions } from '@/lib/analytics/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useFacilities } from '@/lib/facilities/hooks';
 import { formatDate } from '@/lib/format';
 import { useCancelUnitOffer, useCreateUnitOffer } from '@/lib/promotions/hooks';
 
@@ -63,14 +62,12 @@ export const CONFIDENCE: Record<
   low: { label: 'Pocos datos', title: 'Sin datos suficientes: los cambios son más pequeños' },
 };
 
-export function UnitPricingPanel() {
+export function UnitPricingPanel({ facilityId }: { facilityId?: string }) {
   const ask = useConfirm();
-  const [facilityId, setFacilityId] = useState<string | undefined>();
   const [includeCompetition, setIncludeCompetition] = useState(true);
   const { data, isLoading } = useUnitPricingSuggestions(facilityId, includeCompetition);
   const apply = useApplyUnitPricing();
   const canApply = useHasPermission('units:manage');
-  const facilities = useFacilities();
   const canManageOffers = useHasPermission('promotions:manage');
   const cancelOffer = useCancelUnitOffer();
   const [offerFor, setOfferFor] = useState<UnitPricingSuggestionDto | null>(null);
@@ -115,22 +112,6 @@ export function UnitPricingPanel() {
             />
             Incluir competencia
           </label>
-          <Select
-            value={facilityId ?? 'all'}
-            onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
-          >
-            <SelectTrigger className="w-52">
-              <SelectValue placeholder="Todos los locales" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los locales</SelectItem>
-              {(facilities.data ?? []).map((f) => (
-                <SelectItem key={f.id} value={f.id}>
-                  {f.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
 
