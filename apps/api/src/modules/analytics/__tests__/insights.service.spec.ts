@@ -8,7 +8,9 @@ const CUSTOMER_ID = '019e3d20-cccc-7c2f-bf37-6511065b9fc5';
 interface TxMock {
   contract: { findMany: jest.Mock };
   invoice: { groupBy: jest.Mock };
-  payment: { groupBy: jest.Mock };
+  payment: { findMany: jest.Mock };
+  accessCredential: { findMany: jest.Mock };
+  accessLog: { groupBy: jest.Mock };
   dunningAction: { findMany: jest.Mock };
   paymentMethod: { findMany: jest.Mock };
   sepaMandate: { findMany: jest.Mock };
@@ -25,7 +27,9 @@ function buildTx(): TxMock {
   return {
     contract: { findMany: jest.fn().mockResolvedValue([]) },
     invoice: { groupBy: jest.fn().mockResolvedValue([]) },
-    payment: { groupBy: jest.fn().mockResolvedValue([]) },
+    payment: { findMany: jest.fn().mockResolvedValue([]) },
+    accessCredential: { findMany: jest.fn().mockResolvedValue([]) },
+    accessLog: { groupBy: jest.fn().mockResolvedValue([]) },
     dunningAction: { findMany: jest.fn().mockResolvedValue([]) },
     paymentMethod: { findMany: jest.fn().mockResolvedValue([]) },
     sepaMandate: { findMany: jest.fn().mockResolvedValue([]) },
@@ -83,8 +87,8 @@ describe('InsightsService.getChurnRisk', () => {
     tx.invoice.groupBy.mockResolvedValue([
       { customerId: CUSTOMER_ID, _count: { _all: 2 }, _sum: { total: 250, amountPaid: 0 } },
     ]);
-    // 1 cobro fallido → +20
-    tx.payment.groupBy.mockResolvedValue([{ customerId: CUSTOMER_ID, _count: { _all: 1 } }]);
+    // 1 cobro fallido reciente → +20
+    tx.payment.findMany.mockResolvedValue([{ customerId: CUSTOMER_ID, createdAt: new Date() }]);
     // sin método de pago default → +15  ⇒ total 90 (capado a 100)
     tx.paymentMethod.findMany.mockResolvedValue([]);
 
@@ -101,7 +105,7 @@ describe('InsightsService.getChurnRisk', () => {
       expect.arrayContaining([
         '2 facturas vencidas',
         'debe más de una mensualidad',
-        '1 cobro fallido',
+        '1 cobro fallido (reciente)',
         'sin método de pago guardado',
       ]),
     );

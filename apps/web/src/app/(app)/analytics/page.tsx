@@ -21,8 +21,19 @@ import {
 } from 'recharts';
 import { toast } from 'sonner';
 
+import {
+  CsvButton,
+  Delta,
+  type Period,
+  PeriodSelector,
+  periodDays,
+  periodPresets,
+  periodText,
+  previousPeriod,
+} from './period';
 import { PriceChangeEffectsPanel } from './price-change-effects-panel';
 import { PricingStrategyButton } from './pricing-strategy-dialog';
+import { CohortsPanel, OccupancyHistoryCard, RevenueBreakdownCard } from './trends-panels';
 import { CONFIDENCE, TrendNote, UnitPricingPanel } from './unit-pricing-panel';
 
 import type {
@@ -34,11 +45,9 @@ import type {
 
 import { FeatureGate } from '@/components/auth/feature-gate';
 import { useConfirm } from '@/components/confirm-provider';
-import { MonthYearSelect, ym } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -86,6 +95,7 @@ const ANALYTICS_TABS = [
   'revenue',
   'occupancy',
   'churn',
+  'cohorts',
   'aging',
   'leads',
   'churn-risk',
@@ -118,6 +128,9 @@ export default function AnalyticsPage() {
   const [facilityId, setFacilityId] = useFacilityFilterState();
   const facilities = useFacilities();
   const facilityList = facilities.data ?? [];
+  // Periodo común de Ingresos, Bajas y Contactos.
+  const [period, setPeriod] = useState<Period>(() => periodPresets()[0]!);
+  const usesPeriod = tab === 'revenue' || tab === 'churn' || tab === 'leads';
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -149,11 +162,14 @@ export default function AnalyticsPage() {
         )}
       </div>
 
+      {usesPeriod && <PeriodSelector value={period} onChange={setPeriod} />}
+
       <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="flex-wrap">
           <TabsTrigger value="revenue">Ingresos</TabsTrigger>
           <TabsTrigger value="occupancy">Ocupación</TabsTrigger>
-          <TabsTrigger value="churn">Churn</TabsTrigger>
+          <TabsTrigger value="churn">Bajas</TabsTrigger>
+          <TabsTrigger value="cohorts">Cohortes</TabsTrigger>
           <TabsTrigger value="aging">Morosidad</TabsTrigger>
           <TabsTrigger value="leads">Leads</TabsTrigger>
           <TabsTrigger value="churn-risk">Riesgo de baja</TabsTrigger>
@@ -163,19 +179,22 @@ export default function AnalyticsPage() {
           <TabsTrigger value="seo">SEO</TabsTrigger>
         </TabsList>
         <TabsContent value="revenue" className="mt-4">
-          <MonthlyRevenuePanel facilityId={facilityId} />
+          <MonthlyRevenuePanel facilityId={facilityId} period={period} />
         </TabsContent>
         <TabsContent value="occupancy" className="mt-4">
           <OccupancyPanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="churn" className="mt-4">
-          <ChurnPanel facilityId={facilityId} />
+          <ChurnPanel facilityId={facilityId} period={period} />
+        </TabsContent>
+        <TabsContent value="cohorts" className="mt-4">
+          <CohortsPanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="aging" className="mt-4">
           <AgingPanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="leads" className="mt-4">
-          <LeadsPanel facilityId={facilityId} />
+          <LeadsPanel facilityId={facilityId} period={period} />
         </TabsContent>
         <TabsContent value="churn-risk" className="mt-4">
           <ChurnRiskPanel facilityId={facilityId} />
@@ -287,6 +306,7 @@ function OccupancyPanel({ facilityId }: { facilityId?: string }) {
           )}
         </CardContent>
       </Card>
+      <OccupancyHistoryCard facilityId={facilityId} />
     </div>
   );
 }
@@ -295,21 +315,31 @@ function OccupancyPanel({ facilityId }: { facilityId?: string }) {
 // Churn
 // ============================================================================
 
-function ChurnPanel({ facilityId }: { facilityId?: string }) {
-  const churn = useChurn({ facilityId });
+function ChurnPanel({ facilityId, period }: { facilityId?: string; period: Period }) {
+  const churn = useChurn({ from: period.from, to: period.to, facilityId });
+  const prev = previousPeriod(period);
+  const previous = useChurn({ from: prev.from, to: prev.to, facilityId });
 
   if (churn.isLoading || !churn.data) {
     return <PanelLoader />;
   }
 
   const months = churn.data.months;
+  const ended = months.reduce((acc, m) => acc + m.ended, 0);
+  const prevEnded = previous.data?.months.reduce((acc, m) => acc + m.ended, 0);
+  const avgRate = months.length
+    ? months.reduce((acc, m) => acc + m.churnRate, 0) / months.length
+    : 0;
   const chartData = months.map((m) => ({
     month: m.yearMonth,
     Churn: Number((m.churnRate * 100).toFixed(2)),
   }));
 
   // El mes en curso aún no ha terminado: el dato que vale es el del último cerrado.
-  const last = months.length >= 2 ? months[months.length - 2] : undefined;
+  const currentYm = new Date().toISOString().slice(0, 7);
+  const closed = months.filter((m) => m.yearMonth < currentYm);
+  const last = closed[closed.length - 1];
+  const beforeLast = closed[closed.length - 2];
 
   return (
     <div className="space-y-4">
@@ -318,16 +348,21 @@ function ChurnPanel({ facilityId }: { facilityId?: string }) {
           title={`Churn de ${last ? monthName(last.yearMonth) : 'último mes cerrado'}`}
           value={last ? `${(last.churnRate * 100).toFixed(2)}%` : '—'}
         >
-          {last ? `${last.ended} bajas de ${last.activeAtStart} activos al inicio` : '—'}
+          {last ? `${last.ended} bajas de ${last.activeAtStart} activos al inicio. ` : '—'}
+          {last && beforeLast && (
+            <Delta
+              current={last.churnRate}
+              previous={beforeLast.churnRate}
+              goodWhenUp={false}
+              suffix="vs mes anterior"
+            />
+          )}
         </KpiCard>
-        <KpiCard
-          title="Contratos cerrados"
-          value={String(months.reduce((acc, m) => acc + m.ended, 0))}
-        >
-          Suma del periodo
+        <KpiCard title={`Bajas (${periodText(period)})`} value={String(ended)}>
+          <Delta current={ended} previous={prevEnded} goodWhenUp={false} />
         </KpiCard>
-        <KpiCard title="Meses analizados" value={String(months.length)}>
-          Últimos 12 meses (el actual, aún en curso)
+        <KpiCard title="Churn medio mensual" value={`${(avgRate * 100).toFixed(2)}%`}>
+          {months.length} meses analizados
         </KpiCard>
       </div>
 
@@ -437,51 +472,12 @@ function AgingPanel({ facilityId }: { facilityId?: string }) {
 // Leads funnel
 // ============================================================================
 
-const LEAD_PERIODS = [
-  { key: '30', label: 'Últimos 30 días', days: 30 },
-  { key: '90', label: 'Últimos 90 días', days: 90 },
-  { key: '365', label: 'Último año', days: 365 },
-  { key: 'all', label: 'Todo', days: null },
-] as const;
-
-function isoDay(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function LeadsPanel({ facilityId }: { facilityId?: string }) {
-  const [periodKey, setPeriodKey] = useState<(typeof LEAD_PERIODS)[number]['key']>('30');
-  const period = LEAD_PERIODS.find((p) => p.key === periodKey)!;
-  const today = new Date();
-  const range = {
-    from: period.days ? isoDay(new Date(today.getTime() - period.days * 86_400_000)) : '2000-01-01',
-    to: isoDay(today),
-    facilityId,
-  };
+function LeadsPanel({ facilityId, period }: { facilityId?: string; period: Period }) {
+  const range = { ...periodDays(period), facilityId };
   const funnel = useLeadsFunnel(range);
+  const previous = useLeadsFunnel({ ...periodDays(previousPeriod(period)), facilityId });
 
-  const periodButtons = (
-    <div className="flex flex-wrap gap-2">
-      {LEAD_PERIODS.map((p) => (
-        <Button
-          key={p.key}
-          size="sm"
-          variant={p.key === periodKey ? 'default' : 'outline'}
-          onClick={() => setPeriodKey(p.key)}
-        >
-          {p.label}
-        </Button>
-      ))}
-    </div>
-  );
-
-  if (funnel.isLoading || !funnel.data) {
-    return (
-      <div className="space-y-4">
-        {periodButtons}
-        <PanelLoader />
-      </div>
-    );
-  }
+  if (funnel.isLoading || !funnel.data) return <PanelLoader />;
 
   const d = funnel.data;
   // Embudo acumulado: cuántos llegaron al menos a cada fase.
@@ -498,7 +494,14 @@ function LeadsPanel({ facilityId }: { facilityId?: string }) {
 
   return (
     <div className="space-y-4">
-      {periodButtons}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <KpiCard title={`Contactos recibidos (${periodText(period)})`} value={String(d.total)}>
+          <Delta current={d.total} previous={previous.data?.total} />
+        </KpiCard>
+        <KpiCard title="Ganados" value={String(d.reached.won)}>
+          <Delta current={d.reached.won} previous={previous.data?.reached.won} />
+        </KpiCard>
+      </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <KpiCard title="Nuevo → Contactado" value={formatPercent(d.conversion.newToContacted)}>
           Tasa de respuesta
@@ -617,12 +620,29 @@ function LeadsUtmCard({ range }: { range: { from: string; to: string; facilityId
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Campañas (UTM)</CardTitle>
-        <CardDescription>
-          Conversión por origen y campaña de los leads que llegan con parámetros{' '}
-          <code className="text-xs">utm_*</code> en la URL (widget / booking), en el mismo periodo.
-        </CardDescription>
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle className="text-base">Campañas (UTM)</CardTitle>
+          <CardDescription>
+            Conversión por origen y campaña de los leads que llegan con parámetros{' '}
+            <code className="text-xs">utm_*</code> en la URL (widget / booking), en el mismo
+            periodo.
+          </CardDescription>
+        </div>
+        <CsvButton
+          disabled={!utm.data?.rows.length}
+          filename="campanas-utm.csv"
+          rows={() => [
+            ['Origen', 'Campaña', 'Contactos', 'Ganados', 'Conversión'],
+            ...(utm.data?.rows ?? []).map((u) => [
+              u.source,
+              u.campaign,
+              u.total,
+              u.won,
+              Math.round(u.conversionRate * 1000) / 10,
+            ]),
+          ]}
+        />
       </CardHeader>
       <CardContent>
         {utm.isLoading || !utm.data ? (
@@ -708,13 +728,41 @@ function ChurnRiskPanel({ facilityId }: { facilityId?: string }) {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Contratos en riesgo</CardTitle>
-          <CardDescription>
-            Puntuación (0-100) basada en facturas vencidas, cobros fallidos y reclamaciones del
-            último año, vencimiento sin renovación y no tener cómo pagar solo (tarjeta, cuenta o
-            mandato SEPA).
-          </CardDescription>
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle className="text-base">Contratos en riesgo</CardTitle>
+            <CardDescription>
+              Puntuación (0-100) según facturas vencidas, cobros fallidos y reclamaciones (lo de los
+              últimos 90 días pesa más), vencimiento sin renovación, no tener cómo pagar solo
+              (tarjeta, cuenta o mandato SEPA) y no haber entrado al local en 90 días.
+            </CardDescription>
+          </div>
+          <CsvButton
+            disabled={d.items.length === 0}
+            filename="riesgo-de-baja.csv"
+            rows={() => [
+              [
+                'Contrato',
+                'Inquilino',
+                'Trastero',
+                'Local',
+                'Cuota',
+                'Puntuación',
+                'Último acceso',
+                'Señales',
+              ],
+              ...d.items.map((i) => [
+                i.contractNumber,
+                i.customerName,
+                i.unitCode,
+                i.facilityName,
+                i.priceMonthly,
+                i.score,
+                i.lastAccessAt ? new Date(i.lastAccessAt).toLocaleDateString('es-ES') : '',
+                i.factors.join(' · '),
+              ]),
+            ]}
+          />
         </CardHeader>
         <CardContent>
           {d.items.length === 0 ? (
@@ -731,6 +779,7 @@ function ChurnRiskPanel({ facilityId }: { facilityId?: string }) {
                   <TableHead className="text-right">Cuota</TableHead>
                   <TableHead>Riesgo</TableHead>
                   <TableHead>Señales</TableHead>
+                  <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -762,6 +811,20 @@ function ChurnRiskPanel({ facilityId }: { facilityId?: string }) {
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {item.factors.join(' · ')}
+                      {item.lastAccessAt && (
+                        <span className="block">
+                          Último acceso: {new Date(item.lastAccessAt).toLocaleDateString('es-ES')}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button asChild size="sm" variant="outline">
+                        {item.contractStatus === 'ending' ? (
+                          <Link href={`/contracts/${item.contractId}`}>Ofrecer retención</Link>
+                        ) : (
+                          <Link href={`/customers/${item.customerId}`}>Ver ficha</Link>
+                        )}
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -826,14 +889,30 @@ function PricingSuggestionsPanel({ facilityId }: { facilityId?: string }) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Sugerencias de precio</CardTitle>
-        <CardDescription>
-          Precio de mercado del tamaño medio de cada tipo ajustado por la demanda (ocupación y lista
-          de espera de todos tus locales). Aplicar fija el <strong>precio de catálogo</strong> del
-          tipo (nuevos contratos); los contratos activos no cambian — para subir la cartera usa{' '}
-          <em>Subidas de precio</em>.
-        </CardDescription>
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle className="text-base">Sugerencias de precio</CardTitle>
+          <CardDescription>
+            Precio de mercado del tamaño medio de cada tipo ajustado por la demanda (ocupación y
+            lista de espera). Aplicar fija el <strong>precio de catálogo</strong> del tipo (nuevos
+            contratos); los contratos activos no cambian — para subir la cartera usa{' '}
+            <em>Subidas de precio</em>.
+          </CardDescription>
+        </div>
+        <CsvButton
+          disabled={items.length === 0}
+          filename="precios-por-tipo.csv"
+          rows={() => [
+            ['Tipo', 'Ocupación', 'Mercado', 'Precio actual', 'Sugerido'],
+            ...items.map((i) => [
+              i.unitTypeName,
+              Math.round(i.occupancy),
+              i.marketPrice ?? '',
+              i.currentPrice,
+              i.suggestedPrice,
+            ]),
+          ]}
+        />
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
@@ -1320,109 +1399,34 @@ function PanelLoader() {
   );
 }
 
-interface RevenueRange {
-  key: string;
-  label: string;
-  months?: number;
-  from?: string;
-  to?: string;
-}
+function MonthlyRevenuePanel({ facilityId, period }: { facilityId?: string; period: Period }) {
+  const revenue = useMonthlyRevenue({ from: period.from, to: period.to, facilityId });
+  const prev = previousPeriod(period);
+  const previous = useMonthlyRevenue({ from: prev.from, to: prev.to, facilityId });
 
-function buildPresets(): RevenueRange[] {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  const qStart = Math.floor((m - 1) / 3) * 3 + 1;
-  return [
-    { key: 'm12', label: 'Últimos 12 meses', months: 12 },
-    { key: 'm6', label: 'Últimos 6 meses', months: 6 },
-    { key: 'thisYear', label: 'Este año', from: ym(y, 1), to: ym(y, m) },
-    { key: 'lastYear', label: 'Año pasado', from: ym(y - 1, 1), to: ym(y - 1, 12) },
-    { key: 'thisQuarter', label: 'Este trimestre', from: ym(y, qStart), to: ym(y, m) },
-  ];
-}
-
-function MonthlyRevenuePanel({ facilityId }: { facilityId?: string }) {
-  const presets = buildPresets();
-  const [sel, setSel] = useState<RevenueRange>(presets[0]!);
-
-  const query =
-    sel.from && sel.to
-      ? { from: sel.from, to: sel.to, facilityId }
-      : { months: sel.months ?? 12, facilityId };
-  const revenue = useMonthlyRevenue(query);
-
-  const isRange = !!(sel.from && sel.to);
-
-  function setCustom(part: 'from' | 'to', value: string) {
-    // Conserva el otro extremo; la consulta solo pasa a rango cuando ambos
-    // están definidos (mientras tanto sigue mostrando los últimos 12 meses).
-    setSel({
-      key: 'custom',
-      label: 'Personalizado',
-      from: part === 'from' ? value || undefined : sel.from,
-      to: part === 'to' ? value || undefined : sel.to,
-    });
-  }
-
-  const controls = (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {presets.map((p) => (
-          <Button
-            key={p.key}
-            size="sm"
-            variant={sel.key === p.key ? 'default' : 'outline'}
-            onClick={() => setSel(p)}
-          >
-            {p.label}
-          </Button>
-        ))}
-      </div>
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Desde</Label>
-          <MonthYearSelect value={sel.from} onChange={(v) => setCustom('from', v)} />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Hasta</Label>
-          <MonthYearSelect value={sel.to} onChange={(v) => setCustom('to', v)} />
-        </div>
-      </div>
-    </div>
-  );
-
-  if (revenue.isLoading || !revenue.data) {
-    return (
-      <div className="space-y-4">
-        {controls}
-        <PanelLoader />
-      </div>
-    );
-  }
+  if (revenue.isLoading || !revenue.data) return <PanelLoader />;
 
   const points = revenue.data.points;
   const totalInvoiced = points.reduce((acc, p) => acc + p.invoiced, 0);
   const totalCollected = points.reduce((acc, p) => acc + p.collected, 0);
+  const prevPoints = previous.data?.points;
+  const prevInvoiced = prevPoints?.reduce((acc, p) => acc + p.invoiced, 0);
+  const prevCollected = prevPoints?.reduce((acc, p) => acc + p.collected, 0);
   const chartData = points.map((p) => ({
     mes: p.label,
     Facturado: p.invoiced,
     Cobrado: p.collected,
   }));
-  const periodLabel = isRange
-    ? `${points[0]?.label ?? ''} – ${points[points.length - 1]?.label ?? ''}`
-    : sel.label.toLowerCase();
+  const periodLabel = periodText(period);
 
   return (
     <div className="space-y-4">
-      {controls}
-
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <KpiCard title={`Facturado (${periodLabel})`} value={formatCurrency(totalInvoiced)}>
-          Facturas emitidas en el periodo
+          <Delta current={totalInvoiced} previous={prevInvoiced} />
         </KpiCard>
         <KpiCard title={`Cobrado (${periodLabel})`} value={formatCurrency(totalCollected)}>
-          Pagos con éxito en el periodo
+          <Delta current={totalCollected} previous={prevCollected} />
         </KpiCard>
       </div>
 
@@ -1445,7 +1449,7 @@ function MonthlyRevenuePanel({ facilityId }: { facilityId?: string }) {
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="mes" />
-                <YAxis />
+                <YAxis tickFormatter={(v) => compactEuros(Number(v) || 0)} />
                 <Tooltip formatter={(v) => formatCurrency(Number(v) || 0)} />
                 <Legend />
                 <Bar dataKey="Facturado" fill="#94a3b8" radius={[4, 4, 0, 0]} />
@@ -1456,9 +1460,18 @@ function MonthlyRevenuePanel({ facilityId }: { facilityId?: string }) {
         </CardContent>
       </Card>
 
+      <RevenueBreakdownCard facilityId={facilityId} period={period} />
+
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
           <CardTitle className="text-base">Detalle mensual</CardTitle>
+          <CsvButton
+            filename={`ingresos-${period.from}-${period.to}.csv`}
+            rows={() => [
+              ['Mes', 'Facturado', 'Cobrado'],
+              ...points.map((p) => [p.yearMonth, p.invoiced, p.collected]),
+            ]}
+          />
         </CardHeader>
         <CardContent>
           <Table>

@@ -7,6 +7,7 @@ import {
   Loader2,
   Lightbulb,
   Sparkles,
+  Store,
   TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -26,6 +27,7 @@ const CATEGORY: Record<
   pricing: { icon: TrendingUp, label: 'Precio', tint: 'text-emerald-500' },
   collections: { icon: BadgeEuro, label: 'Cobros', tint: 'text-amber-500' },
   renewal: { icon: ArrowRight, label: 'Renovación', tint: 'text-sky-500' },
+  competition: { icon: Store, label: 'Competencia', tint: 'text-violet-500' },
 };
 
 /** «Sugerencias de hoy»: acciones concretas priorizadas con enlace al recurso. */

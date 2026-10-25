@@ -28,6 +28,8 @@ export class AgingGenerator implements ReportGenerator {
             status: { in: ['issued', 'overdue', 'partially_refunded'] },
             dueDate: { lt: atDate },
             deletedAt: null,
+            // Las fianzas no son deuda del alquiler.
+            kind: 'invoice',
           },
           include: { customer: true },
         }),

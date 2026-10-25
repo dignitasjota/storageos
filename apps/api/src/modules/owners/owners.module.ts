@@ -14,6 +14,6 @@ import { OwnersService } from './owners.service';
   imports: [AuthModule, BillingModule, EmailModule],
   controllers: [OwnersController, OwnerAeatCredentialController, OwnerStatementsController],
   providers: [OwnersService, OwnerStatementsService],
-  exports: [OwnersService],
+  exports: [OwnersService, OwnerStatementsService],
 })
 export class OwnersModule {}

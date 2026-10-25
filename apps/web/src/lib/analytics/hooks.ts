@@ -23,6 +23,10 @@ import type {
   RevenueKpiDto,
   SeoChecklistDto,
   SuggestedActionsDto,
+  CohortsDto,
+  CompetitionAlertsDto,
+  OccupancyHistoryDto,
+  RevenueBreakdownDto,
 } from '@storageos/shared';
 
 export const analyticsKey = (
@@ -43,7 +47,11 @@ export const analyticsKey = (
     | 'suggested-actions'
     | 'forecast'
     | 'benchmark'
-    | 'seo-checklist',
+    | 'seo-checklist'
+    | 'occupancy-history'
+    | 'revenue-breakdown'
+    | 'cohorts'
+    | 'competition-alerts',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
 
@@ -247,5 +255,44 @@ export function usePriceChangeEffects(facilityId?: string) {
     queryKey: analyticsKey('price-change-effects', { facilityId }),
     queryFn: () =>
       apiFetch<PriceChangeEffectsDto>(`/analytics/price-change-effects${query({ facilityId })}`),
+  });
+}
+
+// --- Tendencias -------------------------------------------------------------
+
+export function useOccupancyHistory(params: { months?: number; facilityId?: string } = {}) {
+  const p = {
+    months: params.months ? String(params.months) : undefined,
+    facilityId: params.facilityId,
+  };
+  return useQuery({
+    queryKey: analyticsKey('occupancy-history', p),
+    queryFn: () => apiFetch<OccupancyHistoryDto>(`/analytics/occupancy-history${query(p)}`),
+  });
+}
+
+export function useRevenueBreakdown(params: Range = {}) {
+  return useQuery({
+    queryKey: analyticsKey('revenue-breakdown', params),
+    queryFn: () => apiFetch<RevenueBreakdownDto>(`/analytics/revenue-breakdown${query(params)}`),
+  });
+}
+
+export function useCohorts(params: { months?: number; facilityId?: string } = {}) {
+  const p = {
+    months: params.months ? String(params.months) : undefined,
+    facilityId: params.facilityId,
+  };
+  return useQuery({
+    queryKey: analyticsKey('cohorts', p),
+    queryFn: () => apiFetch<CohortsDto>(`/analytics/cohorts${query(p)}`),
+  });
+}
+
+export function useCompetitionAlerts(facilityId?: string) {
+  return useQuery({
+    queryKey: analyticsKey('competition-alerts', { facilityId }),
+    queryFn: () =>
+      apiFetch<CompetitionAlertsDto>(`/analytics/competition-alerts${query({ facilityId })}`),
   });
 }

@@ -139,6 +139,10 @@ export interface ChurnRiskItemDto {
   level: ChurnRiskLevel;
   /** Señales legibles que contribuyen al riesgo. */
   factors: string[];
+  /** `ending` = ya pidió la baja (se le puede hacer una oferta de retención). */
+  contractStatus: 'active' | 'ending';
+  /** Último acceso al local con su código (null = nunca o sin control de accesos). */
+  lastAccessAt: string | null;
 }
 
 export interface ChurnRiskKpiDto {
@@ -296,7 +300,12 @@ export interface ApplyUnitPricingResultDto {
 }
 
 // --- Sugerencias de hoy (insights accionables del dashboard) ---
-export type SuggestedActionCategory = 'retention' | 'pricing' | 'collections' | 'renewal';
+export type SuggestedActionCategory =
+  | 'retention'
+  | 'pricing'
+  | 'collections'
+  | 'renewal'
+  | 'competition';
 export type SuggestedActionPriority = 'high' | 'medium';
 
 /** Una acción concreta sugerida al operador, con enlace directo al recurso. */
@@ -455,4 +464,90 @@ export interface PriceChangeEffectsDto {
   items: PriceChangeEffectDto[];
   raises: PriceChangeEffectsSummaryDto;
   lowers: PriceChangeEffectsSummaryDto;
+}
+
+// ---------------------------------------------------------------------------
+// Avisos de competencia
+// ---------------------------------------------------------------------------
+
+export interface CompetitionPriceDropDto {
+  competitorFacilityId: string;
+  competitorName: string;
+  competitorUnitId: string;
+  areaM2: number;
+  previousPrice: number;
+  newPrice: number;
+  observedAt: string;
+  /** Precio medio de tus trasteros de un tamaño parecido (±25 % de m²). */
+  myPrice: number;
+}
+
+export interface CompetitionAlertsDto {
+  /** Competidores sin revisar en más de 30 días (o nunca). */
+  stale: { id: string; name: string; lastReviewedAt: string | null }[];
+  /** Bajadas de precio de los últimos 30 días en tamaños donde eres más caro. */
+  priceDrops: CompetitionPriceDropDto[];
+}
+
+// ---------------------------------------------------------------------------
+// Tendencias: ocupación histórica, desglose de ingresos y cohortes
+// ---------------------------------------------------------------------------
+
+export interface OccupancyHistoryPointDto {
+  yearMonth: string;
+  totalUnits: number;
+  occupiedUnits: number;
+  occupancy: number;
+  /** Cuota de los contratos vivos ese mes (con su precio actual). */
+  mrr: number;
+}
+
+export interface OccupancyHistorySeriesDto {
+  id: string;
+  name: string;
+  /** Ocupación (0-1) de cada mes, en el orden de `points`. */
+  occupancy: number[];
+}
+
+export interface OccupancyHistoryDto {
+  points: OccupancyHistoryPointDto[];
+  byFacility: OccupancyHistorySeriesDto[];
+  byUnitType: OccupancyHistorySeriesDto[];
+}
+
+export type RevenueConcept = 'rent' | 'insurance' | 'late_fee' | 'shop' | 'night_pass' | 'other';
+
+export interface RevenueBreakdownRowDto {
+  key: string;
+  label: string;
+  /** Base imponible (sin IVA). */
+  amount: number;
+}
+
+export interface RevenueBreakdownDto {
+  from: string;
+  to: string;
+  total: number;
+  byConcept: (RevenueBreakdownRowDto & { key: RevenueConcept })[];
+  byFacility: RevenueBreakdownRowDto[];
+  /** Solo el alquiler, por tipo de trastero. */
+  byUnitType: RevenueBreakdownRowDto[];
+}
+
+export interface CohortRowDto {
+  /** Mes en que empezaron los contratos (YYYY-MM). */
+  yearMonth: string;
+  contracts: number;
+  /** % que seguía a los 3, 6 y 12 meses (null = aún no ha pasado ese tiempo). */
+  retained3: number | null;
+  retained6: number | null;
+  retained12: number | null;
+  /** Meses de media que han durado (los vivos, hasta hoy). */
+  avgStayMonths: number;
+  /** Facturado de media por contrato (con IVA). */
+  revenuePerContract: number;
+}
+
+export interface CohortsDto {
+  cohorts: CohortRowDto[];
 }

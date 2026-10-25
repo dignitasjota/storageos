@@ -18,6 +18,9 @@ export const ReportGeneratorCodeEnum = z.enum([
   'aging_at_date',
   'leads_period',
   'product_sales_period',
+  'collections_month',
+  'move_outs_period',
+  'owner_statement',
 ]);
 export type ReportGeneratorCode = z.infer<typeof ReportGeneratorCodeEnum>;
 

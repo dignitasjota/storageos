@@ -46,5 +46,12 @@ export interface ReportGenerator {
       options?: { value: string; label: string }[];
     }
   >;
+  /**
+   * Opciones que dependen del tenant (p. ej. sus propietarios). Devuelve null
+   * para que el informe no salga en el catálogo de ese tenant.
+   */
+  loadOptions?(
+    tenantId: string,
+  ): Promise<Record<string, { value: string; label: string }[]> | null>;
   run(ctx: ReportGeneratorContext): Promise<ReportResult>;
 }

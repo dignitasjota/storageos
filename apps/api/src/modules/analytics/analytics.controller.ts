@@ -14,6 +14,7 @@ import { RequireFeature } from '../../common/decorators/require-feature.decorato
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { resolveAnalyticsScope } from './analytics-scope';
+import { AnalyticsTrendsService } from './analytics-trends.service';
 import { AnalyticsService } from './analytics.service';
 import { BenchmarkService } from './benchmark.service';
 import { InsightsService } from './insights.service';
@@ -22,6 +23,10 @@ import { SuggestedActionsService } from './suggested-actions.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   AgingKpiDto,
+  CohortsDto,
+  CompetitionAlertsDto,
+  OccupancyHistoryDto,
+  RevenueBreakdownDto,
   PriceChangeEffectsDto,
   PricingStrategyDto,
   ApplyPricingResultDto,
@@ -70,6 +75,7 @@ export class AnalyticsController {
     private readonly insights: InsightsService,
     private readonly benchmark: BenchmarkService,
     private readonly suggestedActions: SuggestedActionsService,
+    private readonly trends: AnalyticsTrendsService,
   ) {}
 
   /** Comparativa anónima del tenant frente al sector (ocupación / precio / €m²). */
@@ -195,6 +201,52 @@ export class AnalyticsController {
   @Get('seo-checklist')
   getSeoChecklist(@CurrentUser() user: AuthenticatedUser): Promise<SeoChecklistDto> {
     return this.service.getSeoChecklist(user.tenantId);
+  }
+
+  /** Ocupación al final de cada mes (por local y por tipo). */
+  @Get('occupancy-history')
+  getOccupancyHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('months') months?: string,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<OccupancyHistoryDto> {
+    const parsed = months ? Number.parseInt(months, 10) : undefined;
+    return this.trends.getOccupancyHistory(user.tenantId, parsed, scopeOf(user, facilityId));
+  }
+
+  /** Lo facturado por concepto, local y tipo de trastero. */
+  @Get('revenue-breakdown')
+  getRevenueBreakdown(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<RevenueBreakdownDto> {
+    return this.trends.getRevenueBreakdown(
+      user.tenantId,
+      { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      scopeOf(user, facilityId),
+    );
+  }
+
+  /** Cohortes de altas: permanencia y facturación según el mes en que empezaron. */
+  @Get('cohorts')
+  getCohorts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('months') months?: string,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<CohortsDto> {
+    const parsed = months ? Number.parseInt(months, 10) : undefined;
+    return this.trends.getCohorts(user.tenantId, parsed, scopeOf(user, facilityId));
+  }
+
+  /** Competidores sin revisar y bajadas de precio donde eres más caro. */
+  @Get('competition-alerts')
+  getCompetitionAlerts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<CompetitionAlertsDto> {
+    return this.insights.getCompetitionAlerts(user.tenantId, scopeOf(user, facilityId));
   }
 
   @Get('churn-risk')

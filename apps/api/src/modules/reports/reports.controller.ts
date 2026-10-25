@@ -22,8 +22,8 @@ export class ReportsController {
 
   @RequirePermission('reports:read')
   @Get('catalog')
-  catalog(): ReportGeneratorCatalogEntry[] {
-    return this.service.catalog();
+  catalog(@CurrentUser() user: AuthenticatedUser): Promise<ReportGeneratorCatalogEntry[]> {
+    return this.service.catalog(user.tenantId);
   }
 
   @RequirePermission('reports:read')
