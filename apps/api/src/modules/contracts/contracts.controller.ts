@@ -27,6 +27,7 @@ import {
   CancelContractSchema,
   ChangeContractPriceSchema,
   type ActivateImportedContractsResultDto,
+  type ContractChecklistDto,
   type ContractDto,
   type ContractEventDto,
   ContractStatusEnum,
@@ -154,6 +155,15 @@ export class ContractsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<SignedDownloadDto> {
     return this.contracts.getSignedPdfUrl(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  @RequirePermission('contracts:read')
+  @Get(':id/checklist')
+  checklist(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ContractChecklistDto> {
+    return this.contracts.checklist(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('contracts:read')

@@ -121,7 +121,7 @@ export class CalendarService {
           date: t.dueDate.toISOString(),
           label: t.title,
           detail: null,
-          href: '/tasks',
+          href: `/tasks?task=${t.id}`,
         });
       }
       for (const m of maintenance) {

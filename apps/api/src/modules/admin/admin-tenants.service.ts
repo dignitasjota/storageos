@@ -1949,6 +1949,7 @@ export class AdminTenantsService {
       });
 
       await tx.customerDocument.deleteMany({ where: { tenantId } });
+      await tx.customerAuthorizedPerson.deleteMany({ where: { tenantId } });
       await tx.paymentMethod.deleteMany({ where: { tenantId } });
 
       // PII fuera de customers: leads (nombre/email/telefono/mensaje) y

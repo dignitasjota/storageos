@@ -43,6 +43,8 @@ import type {
   CancelContractInput,
   ChangeContractPriceInput,
   ContractDto,
+  ContractChecklistDto,
+  ContractChecklistStepDto,
   ContractEventDto,
   ContractStatusValue,
   CreateContractInput,
@@ -268,6 +270,128 @@ export class ContractsService {
       });
     }
     return { url };
+  }
+
+  /**
+   * Pasos de la entrada y la salida del contrato: firmado, fotos, acceso,
+   * fianza y primera factura cobrada; y, con la baja pedida o el contrato
+   * cerrado, fotos de salida, fianza liquidada, acceso retirado y cierre.
+   */
+  async checklist(
+    tenantId: string,
+    contractId: string,
+    facilityScope?: string[] | null,
+  ): Promise<ContractChecklistDto> {
+    const c = await this.findOrThrow(tenantId, contractId, facilityScope);
+    const [photos, credentials, firstInvoice, otherLive] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.contractInspectionPhoto.groupBy({
+            by: ['kind'],
+            where: { contractId },
+            _count: { _all: true },
+          }),
+          tx.accessCredential.count({
+            where: { customerId: c.customerId, status: { in: ['active', 'suspended'] } },
+          }),
+          tx.invoice.findFirst({
+            where: { contractId, kind: 'invoice', status: { notIn: ['draft', 'cancelled'] } },
+            orderBy: { issueDate: 'asc' },
+            select: { status: true, invoiceNumber: true },
+          }),
+          tx.contract.count({
+            where: {
+              customerId: c.customerId,
+              id: { not: contractId },
+              status: { in: ['active', 'ending'] },
+              deletedAt: null,
+            },
+          }),
+        ]),
+      tenantId,
+    );
+    const photoCount = (kind: string) => photos.find((p) => p.kind === kind)?._count._all ?? 0;
+    const deposit = Number(c.depositAmount);
+    const moveIn: ContractChecklistStepDto[] = [
+      {
+        key: 'signed',
+        label: 'Contrato firmado',
+        done: !!c.signedAt,
+        hint: c.signedAt ? null : 'Pide la firma desde la pestaña «Firma».',
+      },
+      {
+        key: 'checkin_photos',
+        label: 'Fotos de entrada del trastero',
+        done: photoCount('checkin') > 0,
+        hint: photoCount('checkin') > 0 ? null : 'Sube las fotos del estado a la entrada.',
+      },
+      {
+        key: 'first_invoice',
+        label: 'Primera factura cobrada',
+        done: firstInvoice?.status === 'paid',
+        hint: !firstInvoice
+          ? 'Aún no hay factura emitida.'
+          : firstInvoice.status === 'paid'
+            ? null
+            : `Factura ${firstInvoice.invoiceNumber} pendiente de cobro.`,
+      },
+      {
+        key: 'deposit',
+        label: 'Fianza recibida',
+        done: deposit <= 0 || c.depositStatus !== 'none',
+        hint:
+          deposit <= 0 || c.depositStatus !== 'none'
+            ? null
+            : 'La fianza aún no consta como recibida.',
+      },
+      {
+        key: 'access',
+        label: 'Acceso entregado',
+        done: credentials > 0,
+        hint: credentials > 0 ? null : 'El inquilino aún no tiene PIN ni tarjeta.',
+      },
+    ];
+    let moveOut: ContractChecklistStepDto[] | null = null;
+    if (c.status === 'ending' || c.status === 'ended') {
+      const depositSettled = deposit <= 0 || !!c.depositSettledAt;
+      moveOut = [
+        {
+          key: 'checkout_photos',
+          label: 'Fotos de salida del trastero',
+          done: photoCount('checkout') > 0,
+          hint: photoCount('checkout') > 0 ? null : 'Sube las fotos del estado a la salida.',
+        },
+        {
+          key: 'deposit_settled',
+          label: 'Fianza liquidada',
+          done: depositSettled,
+          hint: depositSettled ? null : 'Devuelve o retén la fianza desde su tarjeta.',
+        },
+        {
+          key: 'access_removed',
+          label: 'Acceso retirado',
+          done: otherLive > 0 || credentials === 0,
+          hint:
+            otherLive > 0
+              ? 'Conserva el acceso: tiene otro contrato en vigor.'
+              : credentials === 0
+                ? null
+                : 'Se retira solo al cerrar el contrato.',
+        },
+        {
+          key: 'closed',
+          label: 'Contrato cerrado',
+          done: c.status === 'ended',
+          hint:
+            c.status === 'ended'
+              ? null
+              : c.endDate
+                ? `Se cierra el ${c.endDate.toISOString().slice(0, 10)}.`
+                : 'Pendiente de cerrar.',
+        },
+      ];
+    }
+    return { moveIn, moveOut };
   }
 
   async events(

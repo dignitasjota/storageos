@@ -170,6 +170,7 @@ export class PushService {
       body?: string | null;
       link?: string | null;
       facilityId?: string | null;
+      userId?: string | null;
     },
   ): Promise<void> {
     if (!this.enabled || !isStaffPushType(n.type)) return;
@@ -182,6 +183,7 @@ export class PushService {
       tenantId,
     );
     const allowed = subs.filter((s) => {
+      if (n.userId) return s.userId === n.userId;
       if (!n.facilityId) return true;
       const scope = s.user?.facilities ?? [];
       return scope.length === 0 || scope.some((f) => f.facilityId === n.facilityId);

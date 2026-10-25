@@ -10,6 +10,7 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { accessWindowsFrom } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { todayInTimezone, zonedNextDayStart } from '../../common/format';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -38,6 +39,7 @@ import type {
   RotateCredentialInput,
   SuspendCredentialInput,
   UpdateCredentialInput,
+  VisitorPinDto,
 } from '@storageos/shared';
 
 interface ListFilters {
@@ -999,6 +1001,56 @@ export class AccessCredentialsService {
       expiresAt: created.expiresAt,
       lastUsedAt: null,
     };
+  }
+
+  /**
+   * PIN de un solo uso para alguien que viene en nombre del inquilino (mudanza,
+   * familiar), válido hasta el final del día en la hora del local y solo en él.
+   */
+  async createVisitorPin(args: {
+    tenantId: string;
+    userId: string;
+    customerId: string;
+    facilityId: string;
+    label?: string;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<VisitorPinDto> {
+    const facility = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findFirst({
+          where: { id: args.facilityId, deletedAt: null },
+          select: { id: true, timezone: true },
+        }),
+      args.tenantId,
+    );
+    if (!facility) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
+    const today = todayInTimezone(facility.timezone).toISOString().slice(0, 10);
+    const expiresAt = zonedNextDayStart(today, facility.timezone).toISOString();
+    const scope = await this.customerScope(args.tenantId, args.customerId, args.facilityId);
+    const created = await this.create({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      facilityScope: args.facilityScope ?? null,
+      input: {
+        customerId: args.customerId,
+        method: 'pin',
+        label: args.label?.trim() || 'Visita',
+        allowedFacilityIds: scope.allowedFacilityIds.length
+          ? scope.allowedFacilityIds
+          : [args.facilityId],
+        allowedUnitIds: scope.allowedUnitIds,
+        allowedHours: { windows: [] },
+        bypassCurfew: false,
+        maxUses: 1,
+        expiresAt,
+        metadata: { source: 'visitor', facilityId: args.facilityId },
+      } as CreateCredentialInput,
+      meta: args.meta,
+    });
+    return { credentialId: created.id, pin: created.revealedSecret ?? '', expiresAt };
   }
 
   private async findOrThrow(

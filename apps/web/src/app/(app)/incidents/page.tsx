@@ -11,7 +11,7 @@ import {
 import { type ColumnDef } from '@tanstack/react-table';
 import { Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -51,7 +51,8 @@ import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCameraEventsByIncident } from '@/lib/cameras/hooks';
 import { useFacilities, useUnits } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatDateTime } from '@/lib/format';
+import { useIncidentContext } from '@/lib/operations/features-hooks';
 import {
   useAddIncidentComment,
   useCreateIncident,
@@ -102,6 +103,11 @@ export default function IncidentsPage() {
   const [severity, setSeverity] = useState<IncidentSeverityValue | undefined>();
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  // `?incident=<id>` (desde un aviso) abre la ficha.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('incident');
+    if (id) setDetailId(id);
+  }, []);
 
   const headerFacilityId = useHeaderFacilityId();
   const [searchText, search, setSearchText] = useDebouncedSearch();
@@ -533,6 +539,7 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
               </div>
             )}
 
+            <IncidentContextSection incidentId={id} />
             <CameraEventsSection incidentId={id} />
 
             <div className="space-y-2">
@@ -644,5 +651,64 @@ function IncidentUnitSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+const ACCESS_RESULT: Record<string, string> = {
+  allowed: 'Entró',
+  denied_invalid_credential: 'Código no válido',
+  denied_inactive_credential: 'Acceso suspendido',
+  denied_outside_hours: 'Fuera de horario',
+  denied_wrong_facility: 'Otro local',
+  denied_dunning: 'Cortado por impago',
+  denied_unknown: 'Denegado',
+  error: 'Error',
+};
+
+/** Quién ha tenido el trastero y los últimos accesos. */
+function IncidentContextSection({ incidentId }: { incidentId: string }) {
+  const ctx = useIncidentContext(incidentId);
+  if (!ctx.data || (!ctx.data.unit && ctx.data.contracts.length === 0)) return null;
+  const { unit, contracts, accessLogs } = ctx.data;
+  return (
+    <div className="space-y-3 rounded-md border p-3">
+      <h3 className="text-sm font-medium">
+        Historial{unit ? ` del trastero ${unit.code} · ${unit.facilityName}` : ''}
+      </h3>
+      {contracts.length > 0 && (
+        <ul className="space-y-1 text-sm">
+          {contracts.map((c) => (
+            <li key={c.id} className="flex flex-wrap justify-between gap-2">
+              <Link href={`/customers/${c.customerId}`} className="hover:underline">
+                {c.customerName}
+              </Link>
+              <span className="text-xs text-muted-foreground">
+                <Link href={`/contracts/${c.id}`} className="hover:underline">
+                  {c.contractNumber}
+                </Link>{' '}
+                · {formatDate(c.startDate)} – {c.endDate ? formatDate(c.endDate) : 'hoy'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {accessLogs.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Últimos accesos</p>
+          <ul className="max-h-40 space-y-1 overflow-y-auto text-xs">
+            {accessLogs.map((l) => (
+              <li key={l.id} className="flex justify-between gap-2">
+                <span>
+                  {formatDateTime(l.occurredAt)} · {l.customerName ?? 'Sin identificar'}
+                </span>
+                <span className={l.result === 'allowed' ? 'text-emerald-600' : 'text-red-600'}>
+                  {ACCESS_RESULT[l.result] ?? l.result}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }

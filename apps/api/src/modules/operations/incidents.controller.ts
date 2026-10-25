@@ -16,6 +16,7 @@ import {
   CreateIncidentSchema,
   IncidentCommentSchema,
   type IncidentCommentDto,
+  type IncidentContextDto,
   type IncidentDto,
   IncidentSeverityEnum,
   type IncidentSeverityValue,
@@ -136,6 +137,15 @@ export class IncidentsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ reported: number; investigating: number }> {
     return this.incidents.countOpenByStatus(user.tenantId);
+  }
+
+  @RequirePermission('incidents:read')
+  @Get(':id/context')
+  context(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<IncidentContextDto> {
+    return this.incidents.getContext(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('incidents:read')

@@ -44,6 +44,7 @@ import { localDateString } from '@/lib/dates';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
+import { useReservationDepositInvoice } from '@/lib/operations/features-hooks';
 
 const STATUS_LABELS: Record<ReservationStatusValue, string> = {
   pending: 'Pendiente',
@@ -64,6 +65,8 @@ export default function ReservationsPage() {
   });
 
   const confirm = useConfirmReservation();
+  const depositInvoice = useReservationDepositInvoice();
+  const canInvoice = useHasPermission('invoices:manage');
   const cancel = useCancelReservation();
   const convert = useConvertReservation();
   const canWrite = useHasPermission('reservations:write');
@@ -116,8 +119,25 @@ export default function ReservationsPage() {
     },
     {
       accessorKey: 'depositAmount',
-      header: 'Fianza',
-      cell: ({ row }) => formatEur(row.original.depositAmount),
+      header: 'Señal',
+      cell: ({ row }) => {
+        const r = row.original;
+        if (r.depositAmount <= 0) return <span className="text-muted-foreground">—</span>;
+        return (
+          <span className="text-sm">
+            {formatEur(r.depositAmount)}{' '}
+            {r.depositPaid ? (
+              <span className="text-xs text-emerald-600">cobrada</span>
+            ) : r.depositInvoiceId ? (
+              <Link href={`/invoices/${r.depositInvoiceId}`} className="text-xs underline">
+                por cobrar
+              </Link>
+            ) : (
+              <span className="text-xs text-muted-foreground">sin factura</span>
+            )}
+          </span>
+        );
+      },
     },
     {
       accessorKey: 'status',
@@ -150,12 +170,29 @@ export default function ReservationsPage() {
                   Confirmar
                 </DropdownMenuItem>
               )}
+              {(r.status === 'pending' || r.status === 'confirmed') &&
+                r.depositAmount > 0 &&
+                !r.depositInvoiceId &&
+                r.customerId &&
+                canInvoice && (
+                  <DropdownMenuItem
+                    onClick={() =>
+                      depositInvoice.mutateAsync(r.id).then(
+                        () => toast.success('Factura de la señal emitida.'),
+                        (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
+                      )
+                    }
+                  >
+                    Facturar la señal
+                  </DropdownMenuItem>
+                )}
               {(r.status === 'pending' || r.status === 'confirmed') && (
                 <DropdownMenuItem
                   onClick={() => {
                     setTarget(r);
                     setPrice(r.unitPriceMonthly);
-                    setDeposit(r.depositAmount);
+                    // La señal se descuenta del alquiler: no es la fianza del contrato.
+                    setDeposit(r.depositInvoiceId ? 0 : r.depositAmount);
                     setStartDate(localDateString(new Date(r.validFrom)));
                     setConvertOpen(true);
                   }}
@@ -287,6 +324,13 @@ export default function ReservationsPage() {
             <DialogTitle>Convertir reserva en contrato</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {target && target.depositAmount > 0 && (
+              <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                {target.depositPaid
+                  ? `La señal de ${formatEur(target.depositAmount)} ya cobrada se descontará del alquiler de la primera factura.`
+                  : 'La señal aún no está cobrada: si se cobra después, no se descontará sola.'}
+              </p>
+            )}
             <div>
               <Label>Fecha de inicio</Label>
               <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />

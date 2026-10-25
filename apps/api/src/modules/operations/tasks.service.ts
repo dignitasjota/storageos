@@ -4,6 +4,7 @@ import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facil
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma, Task, TaskComment, TaskStatus, TaskType } from '@storageos/database';
@@ -51,7 +52,99 @@ export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  /** Aviso a quien se le asigna una tarea (no si se la asigna uno mismo). */
+  private async notifyAssignee(
+    tenantId: string,
+    actorId: string | null,
+    task: { id: string; title: string; assignedToUserId: string | null; facilityId: string | null },
+  ): Promise<void> {
+    if (!task.assignedToUserId || task.assignedToUserId === actorId) return;
+    await this.notifications
+      .create(tenantId, {
+        type: 'task.assigned',
+        title: 'Te han asignado una tarea',
+        body: task.title,
+        link: `/tasks?task=${task.id}`,
+        facilityId: task.facilityId,
+        userId: task.assignedToUserId,
+      })
+      .catch(() => undefined);
+  }
+
+  /** Asignar (o quitar) varias tareas a la vez. */
+  async bulkAssign(args: {
+    tenantId: string;
+    userId: string;
+    taskIds: string[];
+    assignedToUserId: string | null;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<{ updated: number }> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.task.findMany({
+          where: { id: { in: args.taskIds }, deletedAt: null },
+          select: { id: true, facilityId: true, title: true },
+        }),
+      args.tenantId,
+    );
+    for (const r of rows) if (r.facilityId) assertFacilityAllowed(args.facilityScope, r.facilityId);
+    if (args.assignedToUserId) {
+      const user = await this.prisma.withTenant(
+        (tx) =>
+          tx.user.findFirst({
+            where: { id: args.assignedToUserId!, isActive: true },
+            select: { id: true },
+          }),
+        args.tenantId,
+      );
+      if (!user) {
+        throw new NotFoundException({ code: 'user_not_found', message: 'Usuario no encontrado' });
+      }
+    }
+    const res = await this.prisma.withTenant(
+      (tx) =>
+        tx.task.updateMany({
+          where: { id: { in: rows.map((r) => r.id) } },
+          data: { assignedToUserId: args.assignedToUserId },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'task.bulk_assigned',
+      entityType: 'Task',
+      entityId: rows[0]?.id ?? null,
+      changes: { taskIds: rows.map((r) => r.id), assignedToUserId: args.assignedToUserId },
+      ...(args.meta.ipAddress ? { ipAddress: args.meta.ipAddress } : {}),
+      ...(args.meta.userAgent ? { userAgent: args.meta.userAgent } : {}),
+    });
+    if (args.assignedToUserId && args.assignedToUserId !== args.userId && rows.length > 0) {
+      await this.notifications
+        .create(args.tenantId, {
+          type: 'task.assigned',
+          title:
+            rows.length === 1
+              ? 'Te han asignado una tarea'
+              : `Te han asignado ${rows.length} tareas`,
+          body:
+            rows.length === 1
+              ? rows[0]!.title
+              : rows
+                  .map((r) => r.title)
+                  .slice(0, 3)
+                  .join(' · '),
+          link: '/tasks?mine=1',
+          userId: args.assignedToUserId,
+        })
+        .catch(() => undefined);
+    }
+    return { updated: res.count };
+  }
 
   async list(tenantId: string, filters: ListFilters): Promise<TaskDto[]> {
     const where: Prisma.TaskWhereInput = { deletedAt: null };
@@ -119,6 +212,7 @@ export class TasksService {
       args.tenantId,
     );
     await this.writeAudit('task.created', args, created.id);
+    await this.notifyAssignee(args.tenantId, args.userId, created);
     return this.toDto(created);
   }
 
@@ -131,7 +225,7 @@ export class TasksService {
     /** Locales del usuario (null = todos). */
     facilityScope?: string[] | null;
   }): Promise<TaskDto> {
-    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    const before = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
     const data: Prisma.TaskUncheckedUpdateInput = {};
     if (args.input.type !== undefined) data.type = args.input.type;
@@ -160,6 +254,9 @@ export class TasksService {
       args.tenantId,
     );
     await this.writeAudit('task.updated', args, args.id);
+    if (updated.assignedToUserId !== before.assignedToUserId) {
+      await this.notifyAssignee(args.tenantId, args.userId, updated);
+    }
     return this.toDto(updated);
   }
 

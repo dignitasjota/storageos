@@ -6,6 +6,7 @@ import { toCents } from '../../common/money';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { centsLabel, claimContractCredit } from './contract-credit';
 import { InvoiceSeriesService } from './invoice-series.service';
 import { InvoicesService } from './invoices.service';
 
@@ -230,26 +231,49 @@ export class FirstInvoiceService {
         );
       }
 
+      // Descuento pendiente del contrato (la señal de la reserva ya cobrada): se
+      // resta del alquiler de esta primera factura.
+      const rentLine = items[0];
+      const credit = rentLine
+        ? await claimContractCredit(
+            this.admin,
+            contractId,
+            toCents(rentLine.unitPrice) * rentLine.quantity,
+          )
+        : null;
+      if (rentLine && credit && credit.cents > 0) {
+        rentLine.unitPrice = (toCents(rentLine.unitPrice) * rentLine.quantity - credit.cents) / 100;
+        rentLine.quantity = 1;
+        rentLine.description = `${rentLine.description} — descontados ${centsLabel(credit.cents)} (${
+          credit.reason ?? 'saldo a favor'
+        })`;
+      }
+
       // Un mes: vence a los 15 días del fin del mes (como la recurrente). Varios
       // meses por adelantado: a los 15 días del inicio (si no, un anual vencía
       // al cabo de un año y no entraba nunca en impagos).
       const dueDate = months > 1 ? addDays(periodStart, 15) : addDays(periodEnd, 15);
-      invoice = await this.invoices.create({
-        tenantId,
-        userId: null,
-        input: {
-          invoiceType: 'F1',
-          customerId,
-          contractId,
-          seriesId: series.id,
-          periodStart: ymd(periodStart),
-          periodEnd: ymd(periodEnd),
-          dueDate: ymd(dueDate),
-          items,
-          verifactuMode: 'verifactu',
-        },
-        meta: {},
-      });
+      invoice = await this.invoices
+        .create({
+          tenantId,
+          userId: null,
+          input: {
+            invoiceType: 'F1',
+            customerId,
+            contractId,
+            seriesId: series.id,
+            periodStart: ymd(periodStart),
+            periodEnd: ymd(periodEnd),
+            dueDate: ymd(dueDate),
+            items,
+            verifactuMode: 'verifactu',
+          },
+          meta: {},
+        })
+        .catch(async (err: unknown) => {
+          await credit?.restore().catch(() => undefined);
+          throw err;
+        });
       await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
       if (coupon) {
         await this.admin.couponRedemption.update({

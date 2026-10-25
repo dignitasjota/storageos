@@ -18,6 +18,7 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { ChecklistCard } from './checklist-card';
 import { DepositCard, depositStatusLabel } from './deposit-card';
 import { DepositRegistryCard } from './deposit-registry-card';
 import { EditDraftDialog } from './edit-draft-dialog';
@@ -384,6 +385,8 @@ export default function ContractDetailPage() {
 
       {/* Retención: solo sobre una baja en curso. */}
       {c.status === 'ending' && canManageC && <RetentionCard contractId={c.id} />}
+
+      {c.status !== 'cancelled' && <ChecklistCard contractId={c.id} />}
 
       <Tabs defaultValue={c.status === 'draft' ? 'signing' : 'billing'}>
         <TabsList className="flex-wrap">

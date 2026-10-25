@@ -987,6 +987,19 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 
 ## Operativa, productos, analytics y reports (Fase 6)
 
+**Funcionalidades de la Operativa (2026-10-25, PR B).** Migración `20261114100000_operations_features`.
+
+- `GET /contracts/:id/checklist` (`contracts:read`) → `ContractChecklistDto`: pasos de la entrada (firmado, fotos, primera factura cobrada, fianza, acceso) y, con la baja pedida o cerrado, de la salida (fotos, fianza liquidada, acceso retirado, cerrado).
+- `POST /unit-change-requests/:id/move {newUnitId, newPrice?, prorate?}` (`contracts:manage`): traslada el contrato y deja la solicitud gestionada (400 `already_resolved`, `request_without_contract`).
+- `POST /tasks/bulk-assign {taskIds, assignedToUserId|null}` (`tasks:write`) → `{updated}`. Asignar una tarea o incidencia avisa a esa persona (notificación `task.assigned` / `incident.assigned`, solo suya, y push).
+- `GET/PUT /tasks/auto-rules` (`tasks:read` / `tasks:manage`): llamada de bienvenida N días tras firmar, revisión del trastero N días tras el cierre y llamada para renovar a 30 días del fin sin renovación automática. Una tarea por regla y contrato.
+- `GET /incidents/:id/context` (`incidents:read`): trastero, últimos 5 contratos y últimos 15 accesos del trastero o del inquilino.
+- Señal de reserva: al confirmar una reserva con `depositAmount > 0` e inquilino se emite su factura («Señal de reserva», IVA del alquiler); `POST /reservations/:id/deposit-invoice` (`invoices:manage`, idempotente; 400 `no_deposit`, `customer_required`, `reservation_not_active`). Al cobrarla, `depositPaid`; al convertir, su base pasa a `contracts.pending_credit_amount` y se resta del alquiler de la primera factura (primera factura del alta o recurrente). `ReservationDto.depositInvoiceId`.
+- `GET/POST /customers/:id/authorized-persons`, `PATCH/DELETE …/:personId` (`customers:read` / `customers:write`).
+- `GET /access/logs/report?days=&facilityId=` (`access:read`, 1-90): totales, por día y por hora en la hora del tenant, quién entra más y quién acumula denegaciones.
+- `GET /access/door?facilityId=` (`access:read`): dispositivos, entradas y salidas de hoy y últimos accesos del local. `POST /access/door/visitor-pin {customerId, facilityId, label?}` (`access:manage`) → PIN de un solo uso hasta el final del día del local.
+- Calendario: las tareas enlazan a `/tasks?task=<id>`.
+
 **Revisión de la Operativa (2026-10-25, PR A).** Sin migración.
 
 - Contratos que llegan a su fecha de fin (cron `contracts.auto-end`, 05:30): con renovación automática se prorrogan por el mismo plazo (evento `note_added` `auto_renewed`); sin ella pasan a `ending` y se cierran como una baja.

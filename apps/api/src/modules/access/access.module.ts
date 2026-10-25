@@ -10,6 +10,7 @@ import { AccessCredentialsController } from './access-credentials.controller';
 import { AccessCredentialsService } from './access-credentials.service';
 import { AccessDevicesController } from './access-devices.controller';
 import { AccessDevicesService } from './access-devices.service';
+import { AccessDoorController } from './access-door.controller';
 import { AccessIntegrationsService } from './access-integrations.service';
 import { AccessLogsController } from './access-logs.controller';
 import { AccessRateLimitService } from './access-rate-limit.service';
@@ -35,6 +36,7 @@ import { SyncProviderRegistry } from './providers/sync-provider.registry';
     AccessDevicesController,
     AccessVerifyController,
     AccessLogsController,
+    AccessDoorController,
   ],
   providers: [
     AccessCredentialsService,

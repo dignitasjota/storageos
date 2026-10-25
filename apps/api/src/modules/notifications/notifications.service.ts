@@ -48,6 +48,8 @@ export class NotificationsService {
       contractId?: string | null;
       invoiceId?: string | null;
       unitId?: string | null;
+      /** Solo para esta persona (p. ej. a quien se asigna una tarea). */
+      userId?: string | null;
     },
   ): Promise<void> {
     const facilityId =
@@ -67,6 +69,7 @@ export class NotificationsService {
             body: input.body ?? null,
             link: input.link ?? null,
             facilityId,
+            userId: input.userId ?? null,
           },
         }),
       tenantId,
@@ -119,9 +122,15 @@ export class NotificationsService {
     userId: string,
     facilityScope: string[] | null,
   ): { where: Prisma.NotificationWhereInput; unread: Prisma.NotificationWhereInput } {
-    const where: Prisma.NotificationWhereInput = facilityScope
-      ? { OR: [{ facilityId: null }, { facilityId: { in: facilityScope } }] }
-      : {};
+    // Las de una persona solo las ve ella; el resto, según su local.
+    const where: Prisma.NotificationWhereInput = {
+      AND: [
+        { OR: [{ userId: null }, { userId }] },
+        ...(facilityScope
+          ? [{ OR: [{ facilityId: null }, { facilityId: { in: facilityScope } }] }]
+          : []),
+      ],
+    };
     return { where, unread: { ...where, reads: { none: { userId } } } };
   }
 

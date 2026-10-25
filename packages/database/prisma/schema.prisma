@@ -435,6 +435,8 @@ model Tenant {
   housingContractClauses String? @map("housing_contract_clauses")
   /// Un contrato en baja se finaliza solo el día siguiente a su fecha de fin.
   autoEndContracts Boolean @default(true) @map("auto_end_contracts")
+  /// Tareas automáticas por evento de contrato (null = apagadas).
+  taskAutoRules Json? @map("task_auto_rules")
   customDomain                 String?               @unique @map("custom_domain")
   customDomainVerifiedAt       DateTime?             @map("custom_domain_verified_at") @db.Timestamptz(6)
   nightPassEnabled             Boolean               @default(false) @map("night_pass_enabled")
@@ -625,6 +627,7 @@ model Tenant {
   aiUsageEvents       AiUsageEvent[]
   storageUsage        TenantStorageUsage?
   featureInterestEvents FeatureInterestEvent[]
+  customerAuthorizedPersons CustomerAuthorizedPerson[]
 }
 
 /// Staff interno del tenant.
@@ -720,6 +723,8 @@ model User {
   @@index([tenantId])
   @@map("users")
   featureInterestEvents FeatureInterestEvent[]
+  directNotifications Notification[] @relation("NotificationUser")
+  authorizedPersonsCreated CustomerAuthorizedPerson[] @relation("AuthorizedPersonCreatedBy")
 }
 
 /// Permisos por local: a qué facilities está restringido un usuario. Sin filas
@@ -1281,6 +1286,7 @@ model Customer {
   @@index([tenantId, documentNumber])
   @@index([tenantId, email])
   @@map("customers")
+  authorizedPersons CustomerAuthorizedPerson[]
 }
 
 /// Documentos de un inquilino subidos a MinIO. Cada uno con su tipo
@@ -1359,6 +1365,9 @@ model Contract {
   /// primeras N facturas con el alquiler a 0 y decrementa el contador.
   promotionId            String?               @map("promotion_id") @db.Uuid
   freeMonthsRemaining    Int                   @default(0) @map("free_months_remaining")
+  /// Descuento pendiente (p. ej. la señal de la reserva): se resta una vez del alquiler.
+  pendingCreditAmount Decimal @default(0) @map("pending_credit_amount") @db.Decimal(12, 2)
+  pendingCreditReason String? @map("pending_credit_reason")
   depositAmount          Decimal               @default(0) @map("deposit_amount") @db.Decimal(10, 2)
   depositStatus          ContractDepositStatus @default(none) @map("deposit_status")
   /// Liquidación de la fianza al finalizar: importe devuelto + fecha + motivo de
@@ -1683,6 +1692,8 @@ model Reservation {
   convertedContractId String?           @map("converted_contract_id") @db.Uuid
   cancelledAt         DateTime?         @map("cancelled_at") @db.Timestamptz(6)
   cancelReason        String?           @map("cancel_reason")
+  /// Factura de la señal (se descuenta del contrato al convertirla).
+  depositInvoiceId    String?           @map("deposit_invoice_id") @db.Uuid
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1690,11 +1701,13 @@ model Reservation {
   unit           Unit      @relation(fields: [unitId], references: [id], onDelete: Restrict)
   customer       Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   leadsConverted Lead[]    @relation("LeadConvertedReservation")
+  depositInvoice Invoice?  @relation("ReservationDepositInvoice", fields: [depositInvoiceId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([unitId, status])
   @@index([customerId])
   @@index([validUntil])
+  @@index([depositInvoiceId], map: "reservations_deposit_invoice_idx")
   @@map("reservations")
 }
 
@@ -1863,6 +1876,7 @@ model Invoice {
   @@index([tenantId, facilityId])
   @@map("invoices")
   referralRewards Referral[] @relation("ReferralRewardInvoice")
+  reservationDeposits Reservation[] @relation("ReservationDepositInvoice")
 }
 
 /// Linea de factura. `unit_price` snapshot del precio aplicado tras
@@ -4184,15 +4198,19 @@ model Notification {
   readAt    DateTime? @map("read_at") @db.Timestamptz(6)
   /// Local al que se refiere (null = toda la empresa).
   facilityId String?   @map("facility_id") @db.Uuid
+  /// Aviso para una persona (null = para todo el equipo que ve su local).
+  userId     String?   @map("user_id") @db.Uuid
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   facility Facility?          @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   reads    NotificationRead[]
+  user     User?              @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, readAt])
   @@index([tenantId, facilityId], map: "notifications_tenant_facility_idx")
   @@index([tenantId, createdAt])
+  @@index([tenantId, userId], map: "notifications_tenant_user_idx")
   @@map("notifications")
 }
 
@@ -6292,4 +6310,29 @@ model UserPasskey {
 
   @@index([tenantId, userId], map: "user_passkeys_user_idx")
   @@map("user_passkeys")
+}
+
+/// Persona autorizada por el inquilino a entrar, recoger o gestionar en su nombre.
+model CustomerAuthorizedPerson {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  customerId      String   @map("customer_id") @db.Uuid
+  fullName        String   @map("full_name")
+  documentNumber  String?  @map("document_number")
+  phone           String?
+  relationship    String?
+  canAccess       Boolean  @default(true) @map("can_access")
+  canPickup       Boolean  @default(false) @map("can_pickup")
+  canManage       Boolean  @default(false) @map("can_manage")
+  notes           String?
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("AuthorizedPersonCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, customerId], map: "customer_authorized_persons_customer_idx")
+  @@map("customer_authorized_persons")
 }

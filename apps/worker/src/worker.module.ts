@@ -27,6 +27,7 @@ import { MaintenanceModule } from '../../api/src/modules/maintenance/maintenance
 import { MarketingModule } from '../../api/src/modules/marketing/marketing.module';
 import { MoveInModule } from '../../api/src/modules/move-in/move-in.module';
 import { NotificationsModule } from '../../api/src/modules/notifications/notifications.module';
+import { OperationsModule } from '../../api/src/modules/operations/operations.module';
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
 import { PlanLimitsModule } from '../../api/src/modules/plan-limits/plan-limits.module';
 import { PushModule } from '../../api/src/modules/push/push.module';
@@ -142,6 +143,9 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     // CRM: cron `contract_ending_soon` + feed de notificaciones in-app +
     // cron `reviews.auto-request`.
     ContractsModule,
+    // OperationsModule: tareas automáticas con los eventos de contrato que lanzan
+    // los crons del worker (vence pronto, baja automática).
+    OperationsModule,
     InventoryModule,
     MoveInModule,
     // Recordatorios por WhatsApp de las reservas hechas por el asistente.

@@ -14,6 +14,7 @@ const SUPER_ADMIN = '019e3d20-9999-7c2f-bf37-6511065b9fc5';
 interface TxMock {
   customer: { updateMany: jest.Mock };
   customerDocument: { deleteMany: jest.Mock };
+  customerAuthorizedPerson: { deleteMany: jest.Mock };
   paymentMethod: { deleteMany: jest.Mock };
   lead: { updateMany: jest.Mock };
   communication: { updateMany: jest.Mock };
@@ -32,6 +33,7 @@ function buildTx(): TxMock {
   return {
     customer: { updateMany: jest.fn().mockResolvedValue({ count: 3 }) },
     customerDocument: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    customerAuthorizedPerson: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     paymentMethod: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     lead: { updateMany: jest.fn().mockResolvedValue({ count: 4 }) },
     communication: { updateMany: jest.fn().mockResolvedValue({ count: 7 }) },

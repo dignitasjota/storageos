@@ -13,6 +13,8 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  BulkAssignTasksSchema,
+  type BulkAssignTasksResultDto,
   CreateTaskSchema,
   type TaskCommentDto,
   TaskCommentSchema,
@@ -39,6 +41,7 @@ import type { PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateTaskDto extends createZodDto(CreateTaskSchema) {}
+class BulkAssignTasksDto extends createZodDto(BulkAssignTasksSchema) {}
 class UpdateTaskDto extends createZodDto(UpdateTaskSchema) {}
 class TransitionTaskDto extends createZodDto(TransitionTaskSchema) {}
 class UpdateChecklistItemDto extends createZodDto(UpdateChecklistItemSchema) {}
@@ -102,6 +105,25 @@ export class TasksController {
       ...(unitId ? { unitId } : {}),
       ...(assignedToUserId ? { assignedToUserId } : {}),
       facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Asignar varias tareas a una persona (o quitar la asignación). */
+  @Post('bulk-assign')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('tasks:write')
+  bulkAssign(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: BulkAssignTasksDto,
+    @Req() req: Request,
+  ): Promise<BulkAssignTasksResultDto> {
+    return this.service.bulkAssign({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      taskIds: body.taskIds,
+      assignedToUserId: body.assignedToUserId,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
     });
   }
 
