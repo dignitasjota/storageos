@@ -13,6 +13,7 @@ import {
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { resolveAnalyticsScope } from './analytics-scope';
 import { AnalyticsService } from './analytics.service';
 import { BenchmarkService } from './benchmark.service';
 import { InsightsService } from './insights.service';
@@ -47,6 +48,11 @@ class ApplyPricingDto extends createZodDto(ApplyPricingSchema) {}
 class ApplyUnitPricingDto extends createZodDto(ApplyUnitPricingSchema) {}
 class UpdatePricingStrategyDto extends createZodDto(UpdatePricingStrategySchema) {}
 
+/** Local de la consulta: el pedido (si el usuario lo ve) o los de su alcance. */
+function scopeOf(user: AuthenticatedUser, facilityId?: string) {
+  return resolveAnalyticsScope(user.facilityScope ?? null, facilityId);
+}
+
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
   const ip = req.ip;
@@ -77,20 +83,23 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('facilityId') facilityId?: string,
   ): Promise<OccupancyKpiDto> {
-    return this.service.getOccupancy(user.tenantId, {
-      ...(facilityId ? { facilityId } : {}),
-      facilityScope: user.facilityScope ?? null,
-    });
+    return this.service.getOccupancy(user.tenantId, scopeOf(user, facilityId));
   }
 
   @Get('customers')
-  getCustomerStats(@CurrentUser() user: AuthenticatedUser): Promise<CustomerStatsKpiDto> {
-    return this.service.getCustomerStats(user.tenantId);
+  getCustomerStats(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<CustomerStatsKpiDto> {
+    return this.service.getCustomerStats(user.tenantId, scopeOf(user, facilityId));
   }
 
   @Get('revenue')
-  getRevenue(@CurrentUser() user: AuthenticatedUser): Promise<RevenueKpiDto> {
-    return this.service.getRevenue(user.tenantId);
+  getRevenue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<RevenueKpiDto> {
+    return this.service.getRevenue(user.tenantId, scopeOf(user, facilityId));
   }
 
   @Get('monthly-revenue')
@@ -99,13 +108,18 @@ export class AnalyticsController {
     @Query('months') months?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<MonthlyRevenueKpiDto> {
     const parsed = months ? Number.parseInt(months, 10) : undefined;
-    return this.service.getMonthlyRevenue(user.tenantId, {
-      ...(parsed && Number.isFinite(parsed) ? { months: parsed } : {}),
-      ...(from ? { from } : {}),
-      ...(to ? { to } : {}),
-    });
+    return this.service.getMonthlyRevenue(
+      user.tenantId,
+      {
+        ...(parsed && Number.isFinite(parsed) ? { months: parsed } : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+      },
+      scopeOf(user, facilityId),
+    );
   }
 
   @Get('churn')
@@ -113,19 +127,22 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<ChurnKpiDto> {
-    return this.service.getChurn(user.tenantId, {
-      ...(from ? { from } : {}),
-      ...(to ? { to } : {}),
-    });
+    return this.service.getChurn(
+      user.tenantId,
+      { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      scopeOf(user, facilityId),
+    );
   }
 
   @Get('aging')
   getAging(
     @CurrentUser() user: AuthenticatedUser,
     @Query('atDate') atDate?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<AgingKpiDto> {
-    return this.service.getAging(user.tenantId, atDate);
+    return this.service.getAging(user.tenantId, atDate, scopeOf(user, facilityId));
   }
 
   @Get('leads-funnel')
@@ -133,11 +150,13 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<LeadsFunnelKpiDto> {
-    return this.service.getLeadsFunnel(user.tenantId, {
-      ...(from ? { from } : {}),
-      ...(to ? { to } : {}),
-    });
+    return this.service.getLeadsFunnel(
+      user.tenantId,
+      { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      scopeOf(user, facilityId),
+    );
   }
 
   @Get('leads-utm')
@@ -145,11 +164,13 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<LeadsUtmKpiDto> {
-    return this.service.getLeadsUtm(user.tenantId, {
-      ...(from ? { from } : {}),
-      ...(to ? { to } : {}),
-    });
+    return this.service.getLeadsUtm(
+      user.tenantId,
+      { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      scopeOf(user, facilityId),
+    );
   }
 
   /** Rendimiento de la web pública (Web Premium): leads → contrato → MRR. */
@@ -177,19 +198,28 @@ export class AnalyticsController {
   }
 
   @Get('churn-risk')
-  getChurnRisk(@CurrentUser() user: AuthenticatedUser): Promise<ChurnRiskKpiDto> {
-    return this.insights.getChurnRisk(user.tenantId);
+  getChurnRisk(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<ChurnRiskKpiDto> {
+    return this.insights.getChurnRisk(user.tenantId, scopeOf(user, facilityId));
   }
 
   /** «Sugerencias de hoy»: acciones concretas priorizadas para el dashboard. */
   @Get('suggested-actions')
-  getSuggestedActions(@CurrentUser() user: AuthenticatedUser): Promise<SuggestedActionsDto> {
-    return this.suggestedActions.get(user.tenantId);
+  getSuggestedActions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<SuggestedActionsDto> {
+    return this.suggestedActions.get(user.tenantId, scopeOf(user, facilityId));
   }
 
   @Get('pricing-suggestions')
-  getPricingSuggestions(@CurrentUser() user: AuthenticatedUser): Promise<PricingSuggestionsDto> {
-    return this.insights.getPricingSuggestions(user.tenantId);
+  getPricingSuggestions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<PricingSuggestionsDto> {
+    return this.insights.getPricingSuggestions(user.tenantId, scopeOf(user, facilityId));
   }
 
   /** Aplica el precio sugerido al tipo de trastero (yield management). */
@@ -206,6 +236,7 @@ export class AnalyticsController {
       unitTypeId: body.unitTypeId,
       price: body.price,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -218,15 +249,18 @@ export class AnalyticsController {
   ): Promise<UnitPricingSuggestionsDto> {
     return this.insights.getUnitPricingSuggestions(
       user.tenantId,
-      facilityId?.trim() || undefined,
+      scopeOf(user, facilityId),
       includeCompetition !== 'false',
     );
   }
 
   /** Efecto de tus cambios de precio: cuánto tardó luego en alquilarse cada trastero. */
   @Get('price-change-effects')
-  getPriceChangeEffects(@CurrentUser() user: AuthenticatedUser): Promise<PriceChangeEffectsDto> {
-    return this.insights.getPriceChangeEffects(user.tenantId);
+  getPriceChangeEffects(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<PriceChangeEffectsDto> {
+    return this.insights.getPriceChangeEffects(user.tenantId, scopeOf(user, facilityId));
   }
 
   /** Estrategia de precios: ocupación objetivo, límites y posicionamiento por local. */
@@ -247,6 +281,7 @@ export class AnalyticsController {
       userId: user.sub,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -264,6 +299,7 @@ export class AnalyticsController {
       unitId: body.unitId,
       price: body.price,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -271,10 +307,13 @@ export class AnalyticsController {
   getForecast(
     @CurrentUser() user: AuthenticatedUser,
     @Query('months') months?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<RevenueForecastDto> {
     const parsed = months ? Number.parseInt(months, 10) : undefined;
-    return this.insights.getRevenueForecast(user.tenantId, {
-      ...(parsed && Number.isFinite(parsed) ? { months: parsed } : {}),
-    });
+    return this.insights.getRevenueForecast(
+      user.tenantId,
+      { ...(parsed && Number.isFinite(parsed) ? { months: parsed } : {}) },
+      scopeOf(user, facilityId),
+    );
   }
 }

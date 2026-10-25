@@ -76,7 +76,7 @@ export class TenantMonthlyDigestService {
       [`Cobrado en ${monthLabel}`, eur(rev.collected)],
       ['Pendiente de cobro (morosidad)', eur(aging.totalOutstanding)],
       ['Inquilinos activos', String(custs.withActiveContract)],
-      ['Leads nuevos', String(leads.totals.new)],
+      ['Contactos recibidos (30 días)', String(leads.total)],
       ['Leads ganados', String(leads.totals.won)],
     ];
 

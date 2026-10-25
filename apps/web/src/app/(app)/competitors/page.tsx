@@ -7,7 +7,7 @@ import {
   type CompetitorUnitDto,
 } from '@storageos/shared';
 import { ClipboardCheck, Globe, History, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { CompetitorFormDialog } from './competitor-form-dialog';
@@ -306,6 +306,7 @@ function CompetitorUnits({
   facility: CompetitorFacilityDto;
   canManage: boolean;
 }) {
+  const ask = useConfirm();
   const { data: units } = useCompetitorUnits(facility.id);
   const create = useCreateCompetitorUnit(facility.id);
   const update = useUpdateCompetitorUnit(facility.id);
@@ -480,7 +481,16 @@ function CompetitorUnits({
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          onClick={() => del.mutate(u.id)}
+                          onClick={async () => {
+                            if (
+                              await ask({
+                                title: `¿Borrar el trastero de ${u.areaM2} m² y su histórico?`,
+                                destructive: true,
+                              })
+                            ) {
+                              del.mutate(u.id);
+                            }
+                          }}
                           aria-label="Eliminar"
                         >
                           <Trash2 className="size-4" />
@@ -695,17 +705,21 @@ function ReviewDialog({
 }) {
   const review = useReviewCompetitor(facility.id);
   const [rows, setRows] = useState<Record<string, { price: string; available: boolean }>>({});
+  // Se rellena al abrir y no al refrescar los datos: volver a la pestaña (por
+  // ejemplo, tras mirar la web del competidor) no debe borrar lo ya escrito.
+  const unitsRef = useRef(units);
+  unitsRef.current = units;
   useEffect(() => {
     if (!open) return;
     setRows(
       Object.fromEntries(
-        units.map((u) => [
+        unitsRef.current.map((u) => [
           u.id,
           { price: String(u.priceMonthly), available: u.status === 'available' },
         ]),
       ),
     );
-  }, [open, units]);
+  }, [open]);
 
   async function onSave() {
     try {

@@ -48,11 +48,24 @@ export interface OccupancyKpiDto {
   availableUnits: number;
   /** % units alquilados / total. */
   physicalOccupancy: number;
-  /** MRR real (sum priceMonthly contratos active) / MRR potencial (sum default × total). */
+  /**
+   * MRR real (cuotas de los contratos vivos menos su descuento) / MRR potencial
+   * (precio de cada trastero que se puede alquilar: libre, reservado u ocupado).
+   */
   economicOccupancy: number;
   mrrActual: number;
   mrrPotential: number;
-  perFacility: { facilityId: string; facilityName: string; total: number; occupied: number }[];
+  /** Trasteros en mantenimiento o bloqueados (no se pueden alquilar). */
+  outOfServiceUnits: number;
+  perFacility: {
+    facilityId: string;
+    facilityName: string;
+    total: number;
+    occupied: number;
+    reserved: number;
+    available: number;
+    outOfService: number;
+  }[];
 }
 
 export interface ChurnKpiDto {
@@ -67,7 +80,14 @@ export interface AgingKpiDto {
 }
 
 export interface LeadsFunnelKpiDto {
+  /** Contactos del periodo según su fase actual (cada contacto cuenta una vez). */
   totals: { new: number; contacted: number; qualified: number; won: number; lost: number };
+  /** Contactos del periodo que llegaron al menos a esa fase (aunque luego avanzaran o se perdieran). */
+  reached: { contacted: number; qualified: number; won: number };
+  /** Total de contactos del periodo. */
+  total: number;
+  from: string;
+  to: string;
   conversion: {
     newToContacted: number;
     contactedToQualified: number;

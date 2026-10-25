@@ -12,6 +12,7 @@ import { Download, FileText, Loader2, Play } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { DateSelect, MonthYearSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -339,17 +340,32 @@ function ParamField({
     );
   }
 
-  if (schema.type === 'date' || schema.type === 'period') {
+  if (schema.type === 'period') {
+    // Mes y año con desplegables: el <input type="month"> no abre en Safari.
     return (
       <div className="space-y-1">
         <Label>
           {schema.label}
           {required}
         </Label>
-        <Input
-          type={schema.type === 'period' ? 'month' : 'date'}
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => onChange(e.target.value || undefined)}
+        <MonthYearSelect
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(v) => onChange(v)}
+        />
+      </div>
+    );
+  }
+
+  if (schema.type === 'date') {
+    return (
+      <div className="space-y-1">
+        <Label>
+          {schema.label}
+          {required}
+        </Label>
+        <DateSelect
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(v) => onChange(v)}
         />
       </div>
     );

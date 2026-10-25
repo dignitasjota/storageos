@@ -34,6 +34,7 @@ import type {
 
 import { FeatureGate } from '@/components/auth/feature-gate';
 import { useConfirm } from '@/components/confirm-provider';
+import { MonthYearSelect, ym } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -70,6 +71,8 @@ import {
 } from '@/lib/analytics/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilityFilterState } from '@/lib/facilities/store';
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -111,14 +114,39 @@ export default function AnalyticsPage() {
     window.history.replaceState(null, '', `/analytics?tab=${value}`);
   }
 
+  // El local de la página empieza con el de la cabecera y lo sigue.
+  const [facilityId, setFacilityId] = useFacilityFilterState();
+  const facilities = useFacilities();
+  const facilityList = facilities.data ?? [];
+
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Analítica</h1>
-        <p className="text-sm text-muted-foreground">
-          KPIs clave del negocio: ocupación, churn, morosidad, leads e insights (riesgo de baja y
-          precio dinámico).
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Analítica</h1>
+          <p className="text-sm text-muted-foreground">
+            KPIs clave del negocio: ingresos, ocupación, bajas, morosidad, contactos, riesgo de baja
+            y precios.
+          </p>
+        </div>
+        {facilityList.length > 1 && (
+          <Select
+            value={facilityId ?? 'all'}
+            onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
+          >
+            <SelectTrigger className="w-56" aria-label="Local">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los locales</SelectItem>
+              {facilityList.map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
@@ -131,26 +159,26 @@ export default function AnalyticsPage() {
           <TabsTrigger value="churn-risk">Riesgo de baja</TabsTrigger>
           <TabsTrigger value="pricing">Precios</TabsTrigger>
           <TabsTrigger value="forecast">Previsión</TabsTrigger>
-          <TabsTrigger value="market">Mercado</TabsTrigger>
+          <TabsTrigger value="market">Comparativa del sector</TabsTrigger>
           <TabsTrigger value="seo">SEO</TabsTrigger>
         </TabsList>
         <TabsContent value="revenue" className="mt-4">
-          <MonthlyRevenuePanel />
+          <MonthlyRevenuePanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="occupancy" className="mt-4">
-          <OccupancyPanel />
+          <OccupancyPanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="churn" className="mt-4">
-          <ChurnPanel />
+          <ChurnPanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="aging" className="mt-4">
-          <AgingPanel />
+          <AgingPanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="leads" className="mt-4">
-          <LeadsPanel />
+          <LeadsPanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="churn-risk" className="mt-4">
-          <ChurnRiskPanel />
+          <ChurnRiskPanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="pricing" className="mt-4">
           <Tabs defaultValue="by-type" className="w-full">
@@ -163,18 +191,18 @@ export default function AnalyticsPage() {
               <PricingStrategyButton />
             </div>
             <TabsContent value="by-type" className="mt-4">
-              <PricingSuggestionsPanel />
+              <PricingSuggestionsPanel facilityId={facilityId} />
             </TabsContent>
             <TabsContent value="by-unit" className="mt-4">
-              <UnitPricingPanel />
+              <UnitPricingPanel facilityId={facilityId} />
             </TabsContent>
             <TabsContent value="effects" className="mt-4">
-              <PriceChangeEffectsPanel />
+              <PriceChangeEffectsPanel facilityId={facilityId} />
             </TabsContent>
           </Tabs>
         </TabsContent>
         <TabsContent value="forecast" className="mt-4">
-          <ForecastPanel />
+          <ForecastPanel facilityId={facilityId} />
         </TabsContent>
         <TabsContent value="market" className="mt-4">
           <BenchmarkPanel />
@@ -193,8 +221,8 @@ export default function AnalyticsPage() {
 // Ocupación
 // ============================================================================
 
-function OccupancyPanel() {
-  const occupancy = useOccupancy();
+function OccupancyPanel({ facilityId }: { facilityId?: string }) {
+  const occupancy = useOccupancy({ facilityId });
 
   if (occupancy.isLoading || !occupancy.data) {
     return <PanelLoader />;
@@ -204,7 +232,9 @@ function OccupancyPanel() {
   const chartData = d.perFacility.map((f) => ({
     name: f.facilityName,
     Ocupados: f.occupied,
-    Disponibles: Math.max(0, f.total - f.occupied),
+    Reservados: f.reserved,
+    Libres: f.available,
+    'Fuera de servicio': f.outOfService,
   }));
 
   return (
@@ -214,13 +244,14 @@ function OccupancyPanel() {
           {d.occupiedUnits} de {d.totalUnits} trasteros
         </KpiCard>
         <KpiCard title="Ocupación económica" value={formatPercent(d.economicOccupancy)}>
-          MRR real vs MRR potencial
+          Lo que ingresas frente a lo que ingresarías con todo alquilado
         </KpiCard>
         <KpiCard title="MRR actual" value={formatCurrency(d.mrrActual)}>
-          Suma de cuotas mensuales activas
+          Cuotas de los contratos vivos, menos sus descuentos
         </KpiCard>
         <KpiCard title="MRR potencial" value={formatCurrency(d.mrrPotential)}>
-          Si todos los trasteros estuvieran alquilados
+          Precio de cada trastero que se puede alquilar
+          {d.outOfServiceUnits > 0 ? ` (sin los ${d.outOfServiceUnits} fuera de servicio)` : ''}
         </KpiCard>
       </div>
 
@@ -228,7 +259,8 @@ function OccupancyPanel() {
         <CardHeader>
           <CardTitle className="text-base">Ocupación por local</CardTitle>
           <CardDescription>
-            Comparación de trasteros ocupados vs. disponibles en cada local.
+            Trasteros ocupados, reservados, libres y fuera de servicio (mantenimiento o bloqueados)
+            de cada local.
           </CardDescription>
         </CardHeader>
         <CardContent className="h-80">
@@ -245,8 +277,11 @@ function OccupancyPanel() {
                 <XAxis type="number" tick={{ fontSize: 11 }} />
                 <YAxis dataKey="name" type="category" width={96} tick={{ fontSize: 11 }} />
                 <Tooltip />
+                <Legend />
                 <Bar dataKey="Ocupados" stackId="a" fill="#16a34a" />
-                <Bar dataKey="Disponibles" stackId="a" fill="#94a3b8" />
+                <Bar dataKey="Reservados" stackId="a" fill="#0ea5e9" />
+                <Bar dataKey="Libres" stackId="a" fill="#94a3b8" />
+                <Bar dataKey="Fuera de servicio" stackId="a" fill="#f59e0b" />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -260,8 +295,8 @@ function OccupancyPanel() {
 // Churn
 // ============================================================================
 
-function ChurnPanel() {
-  const churn = useChurn();
+function ChurnPanel({ facilityId }: { facilityId?: string }) {
+  const churn = useChurn({ facilityId });
 
   if (churn.isLoading || !churn.data) {
     return <PanelLoader />;
@@ -273,16 +308,17 @@ function ChurnPanel() {
     Churn: Number((m.churnRate * 100).toFixed(2)),
   }));
 
-  const last = months[months.length - 1];
+  // El mes en curso aún no ha terminado: el dato que vale es el del último cerrado.
+  const last = months.length >= 2 ? months[months.length - 2] : undefined;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <KpiCard
-          title="Churn último mes"
+          title={`Churn de ${last ? monthName(last.yearMonth) : 'último mes cerrado'}`}
           value={last ? `${(last.churnRate * 100).toFixed(2)}%` : '—'}
         >
-          {last ? `${last.ended} de ${last.activeAtStart} activos al inicio` : '—'}
+          {last ? `${last.ended} bajas de ${last.activeAtStart} activos al inicio` : '—'}
         </KpiCard>
         <KpiCard
           title="Contratos cerrados"
@@ -291,7 +327,7 @@ function ChurnPanel() {
           Suma del periodo
         </KpiCard>
         <KpiCard title="Meses analizados" value={String(months.length)}>
-          Por defecto, últimos 12 meses
+          Últimos 12 meses (el actual, aún en curso)
         </KpiCard>
       </div>
 
@@ -299,7 +335,8 @@ function ChurnPanel() {
         <CardHeader>
           <CardTitle className="text-base">Evolución del churn</CardTitle>
           <CardDescription>
-            Porcentaje de contratos finalizados sobre los activos a inicio de cada mes.
+            Contratos dados de baja (finalizados o cancelados tras firmarse) sobre los activos a
+            inicio de cada mes. Las reservas online que no se llegaron a pagar no cuentan.
           </CardDescription>
         </CardHeader>
         <CardContent className="h-80">
@@ -332,8 +369,8 @@ function ChurnPanel() {
 
 const BUCKET_COLORS = ['#16a34a', '#eab308', '#f97316', '#dc2626'];
 
-function AgingPanel() {
-  const aging = useAging();
+function AgingPanel({ facilityId }: { facilityId?: string }) {
+  const aging = useAging({ facilityId });
 
   if (aging.isLoading || !aging.data) {
     return <PanelLoader />;
@@ -351,7 +388,7 @@ function AgingPanel() {
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <KpiCard title="Total pendiente" value={formatCurrency(d.totalOutstanding)}>
-          Suma de facturas no cobradas (emitidas / vencidas)
+          Facturas vencidas sin cobrar (sin las fianzas)
         </KpiCard>
         <KpiCard
           title="Facturas afectadas"
@@ -400,20 +437,59 @@ function AgingPanel() {
 // Leads funnel
 // ============================================================================
 
-function LeadsPanel() {
-  const funnel = useLeadsFunnel();
+const LEAD_PERIODS = [
+  { key: '30', label: 'Últimos 30 días', days: 30 },
+  { key: '90', label: 'Últimos 90 días', days: 90 },
+  { key: '365', label: 'Último año', days: 365 },
+  { key: 'all', label: 'Todo', days: null },
+] as const;
+
+function isoDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function LeadsPanel({ facilityId }: { facilityId?: string }) {
+  const [periodKey, setPeriodKey] = useState<(typeof LEAD_PERIODS)[number]['key']>('30');
+  const period = LEAD_PERIODS.find((p) => p.key === periodKey)!;
+  const today = new Date();
+  const range = {
+    from: period.days ? isoDay(new Date(today.getTime() - period.days * 86_400_000)) : '2000-01-01',
+    to: isoDay(today),
+    facilityId,
+  };
+  const funnel = useLeadsFunnel(range);
+
+  const periodButtons = (
+    <div className="flex flex-wrap gap-2">
+      {LEAD_PERIODS.map((p) => (
+        <Button
+          key={p.key}
+          size="sm"
+          variant={p.key === periodKey ? 'default' : 'outline'}
+          onClick={() => setPeriodKey(p.key)}
+        >
+          {p.label}
+        </Button>
+      ))}
+    </div>
+  );
 
   if (funnel.isLoading || !funnel.data) {
-    return <PanelLoader />;
+    return (
+      <div className="space-y-4">
+        {periodButtons}
+        <PanelLoader />
+      </div>
+    );
   }
 
   const d = funnel.data;
+  // Embudo acumulado: cuántos llegaron al menos a cada fase.
   const funnelData = [
-    { stage: 'Nuevos', count: d.totals.new },
-    { stage: 'Contactados', count: d.totals.contacted },
-    { stage: 'Cualificados', count: d.totals.qualified },
-    { stage: 'Ganados', count: d.totals.won },
-    { stage: 'Perdidos', count: d.totals.lost },
+    { stage: 'Recibidos', count: d.total },
+    { stage: 'Contactados', count: d.reached.contacted },
+    { stage: 'Cualificados', count: d.reached.qualified },
+    { stage: 'Ganados', count: d.reached.won },
   ];
   const sourceData = d.bySource.map((s) => ({
     source: s.source || '(sin origen)',
@@ -422,6 +498,7 @@ function LeadsPanel() {
 
   return (
     <div className="space-y-4">
+      {periodButtons}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <KpiCard title="Nuevo → Contactado" value={formatPercent(d.conversion.newToContacted)}>
           Tasa de respuesta
@@ -439,8 +516,13 @@ function LeadsPanel() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Funnel</CardTitle>
-          <CardDescription>Volumen de leads en cada fase del periodo.</CardDescription>
+          <CardTitle className="text-base">Embudo</CardTitle>
+          <CardDescription>
+            {d.total} contactos recibidos del {formatDay(d.from)} al {formatDay(d.to)}: cuántos
+            llegaron a cada fase. Ahora mismo: {d.totals.new} nuevos, {d.totals.contacted}{' '}
+            contactados, {d.totals.qualified} cualificados, {d.totals.won} ganados y {d.totals.lost}{' '}
+            perdidos.
+          </CardDescription>
         </CardHeader>
         <CardContent className="h-80">
           <ResponsiveContainer
@@ -525,13 +607,13 @@ function LeadsPanel() {
         </CardContent>
       </Card>
 
-      <LeadsUtmCard />
+      <LeadsUtmCard range={range} />
     </div>
   );
 }
 
-function LeadsUtmCard() {
-  const utm = useLeadsUtm();
+function LeadsUtmCard({ range }: { range: { from: string; to: string; facilityId?: string } }) {
+  const utm = useLeadsUtm(range);
 
   return (
     <Card>
@@ -539,7 +621,7 @@ function LeadsUtmCard() {
         <CardTitle className="text-base">Campañas (UTM)</CardTitle>
         <CardDescription>
           Conversión por origen y campaña de los leads que llegan con parámetros{' '}
-          <code className="text-xs">utm_*</code> en la URL (widget / booking).
+          <code className="text-xs">utm_*</code> en la URL (widget / booking), en el mismo periodo.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -602,8 +684,8 @@ const RISK_BADGE: Record<ChurnRiskLevel, { label: string; className: string }> =
   },
 };
 
-function ChurnRiskPanel() {
-  const risk = useChurnRisk();
+function ChurnRiskPanel({ facilityId }: { facilityId?: string }) {
+  const risk = useChurnRisk(facilityId);
 
   if (risk.isLoading || !risk.data) {
     return <PanelLoader />;
@@ -629,8 +711,9 @@ function ChurnRiskPanel() {
         <CardHeader>
           <CardTitle className="text-base">Contratos en riesgo</CardTitle>
           <CardDescription>
-            Puntuación heurística (0-100) basada en impagos, cobros fallidos, reclamaciones,
-            vencimiento sin renovación y ausencia de método de pago.
+            Puntuación (0-100) basada en facturas vencidas, cobros fallidos y reclamaciones del
+            último año, vencimiento sin renovación y no tener cómo pagar solo (tarjeta, cuenta o
+            mandato SEPA).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -653,8 +736,16 @@ function ChurnRiskPanel() {
               <TableBody>
                 {d.items.map((item) => (
                   <TableRow key={item.contractId}>
-                    <TableCell className="font-medium">{item.contractNumber}</TableCell>
-                    <TableCell>{item.customerName}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link href={`/contracts/${item.contractId}`} className="hover:underline">
+                        {item.contractNumber}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Link href={`/customers/${item.customerId}`} className="hover:underline">
+                        {item.customerName}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       {item.unitCode}
                       <span className="block text-xs text-muted-foreground">
@@ -705,9 +796,9 @@ const PRICING_BADGE: Record<PricingAction, { label: string; className: string }>
   },
 };
 
-function PricingSuggestionsPanel() {
+function PricingSuggestionsPanel({ facilityId }: { facilityId?: string }) {
   const ask = useConfirm();
-  const pricing = usePricingSuggestions();
+  const pricing = usePricingSuggestions(facilityId);
   const apply = useApplyPricing();
   const canApply = useHasPermission('units:manage');
 
@@ -835,8 +926,8 @@ function PricingSuggestionsPanel() {
 // Previsión (forecasting de ocupación e ingresos)
 // ============================================================================
 
-function ForecastPanel() {
-  const forecast = useRevenueForecast({ months: 6 });
+function ForecastPanel({ facilityId }: { facilityId?: string }) {
+  const forecast = useRevenueForecast({ months: 6, facilityId });
 
   if (forecast.isLoading || !forecast.data) {
     return <PanelLoader />;
@@ -897,7 +988,7 @@ function ForecastPanel() {
             <AreaChart data={chartData} margin={{ left: 8, right: 8 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
-              <YAxis yAxisId="mrr" tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+              <YAxis yAxisId="mrr" tickFormatter={(v) => compactEuros(Number(v) || 0)} />
               <YAxis yAxisId="occ" orientation="right" unit="%" domain={[0, 100]} />
               <Tooltip
                 formatter={(value, name) =>
@@ -1007,14 +1098,14 @@ function BenchmarkPanel() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Comparativa de mercado</CardTitle>
+          <CardTitle className="text-base">Comparativa del sector</CardTitle>
           <CardDescription>
             Compara tu ocupación y precios con la media anónima del sector.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Datos insuficientes para comparar (se necesitan al menos 5 operadores con trasteros). La
+            Datos insuficientes para comparar (se necesitan al menos 5 operadores con contratos). La
             comparativa se activará automáticamente a medida que crezca la red.
           </p>
         </CardContent>
@@ -1025,7 +1116,7 @@ function BenchmarkPanel() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Comparativa de mercado</CardTitle>
+        <CardTitle className="text-base">Comparativa del sector</CardTitle>
         <CardDescription>
           Tu posición frente a la media anónima de {d.sampleSize} operadores de self-storage. Los
           datos del sector son agregados y anónimos: nunca se muestran valores individuales de otros
@@ -1196,17 +1287,37 @@ function KpiCard({
   );
 }
 
+/** «sep 26» → «septiembre 2026» a partir de YYYY-MM. */
+function monthName(yearMonth: string): string {
+  const [y, m] = yearMonth.split('-').map(Number);
+  return new Date(Date.UTC(y!, (m ?? 1) - 1, 1)).toLocaleDateString('es-ES', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+function formatDay(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** Eje de importes: «850 €», «12,5k €». */
+function compactEuros(v: number): string {
+  if (Math.abs(v) < 1000) return `${Math.round(v)} €`;
+  return `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k €`;
+}
+
 function PanelLoader() {
   return (
     <div className="flex h-64 items-center justify-center">
       <Loader2 className="size-6 animate-spin text-muted-foreground" />
     </div>
   );
-}
-
-/** Mes/año actuales y helpers para los atajos de rango (formato YYYY-MM). */
-function ym(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, '0')}`;
 }
 
 interface RevenueRange {
@@ -1231,72 +1342,14 @@ function buildPresets(): RevenueRange[] {
   ];
 }
 
-const MONTHS_ES = [
-  'Enero',
-  'Febrero',
-  'Marzo',
-  'Abril',
-  'Mayo',
-  'Junio',
-  'Julio',
-  'Agosto',
-  'Septiembre',
-  'Octubre',
-  'Noviembre',
-  'Diciembre',
-];
-
-/** Selector de mes + año (desplegables nativos del proyecto, fiables en todos
- * los navegadores). `value` en formato YYYY-MM; emite YYYY-MM al cambiar. */
-function MonthYearSelect({ value, onChange }: { value?: string; onChange: (v: string) => void }) {
-  const now = new Date();
-  const years = Array.from({ length: 6 }, (_, i) => now.getFullYear() - i);
-  const parsed = value ? value.split('-').map(Number) : null;
-  const curMonth = parsed?.[1];
-  const curYear = parsed?.[0];
-  const baseYear = curYear ?? now.getFullYear();
-  const baseMonth = curMonth ?? now.getMonth() + 1;
-  return (
-    <div className="flex gap-1.5">
-      <Select
-        value={curMonth ? String(curMonth) : undefined}
-        onValueChange={(v) => onChange(ym(baseYear, Number(v)))}
-      >
-        <SelectTrigger className="h-9 w-[130px]">
-          <SelectValue placeholder="Mes" />
-        </SelectTrigger>
-        <SelectContent>
-          {MONTHS_ES.map((label, i) => (
-            <SelectItem key={i} value={String(i + 1)}>
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select
-        value={curYear ? String(curYear) : undefined}
-        onValueChange={(v) => onChange(ym(Number(v), baseMonth))}
-      >
-        <SelectTrigger className="h-9 w-[90px]">
-          <SelectValue placeholder="Año" />
-        </SelectTrigger>
-        <SelectContent>
-          {years.map((y) => (
-            <SelectItem key={y} value={String(y)}>
-              {y}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function MonthlyRevenuePanel() {
+function MonthlyRevenuePanel({ facilityId }: { facilityId?: string }) {
   const presets = buildPresets();
   const [sel, setSel] = useState<RevenueRange>(presets[0]!);
 
-  const query = sel.from && sel.to ? { from: sel.from, to: sel.to } : { months: sel.months ?? 12 };
+  const query =
+    sel.from && sel.to
+      ? { from: sel.from, to: sel.to, facilityId }
+      : { months: sel.months ?? 12, facilityId };
   const revenue = useMonthlyRevenue(query);
 
   const isRange = !!(sel.from && sel.to);
