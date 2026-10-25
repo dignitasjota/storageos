@@ -33,8 +33,12 @@ export function scopeKey(scope: AnalyticsScope): string {
   return scope.ids ? [...scope.ids].sort().join(',') : '*';
 }
 
+/** Trasteros del alcance (los de un local borrado no cuentan). */
 export function unitWhere(scope: AnalyticsScope): Prisma.UnitWhereInput {
-  return scope.ids ? { facilityId: { in: scope.ids } } : {};
+  return {
+    facility: { deletedAt: null },
+    ...(scope.ids ? { facilityId: { in: scope.ids } } : {}),
+  };
 }
 
 export function contractWhere(scope: AnalyticsScope): Prisma.ContractWhereInput {

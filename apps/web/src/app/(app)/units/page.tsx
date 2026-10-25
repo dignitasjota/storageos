@@ -3,6 +3,7 @@
 import {
   type FacilityDto,
   type FacilityFloorDto,
+  UNIT_STATUS_TRANSITIONS,
   type UnitDto,
   type UnitStatusValue,
 } from '@storageos/shared';
@@ -62,8 +63,6 @@ const PlanViewer = dynamic(() => import('./plan-viewer').then((m) => m.PlanViewe
   ssr: false,
 });
 
-const STATUS_OPTIONS: UnitStatusValue[] = ['available', 'reserved', 'maintenance', 'blocked'];
-
 /** Tiles de resumen por estado (colores alineados con el dashboard). */
 const STATUS_KPIS: { status: UnitStatusValue; label: string; color: string }[] = [
   { status: 'available', label: 'Disponibles', color: '#64748b' },
@@ -90,6 +89,7 @@ export default function UnitsPage() {
   const selectFacility = useCallback(
     (id: string | undefined) => {
       setFacilityId(id);
+      setTableFloorId(undefined);
       setCurrentFacility(id ?? null);
     },
     [setCurrentFacility],
@@ -98,11 +98,18 @@ export default function UnitsPage() {
   const [unitTypeId, setUnitTypeId] = useState<string | undefined>();
   const [view, setView] = useState<'table' | 'plan'>('table');
   const [floorId, setFloorId] = useState<string | undefined>();
+  const [tableFloorId, setTableFloorId] = useState<string | undefined>();
+
+  // Sigue el local elegido en la cabecera (como el resto del panel).
+  useEffect(() => {
+    setFacilityId(switcherFacility ?? undefined);
+    setTableFloorId(undefined);
+  }, [switcherFacility]);
 
   const facilities = useFacilities();
   const types = useUnitTypes();
   const occupancy = useOccupancyDashboard(facilityId);
-  const floors = useFloors(view === 'plan' ? facilityId : undefined);
+  const floors = useFloors(facilityId);
 
   // El local recordado (en este navegador) puede ya no existir —borrado o de
   // otra cuenta—: filtrar por él dejaba la lista vacía sin explicación.
@@ -121,6 +128,7 @@ export default function UnitsPage() {
 
   const units = useUnits({
     ...(facilityId ? { facilityId } : {}),
+    ...(facilityId && tableFloorId ? { floorId: tableFloorId } : {}),
     ...(status ? { status } : {}),
     ...(unitTypeId ? { unitTypeId } : {}),
   });
@@ -223,7 +231,7 @@ export default function UnitsPage() {
                 <DropdownMenuItem
                   onClick={() => {
                     setTarget(row.original);
-                    setNewStatus('available');
+                    setNewStatus(UNIT_STATUS_TRANSITIONS[row.original.status][0] ?? 'available');
                     setReason('');
                   }}
                 >
@@ -355,6 +363,24 @@ export default function UnitsPage() {
                 ))}
               </SelectContent>
             </Select>
+            {facilityId && (floors.data ?? []).length > 1 && (
+              <Select
+                value={tableFloorId ?? 'all'}
+                onValueChange={(v) => setTableFloorId(v === 'all' ? undefined : v)}
+              >
+                <SelectTrigger className="w-full sm:w-[200px]">
+                  <SelectValue placeholder="Planta" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las plantas</SelectItem>
+                  {(floors.data ?? []).map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Select
               value={unitTypeId ?? 'all'}
               onValueChange={(v) => setUnitTypeId(v === 'all' ? undefined : v)}
@@ -374,10 +400,11 @@ export default function UnitsPage() {
           </div>
 
           <DataTable
-            filtersActive={!!status || !!unitTypeId}
+            filtersActive={!!status || !!unitTypeId || !!tableFloorId}
             onClearFilters={() => {
               setStatus(undefined);
               setUnitTypeId(undefined);
+              setTableFloorId(undefined);
             }}
             rowHref={(u) => `/units/${u.id}`}
             columns={columns}
@@ -414,7 +441,7 @@ export default function UnitsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {STATUS_OPTIONS.map((s) => (
+                  {(target ? UNIT_STATUS_TRANSITIONS[target.status] : []).map((s) => (
                     <SelectItem key={s} value={s}>
                       {STATUS_LABELS[s]}
                     </SelectItem>

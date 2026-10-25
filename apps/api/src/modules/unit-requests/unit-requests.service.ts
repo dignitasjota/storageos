@@ -53,7 +53,13 @@ export class UnitRequestsService {
       if (facilityIds.length === 0) return [];
       const [units, promos] = await Promise.all([
         tx.unit.findMany({
-          where: { tenantId, facilityId: { in: facilityIds }, status: 'available' },
+          where: {
+            tenantId,
+            facilityId: { in: facilityIds },
+            status: 'available',
+            facility: { deletedAt: null, isActive: true },
+            unitType: { isActive: true },
+          },
           orderBy: [{ facilityId: 'asc' }, { code: 'asc' }],
           include: {
             facility: { select: { name: true } },

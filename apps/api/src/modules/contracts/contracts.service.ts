@@ -317,8 +317,11 @@ export class ContractsService {
           message: 'Inquilino no encontrado',
         });
       }
-      const unit = await tx.unit.findUnique({ where: { id: input.unitId } });
-      if (!unit) {
+      const unit = await tx.unit.findUnique({
+        where: { id: input.unitId },
+        include: { facility: { select: { deletedAt: true } } },
+      });
+      if (!unit || unit.facility.deletedAt) {
         throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
       }
       assertFacilityAllowed(args.facilityScope, unit.facilityId);

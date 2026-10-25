@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 
@@ -10,10 +10,11 @@ import { FacilitySettingsTab } from './settings-tab';
 import { FacilityUnitTypesTab } from './unit-types-tab';
 import { FacilityUnitsTab } from './units-tab';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission, useMe } from '@/lib/auth/hooks';
 import { useFacility } from '@/lib/facilities/hooks';
 
 export default function FacilityDetailPage() {
@@ -28,6 +29,7 @@ export default function FacilityDetailPage() {
   const canAccessRead = useHasPermission('access:read');
   const hasCamerasFeature = useHasFeature('cameras');
   const canSeeCameras = canAccessRead && hasCamerasFeature;
+  const me = useMe();
 
   if (facility.isLoading || !facility.data) {
     return (
@@ -36,6 +38,10 @@ export default function FacilityDetailPage() {
       </div>
     );
   }
+
+  const tenantSlug = me.data?.tenant.slug;
+  const publicHref =
+    tenantSlug && facility.data.publicSlug ? `/s/${tenantSlug}/${facility.data.publicSlug}` : null;
 
   const occupancyPct =
     facility.data.unitsTotal === 0
@@ -51,11 +57,27 @@ export default function FacilityDetailPage() {
               <ArrowLeft className="mr-1 h-4 w-4" /> Locales
             </Link>
           </Button>
-          <h1 className="text-2xl font-semibold tracking-tight">{facility.data.name}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">{facility.data.name}</h1>
+            {!facility.data.isActive && <Badge variant="secondary">Inactivo</Badge>}
+            {facility.data.ownerName && (
+              <Badge variant="outline">Propietario: {facility.data.ownerName}</Badge>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
             {facility.data.city && `${facility.data.city} · `}
             {facility.data.address ?? 'Sin dirección'}
           </p>
+          {publicHref && facility.data.isActive && (
+            <a
+              href={publicHref}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+            >
+              <ExternalLink className="size-3.5" /> Ver su página en tu web
+            </a>
+          )}
         </div>
         <Card className="min-w-[200px]">
           <CardHeader className="pb-2">

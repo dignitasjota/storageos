@@ -332,6 +332,15 @@ export class FacilitiesService {
     set('contactEmail');
     set('videoUrl');
     set('isActive');
+    const curfewOn = args.input.accessCurfewEnabled ?? existing.accessCurfewEnabled;
+    const curfewStart = args.input.accessCurfewStart ?? existing.accessCurfewStart;
+    const curfewEnd = args.input.accessCurfewEnd ?? existing.accessCurfewEnd;
+    if (curfewOn && curfewStart && curfewEnd && curfewStart === curfewEnd) {
+      throw new BadRequestException({
+        code: 'invalid_curfew',
+        message: 'El toque de queda tiene que empezar y acabar a horas distintas',
+      });
+    }
     if (args.input.ownerId !== undefined) {
       await this.assertOwner(args.tenantId, args.input.ownerId);
       data.owner = args.input.ownerId
@@ -402,7 +411,8 @@ export class FacilitiesService {
       (tx) =>
         tx.facility.update({
           where: { id: args.facilityId },
-          data: { deletedAt: new Date(), isActive: false },
+          // Libera su dirección pública: un local nuevo con el mismo nombre la usa.
+          data: { deletedAt: new Date(), isActive: false, publicSlug: null },
         }),
       args.tenantId,
     );
@@ -447,7 +457,17 @@ export class FacilitiesService {
     images: string[];
     meta: RequestMeta;
   }): Promise<FacilityDto> {
-    await this.requireFacility(args.tenantId, args.facilityId);
+    const before = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findFirst({
+          where: { id: args.facilityId, deletedAt: null },
+          select: { images: true },
+        }),
+      args.tenantId,
+    );
+    if (!before) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
     // Seguridad: cada key debe pertenecer a la carpeta de imágenes de ESTE local.
     const prefix = `${args.tenantId}/${args.facilityId}/images/`;
     const invalid = args.images.find((k) => !k.startsWith(prefix));
@@ -475,6 +495,11 @@ export class FacilitiesService {
         }),
       args.tenantId,
     );
+    // Las que se quitan se borran del almacenamiento (best-effort).
+    const removed = (before.images ?? []).filter((k) => !args.images.includes(k));
+    if (removed.length > 0) {
+      await this.files.deleteObjects('public', removed).catch(() => undefined);
+    }
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

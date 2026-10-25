@@ -217,6 +217,9 @@ export class BookingService {
         facilityId: input.facilityId,
         unitTypeId: input.unitTypeId,
         status: 'available',
+        // Un local o un tipo desactivado no se reserva (la web ya no lo enseña).
+        facility: { deletedAt: null, isActive: true },
+        unitType: { isActive: true },
       },
       // El más barato disponible (el precio que anuncia la web).
       orderBy: [{ basePriceMonthly: 'asc' }, { code: 'asc' }],
@@ -321,7 +324,7 @@ export class BookingService {
         // → otro booking la tomaba.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${input.unitTypeId}))`;
         const facility = await tx.facility.findFirst({
-          where: { id: input.facilityId, deletedAt: null },
+          where: { id: input.facilityId, deletedAt: null, isActive: true },
         });
         if (!facility) {
           throw new NotFoundException({
@@ -330,9 +333,15 @@ export class BookingService {
           });
         }
         const unitType = await tx.unitType.findFirst({
-          where: { id: input.unitTypeId },
+          where: { id: input.unitTypeId, isActive: true },
           select: { defaultDepositAmount: true },
         });
+        if (!unitType) {
+          throw new ConflictException({
+            code: 'no_units_available',
+            message: 'No quedan trasteros disponibles de ese tipo',
+          });
+        }
         const unit = await tx.unit.findFirst({
           where: {
             facilityId: input.facilityId,

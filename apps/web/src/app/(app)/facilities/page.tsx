@@ -98,7 +98,9 @@ export default function FacilitiesPage() {
   async function handleDelete(id: string) {
     if (
       !(await ask({
-        title: '¿Borrar este local? Sus trasteros y plantas dejarán de ser accesibles.',
+        title: '¿Borrar este local?',
+        description:
+          'Sus trasteros dejan de aparecer en el panel, en la web y en la reserva. Solo se puede si no tiene contratos en vigor; para dejar de alquilarlo sin borrarlo, desactívalo en Ajustes.',
         destructive: true,
       }))
     )

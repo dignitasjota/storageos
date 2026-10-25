@@ -131,12 +131,18 @@ export class ProductsService {
     id: string;
     meta: RequestMeta;
   }): Promise<void> {
-    await this.findOrThrow(args.tenantId, args.id);
+    const current = await this.findOrThrow(args.tenantId, args.id);
     await this.prisma.withTenant(
       (tx) =>
         tx.product.update({
           where: { id: args.id },
-          data: { deletedAt: new Date(), isActive: false },
+          // El SKU es único por tenant contando los borrados: se libera para
+          // poder volver a dar de alta un producto con el mismo.
+          data: {
+            deletedAt: new Date(),
+            isActive: false,
+            sku: `${current.sku}~borrado-${args.id.slice(0, 8)}`.slice(0, 120),
+          },
         }),
       args.tenantId,
     );

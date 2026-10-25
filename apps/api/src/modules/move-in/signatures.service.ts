@@ -566,7 +566,13 @@ export class SignaturesService {
     couponCode?: string | undefined;
   }): Promise<FirstPaymentQuoteDto> {
     const unit = await this.admin.unit.findFirst({
-      where: { id: args.unitId, tenantId: args.tenantId, status: 'available' },
+      where: {
+        id: args.unitId,
+        tenantId: args.tenantId,
+        status: 'available',
+        facility: { deletedAt: null, isActive: true },
+        unitType: { isActive: true },
+      },
       select: {
         unitTypeId: true,
         facilityId: true,
@@ -611,7 +617,12 @@ export class SignaturesService {
     // El trastero debe estar disponible y en un local donde el inquilino ya
     // tiene un contrato activo (mismo criterio que la disponibilidad del portal).
     const unit = await this.admin.unit.findFirst({
-      where: { id: unitId, tenantId },
+      where: {
+        id: unitId,
+        tenantId,
+        facility: { deletedAt: null, isActive: true },
+        unitType: { isActive: true },
+      },
       include: { unitType: { select: { defaultDepositAmount: true } } },
     });
     if (!unit || unit.status !== 'available') {

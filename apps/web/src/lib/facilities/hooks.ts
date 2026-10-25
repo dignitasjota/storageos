@@ -361,7 +361,8 @@ export function useDeleteFloor() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/floors/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['floors'] });
+      void qc.invalidateQueries({ queryKey: ['facilities'] });
+      void qc.invalidateQueries({ queryKey: ['units'] });
     },
   });
 }

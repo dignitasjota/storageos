@@ -25,9 +25,10 @@ export class DashboardService {
         where:
           facFilter === null
             ? { id: { in: [] } }
-            : facFilter
-              ? { facilityId: { in: facFilter } }
-              : {},
+            : {
+                facility: { deletedAt: null },
+                ...(facFilter ? { facilityId: { in: facFilter } } : {}),
+              },
         select: {
           status: true,
           facilityId: true,

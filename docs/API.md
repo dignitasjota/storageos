@@ -966,6 +966,8 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 | `communications` | `dispatch` | Envia una communication via su provider (email/whatsapp/sms)             |
 | `automations`    | `run`      | Aplica una regla a un evento concreto, crea la communication y la encola |
 
+**Revisión de Inventario (2026-10-25).** Los trasteros de un local borrado desaparecen del panel (`/units`, ficha 404, ocupación, límites del plan, analítica y contratos nuevos); borrar un local libera su `publicSlug` y quitar imágenes las borra del almacenamiento. `GET /units` ordena por código. Un código de trastero no se repite en el local sin distinguir mayúsculas (409 `unit_code_taken`). Un trastero sin contratos ni reservas se puede borrar aunque haya cambiado de estado. Con un contrato en vigor no se cambia su tipo de trastero a vivienda ni al revés (400 `cannot_change_kind_while_rented`). Horario: apertura antes del cierre (400); toque de queda con inicio y fin distintos (400 `invalid_curfew`). Las rutas de plantas (`/facilities/:id/floors`, `/floors/:id…`) y el stock y las ventas de productos comprueban el alcance por local (403 `facility_not_in_scope`); el stock exige un local existente (404 `facility_not_found`). `POST /inventory/issues/:unitId/fix` (`units:write`) pone a un trastero descuadrado el estado que le corresponde, también «ocupado» (409 `no_inventory_issue` si ya no lo está). La reserva online, su resumen y la contratación del portal no ofrecen locales ni tipos desactivados.
+
 ## Operativa, productos, analytics y reports (Fase 6)
 
 Modulos `apps/api/src/modules/{operations,products,analytics,reports}/`.
@@ -1022,6 +1024,8 @@ Modulos `apps/api/src/modules/{operations,products,analytics,reports}/`.
 | POST   | `/incidents/:id/comments`   | SI   | owner, manager, staff | Anade                                                |
 
 ### Endpoints — Products + stock + sales
+
+`POST /product-sales` acepta `paymentMethod` (`cash` por defecto, `card`, `bank_transfer` o `pending`). Toda venta lleva factura: F1 con inquilino o simplificada F2 sin él (hasta 400 € con IVA; si no, 400 `customer_required`). Cobrada en el mostrador, el cobro queda en la factura (y en la caja); con `pending` (solo con inquilino) la factura queda pendiente y la venta pasa a pagada al cobrarla. El cobro automático al emitir no toca las facturas de ventas. Cancelar una venta cobrada devuelve el dinero (reembolso con su rectificativa) en vez de intentar anular la factura. Borrar un producto libera su SKU.
 
 | Metodo | Ruta                                | Auth | Roles                 | Descripcion                                         |
 | ------ | ----------------------------------- | ---- | --------------------- | --------------------------------------------------- |

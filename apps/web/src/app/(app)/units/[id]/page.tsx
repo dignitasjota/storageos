@@ -42,7 +42,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useContracts } from '@/lib/customers/hooks';
-import { useUnit, useUnitHistory, useUnitTypes, useUpdateUnit } from '@/lib/facilities/hooks';
+import {
+  useFloors,
+  useUnit,
+  useUnitHistory,
+  useUnitTypes,
+  useUpdateUnit,
+} from '@/lib/facilities/hooks';
 import { formatEur, formatNumber } from '@/lib/format';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -90,7 +96,7 @@ export default function UnitDetailPage() {
             <h1 className="text-2xl font-semibold tracking-tight">{u.code}</h1>
             <StatusBadge status={u.status} />
           </div>
-          {canWrite && !isRented && (
+          {canWrite && (
             <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
               <Pencil className="mr-1 h-4 w-4" /> Editar trastero
             </Button>
@@ -217,18 +223,22 @@ export default function UnitDetailPage() {
         </CardContent>
       </Card>
 
-      <EditUnitDialog unit={u} open={editOpen} onOpenChange={setEditOpen} />
+      <EditUnitDialog unit={u} rented={isRented} open={editOpen} onOpenChange={setEditOpen} />
     </div>
   );
 }
 
 function EditUnitDialog({
   unit,
+  rented,
   open,
   onOpenChange,
 }: {
+  rented: boolean;
   unit: {
     id: string;
+    facilityId: string;
+    floorId: string;
     unitTypeId: string;
     stackGroupId: string | null;
     widthM: number;
@@ -243,9 +253,12 @@ function EditUnitDialog({
   const update = useUpdateUnit();
   const types = useUnitTypes();
   const activeTypes = (types.data ?? []).filter((t) => t.isActive || t.id === unit.unitTypeId);
+  const floors = useFloors(open ? unit.facilityId : undefined);
+  const floorList = floors.data ?? [];
   const form = useForm<UpdateUnitInput>({
     resolver: zodResolver(UpdateUnitSchema),
     values: {
+      floorId: unit.floorId,
       unitTypeId: unit.unitTypeId,
       widthM: unit.widthM,
       depthM: unit.depthM,
@@ -270,6 +283,15 @@ function EditUnitDialog({
         toast.error('Está apilado con otro trastero; desapílalo antes de cambiar el tipo.');
         return;
       }
+      if (
+        err instanceof ApiError &&
+        (err.body as { code?: string }).code === 'cannot_change_kind_while_rented'
+      ) {
+        toast.error(
+          'Tiene un contrato en vigor: no puede pasar de trastero a vivienda ni al revés.',
+        );
+        return;
+      }
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo actualizar.');
     }
   }
@@ -280,8 +302,41 @@ function EditUnitDialog({
         <DialogHeader>
           <DialogTitle>Editar trastero</DialogTitle>
         </DialogHeader>
+        {rented && (
+          <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            Está alquilado: el precio que cambies aquí vale para el próximo contrato; la cuota del
+            inquilino actual no cambia (para subirla, usa Subidas de precio o «Cambiar precio» en su
+            contrato).
+          </p>
+        )}
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            {floorList.length > 1 && (
+              <FormField
+                control={form.control}
+                name="floorId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Planta</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {floorList.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <FormField
               control={form.control}
               name="unitTypeId"

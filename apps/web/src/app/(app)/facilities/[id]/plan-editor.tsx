@@ -201,7 +201,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
   }, [units.data?.items]);
 
   async function handleFile(file: File) {
-    if (!file.type.startsWith('image/')) {
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
       toast.error('Solo PNG, JPG o WebP.');
       return;
     }
@@ -252,6 +252,17 @@ export function PlanEditor({ facilityId, floorId }: Props) {
       void err;
     }
   }
+
+  // Aviso al salir con la distribución sin guardar.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
 
   async function saveLayout() {
     try {

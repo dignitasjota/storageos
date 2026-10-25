@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -18,12 +19,22 @@ export class ProductStockService {
     private readonly audit: AuditService,
   ) {}
 
-  async listByProduct(tenantId: string, productId: string): Promise<ProductStockDto[]> {
+  async listByProduct(
+    tenantId: string,
+    productId: string,
+    facilityScope?: string[] | null,
+  ): Promise<ProductStockDto[]> {
     await this.assertProductExists(tenantId, productId);
+    const facFilter = resolveFacilityFilter(facilityScope);
+    if (facFilter === null) return [];
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.productStock.findMany({
-          where: { productId },
+          where: {
+            productId,
+            facility: { deletedAt: null },
+            ...(facFilter ? { facilityId: { in: facFilter } } : {}),
+          },
           include: { facility: { select: { name: true } } },
           orderBy: [{ facility: { name: 'asc' } }],
         }),
@@ -53,6 +64,7 @@ export class ProductStockService {
     meta: RequestMeta;
   }): Promise<ProductStockDto> {
     const product = await this.assertProductExists(args.tenantId, args.productId);
+    await this.assertFacility(args.tenantId, args.input.facilityId);
     const updated = await this.prisma.withTenant(async (tx) => {
       if (args.input.delta < 0) {
         await this.decrementInTx(tx, {
@@ -116,6 +128,7 @@ export class ProductStockService {
     meta: RequestMeta;
   }): Promise<ProductStockDto> {
     await this.assertProductExists(args.tenantId, args.productId);
+    await this.assertFacility(args.tenantId, args.input.facilityId);
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.productStock.upsert({
@@ -202,6 +215,18 @@ export class ProductStockService {
       },
       update: { quantity: { increment: args.quantity } },
     });
+  }
+
+  /** El local existe y es del tenant (la FK no respeta RLS: sin esto se podría usar el de otro). */
+  private async assertFacility(tenantId: string, facilityId: string): Promise<void> {
+    const facility = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findFirst({ where: { id: facilityId, deletedAt: null }, select: { id: true } }),
+      tenantId,
+    );
+    if (!facility) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
   }
 
   private async assertProductExists(
