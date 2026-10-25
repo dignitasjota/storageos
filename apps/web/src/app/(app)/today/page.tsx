@@ -18,6 +18,7 @@ import {
   Replace,
   Sparkles,
   UserPlus,
+  Timer,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -47,6 +48,7 @@ import { useToday, useTodaySummary } from '@/lib/dashboard/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { useUpdateFollowup } from '@/lib/followups/hooks';
+import { useUpdateLeadFollowup } from '@/lib/leads/hooks';
 import { useTransitionTask } from '@/lib/operations/hooks';
 
 function eur(n: number): string {
@@ -332,6 +334,8 @@ export default function TodayPage() {
         sales:
           data.newLeads.count +
           data.followupsDue.count +
+          (data.leadFollowupsDue?.count ?? 0) +
+          (data.unattendedLeads?.count ?? 0) +
           data.unreadMessages +
           data.retentionOffersPending.count +
           data.marketingRenewalsDue.count,
@@ -341,6 +345,8 @@ export default function TodayPage() {
   const canFollowups = useHasPermission('customers:write');
   const transitionTask = useTransitionTask();
   const updateFollowup = useUpdateFollowup();
+  const updateLeadFollowup = useUpdateLeadFollowup();
+  const canLeads = useHasPermission('leads:write');
 
   async function completeTask(it: TodayItemDto) {
     try {
@@ -350,6 +356,15 @@ export default function TodayPage() {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
   }
+  async function completeLeadFollowup(it: TodayItemDto) {
+    try {
+      await updateLeadFollowup.mutateAsync({ id: it.id, status: 'done' });
+      toast.success('Seguimiento marcado como hecho.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
   async function completeFollowup(it: TodayItemDto) {
     try {
       await updateFollowup.mutateAsync({ id: it.id, status: 'done' });
@@ -602,6 +617,26 @@ export default function TodayPage() {
                   href="/leads"
                   itemHref={() => '/leads'}
                   empty="Ningún lead nuevo sin contactar."
+                />
+                <SectionCard
+                  title="Contactos sin atender"
+                  icon={Timer}
+                  count={data.unattendedLeads?.count ?? 0}
+                  items={data.unattendedLeads?.items ?? []}
+                  href="/leads/response"
+                  itemHref={(it) => `/leads?lead=${it.id}`}
+                  empty="Todos los contactos nuevos están atendidos a tiempo."
+                />
+                <SectionCard
+                  title="Seguimientos de contactos"
+                  icon={CalendarClock}
+                  count={data.leadFollowupsDue?.count ?? 0}
+                  items={data.leadFollowupsDue?.items ?? []}
+                  href="/followups"
+                  itemHref={(it) => (it.linkId ? `/leads?lead=${it.linkId}` : '/leads')}
+                  empty="Sin seguimientos de contactos para hoy."
+                  onComplete={canLeads ? completeLeadFollowup : undefined}
+                  completeLabel="Marcar hecho"
                 />
                 <SectionCard
                   title="Seguimientos"

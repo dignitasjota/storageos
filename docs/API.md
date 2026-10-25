@@ -915,6 +915,15 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 | POST   | `/leads/:id/convert`    | SI   | owner, manager, staff | Crea customer + (opcional) reservation, marca won    |
 | DELETE | `/leads/:id`            | SI   | owner, manager        | Soft delete                                          |
 
+**Seguimiento comercial de los contactos (2026-10-25)** — `LeadCrmController`, registrado antes que `LeadsController`:
+
+- `GET/PUT /leads/settings` (`leads:read` / `settings:manage`): `{responseHours, autoAssign}` — horas sin atender antes de avisar (4) y reparto de los contactos nuevos (`off` | `round_robin` | `facility`: por turnos entre quien ve el local del contacto). El reparto avisa al asignado (`lead.assigned`); el cron `leads.unattended` (minuto 20 de cada hora, en el API, reserva por contacto) avisa una vez de los nuevos sin atender (`lead.unattended`, también por push).
+- `GET /leads/response-stats?days=` (`leads:read`): mediana de horas hasta la primera respuesta, % dentro del plazo y sin atender ahora, en total y por persona asignada.
+- `GET /leads/:id/followups`, `POST` `{title, note?, dueDate}`, `GET /leads/followups/pending`, `PATCH /leads/followups/:followupId {status}`, `DELETE` (`leads:read` / `leads:write`). Los vencidos salen en «Hoy» (`leadFollowupsDue`) junto a los contactos sin atender (`unattendedLeads`).
+- `GET /leads/:id/activities`, `POST` `{type, content, occurredAt?}`, `DELETE /leads/:id/activities/:activityId`: una llamada, visita, reunión, WhatsApp o email cuenta como primera respuesta (`contactedAt`, de «Nuevo» a «Contactado»).
+- `GET /leads/duplicates`: contactos abiertos con el mismo email o teléfono (últimas 9 cifras) y el inquilino que lo comparte; `POST /leads/:id/merge {intoLeadId}` (`leads:manage`, completa datos, une mensajes y mueve seguimientos, actividad, correos y conversaciones; el origen queda borrado) y `POST /leads/:id/link-customer {customerId}` (enlaza y pasa a ganado).
+- `LeadDto.score` (0-100) y `scoreReasons`: `leadScore` de shared (datos que dejó, plazo, origen, fase y antigüedad).
+
 ### Endpoints — Widget publico
 
 | Metodo | Ruta                                  | Auth | Throttle  | Descripcion                                                                                       |
@@ -1749,6 +1758,7 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 
 - `POST /reviews/request` (`reviews:write`): solicita una valoración a un cliente (crea token + envía email/WhatsApp).
 - `GET /reviews` (`reviews:read`), `GET /reviews/stats` (`reviews:read`): NPS = %promotores(9-10) − %detractores(0-6), media de estrellas, tasa de respuesta. Las pendientes con el enlace caducado cuentan como `expired`.
+- `POST /reviews/:id/google-request` (`reviews:write`): pide al autor de una valoración publicada que la deje en Google (`googleReviewUrl` del tenant); una vez (409 `google_review_already_requested`), 400 `review_not_published` / `google_review_url_missing`.
 - `PATCH /reviews/:id/web {published}` (`reviews:write`): publica o retira la valoración como testimonio de la web pública (solo respondidas con comentario; 400 `review_not_publishable`). La web solo muestra las publicadas.
 - `GET /public/reviews/:token` + `POST /public/reviews/:token` (`@Public`, throttle, honeypot): contexto + envío de la valoración (NPS 0-10 + estrellas 1-5 + comentario) → emite `domain.review_submitted`.
 - `GET/PATCH /settings/tenant/reviews` (`settings:read`/`settings:manage`): opt-in del cron `reviews.auto-request` (`reviews_auto_request` + `review_request_delay_days`).
@@ -1837,6 +1847,9 @@ Páginas propias por promoción en la web del tenant, con el estilo de su planti
 - `POST /campaigns/:id/send` (`communications:send`): resuelve la audiencia, renderiza por destinatario y encola una `communications` por cada uno (`source=campaign:<id>`). Idempotente (409 `campaign_not_sendable` si no es borrador). v1 solo email. Con `scheduledFor` futuro la campaña queda `scheduled` y pasa a `sent` cuando salen sus correos.
 - `POST /campaigns/:id/cancel` (`communications:send`): cancela un borrador o una programada que aún no ha salido (sus correos pendientes quedan `skipped`); 409 si ya salió.
 - Segmento: `facilityId` opcional (clientes con contrato en ese local; contactos con ese local preferido). Ex-clientes (`former`) = algún contrato firmado y terminado, ninguno vivo.
+- **Resultados** `GET /campaigns/:id/results`: enviados, entregados, rebotes, fallidos, omitidos, bajas tras recibirla y clics. Los enlaces del mensaje salen como `<API>/v1/public/campaign-click/<token>` (`campaign_links`; token firmado con el enlace y el destinatario) y `GET /public/campaign-click/:token` cuenta el clic (uno por persona y enlace) y redirige (302); un token inválido lleva a la web.
+- **Plantillas** `GET/POST /campaigns/templates`, `PATCH/DELETE /campaigns/templates/:templateId`; **vista previa** `POST /campaigns/preview-email {subject, bodyText, audience}` → `{subject, html}` con la marca del tenant y un destinatario de ejemplo.
+- **Win-back en dos pasos**: `winback-settings` gana `secondEnabled`, `secondDelayDays` (30), `secondSubject`, `secondBodyText` y `secondCouponCode` (cupón activo y no «solo clientes nuevos»: 400 `coupon_not_found` / `coupon_new_customers_only`; activarlo sin cupón → 400 `winback_coupon_required`); `{{coupon.code}}` pone el código. `GET /campaigns/winback/stats` → `{firstSent, secondSent, recovered, recoveryRate}` (recuperado = firmó un contrato después del primer aviso).
 - **Audiencia comercial** (LSSI art. 21): clientes sin `marketing_opt_out_at` y leads con `marketing_consent_at` y sin baja. Cada correo lleva enlace y cabeceras de baja.
 - `POST /customers/:id/marketing {subscribed}` (`customers:write`): da de baja (o de alta, si el cliente lo pide) de las comunicaciones comerciales.
 - `GET /public/unsubscribe/:token` (público): destinatario (email oculto) y si ya está de baja. `POST /public/unsubscribe/:token`: da de baja (idempotente; también lo usa la baja de un clic del cliente de correo). Token firmado, 404 `unsubscribe_link_invalid` si no es válido.

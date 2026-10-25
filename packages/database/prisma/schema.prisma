@@ -447,6 +447,15 @@ model Tenant {
   winbackDelayDays             Int                   @default(90) @map("winback_delay_days")
   winbackSubject               String?               @map("winback_subject")
   winbackBodyText              String?               @map("winback_body_text")
+  winbackSecondEnabled         Boolean               @default(false) @map("winback_second_enabled")
+  winbackSecondDelayDays       Int                   @default(30) @map("winback_second_delay_days")
+  winbackSecondSubject         String?               @map("winback_second_subject")
+  winbackSecondBodyText        String?               @map("winback_second_body_text")
+  winbackSecondCouponCode      String?               @map("winback_second_coupon_code")
+  /// Horas sin atender un contacto nuevo antes de avisar al equipo.
+  leadResponseHours            Int                   @default(4) @map("lead_response_hours")
+  /// Reparto automático de contactos nuevos: off | round_robin | facility.
+  leadAutoAssign               String                @default("off") @map("lead_auto_assign")
   deletedAt                    DateTime?             @map("deleted_at") @db.Timestamptz(6)
   createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -585,6 +594,11 @@ model Tenant {
   delinquencyCaseFiles    DelinquencyCaseFile[]
   subscriptionAddons      TenantSubscriptionAddon[]
   winbackSends            WinbackSend[]
+  leadFollowups           LeadFollowup[]
+  leadActivities          LeadActivity[]
+  campaignLinks           CampaignLink[]
+  campaignClicks          CampaignClick[]
+  campaignTemplates       CampaignTemplate[]
   platformSepaMandates    PlatformSepaMandate[]
   platformSepaRemittanceItems PlatformSepaRemittanceItem[]
 
@@ -681,6 +695,8 @@ model User {
   customerMessages         CustomerMessage[]         @relation("CustomerMessageSender")
   whatsappMessagesSent     WhatsappMessage[]         @relation("WhatsappMessageSender")
   customerFollowups        CustomerFollowup[]        @relation("CustomerFollowupAuthor")
+  leadFollowups            LeadFollowup[]            @relation("LeadFollowupAuthor")
+  leadActivities           LeadActivity[]            @relation("LeadActivityAuthor")
   paymentPlansCreated      PaymentPlan[]             @relation("PaymentPlanAuthor")
   cashClosures             CashClosure[]             @relation("CashClosureAuthor")
   delinquencyCasesOpened   DelinquencyCase[]         @relation("DelinquencyCaseOpenedBy")
@@ -2146,11 +2162,64 @@ model Campaign {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  links  CampaignLink[]
+  clicks CampaignClick[]
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@map("campaigns")
+}
+
+/// Enlace de una campaña (para contar clics con una redirección propia).
+model CampaignLink {
+  id         String @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  campaignId String @map("campaign_id") @db.Uuid
+  url        String
+  position   Int
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  clicks   CampaignClick[]
+
+  @@unique([campaignId, position])
+  @@map("campaign_links")
+}
+
+/// Clic en un enlace de campaña (uno por destinatario y enlace).
+model CampaignClick {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  campaignId   String   @map("campaign_id") @db.Uuid
+  linkId       String   @map("link_id") @db.Uuid
+  /// "c:<customerId>" o "l:<leadId>".
+  recipientKey String   @map("recipient_key")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  link     CampaignLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@unique([linkId, recipientKey])
+  @@index([campaignId])
+  @@map("campaign_clicks")
+}
+
+/// Plantilla de campaña (asunto + mensaje reutilizables).
+model CampaignTemplate {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  subject   String
+  bodyText  String   @map("body_text")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("campaign_templates")
 }
 
 /// Win-back automático: registro de que a un ex-cliente ya se le envió la oferta
@@ -2160,11 +2229,13 @@ model WinbackSend {
   tenantId   String   @map("tenant_id") @db.Uuid
   customerId String   @map("customer_id") @db.Uuid
   sentAt     DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+  /// 1 = primer aviso, 2 = segundo aviso (con cupón).
+  step       Int      @default(1)
 
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, customerId])
+  @@unique([tenantId, customerId, step])
   @@map("winback_sends")
 }
 
@@ -2882,6 +2953,8 @@ model Lead {
   /// Recuperación de reservas abandonadas: fecha en que se envió el recordatorio
   /// de nurture al lead de booking sin convertir (idempotencia del cron).
   bookingReminderSentAt   DateTime?  @map("booking_reminder_sent_at") @db.Timestamptz(6)
+  /// Aviso de «contacto sin atender» ya enviado.
+  unattendedNotifiedAt    DateTime?  @map("unattended_notified_at") @db.Timestamptz(6)
   convertedCustomerId     String?    @map("converted_customer_id") @db.Uuid
   convertedContractId     String?    @map("converted_contract_id") @db.Uuid
   convertedReservationId  String?    @map("converted_reservation_id") @db.Uuid
@@ -2898,11 +2971,57 @@ model Lead {
   convertedReservation Reservation?    @relation("LeadConvertedReservation", fields: [convertedReservationId], references: [id], onDelete: SetNull)
   communications       Communication[]
   whatsappConversations WhatsappConversation[]
+  followups            LeadFollowup[]
+  activities           LeadActivity[]
 
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, assignedToUserId])
   @@map("leads")
+}
+
+/// Seguimiento (recordatorio con fecha) de un contacto.
+model LeadFollowup {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  leadId      String    @map("lead_id") @db.Uuid
+  userId      String?   @map("user_id") @db.Uuid
+  title       String
+  note        String?
+  dueDate     DateTime  @map("due_date") @db.Date
+  /// "pending" | "done".
+  status      String    @default("pending")
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user   User?  @relation("LeadFollowupAuthor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status, dueDate])
+  @@index([leadId])
+  @@map("lead_followups")
+}
+
+/// Actividad de un contacto: llamadas, visitas, notas.
+model LeadActivity {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  leadId     String   @map("lead_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  /// note | call | visit | meeting | whatsapp | email | other
+  type       String
+  content    String
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user   User?  @relation("LeadActivityAuthor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, occurredAt])
+  @@map("lead_activities")
 }
 
 /// Plantilla de mensaje. `kind=system` para built-ins (no editables: welcome,
@@ -4056,6 +4175,8 @@ model Review {
   userAgent      String?   @map("user_agent")
   /// El equipo la ha elegido para mostrarla en la web pública.
   publishedOnWeb Boolean   @default(false) @map("published_on_web")
+  /// Cuándo se le pidió la reseña en Google.
+  googleRequestedAt DateTime? @map("google_requested_at") @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

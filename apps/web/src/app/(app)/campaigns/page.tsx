@@ -1,10 +1,23 @@
 'use client';
 
-import { DEFAULT_WINBACK_BODY, DEFAULT_WINBACK_SUBJECT } from '@storageos/shared';
+import {
+  DEFAULT_WINBACK_BODY,
+  DEFAULT_WINBACK_SECOND_BODY,
+  DEFAULT_WINBACK_SECOND_SUBJECT,
+  DEFAULT_WINBACK_SUBJECT,
+} from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Plus, Send, Users } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+
+import {
+  CampaignResultsButton,
+  EmailPreviewButton,
+  SaveTemplateButton,
+  TemplatePicker,
+  WinbackStatsLine,
+} from './campaign-extras';
 
 import type { CampaignDto, CampaignSegmentInput } from '@storageos/shared';
 
@@ -155,10 +168,15 @@ export default function CampaignsPage() {
       header: '',
       cell: ({ row }) => {
         const c = row.original;
-        if (!canSend) return null;
         const future = !!c.scheduledFor && new Date(c.scheduledFor).getTime() > Date.now();
+        if (!canSend) {
+          return c.status === 'sent' ? <CampaignResultsButton campaignId={c.id} /> : null;
+        }
         return (
           <div className="flex flex-wrap justify-end gap-2">
+            {(c.status === 'sent' || c.status === 'scheduled') && (
+              <CampaignResultsButton campaignId={c.id} />
+            )}
             {c.status === 'draft' && (
               <Button variant="outline" size="sm" onClick={() => handleSend(c)}>
                 <Send className="mr-1 h-4 w-4" /> {future ? 'Programar' : 'Enviar'}
@@ -436,6 +454,12 @@ function CreateCampaignDialog() {
             ofertas. Cada correo lleva un enlace para darse de baja.
           </p>
 
+          <TemplatePicker
+            onPick={(t) => {
+              setSubject(t.subject);
+              setBody(t.bodyText);
+            }}
+          />
           <div className="space-y-1">
             <Label>Asunto</Label>
             <Input
@@ -452,6 +476,13 @@ function CreateCampaignDialog() {
               rows={5}
               placeholder="Escribe el mensaje. Variables: {{customer.firstName}} / {{lead.firstName}}, {{tenant.name}}"
             />
+            <p className="text-xs text-muted-foreground">
+              Los enlaces que pongas se cuentan: verás quién los pulsa en «Resultados».
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <EmailPreviewButton subject={subject} bodyText={body} audience={audience} />
+            <SaveTemplateButton subject={subject} bodyText={body} />
           </div>
 
           <label className="flex items-center gap-2 text-sm">
@@ -516,6 +547,11 @@ function WinbackCard() {
   const [delayDays, setDelayDays] = useState(90);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [secondEnabled, setSecondEnabled] = useState(false);
+  const [secondDelayDays, setSecondDelayDays] = useState(30);
+  const [secondSubject, setSecondSubject] = useState('');
+  const [secondBody, setSecondBody] = useState('');
+  const [secondCoupon, setSecondCoupon] = useState('');
   const [loaded, setLoaded] = useState(false);
 
   // Precarga una sola vez con los valores del servidor.
@@ -524,12 +560,27 @@ function WinbackCard() {
     setDelayDays(settings.data.delayDays);
     setSubject(settings.data.subject ?? '');
     setBody(settings.data.bodyText ?? '');
+    setSecondEnabled(settings.data.secondEnabled);
+    setSecondDelayDays(settings.data.secondDelayDays);
+    setSecondSubject(settings.data.secondSubject ?? '');
+    setSecondBody(settings.data.secondBodyText ?? '');
+    setSecondCoupon(settings.data.secondCouponCode ?? '');
     setLoaded(true);
   }
 
   async function save() {
     try {
-      await update.mutateAsync({ enabled, delayDays, subject, bodyText: body });
+      await update.mutateAsync({
+        enabled,
+        delayDays,
+        subject,
+        bodyText: body,
+        secondEnabled,
+        secondDelayDays,
+        secondSubject,
+        secondBodyText: secondBody,
+        secondCouponCode: secondCoupon,
+      });
       toast.success('Win-back guardado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -539,9 +590,10 @@ function WinbackCard() {
   async function runNow() {
     try {
       const res = await run.mutateAsync();
+      const total = res.sent + res.secondSent;
       toast.success(
-        res.sent > 0
-          ? `Win-back enviado a ${res.sent} ex-cliente${res.sent === 1 ? '' : 's'}.`
+        total > 0
+          ? `Win-back enviado: ${res.sent} primer${res.sent === 1 ? '' : 'os'} aviso${res.sent === 1 ? '' : 's'} y ${res.secondSent} segundo${res.secondSent === 1 ? '' : 's'}.`
           : 'No hay ex-clientes que cumplan el plazo ahora mismo.',
       );
     } catch (err) {
@@ -598,6 +650,64 @@ function WinbackCard() {
             Vacío = se usa el texto por defecto.
           </p>
         </div>
+        <div className="space-y-3 rounded-md border p-3">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={secondEnabled}
+              onCheckedChange={(v) => setSecondEnabled(v === true)}
+            />
+            Segundo aviso con un cupón a quien no haya vuelto
+          </label>
+          {secondEnabled && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-[200px_200px_1fr]">
+                <div className="space-y-1">
+                  <Label>Días tras el primero</Label>
+                  <Input
+                    type="number"
+                    min={7}
+                    max={365}
+                    value={secondDelayDays}
+                    onChange={(e) => setSecondDelayDays(e.target.valueAsNumber || 0)}
+                    className="text-base sm:text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Código del cupón</Label>
+                  <Input
+                    value={secondCoupon}
+                    onChange={(e) => setSecondCoupon(e.target.value.toUpperCase())}
+                    placeholder="VUELVE20"
+                    className="text-base sm:text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Asunto</Label>
+                  <Input
+                    value={secondSubject}
+                    onChange={(e) => setSecondSubject(e.target.value)}
+                    placeholder={DEFAULT_WINBACK_SECOND_SUBJECT}
+                    className="text-base sm:text-sm"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Mensaje</Label>
+                <Textarea
+                  value={secondBody}
+                  onChange={(e) => setSecondBody(e.target.value)}
+                  rows={5}
+                  placeholder={DEFAULT_WINBACK_SECOND_BODY}
+                />
+                <p className="text-xs text-muted-foreground">
+                  El cupón se crea en Fidelización → Cupones (no puede ser solo para clientes
+                  nuevos). <code>{'{{coupon.code}}'}</code> pone su código.
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+        <WinbackStatsLine />
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => void save()} disabled={update.isPending}>
             {update.isPending ? 'Guardando…' : 'Guardar'}

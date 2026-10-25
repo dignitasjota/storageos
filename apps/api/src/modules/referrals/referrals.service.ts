@@ -3,7 +3,9 @@ import { randomInt } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
+import { formatEur } from '../../common/format';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -49,6 +51,7 @@ export class ReferralsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
+    private readonly communications: CommunicationsService,
   ) {}
 
   private toDto(r: ReferralRow): ReferralDto {
@@ -148,9 +151,57 @@ export class ReferralsService {
       this.logger.log(
         `[referrals] convertido referral ${referral.id}${hasReward ? ' + recompensa' : ''}`,
       );
+      if (hasReward) {
+        await this.notifyReferrer(
+          payload.tenantId,
+          referral.referrerCustomerId,
+          customerId,
+          tenant.referralRewardType === 'percentage'
+            ? `un ${rewardValue} % de tu cuota`
+            : formatEur(rewardValue),
+        );
+      }
     } catch (err) {
       this.logger.error(
         `[referrals] conversión falló para customer ${customerId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /** Correo al que recomendó: su recomendado ya es cliente y se lleva la recompensa. */
+  private async notifyReferrer(
+    tenantId: string,
+    referrerId: string,
+    referredId: string,
+    reward: string,
+  ): Promise<void> {
+    try {
+      const [tenant, referrer, referred] = await Promise.all([
+        this.admin.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
+        this.admin.customer.findFirst({
+          where: { id: referrerId, tenantId, deletedAt: null },
+          select: { email: true, firstName: true, companyName: true },
+        }),
+        this.admin.customer.findFirst({
+          where: { id: referredId, tenantId },
+          select: { firstName: true, companyName: true },
+        }),
+      ]);
+      if (!referrer?.email || !tenant) return;
+      const hello = referrer.firstName ?? referrer.companyName ?? '';
+      const who = referred?.firstName ?? referred?.companyName ?? 'La persona que nos recomendaste';
+      await this.communications.enqueue({
+        tenantId,
+        channel: 'email',
+        recipient: referrer.email,
+        subject: `¡Gracias por recomendarnos! Tienes ${reward} de descuento`,
+        bodyText: `Hola${hello ? ` ${hello}` : ''},\n\n${who} ya es cliente de ${tenant.name} gracias a tu recomendación. Como agradecimiento, te descontaremos ${reward} en tu próxima factura.\n\nGracias por confiar en nosotros,\nEl equipo de ${tenant.name}`,
+        customerId: referrerId,
+        source: 'referrals.reward',
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[referrals] aviso al que recomendó falló: ${err instanceof Error ? err.message : err}`,
       );
     }
   }

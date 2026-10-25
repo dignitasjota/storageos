@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 
@@ -83,6 +89,7 @@ export class ReviewsService {
       requestedAt: r.requestedAt.toISOString(),
       submittedAt: r.submittedAt?.toISOString() ?? null,
       publishedOnWeb: r.publishedOnWeb,
+      googleRequestedAt: r.googleRequestedAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
     };
   }
@@ -390,6 +397,115 @@ export class ReviewsService {
         tx.review.update({
           where: { id },
           data: { publishedOnWeb: published },
+          include: {
+            customer: {
+              select: { firstName: true, lastName: true, companyName: true, customerType: true },
+            },
+            contract: { select: { contractNumber: true } },
+          },
+        }),
+      tenantId,
+    );
+    return this.toDto(updated);
+  }
+
+  /**
+   * Pide al autor de una valoración publicada que la deje también en Google
+   * (enlace de Google Business Profile del tenant). Una sola vez por valoración.
+   */
+  async requestGoogleReview(tenantId: string, id: string): Promise<ReviewDto> {
+    const [review, tenant] = await Promise.all([
+      this.prisma.withTenant(
+        (tx) =>
+          tx.review.findFirst({
+            where: { id, tenantId },
+            include: {
+              customer: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  companyName: true,
+                  customerType: true,
+                  email: true,
+                },
+              },
+            },
+          }),
+        tenantId,
+      ),
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, googleReviewUrl: true },
+      }),
+    ]);
+    if (!review) {
+      throw new NotFoundException({
+        code: 'review_not_found',
+        message: 'Valoración no encontrada',
+      });
+    }
+    if (!tenant?.googleReviewUrl) {
+      throw new BadRequestException({
+        code: 'google_review_url_missing',
+        message: 'Configura antes el enlace de tu ficha de Google en Valoraciones',
+      });
+    }
+    if (!review.publishedOnWeb) {
+      throw new BadRequestException({
+        code: 'review_not_published',
+        message: 'Solo se pide a las valoraciones publicadas en tu web',
+      });
+    }
+    if (!review.customer.email) {
+      throw new BadRequestException({
+        code: 'customer_without_email',
+        message: 'El inquilino no tiene email',
+      });
+    }
+    const claim = await this.prisma.withTenant(
+      (tx) =>
+        tx.review.updateMany({
+          where: { id, googleRequestedAt: null },
+          data: { googleRequestedAt: new Date() },
+        }),
+      tenantId,
+    );
+    if (claim.count === 0) {
+      throw new ConflictException({
+        code: 'google_review_already_requested',
+        message: 'Ya se le pidió la reseña en Google',
+      });
+    }
+    const first = review.customer.firstName ?? displayName(review.customer);
+    try {
+      await this.communications.enqueue({
+        tenantId,
+        channel: 'email',
+        recipient: review.customer.email,
+        subject: `¿Nos ayudas con una reseña en Google?`,
+        bodyText: `Hola ${first},
+
+Gracias por tu valoración de ${tenant.name}. Si te apetece, nos ayudaría mucho que la compartieras también en Google: solo te llevará un minuto.
+
+${tenant.googleReviewUrl}
+
+Gracias,
+El equipo de ${tenant.name}`,
+        customerId: review.customerId,
+        ...(review.contractId ? { contractId: review.contractId } : {}),
+        source: 'reviews.google',
+      });
+    } catch (err) {
+      await this.prisma.withTenant(
+        (tx) => tx.review.update({ where: { id }, data: { googleRequestedAt: null } }),
+        tenantId,
+      );
+      throw err;
+    }
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.review.findUniqueOrThrow({
+          where: { id },
           include: {
             customer: {
               select: { firstName: true, lastName: true, companyName: true, customerType: true },

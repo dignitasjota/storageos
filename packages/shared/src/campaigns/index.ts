@@ -98,6 +98,14 @@ export const UpdateWinbackSettingsSchema = z
     delayDays: z.number().int().min(1).max(730).optional(),
     subject: z.string().trim().max(200).optional().or(z.literal('')),
     bodyText: z.string().trim().max(20_000).optional().or(z.literal('')),
+    /** Segundo aviso a quien no volvió, con un cupón. */
+    secondEnabled: z.boolean().optional(),
+    /** Días tras el primer aviso. */
+    secondDelayDays: z.number().int().min(7).max(365).optional(),
+    secondSubject: z.string().trim().max(200).optional().or(z.literal('')),
+    secondBodyText: z.string().trim().max(20_000).optional().or(z.literal('')),
+    /** Código del cupón que se ofrece (debe existir en Cupones). */
+    secondCouponCode: z.string().trim().max(40).optional().or(z.literal('')),
   })
   .refine((v) => Object.values(v).some((f) => f !== undefined), {
     message: 'Debes enviar al menos un campo',
@@ -110,9 +118,89 @@ export interface WinbackSettingsResponse {
   /** null = se usa el texto por defecto (`DEFAULT_WINBACK_*`). */
   subject: string | null;
   bodyText: string | null;
+  secondEnabled: boolean;
+  secondDelayDays: number;
+  secondSubject: string | null;
+  secondBodyText: string | null;
+  secondCouponCode: string | null;
 }
 
 export interface WinbackRunResultDto {
   /** Ex-clientes a los que se les encoló la oferta en esta ejecución. */
   sent: number;
+  /** Segundos avisos encolados. */
+  secondSent: number;
+}
+
+/** Ex-clientes que recibieron el win-back y volvieron a firmar. */
+export interface WinbackStatsDto {
+  firstSent: number;
+  secondSent: number;
+  recovered: number;
+  /** % de recuperados sobre los que recibieron el primer aviso. */
+  recoveryRate: number | null;
+}
+
+export const DEFAULT_WINBACK_SECOND_SUBJECT = 'Última oportunidad: vuelve con descuento';
+export const DEFAULT_WINBACK_SECOND_BODY =
+  'Hola {{customer.firstName}},\n\nTe guardamos un descuento para que vuelvas a {{tenant.name}}. Usa el cupón {{coupon.code}} al reservar tu trastero.\n\nUn saludo,\n{{tenant.name}}';
+
+// ============================================================================
+// Resultados de una campaña
+// ============================================================================
+
+export interface CampaignLinkResultDto {
+  url: string;
+  clicks: number;
+}
+
+export interface CampaignResultsDto {
+  campaignId: string;
+  recipients: number;
+  sent: number;
+  delivered: number;
+  bounced: number;
+  failed: number;
+  skipped: number;
+  /** Destinatarios que se dieron de baja de las comunicaciones comerciales tras recibirla. */
+  unsubscribed: number;
+  /** Destinatarios distintos que pulsaron algún enlace. */
+  clickers: number;
+  /** % de destinatarios enviados que pulsaron algún enlace. */
+  clickRate: number | null;
+  links: CampaignLinkResultDto[];
+}
+
+// ============================================================================
+// Plantillas de campaña y vista previa
+// ============================================================================
+
+export const CreateCampaignTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  subject: z.string().trim().min(1).max(200),
+  bodyText: z.string().trim().min(1).max(20_000),
+});
+export type CreateCampaignTemplateInput = z.infer<typeof CreateCampaignTemplateSchema>;
+
+export const UpdateCampaignTemplateSchema = CreateCampaignTemplateSchema.partial();
+export type UpdateCampaignTemplateInput = z.infer<typeof UpdateCampaignTemplateSchema>;
+
+export interface CampaignTemplateDto {
+  id: string;
+  name: string;
+  subject: string;
+  bodyText: string;
+  updatedAt: string;
+}
+
+export const CampaignEmailPreviewSchema = z.object({
+  subject: z.string().trim().min(1).max(200),
+  bodyText: z.string().trim().min(1).max(20_000),
+  audience: z.enum(['customers', 'leads']).default('customers'),
+});
+export type CampaignEmailPreviewInput = z.infer<typeof CampaignEmailPreviewSchema>;
+
+export interface CampaignEmailPreviewDto {
+  subject: string;
+  html: string;
 }

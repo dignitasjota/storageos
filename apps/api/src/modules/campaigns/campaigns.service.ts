@@ -1,11 +1,14 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
+import { buildClickToken, clickKey, extractLinks } from '../../common/marketing/click-token';
 import { respondThenRun } from '../../common/security/respond-then-run';
 import { CommunicationsService } from '../communications/communications.service';
 import { TEMPLATE_VARIABLES_BY_TRIGGER, renderText } from '../communications/template-engine';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
+import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
 import type {
   CampaignDto,
@@ -43,7 +46,55 @@ export class CampaignsService {
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
     private readonly admin: PrismaAdminService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * Enlaces de la campaña con su id (se crean la primera vez). Cada destinatario
+   * recibe una versión con seguimiento que pasa por `/public/campaign-click`.
+   */
+  private async trackedLinks(
+    tenantId: string,
+    campaignId: string,
+    bodyText: string,
+  ): Promise<Array<{ id: string; url: string }>> {
+    const urls = extractLinks(bodyText);
+    if (urls.length === 0) return [];
+    await this.admin.campaignLink.createMany({
+      data: urls.map((url, position) => ({ tenantId, campaignId, url, position })),
+      skipDuplicates: true,
+    });
+    const rows = await this.admin.campaignLink.findMany({
+      where: { campaignId },
+      select: { id: true, url: true },
+    });
+    // Los más largos primero: así un enlace que empieza como otro no se pisa.
+    return rows.sort((a, b) => b.url.length - a.url.length);
+  }
+
+  private withTracking(
+    body: string,
+    links: Array<{ id: string; url: string }>,
+    recipient: { customerId?: string; leadId?: string },
+  ): string {
+    const kind = recipient.customerId ? 'c' : recipient.leadId ? 'l' : null;
+    const id = recipient.customerId ?? recipient.leadId;
+    if (!kind || !id || links.length === 0) return body;
+    const key = clickKey(this.config.get('MASTER_ENCRYPTION_KEY', { infer: true }));
+    const api = this.config.get('API_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    // Sustitución en un paso para no volver a tocar un enlace ya sustituido.
+    const byUrl = new Map(links.map((l) => [l.url, l.id]));
+    const pattern = new RegExp(
+      links.map((l) => l.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
+      'g',
+    );
+    return body.replace(pattern, (url) => {
+      const linkId = byUrl.get(url);
+      return linkId
+        ? `${api}/v1/public/campaign-click/${buildClickToken(key, linkId, kind, id)}`
+        : url;
+    });
+  }
 
   private toDto(c: CampaignRow): CampaignDto {
     return {
@@ -299,6 +350,7 @@ export class CampaignsService {
       ).map((c) => c.recipient.toLowerCase()),
     );
     const scheduledFor = campaign.scheduledFor ?? undefined;
+    const links = await this.trackedLinks(tenantId, id, campaign.bodyText);
     let processed = 0;
     for (const r of recipients) {
       processed += 1;
@@ -309,7 +361,14 @@ export class CampaignsService {
           channel: 'email',
           recipient: r.email,
           subject: renderText(campaign.subject, r.scope, MANUAL_WHITELIST),
-          bodyText: renderText(campaign.bodyText, r.scope, MANUAL_WHITELIST),
+          bodyText: this.withTracking(
+            renderText(campaign.bodyText, r.scope, MANUAL_WHITELIST),
+            links,
+            {
+              ...(r.customerId ? { customerId: r.customerId } : {}),
+              ...(r.leadId ? { leadId: r.leadId } : {}),
+            },
+          ),
           ...(r.customerId ? { customerId: r.customerId } : {}),
           ...(r.leadId ? { leadId: r.leadId } : {}),
           source,

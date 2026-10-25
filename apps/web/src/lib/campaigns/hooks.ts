@@ -3,6 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  CampaignEmailPreviewDto,
+  CampaignEmailPreviewInput,
+  CampaignResultsDto,
+  CampaignTemplateDto,
+  CreateCampaignTemplateInput,
+  WinbackStatsDto,
   CampaignDto,
   CampaignPreviewDto,
   CampaignSegmentInput,
@@ -88,5 +94,56 @@ export function useSendCampaign() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<CampaignDto>(`/campaigns/${id}/send`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: campaignsKey }),
+  });
+}
+
+export function useCampaignResults(id: string | null) {
+  return useQuery({
+    queryKey: [...campaignsKey, 'results', id] as const,
+    queryFn: () => apiFetch<CampaignResultsDto>(`/campaigns/${id}/results`),
+    enabled: !!id,
+  });
+}
+
+export function useWinbackStats() {
+  return useQuery({
+    queryKey: [...campaignsKey, 'winback-stats'] as const,
+    queryFn: () => apiFetch<WinbackStatsDto>('/campaigns/winback/stats'),
+  });
+}
+
+const templatesKey = [...campaignsKey, 'templates'] as const;
+
+export function useCampaignTemplates() {
+  return useQuery({
+    queryKey: templatesKey,
+    queryFn: () => apiFetch<CampaignTemplateDto[]>('/campaigns/templates'),
+  });
+}
+
+export function useCreateCampaignTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateCampaignTemplateInput) =>
+      apiFetch<CampaignTemplateDto>('/campaigns/templates', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: templatesKey }),
+  });
+}
+
+export function useDeleteCampaignTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/campaigns/templates/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: templatesKey }),
+  });
+}
+
+export function usePreviewCampaignEmail() {
+  return useMutation({
+    mutationFn: (input: CampaignEmailPreviewInput) =>
+      apiFetch<CampaignEmailPreviewDto>('/campaigns/preview-email', {
+        method: 'POST',
+        json: input,
+      }),
   });
 }

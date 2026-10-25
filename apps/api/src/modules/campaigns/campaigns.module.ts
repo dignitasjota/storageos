@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 
+import { CampaignClickPublicController } from './campaign-click-public.controller';
+import { CampaignInsightsService } from './campaign-insights.service';
 import { CampaignsResumeCron } from './campaigns-resume.cron';
 import { CampaignsController } from './campaigns.controller';
 import { CampaignsService } from './campaigns.service';
@@ -17,8 +19,14 @@ import { WinbackService } from './winback.service';
  */
 @Module({
   imports: [AuthModule],
-  controllers: [CampaignsController],
-  providers: [CampaignsService, CampaignsResumeCron, WinbackService, WinbackCron],
+  controllers: [CampaignsController, CampaignClickPublicController],
+  providers: [
+    CampaignsService,
+    CampaignInsightsService,
+    CampaignsResumeCron,
+    WinbackService,
+    WinbackCron,
+  ],
   exports: [CampaignsService, WinbackService],
 })
 export class CampaignsModule {}
