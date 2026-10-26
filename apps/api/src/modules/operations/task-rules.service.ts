@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { parseTaskAutoRules, type TaskAutoRules } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -134,7 +135,9 @@ export class TaskRulesService {
             autoRenew: true,
             endDate: true,
             unitId: true,
-            unit: { select: { code: true, facilityId: true } },
+            unit: {
+              select: { code: true, facilityId: true, facility: { select: { timezone: true } } },
+            },
             customer: {
               select: { customerType: true, firstName: true, lastName: true, companyName: true },
             },
@@ -153,8 +156,8 @@ export class TaskRulesService {
           select: { id: true },
         });
         if (exists) return;
-        const due = new Date();
-        due.setUTCHours(0, 0, 0, 0);
+        // Día de calendario del local (no el día UTC: de madrugada difieren).
+        const due = todayInTimezone(c.unit.facility.timezone);
         due.setUTCDate(due.getUTCDate() + days);
         const t = build({
           customer: customerName(c.customer),

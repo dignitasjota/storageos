@@ -22,7 +22,12 @@ const ADMIN_URL =
   process.env.DATABASE_ADMIN_URL ??
   'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
 const DAY = 86_400_000;
-const isoDay = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
+// Día de calendario en la zona del local de prueba (Europe/Madrid): entre las
+// 00:00 y las 02:00 el día UTC va por detrás y «hoy» no casaría.
+const isoDay = (offset: number) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+    new Date(Date.now() + offset * DAY),
+  );
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('Funcionalidades de la Operativa (e2e)', () => {
