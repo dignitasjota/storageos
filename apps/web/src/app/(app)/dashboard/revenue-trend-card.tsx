@@ -14,13 +14,15 @@ import {
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMonthlyRevenue } from '@/lib/analytics/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const eurShort = (n: number) =>
   n >= 1000 ? `${Math.round(n / 100) / 10}k €` : `${Math.round(n)} €`;
 
 export function RevenueTrendCard() {
-  const q = useMonthlyRevenue(12);
+  const facilityId = useHeaderFacilityId();
+  const q = useMonthlyRevenue({ months: 12, facilityId });
 
   const points = q.data?.points ?? [];
   const totalInvoiced = points.reduce((s, p) => s + p.invoiced, 0);

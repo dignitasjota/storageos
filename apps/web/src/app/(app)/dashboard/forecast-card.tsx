@@ -13,6 +13,7 @@ import {
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRevenueForecast } from '@/lib/analytics/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const eurShort = (n: number) =>
@@ -25,7 +26,8 @@ function monthLabel(ym: string): string {
 }
 
 export function ForecastCard() {
-  const q = useRevenueForecast({ months: 6 });
+  const facilityId = useHeaderFacilityId();
+  const q = useRevenueForecast({ months: 6, facilityId });
 
   const data = (q.data?.points ?? []).map((p) => ({
     label: monthLabel(p.yearMonth),

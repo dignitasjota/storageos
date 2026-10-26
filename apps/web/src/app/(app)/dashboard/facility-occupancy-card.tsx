@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useOccupancy } from '@/lib/analytics/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 function pctOf(occupied: number, total: number): number {
   return total > 0 ? Math.round((occupied / total) * 100) : 0;
@@ -17,7 +18,8 @@ function barColor(pct: number): string {
 }
 
 export function FacilityOccupancyCard() {
-  const q = useOccupancy();
+  const facilityId = useHeaderFacilityId();
+  const q = useOccupancy({ facilityId });
 
   const facilities = (q.data?.perFacility ?? [])
     .map((f) => ({ ...f, pct: pctOf(f.occupied, f.total) }))

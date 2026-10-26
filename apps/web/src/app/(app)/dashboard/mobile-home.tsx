@@ -19,6 +19,7 @@ import type { Permission, TenantFeature } from '@storageos/shared';
 
 import { useFeatures, useMe, usePermissions } from '@/lib/auth/hooks';
 import { useToday } from '@/lib/dashboard/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 type Action = {
   href: string;
@@ -98,7 +99,8 @@ export function MobileHome() {
   const me = useMe();
   const features = useFeatures();
   const permissions = usePermissions();
-  const today = useToday();
+  const facilityId = useHeaderFacilityId();
+  const today = useToday(facilityId);
   const canAccess = (a: Action) =>
     (!a.permission || permissions.includes(a.permission)) &&
     (!a.feature || features.includes(a.feature));

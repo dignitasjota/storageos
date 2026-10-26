@@ -172,12 +172,17 @@ function KpiStrip({ summary }: { summary: TodaySummaryDto | undefined }) {
         <CardContent className="space-y-2 pt-6">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-xs text-muted-foreground">Cobrado este mes</p>
-            <p className="text-xs text-muted-foreground">de {eur(k.invoicedMonth)} facturado</p>
+            <p className="text-xs text-muted-foreground">
+              Facturado este mes: {eur(k.invoicedMonth)}
+            </p>
           </div>
           <p className="text-2xl font-semibold tabular-nums">{eur(k.collectedMonth)}</p>
           <div className="h-2 overflow-hidden rounded-full bg-muted">
             <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
           </div>
+          <p className="text-xs text-muted-foreground">
+            Lo cobrado incluye facturas de meses anteriores.
+          </p>
           {k.overduePending > 0 && (
             <Link
               href="/arrears"
@@ -338,10 +343,10 @@ export default function TodayPage() {
           (data.unitsOutOfService?.count ?? 0) +
           (data.facilityDocumentsExpiring?.count ?? 0),
         sales:
+          // Los contactos sin atender ya están entre los nuevos: no se suman dos veces.
           data.newLeads.count +
           data.followupsDue.count +
           (data.leadFollowupsDue?.count ?? 0) +
-          (data.unattendedLeads?.count ?? 0) +
           data.unreadMessages +
           data.retentionOffersPending.count +
           data.marketingRenewalsDue.count,
@@ -468,7 +473,7 @@ export default function TodayPage() {
                       : '0'
                   }
                   icon={CreditCard}
-                  href="/invoices"
+                  href="/invoices?status=issued"
                   highlight={data.invoicesDueToday.count > 0}
                 />
                 <StatTile
@@ -479,7 +484,7 @@ export default function TodayPage() {
                       : '0'
                   }
                   icon={CreditCard}
-                  href="/invoices"
+                  href="/arrears"
                   highlight={data.invoicesOverdue.count > 0}
                 />
               </div>
@@ -569,7 +574,7 @@ export default function TodayPage() {
                   count={data.tasksDue.count}
                   items={data.tasksDue.items}
                   href="/tasks"
-                  itemHref={() => '/tasks'}
+                  itemHref={(it) => `/tasks?task=${it.id}`}
                   empty="Sin tareas pendientes para hoy."
                   onComplete={canTasks ? completeTask : undefined}
                   completeLabel="Completar tarea"
@@ -598,7 +603,7 @@ export default function TodayPage() {
                   count={data.reservationsExpiring.count}
                   items={data.reservationsExpiring.items}
                   href="/reservations"
-                  itemHref={() => '/reservations'}
+                  itemHref={() => '/reservations?status=pending'}
                   empty="Ninguna reserva expira en 7 días."
                 />
                 {(data.unitsOutOfService?.count ?? 0) > 0 && (
@@ -643,7 +648,7 @@ export default function TodayPage() {
                   label="Mensajes sin leer"
                   value={String(data.unreadMessages)}
                   icon={MessageSquare}
-                  href="/customers"
+                  href="/messages"
                   highlight={data.unreadMessages > 0}
                 />
               </div>
@@ -654,7 +659,7 @@ export default function TodayPage() {
                   count={data.newLeads.count}
                   items={data.newLeads.items}
                   href="/leads"
-                  itemHref={() => '/leads'}
+                  itemHref={(it) => `/leads?lead=${it.id}`}
                   empty="Ningún lead nuevo sin contactar."
                 />
                 <SectionCard

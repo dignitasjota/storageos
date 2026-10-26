@@ -5,6 +5,7 @@ import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useLeadsFunnel } from '@/lib/analytics/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
@@ -17,7 +18,8 @@ const STAGES: { key: 'total' | 'contacted' | 'qualified' | 'won'; label: string;
   ];
 
 export function LeadsCard() {
-  const q = useLeadsFunnel();
+  const facilityId = useHeaderFacilityId();
+  const q = useLeadsFunnel({ facilityId });
 
   const totals = q.data?.totals;
   const conv = q.data?.conversion;

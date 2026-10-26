@@ -10,7 +10,9 @@ export function useToday(facilityId?: string) {
   return useQuery({
     queryKey: ['dashboard', 'today', facilityId ?? null] as const,
     queryFn: () => apiFetch<TodayDto>(`/dashboard/today${qs}`),
-    refetchInterval: 60_000,
+    // Cada 5 minutos y al volver a la pestaña (no cada minuto todo el día).
+    refetchInterval: 300_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -20,6 +22,8 @@ export function useTodaySummary(facilityId?: string) {
   return useQuery({
     queryKey: ['dashboard', 'today', 'summary', facilityId ?? null] as const,
     queryFn: () => apiFetch<TodaySummaryDto>(`/dashboard/today/summary${qs}`),
-    refetchInterval: 60_000,
+    // Cada 5 minutos y al volver a la pestaña (no cada minuto todo el día).
+    refetchInterval: 300_000,
+    refetchOnWindowFocus: true,
   });
 }

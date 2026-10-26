@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 
 import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
+import { todayInTimezone } from '../../common/format';
 import { PrismaService } from '../database/prisma.service';
 
+import type { Prisma } from '@storageos/database';
 import type { TodayDto, TodayItemDto } from '@storageos/shared';
 
 /** Días en mantenimiento o bloqueado a partir de los que se avisa. */
@@ -35,22 +37,44 @@ export class TodayService {
     tenantId: string,
     facilityId?: string,
     facilityScope: string[] | null = null,
+    userId: string | null = null,
   ): Promise<TodayDto> {
     // Local elegido dentro de los del usuario (un local ajeno no devuelve nada).
     const ids = resolveFacilityFilter(facilityScope, facilityId);
     const fac = ids === null ? { in: [] as string[] } : ids ? { in: ids } : undefined;
     const facOwn = optionalFacilityWhere(facilityScope, facilityId) ?? { facilityId: { in: [] } };
     const now = new Date();
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date(now);
-    endOfToday.setHours(23, 59, 59, 999);
-    const contractsLimit = new Date(now.getTime() + SOON_DAYS * 86_400_000);
-    const reservationsLimit = new Date(now.getTime() + RESERVATION_SOON_DAYS * 86_400_000);
-    const marketingRenewalsLimit = new Date(
-      now.getTime() + MARKETING_RENEWAL_SOON_DAYS * 86_400_000,
+    const tenantRow = await this.prisma.withTenant(
+      (tx) =>
+        tx.tenant.findFirst({
+          where: { id: tenantId },
+          select: { timezone: true, leadResponseHours: true },
+        }),
+      tenantId,
     );
-    const today = { gte: startOfToday, lte: endOfToday };
+    // «Hoy» es el día de calendario del negocio, no el del servidor (UTC):
+    // de madrugada en España el día UTC va por detrás. Las columnas de fecha
+    // (@db.Date) se comparan con la medianoche UTC de ese día.
+    const startOfToday = todayInTimezone(tenantRow?.timezone ?? 'Europe/Madrid', now);
+    const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000);
+    const startOfTomorrow = addDays(startOfToday, 1);
+    const contractsLimit = addDays(startOfToday, SOON_DAYS);
+    const reservationsLimit = new Date(now.getTime() + RESERVATION_SOON_DAYS * 86_400_000);
+    const marketingRenewalsLimit = addDays(startOfToday, MARKETING_RENEWAL_SOON_DAYS);
+    const today = { gte: startOfToday, lt: startOfTomorrow };
+    // Un contrato activo con renovación automática se prorroga solo al llegar a
+    // su fecha: no se va ni hay que renovarlo a mano.
+    const leaving = { OR: [{ status: 'ending' as const }, { autoRenew: false }] };
+    // Vencida = marcada como tal o emitida con el vencimiento ya pasado (el cron
+    // las marca de madrugada; hasta entonces no salían en ningún lado).
+    const overdueInvoice = {
+      kind: 'invoice' as const,
+      deletedAt: null,
+      OR: [
+        { status: 'overdue' as const },
+        { status: 'issued' as const, dueDate: { lt: startOfToday } },
+      ],
+    };
     const customerSelect = {
       select: { customerType: true, firstName: true, lastName: true, companyName: true },
     } as const;
@@ -131,7 +155,7 @@ export class TodayService {
         tx.task.findMany({
           where: {
             status: { in: ['open', 'in_progress'] },
-            dueDate: { not: null, lte: endOfToday },
+            dueDate: { not: null, lt: startOfTomorrow },
             ...facTaskIncident,
           },
           orderBy: [{ dueDate: 'asc' }],
@@ -141,7 +165,7 @@ export class TodayService {
         tx.task.count({
           where: {
             status: { in: ['open', 'in_progress'] },
-            dueDate: { not: null, lte: endOfToday },
+            dueDate: { not: null, lt: startOfTomorrow },
             ...facTaskIncident,
           },
         }),
@@ -157,22 +181,34 @@ export class TodayService {
         }),
         // Salidas de hoy: contratos que terminan hoy.
         tx.contract.findMany({
-          where: { status: { in: ['active', 'ending'] }, endDate: today, ...facContract },
+          where: {
+            status: { in: ['active', 'ending'] },
+            endDate: today,
+            ...leaving,
+            ...facContract,
+          },
           orderBy: [{ endDate: 'asc' }],
           take: TAKE,
           include: { customer: customerSelect, unit: { select: { code: true } } },
         }),
         tx.contract.count({
-          where: { status: { in: ['active', 'ending'] }, endDate: today, ...facContract },
+          where: {
+            status: { in: ['active', 'ending'] },
+            endDate: today,
+            ...leaving,
+            ...facContract,
+          },
         }),
         // Seguimientos CRM vencidos o para hoy.
         tx.customerFollowup.findMany({
-          where: { status: 'pending', dueDate: { lte: endOfToday } },
+          where: { status: 'pending', dueDate: { lt: startOfTomorrow } },
           orderBy: [{ dueDate: 'asc' }],
           take: TAKE,
           include: { customer: customerSelect },
         }),
-        tx.customerFollowup.count({ where: { status: 'pending', dueDate: { lte: endOfToday } } }),
+        tx.customerFollowup.count({
+          where: { status: 'pending', dueDate: { lt: startOfTomorrow } },
+        }),
         // Leads nuevos sin contactar.
         tx.lead.findMany({
           where: { status: 'new', deletedAt: null },
@@ -191,6 +227,8 @@ export class TodayService {
         // Firmas pendientes: token de firma vigente sin firmar.
         tx.contract.findMany({
           where: {
+            status: 'draft',
+            deletedAt: null,
             signedAt: null,
             signingTokenHash: { not: null },
             signingTokenExpiresAt: { gte: now },
@@ -202,6 +240,8 @@ export class TodayService {
         }),
         tx.contract.count({
           where: {
+            status: 'draft',
+            deletedAt: null,
             signedAt: null,
             signingTokenHash: { not: null },
             signingTokenExpiresAt: { gte: now },
@@ -211,7 +251,8 @@ export class TodayService {
         tx.contract.findMany({
           where: {
             status: { in: ['active', 'ending'] },
-            endDate: { not: null, gte: now, lte: contractsLimit },
+            endDate: { not: null, gte: startOfToday, lte: contractsLimit },
+            ...leaving,
             ...facContract,
           },
           orderBy: [{ endDate: 'asc' }],
@@ -221,7 +262,8 @@ export class TodayService {
         tx.contract.count({
           where: {
             status: { in: ['active', 'ending'] },
-            endDate: { not: null, gte: now, lte: contractsLimit },
+            endDate: { not: null, gte: startOfToday, lte: contractsLimit },
+            ...leaving,
             ...facContract,
           },
         }),
@@ -244,15 +286,29 @@ export class TodayService {
         }),
         // Facturas que vencen hoy.
         tx.invoice.aggregate({
-          where: { status: 'issued', dueDate: today, ...facInvoice },
+          where: {
+            kind: 'invoice',
+            deletedAt: null,
+            status: 'issued',
+            dueDate: today,
+            ...facInvoice,
+          },
           _sum: { total: true, amountPaid: true },
         }),
-        tx.invoice.count({ where: { status: 'issued', dueDate: today, ...facInvoice } }),
+        tx.invoice.count({
+          where: {
+            kind: 'invoice',
+            deletedAt: null,
+            status: 'issued',
+            dueDate: today,
+            ...facInvoice,
+          },
+        }),
         tx.invoice.aggregate({
-          where: { status: 'overdue', ...facInvoice },
+          where: { ...overdueInvoice, ...facInvoice },
           _sum: { total: true, amountPaid: true },
         }),
-        tx.invoice.count({ where: { status: 'overdue', ...facInvoice } }),
+        tx.invoice.count({ where: { ...overdueInvoice, ...facInvoice } }),
         tx.incident.count({
           where: {
             status: { in: ['reported', 'investigating'] },
@@ -261,7 +317,7 @@ export class TodayService {
           },
         }),
         tx.unitChangeRequest.count({ where: { status: 'pending' } }),
-        tx.customerMessage.count({ where: { senderType: 'customer', readAt: null } }),
+        this.unreadForUser(tx, tenantId, userId),
         // Expedientes de impago con el plazo del requerimiento vencido.
         tx.delinquencyCase.findMany({
           where: {
@@ -374,14 +430,14 @@ export class TodayService {
       const contractItem = (c: {
         id: string;
         endDate: Date | null;
-        startDate?: Date;
+        startDate?: Date | undefined;
         customer: Parameters<typeof customerName>[0];
         unit: { code: string } | null;
       }): TodayItemDto => ({
         id: c.id,
         label: customerName(c.customer),
         detail: c.unit?.code ?? null,
-        date: (c.endDate ?? c.startDate ?? null)?.toISOString() ?? null,
+        date: (c.startDate ?? c.endDate ?? null)?.toISOString() ?? null,
       });
 
       const taskItems: TodayItemDto[] = tasks.map((t) => ({
@@ -412,13 +468,7 @@ export class TodayService {
         date: c.signingTokenExpiresAt ? c.signingTokenExpiresAt.toISOString() : null,
       }));
 
-      const responseHours =
-        (
-          await tx.tenant.findFirst({
-            where: { id: tenantId },
-            select: { leadResponseHours: true },
-          })
-        )?.leadResponseHours ?? 4;
+      const responseHours = tenantRow?.leadResponseHours ?? 4;
       const unattendedWhere = {
         status: 'new' as const,
         contactedAt: null,
@@ -427,13 +477,13 @@ export class TodayService {
       };
       const [leadFollowups, leadFollowupsCount, unattended, unattendedCount] = await Promise.all([
         tx.leadFollowup.findMany({
-          where: { status: 'pending', dueDate: { lte: endOfToday }, lead: { deletedAt: null } },
+          where: { status: 'pending', dueDate: { lt: startOfTomorrow }, lead: { deletedAt: null } },
           orderBy: [{ dueDate: 'asc' }],
           take: TAKE,
           include: { lead: { select: { firstName: true, lastName: true, companyName: true } } },
         }),
         tx.leadFollowup.count({
-          where: { status: 'pending', dueDate: { lte: endOfToday }, lead: { deletedAt: null } },
+          where: { status: 'pending', dueDate: { lt: startOfTomorrow }, lead: { deletedAt: null } },
         }),
         tx.lead.findMany({
           where: unattendedWhere,
@@ -543,7 +593,10 @@ export class TodayService {
           count: moveInsCount,
           items: moveIns.map((c) => contractItem({ ...c, startDate: c.startDate })),
         },
-        moveOutsToday: { count: moveOutsCount, items: moveOuts.map((c) => contractItem(c)) },
+        moveOutsToday: {
+          count: moveOutsCount,
+          items: moveOuts.map((c) => contractItem({ ...c, startDate: undefined })),
+        },
         tasksDue: { count: tasksCount, items: taskItems },
         followupsDue: { count: followupsCount, items: followupItems },
         leadFollowupsDue: {
@@ -572,7 +625,7 @@ export class TodayService {
         signaturesPending: { count: signaturesCount, items: signatureItems },
         contractsEndingSoon: {
           count: contractsCount,
-          items: contracts.map((c) => contractItem(c)),
+          items: contracts.map((c) => contractItem({ ...c, startDate: undefined })),
         },
         reservationsExpiring: {
           count: reservationsCount,
@@ -682,5 +735,30 @@ export class TodayService {
         },
       };
     }, tenantId);
+  }
+
+  /**
+   * Mensajes de inquilinos que este usuario no ha leído (leído por usuario,
+   * como la bandeja «Mensajes» y el aviso del menú). Sin usuario, ninguno.
+   */
+  private async unreadForUser(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    userId: string | null,
+  ): Promise<number> {
+    if (!userId) return 0;
+    const rows = await tx.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n
+      FROM customer_messages m
+      JOIN customers c ON c.id = m.customer_id AND c.deleted_at IS NULL
+      LEFT JOIN customer_message_reads r
+        ON r.customer_id = m.customer_id AND r.user_id = ${userId}::uuid
+      WHERE m.tenant_id = ${tenantId}::uuid
+        AND m.sender_type = 'customer'
+        AND m.created_at > COALESCE(
+          r.last_read_at,
+          (SELECT u.created_at FROM users u WHERE u.id = ${userId}::uuid)
+        )`;
+    return rows[0]?.n ?? 0;
   }
 }
