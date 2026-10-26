@@ -1,18 +1,34 @@
 'use client';
 
 import { STAFF_EMAIL_KINDS, STAFF_EMAIL_LABELS, type StaffEmailKind } from '@storageos/shared';
+import { useMutation } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { ApiError } from '@/lib/auth/api';
+import { ApiError, apiFetch } from '@/lib/auth/api';
 import { useMyEmailNotices, useUpdateMyEmailNotices } from '@/lib/email-domain/hooks';
 
 /** Qué avisos por correo recibe el usuario (cada miembro del equipo decide). */
 export function EmailNoticesForm() {
   const { data } = useMyEmailNotices();
   const update = useUpdateMyEmailNotices();
+  const sendTest = useMutation({
+    mutationFn: () =>
+      apiFetch<{ sent: boolean }>('/dashboard/today/daily-summary/test', { method: 'POST' }),
+  });
+
+  async function testSummary() {
+    try {
+      const r = await sendTest.mutateAsync();
+      if (r.sent) toast.success('Te hemos enviado el resumen de hoy.');
+      else toast.error('No se ha podido enviar (¿tu email está verificado?).');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
 
   async function toggle(kind: StaffEmailKind, on: boolean) {
     try {
@@ -47,6 +63,20 @@ export function EmailNoticesForm() {
                   ? 'Desactivado para toda la empresa en Ajustes → Correo.'
                   : STAFF_EMAIL_LABELS[kind].description}
               </span>
+              {kind === 'daily_summary' && (
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-sm"
+                  disabled={sendTest.isPending}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void testSummary();
+                  }}
+                >
+                  Enviármelo ahora para ver cómo es
+                </Button>
+              )}
             </Label>
           </div>
         );

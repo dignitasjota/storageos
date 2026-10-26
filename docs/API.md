@@ -2366,3 +2366,12 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - **PDF del contrato**: se genera solo al firmar (`contract_signed`) con el texto congelado, la firma (imagen o nombre), firmante, email, fecha y hora, canal, IP, navegador, huella y la comprobación de que la huella coincide con el texto. «Generar PDF» lo regenera; en borrador lleva el aviso de pendiente de firma.
 - Reserva online de un inquilino nuevo: además de seguir en pantalla, recibe el enlace de firma por correo (`source: booking.signing_link`).
 - 🐛 Los PDF del API (facturas, contratos, mandatos SEPA, facturas de la suscripción, requerimientos) no se generaban con Node 20: Puppeteer se carga ahora con `loadPuppeteer()` (`common/puppeteer.ts`).
+
+### «Hoy» y Resumen (2026-10-26)
+
+- `GET /dashboard/today` usa el día de calendario del tenant; `unreadMessages` es por usuario; `signaturesPending` solo borradores; `contractsEndingSoon` y `moveOutsToday` sin los activos con renovación automática; `invoicesOverdue` incluye las emitidas con el vencimiento pasado.
+- `GET /dashboard/today?mine=1`: tareas e incidencias asignadas al usuario, contactos asignados a él y seguimientos que creó.
+- `invoicesDueToday.items` e `invoicesOverdue.items` (hasta 8): `TodayItemDto` con `amount` (pendiente) y `chargeable` (tiene tarjeta o domiciliación guardada).
+- `GET /dashboard/today/summary`: `kpis.previous` (facturado, cobrado, altas y bajas del mes anterior hasta el mismo día), `kpis.targetOccupancyPct` (estrategia de precios) y `kpis.unitsToTarget`.
+- `POST /dashboard/today/daily-summary/test` (`contracts:read`) → `{ sent }`: envía ahora el resumen del día al usuario.
+- Aviso por correo nuevo `daily_summary` en `/me/email-notices` y `/settings/tenant/staff-emails` (por usuario, apagado por defecto).

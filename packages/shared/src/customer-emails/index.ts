@@ -84,6 +84,7 @@ export const STAFF_EMAIL_KINDS = [
   'move_out_requested',
   'portal_incident',
   'customer_message',
+  'daily_summary',
 ] as const;
 export type StaffEmailKind = (typeof STAFF_EMAIL_KINDS)[number];
 
@@ -109,6 +110,11 @@ export const STAFF_EMAIL_LABELS: Record<StaffEmailKind, { label: string; descrip
     description:
       'Un inquilino escribe en «Mensajes» (portal, WhatsApp o email). Uno por inquilino mientras no se lea.',
   },
+  daily_summary: {
+    label: 'Resumen del día',
+    description:
+      'A las 8:00, lo que toca hoy: entradas, salidas, cobros, firmas y tareas. Solo si hay algo. Lo activa cada usuario.',
+  },
 };
 
 export type StaffEmailSettingsDto = Record<StaffEmailKind, boolean>;
@@ -128,15 +134,19 @@ export type UpdateStaffEmailSettingsInput = z.infer<typeof UpdateStaffEmailSetti
  * avisos y el resto ninguno; cada uno puede cambiarlo en su perfil. Solo se
  * envían los tipos que la empresa tiene activados.
  */
-export function defaultStaffNoticeForRole(role: string): boolean {
+export function defaultStaffNoticeForRole(role: string, kind?: StaffEmailKind): boolean {
+  // El resumen del día lo activa cada uno: un correo diario que no se ha pedido molesta.
+  if (kind === 'daily_summary') return false;
   return role === 'owner' || role === 'manager';
 }
 
 export function resolveUserEmailNotices(raw: unknown, role: string): StaffEmailSettingsDto {
   const stored = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const fallback = defaultStaffNoticeForRole(role);
   return Object.fromEntries(
-    STAFF_EMAIL_KINDS.map((k) => [k, typeof stored[k] === 'boolean' ? stored[k] : fallback]),
+    STAFF_EMAIL_KINDS.map((k) => [
+      k,
+      typeof stored[k] === 'boolean' ? stored[k] : defaultStaffNoticeForRole(role, k),
+    ]),
   ) as StaffEmailSettingsDto;
 }
 

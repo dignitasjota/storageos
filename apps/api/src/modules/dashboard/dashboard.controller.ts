@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 
 import {
   type AuthenticatedUser,
@@ -6,6 +6,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { DailySummaryService } from './daily-summary.service';
 import { OnboardingService } from './onboarding.service';
 import { TodaySummaryService } from './today-summary.service';
 import { TodayService } from './today.service';
@@ -21,13 +22,24 @@ export class DashboardController {
     private readonly today: TodayService,
     private readonly onboarding: OnboardingService,
     private readonly summary: TodaySummaryService,
+    private readonly dailySummary: DailySummaryService,
   ) {}
+
+  /** Envía ahora el resumen del día al usuario que lo pide (prueba desde el perfil). */
+  @RequirePermission('contracts:read')
+  @Post('today/daily-summary/test')
+  @HttpCode(200)
+  async sendDailySummaryTest(@CurrentUser() user: AuthenticatedUser): Promise<{ sent: boolean }> {
+    const n = await this.dailySummary.sendForTenant(user.tenantId, user.sub);
+    return { sent: n > 0 };
+  }
 
   @RequirePermission('contracts:read')
   @Get('today')
   async getToday(
     @CurrentUser() user: AuthenticatedUser,
     @Query('facilityId') facilityId?: string,
+    @Query('mine') mine?: string,
   ): Promise<TodayDto> {
     if (facilityId && !UUID_RE.test(facilityId)) {
       throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
@@ -37,6 +49,7 @@ export class DashboardController {
       facilityId || undefined,
       user.facilityScope ?? null,
       user.sub,
+      mine === '1' || mine === 'true',
     );
   }
 

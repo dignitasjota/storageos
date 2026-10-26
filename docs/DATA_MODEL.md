@@ -823,6 +823,7 @@ Variable de entorno booleana (default `true`).
 - `competitor_units.external_ref`.
 - **`competitor_unit_observations`** (RLS): cada comprobación de un trastero de la competencia (precio y estado). Alimenta el histórico, la tendencia del mercado y el ritmo de alquiler.
 - **`unit_price_history`** (RLS): cambios de precio de mis trasteros (`source` manual/suggestion). Alimenta la espera mínima entre cambios y el efecto de los cambios.
+- `tenants.daily_summary_last_date` (DATE): último día, en la hora del tenant, en que salió el resumen del día por correo.
 - `tenants.pricing_target_occupancy` (88), `pricing_max_step_pct` (8), `pricing_min_days_between_changes` (30); `facilities.pricing_positioning_pct` y `facilities.features` (text[]); `unit_types.min_price_monthly`/`max_price_monthly`.
 - `leads.lost_reason_code` (too_expensive, found_other, not_needed, no_availability, location, no_response, other).
 
