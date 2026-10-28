@@ -37,7 +37,16 @@ export async function TenantSiteChrome({
 }) {
   const landing = await getLanding(slug).catch(() => null);
   if (landing) {
-    const props = { data: landing, locale, children };
+    // El selector de idioma de la cabecera lleva a esta misma página en el
+    // otro idioma, no a la portada.
+    const otherLocale: PublicWebLocale = locale === 'es' ? 'en' : 'es';
+    const otherLocaleHref = languageHrefBuilder?.(otherLocale);
+    const props = {
+      data: landing,
+      locale,
+      children,
+      ...(otherLocaleHref ? { otherLocaleHref } : {}),
+    };
     switch (landing.webTemplate) {
       case 'cabe':
         return <CabeTemplate {...props} />;
