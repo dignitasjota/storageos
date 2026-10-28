@@ -190,9 +190,7 @@ export default function SaasBillingPage() {
               />
               <Row
                 label="Periodo actual"
-                value={`${new Date(sub.currentPeriodStart).toLocaleDateString(
-                  'es-ES',
-                )} → ${formatDate(sub.currentPeriodEnd)}`}
+                value={`${formatDate(sub.currentPeriodStart)} → ${formatDate(sub.currentPeriodEnd)}`}
               />
             </>
           )}

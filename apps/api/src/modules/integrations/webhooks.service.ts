@@ -276,6 +276,8 @@ export class WebhooksService {
     tenantId: string,
     eventType: WebhookEventType,
     payload: Record<string, unknown>,
+    /** No enviar a los que también están suscritos a este (alias antiguos). */
+    opts: { exceptEvent?: WebhookEventType } = {},
   ): Promise<void> {
     try {
       // Usamos admin: el dispatcher se invoca desde listeners de eventos
@@ -286,6 +288,7 @@ export class WebhooksService {
           isActive: true,
           revokedAt: null,
           events: { has: eventType },
+          ...(opts.exceptEvent ? { NOT: { events: { has: opts.exceptEvent } } } : {}),
         },
       });
       if (hooks.length === 0) return;

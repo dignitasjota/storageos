@@ -774,13 +774,14 @@ portal mínimo para que el inquilino consulte sus facturas.
 
 ### Endpoints — Dunning + RGPD
 
-| Metodo | Ruta                            | Auth | Roles          | Descripcion                                   |
-| ------ | ------------------------------- | ---- | -------------- | --------------------------------------------- |
-| GET    | `/dunning`                      | SI   | cualquiera     | Lista acciones programadas/ejecutadas         |
-| GET    | `/rgpd/requests`                | SI   | owner, manager | Lista solicitudes de derechos RGPD            |
-| POST   | `/rgpd/requests`                | SI   | owner, manager | Crea solicitud (SLA 30 dias auto)             |
-| GET    | `/rgpd/customers/:id/export`    | SI   | owner, manager | Exporta JSON con todos los datos del customer |
-| POST   | `/rgpd/customers/:id/anonymize` | SI   | owner, manager | Anonimiza preservando invoices                |
+| Metodo | Ruta                            | Auth | Roles          | Descripcion                                                                      |
+| ------ | ------------------------------- | ---- | -------------- | -------------------------------------------------------------------------------- |
+| GET    | `/dunning`                      | SI   | cualquiera     | Lista acciones programadas/ejecutadas                                            |
+| GET    | `/rgpd/requests`                | SI   | owner, manager | Lista solicitudes de derechos RGPD                                               |
+| POST   | `/rgpd/requests`                | SI   | owner, manager | Crea solicitud (SLA 30 dias auto)                                                |
+| PATCH  | `/rgpd/requests/:id`            | SI   | owner          | `{status, notes?}`: en curso, atendida o denegada (fija `fulfilledAt` al cerrar) |
+| GET    | `/rgpd/customers/:id/export`    | SI   | owner, manager | Exporta JSON con todos los datos del customer                                    |
+| POST   | `/rgpd/customers/:id/anonymize` | SI   | owner, manager | Anonimiza preservando invoices                                                   |
 
 ### Endpoints — Portal del cliente
 
@@ -1650,7 +1651,7 @@ firmadas a sistemas externos.
   aplicado a `/integrations/*`.
 - **Webhooks** (tabla `webhooks`, RLS por tenant): `url`, `events` (array
   de strings dentro de la whitelist), `secret` cifrado AES-256-GCM con
-  `CryptoService`, `is_active`. Eventos permitidos: `invoice.created`,
+  `CryptoService`, `is_active`. Eventos permitidos: `invoice.issued` (al emitir; los suscritos al antiguo `invoice.created` lo siguen recibiendo con ese nombre),
   `invoice.paid`, `invoice.overdue`, `contract.signed`, `lead.created`.
 - **HMAC**: cada delivery firma `${ts}.${body}` con HMAC-SHA-256. Header
   `X-Storageos-Signature: t=<unix_ts>,v1=<hmacSha256Hex>`. Headers extra:
@@ -2375,3 +2376,11 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `GET /dashboard/today/summary`: `kpis.previous` (facturado, cobrado, altas y bajas del mes anterior hasta el mismo día), `kpis.targetOccupancyPct` (estrategia de precios) y `kpis.unitsToTarget`.
 - `POST /dashboard/today/daily-summary/test` (`contracts:read`) → `{ sent }`: envía ahora el resumen del día al usuario.
 - Aviso por correo nuevo `daily_summary` en `/me/email-notices` y `/settings/tenant/staff-emails` (por usuario, apagado por defecto).
+
+### Revisión de Configuración (2026-10-28)
+
+- `GET/PATCH /settings/tenant/profile` (`settings:read` / `settings:manage`, auditado `tenant.profile_changed`): `{name, timezone}` del negocio; zona IANA no válida → 400.
+- Invitaciones: las caducadas ya no cuentan en el límite de usuarios ni bloquean volver a invitar (la caducada queda revocada con motivo `expired`).
+- Propietario: `PATCH /settings/users/:id/tenant-role` y `…/facilities` sobre el propietario → 400 `owner_full_access`; el propietario resuelve siempre todos los permisos y todos los locales, y al transferir la propiedad el nuevo propietario pierde su rol a medida y sus locales.
+- `PATCH /invoice-series/:id`: 409 `series_in_use` al cambiar prefijo o numeración de una serie con facturas emitidas, 409 `default_series_required` al desactivar o quitar la serie por defecto, 409 `inactive_series_not_default` al marcar por defecto una desactivada.
+- Webhooks: el evento de factura emitida se llama `invoice.issued`; los webhooks suscritos al antiguo `invoice.created` lo siguen recibiendo con ese nombre (no se duplica si están suscritos a los dos).

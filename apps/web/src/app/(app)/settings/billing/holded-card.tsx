@@ -29,6 +29,7 @@ import {
   useUpdateHoldedSettings,
 } from '@/lib/accounting/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { formatDateTime } from '@/lib/format';
 
 const NONE = '__none__';
 
@@ -260,7 +261,7 @@ export function HoldedCard() {
 
         {data?.lastSyncAt && (
           <p className="text-xs text-muted-foreground">
-            Último envío: {new Date(data.lastSyncAt).toLocaleString('es-ES')}
+            Último envío: {formatDateTime(data.lastSyncAt)}
           </p>
         )}
         {data?.lastError && (
@@ -358,7 +359,7 @@ function HoldedReviewList() {
                     item.invoiceNumber ?? '—'
                   }`}
             </span>{' '}
-            · {eur(item.amount)} · {new Date(item.date).toLocaleString('es-ES')}
+            · {eur(item.amount)} · {formatDateTime(item.date)}
           </p>
           <p className="text-xs text-muted-foreground">{REVIEW_TEXT[item.kind]}</p>
           <div className="flex flex-wrap items-center gap-2">

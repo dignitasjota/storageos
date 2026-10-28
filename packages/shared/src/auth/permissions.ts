@@ -157,3 +157,59 @@ export function roleHasPermission(role: UserRole, permission: Permission): boole
 export function roleHasAllPermissions(role: UserRole, permissions: Permission[]): boolean {
   return permissions.every((p) => roleHasPermission(role, p));
 }
+
+/** Nombre de cada recurso para la pantalla de roles. */
+export const PERMISSION_RESOURCE_LABELS: Record<string, string> = {
+  customers: 'Inquilinos',
+  contracts: 'Contratos',
+  reservations: 'Reservas',
+  units: 'Trasteros',
+  facilities: 'Locales',
+  invoices: 'Facturas',
+  payments: 'Cobros',
+  leads: 'Contactos',
+  communications: 'Comunicaciones',
+  templates: 'Plantillas',
+  automations: 'Automatizaciones',
+  tasks: 'Tareas',
+  incidents: 'Incidencias',
+  products: 'Productos',
+  imports: 'Importaciones',
+  reviews: 'Valoraciones',
+  promotions: 'Promociones y cupones',
+  insurance: 'Seguros',
+  collections: 'Impagos',
+  expenses: 'Gastos',
+  marketing: 'Marketing',
+  referrals: 'Referidos',
+  access: 'Accesos',
+  analytics: 'Analítica',
+  reports: 'Informes',
+  ai: 'Asistente IA',
+  notifications: 'Notificaciones',
+  users: 'Usuarios',
+  settings: 'Configuración',
+  billing: 'Facturación y cobros (ajustes)',
+  integrations: 'Integraciones',
+  rgpd: 'Protección de datos',
+};
+
+/** Qué permite cada acción. */
+export const PERMISSION_ACTION_LABELS: Record<string, string> = {
+  read: 'Ver',
+  write: 'Crear y editar',
+  manage: 'Gestionar (borrar y configurar)',
+  delete: 'Borrar',
+  refund: 'Devolver dinero',
+  charge: 'Cobrar',
+  send: 'Enviar',
+  run: 'Generar',
+  use: 'Usar',
+  configure: 'Configurar',
+};
+
+/** «Facturas · Ver» para un permiso como `invoices:read`. */
+export function permissionLabel(p: string): string {
+  const [resource = p, action = ''] = p.split(':');
+  return `${PERMISSION_RESOURCE_LABELS[resource] ?? resource} · ${PERMISSION_ACTION_LABELS[action] ?? action}`;
+}

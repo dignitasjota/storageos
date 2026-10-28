@@ -15,3 +15,4 @@ export interface AuditLogListDto {
   /** Cursor para la siguiente página; null si no hay más. */
   nextCursor: string | null;
 }
+export * from './labels';

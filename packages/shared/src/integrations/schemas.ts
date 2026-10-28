@@ -10,6 +10,8 @@ import { z } from 'zod';
  * `DOMAIN_EVENTS`).
  */
 export const WebhookEventTypes = [
+  'invoice.issued',
+  /** Antiguo nombre de `invoice.issued` (se envía al emitir, no al crear el borrador). */
   'invoice.created',
   'invoice.paid',
   'invoice.overdue',
@@ -17,6 +19,19 @@ export const WebhookEventTypes = [
   'lead.created',
 ] as const;
 export type WebhookEventType = (typeof WebhookEventTypes)[number];
+
+/** Los que se ofrecen al crear un webhook (sin el nombre antiguo). */
+export const OFFERED_WEBHOOK_EVENTS = WebhookEventTypes.filter((e) => e !== 'invoice.created');
+
+/** Qué significa cada evento, para la pantalla de integraciones. */
+export const WEBHOOK_EVENT_LABELS: Record<WebhookEventType, string> = {
+  'invoice.issued': 'Factura emitida',
+  'invoice.created': 'Factura emitida (nombre antiguo)',
+  'invoice.paid': 'Factura cobrada',
+  'invoice.overdue': 'Factura vencida',
+  'contract.signed': 'Contrato firmado',
+  'lead.created': 'Contacto nuevo',
+};
 
 export const WebhookEventTypeEnum = z.enum(WebhookEventTypes);
 

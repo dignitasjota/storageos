@@ -59,7 +59,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         href: '/settings/company',
         label: 'Datos de tu empresa',
         description:
-          'Razón social, NIF y domicilio fiscal: salen en tus facturas y textos legales.',
+          'Nombre comercial, zona horaria, y razón social, NIF y domicilio fiscal de tus facturas.',
         permission: 'billing:configure',
       },
       {
@@ -84,6 +84,13 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         label: 'Registro de actividad',
         description: 'Quién hizo qué y cuándo en tu cuenta.',
         permission: 'settings:manage',
+      },
+      {
+        href: '/settings/rgpd',
+        label: 'Protección de datos',
+        description:
+          'Peticiones de tus inquilinos sobre sus datos: acceso, portabilidad o borrado.',
+        permission: 'rgpd:manage',
       },
       {
         href: '/settings/data-export',

@@ -237,7 +237,7 @@ export class AdminSupportService {
       const [activeUsers, pendingInvites] = await Promise.all([
         this.admin.user.count({ where: { tenantId, isActive: true } }),
         this.admin.invitation.count({
-          where: { tenantId, acceptedAt: null, revokedAt: null },
+          where: { tenantId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
         }),
       ]);
       await this.limits.assertCanCreate(tenantId, 'users', activeUsers + pendingInvites);

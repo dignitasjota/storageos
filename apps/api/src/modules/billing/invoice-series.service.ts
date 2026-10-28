@@ -104,6 +104,35 @@ export class InvoiceSeriesService {
         message: 'La serie de rectificativas no puede ser la serie por defecto',
       });
     }
+    if (existing.isDefault && (args.input.isDefault === false || args.input.isActive === false)) {
+      throw new ConflictException({
+        code: 'default_series_required',
+        message: 'Marca antes otra serie como la de por defecto',
+      });
+    }
+    if (args.input.isDefault === true && !(args.input.isActive ?? existing.isActive)) {
+      throw new ConflictException({
+        code: 'inactive_series_not_default',
+        message: 'Una serie desactivada no puede ser la de por defecto',
+      });
+    }
+    const changesNumbering =
+      (args.input.prefix !== undefined &&
+        args.input.prefix.trim().toUpperCase() !== existing.prefix) ||
+      (args.input.yearScope !== undefined && args.input.yearScope !== existing.yearScope);
+    if (changesNumbering) {
+      const issued = await this.prisma.withTenant(
+        (tx) => tx.invoice.count({ where: { seriesId: args.seriesId, sequenceNumber: { gt: 0 } } }),
+        args.tenantId,
+      );
+      if (issued > 0) {
+        throw new ConflictException({
+          code: 'series_in_use',
+          message:
+            'La serie ya tiene facturas emitidas: no se puede cambiar su prefijo ni su numeración. Crea una serie nueva.',
+        });
+      }
+    }
     const updated = await this.prisma.withTenant(async (tx) => {
       if (args.input.isDefault === true && !existing.isDefault) {
         await tx.invoiceSeries.updateMany({

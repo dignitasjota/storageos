@@ -37,10 +37,12 @@ export default function BrandingSettingsPage() {
     }
   }, [branding.data]);
 
+  const colorValid = /^#[0-9a-fA-F]{6}$/.test(color.trim());
+
   async function saveBranding() {
     try {
       await update.mutateAsync({
-        portalBrandColor: color,
+        portalBrandColor: color.trim(),
         portalLogoUrl: logoUrl,
         webHeaderBranded: headerBranded,
       });
@@ -112,8 +114,14 @@ export default function BrandingSettingsPage() {
                 onChange={(e) => setColor(e.target.value)}
                 className="w-32 font-mono"
                 placeholder="#2563eb"
+                aria-invalid={!colorValid}
               />
             </div>
+            {!colorValid && (
+              <p className="text-xs text-destructive">
+                Escribe el color en formato #RRGGBB (por ejemplo #2563eb).
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -163,7 +171,7 @@ export default function BrandingSettingsPage() {
             color={color}
           />
 
-          <Button onClick={saveBranding} disabled={update.isPending}>
+          <Button onClick={saveBranding} disabled={update.isPending || !colorValid}>
             {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             Guardar
           </Button>

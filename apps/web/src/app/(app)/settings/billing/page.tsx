@@ -38,7 +38,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useCreateInvoiceSeries, useInvoiceSeries } from '@/lib/billing/hooks';
+import {
+  useCreateInvoiceSeries,
+  useInvoiceSeries,
+  useUpdateInvoiceSeries,
+} from '@/lib/billing/hooks';
 import {
   useTenantBillingSettings,
   useUpdateTenantBillingSettings,
@@ -47,7 +51,10 @@ import {
 export default function BillingSettingsPage() {
   const series = useInvoiceSeries();
   const create = useCreateInvoiceSeries();
+  const updateSeries = useUpdateInvoiceSeries();
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState<InvoiceSeriesDto | null>(null);
+  const [newName, setNewName] = useState('');
 
   const form = useForm<CreateInvoiceSeriesInput>({
     resolver: zodResolver(CreateInvoiceSeriesSchema),
@@ -59,6 +66,19 @@ export default function BillingSettingsPage() {
       isDefault: true,
     },
   });
+
+  async function patchSeries(
+    row: InvoiceSeriesDto,
+    input: Parameters<typeof updateSeries.mutateAsync>[0]['input'],
+    ok: string,
+  ) {
+    try {
+      await updateSeries.mutateAsync({ id: row.id, input });
+      toast.success(ok);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
 
   async function onSubmit(values: CreateInvoiceSeriesInput) {
     try {
@@ -123,6 +143,53 @@ export default function BillingSettingsPage() {
         </Badge>
       ),
     },
+    {
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
+          <div className="flex flex-wrap justify-end gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setRenaming(r);
+                setNewName(r.name);
+              }}
+            >
+              Renombrar
+            </Button>
+            {!r.isDefault && !r.isRectification && r.isActive && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  void patchSeries(r, { isDefault: true }, 'Serie por defecto cambiada.')
+                }
+              >
+                Usar por defecto
+              </Button>
+            )}
+            {!r.isDefault && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  void patchSeries(
+                    r,
+                    { isActive: !r.isActive },
+                    r.isActive ? 'Serie desactivada.' : 'Serie activada.',
+                  )
+                }
+              >
+                {r.isActive ? 'Desactivar' : 'Activar'}
+              </Button>
+            )}
+          </div>
+        );
+      },
+    },
   ];
 
   return (
@@ -146,7 +213,22 @@ export default function BillingSettingsPage() {
         data={series.data ?? []}
         isLoading={series.isLoading}
         toolbarRight={
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog
+            open={open}
+            onOpenChange={(o) => {
+              if (o) {
+                form.reset({
+                  code: (series.data?.length ?? 0) === 0 ? 'A' : '',
+                  name: (series.data?.length ?? 0) === 0 ? 'Serie principal' : '',
+                  prefix: (series.data?.length ?? 0) === 0 ? 'FA' : '',
+                  yearScope: true,
+                  // Marcarla por defecto cambia la serie en la que se emite todo.
+                  isDefault: !(series.data ?? []).some((s) => s.isDefault),
+                });
+              }
+              setOpen(o);
+            }}
+          >
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-1 h-4 w-4" /> Nueva serie
@@ -244,6 +326,34 @@ export default function BillingSettingsPage() {
         }
         emptyText="Aún no has creado ninguna serie. Crea al menos una antes de emitir facturas."
       />
+      <p className="text-xs text-muted-foreground">
+        Una serie con facturas emitidas no puede cambiar su prefijo ni su numeración: para empezar
+        otra, crea una serie nueva y márcala por defecto.
+      </p>
+
+      <Dialog open={!!renaming} onOpenChange={(o) => !o && setRenaming(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Renombrar serie {renaming?.code}</DialogTitle>
+          </DialogHeader>
+          <Input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={100} />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenaming(null)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={!newName.trim() || updateSeries.isPending}
+              onClick={async () => {
+                if (!renaming) return;
+                await patchSeries(renaming, { name: newName.trim() }, 'Serie renombrada.');
+                setRenaming(null);
+              }}
+            >
+              Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

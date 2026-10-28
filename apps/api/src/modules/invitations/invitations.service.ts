@@ -96,14 +96,25 @@ export class InvitationsService {
       const [activeUsers, pendingInvites] = await Promise.all([
         tx.user.count({ where: { tenantId: args.tenantId, isActive: true } }),
         tx.invitation.count({
-          where: { tenantId: args.tenantId, acceptedAt: null, revokedAt: null },
+          where: {
+            tenantId: args.tenantId,
+            acceptedAt: null,
+            revokedAt: null,
+            expiresAt: { gt: new Date() },
+          },
         }),
       ]);
       await this.limits.assertCanCreate(args.tenantId, 'users', activeUsers + pendingInvites);
 
       // Si ya hay una invitacion pendiente para ese email: 409.
       const pending = await tx.invitation.findFirst({
-        where: { tenantId: args.tenantId, email, acceptedAt: null, revokedAt: null },
+        where: {
+          tenantId: args.tenantId,
+          email,
+          acceptedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: new Date() },
+        },
       });
       if (pending) {
         throw new ConflictException({
@@ -111,6 +122,12 @@ export class InvitationsService {
           code: 'invitation_pending',
         });
       }
+      // Una caducada sin revocar sigue ocupando el índice único de pendientes
+      // (tenant, email): se cierra para poder crear la nueva.
+      await tx.invitation.updateMany({
+        where: { tenantId: args.tenantId, email, acceptedAt: null, revokedAt: null },
+        data: { revokedAt: new Date(), revokedReason: 'expired' },
+      });
 
       return tx.invitation.create({
         data: {

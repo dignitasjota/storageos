@@ -154,6 +154,13 @@ export interface TenantSecuritySettingsResponse {
   requireTwoFactorForManagers: boolean;
 }
 
+/** GET/PATCH /settings/tenant/profile. */
+export interface TenantProfileResponse {
+  name: string;
+  slug: string;
+  timezone: string;
+}
+
 /**
  * Ajustes de facturacion del tenant gestionables por el owner desde
  * `/settings/billing`.

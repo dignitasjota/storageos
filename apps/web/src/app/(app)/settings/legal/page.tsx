@@ -43,8 +43,8 @@ export default function WebLegalPage() {
       {data.missing.length > 0 && (
         <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
           Al aviso legal le faltan datos del titular: {data.missing.join(', ')}. Complétalos en{' '}
-          <Link href="/settings/saas-billing" className="font-medium underline">
-            Suscripción → Datos de facturación
+          <Link href="/settings/company" className="font-medium underline">
+            Datos de tu empresa
           </Link>
           .
         </p>

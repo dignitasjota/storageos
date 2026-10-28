@@ -578,7 +578,9 @@ export class SaasAddonsService {
       this.admin.unit.count({ where: { tenantId } }),
       this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
       this.admin.user.count({ where: { tenantId, isActive: true } }),
-      this.admin.invitation.count({ where: { tenantId, acceptedAt: null, revokedAt: null } }),
+      this.admin.invitation.count({
+        where: { tenantId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+      }),
     ]);
     const usage = { units, facilities, users: activeUsers + pendingInvites };
     const labels = { units: 'trasteros', facilities: 'locales', users: 'usuarios' } as const;

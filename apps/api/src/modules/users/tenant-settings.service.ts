@@ -43,7 +43,9 @@ import type {
   UpdateContractTemplateInput,
   TenantReferralSettingsResponse,
   TenantReviewsSettingsResponse,
+  TenantProfileResponse,
   TenantSecuritySettingsResponse,
+  UpdateTenantProfileInput,
   UpdateTenantAccessSettingsInput,
   UpdateTenantBillingSettingsInput,
   UpdateTenantBrandingInput,
@@ -85,6 +87,56 @@ export class TenantSettingsService {
     } catch (err) {
       this.logger.warn(`Revalidación de la web del tenant ${slug} falló: ${String(err)}`);
     }
+  }
+
+  async getProfile(tenantId: string): Promise<TenantProfileResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    return { name: tenant.name, slug: tenant.slug, timezone: tenant.timezone };
+  }
+
+  /** Nombre comercial y zona horaria del negocio (los edita el propio tenant). */
+  async updateProfile(args: {
+    tenantId: string;
+    actorUserId: string;
+    input: UpdateTenantProfileInput;
+    meta: RequestMeta;
+  }): Promise<TenantProfileResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: args.tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    const changes: Record<string, { from: string; to: string }> = {};
+    if (args.input.name !== undefined && args.input.name !== tenant.name) {
+      changes.name = { from: tenant.name, to: args.input.name };
+    }
+    if (args.input.timezone !== undefined && args.input.timezone !== tenant.timezone) {
+      changes.timezone = { from: tenant.timezone, to: args.input.timezone };
+    }
+    if (Object.keys(changes).length === 0) {
+      return { name: tenant.name, slug: tenant.slug, timezone: tenant.timezone };
+    }
+    const updated = await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: {
+        ...(changes.name ? { name: changes.name.to } : {}),
+        ...(changes.timezone ? { timezone: changes.timezone.to } : {}),
+      },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: 'tenant.profile_changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    if (changes.name) void this.revalidateLanding(updated.slug);
+    return { name: updated.name, slug: updated.slug, timezone: updated.timezone };
   }
 
   async getSecurity(tenantId: string): Promise<TenantSecuritySettingsResponse> {

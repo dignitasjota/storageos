@@ -1,6 +1,7 @@
 'use client';
 
 import { CheckCircle2, Clock, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -12,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useTenantBranding, useUpdateTenantBranding } from '@/lib/branding/hooks';
+import { useCreateSupportTicket } from '@/lib/support/hooks';
 
 /** Dominio propio de la web pública (feature `custom_domain`). */
 export default function DomainSettingsPage() {
@@ -35,6 +37,23 @@ function DomainCard() {
   const branding = useTenantBranding();
   const update = useUpdateTenantBranding();
   const [domain, setDomain] = useState('');
+  const ticket = useCreateSupportTicket();
+  const [notified, setNotified] = useState(false);
+
+  async function notifyDnsReady(d: string) {
+    try {
+      await ticket.mutateAsync({
+        subject: `Activar dominio propio ${d}`,
+        body: `He apuntado ${d} a la plataforma en mi proveedor de dominios. Por favor, activadlo y emitid el certificado HTTPS.`,
+        priority: 'normal',
+        category: 'custom_domain',
+      });
+      setNotified(true);
+      toast.success('Aviso enviado. Te responderemos en Soporte cuando esté activo.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar el aviso.');
+    }
+  }
 
   useEffect(() => {
     if (branding.data) setDomain(branding.data.customDomain ?? '');
@@ -109,9 +128,21 @@ function DomainCard() {
                 </span>
                 <p className="text-xs text-muted-foreground">
                   Crea en tu proveedor de dominios un registro <strong>A</strong> (o CNAME) que
-                  apunte <code>{savedDomain}</code> a la plataforma y avísanos: lo activaremos y
-                  emitiremos el certificado HTTPS. Te confirmaremos cuando esté listo.
+                  apunte <code>{savedDomain}</code> a la plataforma y pulsa «Ya he configurado el
+                  DNS»: lo activaremos y emitiremos el certificado HTTPS. Te responderemos en{' '}
+                  <Link href="/support" className="underline">
+                    Soporte
+                  </Link>{' '}
+                  cuando esté listo.
                 </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={ticket.isPending || notified}
+                  onClick={() => void notifyDnsReady(savedDomain)}
+                >
+                  {notified ? 'Aviso enviado' : 'Ya he configurado el DNS'}
+                </Button>
               </div>
             )}
           </div>

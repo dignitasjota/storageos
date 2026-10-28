@@ -10,7 +10,11 @@ import { FilesService } from '../files/files.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { DataSubjectRequest } from '@storageos/database';
-import type { CreateDataSubjectRequestInput, DataSubjectRequestDto } from '@storageos/shared';
+import type {
+  CreateDataSubjectRequestInput,
+  DataSubjectRequestDto,
+  UpdateDataSubjectRequestInput,
+} from '@storageos/shared';
 
 /**
  * Servicio RGPD. Gestiona los derechos del titular de los datos:
@@ -320,6 +324,45 @@ export class RgpdService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+  }
+
+  async updateRequest(args: {
+    tenantId: string;
+    userId: string;
+    id: string;
+    input: UpdateDataSubjectRequestInput;
+    meta: RequestMeta;
+  }): Promise<DataSubjectRequestDto> {
+    const row = await this.prisma.withTenant(async (tx) => {
+      const current = await tx.dataSubjectRequest.findUnique({ where: { id: args.id } });
+      if (!current) {
+        throw new NotFoundException({
+          message: 'Solicitud no encontrada',
+          code: 'request_not_found',
+        });
+      }
+      const closing = args.input.status === 'fulfilled' || args.input.status === 'denied';
+      return tx.dataSubjectRequest.update({
+        where: { id: args.id },
+        data: {
+          status: args.input.status,
+          handledByUserId: args.userId,
+          fulfilledAt: closing ? (current.fulfilledAt ?? new Date()) : null,
+          ...(args.input.notes !== undefined ? { notes: args.input.notes } : {}),
+        },
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'rgpd.request_updated',
+      entityType: 'DataSubjectRequest',
+      entityId: args.id,
+      changes: { status: args.input.status },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(row);
   }
 
   private toDto(row: DataSubjectRequest): DataSubjectRequestDto {

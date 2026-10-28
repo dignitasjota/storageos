@@ -1,5 +1,7 @@
 'use client';
 
+import { auditActionLabel } from '@storageos/shared';
+
 import { SettingsHeader } from '../settings-header';
 
 import { Button } from '@/components/ui/button';
@@ -13,16 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuditLog } from '@/lib/audit/hooks';
-
-function fmt(iso: string): string {
-  return new Date(iso).toLocaleString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import { formatDateTime } from '@/lib/format';
 
 export default function AuditPage() {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useAuditLog();
@@ -48,7 +41,7 @@ export default function AuditPage() {
                 <TableHead>Fecha</TableHead>
                 <TableHead>Usuario</TableHead>
                 <TableHead>Acción</TableHead>
-                <TableHead>Entidad</TableHead>
+                <TableHead>Código</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -68,11 +61,15 @@ export default function AuditPage() {
                 items.map((a) => (
                   <TableRow key={a.id}>
                     <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                      {fmt(a.createdAt)}
+                      {formatDateTime(a.createdAt)}
                     </TableCell>
                     <TableCell className="text-sm">{a.userName ?? 'Sistema'}</TableCell>
-                    <TableCell className="font-mono text-xs">{a.action}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{a.entityType}</TableCell>
+                    <TableCell className="text-sm" title={a.action}>
+                      {auditActionLabel(a.action)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {a.action}
+                    </TableCell>
                   </TableRow>
                 ))
               )}

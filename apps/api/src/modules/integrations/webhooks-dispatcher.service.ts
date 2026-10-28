@@ -3,7 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 
-import { DOMAIN_TO_WEBHOOK_EVENT } from './webhook-events';
+import { DOMAIN_TO_WEBHOOK_EVENT, LEGACY_WEBHOOK_ALIASES } from './webhook-events';
 import { WebhooksService } from './webhooks.service';
 
 /**
@@ -57,5 +57,8 @@ export class WebhooksDispatcherService {
       occurredAt: new Date().toISOString(),
     };
     await this.webhooks.dispatch(payload.tenantId, webhookEvent, data);
+    for (const legacy of LEGACY_WEBHOOK_ALIASES[webhookEvent] ?? []) {
+      await this.webhooks.dispatch(payload.tenantId, legacy, data, { exceptEvent: webhookEvent });
+    }
   }
 }

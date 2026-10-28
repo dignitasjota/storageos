@@ -34,6 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatDateTime } from '@/lib/format';
 import {
   useRetryWebhookDelivery,
   useWebhookDeliveries,
@@ -226,7 +227,7 @@ export default function WebhookDetailPage() {
                       onClick={() => setSelected(d)}
                     >
                       <TableCell className="whitespace-nowrap text-xs">
-                        {new Date(d.createdAt).toLocaleString('es-ES')}
+                        {formatDateTime(d.createdAt)}
                       </TableCell>
                       <TableCell>
                         <code className="text-xs">{d.eventType}</code>
@@ -296,14 +297,10 @@ function DeliveryDetailDialog({
               <Field label="Estado" value={delivery.status} />
               <Field label="HTTP" value={String(delivery.statusCode ?? '—')} />
               <Field label="Intentos" value={String(delivery.attempts)} />
-              <Field label="Creado" value={new Date(delivery.createdAt).toLocaleString('es-ES')} />
+              <Field label="Creado" value={formatDateTime(delivery.createdAt)} />
               <Field
                 label="Entregado"
-                value={
-                  delivery.deliveredAt
-                    ? new Date(delivery.deliveredAt).toLocaleString('es-ES')
-                    : '—'
-                }
+                value={delivery.deliveredAt ? formatDateTime(delivery.deliveredAt) : '—'}
               />
             </div>
             <div>

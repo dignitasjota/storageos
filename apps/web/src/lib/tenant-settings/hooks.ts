@@ -6,8 +6,10 @@ import type {
   TenantBillingSettingsResponse,
   TenantMonthlyDigestResultDto,
   TenantMonthlyDigestSettingsResponse,
+  TenantProfileResponse,
   TenantSecuritySettingsResponse,
   UpdateTenantBillingSettingsInput,
+  UpdateTenantProfileInput,
   UpdateTenantSecuritySettingsInput,
 } from '@storageos/shared';
 
@@ -88,6 +90,33 @@ export function useUpdateTenantBillingSettings() {
       }),
     onSuccess: (data) => {
       qc.setQueryData(tenantBillingKey, data);
+    },
+  });
+}
+
+export const tenantProfileKey = ['settings', 'tenant', 'profile'] as const;
+
+export function useTenantProfile(enabled = true) {
+  return useQuery({
+    queryKey: tenantProfileKey,
+    queryFn: () => apiFetch<TenantProfileResponse>('/settings/tenant/profile'),
+    enabled,
+  });
+}
+
+export function useUpdateTenantProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateTenantProfileInput) =>
+      apiFetch<TenantProfileResponse>('/settings/tenant/profile', {
+        method: 'PATCH',
+        json: input,
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(tenantProfileKey, data);
+      // El nombre sale en el menú y la zona horaria decide «Hoy».
+      void qc.invalidateQueries({ queryKey: ['auth', 'me'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }

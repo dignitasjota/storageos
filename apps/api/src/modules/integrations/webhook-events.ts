@@ -15,9 +15,17 @@ import type { WebhookEventType } from '@storageos/shared';
  *   3. Anadir un listener en `WebhooksDispatcherService`.
  */
 export const DOMAIN_TO_WEBHOOK_EVENT: Record<string, WebhookEventType> = {
-  [DOMAIN_EVENTS.invoice_issued]: 'invoice.created',
+  [DOMAIN_EVENTS.invoice_issued]: 'invoice.issued',
   [DOMAIN_EVENTS.invoice_paid]: 'invoice.paid',
   [DOMAIN_EVENTS.invoice_overdue]: 'invoice.overdue',
   [DOMAIN_EVENTS.contract_signed]: 'contract.signed',
   [DOMAIN_EVENTS.lead_created]: 'lead.created',
+};
+
+/**
+ * Nombres antiguos que se siguen enviando a quien se suscribió con ellos
+ * (`invoice.created` = factura emitida).
+ */
+export const LEGACY_WEBHOOK_ALIASES: Record<string, WebhookEventType[]> = {
+  'invoice.issued': ['invoice.created'],
 };
