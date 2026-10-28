@@ -161,3 +161,4 @@ export interface ApplyAnniversaryUpdatesResultDto {
   skipped: number;
   failed: { contractId: string; error: string }[];
 }
+export * from './pre-opening';

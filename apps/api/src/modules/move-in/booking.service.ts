@@ -128,7 +128,7 @@ export class BookingService {
     const [facilities, unitTypes, grouped] = await Promise.all([
       this.admin.facility.findMany({
         where: { tenantId: tenant.id, deletedAt: null, isActive: true },
-        select: { id: true, name: true, publicSlug: true },
+        select: { id: true, name: true, publicSlug: true, preOpening: true, openingDate: true },
         orderBy: { name: 'asc' },
       }),
       this.admin.unitType.findMany({
@@ -166,6 +166,8 @@ export class BookingService {
           id: f.id,
           name: f.name,
           publicSlug: f.publicSlug,
+          preOpening: f.preOpening,
+          openingDate: f.openingDate ? f.openingDate.toISOString().slice(0, 10) : null,
           unitTypes: unitTypes
             .map((t) => ({
               id: t.id,
@@ -229,6 +231,7 @@ export class BookingService {
       orderBy: [{ basePriceMonthly: 'asc' }, { code: 'asc' }],
       select: {
         basePriceMonthly: true,
+        facility: { select: { preOpening: true } },
         unitType: { select: { propertyKind: true, defaultDepositAmount: true } },
       },
     });
@@ -260,6 +263,8 @@ export class BookingService {
       customerId: customer?.id ?? null,
       publicMessages: true,
       startDate: input.startDate ?? null,
+      preOpening: unit.facility.preOpening,
+      ...(unit.facility.preOpening ? { months: 1 } : {}),
     });
   }
 

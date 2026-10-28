@@ -236,6 +236,18 @@ export function SignPageBody({
           {/* Desglose de precio con IVA ANTES de firmar (evita sorpresa en el
               paso de pago). El alquiler lleva IVA 21%; la fianza es una garantía
               sin IVA. */}
+          {view.preOpening && !view.preOpening.startedAt && (
+            <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
+              {view.preOpening.openingDate
+                ? t('preOpeningDate', {
+                    date: new Date(`${view.preOpening.openingDate}T12:00:00Z`).toLocaleDateString(
+                      locale === 'en' ? 'en-GB' : 'es-ES',
+                      { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' },
+                    ),
+                  })
+                : t('preOpeningNoDate')}
+            </p>
+          )}
           <FirstPaymentSummary quote={view.firstPayment} locale={locale} />
           {view.depositAmount > 0 && view.depositPaymentMethod === 'cash' && (
             <p className="text-xs text-muted-foreground">{t('depositCash')}</p>

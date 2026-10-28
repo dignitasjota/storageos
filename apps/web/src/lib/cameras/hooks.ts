@@ -63,8 +63,7 @@ export function useRegenerateCameraToken() {
 export function useDeleteCameraDevice() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch<void>(`/cameras/devices/${id}`, { method: 'DELETE' }),
+    mutationFn: (id: string) => apiFetch<void>(`/cameras/devices/${id}`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['cameras', 'devices'] }),
   });
 }
@@ -83,7 +82,9 @@ export function useCameraControl(action: 'snapshot' | 'arm' | 'disarm') {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (deviceId: string) =>
-      apiFetch<CameraControlResultDto>(`/cameras/devices/${deviceId}/${action}`, { method: 'POST' }),
+      apiFetch<CameraControlResultDto>(`/cameras/devices/${deviceId}/${action}`, {
+        method: 'POST',
+      }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['cameras', 'events'] }),
   });
 }

@@ -8,12 +8,18 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { CLOSED_CASE_STATUSES, rentTax, resolvePlanFeatures } from '@storageos/shared';
+import {
+  addMonthsYmd,
+  CLOSED_CASE_STATUSES,
+  rentTax,
+  resolvePlanFeatures,
+} from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
 import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { pageArgs, type PageRequest } from '../../common/pagination';
+import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
@@ -465,8 +471,39 @@ export class ContractsService {
       // Administrador): reasignar luego el local no cambia sus facturas.
       const facilityOwner = await tx.facility.findUnique({
         where: { id: unit.facilityId },
-        select: { ownerId: true },
+        select: {
+          ownerId: true,
+          preOpening: true,
+          openingDate: true,
+          preOpeningMaxMonths: true,
+          timezone: true,
+        },
       });
+      // Local por abrir: reserva anticipada. Primer pago = una mensualidad
+      // completa (sin cupón ni prepago) y el alquiler empieza el día de
+      // apertura; sin fecha fijada, la de inicio es la fecha límite
+      // (provisional) y nada se factura ni da acceso hasta que abra.
+      let preOpening: {
+        startDate: Date;
+        dateConfirmed: boolean;
+        deadline: Date;
+      } | null = null;
+      if (facilityOwner?.preOpening) {
+        if (input.couponCode?.trim()) {
+          throw new BadRequestException({
+            code: 'pre_opening_no_coupon',
+            message: 'Las reservas antes de la apertura no admiten cupones',
+          });
+        }
+        const today = todayInTimezone(facilityOwner.timezone).toISOString().slice(0, 10);
+        const deadline = addMonthsYmd(today, facilityOwner.preOpeningMaxMonths);
+        const opening = facilityOwner.openingDate?.toISOString().slice(0, 10) ?? null;
+        preOpening = {
+          startDate: new Date(`${opening ?? deadline}T00:00:00Z`),
+          dateConfirmed: !!opening,
+          deadline: new Date(`${deadline}T00:00:00Z`),
+        };
+      }
       // En draft permitimos crear el contrato aunque el unit no este available
       // (p.ej. esta reserved para este mismo customer). Sera al firmar
       // cuando bloqueemos si esta occupied/maintenance/blocked.
@@ -512,7 +549,9 @@ export class ContractsService {
 
       // Cupón: descuento solo sobre el primer pago. Se reserva el uso aquí;
       // la 1ª factura lo aplica al firmar.
-      const firstPaymentMonths = input.billingIntervalMonths > 1 ? 1 : input.firstPaymentMonths;
+      const billingIntervalMonths = preOpening ? 1 : input.billingIntervalMonths;
+      const firstPaymentMonths =
+        preOpening || billingIntervalMonths > 1 ? 1 : input.firstPaymentMonths;
       let redeemed: RedeemedCoupon | null = null;
       if (input.couponCode?.trim()) {
         const months =
@@ -550,15 +589,22 @@ export class ContractsService {
           unitId: input.unitId,
           contractNumber,
           status: 'draft',
-          startDate: new Date(input.startDate),
+          startDate: preOpening?.startDate ?? new Date(input.startDate),
           ...(input.endDate ? { endDate: new Date(input.endDate) } : {}),
           billingCycle: input.billingCycle,
-          billingIntervalMonths: input.billingIntervalMonths,
+          billingIntervalMonths,
+          ...(preOpening
+            ? {
+                preOpening: true,
+                preOpeningDateConfirmed: preOpening.dateConfirmed,
+                preOpeningDeadline: preOpening.deadline,
+              }
+            : {}),
           firstPaymentMonths,
           irpfRetentionPct: input.irpfRetentionPct ?? 0,
           ownerId: facilityOwner?.ownerId ?? null,
           // El descuento por prepago solo aplica con interval>1 (mensual = 0).
-          prepayDiscountPct: input.billingIntervalMonths > 1 ? input.prepayDiscountPct : 0,
+          prepayDiscountPct: billingIntervalMonths > 1 ? input.prepayDiscountPct : 0,
           priceMonthly: input.priceMonthly,
           discountAmount,
           discountReason,
@@ -865,9 +911,24 @@ export class ContractsService {
         }
 
         const signedAt = new Date();
+        // Reserva anticipada: la fecha de inicio es la de apertura, si ya la hay.
+        let preOpeningSign: Prisma.ContractUpdateInput = {};
+        if (existing.preOpening && !existing.preOpeningStartedAt) {
+          // La fecha límite se fijó al crear la reserva (es la que ha leído el
+          // cliente); la de inicio sigue la apertura del local.
+          const facility = await tx.facility.findUniqueOrThrow({
+            where: { id: unit.facilityId },
+            select: { openingDate: true },
+          });
+          preOpeningSign = {
+            preOpeningDateConfirmed: !!facility.openingDate,
+            startDate: facility.openingDate ?? existing.preOpeningDeadline ?? existing.startDate,
+          };
+        }
         const row = await tx.contract.update({
           where: { id: args.contractId },
           data: {
+            ...preOpeningSign,
             status: 'active',
             signedAt,
             // El enlace de firma sigue valiendo hasta su caducidad: al reabrirlo
@@ -910,14 +971,20 @@ export class ContractsService {
             createdByUserId: args.userId,
           },
         });
-        await this.syncUnitStatus(
-          tx,
-          args,
-          existing.unitId,
-          unit.status as UnitStatus,
-          'occupied',
-          `Contrato ${row.contractNumber} firmado`,
-        );
+        // Una reserva anticipada deja el trastero reservado hasta la apertura.
+        const signedUnitStatus: UnitStatus = isPendingPreOpening(existing)
+          ? 'reserved'
+          : 'occupied';
+        if (unit.status !== signedUnitStatus) {
+          await this.syncUnitStatus(
+            tx,
+            args,
+            existing.unitId,
+            unit.status as UnitStatus,
+            signedUnitStatus,
+            `Contrato ${row.contractNumber} firmado`,
+          );
+        }
 
         // Texto firmado = el mismo que ve el inquilino (arrendador, inquilino,
         // condiciones económicas, cláusulas y consentimiento eIDAS). Se congela
@@ -1022,7 +1089,10 @@ export class ContractsService {
         },
         unit: { code: updated.unit.code },
         facility: { name: updated.unit.facility.name },
-        ...(args.deferAccessUntilPaid ? { deferAccess: true } : {}),
+        // Reserva anticipada: el acceso llega el día de apertura.
+        ...(args.deferAccessUntilPaid || isPendingPreOpening(existing)
+          ? { deferAccess: true }
+          : {}),
       },
     };
     this.eventBus.emit(DOMAIN_EVENTS.contract_signed, payload);
@@ -1240,6 +1310,10 @@ export class ContractsService {
         unitType: { propertyKind: string } | null;
       };
       insurancePlan: { name: string; taxRate: unknown } | null;
+      preOpening: boolean;
+      preOpeningDateConfirmed: boolean;
+      preOpeningDeadline: Date | null;
+      preOpeningStartedAt: Date | null;
     },
     overlocked = false,
   ): PortalContractDto {
@@ -1274,6 +1348,7 @@ export class ContractsService {
           : null,
       hasSignedPdf: !!row.signedPdfUrl,
       overlocked,
+      preOpening: preOpeningDto(row),
     };
   }
 
@@ -2038,7 +2113,7 @@ export class ContractsService {
 
   async settleDeposit(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     contractId: string;
     input: SettleDepositInput;
     facilityScope?: string[] | null;
@@ -2445,6 +2520,15 @@ export class ContractsService {
       });
     }
     const oldUnitId = existing.unitId;
+    // Reserva anticipada sin empezar: solo otro trastero del mismo local y del
+    // mismo precio, sin cambiar la cuota ni facturar ajuste.
+    const pendingPreOpening = isPendingPreOpening(existing);
+    if (pendingPreOpening && (args.newPrice != null || args.prorate)) {
+      throw new BadRequestException({
+        code: 'pre_opening_same_price',
+        message: 'En una reserva antes de la apertura el precio no cambia',
+      });
+    }
     const updated = await this.prisma
       .withTenant(async (tx) => {
         // Anti-doble-ocupación: serializa por el trastero de DESTINO (dos traslados
@@ -2468,6 +2552,17 @@ export class ContractsService {
         const ctx = { tenantId: args.tenantId, userId: args.userId, meta: args.meta };
         // Libera la vieja, ocupa la nueva.
         const oldUnit = await tx.unit.findUniqueOrThrow({ where: { id: oldUnitId } });
+        if (
+          pendingPreOpening &&
+          (newUnit.facilityId !== oldUnit.facilityId ||
+            toCents(Number(newUnit.basePriceMonthly)) !== toCents(Number(existing.priceMonthly)))
+        ) {
+          throw new BadRequestException({
+            code: 'pre_opening_same_price',
+            message:
+              'Antes de la apertura solo se puede cambiar a otro trastero del mismo local y del mismo precio',
+          });
+        }
         if (oldUnit.status === 'occupied' || oldUnit.status === 'reserved') {
           await this.syncUnitStatus(
             tx,
@@ -2483,8 +2578,8 @@ export class ContractsService {
           ctx,
           args.newUnitId,
           newUnit.status,
-          'occupied',
-          'Traslado: destino ocupado',
+          pendingPreOpening ? 'reserved' : 'occupied',
+          pendingPreOpening ? 'Cambio de trastero reservado' : 'Traslado: destino ocupado',
         );
         // Si el trastero de destino está en otro local, el contrato pasa al
         // propietario de ese local (plan Administrador): las facturas siguientes
@@ -3052,6 +3147,7 @@ export class ContractsService {
       autoRenew: row.autoRenew,
       cancellationNoticeDays: row.cancellationNoticeDays,
       notes: row.notes,
+      preOpening: preOpeningDto(row),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

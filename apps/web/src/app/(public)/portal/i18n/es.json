@@ -584,6 +584,23 @@
       "notices": {
         "title": "Avisos que te hemos enviado",
         "subtitle": "Los correos del negocio: recordatorios, cambios de precio y otros avisos."
+      },
+      "preOpening": {
+        "startsOn": "Tu alquiler empieza el día de apertura del local: el {date} (fecha aproximada).",
+        "noDate": "Tu alquiler empieza el día de apertura del local. Te avisaremos de la fecha por correo.",
+        "accessNote": "Tu código de acceso llegará el día de apertura. Hasta entonces no se te cobra nada más.",
+        "cancel": "Cancelar la reserva",
+        "cancelTitle": "¿Cancelar la reserva?",
+        "cancelWithdrawal": "Estás dentro del plazo de desistimiento (hasta el {date}): te devolvemos todo lo pagado.",
+        "cancelNotOpened": "El local no ha abierto en el plazo máximo: te devolvemos todo lo pagado.",
+        "cancelStandard": "Han pasado los 14 días de desistimiento: te devolvemos la primera mensualidad y la fianza se queda como arras, como dice tu contrato.",
+        "refundRent": "Primera mensualidad: se te devuelven {amount}.",
+        "refundDeposit": "Fianza: se te devuelven {amount}.",
+        "keepDeposit": "Fianza: {amount} no se devuelven.",
+        "keep": "Mantener la reserva",
+        "confirmCancel": "Cancelar la reserva",
+        "cancelled": "Reserva cancelada. Te devolveremos el importe por el mismo medio de pago.",
+        "error": "No se pudo cancelar la reserva."
       }
     },
     "gocardless": {

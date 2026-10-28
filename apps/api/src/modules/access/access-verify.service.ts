@@ -3,6 +3,7 @@ import { verify as argonVerify } from '@node-rs/argon2';
 import { accessWindowsFrom, isWithinAccessWindows } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { isSafeOutboundUrl } from '../../common/security/safe-outbound-url';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -472,7 +473,13 @@ export class AccessVerifyService {
   /** Puertas que el inquilino puede intentar abrir: dispositivos de los locales donde tiene contrato vivo. */
   async listDoorsForCustomer(tenantId: string, customerId: string): Promise<PortalDoorDto[]> {
     const contracts = await this.admin.contract.findMany({
-      where: { tenantId, customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
+      where: {
+        tenantId,
+        customerId,
+        status: { in: ['active', 'ending'] },
+        ...STARTED_CONTRACT_WHERE,
+        deletedAt: null,
+      },
       select: { unit: { select: { facilityId: true } } },
     });
     const facilityIds = [...new Set(contracts.map((c) => c.unit.facilityId))];
@@ -505,6 +512,7 @@ export class AccessVerifyService {
         tenantId,
         customerId,
         status: { in: ['active', 'ending'] },
+        ...STARTED_CONTRACT_WHERE,
         deletedAt: null,
         unit: { facilityId: device.facilityId },
       },

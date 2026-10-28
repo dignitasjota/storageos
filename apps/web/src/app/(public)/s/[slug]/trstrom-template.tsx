@@ -36,7 +36,7 @@ import {
 import { grossPrice } from './price-format';
 import { goToSection, goToTop } from './site-sections';
 import { StorageCalculator } from './storage-calculator';
-import { cities, formatPrice, isOpenNow, useHeadlineFallback } from './templates';
+import { cities, formatPrice, isOpenNow, PreOpeningBadge, useHeadlineFallback } from './templates';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
@@ -865,7 +865,8 @@ function FacilityCard({
               >
                 {total > 1 && index === 0 ? t('mainCenter') : t('center')}
               </span>
-              {hasHours && open != null && (
+              <PreOpeningBadge f={f} />
+              {!f.preOpening && hasHours && open != null && (
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${open ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}
                 >

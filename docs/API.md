@@ -2396,3 +2396,13 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `GET /audit-logs` acepta `userId`, `action` (prefijo), `from`, `to` (`YYYY-MM-DD`; 400 `invalid_date`) y `limit` (hasta 500); cada fila trae `changes` e `ipAddress`.
 - `GET /rgpd/requests`: `customerName`. `GET /dashboard/today`: `rgpdRequestsDue` (solicitudes sin cerrar que vencen en 7 días).
 - Invitaciones: `revokedReason` en el DTO; las no aceptadas caducadas o revocadas hace más de 90 días se borran en el cron de retención.
+
+### Reservas antes de la apertura (2026-10-28)
+
+- `GET /facilities/:id/opening` (`facilities:read`) → `{ preOpening, openingDate, maxMonths, reservations }`.
+- `PUT /facilities/:id/opening` (`facilities:manage`) `{ preOpening, openingDate: 'YYYY-MM-DD' | null, maxMonths }` → además `{ moved, started }`. Cambiar o quitar la fecha mueve la fecha de inicio de las reservas y avisa por correo a cada inquilino. Con la fecha de hoy o pasada, o con `preOpening: false`, el local abre: las reservas empiezan (trastero ocupado, acceso al que ya pagó, recurrente desde el mes siguiente).
+- Con el local en «próxima apertura», `POST /contracts` (panel, reserva online y portal) crea el contrato como reserva anticipada: primer pago = una mensualidad completa (sin cupón: 400 `pre_opening_no_coupon`; sin prepago ni meses por adelantado) + fianza; la primera factura no lleva periodo. Al firmar, el trastero queda `reserved` y el acceso espera a la apertura.
+- `POST /contracts/:id/change-unit` en una reserva sin empezar: solo otro trastero del mismo local y del mismo precio (400 `pre_opening_same_price`), sin `newPrice` ni prorrateo.
+- `GET /contracts/:id/pre-opening/cancel-preview` (`contracts:read`) → `{ allowed, reason: withdrawal|not_opened_in_time|standard, refundRent, refundDeposit, withdrawalEndsOn, rentAmount, depositAmount }`; `POST /contracts/:id/cancel-pre-opening {reason?}` (`contracts:manage`): reembolsa la primera mensualidad (o la anula si no se cobró), devuelve la fianza (14 días de desistimiento o plazo vencido sin abrir) o la retiene como arras, cancela el contrato y avisa al equipo. 400 `pre_opening_started` si ya empezó, `not_pre_opening` si no es una reserva anticipada.
+- Portal: `GET/POST /portal/me/contracts/:id/pre-opening-cancel` (lo mismo para el inquilino). `PortalContractDto.preOpening`, `ContractDto.preOpening` y `ContractSignViewDto.preOpening` (`{ dateConfirmed, openingDate, deadline, startedAt }`).
+- Web pública: `PublicLandingFacilityDto` y `BookingAvailabilityDto.facilities[]` ganan `preOpening` + `openingDate`; `FirstPaymentQuoteDto.preOpening`.

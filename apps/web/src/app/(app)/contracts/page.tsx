@@ -6,6 +6,8 @@ import { Plus, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
+import { contractStartLabel } from './[id]/pre-opening-card';
+
 import { Can } from '@/components/auth/can';
 import { ContractStatusBadge } from '@/components/contract-status-badge';
 import { CustomerSearchSelect } from '@/components/customer-search-select';
@@ -20,7 +22,7 @@ import {
 } from '@/components/ui/select';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
-import { formatDate, formatEur } from '@/lib/format';
+import { formatEur } from '@/lib/format';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 const STATUS_LABELS: Record<ContractStatusValue, string> = {
@@ -82,7 +84,7 @@ export default function ContractsPage() {
     {
       accessorKey: 'startDate',
       header: 'Inicio',
-      cell: ({ row }) => formatDate(row.original.startDate),
+      cell: ({ row }) => contractStartLabel(row.original),
     },
     {
       accessorKey: 'effectivePrice',

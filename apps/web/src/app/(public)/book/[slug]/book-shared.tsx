@@ -22,7 +22,12 @@ import type {
 import { FirstPaymentSummary } from '@/app/(public)/s/[slug]/first-payment-summary';
 import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
 import { trackEvent } from '@/app/(public)/s/[slug]/google-analytics';
-import { legalHref, signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
+import {
+  intlLocaleFor,
+  legalHref,
+  signHref,
+  type PublicWebLocale,
+} from '@/app/(public)/s/[slug]/i18n/messages';
 import { grossPrice } from '@/app/(public)/s/[slug]/price-format';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
 import { Button } from '@/components/ui/button';
@@ -40,6 +45,16 @@ import { ApiError, apiFetch } from '@/lib/auth/api';
  * para no repetir el fetch en cliente al montar.
  */
 /** Hoy en hora de España (`AAAA-MM-DD`); en UTC, entre las 00:00 y las 02:00 salía el día anterior. */
+/** `2026-12-01` → «1 de diciembre de 2026» en el idioma de la web. */
+function longDate(day: string, locale: PublicWebLocale): string {
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString(intlLocaleFor(locale), {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 function todayInSpain(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
 }
@@ -138,6 +153,9 @@ export function BookPageBody({
 
   const facility = data?.facilities.find((f) => f.id === facilityId);
   const selectedType = facility?.unitTypes.find((ut) => ut.id === unitTypeId);
+  // Local por abrir: se reserva ya y el alquiler empieza el día de apertura
+  // (sin meses por adelantado, cupón ni fecha de entrada).
+  const preOpening = !!facility?.preOpening;
 
   // Resumen de lo que se paga (meses elegidos, cupón, IVA y fianza).
   useEffect(() => {
@@ -152,9 +170,9 @@ export function BookPageBody({
       json: {
         facilityId,
         unitTypeId,
-        months,
-        ...(couponCode ? { couponCode } : {}),
-        ...(/^\d{4}-\d{2}-\d{2}$/.test(startDate) ? { startDate } : {}),
+        months: preOpening ? 1 : months,
+        ...(couponCode && !preOpening ? { couponCode } : {}),
+        ...(!preOpening && /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? { startDate } : {}),
       },
     })
       .then((q) => {
@@ -166,7 +184,7 @@ export function BookPageBody({
     return () => {
       cancelled = true;
     };
-  }, [slug, facilityId, unitTypeId, months, couponCode, startDate]);
+  }, [slug, facilityId, unitTypeId, months, couponCode, startDate, preOpening]);
   const couponValid = !!(couponCode && quote?.coupon?.valid);
   const [showErrors, setShowErrors] = useState(false);
   const [leadCaptured, setLeadCaptured] = useState(false);
@@ -205,11 +223,11 @@ export function BookPageBody({
         json: {
           facilityId,
           unitTypeId,
-          startDate,
+          startDate: preOpening ? todayInSpain() : startDate,
           customer: form,
           ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
-          months,
-          ...(couponValid && couponCode ? { couponCode } : {}),
+          months: preOpening ? 1 : months,
+          ...(couponValid && couponCode && !preOpening ? { couponCode } : {}),
           website,
           ...utm,
         },
@@ -376,81 +394,96 @@ export function BookPageBody({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label htmlFor="book-months">{t('monthsLabel')}</Label>
-                  <select
-                    id="book-months"
-                    className={selectClass()}
-                    value={months}
-                    onChange={(e) => setMonths(Number(e.target.value) as FirstPaymentMonths)}
-                  >
-                    {FIRST_PAYMENT_MONTHS.map((m) => (
-                      <option key={m} value={m}>
-                        {t('monthsOption', { count: m })}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted-foreground">{t('monthsHint')}</p>
+              {preOpening && facility && (
+                <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
+                  <p className="font-medium">
+                    {facility.openingDate
+                      ? t('preOpeningTitleDate', { date: longDate(facility.openingDate, locale) })
+                      : t('preOpeningTitle')}
+                  </p>
+                  <p className="mt-1">{t('preOpeningText')}</p>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="book-coupon">{t('couponLabel')}</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="book-coupon"
-                      value={couponInput}
-                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                      placeholder={t('couponPlaceholder')}
-                      disabled={!!couponCode}
-                    />
-                    {couponCode ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setCouponCode(null);
-                          setCouponInput('');
-                        }}
+              )}
+
+              {!preOpening && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="book-months">{t('monthsLabel')}</Label>
+                    <select
+                      id="book-months"
+                      className={selectClass()}
+                      value={months}
+                      onChange={(e) => setMonths(Number(e.target.value) as FirstPaymentMonths)}
+                    >
+                      {FIRST_PAYMENT_MONTHS.map((m) => (
+                        <option key={m} value={m}>
+                          {t('monthsOption', { count: m })}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">{t('monthsHint')}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="book-coupon">{t('couponLabel')}</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="book-coupon"
+                        value={couponInput}
+                        onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                        placeholder={t('couponPlaceholder')}
+                        disabled={!!couponCode}
+                      />
+                      {couponCode ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setCouponCode(null);
+                            setCouponInput('');
+                          }}
+                        >
+                          {t('couponRemove')}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={!couponInput.trim()}
+                          onClick={() => setCouponCode(couponInput.trim().toUpperCase())}
+                        >
+                          {t('couponApply')}
+                        </Button>
+                      )}
+                    </div>
+                    {couponCode && quote?.coupon && (
+                      <p
+                        className={`text-xs ${quote.coupon.valid ? 'text-green-600' : 'text-destructive'}`}
                       >
-                        {t('couponRemove')}
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={!couponInput.trim()}
-                        onClick={() => setCouponCode(couponInput.trim().toUpperCase())}
-                      >
-                        {t('couponApply')}
-                      </Button>
+                        {quote.coupon.valid
+                          ? t('couponApplied', { code: quote.coupon.code })
+                          : quote.coupon.message}
+                      </p>
                     )}
                   </div>
-                  {couponCode && quote?.coupon && (
-                    <p
-                      className={`text-xs ${quote.coupon.valid ? 'text-green-600' : 'text-destructive'}`}
-                    >
-                      {quote.coupon.valid
-                        ? t('couponApplied', { code: quote.coupon.code })
-                        : quote.coupon.message}
-                    </p>
-                  )}
                 </div>
-              </div>
+              )}
               {quote && <FirstPaymentSummary quote={quote} locale={locale} />}
 
-              <div className="space-y-1">
-                <Label htmlFor="book-start-date">{t('startDateLabel')}</Label>
-                <Input
-                  id="book-start-date"
-                  type="date"
-                  min={todayInSpain()}
-                  value={startDate}
-                  aria-invalid={!!err('startDate')}
-                  className={inputErrorClass(err('startDate'))}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
-                <FieldError message={err('startDate')} />
-              </div>
+              {!preOpening && (
+                <div className="space-y-1">
+                  <Label htmlFor="book-start-date">{t('startDateLabel')}</Label>
+                  <Input
+                    id="book-start-date"
+                    type="date"
+                    min={todayInSpain()}
+                    value={startDate}
+                    aria-invalid={!!err('startDate')}
+                    className={inputErrorClass(err('startDate'))}
+                    onChange={(e) => setStartDate(e.target.value)}
+                  />
+                  <FieldError message={err('startDate')} />
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">

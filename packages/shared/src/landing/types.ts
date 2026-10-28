@@ -42,6 +42,10 @@ export interface PublicLandingFacilityDto {
   /** Vídeo (YouTube/Vimeo) del local, o null. */
   videoUrl: string | null;
   unitTypes: PublicLandingUnitTypeDto[];
+  /** Local en «próxima apertura»: se reserva por adelantado. */
+  preOpening: boolean;
+  /** Fecha de apertura prevista, o null si aún no está fijada. */
+  openingDate: string | null;
 }
 
 export interface PublicLandingDto {

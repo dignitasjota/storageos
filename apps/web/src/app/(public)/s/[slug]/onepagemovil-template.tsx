@@ -587,7 +587,11 @@ export function OnePageMovilTemplate({
                           </div>
                         )}
                         <div className="mt-1">
-                          <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
+                          <OpeningHoursInfo
+                            hours={f.openingHours}
+                            timezone={f.timezone}
+                            preOpening={f}
+                          />
                         </div>
                       </div>
                     ))}

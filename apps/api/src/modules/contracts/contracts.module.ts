@@ -18,6 +18,9 @@ import { DepositRegistryController } from './deposit-registry.controller';
 import { DepositRegistryService } from './deposit-registry.service';
 import { InspectionPhotosController } from './inspection-photos.controller';
 import { InspectionPhotosService } from './inspection-photos.service';
+import { PreOpeningController } from './pre-opening.controller';
+import { PreOpeningCron } from './pre-opening.cron';
+import { PreOpeningService } from './pre-opening.service';
 import { PricingService } from './pricing.service';
 import { ReservationExpiryCron } from './reservation-expiry.cron';
 import { ReservationsController } from './reservations.controller';
@@ -32,6 +35,7 @@ import { ReservationsService } from './reservations.service';
     ReservationsController,
     ContractPdfController,
     InspectionPhotosController,
+    PreOpeningController,
   ],
   providers: [
     AnniversaryUpdatesService,
@@ -41,11 +45,12 @@ import { ReservationsService } from './reservations.service';
     PricingService,
     ContractPdfService,
     InspectionPhotosService,
+    PreOpeningService,
     // Los crons solo se montan donde corren los workers (worker en prod).
     ...(WORKERS_ENABLED_IN_API
-      ? [ContractEndingSoonCron, ContractAutoEndCron, ReservationExpiryCron]
+      ? [ContractEndingSoonCron, ContractAutoEndCron, ReservationExpiryCron, PreOpeningCron]
       : []),
   ],
-  exports: [ContractsService],
+  exports: [ContractsService, PreOpeningService],
 })
 export class ContractsModule {}

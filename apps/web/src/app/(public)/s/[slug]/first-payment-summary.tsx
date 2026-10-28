@@ -37,7 +37,9 @@ export function FirstPaymentSummary({
   return (
     <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-sm">
       <p className="font-medium">{t('summaryTitle')}</p>
-      {fm && labels ? (
+      {quote.preOpening ? (
+        row(t('summaryPreOpeningRent'), money(quote.rentSubtotal, locale))
+      ) : fm && labels ? (
         <>
           {row(
             fm.days === fm.daysInMonth
@@ -67,14 +69,16 @@ export function FirstPaymentSummary({
         {row(t('summaryTotal'), money(quote.totalToPay, locale), true)}
       </div>
       <p className="pt-1 text-xs text-muted-foreground">
-        {fm?.includesNextMonth && labels
-          ? t('summaryNextMonthNote', {
-              month: labels.nextMonth,
-              price: money(monthlyWithVat, locale),
-            })
-          : quote.prorated && !fm
-            ? t('summaryProrated')
-            : t('summaryAfter', { price: money(monthlyWithVat, locale) })}
+        {quote.preOpening
+          ? t('summaryPreOpeningNote', { price: money(monthlyWithVat, locale) })
+          : fm?.includesNextMonth && labels
+            ? t('summaryNextMonthNote', {
+                month: labels.nextMonth,
+                price: money(monthlyWithVat, locale),
+              })
+            : quote.prorated && !fm
+              ? t('summaryProrated')
+              : t('summaryAfter', { price: money(monthlyWithVat, locale) })}
       </p>
     </div>
   );

@@ -29,6 +29,12 @@ export interface FacilityDto {
   /** Vídeo (YouTube/Vimeo) para la landing pública del local. */
   videoUrl: string | null;
   isActive: boolean;
+  /** Local en «próxima apertura» (admite reservas anticipadas). */
+  preOpening: boolean;
+  /** Fecha de apertura prevista (`YYYY-MM-DD`), o null si aún no está fijada. */
+  openingDate: string | null;
+  /** Meses desde la firma para abrir antes de que el cliente pueda irse con todo. */
+  preOpeningMaxMonths: number;
   createdAt: string;
   updatedAt: string;
   /** Resumen rapido para listados. */

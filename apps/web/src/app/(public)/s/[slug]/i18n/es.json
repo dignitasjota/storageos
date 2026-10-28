@@ -38,7 +38,9 @@
       "sun": "Domingo",
       "closed": "Cerrado",
       "openNow": "Abierto ahora",
-      "closedNow": "Cerrado ahora"
+      "closedNow": "Cerrado ahora",
+      "preOpening": "Próxima apertura",
+      "preOpeningDate": "Abre el {date}"
     },
     "promo": {
       "percentageOff": "{value}% de descuento",
@@ -438,7 +440,12 @@
       "linkSentTitle": "Revisa tu email",
       "linkSentText": "Ya tenías una cuenta con nosotros, así que te hemos enviado a {email} el enlace para firmar el contrato y pagar.",
       "linkSentTextNoEmail": "Ya tenías una cuenta con nosotros: te hemos enviado a tu email el enlace para firmar el contrato y pagar.",
-      "linkSentHold": "Te guardamos el trastero 72 horas."
+      "linkSentHold": "Te guardamos el trastero 72 horas.",
+      "preOpeningTitle": "Este local abre próximamente",
+      "preOpeningTitleDate": "Este local abre el {date} (fecha aproximada)",
+      "preOpeningText": "Reserva ya tu trastero: pagas la primera mensualidad, que cubre tu primer mes desde la apertura, y la fianza. Tu alquiler y tu código de acceso empiezan el día que abramos; te avisaremos por correo. Tienes 14 días para desistir con devolución íntegra.",
+      "summaryPreOpeningRent": "Primera mensualidad (cubre el primer mes desde la apertura)",
+      "summaryPreOpeningNote": "No pagas nada más hasta la apertura. Después: {price}/mes (IVA incluido)."
     },
     "sign": {
       "invalidTitle": "Enlace no válido",
@@ -479,7 +486,9 @@
       "termsChanged": "El contrato ha cambiado mientras lo leías. Revisa el texto actualizado y vuelve a firmar.",
       "payPendingButton": "Completar el pago",
       "signedDoneBody": "Tu contrato {contractNumber} ya está firmado. Tienes una copia en tu área de clientes.",
-      "viewSignedTerms": "Ver el contrato firmado"
+      "viewSignedTerms": "Ver el contrato firmado",
+      "preOpeningDate": "Reserva antes de la apertura: tu alquiler empieza el día que abra el local, previsto para el {date} (fecha aproximada). Ese día recibirás tu código de acceso.",
+      "preOpeningNoDate": "Reserva antes de la apertura: tu alquiler empieza el día que abra el local. Aún no hay fecha; te la enviaremos por correo y ese día recibirás tu código de acceso."
     },
     "blog": {
       "title": "Blog",

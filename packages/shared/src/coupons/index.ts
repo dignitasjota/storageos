@@ -208,6 +208,8 @@ export interface FirstPaymentQuoteDto {
    * (prorrateada): el importe real puede ser menor.
    */
   prorated: boolean;
+  /** Reserva antes de la apertura: primera mensualidad (cubre el primer mes desde la apertura) + fianza. */
+  preOpening?: boolean;
   /**
    * Con la fecha de entrada: qué cubre el primer pago mensual (días del mes de
    * entrada y, desde el día que fije el negocio, el mes siguiente completo).
@@ -459,9 +461,12 @@ export function buildFirstPaymentQuote(args: {
   /** Fecha de entrada conocida: el primer pago mensual se calcula exacto. */
   firstMonth?: FirstMonthPlan | null;
   coupon: FirstPaymentQuoteDto['coupon'];
+  /** Reserva antes de la apertura: la primera mensualidad completa, sin prorrateo. */
+  preOpening?: boolean;
 }): FirstPaymentQuoteDto {
   const monthCents = Math.round(args.monthlyPrice * 100);
-  const plan = args.prorated && args.months === 1 ? (args.firstMonth ?? null) : null;
+  const plan =
+    !args.preOpening && args.prorated && args.months === 1 ? (args.firstMonth ?? null) : null;
   const split = plan ? firstMonthCents(monthCents, plan) : null;
   const subtotal = split ? split.total : monthCents * args.months;
   const discount = Math.min(Math.max(0, Math.round(args.discountAmount * 100)), subtotal);
@@ -483,7 +488,8 @@ export function buildFirstPaymentQuote(args: {
     insuranceWithVat: insurance / 100,
     deposit: deposit / 100,
     totalToPay: (withVat + insurance + deposit) / 100,
-    prorated: args.prorated,
+    prorated: args.preOpening ? false : args.prorated,
+    preOpening: !!args.preOpening,
     firstMonth:
       plan && split
         ? {

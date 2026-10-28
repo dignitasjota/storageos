@@ -17,6 +17,15 @@ interface PartyInput {
 }
 
 export interface ContractTermsInput {
+  /** Reserva antes de la apertura del local (aún sin empezar). */
+  preOpening?: {
+    /** Fecha de apertura prevista (`YYYY-MM-DD`), o null si aún no está fijada. */
+    openingDate: string | null;
+    /** Fecha límite (`YYYY-MM-DD`): sin abrir antes, se puede cancelar con devolución total. */
+    deadline: string;
+    maxMonths: number;
+    unitTypeName: string;
+  } | null;
   contractNumber: string;
   customerName: string;
   unitCode: string;
@@ -111,7 +120,11 @@ export function buildContractTermsText(t: ContractTermsInput): string {
   );
 
   // Duración
-  header.push(`Inicio: ${day(t.startDate)}`);
+  header.push(
+    t.preOpening
+      ? `Inicio: el día de apertura del local${t.preOpening.openingDate ? ` (prevista aproximadamente para el ${day(t.preOpening.openingDate)})` : ' (fecha aún por confirmar)'}`
+      : `Inicio: ${day(t.startDate)}`,
+  );
   if (t.endDate) {
     header.push(`Fin: ${day(t.endDate)}`);
   } else if (t.autoRenew !== undefined) {
@@ -169,6 +182,7 @@ export function buildContractTermsText(t: ContractTermsInput): string {
         t.customClauses.trim(),
       ]
     : [];
+  const reservation = t.preOpening ? ['', ...preOpeningClauses(t, t.preOpening)] : [];
   const consent = [
     '',
     'El firmante declara haber leído y aceptado las condiciones del contrato de',
@@ -176,7 +190,23 @@ export function buildContractTermsText(t: ContractTermsInput): string {
     'expresión de su consentimiento (firma electrónica simple, art. 25 Reglamento',
     'eIDAS y Ley 6/2020).',
   ];
-  return [...header, ...custom, ...consent].join('\n');
+  return [...header, ...custom, ...reservation, ...consent].join('\n');
+}
+
+/** Condiciones de la reserva antes de la apertura (se añaden a las del contrato). */
+function preOpeningClauses(
+  t: ContractTermsInput,
+  p: NonNullable<ContractTermsInput['preOpening']>,
+): string[] {
+  const tax =
+    t.vatRate === undefined ? '' : t.vatRate > 0 ? ` + IVA (${t.vatRate} %)` : ' (exenta de IVA)';
+  return [
+    'Reserva antes de la apertura del local:',
+    `1. Reserva. El inquilino reserva un trastero del tipo ${p.unitTypeName}, en concreto el ${t.unitCode}. Al reservar paga la primera mensualidad, ${eur(t.priceMonthly)}${tax}, que cubre el primer mes de alquiler desde la apertura, y la fianza, ${eur(t.depositAmount)}. Si no se paga en el plazo indicado, la reserva queda sin efecto.`,
+    `2. Fecha de inicio. El alquiler empieza el día de apertura del local${p.openingDate ? `, prevista aproximadamente para el ${day(p.openingDate)}` : ''}. La fecha es orientativa y puede variar; la fecha definitiva y cualquier cambio se comunicarán por correo electrónico y en el área de clientes. Hasta ese día el inquilino no tiene acceso al trastero. El precio queda fijado desde la reserva. Si el local no ha abierto el ${day(p.deadline)} (${p.maxMonths} ${p.maxMonths === 1 ? 'mes' : 'meses'} desde la reserva), el inquilino puede dejar la reserva sin efecto y recuperar todo lo pagado.`,
+    '3. Cambio de trastero. Antes de la apertura, el arrendador puede asignar otro trastero del mismo local y del mismo precio, avisando al inquilino.',
+    '4. Cancelación. Dentro de los 14 días siguientes a la reserva, el inquilino puede desistir y se le devuelve todo lo pagado. Pasado ese plazo y antes del día de apertura, puede cancelar la reserva: se le devuelve la primera mensualidad y la fianza queda en poder del arrendador como arras penitenciales (art. 1454 del Código Civil). Llegado el día de apertura sin cancelar, el contrato despliega todos sus efectos.',
+  ];
 }
 
 /** Huella SHA-256 (hex) de un texto: la que se guarda con cada firma. */
@@ -196,6 +226,10 @@ const TERMS_SELECT = {
   discountAmount: true,
   discountReason: true,
   freeMonthsRemaining: true,
+  preOpening: true,
+  preOpeningDateConfirmed: true,
+  preOpeningDeadline: true,
+  preOpeningStartedAt: true,
   startDate: true,
   endDate: true,
   autoRenew: true,
@@ -232,7 +266,15 @@ const TERMS_SELECT = {
       code: true,
       areaM2: true,
       unitType: { select: { name: true, propertyKind: true } },
-      facility: { select: { name: true, address: true, city: true, postalCode: true } },
+      facility: {
+        select: {
+          name: true,
+          address: true,
+          city: true,
+          postalCode: true,
+          preOpeningMaxMonths: true,
+        },
+      },
     },
   },
 } satisfies Prisma.ContractSelect;
@@ -383,6 +425,15 @@ export async function composeContractTerms(
           }
         : null,
     depositCash: c.depositPaymentMethod === 'cash',
+    preOpening:
+      c.preOpening && !c.preOpeningStartedAt
+        ? {
+            openingDate: c.preOpeningDateConfirmed ? startDate : null,
+            deadline: (c.preOpeningDeadline ?? c.startDate).toISOString().slice(0, 10),
+            maxMonths: c.unit.facility.preOpeningMaxMonths,
+            unitTypeName: c.unit.unitType.name,
+          }
+        : null,
   });
   return { text, clauses: defaultClauses ? null : clauses, propertyKind };
 }

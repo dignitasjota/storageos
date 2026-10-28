@@ -1,6 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
+
 
 import type { Prisma } from '@storageos/database';
 
@@ -125,7 +127,12 @@ export async function liveMrr(
   scope: AnalyticsScope,
 ): Promise<{ mrr: number; contracts: number }> {
   const rows = await tx.contract.findMany({
-    where: { status: { in: ['active', 'ending'] }, deletedAt: null, ...contractWhere(scope) },
+    where: {
+      status: { in: ['active', 'ending'] },
+      ...STARTED_CONTRACT_WHERE,
+      deletedAt: null,
+      ...contractWhere(scope),
+    },
     select: { priceMonthly: true, discountAmount: true },
   });
   const mrr = rows.reduce(
