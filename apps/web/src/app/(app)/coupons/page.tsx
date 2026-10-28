@@ -78,6 +78,7 @@ export default function CouponsPage() {
     if (c.minAmount) out.push(`desde ${eur(c.minAmount)} sin IVA`);
     if (c.newCustomersOnly) out.push('clientes nuevos');
     if (c.oncePerCustomer) out.push('un uso por cliente');
+    if (c.preOpeningOnly) out.push('solo reservas antes de la apertura');
     if (c.validUntil) out.push(`hasta el ${day(c.validUntil)}`);
     return out;
   }
@@ -263,6 +264,7 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
   const [facilityIds, setFacilityIds] = useState<string[]>(coupon?.facilityIds ?? []);
   const [newOnly, setNewOnly] = useState(coupon?.newCustomersOnly ?? false);
   const [oncePerCustomer, setOncePerCustomer] = useState(coupon?.oncePerCustomer ?? false);
+  const [preOpeningOnly, setPreOpeningOnly] = useState(coupon?.preOpeningOnly ?? false);
   const [validFrom, setValidFrom] = useState(toDateInput(coupon?.validFrom ?? null));
   const [validUntil, setValidUntil] = useState(toDateInput(coupon?.validUntil ?? null));
   const [error, setError] = useState<string | null>(null);
@@ -285,6 +287,7 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
       facilityIds,
       newCustomersOnly: newOnly,
       oncePerCustomer,
+      preOpeningOnly,
       maxUses: maxUses ? Number(maxUses) : null,
       validFrom: fromDateInput(validFrom, false),
       validUntil: fromDateInput(validUntil, true),
@@ -485,6 +488,20 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
               onCheckedChange={(v) => setOncePerCustomer(v === true)}
             />
             Un solo uso por cliente
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              className="mt-0.5"
+              checked={preOpeningOnly}
+              onCheckedChange={(v) => setPreOpeningOnly(v === true)}
+            />
+            <span>
+              Solo para reservas antes de la apertura
+              <span className="block text-xs text-muted-foreground">
+                Oferta de preapertura: vale para reservar en un local que aún no ha abierto y
+                descuenta la primera mensualidad (no la fianza).
+              </span>
+            </span>
           </label>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

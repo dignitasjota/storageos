@@ -167,10 +167,16 @@ export class FirstInvoiceService {
       if (preOpening) {
         periodStart = start;
         periodEnd = start;
+        // Cupón de preapertura: descuenta esta mensualidad (nunca la fianza).
+        const discount = coupon
+          ? Math.min(toCents(Number(coupon.discountAmount)), toCents(fullPrice))
+          : 0;
         items.push({
-          description: `Primera mensualidad ${contract.contractNumber} — cubre el primer mes desde la apertura del local`,
+          description: `Primera mensualidad ${contract.contractNumber} — cubre el primer mes desde la apertura del local${
+            coupon && discount > 0 ? ` (cupón ${coupon.coupon.code} −${eur(discount)})` : ''
+          }`,
           quantity: 1,
-          unitPrice: fullPrice,
+          unitPrice: (toCents(fullPrice) - discount) / 100,
           ...rent,
           relatedContractId: contractId,
           relatedUnitId: contract.unit.id,

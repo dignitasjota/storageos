@@ -16,7 +16,10 @@ import { PrismaService } from '../database/prisma.service';
 import { ContractsService } from './contracts.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { ContractPreOpeningStartedPayload } from '../automations/domain-events';
+import type {
+  ContractPreOpeningStartedPayload,
+  FacilityPreOpeningOpenedPayload,
+} from '../automations/domain-events';
 import type {
   ContractDto,
   FacilityOpeningDto,
@@ -24,6 +27,12 @@ import type {
   PreOpeningCancelPreviewDto,
   UpdateFacilityOpeningInput,
 } from '@storageos/shared';
+
+/** Qué pasó con cada reserva el día de apertura. */
+interface StartOutcome {
+  contractId: string;
+  kind: 'started' | 'reassigned' | 'unit_problem' | 'unsigned';
+}
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const asDate = (day: string) => new Date(`${day}T00:00:00Z`);
@@ -322,11 +331,12 @@ export class PreOpeningService {
     openingDay: string,
   ): Promise<number> {
     const rows = await this.pendingContracts(tenantId, facilityId);
-    let started = 0;
+    const outcomes: StartOutcome[] = [];
     let failed = 0;
     for (const c of rows) {
       try {
-        if (await this.startContract(tenantId, c, openingDay)) started += 1;
+        const outcome = await this.startContract(tenantId, c, openingDay);
+        if (outcome) outcomes.push(outcome);
       } catch (err) {
         failed += 1;
         this.logger.warn(`reserva ${c.id} sin arrancar: ${(err as Error).message}`);
@@ -338,16 +348,21 @@ export class PreOpeningService {
         data: { preOpening: false, openingDate: asDate(openingDay) },
       });
     }
-    if (started > 0) this.logger.log(`Local ${facilityId} abierto: ${started} reservas empiezan`);
-    return started;
+    if (outcomes.length > 0) {
+      await this.summarizeOpening(tenantId, facilityId, openingDay, outcomes).catch(
+        (err: unknown) =>
+          this.logger.warn(`resumen de apertura sin enviar: ${(err as Error).message}`),
+      );
+    }
+    return outcomes.length;
   }
 
-  /** Arranca una reserva. Devuelve false si otra pasada ya la arrancó. */
+  /** Arranca una reserva. Devuelve null si otra pasada ya la arrancó. */
   private async startContract(
     tenantId: string,
     c: Awaited<ReturnType<PreOpeningService['pendingContracts']>>[number],
     openingDay: string,
-  ): Promise<boolean> {
+  ): Promise<StartOutcome | null> {
     if (c.status === 'draft') {
       // Sin firmar: deja de ser una reserva anticipada y sigue como un alta
       // normal que empieza el día de apertura (su primera factura irá del alta
@@ -361,10 +376,10 @@ export class PreOpeningService {
           startDate: asDate(openingDay),
         },
       });
-      return claim.count > 0;
+      return claim.count > 0 ? { contractId: c.id, kind: 'unsigned' } : null;
     }
     // Firmada: todo en una transacción (si algo falla, se reintenta entera).
-    const claimed = await this.admin.$transaction(async (tx) => {
+    const result = await this.admin.$transaction(async (tx) => {
       const claim = await tx.contract.updateMany({
         where: { id: c.id, preOpeningStartedAt: null },
         data: {
@@ -374,18 +389,66 @@ export class PreOpeningService {
           billingStartsOn: asDate(addMonthsYmd(openingDay, 1)),
         },
       });
-      if (claim.count === 0) return false;
-      const unit = await tx.unit.findUnique({
+      if (claim.count === 0) return null;
+      const unit = await tx.unit.findUniqueOrThrow({
         where: { id: c.unitId },
-        select: { status: true },
+        select: {
+          id: true,
+          code: true,
+          status: true,
+          facilityId: true,
+          unitTypeId: true,
+          basePriceMonthly: true,
+        },
       });
-      if (unit?.status === 'reserved') {
-        await tx.unit.update({ where: { id: c.unitId }, data: { status: 'occupied' } });
+      let kind: StartOutcome['kind'] = 'started';
+      let unitId = unit.id;
+      let unitCode = unit.code;
+      let previousStatus = unit.status;
+      if (unit.status === 'maintenance' || unit.status === 'blocked') {
+        // El trastero reservado no está en condiciones: otro libre del mismo
+        // local, tipo y precio (lo que se le prometió al inquilino).
+        const replacement = await tx.unit.findFirst({
+          where: {
+            facilityId: unit.facilityId,
+            unitTypeId: unit.unitTypeId,
+            basePriceMonthly: unit.basePriceMonthly,
+            status: 'available',
+            id: { not: unit.id },
+          },
+          orderBy: { code: 'asc' },
+          select: { id: true, code: true, status: true },
+        });
+        if (replacement) {
+          await tx.contract.update({ where: { id: c.id }, data: { unitId: replacement.id } });
+          await tx.contractEvent.create({
+            data: {
+              tenantId,
+              contractId: c.id,
+              eventType: 'note_added',
+              payload: {
+                kind: 'pre_opening_reassigned',
+                fromUnit: unit.code,
+                toUnit: replacement.code,
+                reason: unit.status,
+              },
+            },
+          });
+          kind = 'reassigned';
+          unitId = replacement.id;
+          unitCode = replacement.code;
+          previousStatus = replacement.status;
+        } else {
+          kind = 'unit_problem';
+        }
+      }
+      if (previousStatus === 'reserved' || previousStatus === 'available') {
+        await tx.unit.update({ where: { id: unitId }, data: { status: 'occupied' } });
         await tx.unitStatusHistory.create({
           data: {
             tenantId,
-            unitId: c.unitId,
-            previousStatus: 'reserved',
+            unitId,
+            previousStatus,
             newStatus: 'occupied',
             reason: `Apertura del local: empieza el contrato ${c.contractNumber}`,
           },
@@ -399,20 +462,69 @@ export class PreOpeningService {
           payload: { kind: 'pre_opening_started', openingDay },
         },
       });
-      return true;
+      return { kind, unitCode, fromUnitCode: unit.code };
     });
-    if (!claimed) return false;
+    if (!result) return null;
     this.events.emit(DOMAIN_EVENTS.contract_pre_opening_started, {
       tenantId,
       contractId: c.id,
       customerId: c.customerId,
     } satisfies ContractPreOpeningStartedPayload);
+    if (result.kind === 'unit_problem') {
+      await this.admin.notification
+        .create({
+          data: {
+            tenantId,
+            facilityId: c.unit.facilityId,
+            type: 'contract.pre_opening_unit_problem',
+            title: `Trastero ${result.fromUnitCode} fuera de servicio al abrir — ${c.contractNumber}`,
+            body: `El alquiler ha empezado, pero el trastero reservado está en mantenimiento o bloqueado y no hay otro libre del mismo tipo y precio. Asígnale uno desde el contrato.`,
+            link: `/contracts/${c.id}`,
+          },
+        })
+        .catch(() => undefined);
+    }
     await this.notify(tenantId, c, {
-      subject: `¡Ya hemos abierto! Tu trastero ${c.unit.code} está listo`,
-      body: `El local ${c.unit.facility.name} ya está abierto y hoy empieza tu alquiler del trastero ${c.unit.code}. Si ya has pagado tu reserva, en unos minutos recibirás tu código de acceso (también lo verás en tu área de clientes).`,
+      subject: `¡Ya hemos abierto! Tu trastero ${result.unitCode} está listo`,
+      body: `El local ${c.unit.facility.name} ya está abierto y hoy empieza tu alquiler del trastero ${result.unitCode}.${result.kind === 'reassigned' ? ` (Te hemos asignado el ${result.unitCode} en lugar del ${result.fromUnitCode}: es del mismo tamaño y precio.)` : ''} Si ya has pagado tu reserva, en unos minutos recibirás tu código de acceso (también lo verás en tu área de clientes).`,
       source: 'pre_opening.started',
     });
-    return true;
+    return { contractId: c.id, kind: result.kind };
+  }
+
+  /** Resumen al equipo del día de apertura (aviso por correo «Apertura de un local»). */
+  private async summarizeOpening(
+    tenantId: string,
+    facilityId: string,
+    openingDay: string,
+    outcomes: StartOutcome[],
+  ): Promise<void> {
+    const signedIds = outcomes.filter((o) => o.kind !== 'unsigned').map((o) => o.contractId);
+    const signed = await this.admin.contract.findMany({
+      where: { id: { in: signedIds } },
+      select: {
+        depositAmount: true,
+        depositPaymentMethod: true,
+        depositStatus: true,
+        invoices: { where: { kind: 'invoice', deletedAt: null }, select: { status: true } },
+      },
+    });
+    this.events.emit(DOMAIN_EVENTS.facility_pre_opening_opened, {
+      tenantId,
+      facilityId,
+      openingDay,
+      started: signed.length,
+      unpaid: signed.filter((c) => !c.invoices.some((i) => i.status === 'paid')).length,
+      cashDepositsPending: signed.filter(
+        (c) =>
+          c.depositPaymentMethod === 'cash' &&
+          Number(c.depositAmount) > 0 &&
+          c.depositStatus !== 'held',
+      ).length,
+      unsigned: outcomes.filter((o) => o.kind === 'unsigned').length,
+      reassigned: outcomes.filter((o) => o.kind === 'reassigned').length,
+      unitProblems: outcomes.filter((o) => o.kind === 'unit_problem').length,
+    } satisfies FacilityPreOpeningOpenedPayload);
   }
 
   // ---------------------------------------------------------------------------
@@ -731,7 +843,7 @@ export class PreOpeningService {
         startDate: true,
         preOpeningDeadline: true,
         preOpeningReminderSentAt: true,
-        unit: { select: { code: true, facility: { select: { name: true } } } },
+        unit: { select: { code: true, facilityId: true, facility: { select: { name: true } } } },
         customer: { select: { email: true, firstName: true, companyName: true } },
       },
     });

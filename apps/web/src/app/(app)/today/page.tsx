@@ -309,6 +309,7 @@ export default function TodayPage() {
           data.incidentsOpen +
           data.unitChangesPending +
           (data.lowStock?.count ?? 0) +
+          (data.preOpeningSoon?.count ?? 0) +
           (data.unitsOutOfService?.count ?? 0) +
           (data.facilityDocumentsExpiring?.count ?? 0) +
           (data.rgpdRequestsDue?.count ?? 0),
@@ -703,6 +704,17 @@ export default function TodayPage() {
                   itemHref={() => '/reservations?status=pending'}
                   empty="Ninguna reserva expira en 7 días."
                 />
+                {(data.preOpeningSoon?.count ?? 0) > 0 && (
+                  <SectionCard
+                    title="Locales por abrir"
+                    icon={DoorOpen}
+                    count={data.preOpeningSoon.count}
+                    items={data.preOpeningSoon.items}
+                    href="/facilities"
+                    itemHref={(it) => `/facilities/${it.id}?tab=settings`}
+                    empty=""
+                  />
+                )}
                 {(data.unitsOutOfService?.count ?? 0) > 0 && (
                   <SectionCard
                     title="Trasteros parados"

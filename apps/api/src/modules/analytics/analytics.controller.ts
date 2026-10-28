@@ -26,6 +26,7 @@ import type {
   CohortsDto,
   CompetitionAlertsDto,
   OccupancyHistoryDto,
+  PreOpeningAnalyticsDto,
   RevenueBreakdownDto,
   PriceChangeEffectsDto,
   PricingStrategyDto,
@@ -212,6 +213,15 @@ export class AnalyticsController {
   ): Promise<OccupancyHistoryDto> {
     const parsed = months ? Number.parseInt(months, 10) : undefined;
     return this.trends.getOccupancyHistory(user.tenantId, parsed, scopeOf(user, facilityId));
+  }
+
+  /** Preventa de los locales por abrir (reservas antes de la apertura). */
+  @Get('pre-opening')
+  getPreOpening(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<PreOpeningAnalyticsDto> {
+    return this.trends.getPreOpening(user.tenantId, scopeOf(user, facilityId));
   }
 
   /** Lo facturado por concepto, local y tipo de trastero. */

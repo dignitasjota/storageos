@@ -54,6 +54,8 @@ const couponFields = {
   facilityIds: z.array(z.string().uuid()).max(100),
   newCustomersOnly: z.boolean(),
   oncePerCustomer: z.boolean(),
+  /** Solo para reservas en un local que aún no ha abierto (oferta de preapertura). */
+  preOpeningOnly: z.boolean(),
   maxUses: z.number().int().positive().nullable(),
   validFrom: isoDate.nullable(),
   validUntil: isoDate.nullable(),
@@ -106,6 +108,7 @@ export const CreateCouponSchema = z
     facilityIds: couponFields.facilityIds.default([]),
     newCustomersOnly: couponFields.newCustomersOnly.default(false),
     oncePerCustomer: couponFields.oncePerCustomer.default(false),
+    preOpeningOnly: couponFields.preOpeningOnly.default(false),
     maxUses: couponFields.maxUses.default(null),
     validFrom: couponFields.validFrom.default(null),
     validUntil: couponFields.validUntil.default(null),
@@ -129,6 +132,7 @@ export const UpdateCouponSchema = z.object({
   facilityIds: couponFields.facilityIds.optional(),
   newCustomersOnly: couponFields.newCustomersOnly.optional(),
   oncePerCustomer: couponFields.oncePerCustomer.optional(),
+  preOpeningOnly: couponFields.preOpeningOnly.optional(),
   maxUses: couponFields.maxUses.optional(),
   validFrom: couponFields.validFrom.optional(),
   validUntil: couponFields.validUntil.optional(),
@@ -148,6 +152,7 @@ export interface CouponDto {
   facilityIds: string[];
   newCustomersOnly: boolean;
   oncePerCustomer: boolean;
+  preOpeningOnly: boolean;
   maxUses: number | null;
   usedCount: number;
   validFrom: string | null;
@@ -265,7 +270,8 @@ export type CouponRejectReason =
   | 'unit_type'
   | 'facility'
   | 'new_customers_only'
-  | 'already_used';
+  | 'already_used'
+  | 'pre_opening_only';
 
 /** Lo que necesita el cálculo del cupón (importes en euros, sin IVA). */
 export interface CouponRules {
@@ -277,6 +283,7 @@ export interface CouponRules {
   facilityIds: string[];
   newCustomersOnly: boolean;
   oncePerCustomer?: boolean | undefined;
+  preOpeningOnly?: boolean | undefined;
   maxUses: number | null;
   usedCount: number;
   validFrom: Date | string | null;
@@ -295,6 +302,8 @@ export interface CouponQuoteContext {
   isNewCustomer?: boolean | null | undefined;
   /** Si este cliente ya usó el cupón (para «un uso por cliente»). */
   usedByCustomer?: boolean | null | undefined;
+  /** Reserva en un local que aún no ha abierto. */
+  preOpening?: boolean | undefined;
   now?: Date;
 }
 
@@ -351,6 +360,8 @@ export function couponRejectMessage(reason: CouponRejectReason, rules?: CouponRu
       return 'Este cupón es solo para clientes nuevos';
     case 'already_used':
       return 'Ya has usado este cupón';
+    case 'pre_opening_only':
+      return 'Este cupón es solo para reservas en un local que aún no ha abierto';
   }
 }
 
@@ -389,6 +400,7 @@ export function quoteCoupon(rules: CouponRules, ctx: CouponQuoteContext): Coupon
   }
   if (rules.newCustomersOnly && ctx.isNewCustomer === false) return reject('new_customers_only');
   if (rules.oncePerCustomer && ctx.usedByCustomer === true) return reject('already_used');
+  if (rules.preOpeningOnly && !ctx.preOpening) return reject('pre_opening_only');
 
   const monthCents = Math.max(0, cents(ctx.monthlyPrice));
   const subtotal = monthCents * ctx.months;

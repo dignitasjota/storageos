@@ -509,6 +509,37 @@ export interface OccupancyHistorySeriesDto {
   occupancy: number[];
 }
 
+/** Preventa de un local por abrir: trasteros reservados antes de la apertura. */
+export interface PreOpeningFacilityDto {
+  facilityId: string;
+  facilityName: string;
+  /** Fecha de apertura prevista (`YYYY-MM-DD`) o null si aún no hay. */
+  openingDate: string | null;
+  totalUnits: number;
+  /** Trasteros con una reserva firmada (pagada o no). */
+  reserved: number;
+  /** De ellas, sin la primera mensualidad pagada. */
+  unpaid: number;
+  available: number;
+  /** Cuotas (sin IVA) que empezarán a facturarse el día de apertura. */
+  reservedMrr: number;
+  /** Cuotas de todos los trasteros alquilables del local. */
+  potentialMrr: number;
+  byType: {
+    unitTypeId: string | null;
+    name: string;
+    total: number;
+    reserved: number;
+    available: number;
+    /** Precio más bajo de los libres de ese tipo (null si no queda ninguno). */
+    fromPrice: number | null;
+  }[];
+}
+
+export interface PreOpeningAnalyticsDto {
+  facilities: PreOpeningFacilityDto[];
+}
+
 export interface OccupancyHistoryDto {
   points: OccupancyHistoryPointDto[];
   byFacility: OccupancyHistorySeriesDto[];

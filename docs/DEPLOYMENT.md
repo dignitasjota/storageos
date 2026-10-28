@@ -1477,3 +1477,4 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Cron nuevo `contracts.pre-opening` (min. 15 de cada hora, en el **worker**): el día de apertura (en la hora del local) empiezan las reservas; tres días antes avisa a los inquilinos. Redesplegar también el worker.
 - Para usarlo: ficha del local → Ajustes → «Próxima apertura».
 - **Revisar con la asesoría** el texto de las condiciones de la reserva (arras penitenciales del art. 1454 CC tras los 14 días de desistimiento).
+- Revisión y extras: migraciones `20261119100000_pre_opening_review` (`contracts.pre_opening_deadline_notified_at`) y `20261120100000_pre_opening_coupons` (`coupons.pre_opening_only`), se aplican solas. Aviso nuevo al equipo «Apertura de un local» (activado por defecto para propietarios y gestores). Redesplegar api, worker y web.

@@ -19,6 +19,7 @@ import {
   type BookingCreatedPayload,
   type CustomerMessagePayload,
   type DomainEventPayload,
+  type FacilityPreOpeningOpenedPayload,
 } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
@@ -145,12 +146,50 @@ export class StaffEmailsService {
           `Cliente: ${customerName(c.customer)}`,
           c.customer.email ? `Email: ${c.customer.email}` : '',
           c.customer.phone ? `Teléfono: ${c.customer.phone}` : '',
-          `Inicio: ${day(c.startDate)} · Cuota: ${eur(Number(c.priceMonthly))}/mes`,
+          c.preOpening && !c.preOpeningStartedAt
+            ? `Reserva antes de la apertura: empieza el día que abra el local${c.preOpeningDateConfirmed ? ` (${day(c.startDate)})` : ' (sin fecha aún)'} · Cuota: ${eur(Number(c.priceMonthly))}/mes`
+            : `Inicio: ${day(c.startDate)} · Cuota: ${eur(Number(c.priceMonthly))}/mes`,
           'Queda pendiente de que firme y pague; si no lo hace en 72 h, el trastero se libera solo.',
         ],
         path: `/contracts/${c.id}`,
         cta: 'Ver el contrato',
         facilityId: c.unit.facilityId,
+      });
+    });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.facility_pre_opening_opened, { async: true, promisify: true })
+  async onFacilityOpened(p: FacilityPreOpeningOpenedPayload): Promise<void> {
+    await this.safe('facility_opened', p.tenantId, async () => {
+      const facility = await this.admin.facility.findFirst({
+        where: { id: p.facilityId, tenantId: p.tenantId },
+        select: { name: true },
+      });
+      if (!facility) return;
+      const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+      await this.notify(p.tenantId, 'facility_opened', {
+        subject: `${facility.name} abre hoy: ${plural(p.started, 'reserva empieza', 'reservas empiezan')}`,
+        lines: [
+          `Hoy empieza el alquiler de ${plural(p.started, 'reserva anticipada', 'reservas anticipadas')}. Quien la ha pagado recibe su código de acceso.`,
+          p.unpaid > 0
+            ? `${plural(p.unpaid, 'reserva sigue', 'reservas siguen')} sin la primera mensualidad pagada: no tendrán acceso hasta que paguen.`
+            : '',
+          p.cashDepositsPending > 0
+            ? `${plural(p.cashDepositsPending, 'fianza', 'fianzas')} en efectivo por cobrar en el local.`
+            : '',
+          p.reassigned > 0
+            ? `${plural(p.reassigned, 'trastero estaba', 'trasteros estaban')} fuera de servicio y se ha asignado otro libre del mismo tipo y precio.`
+            : '',
+          p.unitProblems > 0
+            ? `${plural(p.unitProblems, 'reserva tiene', 'reservas tienen')} el trastero fuera de servicio sin otro igual libre: asígnales uno desde el contrato.`
+            : '',
+          p.unsigned > 0
+            ? `${plural(p.unsigned, 'reserva sin firmar pasa', 'reservas sin firmar pasan')} a ser un alta normal desde hoy.`
+            : '',
+        ],
+        path: '/contracts',
+        cta: 'Ver los contratos',
+        facilityId: p.facilityId,
       });
     });
   }
@@ -342,6 +381,9 @@ ${lines.map((l) => `<p style="font-size:15px;line-height:22px;margin:6px 0">${es
         priceMonthly: true,
         startDate: true,
         endDate: true,
+        preOpening: true,
+        preOpeningDateConfirmed: true,
+        preOpeningStartedAt: true,
         unit: { select: { code: true, facilityId: true, facility: { select: { name: true } } } },
         customer: {
           select: {

@@ -31,6 +31,7 @@ import {
   periodText,
   previousPeriod,
 } from './period';
+import { PreOpeningCard } from './pre-opening-card';
 import { PriceChangeEffectsPanel } from './price-change-effects-panel';
 import { PricingStrategyButton } from './pricing-strategy-dialog';
 import { CohortsPanel, OccupancyHistoryCard, RevenueBreakdownCard } from './trends-panels';
@@ -306,6 +307,7 @@ function OccupancyPanel({ facilityId }: { facilityId?: string }) {
           )}
         </CardContent>
       </Card>
+      <PreOpeningCard facilityId={facilityId} />
       <OccupancyHistoryCard facilityId={facilityId} />
     </div>
   );

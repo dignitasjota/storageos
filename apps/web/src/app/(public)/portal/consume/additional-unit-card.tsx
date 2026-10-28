@@ -323,7 +323,7 @@ export function AdditionalUnitCard({
                 </select>
               </div>
             )}
-            {!target?.offer && !quote?.preOpening && (
+            {!target?.offer && (
               <div className="space-y-1">
                 <Label htmlFor="extra-unit-coupon">{t('couponLabel')}</Label>
                 <div className="flex gap-2">

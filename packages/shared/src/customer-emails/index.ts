@@ -85,6 +85,7 @@ export const STAFF_EMAIL_KINDS = [
   'portal_incident',
   'customer_message',
   'daily_summary',
+  'facility_opened',
 ] as const;
 export type StaffEmailKind = (typeof STAFF_EMAIL_KINDS)[number];
 
@@ -109,6 +110,11 @@ export const STAFF_EMAIL_LABELS: Record<StaffEmailKind, { label: string; descrip
     label: 'Mensaje de un inquilino',
     description:
       'Un inquilino escribe en «Mensajes» (portal, WhatsApp o email). Uno por inquilino mientras no se lea.',
+  },
+  facility_opened: {
+    label: 'Apertura de un local',
+    description:
+      'El día que abre un local con reservas anticipadas: cuántas empiezan, cuántas siguen sin pagar y las fianzas por cobrar en el local.',
   },
   daily_summary: {
     label: 'Resumen del día',

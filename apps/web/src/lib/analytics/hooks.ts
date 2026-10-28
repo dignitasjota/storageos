@@ -26,6 +26,7 @@ import type {
   CohortsDto,
   CompetitionAlertsDto,
   OccupancyHistoryDto,
+  PreOpeningAnalyticsDto,
   RevenueBreakdownDto,
 } from '@storageos/shared';
 
@@ -49,6 +50,7 @@ export const analyticsKey = (
     | 'benchmark'
     | 'seo-checklist'
     | 'occupancy-history'
+    | 'pre-opening'
     | 'revenue-breakdown'
     | 'cohorts'
     | 'competition-alerts',
@@ -259,6 +261,14 @@ export function usePriceChangeEffects(facilityId?: string) {
 }
 
 // --- Tendencias -------------------------------------------------------------
+
+/** Preventa de los locales por abrir. */
+export function usePreOpeningAnalytics(params: { facilityId?: string } = {}) {
+  return useQuery({
+    queryKey: analyticsKey('pre-opening', params),
+    queryFn: () => apiFetch<PreOpeningAnalyticsDto>(`/analytics/pre-opening${query(params)}`),
+  });
+}
 
 export function useOccupancyHistory(params: { months?: number; facilityId?: string } = {}) {
   const p = {
