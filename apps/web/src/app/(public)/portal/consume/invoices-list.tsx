@@ -10,6 +10,7 @@ import { usePortalLocale } from '../i18n/provider';
 
 import type { PortalInvoiceDto } from '@storageos/shared';
 
+import { OfflinePaymentChoice } from '@/components/payments/offline-payment-choice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/auth/api';
@@ -82,6 +83,7 @@ export function InvoicesList({
   bizumEnabled,
   saveCard,
   payingId,
+  offlineOptions,
   onPay,
   onPayAll,
   onDownload,
@@ -93,6 +95,8 @@ export function InvoicesList({
   bizumEnabled: boolean;
   saveCard: boolean;
   payingId: string | null;
+  /** Transferencia, en el local o domiciliación (las que active el negocio). */
+  offlineOptions: { bankTransfer: boolean; payAtFacility: boolean; sepaDebit: boolean };
   onPay: (i: PortalInvoiceDto) => void;
   onPayAll: (list: PortalInvoiceDto[]) => void;
   onDownload: (id: string) => void;
@@ -100,6 +104,9 @@ export function InvoicesList({
   const t = useTranslations('portal.consume.invoices');
   const { locale } = usePortalLocale();
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [offlineOpen, setOfflineOpen] = useState<string | null>(null);
+  const hasOffline =
+    offlineOptions.bankTransfer || offlineOptions.payAtFacility || offlineOptions.sepaDebit;
 
   const payable = (i: PortalInvoiceDto) =>
     i.amountPending > 0 && !i.paymentInProgress && !i.paidWithInvoiceId;
@@ -250,12 +257,31 @@ export function InvoicesList({
               {t('payWithBizum')}
             </Button>
           )}
+          {payable(i) && hasOffline && i.kind !== 'deposit_receipt' && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setOfflineOpen((v) => (v === i.id ? null : i.id))}
+            >
+              {t('otherWays')}
+            </Button>
+          )}
           {i.hasPdf && (
             <Button size="sm" variant="ghost" onClick={() => onDownload(i.id)}>
               <Download className="mr-1 h-4 w-4" /> {t('pdf')}
             </Button>
           )}
         </div>
+        {offlineOpen === i.id && (
+          <div className="ml-6">
+            <OfflinePaymentChoice
+              invoiceId={i.id}
+              portalToken={accessToken}
+              options={offlineOptions}
+              locale={locale}
+            />
+          </div>
+        )}
       </li>
     );
   }

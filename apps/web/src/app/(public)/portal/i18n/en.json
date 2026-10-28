@@ -249,7 +249,8 @@
         "removeConfirm": "Remove? Tap again",
         "removed": "Payment method removed.",
         "defaultSaved": "This method will be charged.",
-        "pmError": "The change could not be saved."
+        "pmError": "The change could not be saved.",
+        "otherWays": "Other ways to pay"
       },
       "access": {
         "title": "Your access",
@@ -624,5 +625,23 @@
       "system": "System",
       "toggleLabel": "Change theme"
     }
+  },
+  "offlinePayment": {
+    "title": "Other ways to pay",
+    "transfer": "Pay by bank transfer",
+    "transferHint": "We'll email you the bank details.",
+    "cash": "Pay at the facility",
+    "cashHint": "Pay in person at the facility.",
+    "sepa": "Pay by direct debit",
+    "sepaHint": "We'll debit it from your bank account.",
+    "iban": "Your account IBAN",
+    "ibanPlaceholder": "ES00 0000 0000 0000 0000 0000",
+    "sepaContinue": "Continue and sign the direct debit",
+    "cancel": "Cancel",
+    "transferDone": "We've emailed the bank transfer details to {email}.",
+    "cashDone": "Great: pay at the facility and the team will mark it as paid.",
+    "sepaDone": "Your direct debit is already signed: we'll collect it from your account in the next run.",
+    "holdUntil": "We keep your storage unit reserved until {date}. Your access is activated once we receive the payment.",
+    "error": "Couldn't save. Please try again."
   }
 }

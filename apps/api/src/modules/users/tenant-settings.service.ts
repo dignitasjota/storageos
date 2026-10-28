@@ -218,6 +218,9 @@ export class TenantSettingsService {
     autoChargeRetryMax: number;
     autoChargeRetryIntervalDays: number;
     transferIban: string | null;
+    offlineTransferEnabled: boolean;
+    offlineCashEnabled: boolean;
+    offlineSepaEnabled: boolean;
   }): TenantBillingSettingsResponse {
     return {
       autoChargeOnIssue: tenant.autoChargeOnIssue,
@@ -231,6 +234,9 @@ export class TenantSettingsService {
       autoChargeRetryMax: tenant.autoChargeRetryMax,
       autoChargeRetryIntervalDays: tenant.autoChargeRetryIntervalDays,
       transferIban: tenant.transferIban,
+      offlineTransferEnabled: tenant.offlineTransferEnabled,
+      offlineCashEnabled: tenant.offlineCashEnabled,
+      offlineSepaEnabled: tenant.offlineSepaEnabled,
     };
   }
 
@@ -268,6 +274,33 @@ export class TenantSettingsService {
     if (input.autoChargeRetryIntervalDays !== undefined)
       data.autoChargeRetryIntervalDays = input.autoChargeRetryIntervalDays;
     const transferIban = input.transferIban === undefined ? undefined : input.transferIban || null;
+    if (input.offlineCashEnabled !== undefined) data.offlineCashEnabled = input.offlineCashEnabled;
+    if (input.offlineTransferEnabled !== undefined)
+      data.offlineTransferEnabled = input.offlineTransferEnabled;
+    if (input.offlineSepaEnabled !== undefined) data.offlineSepaEnabled = input.offlineSepaEnabled;
+    // Transferencia sin IBAN: el correo no tendría a dónde enviar el dinero.
+    const ibanAfter = transferIban === undefined ? tenant.transferIban : transferIban;
+    if (input.offlineTransferEnabled && !ibanAfter) {
+      throw new BadRequestException({
+        code: 'transfer_iban_required',
+        message: 'Para ofrecer el pago por transferencia, guarda antes el IBAN.',
+      });
+    }
+    // Quitar el IBAN apaga también la opción de transferencia.
+    if (transferIban === null) data.offlineTransferEnabled = false;
+    if (input.offlineSepaEnabled) {
+      const sepa = await this.admin.sepaSettings.findUnique({
+        where: { tenantId: args.tenantId },
+        select: { enabled: true, creditorAddress: true },
+      });
+      if (!sepa?.enabled || !sepa.creditorAddress) {
+        throw new BadRequestException({
+          code: 'sepa_not_enabled',
+          message:
+            'Para ofrecer la domiciliación, activa antes las remesas SEPA con los datos del acreedor y su domicilio.',
+        });
+      }
+    }
 
     if (Object.keys(data).length === 0 && transferIban === undefined) {
       return this.billingDto(tenant);

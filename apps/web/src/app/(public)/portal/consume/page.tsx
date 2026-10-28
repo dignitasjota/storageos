@@ -9,6 +9,7 @@ import {
   type PortalFacilityDto,
   type PortalIncidentDto,
   type PortalInvoiceDto,
+  type PortalPaymentOptionsDto,
   type PortalNightPassInfoDto,
   type PortalPaymentDto,
   type PortalReferralDto,
@@ -48,7 +49,6 @@ import { toast } from 'sonner';
 import { PortalLanguageSwitcher } from '../i18n/language-switcher';
 import { intlLocaleForPortal } from '../i18n/messages';
 import { usePortalLocale } from '../i18n/provider';
-
 
 import { AccessCredentialItem } from './access-credential';
 import { AccessLogsCard } from './access-logs-card';
@@ -338,6 +338,11 @@ function PortalConsumeContent() {
   const [goCardlessEnabled, setGoCardlessEnabled] = useState(false);
   // Alta y cobro con tarjeta/IBAN por Stripe (desactivado sin Stripe Connect).
   const [cardPaymentsEnabled, setCardPaymentsEnabled] = useState(false);
+  const [offlineOptions, setOfflineOptions] = useState({
+    bankTransfer: false,
+    payAtFacility: false,
+    sepaDebit: false,
+  });
   const [redsysEnabled, setRedsysEnabled] = useState(false);
   const [bizumEnabled, setBizumEnabled] = useState(false);
   // Pago por referencia de Redsys: guardar la tarjeta para cobrar solas las cuotas.
@@ -489,8 +494,15 @@ function PortalConsumeContent() {
         }
         // ¿Se puede registrar tarjeta/IBAN por Stripe? (best-effort).
         try {
-          const o = await portalFetch<{ cardPayments: boolean }>(s, '/portal/me/payments/options');
-          if (!cancelled) setCardPaymentsEnabled(o.cardPayments);
+          const o = await portalFetch<PortalPaymentOptionsDto>(s, '/portal/me/payments/options');
+          if (!cancelled) {
+            setCardPaymentsEnabled(o.cardPayments);
+            setOfflineOptions({
+              bankTransfer: !!o.bankTransfer,
+              payAtFacility: !!o.payAtFacility,
+              sepaDebit: !!o.sepaDebit,
+            });
+          }
         } catch {
           /* opcional */
         }
@@ -1350,6 +1362,7 @@ function PortalConsumeContent() {
                   bizumEnabled={bizumEnabled}
                   saveCard={cardOnFileEnabled && saveCard}
                   payingId={payingId}
+                  offlineOptions={offlineOptions}
                   onPay={(i) => void handlePay(i)}
                   onPayAll={(list) => void handlePayAll(list)}
                   onDownload={(id) => void downloadInvoicePdf(id)}

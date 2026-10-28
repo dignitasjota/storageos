@@ -129,6 +129,100 @@ export function TransferIbanCard() {
   );
 }
 
+/**
+ * Formas de pago sin pasarela que el inquilino puede elegir al reservar o
+ * pagar una factura. Si no se activan aquí, no aparecen.
+ */
+export function OfflinePaymentOptionsCard() {
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useTenantBillingSettings(canConfigure);
+  const sepa = useSepaSettings(canConfigure);
+  const update = useUpdateTenantBillingSettings();
+
+  if (!canConfigure || !settings.data) return null;
+  const s = settings.data;
+  const sepaReady = !!sepa.data?.enabled && !!sepa.data.creditorAddress;
+
+  async function toggle(
+    key: 'offlineTransferEnabled' | 'offlineCashEnabled' | 'offlineSepaEnabled',
+    value: boolean,
+  ) {
+    try {
+      await update.mutateAsync({ [key]: value });
+      toast.success(value ? 'Forma de pago activada.' : 'Forma de pago desactivada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido guardar');
+    }
+  }
+
+  const rows: {
+    key: 'offlineTransferEnabled' | 'offlineCashEnabled' | 'offlineSepaEnabled';
+    title: string;
+    text: string;
+    enabled: boolean;
+    blocked: string | null;
+  }[] = [
+    {
+      key: 'offlineTransferEnabled',
+      title: 'Transferencia',
+      text: 'Le llega por correo el IBAN, el importe y el concepto.',
+      enabled: s.offlineTransferEnabled,
+      blocked: s.transferIban ? null : 'Guarda antes el IBAN para transferencias.',
+    },
+    {
+      key: 'offlineCashEnabled',
+      title: 'Pagar en el local',
+      text: 'Paga en persona (efectivo o lo que aceptes en el local).',
+      enabled: s.offlineCashEnabled,
+      blocked: null,
+    },
+    {
+      key: 'offlineSepaEnabled',
+      title: 'Domiciliación SEPA',
+      text: 'Pone su IBAN y firma el mandato; se le cobra en tu próxima remesa SEPA.',
+      enabled: s.offlineSepaEnabled,
+      blocked: sepaReady
+        ? null
+        : 'Activa antes las remesas SEPA (más abajo) con el domicilio del acreedor.',
+    },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Otras formas de pago para el inquilino</CardTitle>
+        <CardDescription>
+          Lo que puede elegir al reservar online o al pagar una factura desde su área de clientes,
+          además de la tarjeta o Bizum. Con transferencia o pago en el local, la reserva se guarda
+          24 horas más y te avisamos para que estés atento; cuando cobres, marca la factura como
+          pagada indicando cómo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="divide-y">
+        {rows.map((r) => (
+          <div key={r.key} className="flex items-start justify-between gap-4 py-3 first:pt-0">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">{r.title}</p>
+              <p className="text-sm text-muted-foreground">{r.text}</p>
+              {r.blocked && !r.enabled && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">{r.blocked}</p>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant={r.enabled ? 'outline' : 'default'}
+              disabled={update.isPending || (!r.enabled && !!r.blocked)}
+              onClick={() => void toggle(r.key, !r.enabled)}
+            >
+              {r.enabled ? 'Desactivar' : 'Activar'}
+            </Button>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Reintentos de cobro automático de las facturas vencidas (smart retry). */
 export function AutoChargeRetryCard() {
   const canConfigure = useHasPermission('billing:configure');

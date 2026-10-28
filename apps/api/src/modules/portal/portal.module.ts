@@ -10,6 +10,7 @@ import { CustomerMessagesModule } from '../customer-messages/customer-messages.m
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqModule } from '../faq/faq.module';
 import { MoveInModule } from '../move-in/move-in.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { OperationsModule } from '../operations/operations.module';
 import { OpportunitiesModule } from '../opportunities/opportunities.module';
 import { GoCardlessModule } from '../payments/gocardless/gocardless.module';
@@ -19,11 +20,13 @@ import { ProductsModule } from '../products/products.module';
 import { PushModule } from '../push/push.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { RetentionModule } from '../retention/retention.module';
+import { SepaModule } from '../sepa/sepa.module';
 import { UnitChangesModule } from '../unit-changes/unit-changes.module';
 import { UnitRequestsModule } from '../unit-requests/unit-requests.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
 
 import { NightPassService } from './night-pass.service';
+import { OfflinePaymentsService } from './offline-payments.service';
 import { PortalAccountService } from './portal-account.service';
 import { PortalLinkController } from './portal-link.controller';
 import { PortalController } from './portal.controller';
@@ -67,12 +70,21 @@ import { PortalService } from './portal.service';
     // WaitlistModule: el inquilino se apunta a la cola de un tipo agotado.
     WaitlistModule,
     AiModule,
+    // Pago por transferencia, en el local o domiciliación (mandato SEPA).
+    SepaModule,
+    NotificationsModule,
   ],
   controllers: [PortalController, PortalLinkController],
   // CustomerDocumentsService se PROVEE aquí (sus deps —Prisma/Files globales,
   // AuditService de AuthModule— ya están disponibles) en vez de importar
   // CustomersModule entero: importarlo reintroducía el JwtModule de AuthModule
   // y rompía la verificación del token del portal (401 en /portal/me/*).
-  providers: [PortalService, PortalAccountService, NightPassService, CustomerDocumentsService],
+  providers: [
+    PortalService,
+    PortalAccountService,
+    NightPassService,
+    OfflinePaymentsService,
+    CustomerDocumentsService,
+  ],
 })
 export class PortalModule {}

@@ -906,5 +906,23 @@
       "servedAreas": "También damos servicio a:",
       "nearIntro": "El centro más cercano a {city}: {names}."
     }
+  },
+  "offlinePayment": {
+    "title": "Otras formas de pago",
+    "transfer": "Pagar por transferencia",
+    "transferHint": "Te enviamos los datos de la cuenta por correo.",
+    "cash": "Pagar en el local",
+    "cashHint": "Pagas en persona en el local.",
+    "sepa": "Domiciliar en mi cuenta",
+    "sepaHint": "Te lo cargamos en tu cuenta bancaria.",
+    "iban": "IBAN de tu cuenta",
+    "ibanPlaceholder": "ES00 0000 0000 0000 0000 0000",
+    "sepaContinue": "Continuar y firmar la domiciliación",
+    "cancel": "Cancelar",
+    "transferDone": "Te hemos enviado a {email} los datos para hacer la transferencia.",
+    "cashDone": "Perfecto: paga en el local y el equipo lo marcará como cobrado.",
+    "sepaDone": "Tu domiciliación ya está firmada: lo cargaremos en tu cuenta en el próximo cobro.",
+    "holdUntil": "Te guardamos el trastero hasta el {date}. Tu acceso se activa al recibir el pago.",
+    "error": "No se ha podido guardar. Inténtalo de nuevo."
   }
 }

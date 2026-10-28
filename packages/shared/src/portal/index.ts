@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SepaBicSchema, SepaIbanSchema } from '../sepa';
+
 import type { ContractPreOpeningDto } from '../contracts/pre-opening';
 import type { ContractDepositStatusValue, ContractStatusValue } from '../customers/schemas';
 
@@ -259,4 +261,50 @@ export interface PortalNoticeDto {
   subject: string;
   body: string;
   sentAt: string;
+}
+
+// ============================================================================
+// Formas de pago sin pasarela (transferencia, en el local, domiciliación SEPA)
+// ============================================================================
+
+export const OfflinePaymentMethodEnum = z.enum(['bank_transfer', 'cash', 'sepa_debit']);
+export type OfflinePaymentMethodValue = z.infer<typeof OfflinePaymentMethodEnum>;
+
+/** Horas que se amplía la reserva al elegir transferencia o pago en el local. */
+export const OFFLINE_PAYMENT_EXTRA_HOURS = 24;
+
+/** POST /portal/me/invoices/:id/offline-payment — cómo va a pagar el inquilino. */
+export const PortalOfflinePaymentSchema = z
+  .object({
+    method: OfflinePaymentMethodEnum,
+    /** Solo domiciliación: cuenta del inquilino. */
+    iban: SepaIbanSchema.optional(),
+    bic: SepaBicSchema,
+  })
+  .refine((v) => v.method !== 'sepa_debit' || !!v.iban, {
+    message: 'Indica el IBAN de la cuenta a domiciliar',
+    path: ['iban'],
+  });
+export type PortalOfflinePaymentInput = z.infer<typeof PortalOfflinePaymentSchema>;
+
+/** Formas de pago que ofrece el negocio al inquilino. */
+export interface PortalPaymentOptionsDto {
+  /** Tarjeta por Stripe. */
+  cardPayments: boolean;
+  /** Transferencia (el IBAN le llega por correo). */
+  bankTransfer: boolean;
+  /** Pagar en el local. */
+  payAtFacility: boolean;
+  /** Domiciliación con la remesa SEPA del negocio. */
+  sepaDebit: boolean;
+}
+
+export interface PortalOfflinePaymentResultDto {
+  method: OfflinePaymentMethodValue;
+  /** Hasta cuándo se guarda el trastero (null si la factura no es de una reserva). */
+  holdUntil: string | null;
+  /** Transferencia: a qué correo se han enviado los datos. */
+  emailSentTo: string | null;
+  /** Domiciliación: enlace para firmar el mandato (null si ya tenía uno firmado). */
+  mandateSigningUrl: string | null;
 }

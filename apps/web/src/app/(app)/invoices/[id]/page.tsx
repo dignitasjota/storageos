@@ -124,7 +124,9 @@ export default function InvoiceDetailPage() {
 
   const [paidOpen, setPaidOpen] = useState(false);
   const [paidAmount, setPaidAmount] = useState(0);
-  const [paidMethod, setPaidMethod] = useState<'cash' | 'bank_transfer' | 'card'>('cash');
+  const [paidMethod, setPaidMethod] = useState<
+    'cash' | 'bank_transfer' | 'card' | 'sepa_debit' | 'other'
+  >('cash');
   const [paidOverride, setPaidOverride] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundAmount, setRefundAmount] = useState(0);
@@ -315,7 +317,8 @@ export default function InvoiceDetailPage() {
                     variant="outline"
                     onClick={() => {
                       setPaidAmount(i.amountPending);
-                      setPaidMethod('cash');
+                      // Si el inquilino dijo cómo iba a pagar, se propone esa forma.
+                      setPaidMethod(i.offlinePaymentMethod ?? 'cash');
                       setPaidOpen(true);
                     }}
                   >
@@ -623,10 +626,23 @@ export default function InvoiceDetailPage() {
                 <SelectContent>
                   <SelectItem value="cash">Efectivo</SelectItem>
                   <SelectItem value="bank_transfer">Transferencia</SelectItem>
+                  <SelectItem value="sepa_debit">Domiciliación SEPA</SelectItem>
                   <SelectItem value="card">Tarjeta</SelectItem>
+                  <SelectItem value="other">Otro (Bizum, cheque…)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {i.offlinePaymentMethod && (
+              <p className="text-xs text-muted-foreground">
+                El inquilino eligió pagar{' '}
+                {i.offlinePaymentMethod === 'bank_transfer'
+                  ? 'por transferencia'
+                  : i.offlinePaymentMethod === 'cash'
+                    ? 'en el local'
+                    : 'por domiciliación'}
+                .
+              </p>
+            )}
             {paidMethod !== 'cash' && paidAmount > 0 && paidAmount < Number(i.total) && (
               <p className="text-xs text-destructive">
                 Los pagos parciales solo se admiten en efectivo; por otra vía debe saldarse el

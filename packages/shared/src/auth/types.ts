@@ -180,6 +180,12 @@ export interface TenantBillingSettingsResponse {
   autoChargeRetryMax: number;
   autoChargeRetryIntervalDays: number;
   transferIban: string | null;
+  /** El inquilino puede elegir pagar por transferencia (le llega el IBAN por correo). */
+  offlineTransferEnabled: boolean;
+  /** El inquilino puede elegir pagar en el local. */
+  offlineCashEnabled: boolean;
+  /** El inquilino puede domiciliar con la remesa SEPA del negocio. */
+  offlineSepaEnabled: boolean;
 }
 
 /** Respuesta de `/settings/tenant/reviews` (auto-solicitud de valoraciones). */

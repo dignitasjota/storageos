@@ -1478,3 +1478,15 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Para usarlo: ficha del local → Ajustes → «Próxima apertura».
 - **Revisar con la asesoría** el texto de las condiciones de la reserva (arras penitenciales del art. 1454 CC tras los 14 días de desistimiento).
 - Revisión y extras: migraciones `20261119100000_pre_opening_review` (`contracts.pre_opening_deadline_notified_at`) y `20261120100000_pre_opening_coupons` (`coupons.pre_opening_only`), se aplican solas. Aviso nuevo al equipo «Apertura de un local» (activado por defecto para propietarios y gestores). Redesplegar api, worker y web.
+
+## 52. Otras formas de pago para el inquilino: transferencia, en el local y domiciliación (2026-10-28)
+
+- Migración `20261121100000_offline_payment_options` (se aplica sola): `tenants.offline_transfer_enabled/offline_cash_enabled/offline_sepa_enabled` (apagadas) y `contracts.offline_payment_method/offline_payment_chosen_at`. No cambia nada hasta que el tenant las active.
+- Redesplegar api, worker y web.
+- Para usarlo: Configuración → Cobros → «Otras formas de pago para el inquilino». La transferencia exige el IBAN para transferencias; la domiciliación, las remesas SEPA activas con el domicilio del acreedor (y el plan con SEPA).
+- Al reservar online (tras firmar) o al pagar una factura desde el área de clientes, el inquilino ve solo las activadas:
+  - **Transferencia**: le llega por correo el IBAN, el importe (factura y fianza) y el concepto; la reserva se guarda 24 h más.
+  - **En el local**: la reserva se guarda 24 h más.
+  - **Domiciliación**: pone su IBAN y firma el mandato; con el mandato firmado la reserva ya no caduca y se cobra en la próxima remesa SEPA.
+  - En los tres casos el equipo recibe un aviso (campana y push) y no se le manda el recordatorio de «paga online».
+- Al cobrar, «Marcar pagada» en la factura propone la forma que eligió el inquilino y admite efectivo, transferencia, domiciliación SEPA, tarjeta u otro.

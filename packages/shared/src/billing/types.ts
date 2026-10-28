@@ -71,6 +71,8 @@ export interface InvoiceDto {
   unitCode: string | null;
   facilityId: string | null;
   facilityName: string | null;
+  /** Cómo dijo el inquilino que pagaría la factura de su reserva (null = no lo dijo). */
+  offlinePaymentMethod: 'bank_transfer' | 'cash' | 'sepa_debit' | null;
   status: InvoiceStatusValue;
   invoiceType: InvoiceTypeValue;
   /** `deposit_receipt`: justificante de fianza (no es factura: sin IVA ni Veri*Factu). */

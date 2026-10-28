@@ -116,6 +116,7 @@ export class BookingRecoveryService {
         status: true,
         signedAt: true,
         firstPaymentDeadline: true,
+        offlinePaymentMethod: true,
         customer: { select: { email: true, firstName: true } },
         unit: { select: { code: true, facility: { select: { name: true } } } },
         invoices: {
@@ -135,6 +136,8 @@ export class BookingRecoveryService {
     const unpaid = contract.invoices[0];
     // Firmada y sin factura pendiente (pagada o con el cobro en marcha): nada que recordar.
     if (signed && !unpaid) return false;
+    // Eligió transferencia, pago en el local o domiciliación: no se le pide pagar online.
+    if (signed && contract.offlinePaymentMethod) return false;
 
     // Se marca ANTES de enviar: con varias réplicas, solo una lo envía.
     const { count } = await this.admin.contract.updateMany({

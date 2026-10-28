@@ -116,6 +116,7 @@ type InvoiceWithRelations = Invoice & {
   } | null;
   contract: {
     contractNumber: string;
+    offlinePaymentMethod: string | null;
     unit: { id: string; code: string; facility: { id: string; name: string } } | null;
   } | null;
   series: { code: string };
@@ -2688,6 +2689,7 @@ export class InvoicesService {
       contract: {
         select: {
           contractNumber: true,
+          offlinePaymentMethod: true,
           unit: {
             select: { id: true, code: true, facility: { select: { id: true, name: true } } },
           },
@@ -2900,6 +2902,8 @@ export class InvoicesService {
       unitCode: row.contract?.unit?.code ?? null,
       facilityId: row.contract?.unit?.facility?.id ?? null,
       facilityName: row.contract?.unit?.facility?.name ?? null,
+      offlinePaymentMethod:
+        (row.contract?.offlinePaymentMethod as InvoiceDto['offlinePaymentMethod']) ?? null,
       status: row.status as InvoiceStatusValue,
       invoiceType: row.invoiceType as InvoiceTypeValue,
       rectifiesInvoiceId: row.rectifiesInvoiceId,

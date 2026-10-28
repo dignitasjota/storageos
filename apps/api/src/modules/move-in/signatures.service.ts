@@ -780,7 +780,7 @@ export class SignaturesService {
         status: { in: ['active', 'draft'] },
         deletedAt: null,
       },
-      select: { id: true, tenantId: true },
+      select: { id: true, tenantId: true, customerId: true, offlinePaymentMethod: true },
     });
     let cancelled = 0;
     for (const c of candidates) {
@@ -810,6 +810,18 @@ export class SignaturesService {
         },
       });
       if (inFlight > 0) continue;
+      // Eligió domiciliar y ya firmó el mandato: se cobra en la próxima remesa.
+      if (c.offlinePaymentMethod === 'sepa_debit') {
+        const mandate = await this.admin.sepaMandate.count({
+          where: {
+            tenantId: c.tenantId,
+            customerId: c.customerId,
+            status: 'active',
+            signatureStatus: { in: ['signed', 'external'] },
+          },
+        });
+        if (mandate > 0) continue;
+      }
       try {
         await this.contracts.cancel({
           tenantId: c.tenantId,

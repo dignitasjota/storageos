@@ -8,6 +8,7 @@ import { RedsysCard } from '../billing/redsys-card';
 import {
   AutoChargeCard,
   AutoChargeRetryCard,
+  OfflinePaymentOptionsCard,
   SepaSettingsCard,
   TransferIbanCard,
 } from './payment-cards';
@@ -28,6 +29,7 @@ export default function PaymentsSettingsPage() {
       <AutoChargeCard />
       <AutoChargeRetryCard />
       <TransferIbanCard />
+      <OfflinePaymentOptionsCard />
       <Suspense fallback={null}>
         <StripeConnectCard />
       </Suspense>
