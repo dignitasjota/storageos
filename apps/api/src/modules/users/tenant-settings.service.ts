@@ -94,7 +94,23 @@ export class TenantSettingsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException('Tenant no encontrado');
     }
-    return { name: tenant.name, slug: tenant.slug, timezone: tenant.timezone };
+    return this.profileDto(tenant);
+  }
+
+  private profileDto(t: {
+    name: string;
+    slug: string;
+    timezone: string;
+    contactPhone: string | null;
+    contactEmail: string | null;
+  }): TenantProfileResponse {
+    return {
+      name: t.name,
+      slug: t.slug,
+      timezone: t.timezone,
+      contactPhone: t.contactPhone,
+      contactEmail: t.contactEmail,
+    };
   }
 
   /** Nombre comercial y zona horaria del negocio (los edita el propio tenant). */
@@ -108,22 +124,25 @@ export class TenantSettingsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException('Tenant no encontrado');
     }
-    const changes: Record<string, { from: string; to: string }> = {};
+    const changes: Record<string, { from: string | null; to: string | null }> = {};
     if (args.input.name !== undefined && args.input.name !== tenant.name) {
       changes.name = { from: tenant.name, to: args.input.name };
     }
     if (args.input.timezone !== undefined && args.input.timezone !== tenant.timezone) {
       changes.timezone = { from: tenant.timezone, to: args.input.timezone };
     }
-    if (Object.keys(changes).length === 0) {
-      return { name: tenant.name, slug: tenant.slug, timezone: tenant.timezone };
+    for (const key of ['contactPhone', 'contactEmail'] as const) {
+      const raw = args.input[key];
+      if (raw === undefined) continue;
+      const next = raw === '' ? null : raw;
+      if (next !== tenant[key]) changes[key] = { from: tenant[key], to: next };
     }
+    if (Object.keys(changes).length === 0) return this.profileDto(tenant);
     const updated = await this.admin.tenant.update({
       where: { id: args.tenantId },
-      data: {
-        ...(changes.name ? { name: changes.name.to } : {}),
-        ...(changes.timezone ? { timezone: changes.timezone.to } : {}),
-      },
+      data: Object.fromEntries(
+        Object.entries(changes).map(([k, v]) => [k, v.to]),
+      ) as Prisma.TenantUpdateInput,
     });
     await this.audit.write({
       tenantId: args.tenantId,
@@ -135,8 +154,10 @@ export class TenantSettingsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    if (changes.name) void this.revalidateLanding(updated.slug);
-    return { name: updated.name, slug: updated.slug, timezone: updated.timezone };
+    if (changes.name || changes.contactPhone || changes.contactEmail) {
+      void this.revalidateLanding(updated.slug);
+    }
+    return this.profileDto(updated);
   }
 
   async getSecurity(tenantId: string): Promise<TenantSecuritySettingsResponse> {
@@ -520,6 +541,7 @@ export class TenantSettingsService {
         // Quitar el dominio siempre se permite (p. ej. tras un downgrade).
         data.customDomain = null;
         data.customDomainVerifiedAt = null;
+        data.customDomainReadyAt = null;
       } else if (domain !== tenant.customDomain) {
         // Setear/cambiar el dominio requiere la feature del plan.
         if (!(await this.hasFeature(args.tenantId, 'custom_domain'))) {
@@ -543,6 +565,7 @@ export class TenantSettingsService {
         // Cambiar el dominio invalida la verificación previa (el admin debe
         // reconfigurar el Proxy Host + SSL y reactivarlo).
         data.customDomainVerifiedAt = null;
+        data.customDomainReadyAt = null;
       }
     }
 

@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  ConfigHealthItemDto,
+  CustomDomainCheckDto,
   TenantBillingSettingsResponse,
   TenantMonthlyDigestResultDto,
   TenantMonthlyDigestSettingsResponse,
@@ -118,5 +120,21 @@ export function useUpdateTenantProfile() {
       void qc.invalidateQueries({ queryKey: ['auth', 'me'] });
       void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
+  });
+}
+
+export function useConfigHealth(enabled = true) {
+  return useQuery({
+    queryKey: ['settings', 'tenant', 'health'] as const,
+    queryFn: () => apiFetch<ConfigHealthItemDto[]>('/settings/tenant/health'),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useCheckCustomDomain() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<CustomDomainCheckDto>('/settings/tenant/domain/check', { method: 'POST' }),
   });
 }

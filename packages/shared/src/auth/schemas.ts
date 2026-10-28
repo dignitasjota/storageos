@@ -205,8 +205,16 @@ export const UpdateTenantProfileSchema = z
   .object({
     name: z.string().trim().min(2, 'Indica el nombre del negocio').max(120).optional(),
     timezone: z.string().trim().refine(isValidTimeZone, 'Zona horaria no válida').optional(),
+    /** `''` lo quita. */
+    contactPhone: z
+      .string()
+      .trim()
+      .max(40)
+      .refine((v) => v === '' || /^[+\d][\d\s().-]{5,}$/.test(v), 'Teléfono no válido')
+      .optional(),
+    contactEmail: z.string().trim().toLowerCase().email().max(320).or(z.literal('')).optional(),
   })
-  .refine((v) => v.name !== undefined || v.timezone !== undefined, {
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: 'Nada que cambiar',
   });
 export type UpdateTenantProfileInput = z.infer<typeof UpdateTenantProfileSchema>;

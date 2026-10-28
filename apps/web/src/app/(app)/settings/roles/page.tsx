@@ -4,6 +4,8 @@ import {
   PERMISSION_ACTION_LABELS,
   PERMISSION_RESOURCE_LABELS,
   Permissions,
+  ROLE_TEMPLATES,
+  summarizePermissions,
   type Permission,
   type TenantRoleDto,
   type UserRole,
@@ -177,6 +179,29 @@ export default function RolesPage() {
   );
 }
 
+/** «¿Qué ve este rol?»: áreas que ve y en cuáles puede hacer cambios. */
+function RoleSummary({ perms }: { perms: string[] }) {
+  const { sees, changes } = summarizePermissions(perms);
+  if (sees.length === 0) {
+    return (
+      <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+        Sin permisos marcados: quien tenga este rol no verá nada del panel.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-1 rounded-md bg-muted p-3 text-xs">
+      <p>
+        <span className="font-medium">Ve:</span> {sees.join(', ')}.
+      </p>
+      <p>
+        <span className="font-medium">Puede cambiar:</span>{' '}
+        {changes.length > 0 ? `${changes.join(', ')}.` : 'nada (solo consulta).'}
+      </p>
+    </div>
+  );
+}
+
 function RoleDialog({ role, onClose }: { role: TenantRoleDto | null; onClose: () => void }) {
   const create = useCreateTenantRole();
   const update = useUpdateTenantRole();
@@ -273,6 +298,33 @@ function RoleDialog({ role, onClose }: { role: TenantRoleDto | null; onClose: ()
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
+
+          {!role && (
+            <div className="space-y-1.5">
+              <Label>Empezar desde una plantilla</Label>
+              <div className="flex flex-wrap gap-2">
+                {ROLE_TEMPLATES.map((t) => (
+                  <Button
+                    key={t.key}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    title={t.description}
+                    onClick={() => {
+                      setName(t.name);
+                      setDescription(t.description);
+                      setBaseRole(t.baseRole);
+                      setPerms(new Set(t.permissions));
+                    }}
+                  >
+                    {t.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <RoleSummary perms={[...perms]} />
 
           <div className="space-y-3">
             <Label>Permisos ({perms.size})</Label>

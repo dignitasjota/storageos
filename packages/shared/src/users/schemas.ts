@@ -80,3 +80,16 @@ export type AcceptInvitationInput = z.infer<typeof AcceptInvitationSchema>;
 
 // Re-export para que el caller no tenga que importar de '@storageos/shared/auth' directamente.
 export { UserRoles };
+
+/** POST /me/email-change — pedir el cambio del email de acceso. */
+export const RequestEmailChangeSchema = z.object({
+  newEmail: z.string().trim().toLowerCase().email().max(320),
+  currentPassword: z.string().min(1, 'Escribe tu contraseña actual'),
+});
+export type RequestEmailChangeInput = z.infer<typeof RequestEmailChangeSchema>;
+
+/** POST /email-change/confirm — el enlace que llega al email nuevo. */
+export const ConfirmEmailChangeSchema = z.object({
+  token: z.string().min(10).max(300),
+});
+export type ConfirmEmailChangeInput = z.infer<typeof ConfirmEmailChangeSchema>;

@@ -1458,3 +1458,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 
 - Migración `20261115100000_today_daily_summary` (se aplica sola): `tenants.daily_summary_last_date`.
 - Cron nuevo `today.daily-summary` (cada hora en el minuto 5, en el API): a las 8:00 en la zona horaria de cada negocio envía el resumen del día a los usuarios que lo activen en Ajustes → Perfil → Avisos (apagado por defecto). Usa la cola `email`, así que lo entrega el worker.
+
+## 49. Configuración (2026-10-28)
+
+- Migración `20261116100000_settings_features` (se aplica sola): contacto del negocio y aviso del dominio en `tenants`, cambio de email pendiente en `users`.
+- Cron nuevo `custom-domains.dns-check` (cada hora, en el API): cuando el DNS de un dominio propio pendiente ya apunta a la plataforma, llega un aviso al panel del super admin para crear el Proxy Host y activarlo.
+- El cron de retención borra además las invitaciones sin aceptar caducadas o revocadas hace más de 90 días.

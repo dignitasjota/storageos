@@ -38,6 +38,7 @@ import {
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission, useMe } from '@/lib/auth/hooks';
 import { useInvitations, useResendInvitation, useRevokeInvitation } from '@/lib/invitations/hooks';
+import { useTenantSecuritySettings } from '@/lib/tenant-settings/hooks';
 import {
   useDeactivateUser,
   useTransferOwnership,
@@ -149,8 +150,31 @@ export default function UsersSettingsPage() {
   // (`users:manage`). El backend lo impone; aquí ocultamos las acciones.
   const canManage = useHasPermission('users:manage');
 
-  const pendingInvitations =
-    invitations.data?.filter((i) => i.status === 'pending' || i.status === 'expired') ?? [];
+  const canReadSettings = useHasPermission('settings:read');
+  const security = useTenantSecuritySettings(canReadSettings);
+  const requires2fa = security.data?.requireTwoFactorForManagers === true;
+  const missing2fa = (users.data ?? []).filter(
+    (u) => u.isActive && !u.twoFactorEnabled && (u.role === 'owner' || u.role === 'manager'),
+  );
+
+  // Sin aceptar: pendientes, caducadas y revocadas a mano en los últimos 30 días
+  // (una sustituida por otra más nueva no se enseña).
+  const recentCut = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const allInvitations = invitations.data ?? [];
+  const pendingInvitations = allInvitations.filter((i) => {
+    if (i.status === 'accepted') return false;
+    if (i.status === 'revoked') {
+      if (i.revokedReason !== 'manual') return false;
+      if (new Date(i.revokedAt ?? i.createdAt).getTime() < recentCut) return false;
+      return !allInvitations.some(
+        (o) =>
+          o.id !== i.id &&
+          o.email === i.email &&
+          (o.status === 'pending' || o.status === 'expired'),
+      );
+    }
+    return true;
+  });
 
   return (
     <div className="space-y-8">
@@ -162,6 +186,15 @@ export default function UsersSettingsPage() {
         {canManage && <InviteUserDialog />}
       </div>
 
+      {requires2fa && missing2fa.length > 0 && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          Exiges la verificación en dos pasos a propietarios y gestores, pero{' '}
+          {missing2fa.map((u) => u.fullName).join(', ')}{' '}
+          {missing2fa.length === 1 ? 'aún no la tiene' : 'aún no la tienen'}: se les pedirá
+          activarla la próxima vez que entren.
+        </p>
+      )}
+
       <section className="space-y-3">
         <h2 className="text-lg font-medium">{t('tableTitle')}</h2>
         <div className="rounded-md border">
@@ -172,6 +205,7 @@ export default function UsersSettingsPage() {
                 <TableHead>{t('columns.email')}</TableHead>
                 <TableHead>{t('columns.role')}</TableHead>
                 <TableHead>{t('columns.status')}</TableHead>
+                <TableHead>Dos pasos</TableHead>
                 <TableHead>{t('columns.lastLogin')}</TableHead>
                 <TableHead className="w-[60px]" />
               </TableRow>
@@ -179,7 +213,7 @@ export default function UsersSettingsPage() {
             <TableBody>
               {users.isLoading && (
                 <TableRow>
-                  <TableCell colSpan={6}>
+                  <TableCell colSpan={7}>
                     <Skeleton className="h-6 w-full" />
                   </TableCell>
                 </TableRow>
@@ -200,6 +234,21 @@ export default function UsersSettingsPage() {
                       <Badge variant={u.isActive ? 'default' : 'outline'}>
                         {u.isActive ? t('status.active') : t('status.inactive')}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {u.twoFactorEnabled ? (
+                        <Badge variant="secondary">Activada</Badge>
+                      ) : (
+                        <span
+                          className={
+                            requires2fa && (u.role === 'owner' || u.role === 'manager')
+                              ? 'text-xs font-medium text-amber-700 dark:text-amber-300'
+                              : 'text-xs text-muted-foreground'
+                          }
+                        >
+                          No
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(u.lastLoginAt)}
@@ -289,6 +338,11 @@ export default function UsersSettingsPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(inv.expiresAt)}
+                      {inv.status === 'revoked' && (
+                        <Badge variant="outline" className="ml-2 text-muted-foreground">
+                          Revocada
+                        </Badge>
+                      )}
                       {inv.status === 'expired' && (
                         <Badge
                           variant="outline"
@@ -310,12 +364,14 @@ export default function UsersSettingsPage() {
                           <DropdownMenuItem onClick={() => handleResend(inv)}>
                             {t('actions.resend')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setRevokingInv(inv)}
-                            className="text-destructive"
-                          >
-                            {t('actions.revoke')}
-                          </DropdownMenuItem>
+                          {inv.status !== 'revoked' && (
+                            <DropdownMenuItem
+                              onClick={() => setRevokingInv(inv)}
+                              className="text-destructive"
+                            >
+                              {t('actions.revoke')}
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

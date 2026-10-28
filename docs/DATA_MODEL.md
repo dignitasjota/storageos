@@ -85,13 +85,14 @@ Empresas clientes del SaaS.
 - **Auto-charge (2026-06-11)**: `auto_charge_on_issue BOOLEAN DEFAULT false`. Cuando `true`, al emitir una factura se encola un cobro automático al método de pago predeterminado del cliente (cola BullMQ `payments`, listener de `domain.invoice_issued`). Solo el `owner` puede modificarlo (`PATCH /settings/tenant/billing`).
 - **Recargo por mora (2026-06-22)**: `late_fee_enabled BOOLEAN DEFAULT false` (opt-in) + `late_fee_type TEXT DEFAULT 'percentage'` (percentage/fixed) + `late_fee_value DECIMAL(10,2) DEFAULT 5` + `late_fee_grace_days INT DEFAULT 7`. El dunning emite una factura separada de recargo a los N días de vencimiento. `GET/PATCH /settings/tenant/billing` (`billing:configure`). El enlace está en `invoices.late_fee_for_invoice_id` (FK self, único parcial → idempotencia).
 - **Reviews/NPS (2026-06-22)**: `reviews_auto_request BOOLEAN DEFAULT false` + `review_request_delay_days INT DEFAULT 14`. Opt-in del cron `reviews.auto-request` que pide la valoración N días tras firmar. `GET/PATCH /settings/tenant/reviews` (`settings:read`/`settings:manage`).
+- **Configuración (2026-10-28)**: `contact_phone`/`contact_email` (contacto del negocio, respaldo de los locales) y `custom_domain_ready_at` (el DNS del dominio propio ya apunta; se avisó al super admin).
 - **Referidos (2026-06-22)**: `referral_enabled BOOLEAN DEFAULT false` + `referral_reward_type promotion_discount_type DEFAULT 'fixed'` + `referral_reward_value DECIMAL(10,2) DEFAULT 0`. Opt-in del programa de referidos; la recompensa (percentage/fixed) se materializa como una promoción de un solo uso al convertir. `GET/PATCH /settings/tenant/referrals`.
 
 ### `users`
 
 Staff interno del tenant.
 
-- `id`, `tenant_id`, `email` (único por tenant), `password_hash` (argon2id), `full_name`, `phone`, `role` (owner/manager/staff/readonly), `email_verified_at`, `two_factor_secret` (cifrado AES-256-GCM, ver ADR-015), `two_factor_pending_secret` (cifrado; setado durante el flujo de enrolment, se mueve a `two_factor_secret` al verificar), `two_factor_enabled`, `two_factor_enrolled_at`, `two_factor_last_step` (BIGINT nullable: último paso TOTP de 30 s aceptado en un login → anti-replay, 2026-09), `last_login_at`, `is_active`.
+- `id`, `tenant_id`, `email` (único por tenant), `password_hash` (argon2id), `full_name`, `phone`, `role` (owner/manager/staff/readonly), `email_verified_at`, `two_factor_secret` (cifrado AES-256-GCM, ver ADR-015), `two_factor_pending_secret` (cifrado; setado durante el flujo de enrolment, se mueve a `two_factor_secret` al verificar), `two_factor_enabled`, `two_factor_enrolled_at`, `two_factor_last_step` (BIGINT nullable: último paso TOTP de 30 s aceptado en un login → anti-replay, 2026-09), `last_login_at`, `is_active`, `pending_email` + `email_change_token_hash` + `email_change_expires_at` (cambio de email pendiente de confirmar, 24 h, 2026-10-28).
 
 **Invariantes** (Fase 1E):
 

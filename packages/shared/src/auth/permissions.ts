@@ -213,3 +213,127 @@ export function permissionLabel(p: string): string {
   const [resource = p, action = ''] = p.split(':');
   return `${PERMISSION_RESOURCE_LABELS[resource] ?? resource} · ${PERMISSION_ACTION_LABELS[action] ?? action}`;
 }
+
+/** Plantillas para crear un rol a medida con un clic (se pueden ajustar después). */
+export interface RoleTemplate {
+  key: string;
+  name: string;
+  description: string;
+  baseRole: 'staff' | 'readonly';
+  permissions: Permission[];
+}
+
+export const ROLE_TEMPLATES: RoleTemplate[] = [
+  {
+    key: 'site_manager',
+    name: 'Encargado de local',
+    description: 'Atiende el mostrador: inquilinos, contratos, cobros, tareas e incidencias.',
+    baseRole: 'staff',
+    permissions: [
+      'customers:read',
+      'customers:write',
+      'contracts:read',
+      'contracts:write',
+      'reservations:read',
+      'reservations:write',
+      'units:read',
+      'units:write',
+      'facilities:read',
+      'invoices:read',
+      'invoices:write',
+      'payments:read',
+      'payments:charge',
+      'leads:read',
+      'leads:write',
+      'communications:read',
+      'communications:send',
+      'templates:read',
+      'tasks:read',
+      'tasks:write',
+      'incidents:read',
+      'incidents:write',
+      'products:read',
+      'products:write',
+      'reviews:read',
+      'reviews:write',
+      'promotions:read',
+      'insurance:read',
+      'collections:read',
+      'access:read',
+      'reports:read',
+      'ai:use',
+      'notifications:read',
+    ],
+  },
+  {
+    key: 'accountant',
+    name: 'Contable',
+    description: 'Facturas, cobros, gastos e informes; ve inquilinos y contratos sin cambiarlos.',
+    baseRole: 'staff',
+    permissions: [
+      'customers:read',
+      'contracts:read',
+      'invoices:read',
+      'invoices:write',
+      'invoices:manage',
+      'payments:read',
+      'payments:charge',
+      'expenses:read',
+      'expenses:manage',
+      'collections:read',
+      'reports:read',
+      'reports:run',
+      'analytics:read',
+      'notifications:read',
+    ],
+  },
+  {
+    key: 'sales',
+    name: 'Comercial',
+    description: 'Contactos, reservas y contratos nuevos; campañas y promociones.',
+    baseRole: 'staff',
+    permissions: [
+      'leads:read',
+      'leads:write',
+      'leads:manage',
+      'customers:read',
+      'customers:write',
+      'contracts:read',
+      'contracts:write',
+      'reservations:read',
+      'reservations:write',
+      'units:read',
+      'facilities:read',
+      'communications:read',
+      'communications:send',
+      'templates:read',
+      'promotions:read',
+      'referrals:read',
+      'reviews:read',
+      'reviews:write',
+      'marketing:read',
+      'analytics:read',
+      'ai:use',
+      'notifications:read',
+    ],
+  },
+];
+
+/**
+ * Resumen legible de un conjunto de permisos: qué áreas ve y en cuáles puede
+ * hacer cambios (cualquier permiso distinto de «:read»).
+ */
+export function summarizePermissions(perms: readonly string[]): {
+  sees: string[];
+  changes: string[];
+} {
+  const sees = new Set<string>();
+  const changes = new Set<string>();
+  for (const p of perms) {
+    const [resource = '', action = ''] = p.split(':');
+    const label = PERMISSION_RESOURCE_LABELS[resource] ?? resource;
+    sees.add(label);
+    if (action !== 'read') changes.add(label);
+  }
+  return { sees: [...sees], changes: [...changes] };
+}

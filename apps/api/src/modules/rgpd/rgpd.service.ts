@@ -41,14 +41,26 @@ export class RgpdService {
   ) {}
 
   async list(tenantId: string): Promise<DataSubjectRequestDto[]> {
-    const rows = await this.prisma.withTenant(
-      (tx) =>
-        tx.dataSubjectRequest.findMany({
-          orderBy: [{ submittedAt: 'desc' }],
-        }),
-      tenantId,
-    );
-    return rows.map((r) => this.toDto(r));
+    const { rows, names } = await this.prisma.withTenant(async (tx) => {
+      const rows = await tx.dataSubjectRequest.findMany({
+        orderBy: [{ submittedAt: 'desc' }],
+      });
+      const ids = [...new Set(rows.map((r) => r.customerId).filter((x): x is string => !!x))];
+      const customers = ids.length
+        ? await tx.customer.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, firstName: true, lastName: true, companyName: true },
+          })
+        : [];
+      const names = new Map(
+        customers.map((c) => [
+          c.id,
+          c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || null,
+        ]),
+      );
+      return { rows, names };
+    }, tenantId);
+    return rows.map((r) => this.toDto(r, r.customerId ? names.get(r.customerId) : null));
   }
 
   async create(args: {
@@ -365,10 +377,11 @@ export class RgpdService {
     return this.toDto(row);
   }
 
-  private toDto(row: DataSubjectRequest): DataSubjectRequestDto {
+  private toDto(row: DataSubjectRequest, customerName?: string | null): DataSubjectRequestDto {
     return {
       id: row.id,
       customerId: row.customerId,
+      customerName: customerName ?? null,
       email: row.email,
       requestType: row.requestType,
       status: row.status,

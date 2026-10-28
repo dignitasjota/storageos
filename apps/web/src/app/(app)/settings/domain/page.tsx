@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import type { CustomDomainCheckDto } from '@storageos/shared';
+
 import { FeatureGate } from '@/components/auth/feature-gate';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useTenantBranding, useUpdateTenantBranding } from '@/lib/branding/hooks';
 import { useCreateSupportTicket } from '@/lib/support/hooks';
+import { useCheckCustomDomain } from '@/lib/tenant-settings/hooks';
 
 /** Dominio propio de la web pública (feature `custom_domain`). */
 export default function DomainSettingsPage() {
@@ -39,6 +42,22 @@ function DomainCard() {
   const [domain, setDomain] = useState('');
   const ticket = useCreateSupportTicket();
   const [notified, setNotified] = useState(false);
+  const checkDns = useCheckCustomDomain();
+  const [check, setCheck] = useState<CustomDomainCheckDto | null>(null);
+
+  async function runCheck() {
+    try {
+      const r = await checkDns.mutateAsync();
+      setCheck(r);
+      if (r.pointsToPlatform) {
+        toast.success(
+          'Tu dominio ya apunta a la plataforma. Hemos avisado al equipo para activarlo.',
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo comprobar el DNS.');
+    }
+  }
 
   async function notifyDnsReady(d: string) {
     try {
@@ -135,14 +154,41 @@ function DomainCard() {
                   </Link>{' '}
                   cuando esté listo.
                 </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={ticket.isPending || notified}
-                  onClick={() => void notifyDnsReady(savedDomain)}
-                >
-                  {notified ? 'Aviso enviado' : 'Ya he configurado el DNS'}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={checkDns.isPending}
+                    onClick={() => void runCheck()}
+                  >
+                    {checkDns.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
+                    Ya he configurado el DNS
+                  </Button>
+                </div>
+                {check && check.pointsToPlatform && (
+                  <p className="text-xs text-green-700 dark:text-green-400">
+                    El DNS ya apunta a la plataforma. Hemos avisado al equipo de TrasterOS: lo
+                    activaremos y emitiremos el certificado HTTPS.
+                  </p>
+                )}
+                {check && !check.pointsToPlatform && (
+                  <div className="space-y-2 rounded-md bg-muted p-2 text-xs">
+                    <p>
+                      Todavía no apunta. Ahora mismo responde:{' '}
+                      <code>{check.found.length ? check.found.join(', ') : 'nada'}</code>. Debe
+                      apuntar a <code>{check.expected.join(', ')}</code>. Los cambios de DNS pueden
+                      tardar unas horas; lo comprobamos solos cada hora.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={ticket.isPending || notified}
+                      onClick={() => void notifyDnsReady(savedDomain)}
+                    >
+                      {notified ? 'Aviso enviado' : 'Avisar igualmente al equipo'}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>

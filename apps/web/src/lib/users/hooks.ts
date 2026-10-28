@@ -3,6 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  EmailChangeStatusDto,
+  RequestEmailChangeInput,
+  UserSessionDto,
   ChangePasswordInput,
   UpdateProfileInput,
   UpdateUserInput,
@@ -82,5 +85,57 @@ export function useChangePassword() {
         method: 'POST',
         json: input,
       }),
+  });
+}
+
+const mySessionsKey = ['me', 'sessions'] as const;
+
+export function useMySessions() {
+  return useQuery({
+    queryKey: mySessionsKey,
+    queryFn: () => apiFetch<UserSessionDto[]>('/me/sessions'),
+  });
+}
+
+export function useRevokeMySession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/me/sessions/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: mySessionsKey }),
+  });
+}
+
+export function useRevokeOtherSessions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ revoked: number }>('/me/sessions/revoke-others', { method: 'POST' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: mySessionsKey }),
+  });
+}
+
+const emailChangeKey = ['me', 'email-change'] as const;
+
+export function useEmailChange() {
+  return useQuery({
+    queryKey: emailChangeKey,
+    queryFn: () => apiFetch<EmailChangeStatusDto>('/me/email-change'),
+  });
+}
+
+export function useRequestEmailChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RequestEmailChangeInput) =>
+      apiFetch<EmailChangeStatusDto>('/me/email-change', { method: 'POST', json: input }),
+    onSuccess: (data) => qc.setQueryData(emailChangeKey, data),
+  });
+}
+
+export function useCancelEmailChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<void>('/me/email-change', { method: 'DELETE' }),
+    onSuccess: () => qc.setQueryData(emailChangeKey, { pendingEmail: null, expiresAt: null }),
   });
 }

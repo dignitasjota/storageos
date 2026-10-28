@@ -326,8 +326,9 @@ export class LandingService {
         address: f.address,
         city: f.city,
         postalCode: f.postalCode,
-        contactPhone: f.contactPhone,
-        contactEmail: f.contactEmail,
+        // Sin contacto propio del local, el del negocio.
+        contactPhone: f.contactPhone ?? tenant.contactPhone,
+        contactEmail: f.contactEmail ?? tenant.contactEmail,
         openingHours: (f.openingHours as OpeningHours) ?? {},
         timezone: f.timezone,
         latitude: f.latitude != null ? Number(f.latitude) : null,
@@ -558,6 +559,8 @@ export class LandingService {
         id: true,
         status: true,
         canceledAt: true,
+        contactPhone: true,
+        contactEmail: true,
         updatedAt: true,
       },
     });
@@ -580,8 +583,8 @@ export class LandingService {
     return {
       portalUnavailable: suspended,
       webUnavailable: suspended && this.webOffline(tenant),
-      contactPhone: contact?.contactPhone ?? null,
-      contactEmail: contact?.contactEmail ?? null,
+      contactPhone: suspended ? (tenant.contactPhone ?? contact?.contactPhone ?? null) : null,
+      contactEmail: suspended ? (tenant.contactEmail ?? contact?.contactEmail ?? null) : null,
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
       brandColor: tenant.portalBrandColor,

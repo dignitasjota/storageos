@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronRight } from 'lucide-react';
+import { AlertTriangle, ChevronRight, XCircle } from 'lucide-react';
 import Link from 'next/link';
 
 import { MODULE_SETTINGS } from './settings-nav';
@@ -8,6 +8,7 @@ import { useVisibleSettingsNav } from './use-settings-nav';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { usePermissions } from '@/lib/auth/hooks';
+import { useConfigHealth } from '@/lib/tenant-settings/hooks';
 
 /** Inicio de Configuración: qué hay en cada sitio, agrupado por tema. */
 export default function SettingsHomePage() {
@@ -16,6 +17,8 @@ export default function SettingsHomePage() {
   const moduleSettings = MODULE_SETTINGS.filter(
     (i) => !i.permission || permissions.includes(i.permission),
   );
+  const health = useConfigHealth(permissions.includes('settings:read'));
+  const issues = health.data ?? [];
 
   return (
     <div className="space-y-6">
@@ -25,6 +28,34 @@ export default function SettingsHomePage() {
           Todo lo que puedes ajustar, agrupado por tema.
         </p>
       </div>
+
+      {issues.length > 0 && (
+        <Card className="border-amber-300 dark:border-amber-900/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Conviene revisar</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {issues.map((i) => (
+              <Link
+                key={i.key}
+                href={i.href}
+                className="flex items-start gap-3 rounded-md p-2 hover:bg-muted"
+              >
+                {i.level === 'error' ? (
+                  <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+                ) : (
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">{i.title}</span>
+                  <span className="block text-xs text-muted-foreground">{i.detail}</span>
+                </span>
+                <ChevronRight className="mt-0.5 size-4 text-muted-foreground" aria-hidden />
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {groups.map((g) => (

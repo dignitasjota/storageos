@@ -58,7 +58,13 @@ const isOpen = (s: RequestStatus) => s === 'open' || s === 'in_progress';
 export default function RgpdSettingsPage() {
   const requests = useDataSubjectRequests();
   const [creating, setCreating] = useState(false);
-  const rows = requests.data ?? [];
+  const [filter, setFilter] = useState<'open' | 'all'>('open');
+  const all = requests.data ?? [];
+  const openCount = all.filter((r) => isOpen(r.status)).length;
+  const overdueCount = all.filter(
+    (r) => isOpen(r.status) && new Date(r.dueAt).getTime() < Date.now(),
+  ).length;
+  const rows = filter === 'open' ? all.filter((r) => isOpen(r.status)) : all;
 
   return (
     <div className="space-y-6">
@@ -66,7 +72,28 @@ export default function RgpdSettingsPage() {
         title="Protección de datos"
         description="Las peticiones de tus inquilinos sobre sus datos personales: acceso, portabilidad, rectificación o borrado. La ley da un mes para responder."
       />
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant={filter === 'open' ? 'default' : 'outline'}
+            onClick={() => setFilter('open')}
+          >
+            Sin cerrar ({openCount})
+          </Button>
+          <Button
+            size="sm"
+            variant={filter === 'all' ? 'default' : 'outline'}
+            onClick={() => setFilter('all')}
+          >
+            Todas ({all.length})
+          </Button>
+          {overdueCount > 0 && (
+            <Badge variant="destructive" className="self-center">
+              {overdueCount} fuera de plazo
+            </Badge>
+          )}
+        </div>
         <Button onClick={() => setCreating(true)}>
           <Plus className="mr-1 size-4" /> Registrar solicitud
         </Button>
@@ -75,6 +102,12 @@ export default function RgpdSettingsPage() {
         <div className="flex justify-center py-8">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
+      ) : rows.length === 0 && all.length > 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            No hay solicitudes sin cerrar.
+          </CardContent>
+        </Card>
       ) : rows.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -100,6 +133,7 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
   const exportData = useExportCustomerData();
   const anonymize = useAnonymizeCustomer();
   const overdue = isOpen(r.status) && new Date(r.dueAt).getTime() < Date.now();
+  const daysLeft = Math.ceil((new Date(r.dueAt).getTime() - Date.now()) / 86_400_000);
 
   async function setStatus(status: RequestStatus) {
     try {
@@ -145,7 +179,7 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
           <p className="truncate text-muted-foreground">
             {r.customerId ? (
               <Link href={`/customers/${r.customerId}`} className="hover:underline">
-                {r.email}
+                {r.customerName ? `${r.customerName} · ${r.email}` : r.email}
               </Link>
             ) : (
               r.email
@@ -154,6 +188,11 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
         </div>
         <div className="flex items-center gap-2">
           {overdue && <Badge variant="destructive">Fuera de plazo</Badge>}
+          {isOpen(r.status) && !overdue && daysLeft <= 7 && (
+            <Badge variant="secondary">
+              {daysLeft <= 1 ? 'Vence mañana' : `Quedan ${daysLeft} días`}
+            </Badge>
+          )}
           <Badge variant={isOpen(r.status) ? 'secondary' : 'outline'}>
             {STATUS_LABELS[r.status]}
           </Badge>

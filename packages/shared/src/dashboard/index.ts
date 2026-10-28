@@ -49,6 +49,8 @@ export interface TodayDto {
   depositsToCollect: { count: number; items: TodayItemDto[] };
   /** Viviendas: fianzas aún sin depositar en el organismo autonómico. */
   depositsToRegister: { count: number; items: TodayItemDto[] };
+  /** Solicitudes de protección de datos sin cerrar que vencen en 7 días (o ya vencidas). */
+  rgpdRequestsDue: { count: number; items: TodayItemDto[] };
   /** Reservas pendientes que expiran en los próximos 7 días. */
   reservationsExpiring: { count: number; items: TodayItemDto[] };
   /** Facturas que vencen hoy (issued con dueDate = hoy). */

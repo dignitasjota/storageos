@@ -14,7 +14,9 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { AppLockPanel } from './app-lock-panel';
+import { EmailChange } from './email-change';
 import { EmailNoticesForm } from './email-notices-form';
+import { SessionsPanel } from './sessions-panel';
 import { TwoFactorPanel } from './two-factor-panel';
 
 import { DevicePushCard } from '@/components/push/device-push-card';
@@ -28,7 +30,6 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { useMe } from '@/lib/auth/hooks';
@@ -42,7 +43,10 @@ export default function ProfileSettingsPage() {
   const [tab, setTab] = useState('profile');
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get('tab');
-    if (wanted && ['profile', 'password', '2fa', 'app-lock', 'notices'].includes(wanted))
+    if (
+      wanted &&
+      ['profile', 'password', '2fa', 'sessions', 'app-lock', 'notices'].includes(wanted)
+    )
       setTab(wanted);
   }, []);
 
@@ -58,6 +62,7 @@ export default function ProfileSettingsPage() {
           <TabsTrigger value="profile">{t('tabs.profile')}</TabsTrigger>
           <TabsTrigger value="password">{t('tabs.password')}</TabsTrigger>
           <TabsTrigger value="2fa">Verificación en dos pasos</TabsTrigger>
+          <TabsTrigger value="sessions">Sesiones</TabsTrigger>
           <TabsTrigger value="app-lock">App del móvil</TabsTrigger>
           <TabsTrigger value="notices">Avisos</TabsTrigger>
         </TabsList>
@@ -79,6 +84,9 @@ export default function ProfileSettingsPage() {
         </TabsContent>
         <TabsContent value="2fa" className="mt-6">
           <TwoFactorPanel />
+        </TabsContent>
+        <TabsContent value="sessions" className="mt-6 max-w-2xl">
+          <SessionsPanel />
         </TabsContent>
         <TabsContent value="app-lock" className="mt-6">
           <AppLockPanel />
@@ -155,14 +163,7 @@ function ProfileForm({ defaultValues, email, t, tCommon }: ProfileFormProps) {
             </FormItem>
           )}
         />
-        {/* El email es de solo lectura: NO va dentro de <FormField>, así que
-            no puede usar <FormLabel>/<FormControl> (llaman a useFormField y
-            crashean fuera de un FormField). Va con Label/Input planos. */}
-        <div className="space-y-2">
-          <Label>{t('email')}</Label>
-          <Input value={email} disabled readOnly />
-          <p className="text-[0.8rem] text-muted-foreground">{t('emailHint')}</p>
-        </div>
+        <EmailChange email={email} />
         <Button type="submit" disabled={form.formState.isSubmitting}>
           {form.formState.isSubmitting ? tCommon('loading') : t('submit')}
         </Button>
