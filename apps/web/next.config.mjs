@@ -49,7 +49,10 @@ const withBundleAnalyzer = bundleAnalyzer({ enabled: process.env.ANALYZE === 'tr
  * - frame-ancestors 'none': bloquea que cualquiera nos embeba (anti
  *   clickjacking). El widget publico se sirve desde otra ruta y su
  *   CSP se inyecta en el middleware.
- * - form-action 'self': impide submits a dominios externos.
+ * - form-action 'self' + Redsys: impide submits a dominios externos salvo
+ *   el TPV de Redsys (pruebas en sis-t.redsys.es:25443, real en
+ *   sis.redsys.es), al que se envía el formulario de pago firmado. Sin él,
+ *   el navegador bloquea el envío en silencio y el botón «no hace nada».
  * - object-src 'none': no flash, no plugins.
  * - base-uri 'self': impide <base href> a otros origenes.
  * - report-uri /api/csp-report: endpoint propio para recopilar
@@ -89,7 +92,7 @@ const cspDirectives = {
     'https://player.vimeo.com',
   ],
   'frame-ancestors': ["'none'"],
-  'form-action': ["'self'"],
+  'form-action': ["'self'", 'https://sis.redsys.es', 'https://sis-t.redsys.es:25443'],
   'base-uri': ["'self'"],
   'object-src': ["'none'"],
   'report-uri': ['/api/csp-report'],
