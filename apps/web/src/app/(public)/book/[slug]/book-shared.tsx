@@ -154,6 +154,7 @@ export function BookPageBody({
         unitTypeId,
         months,
         ...(couponCode ? { couponCode } : {}),
+        ...(/^\d{4}-\d{2}-\d{2}$/.test(startDate) ? { startDate } : {}),
       },
     })
       .then((q) => {
@@ -165,7 +166,7 @@ export function BookPageBody({
     return () => {
       cancelled = true;
     };
-  }, [slug, facilityId, unitTypeId, months, couponCode]);
+  }, [slug, facilityId, unitTypeId, months, couponCode, startDate]);
   const couponValid = !!(couponCode && quote?.coupon?.valid);
   const [showErrors, setShowErrors] = useState(false);
   const [leadCaptured, setLeadCaptured] = useState(false);

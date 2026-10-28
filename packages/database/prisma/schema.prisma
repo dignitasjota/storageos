@@ -376,6 +376,9 @@ model Tenant {
   lateFeeType                  String                @default("percentage") @map("late_fee_type")
   lateFeeValue                 Decimal               @default(5) @map("late_fee_value") @db.Decimal(10, 2)
   lateFeeGraceDays             Int                   @default(7) @map("late_fee_grace_days")
+  /// Primer pago mensual: a partir de este día del mes, la primera factura
+  /// incluye también el mes siguiente completo. Null = desactivado.
+  firstPaymentNextMonthFromDay Int?                  @default(20) @map("first_payment_next_month_from_day")
   /// Si true, un cron pide la valoracion (NPS) automaticamente N dias tras
   /// firmar el contrato. Opt-in para no enviar emails por sorpresa.
   reviewsAutoRequest           Boolean               @default(false) @map("reviews_auto_request")

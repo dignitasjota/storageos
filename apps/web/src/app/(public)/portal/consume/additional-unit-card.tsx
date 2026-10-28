@@ -19,6 +19,7 @@ import { usePortalLocale } from '../i18n/provider';
 
 import { reportInterest } from './portal-interest';
 
+import { firstMonthLabels } from '@/app/(public)/s/[slug]/first-month-lines';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -360,12 +361,44 @@ export function AdditionalUnitCard({
             )}
             {quote && (
               <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-sm">
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">
-                    {t('summaryRent', { count: quote.months })}
-                  </span>
-                  <span className="tabular-nums">{money(quote.rentSubtotal)}</span>
-                </div>
+                {(() => {
+                  const fm = quote.firstMonth;
+                  if (!fm) {
+                    return (
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground">
+                          {t('summaryRent', { count: quote.months })}
+                        </span>
+                        <span className="tabular-nums">{money(quote.rentSubtotal)}</span>
+                      </div>
+                    );
+                  }
+                  const labels = firstMonthLabels(fm, intlLocaleForPortal(locale));
+                  return (
+                    <>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground">
+                          {fm.days === fm.daysInMonth
+                            ? t('summaryRent', { count: 1 })
+                            : t('summaryDays', {
+                                from: labels.from,
+                                to: labels.to,
+                                count: fm.days,
+                              })}
+                        </span>
+                        <span className="tabular-nums">{money(fm.firstMonthRent)}</span>
+                      </div>
+                      {fm.includesNextMonth && (
+                        <div className="flex justify-between gap-3">
+                          <span className="text-muted-foreground">
+                            {t('summaryMonth', { month: labels.nextMonth })}
+                          </span>
+                          <span className="tabular-nums">{money(fm.nextMonthRent)}</span>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
                 {quote.discountAmount > 0 && (
                   <div className="flex justify-between gap-3">
                     <span className="text-muted-foreground">{t('summaryDiscount')}</span>
@@ -393,7 +426,11 @@ export function AdditionalUnitCard({
                   <span className="tabular-nums">{money(quote.totalToPay)}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {quote.prorated ? t('summaryProrated') : t('summaryAfter')}
+                  {quote.firstMonth?.includesNextMonth
+                    ? t('summaryNextMonthNote')
+                    : quote.prorated && !quote.firstMonth
+                      ? t('summaryProrated')
+                      : t('summaryAfter')}
                 </p>
               </div>
             )}

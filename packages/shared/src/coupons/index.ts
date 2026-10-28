@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { firstMonthCents, type FirstMonthPlan } from '../billing/first-month';
+
 /**
  * Cupones: descuento sobre el pago que se hace en ese momento (el primer pago
  * del contrato, de 1 a 12 meses por adelantado). Las renovaciones van al
@@ -206,6 +208,20 @@ export interface FirstPaymentQuoteDto {
    * (prorrateada): el importe real puede ser menor.
    */
   prorated: boolean;
+  /**
+   * Con la fecha de entrada: qué cubre el primer pago mensual (días del mes de
+   * entrada y, desde el día que fije el negocio, el mes siguiente completo).
+   * Importes del alquiler sin IVA.
+   */
+  firstMonth: {
+    periodStart: string;
+    periodEnd: string;
+    days: number;
+    daysInMonth: number;
+    includesNextMonth: boolean;
+    firstMonthRent: number;
+    nextMonthRent: number;
+  } | null;
   /** Cupón indicado: si vale y, si no, por qué. */
   coupon: { code: string; name: string | null; valid: boolean; message: string | null } | null;
 }
@@ -215,6 +231,11 @@ export const BookingQuoteSchema = z.object({
   facilityId: z.string().uuid(),
   unitTypeId: z.string().uuid(),
   months: FirstPaymentMonthsSchema.default(1),
+  /** Fecha de entrada (YYYY-MM-DD): el primer pago mensual sale exacto. */
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   couponCode: z.string().trim().toUpperCase().max(40).optional().or(z.literal('')),
 });
 export type BookingQuoteInput = z.infer<typeof BookingQuoteSchema>;
@@ -435,13 +456,19 @@ export function buildFirstPaymentQuote(args: {
   insuranceWithVat?: number;
   /** Sin cupón ni prepago y pagando un mes: la 1ª factura se prorratea. */
   prorated: boolean;
+  /** Fecha de entrada conocida: el primer pago mensual se calcula exacto. */
+  firstMonth?: FirstMonthPlan | null;
   coupon: FirstPaymentQuoteDto['coupon'];
 }): FirstPaymentQuoteDto {
   const monthCents = Math.round(args.monthlyPrice * 100);
-  const subtotal = monthCents * args.months;
+  const plan = args.prorated && args.months === 1 ? (args.firstMonth ?? null) : null;
+  const split = plan ? firstMonthCents(monthCents, plan) : null;
+  const subtotal = split ? split.total : monthCents * args.months;
   const discount = Math.min(Math.max(0, Math.round(args.discountAmount * 100)), subtotal);
   const rentTotal = subtotal - discount;
-  const withVat = Math.round((rentTotal * (100 + args.vatRate)) / 100);
+  const vat = (cents: number) => Math.round((cents * (100 + args.vatRate)) / 100);
+  // La factura redondea el IVA por línea: el resumen, igual.
+  const withVat = split ? vat(split.firstMonth) + vat(split.nextMonth) : vat(rentTotal);
   const deposit = Math.round(args.deposit * 100);
   const insurance = Math.round((args.insuranceWithVat ?? 0) * 100);
   return {
@@ -457,6 +484,18 @@ export function buildFirstPaymentQuote(args: {
     deposit: deposit / 100,
     totalToPay: (withVat + insurance + deposit) / 100,
     prorated: args.prorated,
+    firstMonth:
+      plan && split
+        ? {
+            periodStart: plan.periodStart,
+            periodEnd: plan.periodEnd,
+            days: plan.days,
+            daysInMonth: plan.daysInMonth,
+            includesNextMonth: plan.includesNextMonth,
+            firstMonthRent: split.firstMonth / 100,
+            nextMonthRent: split.nextMonth / 100,
+          }
+        : null,
     coupon: args.coupon,
   };
 }

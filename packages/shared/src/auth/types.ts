@@ -174,6 +174,8 @@ export interface TenantBillingSettingsResponse {
   lateFeeType: 'percentage' | 'fixed';
   lateFeeValue: number;
   lateFeeGraceDays: number;
+  /** Desde este día del mes, el primer pago incluye el mes siguiente (null = no). */
+  firstPaymentNextMonthFromDay: number | null;
   autoChargeRetryEnabled: boolean;
   autoChargeRetryMax: number;
   autoChargeRetryIntervalDays: number;

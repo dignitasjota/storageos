@@ -199,6 +199,7 @@ export class BookingService {
       unitTypeId: input.unitTypeId,
       months: input.months,
       ...(input.couponCode ? { couponCode: input.couponCode } : {}),
+      ...(input.startDate ? { startDate: input.startDate } : {}),
     });
   }
 
@@ -211,6 +212,7 @@ export class BookingService {
       couponCode?: string | undefined;
       /** Solo al reservar (no en el resumen público: diría si un email es cliente). */
       email?: string | undefined;
+      startDate?: string | undefined;
     },
   ): Promise<FirstPaymentQuoteDto> {
     const unit = await this.admin.unit.findFirst({
@@ -257,6 +259,7 @@ export class BookingService {
       isNewCustomer: customer ? await this.coupons.isNewCustomer(tenantId, customer.id) : null,
       customerId: customer?.id ?? null,
       publicMessages: true,
+      startDate: input.startDate ?? null,
     });
   }
 

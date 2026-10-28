@@ -234,6 +234,11 @@ export const UpdateTenantBillingSettingsSchema = z.object({
   lateFeeType: z.enum(['percentage', 'fixed']).optional(),
   lateFeeValue: z.number().nonnegative().max(100_000).optional(),
   lateFeeGraceDays: z.number().int().min(0).max(120).optional(),
+  /**
+   * Primer pago mensual: a partir de este día del mes, incluye también el mes
+   * siguiente completo (null = desactivado).
+   */
+  firstPaymentNextMonthFromDay: z.number().int().min(2).max(28).nullable().optional(),
   /** Reintentos de cobro automático de las facturas vencidas (opt-in, requiere auto-charge). */
   autoChargeRetryEnabled: z.boolean().optional(),
   autoChargeRetryMax: z.number().int().min(1).max(10).optional(),

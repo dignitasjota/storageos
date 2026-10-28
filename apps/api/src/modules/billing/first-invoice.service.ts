@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { rentTax } from '@storageos/shared';
+import { firstMonthCents, firstMonthPlan, rentTax } from '@storageos/shared';
 
 import { toCents } from '../../common/money';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
@@ -42,7 +42,9 @@ function addDays(d: Date, days: number): Date {
  * Primera factura de un contrato al firmarlo.
  *
  * - Mensual sin cupón: desde el alta hasta fin de mes, prorrateada (encaja con
- *   la recurrente del mes natural).
+ *   la recurrente del mes natural). Desde el día que fije el negocio
+ *   (`firstPaymentNextMonthFromDay`, 20 por defecto), incluye también el mes
+ *   siguiente completo y la recurrente empieza el mes después.
  * - Prepago semestral/anual, primer pago de varios meses o con cupón: cubre
  *   los meses completos desde el alta. Con cupón se descuenta lo que se paga
  *   ahora (los meses gratis salen en una línea a 0 €); después la recurrente
@@ -62,13 +64,28 @@ export class FirstInvoiceService {
     private readonly events: EventEmitter2,
   ) {}
 
-  /** ¿Hay que emitir la 1ª factura al firmar en el panel? (cupón o varios meses). */
+  /**
+   * ¿Hay que emitir la 1ª factura al firmar en el panel? Con cupón, varios
+   * meses o una entrada a final de mes que incluye el mes siguiente (si no,
+   * la recurrente facturaría ese mes por separado a los pocos días).
+   */
   async needsOnSign(tenantId: string, contractId: string): Promise<boolean> {
     const c = await this.admin.contract.findFirst({
       where: { id: contractId, tenantId },
-      select: { firstPaymentMonths: true, _count: { select: { couponRedemptions: true } } },
+      select: {
+        startDate: true,
+        billingIntervalMonths: true,
+        firstPaymentMonths: true,
+        tenant: { select: { firstPaymentNextMonthFromDay: true } },
+        _count: { select: { couponRedemptions: true } },
+      },
     });
-    return !!c && (c.firstPaymentMonths > 1 || c._count.couponRedemptions > 0);
+    if (!c) return false;
+    if (c.firstPaymentMonths > 1 || c._count.couponRedemptions > 0) return true;
+    return (
+      c.billingIntervalMonths === 1 &&
+      firstMonthPlan(ymd(c.startDate), c.tenant.firstPaymentNextMonthFromDay).includesNextMonth
+    );
   }
 
   /** Emite la 1ª factura si el contrato aún no tiene ninguna. No lanza. */
@@ -122,6 +139,14 @@ export class FirstInvoiceService {
       let periodStart: Date;
       let periodEnd: Date;
       const items: CreateInvoiceItemInput[] = [];
+      // Desde cuándo factura la recurrente tras esta factura. Se guarda
+      // DESPUÉS de crearla: si la emisión falla, la recurrente sigue
+      // facturando esos meses en vez de saltárselos.
+      let billingStartsOn: Date | null = null;
+      // Líneas de alquiler sobre las que se descuenta el saldo a favor.
+      let rentLineCount = 1;
+      // El primer pago mensual incluye el mes siguiente completo.
+      let includesNextMonth = false;
       const line = (description: string, quantity: number, unitPrice: number) => ({
         description,
         quantity,
@@ -198,61 +223,106 @@ export class FirstInvoiceService {
         }
         // Después de este periodo se factura mes a mes (el prepago
         // semestral/anual se renueva por su cuenta con su periodo).
-        if (interval === 1) {
-          await this.admin.contract.update({
-            where: { id: contractId },
-            data: { billingStartsOn: addDays(periodEnd, 1) },
-          });
-        }
+        if (interval === 1) billingStartsOn = addDays(periodEnd, 1);
       } else {
         // MENSUAL: desde el alta hasta fin del mes natural, prorrateado por
-        // días. Si el alta es el día 1, sale el mes completo.
-        const y = start.getUTCFullYear();
-        const m = start.getUTCMonth();
-        const dayOfMonth = start.getUTCDate();
-        const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-        periodStart = new Date(Date.UTC(y, m, dayOfMonth));
-        periodEnd = new Date(Date.UTC(y, m, daysInMonth));
-        const daysOccupied = daysInMonth - dayOfMonth + 1;
-        const isFullMonth = daysOccupied >= daysInMonth;
-        const unitPrice = isFullMonth
-          ? fullPrice
-          : Math.round((toCents(fullPrice) * daysOccupied) / daysInMonth) / 100;
-        items.push(
-          line(
-            isFullMonth
-              ? `Alquiler ${contract.contractNumber} (${ymd(periodStart).slice(0, 7)})`
-              : `Alquiler ${contract.contractNumber} (${ymd(periodStart)}–${ymd(
-                  periodEnd,
-                )}, prorrateado ${daysOccupied}/${daysInMonth} d)`,
-            1,
-            unitPrice,
-          ),
+        // días (el día 1, el mes completo). Desde el día que fije el negocio,
+        // también el mes siguiente completo: la siguiente cuota no llega a los
+        // pocos días.
+        const tenant = await this.admin.tenant.findUnique({
+          where: { id: tenantId },
+          select: { firstPaymentNextMonthFromDay: true },
+        });
+        const plan = firstMonthPlan(ymd(start), tenant?.firstPaymentNextMonthFromDay ?? null);
+        const rentCents = firstMonthCents(toCents(fullPrice), plan);
+        periodStart = new Date(`${plan.periodStart}T00:00:00Z`);
+        periodEnd = new Date(`${plan.periodEnd}T00:00:00Z`);
+        const firstMonthEnd = new Date(
+          Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth() + 1, 0),
         );
+        items.push({
+          ...line(
+            plan.fullFirstMonth
+              ? `Alquiler ${contract.contractNumber} (${plan.periodStart.slice(0, 7)})`
+              : `Alquiler ${contract.contractNumber} (${plan.periodStart}–${ymd(
+                  firstMonthEnd,
+                )}, prorrateado ${plan.days}/${plan.daysInMonth} d)`,
+            1,
+            rentCents.firstMonth / 100,
+          ),
+          periodEnd: ymd(firstMonthEnd),
+        });
+        if (plan.includesNextMonth && plan.nextMonthStart) {
+          items.push({
+            ...line(
+              `Alquiler ${contract.contractNumber} (${plan.nextMonthStart.slice(0, 7)})`,
+              1,
+              rentCents.nextMonth / 100,
+            ),
+            periodStart: plan.nextMonthStart,
+          });
+        }
+        // El seguro de los mismos días (antes la 1ª factura prorrateada no lo
+        // llevaba y la recurrente no lo recuperaba).
+        if (
+          contract.insurancePlanId &&
+          contract.insurancePrice &&
+          Number(contract.insurancePrice) > 0
+        ) {
+          const insurance = firstMonthCents(toCents(Number(contract.insurancePrice)), plan);
+          items.push({
+            description: `Protección de contenido${
+              contract.insurancePlan?.name ? ` — ${contract.insurancePlan.name}` : ''
+            } (${plan.periodStart}–${plan.periodEnd})`,
+            quantity: 1,
+            unitPrice: insurance.total / 100,
+            taxRate: Number(contract.insurancePlan?.taxRate ?? 21),
+            relatedContractId: contractId,
+            periodStart: plan.periodStart,
+            periodEnd: plan.periodEnd,
+          });
+        }
+        if (plan.includesNextMonth) {
+          includesNextMonth = true;
+          rentLineCount = 2;
+          billingStartsOn = new Date(`${plan.billingStartsOn}T00:00:00Z`);
+        }
       }
 
       // Descuento pendiente del contrato (la señal de la reserva ya cobrada): se
-      // resta del alquiler de esta primera factura.
-      const rentLine = items[0];
-      const credit = rentLine
-        ? await claimContractCredit(
-            this.admin,
-            contractId,
-            toCents(rentLine.unitPrice) * rentLine.quantity,
-          )
-        : null;
-      if (rentLine && credit && credit.cents > 0) {
-        rentLine.unitPrice = (toCents(rentLine.unitPrice) * rentLine.quantity - credit.cents) / 100;
-        rentLine.quantity = 1;
-        rentLine.description = `${rentLine.description} — descontados ${centsLabel(credit.cents)} (${
-          credit.reason ?? 'saldo a favor'
-        })`;
+      // resta del alquiler de esta primera factura (de las dos líneas si
+      // incluye el mes siguiente: primero los días del mes de entrada, después
+      // el mes siguiente).
+      const rentLines = items.slice(0, rentLineCount);
+      const rentCentsTotal = rentLines.reduce(
+        (sum, l) => sum + toCents(l.unitPrice) * l.quantity,
+        0,
+      );
+      const credit =
+        rentLines.length > 0
+          ? await claimContractCredit(this.admin, contractId, rentCentsTotal)
+          : null;
+      if (credit && credit.cents > 0) {
+        let remaining = credit.cents;
+        for (const rentLine of rentLines) {
+          if (remaining <= 0) break;
+          const lineCents = toCents(rentLine.unitPrice) * rentLine.quantity;
+          const applied = Math.min(lineCents, remaining);
+          remaining -= applied;
+          rentLine.unitPrice = (lineCents - applied) / 100;
+          rentLine.quantity = 1;
+          rentLine.description = `${rentLine.description} — descontados ${centsLabel(applied)} (${
+            credit.reason ?? 'saldo a favor'
+          })`;
+        }
       }
 
       // Un mes: vence a los 15 días del fin del mes (como la recurrente). Varios
       // meses por adelantado: a los 15 días del inicio (si no, un anual vencía
       // al cabo de un año y no entraba nunca en impagos).
-      const dueDate = months > 1 ? addDays(periodStart, 15) : addDays(periodEnd, 15);
+      // Con el mes siguiente incluido, igual que varios meses.
+      const dueDate =
+        months > 1 || includesNextMonth ? addDays(periodStart, 15) : addDays(periodEnd, 15);
       invoice = await this.invoices
         .create({
           tenantId,
@@ -274,6 +344,12 @@ export class FirstInvoiceService {
           await credit?.restore().catch(() => undefined);
           throw err;
         });
+      if (billingStartsOn) {
+        await this.admin.contract.update({
+          where: { id: contractId },
+          data: { billingStartsOn },
+        });
+      }
       await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
       if (coupon) {
         await this.admin.couponRedemption.update({
