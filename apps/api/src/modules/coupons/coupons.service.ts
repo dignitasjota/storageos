@@ -9,6 +9,7 @@ import {
   couponRuleIssues,
   publicCouponRejectMessage,
   buildFirstPaymentQuote,
+  firstMonthPlan,
   quoteCoupon,
   rentTax,
   type CouponDto,
@@ -261,6 +262,19 @@ export class CouponsService {
     return n > 0;
   }
 
+  /** Día desde el que el primer pago mensual incluye el mes siguiente (null = no). */
+  async nextMonthFromDay(tenantId: string): Promise<number | null> {
+    const t = await this.prisma.withTenant(
+      (tx) =>
+        tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: { firstPaymentNextMonthFromDay: true },
+        }),
+      tenantId,
+    );
+    return t?.firstPaymentNextMonthFromDay ?? null;
+  }
+
   /** Calcula el cupón para un pago, sin reservar el uso. */
   async quote(tenantId: string, code: string, ctx: CouponQuoteContext): Promise<CouponQuoteDto> {
     const normalized = normalizeCode(code);
@@ -300,6 +314,8 @@ export class CouponsService {
       customerId?: string | null | undefined;
       /** Web pública: sin decir si un código existe. */
       publicMessages?: boolean;
+      /** Fecha de entrada (YYYY-MM-DD): el primer pago mensual sale exacto. */
+      startDate?: string | null | undefined;
     },
   ): Promise<FirstPaymentQuoteDto> {
     const code = args.couponCode?.trim();
@@ -323,6 +339,9 @@ export class CouponsService {
       freeMonths: quote?.valid ? quote.freeMonths : 0,
       deposit: args.deposit,
       prorated: args.months === 1 && !quote?.valid,
+      firstMonth: args.startDate
+        ? firstMonthPlan(args.startDate, await this.nextMonthFromDay(tenantId))
+        : null,
       coupon: quote
         ? {
             code: quote.code,

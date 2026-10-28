@@ -213,6 +213,7 @@ export class TenantSettingsService {
     lateFeeType: string;
     lateFeeValue: unknown;
     lateFeeGraceDays: number;
+    firstPaymentNextMonthFromDay: number | null;
     autoChargeRetryEnabled: boolean;
     autoChargeRetryMax: number;
     autoChargeRetryIntervalDays: number;
@@ -225,6 +226,7 @@ export class TenantSettingsService {
       lateFeeType: tenant.lateFeeType as 'percentage' | 'fixed',
       lateFeeValue: Number(tenant.lateFeeValue),
       lateFeeGraceDays: tenant.lateFeeGraceDays,
+      firstPaymentNextMonthFromDay: tenant.firstPaymentNextMonthFromDay,
       autoChargeRetryEnabled: tenant.autoChargeRetryEnabled,
       autoChargeRetryMax: tenant.autoChargeRetryMax,
       autoChargeRetryIntervalDays: tenant.autoChargeRetryIntervalDays,
@@ -251,13 +253,15 @@ export class TenantSettingsService {
       throw new NotFoundException('Tenant no encontrado');
     }
     const { input } = args;
-    const data: Record<string, string | number | boolean> = {};
+    const data: Record<string, string | number | boolean | null> = {};
     if (input.autoChargeOnIssue !== undefined) data.autoChargeOnIssue = input.autoChargeOnIssue;
     if (input.autoIssueRecurring !== undefined) data.autoIssueRecurring = input.autoIssueRecurring;
     if (input.lateFeeEnabled !== undefined) data.lateFeeEnabled = input.lateFeeEnabled;
     if (input.lateFeeType !== undefined) data.lateFeeType = input.lateFeeType;
     if (input.lateFeeValue !== undefined) data.lateFeeValue = input.lateFeeValue;
     if (input.lateFeeGraceDays !== undefined) data.lateFeeGraceDays = input.lateFeeGraceDays;
+    if (input.firstPaymentNextMonthFromDay !== undefined)
+      data.firstPaymentNextMonthFromDay = input.firstPaymentNextMonthFromDay;
     if (input.autoChargeRetryEnabled !== undefined)
       data.autoChargeRetryEnabled = input.autoChargeRetryEnabled;
     if (input.autoChargeRetryMax !== undefined) data.autoChargeRetryMax = input.autoChargeRetryMax;

@@ -2,6 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 
+import { firstMonthLabels } from './first-month-lines';
 import { intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 
 import type { FirstPaymentQuoteDto } from '@storageos/shared';
@@ -25,6 +26,8 @@ export function FirstPaymentSummary({
   const vat = quote.rentTotalWithVat - quote.rentTotal;
   const monthlyWithVat = quote.monthlyPrice * (1 + quote.vatRate / 100);
   const code = quote.coupon?.valid ? quote.coupon.code : null;
+  const fm = quote.firstMonth;
+  const labels = fm ? firstMonthLabels(fm, intlLocaleFor(locale)) : null;
   const row = (label: string, value: string, strong = false) => (
     <div className="flex items-center justify-between gap-3">
       <span className={strong ? 'font-medium' : 'text-muted-foreground'}>{label}</span>
@@ -34,7 +37,20 @@ export function FirstPaymentSummary({
   return (
     <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-sm">
       <p className="font-medium">{t('summaryTitle')}</p>
-      {row(t('summaryRent', { count: quote.months }), money(quote.rentSubtotal, locale))}
+      {fm && labels ? (
+        <>
+          {row(
+            fm.days === fm.daysInMonth
+              ? t('summaryRent', { count: 1 })
+              : t('summaryDays', { from: labels.from, to: labels.to, count: fm.days }),
+            money(fm.firstMonthRent, locale),
+          )}
+          {fm.includesNextMonth &&
+            row(t('summaryMonth', { month: labels.nextMonth }), money(fm.nextMonthRent, locale))}
+        </>
+      ) : (
+        row(t('summaryRent', { count: quote.months }), money(quote.rentSubtotal, locale))
+      )}
       {code &&
         quote.discountAmount > 0 &&
         row(
@@ -51,9 +67,14 @@ export function FirstPaymentSummary({
         {row(t('summaryTotal'), money(quote.totalToPay, locale), true)}
       </div>
       <p className="pt-1 text-xs text-muted-foreground">
-        {quote.prorated
-          ? t('summaryProrated')
-          : t('summaryAfter', { price: money(monthlyWithVat, locale) })}
+        {fm?.includesNextMonth && labels
+          ? t('summaryNextMonthNote', {
+              month: labels.nextMonth,
+              price: money(monthlyWithVat, locale),
+            })
+          : quote.prorated && !fm
+            ? t('summaryProrated')
+            : t('summaryAfter', { price: money(monthlyWithVat, locale) })}
       </p>
     </div>
   );

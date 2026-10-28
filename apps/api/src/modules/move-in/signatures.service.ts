@@ -13,6 +13,8 @@ import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import {
   buildFirstPaymentQuote,
+  firstMonthCents,
+  firstMonthPlan,
   rentTax,
   type FirstPaymentMonths,
   type FirstPaymentQuoteDto,
@@ -353,6 +355,8 @@ export class SignaturesService {
     const c = await this.admin.contract.findUniqueOrThrow({
       where: { id: contractId },
       select: {
+        tenantId: true,
+        startDate: true,
         priceMonthly: true,
         discountAmount: true,
         billingIntervalMonths: true,
@@ -380,10 +384,18 @@ export class SignaturesService {
     const discountAmount = coupon
       ? Number(coupon.discountAmount)
       : Math.round(monthlyPrice * months * prepayPct) / 100;
-    // La 1ª factura prorrateada (un mes, sin cupón) no lleva el seguro: va en la
-    // recurrente.
     const fullPeriod = interval > 1 || months > 1 || !!coupon;
-    const insurance = fullPeriod ? Number(c.insurancePrice ?? 0) * months : 0;
+    // Un mes sin cupón: del alta a fin de mes (y, desde el día que fije el
+    // negocio, también el mes siguiente), con el seguro de los mismos días.
+    const plan = fullPeriod
+      ? null
+      : firstMonthPlan(
+          c.startDate.toISOString().slice(0, 10),
+          await this.coupons.nextMonthFromDay(c.tenantId),
+        );
+    const insurance = plan
+      ? firstMonthCents(Math.round(Number(c.insurancePrice ?? 0) * 100), plan).total / 100
+      : Number(c.insurancePrice ?? 0) * months;
     const insuranceRate = Number(c.insurancePlan?.taxRate ?? 21);
     return buildFirstPaymentQuote({
       monthlyPrice,
@@ -394,6 +406,7 @@ export class SignaturesService {
       deposit: c.depositPaymentMethod === 'cash' ? 0 : Number(c.depositAmount),
       insuranceWithVat: Math.round(insurance * (100 + insuranceRate)) / 100,
       prorated: !fullPeriod,
+      firstMonth: plan,
       coupon: coupon
         ? { code: coupon.coupon.code, name: coupon.coupon.name, valid: true, message: null }
         : null,
@@ -590,6 +603,10 @@ export class SignaturesService {
       where: { id: args.customerId, tenantId: args.tenantId, deletedAt: null },
       select: { depositExempt: true },
     });
+    const facility = await this.admin.facility.findUnique({
+      where: { id: unit.facilityId },
+      select: { timezone: true },
+    });
     return this.coupons.quoteFirstPayment(args.tenantId, {
       monthlyPrice: Number(unit.basePriceMonthly),
       months: args.months,
@@ -600,6 +617,10 @@ export class SignaturesService {
       couponCode: args.couponCode,
       isNewCustomer: await this.coupons.isNewCustomer(args.tenantId, args.customerId),
       customerId: args.customerId,
+      // El trastero adicional empieza hoy (en la hora del local).
+      startDate: todayInTimezone(facility?.timezone ?? undefined)
+        .toISOString()
+        .slice(0, 10),
     });
   }
 

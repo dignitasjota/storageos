@@ -1464,3 +1464,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Migración `20261116100000_settings_features` (se aplica sola): contacto del negocio y aviso del dominio en `tenants`, cambio de email pendiente en `users`.
 - Cron nuevo `custom-domains.dns-check` (cada hora, en el API): cuando el DNS de un dominio propio pendiente ya apunta a la plataforma, llega un aviso al panel del super admin para crear el Proxy Host y activarlo.
 - El cron de retención borra además las invitaciones sin aceptar caducadas o revocadas hace más de 90 días.
+
+## 50. Primer pago al entrar a final de mes (2026-10-28)
+
+- Migración `20261117100000_first_payment_next_month` (se aplica sola): `tenants.first_payment_next_month_from_day`, 20 por defecto para todos los tenants.
+- Desde el despliegue, un contrato mensual que empiece a partir del día 20 paga en su primera factura los días que quedan del mes más el mes siguiente completo. Cada negocio puede cambiar el día o desactivarlo en Configuración → Facturación → «Primer pago al entrar a final de mes».
+- No cambia nada en contratos ya firmados ni en los que pagan varios meses por adelantado.

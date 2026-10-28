@@ -205,6 +205,7 @@ export default function BillingSettingsPage() {
       </div>
 
       <AutoIssueCard />
+      <FirstPaymentCard />
       <LateFeeCard />
 
       <InvoicingModeCard />
@@ -418,6 +419,76 @@ function AutoIssueCard() {
         >
           {update.isPending ? 'Guardando…' : enabled ? 'Desactivar' : 'Activar emisión automática'}
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Primer pago al entrar a final de mes: incluye ya el mes siguiente. */
+function FirstPaymentCard() {
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useTenantBillingSettings(canConfigure);
+  const update = useUpdateTenantBillingSettings();
+
+  if (!canConfigure || settings.isLoading || !settings.data) return null;
+  const day = settings.data.firstPaymentNextMonthFromDay;
+
+  async function save(next: number | null) {
+    try {
+      await update.mutateAsync({ firstPaymentNextMonthFromDay: next });
+      toast.success(
+        next === null
+          ? 'El primer pago será solo hasta fin de mes.'
+          : `Desde el día ${next}, el primer pago incluirá el mes siguiente.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Primer pago al entrar a final de mes</CardTitle>
+          <Badge variant={day !== null ? 'default' : 'outline'}>
+            {day !== null ? `Desde el día ${day}` : 'Desactivado'}
+          </Badge>
+        </div>
+        <CardDescription>
+          El primer pago va del día de entrada a fin de mes, con la parte proporcional. Si alguien
+          entra a partir de este día, el primer pago incluye también el mes siguiente completo: así
+          no le llega otra cuota a los pocos días.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium" htmlFor="first-payment-day">
+              Incluir el mes siguiente desde el día
+            </label>
+            <select
+              id="first-payment-day"
+              className="flex h-9 w-40 rounded-md border border-input bg-transparent px-3 text-base sm:text-sm"
+              value={day ?? ''}
+              onChange={(e) => void save(e.target.value === '' ? null : Number(e.target.value))}
+              disabled={update.isPending}
+            >
+              <option value="">Nunca</option>
+              {Array.from({ length: 27 }, (_, i) => i + 2).map((d) => (
+                <option key={d} value={d}>
+                  Día {d}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Ejemplo con el día 20: quien entra el 28 de octubre paga del 28 al 31 de octubre más todo
+          noviembre, y su siguiente cuota es la de diciembre. Vale para la reserva online, el área
+          de clientes y los contratos que se firman con enlace. No afecta a quien paga varios meses
+          por adelantado.
+        </p>
       </CardContent>
     </Card>
   );
