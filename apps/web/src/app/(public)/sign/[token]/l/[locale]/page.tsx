@@ -11,7 +11,7 @@ import {
   isPublicWebLocale,
   signHref,
 } from '@/app/(public)/s/[slug]/i18n/messages';
-import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
+import { TenantSiteChrome } from '@/app/(public)/s/[slug]/tenant-site-chrome';
 
 export default async function SignLocalePage({
   params,
@@ -28,15 +28,15 @@ export default async function SignLocalePage({
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
       {data ? (
-        <TenantWebChrome
-          hideReserve
-          data={brandOf(data)}
+        <TenantSiteChrome
+          slug={data.tenantSlug}
+          fallback={brandOf(data)}
           locale={locale}
           googleAnalyticsId={data.googleAnalyticsId}
           languageHrefBuilder={(l) => signHref(token, l)}
         >
           <SignPageBody token={token} locale={locale} initialView={data} />
-        </TenantWebChrome>
+        </TenantSiteChrome>
       ) : (
         <SignPageBody token={token} locale={locale} initialError={error} />
       )}

@@ -31,8 +31,10 @@ import {
   type BookSite,
   intlLocaleFor,
   type PublicWebLocale,
+  landingHref,
 } from './i18n/messages';
 import { grossPrice } from './price-format';
+import { goToSection, goToTop } from './site-sections';
 import { StorageCalculator } from './storage-calculator';
 import { cities, formatPrice, isOpenNow, useHeadlineFallback } from './templates';
 
@@ -70,10 +72,17 @@ function whatsAppHref(phone: string, message: string): string | null {
 export function TrstromTemplate({
   data,
   locale,
+  children,
 }: {
   data: PublicLandingDto;
   locale: PublicWebLocale;
+  /**
+   * Otra página con la misma cabecera y pie (la reserva): se pinta en lugar de
+   * las secciones de la portada, y los enlaces de sección llevan a la portada.
+   */
+  children?: ReactNode;
 }) {
+  const homeHref = children ? landingHref(data.tenantSlug, locale, data.customDomain) : undefined;
   const t = useTranslations('publicWeb.trstrom');
   const tCommon = useTranslations('publicWeb.common');
   const tFaq = useTranslations('publicWeb.faq');
@@ -140,7 +149,7 @@ export function TrstromTemplate({
     data.facilities.find((f) => f.id === selectedFacility) ?? data.facilities[0];
 
   function goTo(id: string) {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    goToSection(id, homeHref);
   }
 
   function showUnitsOf(facilityId: string) {
@@ -149,7 +158,9 @@ export function TrstromTemplate({
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-muted/30 pb-20 text-foreground md:pb-0">
+    <div
+      className={`flex min-h-screen flex-col bg-muted/30 ${children ? '' : 'pb-20 md:pb-0'} text-foreground`}
+    >
       <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} site={data} />
 
       {/* Promoción activa */}
@@ -178,6 +189,7 @@ export function TrstromTemplate({
       )}
 
       <Header
+        homeHref={homeHref}
         data={data}
         brand={brand}
         navItems={navItems}
@@ -194,443 +206,453 @@ export function TrstromTemplate({
         }
         blogHref={blogHref}
       />
-
-      {/* Portada */}
-      <section className="relative overflow-hidden border-b bg-gradient-to-b from-muted/80 to-background pb-16 pt-10 lg:pb-24 lg:pt-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid items-center gap-12 lg:grid-cols-12">
-            <div className="space-y-6 text-center lg:col-span-7 lg:text-left">
-              <div
-                className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold tracking-wide sm:text-sm"
-                style={{ backgroundColor: `${brand}1f`, color: brand }}
-              >
-                <span
-                  className="h-2 w-2 animate-pulse rounded-full"
-                  style={{ backgroundColor: brand }}
-                />
-                {t('badge')}
-              </div>
-              <h1 className="text-3xl font-black leading-tight tracking-tight sm:text-5xl sm:leading-none lg:text-6xl">
-                {data.webHeadline || headlineFallback}
-              </h1>
-              <p className="mx-auto max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-xl lg:mx-0">
-                {heroSubtitle}
-              </p>
-              <ul className="mx-auto grid max-w-xl grid-cols-1 gap-3 pt-2 text-left text-sm font-semibold sm:grid-cols-2 lg:mx-0">
-                {advantages.slice(0, 4).map((a) => (
-                  <li key={a} className="flex items-center gap-2.5">
-                    <span
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                      style={{ backgroundColor: `${brand}1f`, color: brand }}
-                    >
-                      ✓
-                    </span>
-                    {a}
-                  </li>
-                ))}
-              </ul>
-              <div className="flex flex-col items-center justify-center gap-3.5 pt-4 sm:flex-row lg:justify-start">
-                <Link
-                  href={bookHref}
-                  onClick={() => trackEvent('cta_reservar_click', { location: 'hero_trstrom' })}
-                  className="inline-flex w-full items-center justify-center rounded-2xl px-8 py-4 text-base font-extrabold text-white shadow-lg transition hover:brightness-95 active:scale-95 sm:w-auto"
-                  style={{ backgroundColor: brand }}
-                >
-                  {t('reserveOnline')}
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Link>
-                {whatsapp && (
-                  <a
-                    href={whatsapp}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => trackEvent('whatsapp_click')}
-                    className="inline-flex w-full items-center justify-center rounded-2xl border bg-card px-6 py-4 text-base font-bold transition hover:bg-muted sm:w-auto"
-                  >
-                    <WhatsAppIcon className="mr-2 h-5 w-5" style={{ color: brand }} />
-                    {t('whatsapp')}
-                  </a>
-                )}
-              </div>
-              {data.googleReviewUrl && (
-                <div className="flex items-center justify-center gap-3 pt-2 lg:justify-start">
-                  <div className="flex text-lg text-amber-400">★★★★★</div>
-                  <a
-                    href={data.googleReviewUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground sm:text-sm"
-                  >
-                    {t('googleReviews')}
-                  </a>
-                </div>
-              )}
-            </div>
-
-            <div className="relative lg:col-span-5">
-              <div className="relative mx-auto aspect-[4/3] overflow-hidden rounded-3xl border-4 border-background bg-muted shadow-2xl lg:aspect-square">
-                {heroImage ? (
-                  <Image
-                    src={heroImage}
-                    alt={data.tenantName}
-                    fill
-                    priority
-                    sizes="(min-width: 1024px) 40vw, 100vw"
-                    className="object-cover"
-                  />
-                ) : (
+      {children ?? (
+        <>
+          {/* Portada */}
+          <section className="relative overflow-hidden border-b bg-gradient-to-b from-muted/80 to-background pb-16 pt-10 lg:pb-24 lg:pt-16">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <div className="grid items-center gap-12 lg:grid-cols-12">
+                <div className="space-y-6 text-center lg:col-span-7 lg:text-left">
                   <div
-                    className="flex h-full w-full items-center justify-center"
-                    style={{ background: `linear-gradient(135deg, ${brand}22, ${brand}66)` }}
-                  >
-                    <Warehouse className="h-24 w-24 text-white/80" />
-                  </div>
-                )}
-                <div className="absolute inset-x-4 bottom-4 flex items-center justify-between rounded-2xl border bg-background/95 p-4 shadow-lg backdrop-blur">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      {t('heroCardKicker')}
-                    </p>
-                    <p className="text-sm font-bold">{t('heroCardText')}</p>
-                  </div>
-                  <span
-                    className="rounded-xl p-2.5"
+                    className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold tracking-wide sm:text-sm"
                     style={{ backgroundColor: `${brand}1f`, color: brand }}
                   >
-                    <Lock className="h-5 w-5" />
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Sobre nosotros */}
-      {data.webAbout && (
-        <section className="border-b bg-background py-14">
-          <div className="mx-auto max-w-4xl space-y-4 px-4 text-center sm:px-6 lg:px-8">
-            <Kicker brand={brand}>{t('aboutKicker')}</Kicker>
-            <h2 className="text-2xl font-extrabold sm:text-3xl">
-              {t('aboutTitle', { tenantName: data.tenantName })}
-            </h2>
-            <p className="whitespace-pre-line text-base leading-relaxed text-muted-foreground sm:text-lg">
-              {data.webAbout}
-            </p>
-          </div>
-        </section>
-      )}
-
-      {/* Ventajas / situaciones */}
-      <section className="border-b py-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            brand={brand}
-            kicker={t('situationsKicker')}
-            title={t('situationsTitle')}
-            subtitle={t('situationsSubtitle')}
-          />
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {situations.map((s, i) => (
-              <div key={s.title} className="rounded-2xl border bg-card p-6 shadow-sm">
-                <div
-                  className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl text-xl"
-                  style={{ backgroundColor: `${brand}1f` }}
-                  aria-hidden
-                >
-                  {SITUATION_EMOJIS[i % SITUATION_EMOJIS.length]}
-                </div>
-                <h3 className="mb-2 text-lg font-bold">{s.title}</h3>
-                <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                  {s.text}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Centros */}
-      <section id="locales" className="scroll-mt-24 border-b bg-background py-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            brand={brand}
-            kicker={t('centersKicker')}
-            title={t('centersTitle')}
-            subtitle={t('centersSubtitle')}
-          />
-          <div className="space-y-12">
-            {data.facilities.map((f, i) => (
-              <FacilityCard
-                key={f.id}
-                f={f}
-                index={i}
-                total={data.facilities.length}
-                brand={brand}
-                onShowUnits={() => showUnitsOf(f.id)}
-              />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Trasteros y precios por centro */}
-      <section id="trasteros" className="scroll-mt-24 border-b py-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            brand={brand}
-            kicker={t('unitsKicker')}
-            title={t('unitsTitle')}
-            subtitle={t('unitsSubtitle')}
-          />
-          {data.facilities.length > 1 && (
-            <div className="mb-10 flex items-center gap-2 overflow-x-auto pb-2 sm:justify-center">
-              {data.facilities.map((f) => {
-                const active = f.id === facilityForUnits?.id;
-                return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => setSelectedFacility(f.id)}
-                    aria-pressed={active}
-                    className={`shrink-0 rounded-full border px-5 py-2.5 text-sm font-bold transition ${active ? 'text-white shadow-sm' : 'bg-card hover:bg-muted'}`}
-                    style={active ? { backgroundColor: brand, borderColor: brand } : undefined}
-                  >
-                    {f.city && f.city !== f.name ? `${f.name} · ${f.city}` : f.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {facilityForUnits && facilityForUnits.unitTypes.length > 0 ? (
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {[...facilityForUnits.unitTypes]
-                .sort((a, b) => (a.areaM2 ?? a.priceMonthly) - (b.areaM2 ?? b.priceMonthly))
-                .map((u) => (
-                  <UnitTypeCard
-                    key={u.id}
-                    unit={u}
-                    facilityId={facilityForUnits.id}
-                    brand={brand}
-                    locale={locale}
-                    site={data}
-                  />
-                ))}
-            </div>
-          ) : (
-            <p className="rounded-2xl border bg-card px-4 py-10 text-center text-muted-foreground">
-              {t('noUnits')}
-            </p>
-          )}
-        </div>
-      </section>
-
-      {/* Cómo funciona */}
-      <section id="como-funciona" className="scroll-mt-24 border-b bg-background py-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            brand={brand}
-            kicker={t('stepsKicker')}
-            title={t('stepsTitle')}
-            subtitle={t('stepsSubtitle')}
-          />
-          <ol className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {steps.map((s, i) => (
-              <li key={s.title} className="rounded-2xl border bg-muted/40 p-6">
-                <span className="text-4xl font-black opacity-50" style={{ color: brand }}>
-                  {String(i + 1).padStart(2, '0')}
-                </span>
-                <h3 className="mb-1 mt-2 text-lg font-bold">{s.title}</h3>
-                <p className="text-xs leading-relaxed text-muted-foreground">{s.text}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      {/* Calculadora */}
-      <section id="calculadora" className="scroll-mt-24 border-b py-16">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-          <div className="mb-6 text-center">
-            <Kicker brand={brand}>{t('calculatorKicker')}</Kicker>
-          </div>
-          <StorageCalculator data={data} brand={brand} locale={locale} />
-        </div>
-      </section>
-
-      {/* Opiniones */}
-      {data.testimonials.length > 0 && (
-        <section className="border-b bg-background py-16">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="mb-10 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-              <div>
-                <Kicker brand={brand}>{t('reviewsKicker')}</Kicker>
-                <h2 className="mt-1 text-2xl font-extrabold sm:text-3xl">{t('reviewsTitle')}</h2>
-              </div>
-              {data.googleReviewUrl && (
-                <a
-                  href={data.googleReviewUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm font-bold hover:underline"
-                  style={{ color: brand }}
-                >
-                  {t('allReviews')} →
-                </a>
-              )}
-            </div>
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              {data.testimonials.slice(0, 6).map((r, i) => (
-                <figure
-                  key={i}
-                  className="flex flex-col justify-between rounded-2xl border bg-muted/40 p-6"
-                >
-                  <div className="space-y-3">
-                    <div className="flex gap-0.5">
-                      {Array.from({ length: r.rating ?? 5 }).map((_, s) => (
-                        <Star key={s} className="h-4 w-4 fill-amber-400 text-amber-400" />
-                      ))}
-                    </div>
-                    <blockquote className="text-sm italic leading-relaxed">
-                      “{r.comment}”
-                    </blockquote>
+                    <span
+                      className="h-2 w-2 animate-pulse rounded-full"
+                      style={{ backgroundColor: brand }}
+                    />
+                    {t('badge')}
                   </div>
-                  <figcaption className="mt-4 flex items-center gap-3 border-t pt-4">
-                    <span
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-black"
-                      style={{ backgroundColor: `${brand}1f`, color: brand }}
-                    >
-                      {r.author.charAt(0).toUpperCase()}
-                    </span>
-                    <span className="text-xs font-bold">{r.author}</span>
-                  </figcaption>
-                </figure>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Preguntas frecuentes */}
-      {faqs.length > 0 && (
-        <section id="faq" className="scroll-mt-24 border-b py-16">
-          <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-            <SectionHeading
-              brand={brand}
-              kicker={t('faqKicker')}
-              title={tFaq('title')}
-              subtitle={t('faqSubtitle')}
-            />
-            <div className="space-y-4">
-              {faqs.map((f, i) => (
-                <details
-                  key={i}
-                  className="group rounded-2xl border bg-card p-6 shadow-sm"
-                  open={i === 0}
-                >
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-bold marker:content-none">
-                    {f.question}
-                    <span
-                      className="text-xl font-bold transition-transform group-open:rotate-45"
-                      style={{ color: brand }}
-                      aria-hidden
-                    >
-                      +
-                    </span>
-                  </summary>
-                  <p className="mt-3 whitespace-pre-line border-t pt-3 text-sm leading-relaxed text-muted-foreground">
-                    {f.answer}
+                  <h1 className="text-3xl font-black leading-tight tracking-tight sm:text-5xl sm:leading-none lg:text-6xl">
+                    {data.webHeadline || headlineFallback}
+                  </h1>
+                  <p className="mx-auto max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-xl lg:mx-0">
+                    {heroSubtitle}
                   </p>
-                </details>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+                  <ul className="mx-auto grid max-w-xl grid-cols-1 gap-3 pt-2 text-left text-sm font-semibold sm:grid-cols-2 lg:mx-0">
+                    {advantages.slice(0, 4).map((a) => (
+                      <li key={a} className="flex items-center gap-2.5">
+                        <span
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                          style={{ backgroundColor: `${brand}1f`, color: brand }}
+                        >
+                          ✓
+                        </span>
+                        {a}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-col items-center justify-center gap-3.5 pt-4 sm:flex-row lg:justify-start">
+                    <Link
+                      href={bookHref}
+                      onClick={() => trackEvent('cta_reservar_click', { location: 'hero_trstrom' })}
+                      className="inline-flex w-full items-center justify-center rounded-2xl px-8 py-4 text-base font-extrabold text-white shadow-lg transition hover:brightness-95 active:scale-95 sm:w-auto"
+                      style={{ backgroundColor: brand }}
+                    >
+                      {t('reserveOnline')}
+                      <ArrowRight className="ml-2 h-5 w-5" />
+                    </Link>
+                    {whatsapp && (
+                      <a
+                        href={whatsapp}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => trackEvent('whatsapp_click')}
+                        className="inline-flex w-full items-center justify-center rounded-2xl border bg-card px-6 py-4 text-base font-bold transition hover:bg-muted sm:w-auto"
+                      >
+                        <WhatsAppIcon className="mr-2 h-5 w-5" style={{ color: brand }} />
+                        {t('whatsapp')}
+                      </a>
+                    )}
+                  </div>
+                  {data.googleReviewUrl && (
+                    <div className="flex items-center justify-center gap-3 pt-2 lg:justify-start">
+                      <div className="flex text-lg text-amber-400">★★★★★</div>
+                      <a
+                        href={data.googleReviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground sm:text-sm"
+                      >
+                        {t('googleReviews')}
+                      </a>
+                    </div>
+                  )}
+                </div>
 
-      {/* Blog */}
-      {blogHref && data.latestBlogPosts.length > 0 && (
-        <section className="border-b bg-background py-16">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="mb-10 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-              <div>
-                <Kicker brand={brand}>{t('blogKicker')}</Kicker>
-                <h2 className="mt-1 text-2xl font-extrabold sm:text-3xl">{t('blogTitle')}</h2>
-              </div>
-              <Link
-                href={blogHref}
-                className="text-sm font-bold hover:underline"
-                style={{ color: brand }}
-              >
-                {t('blogAll')} →
-              </Link>
-            </div>
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              {data.latestBlogPosts.slice(0, 3).map((p) => (
-                <Link
-                  key={p.slug}
-                  href={buildBlogPostHref(data.tenantSlug, p.slug, locale, data.customDomain)}
-                  className="group flex flex-col justify-between overflow-hidden rounded-2xl border bg-muted/40 transition-shadow hover:shadow-md"
-                >
-                  <div>
-                    <div className="relative aspect-video overflow-hidden bg-muted">
-                      {p.coverImageUrl ? (
-                        <Image
-                          src={p.coverImageUrl}
-                          alt=""
-                          fill
-                          loading="lazy"
-                          sizes="(min-width: 768px) 33vw, 100vw"
-                          className="object-cover transition-transform group-hover:scale-105"
-                        />
-                      ) : (
-                        <div
-                          className="h-full w-full"
-                          style={{ background: `linear-gradient(135deg, ${brand}22, ${brand}55)` }}
-                        />
-                      )}
-                      <span className="absolute left-3 top-3 rounded-md bg-background/90 px-2.5 py-1 text-[11px] font-bold backdrop-blur">
-                        {new Date(p.publishedAt).toLocaleDateString(intlLocaleFor(locale), {
-                          day: 'numeric',
-                          month: 'long',
-                          year: 'numeric',
-                        })}
+                <div className="relative lg:col-span-5">
+                  <div className="relative mx-auto aspect-[4/3] overflow-hidden rounded-3xl border-4 border-background bg-muted shadow-2xl lg:aspect-square">
+                    {heroImage ? (
+                      <Image
+                        src={heroImage}
+                        alt={data.tenantName}
+                        fill
+                        priority
+                        sizes="(min-width: 1024px) 40vw, 100vw"
+                        className="object-cover"
+                      />
+                    ) : (
+                      <div
+                        className="flex h-full w-full items-center justify-center"
+                        style={{ background: `linear-gradient(135deg, ${brand}22, ${brand}66)` }}
+                      >
+                        <Warehouse className="h-24 w-24 text-white/80" />
+                      </div>
+                    )}
+                    <div className="absolute inset-x-4 bottom-4 flex items-center justify-between rounded-2xl border bg-background/95 p-4 shadow-lg backdrop-blur">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          {t('heroCardKicker')}
+                        </p>
+                        <p className="text-sm font-bold">{t('heroCardText')}</p>
+                      </div>
+                      <span
+                        className="rounded-xl p-2.5"
+                        style={{ backgroundColor: `${brand}1f`, color: brand }}
+                      >
+                        <Lock className="h-5 w-5" />
                       </span>
                     </div>
-                    <div className="p-6">
-                      <h3 className="line-clamp-2 text-lg font-bold">{p.title}</h3>
-                    </div>
                   </div>
-                  <span
-                    className="px-6 pb-6 text-xs font-bold group-hover:underline"
-                    style={{ color: brand }}
-                  >
-                    {t('readMore')} →
-                  </span>
-                </Link>
-              ))}
+                </div>
+              </div>
             </div>
-          </div>
-        </section>
-      )}
+          </section>
 
-      {/* Contacto */}
-      {data.contactEnabled && (
-        <section id="contacto" className="scroll-mt-24 border-b py-16">
-          <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-            <div className="rounded-3xl border bg-card p-8 shadow-sm sm:p-12">
+          {/* Sobre nosotros */}
+          {data.webAbout && (
+            <section className="border-b bg-background py-14">
+              <div className="mx-auto max-w-4xl space-y-4 px-4 text-center sm:px-6 lg:px-8">
+                <Kicker brand={brand}>{t('aboutKicker')}</Kicker>
+                <h2 className="text-2xl font-extrabold sm:text-3xl">
+                  {t('aboutTitle', { tenantName: data.tenantName })}
+                </h2>
+                <p className="whitespace-pre-line text-base leading-relaxed text-muted-foreground sm:text-lg">
+                  {data.webAbout}
+                </p>
+              </div>
+            </section>
+          )}
+
+          {/* Ventajas / situaciones */}
+          <section className="border-b py-16">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <SectionHeading
                 brand={brand}
-                kicker={t('contactKicker')}
-                title={t('contactTitle')}
-                subtitle={t('contactSubtitle')}
+                kicker={t('situationsKicker')}
+                title={t('situationsTitle')}
+                subtitle={t('situationsSubtitle')}
               />
-              <ContactForm slug={data.tenantSlug} customDomain={data.customDomain} brand={brand} />
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+                {situations.map((s, i) => (
+                  <div key={s.title} className="rounded-2xl border bg-card p-6 shadow-sm">
+                    <div
+                      className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl text-xl"
+                      style={{ backgroundColor: `${brand}1f` }}
+                      aria-hidden
+                    >
+                      {SITUATION_EMOJIS[i % SITUATION_EMOJIS.length]}
+                    </div>
+                    <h3 className="mb-2 text-lg font-bold">{s.title}</h3>
+                    <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                      {s.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
-      )}
+          </section>
 
+          {/* Centros */}
+          <section id="locales" className="scroll-mt-24 border-b bg-background py-16">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <SectionHeading
+                brand={brand}
+                kicker={t('centersKicker')}
+                title={t('centersTitle')}
+                subtitle={t('centersSubtitle')}
+              />
+              <div className="space-y-12">
+                {data.facilities.map((f, i) => (
+                  <FacilityCard
+                    key={f.id}
+                    f={f}
+                    index={i}
+                    total={data.facilities.length}
+                    brand={brand}
+                    onShowUnits={() => showUnitsOf(f.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* Trasteros y precios por centro */}
+          <section id="trasteros" className="scroll-mt-24 border-b py-16">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <SectionHeading
+                brand={brand}
+                kicker={t('unitsKicker')}
+                title={t('unitsTitle')}
+                subtitle={t('unitsSubtitle')}
+              />
+              {data.facilities.length > 1 && (
+                <div className="mb-10 flex items-center gap-2 overflow-x-auto pb-2 sm:justify-center">
+                  {data.facilities.map((f) => {
+                    const active = f.id === facilityForUnits?.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setSelectedFacility(f.id)}
+                        aria-pressed={active}
+                        className={`shrink-0 rounded-full border px-5 py-2.5 text-sm font-bold transition ${active ? 'text-white shadow-sm' : 'bg-card hover:bg-muted'}`}
+                        style={active ? { backgroundColor: brand, borderColor: brand } : undefined}
+                      >
+                        {f.city && f.city !== f.name ? `${f.name} · ${f.city}` : f.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {facilityForUnits && facilityForUnits.unitTypes.length > 0 ? (
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {[...facilityForUnits.unitTypes]
+                    .sort((a, b) => (a.areaM2 ?? a.priceMonthly) - (b.areaM2 ?? b.priceMonthly))
+                    .map((u) => (
+                      <UnitTypeCard
+                        key={u.id}
+                        unit={u}
+                        facilityId={facilityForUnits.id}
+                        brand={brand}
+                        locale={locale}
+                        site={data}
+                      />
+                    ))}
+                </div>
+              ) : (
+                <p className="rounded-2xl border bg-card px-4 py-10 text-center text-muted-foreground">
+                  {t('noUnits')}
+                </p>
+              )}
+            </div>
+          </section>
+
+          {/* Cómo funciona */}
+          <section id="como-funciona" className="scroll-mt-24 border-b bg-background py-16">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <SectionHeading
+                brand={brand}
+                kicker={t('stepsKicker')}
+                title={t('stepsTitle')}
+                subtitle={t('stepsSubtitle')}
+              />
+              <ol className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                {steps.map((s, i) => (
+                  <li key={s.title} className="rounded-2xl border bg-muted/40 p-6">
+                    <span className="text-4xl font-black opacity-50" style={{ color: brand }}>
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <h3 className="mb-1 mt-2 text-lg font-bold">{s.title}</h3>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{s.text}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </section>
+
+          {/* Calculadora */}
+          <section id="calculadora" className="scroll-mt-24 border-b py-16">
+            <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+              <div className="mb-6 text-center">
+                <Kicker brand={brand}>{t('calculatorKicker')}</Kicker>
+              </div>
+              <StorageCalculator data={data} brand={brand} locale={locale} />
+            </div>
+          </section>
+
+          {/* Opiniones */}
+          {data.testimonials.length > 0 && (
+            <section className="border-b bg-background py-16">
+              <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div className="mb-10 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+                  <div>
+                    <Kicker brand={brand}>{t('reviewsKicker')}</Kicker>
+                    <h2 className="mt-1 text-2xl font-extrabold sm:text-3xl">
+                      {t('reviewsTitle')}
+                    </h2>
+                  </div>
+                  {data.googleReviewUrl && (
+                    <a
+                      href={data.googleReviewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-bold hover:underline"
+                      style={{ color: brand }}
+                    >
+                      {t('allReviews')} →
+                    </a>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                  {data.testimonials.slice(0, 6).map((r, i) => (
+                    <figure
+                      key={i}
+                      className="flex flex-col justify-between rounded-2xl border bg-muted/40 p-6"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex gap-0.5">
+                          {Array.from({ length: r.rating ?? 5 }).map((_, s) => (
+                            <Star key={s} className="h-4 w-4 fill-amber-400 text-amber-400" />
+                          ))}
+                        </div>
+                        <blockquote className="text-sm italic leading-relaxed">
+                          “{r.comment}”
+                        </blockquote>
+                      </div>
+                      <figcaption className="mt-4 flex items-center gap-3 border-t pt-4">
+                        <span
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-black"
+                          style={{ backgroundColor: `${brand}1f`, color: brand }}
+                        >
+                          {r.author.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="text-xs font-bold">{r.author}</span>
+                      </figcaption>
+                    </figure>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Preguntas frecuentes */}
+          {faqs.length > 0 && (
+            <section id="faq" className="scroll-mt-24 border-b py-16">
+              <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+                <SectionHeading
+                  brand={brand}
+                  kicker={t('faqKicker')}
+                  title={tFaq('title')}
+                  subtitle={t('faqSubtitle')}
+                />
+                <div className="space-y-4">
+                  {faqs.map((f, i) => (
+                    <details
+                      key={i}
+                      className="group rounded-2xl border bg-card p-6 shadow-sm"
+                      open={i === 0}
+                    >
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-bold marker:content-none">
+                        {f.question}
+                        <span
+                          className="text-xl font-bold transition-transform group-open:rotate-45"
+                          style={{ color: brand }}
+                          aria-hidden
+                        >
+                          +
+                        </span>
+                      </summary>
+                      <p className="mt-3 whitespace-pre-line border-t pt-3 text-sm leading-relaxed text-muted-foreground">
+                        {f.answer}
+                      </p>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Blog */}
+          {blogHref && data.latestBlogPosts.length > 0 && (
+            <section className="border-b bg-background py-16">
+              <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div className="mb-10 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+                  <div>
+                    <Kicker brand={brand}>{t('blogKicker')}</Kicker>
+                    <h2 className="mt-1 text-2xl font-extrabold sm:text-3xl">{t('blogTitle')}</h2>
+                  </div>
+                  <Link
+                    href={blogHref}
+                    className="text-sm font-bold hover:underline"
+                    style={{ color: brand }}
+                  >
+                    {t('blogAll')} →
+                  </Link>
+                </div>
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                  {data.latestBlogPosts.slice(0, 3).map((p) => (
+                    <Link
+                      key={p.slug}
+                      href={buildBlogPostHref(data.tenantSlug, p.slug, locale, data.customDomain)}
+                      className="group flex flex-col justify-between overflow-hidden rounded-2xl border bg-muted/40 transition-shadow hover:shadow-md"
+                    >
+                      <div>
+                        <div className="relative aspect-video overflow-hidden bg-muted">
+                          {p.coverImageUrl ? (
+                            <Image
+                              src={p.coverImageUrl}
+                              alt=""
+                              fill
+                              loading="lazy"
+                              sizes="(min-width: 768px) 33vw, 100vw"
+                              className="object-cover transition-transform group-hover:scale-105"
+                            />
+                          ) : (
+                            <div
+                              className="h-full w-full"
+                              style={{
+                                background: `linear-gradient(135deg, ${brand}22, ${brand}55)`,
+                              }}
+                            />
+                          )}
+                          <span className="absolute left-3 top-3 rounded-md bg-background/90 px-2.5 py-1 text-[11px] font-bold backdrop-blur">
+                            {new Date(p.publishedAt).toLocaleDateString(intlLocaleFor(locale), {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric',
+                            })}
+                          </span>
+                        </div>
+                        <div className="p-6">
+                          <h3 className="line-clamp-2 text-lg font-bold">{p.title}</h3>
+                        </div>
+                      </div>
+                      <span
+                        className="px-6 pb-6 text-xs font-bold group-hover:underline"
+                        style={{ color: brand }}
+                      >
+                        {t('readMore')} →
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Contacto */}
+          {data.contactEnabled && (
+            <section id="contacto" className="scroll-mt-24 border-b py-16">
+              <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+                <div className="rounded-3xl border bg-card p-8 shadow-sm sm:p-12">
+                  <SectionHeading
+                    brand={brand}
+                    kicker={t('contactKicker')}
+                    title={t('contactTitle')}
+                    subtitle={t('contactSubtitle')}
+                  />
+                  <ContactForm
+                    slug={data.tenantSlug}
+                    customDomain={data.customDomain}
+                    brand={brand}
+                  />
+                </div>
+              </div>
+            </section>
+          )}
+        </>
+      )}
       {/* Pie */}
       <footer className="bg-neutral-950 pb-12 pt-14 text-sm text-neutral-400">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -739,35 +761,37 @@ export function TrstromTemplate({
       </footer>
 
       {/* Barra fija en el móvil */}
-      <div className="pb-safe fixed inset-x-0 bottom-0 z-50 flex items-center gap-2 border-t bg-background/95 px-3 py-2.5 shadow-2xl backdrop-blur md:hidden">
-        {phone && (
-          <a
-            href={`tel:${phone}`}
-            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-muted px-3 py-3 text-xs font-bold"
+      {!children && (
+        <div className="pb-safe fixed inset-x-0 bottom-0 z-50 flex items-center gap-2 border-t bg-background/95 px-3 py-2.5 shadow-2xl backdrop-blur md:hidden">
+          {phone && (
+            <a
+              href={`tel:${phone}`}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-muted px-3 py-3 text-xs font-bold"
+            >
+              <Phone className="h-4 w-4" style={{ color: brand }} /> {t('call')}
+            </a>
+          )}
+          {whatsapp && (
+            <a
+              href={whatsapp}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => trackEvent('whatsapp_click')}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-muted px-3 py-3 text-xs font-bold"
+            >
+              <WhatsAppIcon className="h-4 w-4" style={{ color: brand }} /> WhatsApp
+            </a>
+          )}
+          <Link
+            href={bookHref}
+            onClick={() => trackEvent('cta_reservar_click', { location: 'mobile_bar_trstrom' })}
+            className="inline-flex flex-[1.4] items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-xs font-black text-white shadow-md"
+            style={{ backgroundColor: brand }}
           >
-            <Phone className="h-4 w-4" style={{ color: brand }} /> {t('call')}
-          </a>
-        )}
-        {whatsapp && (
-          <a
-            href={whatsapp}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => trackEvent('whatsapp_click')}
-            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-muted px-3 py-3 text-xs font-bold"
-          >
-            <WhatsAppIcon className="h-4 w-4" style={{ color: brand }} /> WhatsApp
-          </a>
-        )}
-        <Link
-          href={bookHref}
-          onClick={() => trackEvent('cta_reservar_click', { location: 'mobile_bar_trstrom' })}
-          className="inline-flex flex-[1.4] items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-xs font-black text-white shadow-md"
-          style={{ backgroundColor: brand }}
-        >
-          {t('reserve')} <ArrowRight className="h-4 w-4" />
-        </Link>
-      </div>
+            {t('reserve')} <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
@@ -1069,6 +1093,7 @@ function UnitTypeCard({
 /** Cabecera fija: logo, secciones, área de clientes y «Reservar ahora». */
 function Header({
   data,
+  homeHref,
   brand,
   navItems,
   onNavigate,
@@ -1078,6 +1103,8 @@ function Header({
   blogHref,
 }: {
   data: PublicLandingDto;
+  /** Desde otra página: el logo lleva a la portada. */
+  homeHref?: string;
   brand: string;
   navItems: { id: string; label: string }[];
   onNavigate: (id: string) => void;
@@ -1109,7 +1136,7 @@ function Header({
         <div className="flex h-20 items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            onClick={() => goToTop(homeHref)}
             className="flex shrink-0 items-center gap-3"
           >
             {data.logoUrl ? (
