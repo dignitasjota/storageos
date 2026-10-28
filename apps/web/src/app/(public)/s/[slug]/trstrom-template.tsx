@@ -73,6 +73,7 @@ export function TrstromTemplate({
   data,
   locale,
   children,
+  otherLocaleHref,
 }: {
   data: PublicLandingDto;
   locale: PublicWebLocale;
@@ -81,6 +82,8 @@ export function TrstromTemplate({
    * las secciones de la portada, y los enlaces de sección llevan a la portada.
    */
   children?: ReactNode;
+  /** Con `children`: a dónde lleva el selector de idioma (esta página en el otro idioma). */
+  otherLocaleHref?: string;
 }) {
   const homeHref = children ? landingHref(data.tenantSlug, locale, data.customDomain) : undefined;
   const t = useTranslations('publicWeb.trstrom');
@@ -199,6 +202,7 @@ export function TrstromTemplate({
         languageSwitcher={
           <LanguageSwitcher
             tenantSlug={data.tenantSlug}
+            otherLocaleHref={otherLocaleHref}
             currentLocale={locale}
             customDomain={data.customDomain}
             onBrand={data.webHeaderBranded}
