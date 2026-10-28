@@ -2119,6 +2119,7 @@ model Coupon {
   facilityIds      String[]              @default([]) @map("facility_ids") @db.Uuid
   newCustomersOnly Boolean               @default(false) @map("new_customers_only")
   oncePerCustomer  Boolean               @default(false) @map("once_per_customer")
+  preOpeningOnly   Boolean               @default(false) @map("pre_opening_only")
   maxUses          Int?                  @map("max_uses")
   usedCount        Int                   @default(0) @map("used_count")
   validFrom        DateTime?             @map("valid_from") @db.Timestamptz(6)

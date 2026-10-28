@@ -480,7 +480,7 @@ export class ContractsService {
         },
       });
       // Local por abrir: reserva anticipada. Primer pago = una mensualidad
-      // completa (sin cupón ni prepago) y el alquiler empieza el día de
+      // completa (sin prepago; el cupón descuenta esa mensualidad) y el alquiler empieza el día de
       // apertura; sin fecha fijada, la de inicio es la fecha límite
       // (provisional) y nada se factura ni da acceso hasta que abra.
       let preOpening: {
@@ -489,12 +489,6 @@ export class ContractsService {
         deadline: Date;
       } | null = null;
       if (facilityOwner?.preOpening) {
-        if (input.couponCode?.trim()) {
-          throw new BadRequestException({
-            code: 'pre_opening_no_coupon',
-            message: 'Las reservas antes de la apertura no admiten cupones',
-          });
-        }
         const today = todayInTimezone(facilityOwner.timezone).toISOString().slice(0, 10);
         const deadline = addMonthsYmd(today, facilityOwner.preOpeningMaxMonths);
         const opening = facilityOwner.openingDate?.toISOString().slice(0, 10) ?? null;
@@ -567,6 +561,7 @@ export class ContractsService {
           facilityId: unit.facilityId,
           isNewCustomer: signedBefore === 0,
           customerId: input.customerId,
+          preOpening: !!preOpening,
         });
         // Con prepago semestral/anual con descuento se aplica el mejor de los dos.
         const prepayPct = input.billingIntervalMonths > 1 ? input.prepayDiscountPct : 0;

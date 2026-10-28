@@ -66,7 +66,7 @@ export class LeadQuotesService {
         select: {
           basePriceMonthly: true,
           areaM2: true,
-          facility: { select: { name: true, publicSlug: true } },
+          facility: { select: { name: true, publicSlug: true, preOpening: true } },
           unitType: { select: { name: true, propertyKind: true, defaultDepositAmount: true } },
         },
       }),
@@ -103,18 +103,21 @@ export class LeadQuotesService {
           select: { id: true },
         }))
       : true;
+    // Local por abrir: se reserva pagando una mensualidad.
+    const months = unit.facility.preOpening ? 1 : input.months;
     const base = await this.coupons.quoteFirstPayment(tenantId, {
       monthlyPrice: Number(unit.basePriceMonthly),
-      months: input.months,
+      months,
       unitTypeId: input.unitTypeId,
       facilityId: input.facilityId,
       propertyKind: unit.unitType.propertyKind,
       deposit: Number(unit.unitType.defaultDepositAmount ?? 0),
       couponCode: input.couponCode,
       isNewCustomer,
+      preOpening: unit.facility.preOpening,
     });
     const insurance = plan
-      ? round2(Number(plan.monthlyPrice) * (1 + Number(plan.taxRate) / 100) * input.months)
+      ? round2(Number(plan.monthlyPrice) * (1 + Number(plan.taxRate) / 100) * months)
       : 0;
     const quote = {
       ...base,
@@ -131,7 +134,7 @@ export class LeadQuotesService {
       facilityId: input.facilityId,
       facilitySlug: unit.facility.publicSlug,
       unitTypeId: input.unitTypeId,
-      months: input.months,
+      months: months,
       coupon: couponOk,
     });
 
@@ -139,8 +142,8 @@ export class LeadQuotesService {
     const lines = [
       `${unit.unitType.name}${unit.areaM2 ? ` (${Number(unit.areaM2)} m²)` : ''} en ${unit.facility.name}.`,
       '',
-      input.months > 1
-        ? `Primer pago de ${input.months} meses: ${formatEur(quote.rentTotalWithVat)} (IVA incl.)${quote.freeMonths > 0 ? `, con ${quote.freeMonths} ${quote.freeMonths === 1 ? 'mes gratis' : 'meses gratis'}` : quote.discountAmount > 0 ? `, con un descuento de ${formatEur(quote.discountAmount)}` : ''}.`
+      months > 1
+        ? `Primer pago de ${months} meses: ${formatEur(quote.rentTotalWithVat)} (IVA incl.)${quote.freeMonths > 0 ? `, con ${quote.freeMonths} ${quote.freeMonths === 1 ? 'mes gratis' : 'meses gratis'}` : quote.discountAmount > 0 ? `, con un descuento de ${formatEur(quote.discountAmount)}` : ''}.`
         : `Cuota mensual: ${formatEur(round2(Number(unit.basePriceMonthly) * (1 + base.vatRate / 100)))} (IVA incl.)${quote.discountAmount > 0 ? `; el primer mes con un descuento de ${formatEur(quote.discountAmount)}` : ''}.`,
       ...(plan
         ? [`Protección de contenido «${plan.name}»: ${formatEur(insurance)} (IVA incl.).`]
@@ -149,10 +152,14 @@ export class LeadQuotesService {
         ? [`Fianza: ${formatEur(quote.deposit)} (se devuelve al terminar).`]
         : []),
       `Total a pagar al reservar: ${formatEur(quote.totalToPay)}.`,
-      ...(quote.prorated
-        ? ['Si entras a mitad de mes, el primer pago es solo por los días que quedan.']
-        : []),
-      ...(input.months > 1 ? [`Después, ${formatEur(monthlyWithVat)} al mes.`] : []),
+      ...(unit.facility.preOpening
+        ? [
+            'El local aún no ha abierto: reservas ahora pagando la primera mensualidad, que cubre tu primer mes desde el día de apertura. Puedes cancelar sin coste en los 14 días siguientes.',
+          ]
+        : quote.prorated
+          ? ['Si entras a mitad de mes, el primer pago es solo por los días que quedan.']
+          : []),
+      ...(months > 1 ? [`Después, ${formatEur(monthlyWithVat)} al mes.`] : []),
     ];
     const body = `Hola${name ? ` ${name}` : ''}:\n\nGracias por tu interés. Este es el presupuesto que te hemos preparado:\n\n${lines.join('\n')}\n\nPuedes reservarlo online en un par de minutos (el precio y el cupón ya están puestos):\n${bookUrl}\n\nEl precio puede cambiar si el trastero se alquila antes. Cualquier duda, responde a este correo.\n\n${tenant.name}`;
 
@@ -223,7 +230,7 @@ export class LeadQuotesService {
       changes: {
         facilityId: input.facilityId,
         unitTypeId: input.unitTypeId,
-        months: input.months,
+        months: draft.quote.months,
         total: draft.quote.totalToPay,
         ...(draft.quote.coupon?.valid ? { coupon: draft.quote.coupon.code } : {}),
       },

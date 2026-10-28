@@ -17,6 +17,7 @@ import type {
   CohortRowDto,
   CohortsDto,
   OccupancyHistoryDto,
+  PreOpeningAnalyticsDto,
   RevenueBreakdownDto,
   RevenueBreakdownRowDto,
   RevenueConcept,
@@ -358,5 +359,101 @@ export class AnalyticsTrendsService {
       });
     }
     return { cohorts };
+  }
+
+  /**
+   * Preventa de los locales por abrir: cuántos trasteros están ya reservados
+   * (por tipo), cuántos sin pagar y las cuotas que empezarán el día de apertura.
+   */
+  async getPreOpening(tenantId: string, scope: AnalyticsScope): Promise<PreOpeningAnalyticsDto> {
+    const facilities = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findMany({
+          where: {
+            deletedAt: null,
+            preOpening: true,
+            ...(scope.ids ? { id: { in: scope.ids } } : {}),
+          },
+          orderBy: { name: 'asc' },
+          select: {
+            id: true,
+            name: true,
+            openingDate: true,
+            units: {
+              select: {
+                status: true,
+                basePriceMonthly: true,
+                unitTypeId: true,
+                unitType: { select: { name: true } },
+                contracts: {
+                  where: {
+                    preOpening: true,
+                    preOpeningStartedAt: null,
+                    status: { in: ['active', 'ending'] },
+                    deletedAt: null,
+                  },
+                  select: {
+                    priceMonthly: true,
+                    discountAmount: true,
+                    invoices: {
+                      where: { kind: 'invoice', deletedAt: null },
+                      select: { status: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      tenantId,
+    );
+    return {
+      facilities: facilities.map((f) => {
+        const rentable = f.units.filter(
+          (u) => u.status !== 'maintenance' && u.status !== 'blocked',
+        );
+        const reservations = f.units.flatMap((u) => u.contracts);
+        const types = new Map<
+          string,
+          PreOpeningAnalyticsDto['facilities'][number]['byType'][number]
+        >();
+        for (const u of f.units) {
+          const key = u.unitTypeId ?? 'none';
+          const row = types.get(key) ?? {
+            unitTypeId: u.unitTypeId,
+            name: u.unitType?.name ?? 'Sin tipo',
+            total: 0,
+            reserved: 0,
+            available: 0,
+            fromPrice: null,
+          };
+          row.total += 1;
+          if (u.contracts.length > 0) row.reserved += 1;
+          if (u.status === 'available') {
+            row.available += 1;
+            const price = Number(u.basePriceMonthly);
+            row.fromPrice = row.fromPrice === null ? price : Math.min(row.fromPrice, price);
+          }
+          types.set(key, row);
+        }
+        return {
+          facilityId: f.id,
+          facilityName: f.name,
+          openingDate: f.openingDate ? f.openingDate.toISOString().slice(0, 10) : null,
+          totalUnits: f.units.length,
+          reserved: f.units.filter((u) => u.contracts.length > 0).length,
+          unpaid: reservations.filter((c) => !c.invoices.some((i) => i.status === 'paid')).length,
+          available: f.units.filter((u) => u.status === 'available').length,
+          reservedMrr: round2(
+            reservations.reduce(
+              (sum, c) => sum + Number(c.priceMonthly) - Number(c.discountAmount),
+              0,
+            ),
+          ),
+          potentialMrr: round2(rentable.reduce((sum, u) => sum + Number(u.basePriceMonthly), 0)),
+          byType: [...types.values()].sort((a, b) => a.name.localeCompare(b.name, 'es')),
+        };
+      }),
+    };
   }
 }

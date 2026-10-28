@@ -47,6 +47,8 @@ export const DOMAIN_EVENTS = {
   contract_unit_changed: 'domain.contract_unit_changed',
   /** Abre el local de una reserva anticipada: empieza el alquiler (acceso). */
   contract_pre_opening_started: 'domain.contract_pre_opening_started',
+  /** Un local con reservas anticipadas abre (resumen al equipo). */
+  facility_pre_opening_opened: 'domain.facility_pre_opening_opened',
   /** Un cobro automático (auto-charge, reintento, domiciliación) fue rechazado → aviso al inquilino. */
   payment_failed: 'domain.payment_failed',
   /** Remesa SEPA generada → preaviso de cargo a cada deudor. */
@@ -117,6 +119,25 @@ export interface ContractPreOpeningStartedPayload {
   tenantId: string;
   contractId: string;
   customerId: string;
+}
+
+/** Payload de `facility_pre_opening_opened` (no es trigger de automations). */
+export interface FacilityPreOpeningOpenedPayload {
+  tenantId: string;
+  facilityId: string;
+  openingDay: string;
+  /** Reservas firmadas que empiezan. */
+  started: number;
+  /** De ellas, sin la primera mensualidad pagada (no reciben acceso hasta pagarla). */
+  unpaid: number;
+  /** Fianzas en efectivo aún por cobrar en el local. */
+  cashDepositsPending: number;
+  /** Reservas sin firmar que pasan a ser un alta normal. */
+  unsigned: number;
+  /** Reservas cuyo trastero se cambió por otro libre al abrir. */
+  reassigned: number;
+  /** Reservas con el trastero fuera de servicio y sin otro igual libre. */
+  unitProblems: number;
 }
 
 /** Payload de `contract_unit_changed` (no es trigger de automations). */

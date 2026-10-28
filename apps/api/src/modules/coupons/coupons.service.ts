@@ -48,6 +48,7 @@ function toRules(c: CouponRow): CouponRules {
     facilityIds: c.facilityIds,
     newCustomersOnly: c.newCustomersOnly,
     oncePerCustomer: c.oncePerCustomer,
+    preOpeningOnly: c.preOpeningOnly,
     maxUses: c.maxUses,
     usedCount: c.usedCount,
     validFrom: c.validFrom,
@@ -80,6 +81,7 @@ export class CouponsService {
       facilityIds: c.facilityIds,
       newCustomersOnly: c.newCustomersOnly,
       oncePerCustomer: c.oncePerCustomer,
+      preOpeningOnly: c.preOpeningOnly,
       maxUses: c.maxUses,
       usedCount: c.usedCount,
       validFrom: c.validFrom?.toISOString() ?? null,
@@ -115,6 +117,7 @@ export class CouponsService {
               facilityIds: input.facilityIds,
               newCustomersOnly: input.newCustomersOnly,
               oncePerCustomer: input.oncePerCustomer,
+              preOpeningOnly: input.preOpeningOnly,
               maxUses: input.maxUses,
               validFrom: input.validFrom ? new Date(input.validFrom) : null,
               validUntil: input.validUntil ? new Date(input.validUntil) : null,
@@ -167,6 +170,7 @@ export class CouponsService {
     if (input.facilityIds !== undefined) data.facilityIds = input.facilityIds;
     if (input.newCustomersOnly !== undefined) data.newCustomersOnly = input.newCustomersOnly;
     if (input.oncePerCustomer !== undefined) data.oncePerCustomer = input.oncePerCustomer;
+    if (input.preOpeningOnly !== undefined) data.preOpeningOnly = input.preOpeningOnly;
     if (input.maxUses !== undefined) data.maxUses = input.maxUses;
     if (input.isActive !== undefined) data.isActive = input.isActive;
     if (input.validFrom !== undefined)
@@ -231,7 +235,12 @@ export class CouponsService {
       (tx) =>
         tx.unit.findFirst({
           where: { id: input.unitId, tenantId },
-          select: { unitTypeId: true, facilityId: true, basePriceMonthly: true },
+          select: {
+            unitTypeId: true,
+            facilityId: true,
+            basePriceMonthly: true,
+            facility: { select: { preOpening: true } },
+          },
         }),
       tenantId,
     );
@@ -240,7 +249,9 @@ export class CouponsService {
     }
     return this.quote(tenantId, input.code, {
       monthlyPrice: input.monthlyPrice ?? Number(unit.basePriceMonthly),
-      months: input.months,
+      // Local por abrir: se paga una mensualidad.
+      months: unit.facility.preOpening ? 1 : input.months,
+      preOpening: unit.facility.preOpening,
       unitTypeId: unit.unitTypeId,
       facilityId: unit.facilityId,
       isNewCustomer: input.customerId ? await this.isNewCustomer(tenantId, input.customerId) : null,
@@ -316,11 +327,11 @@ export class CouponsService {
       publicMessages?: boolean;
       /** Fecha de entrada (YYYY-MM-DD): el primer pago mensual sale exacto. */
       startDate?: string | null | undefined;
-      /** Local por abrir: una mensualidad completa, sin cupón. */
+      /** Local por abrir: una mensualidad completa (admite cupones de preapertura). */
       preOpening?: boolean;
     },
   ): Promise<FirstPaymentQuoteDto> {
-    const code = args.preOpening ? undefined : args.couponCode?.trim();
+    const code = args.couponCode?.trim();
     const quote = code
       ? await this.quote(tenantId, code, {
           monthlyPrice: args.monthlyPrice,
@@ -328,6 +339,7 @@ export class CouponsService {
           unitTypeId: args.unitTypeId,
           facilityId: args.facilityId,
           isNewCustomer: args.isNewCustomer,
+          preOpening: !!args.preOpening,
           usedByCustomer: args.customerId
             ? await this.usedByCustomer(tenantId, code, args.customerId)
             : null,

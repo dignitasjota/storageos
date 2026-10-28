@@ -67,6 +67,11 @@ export interface TodayDto {
   marketingRenewalsDue: { count: number; items: TodayItemDto[] };
   /** Ofertas de retención (contraoferta de baja) pendientes de respuesta del inquilino. */
   retentionOffersPending: { count: number; items: TodayItemDto[] };
+  /**
+   * Locales por abrir que abren en 7 días o con reservas que ya pasaron el
+   * plazo máximo (el inquilino puede cancelar con devolución total).
+   */
+  preOpeningSoon: { count: number; items: TodayItemDto[] };
   /** Productos por debajo del stock mínimo en algún local. */
   lowStock: { count: number; items: TodayItemDto[] };
   /** Trasteros en mantenimiento o bloqueados hace más de 7 días o pasada su fecha prevista. */

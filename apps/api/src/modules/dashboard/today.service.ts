@@ -13,6 +13,8 @@ const OUT_OF_SERVICE_DAYS = 7;
 const SOON_DAYS = 30; // contratos que vencen pronto
 const RESERVATION_SOON_DAYS = 7;
 const MARKETING_RENEWAL_SOON_DAYS = 7;
+/** Locales que abren en estos días o menos salen en «Hoy». */
+const PRE_OPENING_SOON_DAYS = 7;
 const TAKE = 8;
 
 function customerName(c: {
@@ -600,7 +602,7 @@ export class TodayService {
       // Inventario: stock bajo, trasteros parados y documentos que caducan.
       const outOfServiceCut = new Date(now.getTime() - OUT_OF_SERVICE_DAYS * 86_400_000);
       const docsLimit = new Date(now.getTime() + 30 * 86_400_000);
-      const [stocks, parked, docs] = await Promise.all([
+      const [stocks, parked, docs, preOpeningFacilities] = await Promise.all([
         tx.productStock.findMany({
           where: {
             product: { deletedAt: null, isActive: true, minStock: { not: null } },
@@ -649,7 +651,51 @@ export class TodayService {
             facility: { select: { name: true } },
           },
         }),
+        // Locales por abrir y sus reservas (firmadas, sin empezar).
+        tx.facility.findMany({
+          where: { deletedAt: null, preOpening: true, ...(fac ? { id: fac } : {}) },
+          select: {
+            id: true,
+            name: true,
+            openingDate: true,
+            units: {
+              select: {
+                contracts: {
+                  where: {
+                    preOpening: true,
+                    preOpeningStartedAt: null,
+                    status: { in: ['active', 'ending'] },
+                    deletedAt: null,
+                  },
+                  select: {
+                    preOpeningDeadline: true,
+                    invoices: {
+                      where: { kind: 'invoice', deletedAt: null },
+                      select: { status: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
       ]);
+      const soonLimit = new Date(startOfToday.getTime() + PRE_OPENING_SOON_DAYS * 86_400_000);
+      const preOpeningSoon = preOpeningFacilities
+        .map((f) => {
+          const reservations = f.units.flatMap((u) => u.contracts);
+          const unpaid = reservations.filter(
+            (c) => !c.invoices.some((i) => i.status === 'paid'),
+          ).length;
+          const pastDeadline = reservations.filter(
+            (c) => c.preOpeningDeadline && c.preOpeningDeadline < startOfToday,
+          ).length;
+          return { f, reservations: reservations.length, unpaid, pastDeadline };
+        })
+        .filter(
+          (x) => x.pastDeadline > 0 || (x.f.openingDate !== null && x.f.openingDate <= soonLimit),
+        )
+        .sort((a, b) => (a.f.openingDate?.getTime() ?? 0) - (b.f.openingDate?.getTime() ?? 0));
       const low = stocks.filter((st) => st.quantity < (st.product.minStock ?? 0));
       const stuck = parked
         .map((u) => ({ ...u, since: u.statusHistory[0]?.occurredAt ?? u.createdAt }))
@@ -682,7 +728,8 @@ export class TodayService {
         rgpdRequests.filter((r) => r.dueAt < now).length +
         marketingRenewalsCount +
         retentionOffersCount +
-        docs.filter((d) => d.expiresOn! < startOfToday).length;
+        docs.filter((d) => d.expiresOn! < startOfToday).length +
+        preOpeningSoon.filter((x) => x.pastDeadline > 0).length;
 
       return {
         date: startOfToday.toISOString(),
@@ -816,6 +863,28 @@ export class TodayService {
             label: customerName(r.customer),
             detail: r.contract.unit?.code ?? null,
             date: r.validUntil ? r.validUntil.toISOString() : null,
+          })),
+        },
+        preOpeningSoon: {
+          count: preOpeningSoon.length,
+          // `id` = el local (la fecha de apertura se gestiona en sus ajustes).
+          items: preOpeningSoon.slice(0, TAKE).map((x) => ({
+            id: x.f.id,
+            label: x.f.name,
+            detail: [
+              x.f.openingDate
+                ? `Abre el ${x.f.openingDate.toISOString().slice(8, 10)}/${x.f.openingDate.toISOString().slice(5, 7)}`
+                : 'Sin fecha de apertura',
+              `${x.reservations} ${x.reservations === 1 ? 'reserva' : 'reservas'}`,
+              x.unpaid > 0 ? `${x.unpaid} sin pagar` : null,
+              x.pastDeadline > 0
+                ? `${x.pastDeadline} con el plazo máximo vencido (pueden cancelar con devolución total)`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+            date: x.f.openingDate ? x.f.openingDate.toISOString() : null,
+            overdue: x.pastDeadline > 0,
           })),
         },
         lowStock: {

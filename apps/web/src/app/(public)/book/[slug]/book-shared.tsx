@@ -171,7 +171,7 @@ export function BookPageBody({
         facilityId,
         unitTypeId,
         months: preOpening ? 1 : months,
-        ...(couponCode && !preOpening ? { couponCode } : {}),
+        ...(couponCode ? { couponCode } : {}),
         ...(!preOpening && /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? { startDate } : {}),
       },
     })
@@ -227,7 +227,7 @@ export function BookPageBody({
           customer: form,
           ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
           months: preOpening ? 1 : months,
-          ...(couponValid && couponCode && !preOpening ? { couponCode } : {}),
+          ...(couponValid && couponCode ? { couponCode } : {}),
           website,
           ...utm,
         },
@@ -405,8 +405,8 @@ export function BookPageBody({
                 </div>
               )}
 
-              {!preOpening && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className={preOpening ? '' : 'grid grid-cols-1 gap-3 sm:grid-cols-2'}>
+                {!preOpening && (
                   <div className="space-y-1">
                     <Label htmlFor="book-months">{t('monthsLabel')}</Label>
                     <select
@@ -423,50 +423,50 @@ export function BookPageBody({
                     </select>
                     <p className="text-xs text-muted-foreground">{t('monthsHint')}</p>
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="book-coupon">{t('couponLabel')}</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="book-coupon"
-                        value={couponInput}
-                        onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                        placeholder={t('couponPlaceholder')}
-                        disabled={!!couponCode}
-                      />
-                      {couponCode ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            setCouponCode(null);
-                            setCouponInput('');
-                          }}
-                        >
-                          {t('couponRemove')}
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={!couponInput.trim()}
-                          onClick={() => setCouponCode(couponInput.trim().toUpperCase())}
-                        >
-                          {t('couponApply')}
-                        </Button>
-                      )}
-                    </div>
-                    {couponCode && quote?.coupon && (
-                      <p
-                        className={`text-xs ${quote.coupon.valid ? 'text-green-600' : 'text-destructive'}`}
+                )}
+                <div className="space-y-1">
+                  <Label htmlFor="book-coupon">{t('couponLabel')}</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="book-coupon"
+                      value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                      placeholder={t('couponPlaceholder')}
+                      disabled={!!couponCode}
+                    />
+                    {couponCode ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setCouponCode(null);
+                          setCouponInput('');
+                        }}
                       >
-                        {quote.coupon.valid
-                          ? t('couponApplied', { code: quote.coupon.code })
-                          : quote.coupon.message}
-                      </p>
+                        {t('couponRemove')}
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!couponInput.trim()}
+                        onClick={() => setCouponCode(couponInput.trim().toUpperCase())}
+                      >
+                        {t('couponApply')}
+                      </Button>
                     )}
                   </div>
+                  {couponCode && quote?.coupon && (
+                    <p
+                      className={`text-xs ${quote.coupon.valid ? 'text-green-600' : 'text-destructive'}`}
+                    >
+                      {quote.coupon.valid
+                        ? t('couponApplied', { code: quote.coupon.code })
+                        : quote.coupon.message}
+                    </p>
+                  )}
                 </div>
-              )}
+              </div>
               {quote && <FirstPaymentSummary quote={quote} locale={locale} />}
 
               {!preOpening && (

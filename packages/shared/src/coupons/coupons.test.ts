@@ -181,6 +181,16 @@ describe('un uso por cliente', () => {
     );
   });
 
+  it('un cupón de preapertura solo vale para reservas en un local por abrir', () => {
+    const rules: CouponRules = { ...base, preOpeningOnly: true };
+    const normal = quoteCoupon(rules, { monthlyPrice: 50, months: 1 });
+    expect(normal.valid).toBe(false);
+    if (!normal.valid) expect(normal.reason).toBe('pre_opening_only');
+    expect(quoteCoupon(rules, { monthlyPrice: 50, months: 1, preOpening: true }).valid).toBe(true);
+    // Un cupón normal también vale en una reserva antes de la apertura.
+    expect(quoteCoupon(base, { monthlyPrice: 50, months: 1, preOpening: true }).valid).toBe(true);
+  });
+
   it('en la web pública no dice si un código existe', () => {
     expect(publicCouponRejectMessage('not_found', 'Este cupón no existe')).toBe(
       'Este cupón no es válido',
