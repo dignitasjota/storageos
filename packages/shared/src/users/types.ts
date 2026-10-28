@@ -35,6 +35,8 @@ export interface InvitationDto {
   expiresAt: string;
   acceptedAt: string | null;
   revokedAt: string | null;
+  /** `manual`, `expired` (se volvió a invitar) o `replaced_by_resend`. */
+  revokedReason: string | null;
   createdAt: string;
 }
 
@@ -45,4 +47,10 @@ export interface PublicInvitationDto {
   tenant: { name: string; slug: string };
   inviterName: string | null;
   expiresAt: string;
+}
+
+/** GET /me/email-change — cambio de email pendiente de confirmar. */
+export interface EmailChangeStatusDto {
+  pendingEmail: string | null;
+  expiresAt: string | null;
 }

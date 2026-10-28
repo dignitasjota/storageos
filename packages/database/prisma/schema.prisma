@@ -321,6 +321,9 @@ model Tenant {
   locale                       String                @default("es-ES")
   currency                     String                @default("EUR") @db.Char(3)
   timezone                     String                @default("Europe/Madrid")
+  /// Contacto del negocio (respaldo cuando un local no tiene el suyo).
+  contactPhone                 String?               @map("contact_phone")
+  contactEmail                 String?               @map("contact_email")
   taxId                        String?               @map("tax_id")
   /// Datos fiscales del tenant como destinatario de las facturas de suscripción.
   billingLegalName             String?               @map("billing_legal_name")
@@ -441,6 +444,8 @@ model Tenant {
   taskAutoRules Json? @map("task_auto_rules")
   customDomain                 String?               @unique @map("custom_domain")
   customDomainVerifiedAt       DateTime?             @map("custom_domain_verified_at") @db.Timestamptz(6)
+  /// El tenant avisó de que el DNS ya apunta a la plataforma.
+  customDomainReadyAt          DateTime?             @map("custom_domain_ready_at") @db.Timestamptz(6)
   nightPassEnabled             Boolean               @default(false) @map("night_pass_enabled")
   nightPassPrice               Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
   collectionsEnabled           Boolean               @default(false) @map("collections_enabled")
@@ -646,6 +651,10 @@ model User {
   /// `role` enum se mantiene como base para los endpoints @Roles. Ver ADR-RBAC.
   tenantRoleId                    String?   @map("tenant_role_id") @db.Uuid
   emailVerifiedAt                 DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  /// Cambio de email pendiente de confirmar con el enlace enviado al nuevo.
+  pendingEmail                    String?   @map("pending_email")
+  emailChangeTokenHash            String?   @map("email_change_token_hash")
+  emailChangeExpiresAt            DateTime? @map("email_change_expires_at") @db.Timestamptz(6)
   twoFactorSecretEncrypted        String?   @map("two_factor_secret")
   twoFactorPendingSecretEncrypted String?   @map("two_factor_pending_secret")
   /// Hasta cuándo ha visto las «Novedades».

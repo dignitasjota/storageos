@@ -159,6 +159,8 @@ export interface TenantProfileResponse {
   name: string;
   slug: string;
   timezone: string;
+  contactPhone: string | null;
+  contactEmail: string | null;
 }
 
 /**
@@ -226,4 +228,40 @@ export interface TenantAccessSettingsResponse {
   /** Pase nocturno: compra de un código de un solo uso que salta el toque de queda. */
   nightPassEnabled: boolean;
   nightPassPrice: number;
+}
+
+/** GET /me/sessions — una sesión abierta del usuario. */
+export interface UserSessionDto {
+  id: string;
+  userAgent: string | null;
+  ipAddress: string | null;
+  installedApp: boolean;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  /** La de este navegador. */
+  current: boolean;
+}
+
+/** GET /settings/tenant/health — algo de la configuración que conviene revisar. */
+export interface ConfigHealthItemDto {
+  key: string;
+  /** `error`: impide algo (facturar, cobrar…); `warning`: conviene revisarlo. */
+  level: 'error' | 'warning';
+  title: string;
+  detail: string;
+  /** Dónde se arregla. */
+  href: string;
+}
+
+/** POST /settings/tenant/domain/check — ¿apunta ya el dominio a la plataforma? */
+export interface CustomDomainCheckDto {
+  domain: string;
+  pointsToPlatform: boolean;
+  /** Lo que devuelve hoy el DNS del dominio (direcciones o el CNAME). */
+  found: string[];
+  /** A qué tiene que apuntar. */
+  expected: string[];
+  /** Cuándo se avisó al equipo de TrasterOS de que ya apunta. */
+  readyAt: string | null;
 }

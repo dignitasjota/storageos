@@ -29,6 +29,14 @@ function customerName(c: {
  * atender hoy (tareas vencidas, contratos/reservas que vencen, incidencias,
  * facturas vencidas, cambios y mensajes pendientes). Todo con `withTenant` (RLS).
  */
+const RGPD_REQUEST_LABELS: Record<string, string> = {
+  access: 'Pide sus datos',
+  rectification: 'Pide corregir sus datos',
+  erasure: 'Pide borrar sus datos',
+  portability: 'Pide llevarse sus datos',
+  restriction: 'Pide limitar el uso de sus datos',
+};
+
 @Injectable()
 export class TodayService {
   constructor(private readonly prisma: PrismaService) {}
@@ -181,6 +189,7 @@ export class TodayService {
         retentionOffersCount,
         depositsToRegister,
         depositsToRegisterCount,
+        rgpdRequests,
       ] = await Promise.all([
         tx.task.findMany({
           where: {
@@ -468,6 +477,16 @@ export class TodayService {
           include: { customer: customerSelect, unit: { select: { code: true } } },
         }),
         tx.contract.count({ where: depositToRegisterWhere }),
+        // Solicitudes de protección de datos sin cerrar que vencen en 7 días.
+        tx.dataSubjectRequest.findMany({
+          where: {
+            status: { in: ['open', 'in_progress'] },
+            dueAt: { lt: new Date(now.getTime() + 7 * 86_400_000) },
+          },
+          orderBy: [{ dueAt: 'asc' }],
+          take: 20,
+          select: { id: true, email: true, requestType: true, dueAt: true },
+        }),
       ]);
 
       const invoiceItem = (i: (typeof overdueRows)[number], overdue: boolean): TodayItemDto => ({
@@ -649,6 +668,7 @@ export class TodayService {
         depositsToSettleCount +
         depositsToCollectCount +
         depositsToRegisterCount +
+        rgpdRequests.filter((r) => r.dueAt < now).length +
         marketingRenewalsCount +
         retentionOffersCount +
         docs.filter((d) => d.expiresOn! < startOfToday).length;
@@ -752,6 +772,16 @@ export class TodayService {
             date: c.signedAt ? c.signedAt.toISOString() : null,
             // El plazo habitual para depositarla es de un mes desde la firma.
             overdue: !!c.signedAt && c.signedAt.getTime() < now.getTime() - 30 * 86_400_000,
+          })),
+        },
+        rgpdRequestsDue: {
+          count: rgpdRequests.length,
+          items: rgpdRequests.map((r) => ({
+            id: r.id,
+            label: r.email,
+            detail: RGPD_REQUEST_LABELS[r.requestType] ?? r.requestType,
+            date: r.dueAt.toISOString(),
+            overdue: r.dueAt < now,
           })),
         },
         incidentsOpen,

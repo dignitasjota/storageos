@@ -462,6 +462,7 @@ export class InvitationsService {
       expiresAt: record.expiresAt.toISOString(),
       acceptedAt: record.acceptedAt ? record.acceptedAt.toISOString() : null,
       revokedAt: record.revokedAt ? record.revokedAt.toISOString() : null,
+      revokedReason: record.revokedReason ?? null,
       createdAt: record.createdAt.toISOString(),
     };
   }

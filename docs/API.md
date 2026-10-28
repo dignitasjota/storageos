@@ -2384,3 +2384,14 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - Propietario: `PATCH /settings/users/:id/tenant-role` y `…/facilities` sobre el propietario → 400 `owner_full_access`; el propietario resuelve siempre todos los permisos y todos los locales, y al transferir la propiedad el nuevo propietario pierde su rol a medida y sus locales.
 - `PATCH /invoice-series/:id`: 409 `series_in_use` al cambiar prefijo o numeración de una serie con facturas emitidas, 409 `default_series_required` al desactivar o quitar la serie por defecto, 409 `inactive_series_not_default` al marcar por defecto una desactivada.
 - Webhooks: el evento de factura emitida se llama `invoice.issued`; los webhooks suscritos al antiguo `invoice.created` lo siguen recibiendo con ese nombre (no se duplica si están suscritos a los dos).
+
+### Funcionalidades de Configuración (2026-10-28)
+
+- `GET /me/sessions` → sesiones abiertas del usuario (`UserSessionDto`: navegador, IP, última actividad, app instalada, `current`); `DELETE /me/sessions/:id` (404 `session_not_found`) y `POST /me/sessions/revoke-others` → `{revoked}` (la de este navegador sigue abierta).
+- Cambio del email de acceso: `GET /me/email-change` → `{pendingEmail, expiresAt}`; `POST /me/email-change {newEmail, currentPassword}` (403 `wrong_current_password`, 400 `same_email`, 409 `email_in_use`) envía un enlace de 24 h al email nuevo y avisa al actual; `DELETE /me/email-change` lo cancela; `POST /email-change/confirm {token}` (público, un solo uso; 400 `email_change_invalid`) cambia el email.
+- `PATCH /settings/tenant/profile` acepta `contactPhone` y `contactEmail` (`''` los quita): salen en la web en los locales sin contacto propio.
+- `GET /settings/tenant/health` (`settings:read`) → lo que conviene revisar (`ConfigHealthItemDto`: serie por defecto, datos fiscales, certificado AEAT, forma de cobro, dominio y correo sin verificar).
+- `POST /settings/tenant/domain/check` (`settings:manage`) → `CustomDomainCheckDto`: si el dominio propio ya apunta a la plataforma, avisa una vez al super admin (`custom_domain.ready`); cron `custom-domains.dns-check` cada hora hace lo mismo con los pendientes. Cambiar o quitar el dominio olvida el aviso.
+- `GET /audit-logs` acepta `userId`, `action` (prefijo), `from`, `to` (`YYYY-MM-DD`; 400 `invalid_date`) y `limit` (hasta 500); cada fila trae `changes` e `ipAddress`.
+- `GET /rgpd/requests`: `customerName`. `GET /dashboard/today`: `rgpdRequestsDue` (solicitudes sin cerrar que vencen en 7 días).
+- Invitaciones: `revokedReason` en el DTO; las no aceptadas caducadas o revocadas hace más de 90 días se borran en el cron de retención.

@@ -310,6 +310,53 @@ export class SessionsService {
     );
   }
 
+  /** Sesiones abiertas del usuario (las que aún se pueden renovar). */
+  async listActive(tenantId: string, userId: string): Promise<Session[]> {
+    return this.prisma.withTenant(
+      (tx) =>
+        tx.session.findMany({
+          where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+          orderBy: { lastUsedAt: 'desc' },
+          take: 50,
+        }),
+      tenantId,
+    );
+  }
+
+  /** Cierra una sesión del propio usuario; false si no era suya o ya estaba cerrada. */
+  async revokeOwn(args: { tenantId: string; userId: string; sessionId: string }): Promise<boolean> {
+    const res = await this.prisma.withTenant(
+      (tx) =>
+        tx.session.updateMany({
+          where: { id: args.sessionId, userId: args.userId, revokedAt: null },
+          data: { revokedAt: new Date(), revokedReason: 'logout' },
+        }),
+      args.tenantId,
+    );
+    return res.count > 0;
+  }
+
+  /** Cierra todas las sesiones del usuario menos la actual. */
+  async revokeOthers(args: {
+    tenantId: string;
+    userId: string;
+    keepSessionId: string | null;
+  }): Promise<number> {
+    const res = await this.prisma.withTenant(
+      (tx) =>
+        tx.session.updateMany({
+          where: {
+            userId: args.userId,
+            revokedAt: null,
+            ...(args.keepSessionId ? { id: { not: args.keepSessionId } } : {}),
+          },
+          data: { revokedAt: new Date(), revokedReason: 'logout_all' },
+        }),
+      args.tenantId,
+    );
+    return res.count;
+  }
+
   async revokeAllForUser(args: {
     tenantId: string;
     userId: string;

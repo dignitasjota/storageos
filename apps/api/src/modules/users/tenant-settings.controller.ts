@@ -33,9 +33,12 @@ import {
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { ConfigHealthService } from './config-health.service';
+import { CustomDomainCheckService } from './custom-domain-check.service';
 import { TenantSettingsService } from './tenant-settings.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { ConfigHealthItemDto, CustomDomainCheckDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class UpdateTenantProfileDto extends createZodDto(UpdateTenantProfileSchema) {}
@@ -69,7 +72,29 @@ function extractMeta(req: Request): RequestMeta {
  */
 @Controller('settings/tenant')
 export class TenantSettingsController {
-  constructor(private readonly settings: TenantSettingsService) {}
+  constructor(
+    private readonly settings: TenantSettingsService,
+    private readonly health: ConfigHealthService,
+    private readonly domainCheck: CustomDomainCheckService,
+  ) {}
+
+  /**
+   * Comprueba si el dominio propio ya apunta a la plataforma; si apunta, avisa
+   * al equipo de TrasterOS para activarlo (una vez).
+   */
+  @RequirePermission('settings:manage')
+  @Post('domain/check')
+  @HttpCode(HttpStatus.OK)
+  checkDomain(@CurrentUser() user: AuthenticatedUser): Promise<CustomDomainCheckDto> {
+    return this.domainCheck.check(user.tenantId);
+  }
+
+  /** Lo que conviene revisar de la configuración (para el inicio de Configuración). */
+  @RequirePermission('settings:read')
+  @Get('health')
+  getHealth(@CurrentUser() user: AuthenticatedUser): Promise<ConfigHealthItemDto[]> {
+    return this.health.check(user.tenantId);
+  }
 
   /** Nombre comercial y zona horaria del negocio. */
   @RequirePermission('settings:read')

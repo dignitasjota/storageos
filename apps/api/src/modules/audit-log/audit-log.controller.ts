@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 
 import {
   type AuthenticatedUser,
@@ -20,7 +20,31 @@ export class AuditLogController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('cursor') cursor?: string,
+    @Query('userId') userId?: string,
+    @Query('action') action?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
   ): Promise<AuditLogListDto> {
-    return this.audit.list(user.tenantId, cursor);
+    const uuid = /^[0-9a-f-]{36}$/i;
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    if ((userId && !uuid.test(userId)) || (cursor && !uuid.test(cursor))) {
+      throw new BadRequestException({ code: 'invalid_id', message: 'Identificador no válido' });
+    }
+    if ((from && !day.test(from)) || (to && !day.test(to))) {
+      throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
+    }
+    const size = Math.min(Math.max(Number(limit) || 50, 1), 500);
+    return this.audit.list(
+      user.tenantId,
+      cursor,
+      {
+        ...(userId ? { userId } : {}),
+        ...(action ? { action: action.slice(0, 80) } : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+      },
+      size,
+    );
   }
 }

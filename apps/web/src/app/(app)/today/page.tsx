@@ -21,6 +21,7 @@ import {
   Timer,
   FileWarning,
   Package,
+  ShieldCheck,
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -309,7 +310,8 @@ export default function TodayPage() {
           data.unitChangesPending +
           (data.lowStock?.count ?? 0) +
           (data.unitsOutOfService?.count ?? 0) +
-          (data.facilityDocumentsExpiring?.count ?? 0),
+          (data.facilityDocumentsExpiring?.count ?? 0) +
+          (data.rgpdRequestsDue?.count ?? 0),
         sales:
           // Los contactos sin atender ya están entre los nuevos: no se suman dos veces.
           data.newLeads.count +
@@ -731,6 +733,17 @@ export default function TodayPage() {
                     items={data.facilityDocumentsExpiring.items}
                     href="/facilities"
                     itemHref={(it) => `/facilities/${it.linkId}?tab=documents`}
+                    empty=""
+                  />
+                )}
+                {(data.rgpdRequestsDue?.count ?? 0) > 0 && (
+                  <SectionCard
+                    title="Solicitudes de datos que vencen"
+                    icon={ShieldCheck}
+                    count={data.rgpdRequestsDue.count}
+                    items={data.rgpdRequestsDue.items}
+                    href="/settings/rgpd"
+                    itemHref={() => '/settings/rgpd'}
                     empty=""
                   />
                 )}

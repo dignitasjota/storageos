@@ -22,6 +22,9 @@ const SEPA_PRENOTICE_SOURCE = 'customer_email.sepa_prenotification';
 /** Las exportaciones de datos del tenant se borran a los 2 días (el enlace dura 1 h). */
 const EXPORT_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
 
+/** Días que se conserva una invitación no aceptada tras caducar o revocarse. */
+const STALE_INVITATION_DAYS = 90;
+
 @Injectable()
 export class DataRetentionService {
   private readonly logger = new Logger(DataRetentionService.name);
@@ -176,5 +179,22 @@ export class DataRetentionService {
       );
     }
     return result;
+  }
+
+  /**
+   * Invitaciones que no se aceptaron (caducadas o revocadas) hace más de
+   * 90 días: ya no sirven y solo ensucian la lista del equipo.
+   */
+  async cleanupStaleInvitations(): Promise<number> {
+    const cutoff = new Date(Date.now() - STALE_INVITATION_DAYS * 24 * 60 * 60 * 1000);
+    const res = await this.admin.invitation.deleteMany({
+      where: {
+        acceptedAt: null,
+        OR: [{ revokedAt: { lt: cutoff } }, { revokedAt: null, expiresAt: { lt: cutoff } }],
+      },
+    });
+    if (res.count > 0)
+      this.logger.log(`data-retention: ${res.count} invitaciones antiguas borradas`);
+    return res.count;
   }
 }

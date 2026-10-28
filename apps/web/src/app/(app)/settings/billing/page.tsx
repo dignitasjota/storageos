@@ -55,6 +55,7 @@ export default function BillingSettingsPage() {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState<InvoiceSeriesDto | null>(null);
   const [newName, setNewName] = useState('');
+  const currentDefault = (series.data ?? []).find((s) => s.isDefault && !s.isRectification);
 
   const form = useForm<CreateInvoiceSeriesInput>({
     resolver: zodResolver(CreateInvoiceSeriesSchema),
@@ -311,6 +312,12 @@ export default function BillingSettingsPage() {
                       </FormItem>
                     )}
                   />
+                  {form.watch('isDefault') && currentDefault && (
+                    <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                      Las facturas nuevas dejarán de numerarse en «{currentDefault.name}» (
+                      {currentDefault.prefix}) y pasarán a esta serie.
+                    </p>
+                  )}
                   <DialogFooter>
                     <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                       Cancelar

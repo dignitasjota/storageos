@@ -45,12 +45,16 @@ export function BusinessProfileCard() {
   const update = useUpdateTenantProfile();
   const [name, setName] = useState('');
   const [timezone, setTimezone] = useState('Europe/Madrid');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const others = useMemo(allZones, []);
 
   useEffect(() => {
     if (profile.data) {
       setName(profile.data.name);
       setTimezone(profile.data.timezone);
+      setPhone(profile.data.contactPhone ?? '');
+      setEmail(profile.data.contactEmail ?? '');
     }
   }, [profile.data]);
 
@@ -64,13 +68,22 @@ export function BusinessProfileCard() {
     );
   }
 
-  const dirty = name.trim() !== profile.data.name || timezone !== profile.data.timezone;
+  const dirty =
+    name.trim() !== profile.data.name ||
+    timezone !== profile.data.timezone ||
+    phone.trim() !== (profile.data.contactPhone ?? '') ||
+    email.trim().toLowerCase() !== (profile.data.contactEmail ?? '');
   const zones = [...COMMON_ZONES, ...others];
   if (!zones.includes(timezone)) zones.unshift(timezone);
 
   async function save() {
     try {
-      await update.mutateAsync({ name: name.trim(), timezone });
+      await update.mutateAsync({
+        name: name.trim(),
+        timezone,
+        contactPhone: phone.trim(),
+        contactEmail: email.trim(),
+      });
       toast.success('Datos del negocio guardados.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudieron guardar.');
@@ -115,7 +128,30 @@ export function BusinessProfileCard() {
               ))}
             </select>
           </div>
+          <div className="space-y-1">
+            <Label htmlFor="biz-phone">Teléfono de contacto</Label>
+            <Input
+              id="biz-phone"
+              type="tel"
+              value={phone}
+              disabled={!canManage}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="biz-email">Email de contacto</Label>
+            <Input
+              id="biz-email"
+              type="email"
+              value={email}
+              disabled={!canManage}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          El teléfono y el email salen en tu web en los locales que no tengan los suyos.
+        </p>
         <p className="text-xs text-muted-foreground">
           Identificador de tu empresa (para entrar y en tu dirección web):{' '}
           <code>{profile.data.slug}</code>. No se puede cambiar.

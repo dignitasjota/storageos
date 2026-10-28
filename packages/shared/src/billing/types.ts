@@ -239,6 +239,8 @@ export interface ValidatePromotionResultDto {
 export interface DataSubjectRequestDto {
   id: string;
   customerId: string | null;
+  /** Nombre del inquilino enlazado (solo en el listado). */
+  customerName: string | null;
   email: string;
   requestType: DataSubjectRequestTypeValue;
   status: 'open' | 'in_progress' | 'fulfilled' | 'denied';
