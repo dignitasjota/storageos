@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useState, type ReactNode } from 'react';
 
+import { goToSection, goToTop } from './site-sections';
+
 export interface OnePageNavItem {
   id: string;
   label: string;
@@ -25,6 +27,7 @@ export function OnePageNav({
   blogHref,
   languageSwitcher,
   onBrand = false,
+  homeHref,
 }: {
   items: OnePageNavItem[];
   brand: string;
@@ -37,6 +40,8 @@ export function OnePageNav({
   languageSwitcher?: ReactNode;
   /** Cabecera del color de la marca: textos en blanco y el botón en blanco. */
   onBrand?: boolean;
+  /** Desde otra página (la reserva): las secciones y el logo llevan a la portada. */
+  homeHref?: string;
 }) {
   const t = useTranslations('publicWeb');
   const [open, setOpen] = useState(false);
@@ -52,11 +57,11 @@ export function OnePageNav({
 
   function goTo(id: string) {
     setOpen(false);
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    goToSection(id, homeHref);
   }
   function goTop() {
     setOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    goToTop(homeHref);
   }
 
   return (

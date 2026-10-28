@@ -8,7 +8,7 @@ import {
   intlLocaleFor,
   signHref,
 } from '@/app/(public)/s/[slug]/i18n/messages';
-import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
+import { TenantSiteChrome } from '@/app/(public)/s/[slug]/tenant-site-chrome';
 
 export default async function SignPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -17,15 +17,15 @@ export default async function SignPage({ params }: { params: Promise<{ token: st
   return (
     <NextIntlClientProvider locale={intlLocaleFor('es')} messages={messages}>
       {data ? (
-        <TenantWebChrome
-          hideReserve
-          data={brandOf(data)}
+        <TenantSiteChrome
+          slug={data.tenantSlug}
+          fallback={brandOf(data)}
           locale="es"
           googleAnalyticsId={data.googleAnalyticsId}
           languageHrefBuilder={(l) => signHref(token, l)}
         >
           <SignPageBody token={token} locale="es" initialView={data} />
-        </TenantWebChrome>
+        </TenantSiteChrome>
       ) : (
         <SignPageBody token={token} locale="es" initialError={error} />
       )}

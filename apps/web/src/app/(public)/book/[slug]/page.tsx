@@ -10,7 +10,7 @@ import {
   getPublicWebMessages,
   intlLocaleFor,
 } from '@/app/(public)/s/[slug]/i18n/messages';
-import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
+import { TenantSiteChrome } from '@/app/(public)/s/[slug]/tenant-site-chrome';
 
 export async function generateMetadata({
   params,
@@ -28,12 +28,12 @@ export default async function BookPage({ params }: { params: Promise<{ slug: str
   return (
     <NextIntlClientProvider locale={intlLocaleFor('es')} messages={messages}>
       {data ? (
-        <TenantWebChrome
-          hideReserve
+        <TenantSiteChrome
+          slug={slug}
           locale="es"
           languageHrefBuilder={(l) => bookHref(slug, l)}
           googleAnalyticsId={data.googleAnalyticsId}
-          data={{
+          fallback={{
             tenantName: data.tenantName,
             tenantSlug: data.tenantSlug,
             brandColor: data.brandColor,
@@ -41,7 +41,7 @@ export default async function BookPage({ params }: { params: Promise<{ slug: str
           }}
         >
           <BookPageBody slug={slug} locale="es" initialData={data} />
-        </TenantWebChrome>
+        </TenantSiteChrome>
       ) : (
         <BookPageBody slug={slug} locale="es" initialError={error} />
       )}

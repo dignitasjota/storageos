@@ -12,6 +12,7 @@ import {
   blogHref as buildBlogHref,
   bookHrefFor as buildBookHrefFor,
   type PublicWebLocale,
+  landingHref,
 } from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
 import { grossPrice } from './price-format';
@@ -30,6 +31,7 @@ import {
 
 import type { PublicLandingDto, PublicLandingFacilityDto } from '@storageos/shared';
 import type { LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
 
@@ -133,10 +135,17 @@ function FacilityBlock({ f, locale }: { f: PublicLandingFacilityDto; locale: Pub
 export function OnePageTemplate({
   data,
   locale,
+  children,
 }: {
   data: PublicLandingDto;
   locale: PublicWebLocale;
+  /**
+   * Otra página con la misma cabecera y pie (la reserva): se pinta en lugar de
+   * las secciones de la portada, y los enlaces de sección llevan a la portada.
+   */
+  children?: ReactNode;
 }) {
+  const homeHref = children ? landingHref(data.tenantSlug, locale, data.customDomain) : undefined;
   const t = useTranslations('publicWeb.onepage');
   const tCommon = useTranslations('publicWeb.common');
   const tChrome = useTranslations('publicWeb.chrome');
@@ -182,6 +191,7 @@ export function OnePageTemplate({
     <div className="flex min-h-screen flex-col">
       <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} site={data} />
       <OnePageNav
+        homeHref={homeHref}
         languageSwitcher={
           <LanguageSwitcher
             tenantSlug={data.tenantSlug}
@@ -198,244 +208,252 @@ export function OnePageTemplate({
         blogHref={blogHref}
         onBrand={data.webHeaderBranded}
       />
-
-      {/* Hero */}
-      <section
-        className="px-4 py-20 text-center text-white sm:py-28"
-        style={{ background: `linear-gradient(135deg, ${brand}, ${brand}cc)` }}
-      >
-        {data.logoUrl && (
-          <Image
-            unoptimized
-            src={data.logoUrl}
-            alt={data.tenantName}
-            width={220}
-            height={64}
-            className="mx-auto mb-6 h-16 w-auto object-contain drop-shadow"
-          />
-        )}
-        <h1 className="mx-auto max-w-2xl text-4xl font-extrabold tracking-tight sm:text-5xl">
-          {data.webHeadline || trasterosLabel}
-        </h1>
-        <p className="mx-auto mt-4 max-w-xl text-lg opacity-90">{heroSubtitle}</p>
-        <div className="mt-8 flex flex-wrap justify-center gap-3">
-          <Link
-            href={bookHref}
-            onClick={() => trackEvent('cta_reservar_click', { location: 'hero_onepage' })}
-            className="inline-flex h-12 items-center rounded-full bg-white px-8 text-sm font-semibold shadow-lg transition-transform hover:scale-105"
-            style={{ color: brand }}
+      {children ?? (
+        <>
+          {/* Hero */}
+          <section
+            className="px-4 py-20 text-center text-white sm:py-28"
+            style={{ background: `linear-gradient(135deg, ${brand}, ${brand}cc)` }}
           >
-            {tCommon('reserveNow')}
-          </Link>
-          <Link
-            href={portalHref}
-            className="inline-flex h-12 items-center rounded-full border border-white/70 px-8 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-          >
-            {tChrome('clientAccess')}
-          </Link>
-        </div>
-      </section>
-
-      <div className="mx-auto w-full max-w-6xl flex-1 px-4">
-        <div className="pt-6">
-          <PromoBanner data={data} />
-        </div>
-        {/* Trasteros en <ciudad> */}
-        <section id="trasteros" className="scroll-mt-20 py-14">
-          <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">{trasterosLabel}</h2>
-          {data.webAbout && (
-            <p className="mx-auto mb-8 max-w-2xl whitespace-pre-line text-center text-sm leading-relaxed text-muted-foreground">
-              {data.webAbout}
-            </p>
-          )}
-          {data.facilities.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2">
-              {data.facilities.map((f) => (
-                <FacilityBlock key={f.id} f={f} locale={locale} />
-              ))}
-            </div>
-          ) : (
-            <p className="rounded-md border bg-card px-4 py-10 text-center text-muted-foreground">
-              {t('noAvailability')}
-            </p>
-          )}
-        </section>
-
-        {/* Espacios (tamaños) + calculadora */}
-        <section id="espacios" className="scroll-mt-20 border-t py-14">
-          <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">{t('sizesTitle')}</h2>
-          <p className="mb-6 text-center text-sm text-muted-foreground">{t('sizesSubtitle')}</p>
-          {types.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {types.map((unitType) => {
-                const soldOut = unitType.available === 0;
-                const urgent = isUrgentStock(unitType.available);
-                return (
-                  <div
-                    key={unitType.name}
-                    className={`rounded-lg border bg-card p-5 text-center shadow-sm ${soldOut ? 'opacity-60' : ''}`}
-                  >
-                    <p className="text-lg font-semibold">{unitType.name}</p>
-                    {unitType.areaM2 != null && (
-                      <p className="text-sm text-muted-foreground">{unitType.areaM2} m²</p>
-                    )}
-                    <p className="mt-2 text-2xl font-bold" style={{ color: brand }}>
-                      {formatPrice(grossPrice(unitType), locale)}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        {t('perMonth')}
-                      </span>
-                    </p>
-                    {urgent && (
-                      <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                        {unitType.available === 1
-                          ? tCommon('urgentOne')
-                          : tCommon('urgentFew', { count: unitType.available })}
-                      </p>
-                    )}
-                    {soldOut ? (
-                      <>
-                        <p className="mt-3 text-sm font-medium text-destructive">
-                          {tCommon('soldOut')}
-                        </p>
-                        <Link
-                          href={buildBookHrefFor(data, locale, {
-                            facilityId: unitType.facilityId,
-                            unitTypeId: unitType.unitTypeId,
-                            waitlist: true,
-                          })}
-                          onClick={() =>
-                            trackEvent('waitlist_notify_click', { location: 'sizes_onepage' })
-                          }
-                          className="mt-1 inline-block text-sm font-medium underline-offset-2 hover:underline"
-                          style={{ color: brand }}
-                        >
-                          {tCommon('notifyMe')}
-                        </Link>
-                      </>
-                    ) : (
-                      <Link
-                        href={buildBookHrefFor(data, locale, {
-                          facilityId: unitType.facilityId,
-                          unitTypeId: unitType.unitTypeId,
-                        })}
-                        onClick={() =>
-                          trackEvent('cta_reservar_click', { location: 'sizes_onepage' })
-                        }
-                        className="mt-3 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white"
-                        style={{ backgroundColor: brand }}
-                      >
-                        {t('reserve')}
-                      </Link>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div className="mt-4">
-            <StorageCalculator data={data} brand={brand} locale={locale} />
-          </div>
-        </section>
-
-        {/* Servicios */}
-        <section id="servicios" className="scroll-mt-20 border-t py-14">
-          <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">
-            {t('servicesTitle')}
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {services.map((s) => (
-              <div key={s.title} className="rounded-lg border bg-card p-5 shadow-sm">
-                <s.icon className="h-6 w-6" style={{ color: brand }} />
-                <h3 className="mt-3 font-semibold">{s.title}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{s.text}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* FAQ */}
-        {faqs.length > 0 && (
-          <section id="faq" className="scroll-mt-20 border-t py-14">
-            <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">{tFaq('title')}</h2>
-            <div className="mx-auto max-w-2xl divide-y rounded-lg border bg-card">
-              {faqs.map((f, i) => (
-                <details key={i} className="group px-5 py-4">
-                  <summary className="cursor-pointer list-none font-medium marker:content-none">
-                    {f.question}
-                  </summary>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                    {f.answer}
-                  </p>
-                </details>
-              ))}
+            {data.logoUrl && (
+              <Image
+                unoptimized
+                src={data.logoUrl}
+                alt={data.tenantName}
+                width={220}
+                height={64}
+                className="mx-auto mb-6 h-16 w-auto object-contain drop-shadow"
+              />
+            )}
+            <h1 className="mx-auto max-w-2xl text-4xl font-extrabold tracking-tight sm:text-5xl">
+              {data.webHeadline || trasterosLabel}
+            </h1>
+            <p className="mx-auto mt-4 max-w-xl text-lg opacity-90">{heroSubtitle}</p>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <Link
+                href={bookHref}
+                onClick={() => trackEvent('cta_reservar_click', { location: 'hero_onepage' })}
+                className="inline-flex h-12 items-center rounded-full bg-white px-8 text-sm font-semibold shadow-lg transition-transform hover:scale-105"
+                style={{ color: brand }}
+              >
+                {tCommon('reserveNow')}
+              </Link>
+              <Link
+                href={portalHref}
+                className="inline-flex h-12 items-center rounded-full border border-white/70 px-8 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+              >
+                {tChrome('clientAccess')}
+              </Link>
             </div>
           </section>
-        )}
 
-        {/* Contacto */}
-        <section id="contacto" className="scroll-mt-20 border-t py-14">
-          <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">
-            {tCommon('contactSectionTitle')}
-          </h2>
-          <p className="mb-2 text-center text-sm text-muted-foreground">
-            {tCommon('contactSectionSubtitle')}
-          </p>
-          {data.googleReviewUrl && (
-            <div className="mb-6 flex justify-center">
-              <GoogleReviewBadge url={data.googleReviewUrl} />
+          <div className="mx-auto w-full max-w-6xl flex-1 px-4">
+            <div className="pt-6">
+              <PromoBanner data={data} />
             </div>
-          )}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-3">
-              {data.facilities.map((f) => (
-                <div key={f.id} className="rounded-lg border bg-card p-4 text-sm">
-                  <p className="font-medium">{f.name}</p>
-                  <p className="text-muted-foreground">
-                    {[f.address, f.postalCode, f.city].filter(Boolean).join(', ') || '—'}
-                  </p>
-                  {f.contactPhone && (
-                    <a
-                      href={`tel:${f.contactPhone}`}
-                      className="block text-muted-foreground hover:text-foreground"
-                    >
-                      {f.contactPhone}
-                    </a>
-                  )}
-                  {f.contactEmail && (
-                    <a
-                      href={`mailto:${f.contactEmail}`}
-                      className="block text-muted-foreground hover:text-foreground"
-                    >
-                      {f.contactEmail}
-                    </a>
-                  )}
-                  {f.contactPhone && (
-                    <div className="mt-1">
-                      <WhatsAppButton phone={f.contactPhone} tenantName={data.tenantName} />
-                    </div>
-                  )}
-                  <div className="mt-1">
-                    <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
-                  </div>
-                  <div className="mt-2">
-                    <FacilityMap f={f} />
-                  </div>
+            {/* Trasteros en <ciudad> */}
+            <section id="trasteros" className="scroll-mt-20 py-14">
+              <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">
+                {trasterosLabel}
+              </h2>
+              {data.webAbout && (
+                <p className="mx-auto mb-8 max-w-2xl whitespace-pre-line text-center text-sm leading-relaxed text-muted-foreground">
+                  {data.webAbout}
+                </p>
+              )}
+              {data.facilities.length > 0 ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {data.facilities.map((f) => (
+                    <FacilityBlock key={f.id} f={f} locale={locale} />
+                  ))}
                 </div>
-              ))}
-            </div>
-            {data.contactEnabled && (
-              <div>
-                <ContactForm
-                  slug={data.tenantSlug}
-                  customDomain={data.customDomain}
-                  brand={brand}
-                />
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
+              ) : (
+                <p className="rounded-md border bg-card px-4 py-10 text-center text-muted-foreground">
+                  {t('noAvailability')}
+                </p>
+              )}
+            </section>
 
+            {/* Espacios (tamaños) + calculadora */}
+            <section id="espacios" className="scroll-mt-20 border-t py-14">
+              <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">
+                {t('sizesTitle')}
+              </h2>
+              <p className="mb-6 text-center text-sm text-muted-foreground">{t('sizesSubtitle')}</p>
+              {types.length > 0 && (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {types.map((unitType) => {
+                    const soldOut = unitType.available === 0;
+                    const urgent = isUrgentStock(unitType.available);
+                    return (
+                      <div
+                        key={unitType.name}
+                        className={`rounded-lg border bg-card p-5 text-center shadow-sm ${soldOut ? 'opacity-60' : ''}`}
+                      >
+                        <p className="text-lg font-semibold">{unitType.name}</p>
+                        {unitType.areaM2 != null && (
+                          <p className="text-sm text-muted-foreground">{unitType.areaM2} m²</p>
+                        )}
+                        <p className="mt-2 text-2xl font-bold" style={{ color: brand }}>
+                          {formatPrice(grossPrice(unitType), locale)}
+                          <span className="text-sm font-normal text-muted-foreground">
+                            {t('perMonth')}
+                          </span>
+                        </p>
+                        {urgent && (
+                          <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                            {unitType.available === 1
+                              ? tCommon('urgentOne')
+                              : tCommon('urgentFew', { count: unitType.available })}
+                          </p>
+                        )}
+                        {soldOut ? (
+                          <>
+                            <p className="mt-3 text-sm font-medium text-destructive">
+                              {tCommon('soldOut')}
+                            </p>
+                            <Link
+                              href={buildBookHrefFor(data, locale, {
+                                facilityId: unitType.facilityId,
+                                unitTypeId: unitType.unitTypeId,
+                                waitlist: true,
+                              })}
+                              onClick={() =>
+                                trackEvent('waitlist_notify_click', { location: 'sizes_onepage' })
+                              }
+                              className="mt-1 inline-block text-sm font-medium underline-offset-2 hover:underline"
+                              style={{ color: brand }}
+                            >
+                              {tCommon('notifyMe')}
+                            </Link>
+                          </>
+                        ) : (
+                          <Link
+                            href={buildBookHrefFor(data, locale, {
+                              facilityId: unitType.facilityId,
+                              unitTypeId: unitType.unitTypeId,
+                            })}
+                            onClick={() =>
+                              trackEvent('cta_reservar_click', { location: 'sizes_onepage' })
+                            }
+                            className="mt-3 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white"
+                            style={{ backgroundColor: brand }}
+                          >
+                            {t('reserve')}
+                          </Link>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="mt-4">
+                <StorageCalculator data={data} brand={brand} locale={locale} />
+              </div>
+            </section>
+
+            {/* Servicios */}
+            <section id="servicios" className="scroll-mt-20 border-t py-14">
+              <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">
+                {t('servicesTitle')}
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {services.map((s) => (
+                  <div key={s.title} className="rounded-lg border bg-card p-5 shadow-sm">
+                    <s.icon className="h-6 w-6" style={{ color: brand }} />
+                    <h3 className="mt-3 font-semibold">{s.title}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{s.text}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* FAQ */}
+            {faqs.length > 0 && (
+              <section id="faq" className="scroll-mt-20 border-t py-14">
+                <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">
+                  {tFaq('title')}
+                </h2>
+                <div className="mx-auto max-w-2xl divide-y rounded-lg border bg-card">
+                  {faqs.map((f, i) => (
+                    <details key={i} className="group px-5 py-4">
+                      <summary className="cursor-pointer list-none font-medium marker:content-none">
+                        {f.question}
+                      </summary>
+                      <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                        {f.answer}
+                      </p>
+                    </details>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Contacto */}
+            <section id="contacto" className="scroll-mt-20 border-t py-14">
+              <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">
+                {tCommon('contactSectionTitle')}
+              </h2>
+              <p className="mb-2 text-center text-sm text-muted-foreground">
+                {tCommon('contactSectionSubtitle')}
+              </p>
+              {data.googleReviewUrl && (
+                <div className="mb-6 flex justify-center">
+                  <GoogleReviewBadge url={data.googleReviewUrl} />
+                </div>
+              )}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-3">
+                  {data.facilities.map((f) => (
+                    <div key={f.id} className="rounded-lg border bg-card p-4 text-sm">
+                      <p className="font-medium">{f.name}</p>
+                      <p className="text-muted-foreground">
+                        {[f.address, f.postalCode, f.city].filter(Boolean).join(', ') || '—'}
+                      </p>
+                      {f.contactPhone && (
+                        <a
+                          href={`tel:${f.contactPhone}`}
+                          className="block text-muted-foreground hover:text-foreground"
+                        >
+                          {f.contactPhone}
+                        </a>
+                      )}
+                      {f.contactEmail && (
+                        <a
+                          href={`mailto:${f.contactEmail}`}
+                          className="block text-muted-foreground hover:text-foreground"
+                        >
+                          {f.contactEmail}
+                        </a>
+                      )}
+                      {f.contactPhone && (
+                        <div className="mt-1">
+                          <WhatsAppButton phone={f.contactPhone} tenantName={data.tenantName} />
+                        </div>
+                      )}
+                      <div className="mt-1">
+                        <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
+                      </div>
+                      <div className="mt-2">
+                        <FacilityMap f={f} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {data.contactEnabled && (
+                  <div>
+                    <ContactForm
+                      slug={data.tenantSlug}
+                      customDomain={data.customDomain}
+                      brand={brand}
+                    />
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        </>
+      )}
       {/* Pie */}
       <footer className="border-t border-border/60">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">

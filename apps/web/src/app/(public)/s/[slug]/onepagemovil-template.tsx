@@ -30,8 +30,10 @@ import {
   facilityHref as buildFacilityHref,
   intlLocaleFor,
   type PublicWebLocale,
+  landingHref,
 } from './i18n/messages';
 import { grossPrice } from './price-format';
+import { goToSection, goToTop } from './site-sections';
 import { StorageCalculator } from './storage-calculator';
 import {
   cities,
@@ -76,10 +78,17 @@ interface UnitCard {
 export function OnePageMovilTemplate({
   data,
   locale,
+  children,
 }: {
   data: PublicLandingDto;
   locale: PublicWebLocale;
+  /**
+   * Otra página con la misma cabecera y pie (la reserva): se pinta en lugar de
+   * las secciones de la portada, y los enlaces de sección llevan a la portada.
+   */
+  children?: ReactNode;
 }) {
+  const homeHref = children ? landingHref(data.tenantSlug, locale, data.customDomain) : undefined;
   const t = useTranslations('publicWeb.onepagemovil');
   const tCommon = useTranslations('publicWeb.common');
   const tChrome = useTranslations('publicWeb.chrome');
@@ -165,7 +174,7 @@ export function OnePageMovilTemplate({
   ];
 
   function goTo(id: string) {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    goToSection(id, homeHref);
   }
 
   function facilityLink(f: PublicLandingDto['facilities'][number]): string {
@@ -175,9 +184,10 @@ export function OnePageMovilTemplate({
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background pb-20 md:pb-0">
+    <div className={`flex min-h-screen flex-col bg-background ${children ? '' : 'pb-20 md:pb-0'} `}>
       <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} site={data} />
       <Header
+        homeHref={homeHref}
         data={data}
         brand={brand}
         navItems={navItems}
@@ -196,380 +206,403 @@ export function OnePageMovilTemplate({
         blogHref={blogHref}
         facilityLink={facilityLink}
       />
-
-      {/* Portada */}
-      <section className="relative isolate overflow-hidden px-4 py-20 text-white sm:py-28">
-        {heroImage ? (
-          <>
-            <Image
-              src={heroImage}
-              alt=""
-              aria-hidden
-              fill
-              priority
-              sizes="100vw"
-              className="-z-10 object-cover"
-            />
-            <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/75 via-black/50 to-black/20" />
-          </>
-        ) : (
-          <div className="absolute inset-0 -z-10 bg-neutral-900" />
-        )}
-        <div className="mx-auto max-w-6xl">
-          <h1 className="max-w-xl text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">
-            {data.webHeadline || headlineFallback}
-          </h1>
-          <p className="mt-4 max-w-lg text-lg opacity-95">{heroSubtitle}</p>
-          <Link
-            href={bookHref}
-            onClick={() => trackEvent('cta_reservar_click', { location: 'hero_onepagemovil' })}
-            className="mt-8 inline-flex h-12 items-center rounded-full px-8 text-base font-semibold text-white shadow-lg transition-opacity hover:opacity-90"
-            style={{ backgroundColor: brand }}
-          >
-            {t('rentNow')}
-          </Link>
-        </div>
-      </section>
-
-      {/* Ventajas */}
-      <section className="border-b bg-card">
-        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 px-4 py-8 md:grid-cols-4">
-          {advantages.map((a) => (
-            <div key={a.label} className="flex items-center gap-3">
-              <div
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
-                style={{ backgroundColor: `${brand}1a`, color: brand }}
-              >
-                <a.icon className="h-5 w-5" />
-              </div>
-              <span className="text-sm font-medium leading-snug">{a.label}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <div className="flex-1">
-        <div className="mx-auto max-w-6xl px-4 pt-6">
-          <PromoBanner data={data} />
-        </div>
-
-        {/* Centros */}
-        <section id="centros" className="scroll-mt-20 py-14">
-          <div className="mx-auto max-w-6xl px-4">
-            <SectionTitle title={t('centersTitle')} subtitle={t('centersSubtitle')} />
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {data.facilities.map((f) => (
-                <Link
-                  key={f.id}
-                  href={facilityLink(f)}
-                  className="flex items-center gap-3 rounded-xl border bg-card p-4 transition-shadow hover:shadow-md"
-                >
-                  <MapPin className="h-5 w-5 shrink-0" style={{ color: brand }} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{f.city || f.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {[f.name !== f.city ? f.name : null, f.address].filter(Boolean).join(' · ') ||
-                        '—'}
-                    </p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </Link>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Carrusel de trasteros */}
-        <section id="trasteros" className="scroll-mt-20 bg-muted/40 py-14">
-          <div className="mx-auto max-w-6xl px-4">
-            <SectionTitle title={t('unitsTitle')} subtitle={t('unitsSubtitle')} />
-            {units.length > 0 ? (
-              <Carousel prevLabel={t('prev')} nextLabel={t('next')}>
-                {units.map((u) => (
-                  <UnitCardView key={u.key} unit={u} brand={brand} locale={locale} site={data} />
-                ))}
-              </Carousel>
+      {children ?? (
+        <>
+          {/* Portada */}
+          <section className="relative isolate overflow-hidden px-4 py-20 text-white sm:py-28">
+            {heroImage ? (
+              <>
+                <Image
+                  src={heroImage}
+                  alt=""
+                  aria-hidden
+                  fill
+                  priority
+                  sizes="100vw"
+                  className="-z-10 object-cover"
+                />
+                <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/75 via-black/50 to-black/20" />
+              </>
             ) : (
-              <p className="rounded-xl border bg-card px-4 py-10 text-center text-muted-foreground">
-                {t('noUnits')}
-              </p>
+              <div className="absolute inset-0 -z-10 bg-neutral-900" />
             )}
-          </div>
-        </section>
-
-        {/* Para qué lo necesitas */}
-        <section id="usos" className="scroll-mt-20 py-14">
-          <div className="mx-auto max-w-6xl px-4">
-            <SectionTitle title={t('usesTitle')} />
-            <div className="grid gap-3 md:grid-cols-2">
-              {uses.map((u, i) => (
-                <details key={u.title} className="group rounded-xl border bg-card" open={i === 0}>
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 font-semibold marker:content-none">
-                    {u.title}
-                    <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-                  </summary>
-                  <div className="px-4 pb-4">
-                    <ul className="space-y-1.5 text-sm text-muted-foreground">
-                      {u.points.map((p) => (
-                        <li key={p} className="flex gap-2">
-                          <span
-                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: brand }}
-                          />
-                          {p}
-                        </li>
-                      ))}
-                    </ul>
-                    <button
-                      type="button"
-                      onClick={() => goTo('trasteros')}
-                      className="mt-4 inline-flex h-10 items-center rounded-full px-5 text-sm font-semibold text-white"
-                      style={{ backgroundColor: brand }}
-                    >
-                      {t('usesCta')}
-                    </button>
-                  </div>
-                </details>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Cómo funciona */}
-        <section id="como-funciona" className="scroll-mt-20 bg-neutral-900 py-14 text-white">
-          <div className="mx-auto max-w-6xl px-4">
-            <h2 className="mb-8 text-center text-2xl font-bold tracking-tight sm:text-3xl">
-              {t('stepsTitle')}
-            </h2>
-            <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-              {steps.map((s, i) => (
-                <li key={s.title} className="flex gap-4 lg:flex-col lg:items-center lg:text-center">
-                  <span
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg font-bold"
-                    style={{ backgroundColor: brand }}
-                  >
-                    {i + 1}
-                  </span>
-                  <div>
-                    <p className="font-semibold">{s.title}</p>
-                    <p className="mt-1 text-sm text-white/75">{s.text}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-            <div className="mt-10 text-center">
+            <div className="mx-auto max-w-6xl">
+              <h1 className="max-w-xl text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">
+                {data.webHeadline || headlineFallback}
+              </h1>
+              <p className="mt-4 max-w-lg text-lg opacity-95">{heroSubtitle}</p>
               <Link
                 href={bookHref}
-                onClick={() => trackEvent('cta_reservar_click', { location: 'steps_onepagemovil' })}
-                className="inline-flex h-12 items-center rounded-full bg-white px-8 text-sm font-semibold text-neutral-900 shadow-lg"
+                onClick={() => trackEvent('cta_reservar_click', { location: 'hero_onepagemovil' })}
+                className="mt-8 inline-flex h-12 items-center rounded-full px-8 text-base font-semibold text-white shadow-lg transition-opacity hover:opacity-90"
+                style={{ backgroundColor: brand }}
               >
                 {t('rentNow')}
               </Link>
             </div>
-          </div>
-        </section>
+          </section>
 
-        {/* Calculadora de espacio */}
-        <section className="py-14">
-          <div className="mx-auto max-w-6xl px-4">
-            <StorageCalculator data={data} brand={brand} locale={locale} />
-          </div>
-        </section>
+          {/* Ventajas */}
+          <section className="border-b bg-card">
+            <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 px-4 py-8 md:grid-cols-4">
+              {advantages.map((a) => (
+                <div key={a.label} className="flex items-center gap-3">
+                  <div
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+                    style={{ backgroundColor: `${brand}1a`, color: brand }}
+                  >
+                    <a.icon className="h-5 w-5" />
+                  </div>
+                  <span className="text-sm font-medium leading-snug">{a.label}</span>
+                </div>
+              ))}
+            </div>
+          </section>
 
-        {/* Opiniones + galería */}
-        {(hasReviews || images.length > 0) && (
-          <section id="opiniones" className="scroll-mt-20 bg-muted/40 py-14">
-            <div className="mx-auto max-w-6xl space-y-10 px-4">
-              {hasReviews && (
-                <div>
-                  <SectionTitle title={tTestimonials('title')} />
+          <div className="flex-1">
+            <div className="mx-auto max-w-6xl px-4 pt-6">
+              <PromoBanner data={data} />
+            </div>
+
+            {/* Centros */}
+            <section id="centros" className="scroll-mt-20 py-14">
+              <div className="mx-auto max-w-6xl px-4">
+                <SectionTitle title={t('centersTitle')} subtitle={t('centersSubtitle')} />
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {data.facilities.map((f) => (
+                    <Link
+                      key={f.id}
+                      href={facilityLink(f)}
+                      className="flex items-center gap-3 rounded-xl border bg-card p-4 transition-shadow hover:shadow-md"
+                    >
+                      <MapPin className="h-5 w-5 shrink-0" style={{ color: brand }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{f.city || f.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {[f.name !== f.city ? f.name : null, f.address]
+                            .filter(Boolean)
+                            .join(' · ') || '—'}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            {/* Carrusel de trasteros */}
+            <section id="trasteros" className="scroll-mt-20 bg-muted/40 py-14">
+              <div className="mx-auto max-w-6xl px-4">
+                <SectionTitle title={t('unitsTitle')} subtitle={t('unitsSubtitle')} />
+                {units.length > 0 ? (
                   <Carousel prevLabel={t('prev')} nextLabel={t('next')}>
-                    {data.testimonials.map((r, i) => (
-                      <figure
-                        key={i}
-                        className="w-[85%] shrink-0 snap-start rounded-xl border bg-card p-5 shadow-sm sm:w-[45%] lg:w-[31%]"
-                      >
-                        <div className="flex gap-0.5">
-                          {Array.from({ length: r.rating ?? 5 }).map((_, s) => (
-                            <Star key={s} className="h-4 w-4 fill-amber-400 text-amber-400" />
-                          ))}
-                        </div>
-                        <blockquote className="mt-2 text-sm leading-relaxed">
-                          {r.comment}
-                        </blockquote>
-                        <figcaption className="mt-3 text-xs font-medium text-muted-foreground">
-                          {r.author}
-                        </figcaption>
-                      </figure>
+                    {units.map((u) => (
+                      <UnitCardView
+                        key={u.key}
+                        unit={u}
+                        brand={brand}
+                        locale={locale}
+                        site={data}
+                      />
                     ))}
                   </Carousel>
-                  {data.googleReviewUrl && (
-                    <div className="mt-6 flex justify-center">
-                      <GoogleReviewBadge url={data.googleReviewUrl} />
+                ) : (
+                  <p className="rounded-xl border bg-card px-4 py-10 text-center text-muted-foreground">
+                    {t('noUnits')}
+                  </p>
+                )}
+              </div>
+            </section>
+
+            {/* Para qué lo necesitas */}
+            <section id="usos" className="scroll-mt-20 py-14">
+              <div className="mx-auto max-w-6xl px-4">
+                <SectionTitle title={t('usesTitle')} />
+                <div className="grid gap-3 md:grid-cols-2">
+                  {uses.map((u, i) => (
+                    <details
+                      key={u.title}
+                      className="group rounded-xl border bg-card"
+                      open={i === 0}
+                    >
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 font-semibold marker:content-none">
+                        {u.title}
+                        <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="px-4 pb-4">
+                        <ul className="space-y-1.5 text-sm text-muted-foreground">
+                          {u.points.map((p) => (
+                            <li key={p} className="flex gap-2">
+                              <span
+                                className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: brand }}
+                              />
+                              {p}
+                            </li>
+                          ))}
+                        </ul>
+                        <button
+                          type="button"
+                          onClick={() => goTo('trasteros')}
+                          className="mt-4 inline-flex h-10 items-center rounded-full px-5 text-sm font-semibold text-white"
+                          style={{ backgroundColor: brand }}
+                        >
+                          {t('usesCta')}
+                        </button>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            {/* Cómo funciona */}
+            <section id="como-funciona" className="scroll-mt-20 bg-neutral-900 py-14 text-white">
+              <div className="mx-auto max-w-6xl px-4">
+                <h2 className="mb-8 text-center text-2xl font-bold tracking-tight sm:text-3xl">
+                  {t('stepsTitle')}
+                </h2>
+                <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                  {steps.map((s, i) => (
+                    <li
+                      key={s.title}
+                      className="flex gap-4 lg:flex-col lg:items-center lg:text-center"
+                    >
+                      <span
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg font-bold"
+                        style={{ backgroundColor: brand }}
+                      >
+                        {i + 1}
+                      </span>
+                      <div>
+                        <p className="font-semibold">{s.title}</p>
+                        <p className="mt-1 text-sm text-white/75">{s.text}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+                <div className="mt-10 text-center">
+                  <Link
+                    href={bookHref}
+                    onClick={() =>
+                      trackEvent('cta_reservar_click', { location: 'steps_onepagemovil' })
+                    }
+                    className="inline-flex h-12 items-center rounded-full bg-white px-8 text-sm font-semibold text-neutral-900 shadow-lg"
+                  >
+                    {t('rentNow')}
+                  </Link>
+                </div>
+              </div>
+            </section>
+
+            {/* Calculadora de espacio */}
+            <section className="py-14">
+              <div className="mx-auto max-w-6xl px-4">
+                <StorageCalculator data={data} brand={brand} locale={locale} />
+              </div>
+            </section>
+
+            {/* Opiniones + galería */}
+            {(hasReviews || images.length > 0) && (
+              <section id="opiniones" className="scroll-mt-20 bg-muted/40 py-14">
+                <div className="mx-auto max-w-6xl space-y-10 px-4">
+                  {hasReviews && (
+                    <div>
+                      <SectionTitle title={tTestimonials('title')} />
+                      <Carousel prevLabel={t('prev')} nextLabel={t('next')}>
+                        {data.testimonials.map((r, i) => (
+                          <figure
+                            key={i}
+                            className="w-[85%] shrink-0 snap-start rounded-xl border bg-card p-5 shadow-sm sm:w-[45%] lg:w-[31%]"
+                          >
+                            <div className="flex gap-0.5">
+                              {Array.from({ length: r.rating ?? 5 }).map((_, s) => (
+                                <Star key={s} className="h-4 w-4 fill-amber-400 text-amber-400" />
+                              ))}
+                            </div>
+                            <blockquote className="mt-2 text-sm leading-relaxed">
+                              {r.comment}
+                            </blockquote>
+                            <figcaption className="mt-3 text-xs font-medium text-muted-foreground">
+                              {r.author}
+                            </figcaption>
+                          </figure>
+                        ))}
+                      </Carousel>
+                      {data.googleReviewUrl && (
+                        <div className="mt-6 flex justify-center">
+                          <GoogleReviewBadge url={data.googleReviewUrl} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {images.length > 0 && (
+                    <div>
+                      <SectionTitle title={t('galleryTitle')} />
+                      <Carousel prevLabel={t('prev')} nextLabel={t('next')}>
+                        {images.map((src, i) => (
+                          <div
+                            key={src}
+                            className="relative aspect-[4/3] w-[85%] shrink-0 snap-start overflow-hidden rounded-xl bg-muted sm:w-[45%] lg:w-[31%]"
+                          >
+                            <Image
+                              src={src}
+                              alt={`${data.tenantName} ${i + 1}`}
+                              fill
+                              loading="lazy"
+                              sizes="(min-width: 1024px) 31vw, (min-width: 640px) 45vw, 85vw"
+                              className="object-cover"
+                            />
+                          </div>
+                        ))}
+                      </Carousel>
                     </div>
                   )}
                 </div>
-              )}
-              {images.length > 0 && (
-                <div>
-                  <SectionTitle title={t('galleryTitle')} />
-                  <Carousel prevLabel={t('prev')} nextLabel={t('next')}>
-                    {images.map((src, i) => (
-                      <div
-                        key={src}
-                        className="relative aspect-[4/3] w-[85%] shrink-0 snap-start overflow-hidden rounded-xl bg-muted sm:w-[45%] lg:w-[31%]"
+              </section>
+            )}
+
+            {/* Preguntas frecuentes */}
+            {faqs.length > 0 && (
+              <section id="preguntas" className="scroll-mt-20 py-14">
+                <div className="mx-auto max-w-3xl px-4">
+                  <SectionTitle title={tFaq('title')} />
+                  <div className="divide-y rounded-xl border bg-card">
+                    {faqs.map((f, i) => (
+                      <details key={i} className="group px-5 py-4">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium marker:content-none">
+                          {f.question}
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                        </summary>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                          {f.answer}
+                        </p>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Blog */}
+            {blogHref && data.latestBlogPosts.length > 0 && (
+              <section className="bg-muted/40 py-14">
+                <div className="mx-auto max-w-6xl px-4">
+                  <SectionTitle title={t('blogTitle')} />
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    {data.latestBlogPosts.map((p) => (
+                      <Link
+                        key={p.slug}
+                        href={buildBlogPostHref(data.tenantSlug, p.slug, locale, data.customDomain)}
+                        className="group overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
                       >
-                        <Image
-                          src={src}
-                          alt={`${data.tenantName} ${i + 1}`}
-                          fill
-                          loading="lazy"
-                          sizes="(min-width: 1024px) 31vw, (min-width: 640px) 45vw, 85vw"
-                          className="object-cover"
-                        />
+                        <div className="relative aspect-[16/10] bg-muted">
+                          {p.coverImageUrl ? (
+                            <Image
+                              src={p.coverImageUrl}
+                              alt=""
+                              fill
+                              loading="lazy"
+                              sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                              className="object-cover transition-transform group-hover:scale-105"
+                            />
+                          ) : (
+                            <div
+                              className="h-full w-full"
+                              style={{
+                                background: `linear-gradient(135deg, ${brand}22, ${brand}55)`,
+                              }}
+                            />
+                          )}
+                        </div>
+                        <div className="p-4">
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(p.publishedAt).toLocaleDateString(intlLocaleFor(locale), {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric',
+                            })}
+                          </p>
+                          <p className="mt-1 font-semibold leading-snug">{p.title}</p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                  <div className="mt-6 text-center">
+                    <Link
+                      href={blogHref}
+                      className="text-sm font-semibold hover:underline"
+                      style={{ color: brand }}
+                    >
+                      {t('blogMore')}
+                    </Link>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Contacto */}
+            <section id="contacto" className="scroll-mt-20 py-14">
+              <div className="mx-auto max-w-6xl px-4">
+                <SectionTitle
+                  title={tCommon('contactSectionTitle')}
+                  subtitle={tCommon('contactSectionSubtitle')}
+                />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-3">
+                    <div
+                      className="rounded-xl border p-5"
+                      style={{ backgroundColor: `${brand}0d` }}
+                    >
+                      <p className="font-semibold">{t('recoverTitle')}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{t('recoverText')}</p>
+                      <Link
+                        href={portalHref}
+                        className="mt-3 inline-flex h-10 items-center rounded-full px-5 text-sm font-semibold text-white"
+                        style={{ backgroundColor: brand }}
+                      >
+                        {t('recoverCta')}
+                      </Link>
+                    </div>
+                    {data.facilities.map((f) => (
+                      <div key={f.id} className="rounded-xl border bg-card p-4 text-sm">
+                        <p className="font-medium">{f.name}</p>
+                        <p className="text-muted-foreground">
+                          {[f.address, f.postalCode, f.city].filter(Boolean).join(', ') || '—'}
+                        </p>
+                        {f.contactPhone && (
+                          <div className="mt-1 flex flex-wrap items-center gap-3">
+                            <a
+                              href={`tel:${f.contactPhone}`}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              {f.contactPhone}
+                            </a>
+                            <WhatsAppButton phone={f.contactPhone} tenantName={data.tenantName} />
+                          </div>
+                        )}
+                        <div className="mt-1">
+                          <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
+                        </div>
                       </div>
                     ))}
-                  </Carousel>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Preguntas frecuentes */}
-        {faqs.length > 0 && (
-          <section id="preguntas" className="scroll-mt-20 py-14">
-            <div className="mx-auto max-w-3xl px-4">
-              <SectionTitle title={tFaq('title')} />
-              <div className="divide-y rounded-xl border bg-card">
-                {faqs.map((f, i) => (
-                  <details key={i} className="group px-5 py-4">
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium marker:content-none">
-                      {f.question}
-                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-                    </summary>
-                    <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                      {f.answer}
-                    </p>
-                  </details>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Blog */}
-        {blogHref && data.latestBlogPosts.length > 0 && (
-          <section className="bg-muted/40 py-14">
-            <div className="mx-auto max-w-6xl px-4">
-              <SectionTitle title={t('blogTitle')} />
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {data.latestBlogPosts.map((p) => (
-                  <Link
-                    key={p.slug}
-                    href={buildBlogPostHref(data.tenantSlug, p.slug, locale, data.customDomain)}
-                    className="group overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
-                  >
-                    <div className="relative aspect-[16/10] bg-muted">
-                      {p.coverImageUrl ? (
-                        <Image
-                          src={p.coverImageUrl}
-                          alt=""
-                          fill
-                          loading="lazy"
-                          sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                          className="object-cover transition-transform group-hover:scale-105"
-                        />
-                      ) : (
-                        <div
-                          className="h-full w-full"
-                          style={{ background: `linear-gradient(135deg, ${brand}22, ${brand}55)` }}
-                        />
-                      )}
-                    </div>
-                    <div className="p-4">
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(p.publishedAt).toLocaleDateString(intlLocaleFor(locale), {
-                          day: 'numeric',
-                          month: 'long',
-                          year: 'numeric',
-                        })}
-                      </p>
-                      <p className="mt-1 font-semibold leading-snug">{p.title}</p>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-              <div className="mt-6 text-center">
-                <Link
-                  href={blogHref}
-                  className="text-sm font-semibold hover:underline"
-                  style={{ color: brand }}
-                >
-                  {t('blogMore')}
-                </Link>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Contacto */}
-        <section id="contacto" className="scroll-mt-20 py-14">
-          <div className="mx-auto max-w-6xl px-4">
-            <SectionTitle
-              title={tCommon('contactSectionTitle')}
-              subtitle={tCommon('contactSectionSubtitle')}
-            />
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-3">
-                <div className="rounded-xl border p-5" style={{ backgroundColor: `${brand}0d` }}>
-                  <p className="font-semibold">{t('recoverTitle')}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{t('recoverText')}</p>
-                  <Link
-                    href={portalHref}
-                    className="mt-3 inline-flex h-10 items-center rounded-full px-5 text-sm font-semibold text-white"
-                    style={{ backgroundColor: brand }}
-                  >
-                    {t('recoverCta')}
-                  </Link>
-                </div>
-                {data.facilities.map((f) => (
-                  <div key={f.id} className="rounded-xl border bg-card p-4 text-sm">
-                    <p className="font-medium">{f.name}</p>
-                    <p className="text-muted-foreground">
-                      {[f.address, f.postalCode, f.city].filter(Boolean).join(', ') || '—'}
-                    </p>
-                    {f.contactPhone && (
-                      <div className="mt-1 flex flex-wrap items-center gap-3">
-                        <a
-                          href={`tel:${f.contactPhone}`}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          {f.contactPhone}
-                        </a>
-                        <WhatsAppButton phone={f.contactPhone} tenantName={data.tenantName} />
-                      </div>
-                    )}
-                    <div className="mt-1">
-                      <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
-                    </div>
                   </div>
-                ))}
-              </div>
-              {data.contactEnabled && (
-                <div>
-                  <ContactForm
-                    slug={data.tenantSlug}
-                    customDomain={data.customDomain}
-                    brand={brand}
-                  />
+                  {data.contactEnabled && (
+                    <div>
+                      <ContactForm
+                        slug={data.tenantSlug}
+                        customDomain={data.customDomain}
+                        brand={brand}
+                      />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            </section>
           </div>
-        </section>
-      </div>
-
+        </>
+      )}
       {/* Pie */}
       <footer className="bg-neutral-900 text-white/80">
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 text-sm sm:grid-cols-3">
@@ -615,7 +648,7 @@ export function OnePageMovilTemplate({
               <li>
                 <button
                   type="button"
-                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                  onClick={() => goToTop(homeHref)}
                   className="hover:text-white"
                 >
                   {t('footerHome')}
@@ -669,28 +702,30 @@ export function OnePageMovilTemplate({
       </footer>
 
       {/* Barra fija en el móvil */}
-      <div className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur md:hidden">
-        <div className="flex gap-2 px-3 py-2">
-          {phone && (
-            <a
-              href={`tel:${phone}`}
-              className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full border text-sm font-semibold"
+      {!children && (
+        <div className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur md:hidden">
+          <div className="flex gap-2 px-3 py-2">
+            {phone && (
+              <a
+                href={`tel:${phone}`}
+                className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full border text-sm font-semibold"
+              >
+                <Phone className="h-4 w-4" /> {t('call')}
+              </a>
+            )}
+            <Link
+              href={bookHref}
+              onClick={() =>
+                trackEvent('cta_reservar_click', { location: 'mobile_bar_onepagemovil' })
+              }
+              className="inline-flex h-12 flex-[2] items-center justify-center rounded-full text-sm font-semibold text-white"
+              style={{ backgroundColor: brand }}
             >
-              <Phone className="h-4 w-4" /> {t('call')}
-            </a>
-          )}
-          <Link
-            href={bookHref}
-            onClick={() =>
-              trackEvent('cta_reservar_click', { location: 'mobile_bar_onepagemovil' })
-            }
-            className="inline-flex h-12 flex-[2] items-center justify-center rounded-full text-sm font-semibold text-white"
-            style={{ backgroundColor: brand }}
-          >
-            {t('rentNow')}
-          </Link>
+              {t('rentNow')}
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -812,6 +847,7 @@ function UnitCardView({
 /** Cabecera fija: logo, centros, secciones, teléfono, «Alquilar ya» y área de clientes. */
 function Header({
   data,
+  homeHref,
   brand,
   navItems,
   onNavigate,
@@ -823,6 +859,8 @@ function Header({
   facilityLink,
 }: {
   data: PublicLandingDto;
+  /** Desde otra página: el logo lleva a la portada. */
+  homeHref?: string;
   brand: string;
   navItems: { id: string; label: string }[];
   onNavigate: (id: string) => void;
@@ -857,7 +895,7 @@ function Header({
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
         <button
           type="button"
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          onClick={() => goToTop(homeHref)}
           className="flex items-center font-semibold"
           aria-label={data.tenantName}
         >

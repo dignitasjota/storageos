@@ -176,7 +176,9 @@ export class BookingService {
                 minPriceByFacilityType.get(`${f.id}:${t.id}`) ?? Number(t.defaultPriceMonthly),
               taxRate: rentTax(t.propertyKind).taxRate,
             }))
-            .filter((t) => t.available > 0),
+            .filter((t) => t.available > 0)
+            // Del más barato al más caro (a igual precio, por nombre).
+            .sort((a, b) => a.priceMonthly - b.priceMonthly || a.name.localeCompare(b.name, 'es')),
         }))
         .filter((f) => f.unitTypes.length > 0),
     };
