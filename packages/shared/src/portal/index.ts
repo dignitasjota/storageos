@@ -1,6 +1,6 @@
-import type { ContractPreOpeningDto } from '../contracts/pre-opening';
 import { z } from 'zod';
 
+import type { ContractPreOpeningDto } from '../contracts/pre-opening';
 import type { ContractDepositStatusValue, ContractStatusValue } from '../customers/schemas';
 
 /** Idiomas soportados por el portal del inquilino. */
