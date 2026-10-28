@@ -116,7 +116,7 @@ export default function InvoiceDetailPage() {
   const canManageInv = useHasPermission('invoices:manage');
   const canWriteInv = useHasPermission('invoices:write');
   const canCharge = useHasPermission('payments:charge');
-  // «Pagar con Redsys» solo si el negocio lo tiene activo (sin permiso para leer
+  // «Pagar con tarjeta o Bizum» solo si el negocio lo tiene activo (sin permiso para leer
   // los ajustes no se sabe: se muestra y el API responde).
   const canReadSettings = useHasPermission('settings:read');
   const redsys = useRedsysSettings(canReadSettings);
