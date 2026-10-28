@@ -1,3 +1,4 @@
+import type { ContractPreOpeningDto } from '../contracts/pre-opening';
 import type { MessageAttachmentDto } from '../messages';
 import type {
   ContractBillingCycleValue,
@@ -172,6 +173,8 @@ export interface ContractDto {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Reserva anticipada en un local por abrir (null si no lo es). */
+  preOpening: ContractPreOpeningDto | null;
 }
 
 export interface ContractEventDto {

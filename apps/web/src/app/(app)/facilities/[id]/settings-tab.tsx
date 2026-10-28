@@ -12,6 +12,7 @@ import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { FacilityDetailsCard } from './details-card';
+import { PreOpeningCard } from './pre-opening-card';
 
 import type { DayHours, FacilityDto, OpeningHours, Weekday } from '@storageos/shared';
 
@@ -42,6 +43,7 @@ export function FacilitySettingsTab({ facility }: { facility: FacilityDto }) {
   return (
     <div className="space-y-6">
       <FacilityDetailsCard facility={facility} />
+      <PreOpeningCard facility={facility} />
       <OwnerCard facility={facility} />
       <OpeningHoursCard facility={facility} />
       <CurfewCard facility={facility} />

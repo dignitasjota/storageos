@@ -1035,6 +1035,12 @@ model Facility {
   images              String[]  @default([])
   /// URL de vídeo (YouTube/Vimeo) para la web pública del local.
   videoUrl            String?   @map("video_url")
+  /// Local en «próxima apertura»: admite reservas anticipadas.
+  preOpening          Boolean   @default(false) @map("pre_opening")
+  /// Fecha de apertura prevista (opcional; se puede poner, cambiar o quitar).
+  openingDate         DateTime? @map("opening_date") @db.Date
+  /// Meses desde la firma tras los que, sin abrir, el inquilino puede cancelar con devolución total.
+  preOpeningMaxMonths Int       @default(6) @map("pre_opening_max_months")
   isActive            Boolean   @default(true) @map("is_active")
   deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1354,6 +1360,15 @@ model Contract {
   /// Meses que cubre el primer pago (1 = mensual de siempre). Con cupón o
   /// varios meses, la 1ª factura cubre esos meses y luego se factura mes a mes.
   firstPaymentMonths     Int                   @default(1) @map("first_payment_months")
+  /// Reserva anticipada en un local por abrir.
+  preOpening             Boolean               @default(false) @map("pre_opening")
+  /// La fecha de apertura del local está fijada (si no, `startDate` es provisional).
+  preOpeningDateConfirmed Boolean              @default(false) @map("pre_opening_date_confirmed")
+  /// Fecha límite: sin abrir antes, el inquilino puede cancelar con devolución total.
+  preOpeningDeadline     DateTime?             @map("pre_opening_deadline") @db.Date
+  /// Día de apertura: desde aquí acceso y facturación recurrente.
+  preOpeningStartedAt    DateTime?             @map("pre_opening_started_at") @db.Timestamptz(6)
+  preOpeningReminderSentAt DateTime?           @map("pre_opening_reminder_sent_at") @db.Timestamptz(6)
   /// Vivienda: fianza depositada en el organismo autonómico.
   depositRegistryBody        String?   @map("deposit_registry_body")
   depositRegisteredAt        DateTime? @map("deposit_registered_at") @db.Date

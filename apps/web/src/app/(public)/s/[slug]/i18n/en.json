@@ -38,7 +38,9 @@
       "sun": "Sunday",
       "closed": "Closed",
       "openNow": "Open now",
-      "closedNow": "Closed now"
+      "closedNow": "Closed now",
+      "preOpening": "Opening soon",
+      "preOpeningDate": "Opens on {date}"
     },
     "promo": {
       "percentageOff": "{value}% off",
@@ -438,7 +440,12 @@
       "linkSentTitle": "Check your email",
       "linkSentText": "You already have an account with us, so we've sent the link to sign the contract and pay to {email}.",
       "linkSentTextNoEmail": "You already have an account with us: we've sent the link to sign the contract and pay to your email.",
-      "linkSentHold": "We'll hold the unit for 72 hours."
+      "linkSentHold": "We'll hold the unit for 72 hours.",
+      "preOpeningTitle": "This site opens soon",
+      "preOpeningTitleDate": "This site opens on {date} (approximate date)",
+      "preOpeningText": "Book your storage unit now: you pay the first month, which covers your first month from opening, and the deposit. Your rental and access code start the day we open; we will email you. You have 14 days to withdraw with a full refund.",
+      "summaryPreOpeningRent": "First month (covers your first month from opening)",
+      "summaryPreOpeningNote": "Nothing else to pay until opening. Then: {price}/month (VAT included)."
     },
     "sign": {
       "invalidTitle": "Invalid link",
@@ -479,7 +486,9 @@
       "termsChanged": "The contract changed while you were reading it. Check the updated text and sign again.",
       "payPendingButton": "Complete the payment",
       "signedDoneBody": "Your contract {contractNumber} is already signed. You have a copy in your customer area.",
-      "viewSignedTerms": "View the signed contract"
+      "viewSignedTerms": "View the signed contract",
+      "preOpeningDate": "Booking before opening: your rental starts the day the site opens, expected on {date} (approximate date). You will get your access code that day.",
+      "preOpeningNoDate": "Booking before opening: your rental starts the day the site opens. There is no date yet; we will email it to you and you will get your access code that day."
     },
     "blog": {
       "title": "Blog",

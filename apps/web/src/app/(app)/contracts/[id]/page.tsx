@@ -24,6 +24,7 @@ import { DepositRegistryCard } from './deposit-registry-card';
 import { EditDraftDialog } from './edit-draft-dialog';
 import { InspectionPhotosCard } from './inspection-photos-card';
 import { IrpfRetentionCard } from './irpf-retention-card';
+import { contractStartLabel, PreOpeningContractCard } from './pre-opening-card';
 import { RetentionCard } from './retention-card';
 import { SigningCard } from './signing-card';
 
@@ -314,6 +315,7 @@ export default function ContractDetailPage() {
       </div>
 
       <OverlockBanner contractId={c.id} />
+      <PreOpeningContractCard contract={c} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
@@ -370,7 +372,7 @@ export default function ContractDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Inicio</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm">{formatDate(c.startDate)}</p>
+            <p className="text-sm">{contractStartLabel(c)}</p>
           </CardContent>
         </Card>
         <Card>

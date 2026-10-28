@@ -197,6 +197,8 @@ export class LandingService {
           longitude: true,
           images: true,
           videoUrl: true,
+          preOpening: true,
+          openingDate: true,
         },
         orderBy: { name: 'asc' },
       }),
@@ -335,6 +337,8 @@ export class LandingService {
         longitude: f.longitude != null ? Number(f.longitude) : null,
         imageUrls: (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key)),
         videoUrl: f.videoUrl,
+        preOpening: f.preOpening,
+        openingDate: f.openingDate ? f.openingDate.toISOString().slice(0, 10) : null,
         // Solo los tamaños que tiene ESTE local; los que tiene pero están
         // llenos salen con available:0 ("Agotado", con lista de espera).
         // Precio = el del trastero más barato disponible de ese tamaño (es el

@@ -21,6 +21,7 @@ import {
 } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
+import { preOpeningDto } from '../../common/pre-opening';
 import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
@@ -237,6 +238,7 @@ export class SignaturesService {
       logoUrl: tenant?.portalLogoUrl ?? null,
       googleAnalyticsId: tenant?.googleAnalyticsId ?? null,
       firstPayment: await this.firstPaymentOf(contract.id, propertyKind),
+      preOpening: preOpeningDto(contract),
     };
   }
 
@@ -357,6 +359,8 @@ export class SignaturesService {
       select: {
         tenantId: true,
         startDate: true,
+        preOpening: true,
+        preOpeningStartedAt: true,
         priceMonthly: true,
         discountAmount: true,
         billingIntervalMonths: true,
@@ -384,7 +388,9 @@ export class SignaturesService {
     const discountAmount = coupon
       ? Number(coupon.discountAmount)
       : Math.round(monthlyPrice * months * prepayPct) / 100;
-    const fullPeriod = interval > 1 || months > 1 || !!coupon;
+    // Reserva antes de la apertura: la primera mensualidad completa (sin prorrateo).
+    const preOpening = c.preOpening && !c.preOpeningStartedAt;
+    const fullPeriod = preOpening || interval > 1 || months > 1 || !!coupon;
     // Un mes sin cupón: del alta a fin de mes (y, desde el día que fije el
     // negocio, también el mes siguiente), con el seguro de los mismos días.
     const plan = fullPeriod
@@ -406,6 +412,7 @@ export class SignaturesService {
       deposit: c.depositPaymentMethod === 'cash' ? 0 : Number(c.depositAmount),
       insuranceWithVat: Math.round(insurance * (100 + insuranceRate)) / 100,
       prorated: !fullPeriod,
+      preOpening,
       firstMonth: plan,
       coupon: coupon
         ? { code: coupon.coupon.code, name: coupon.coupon.name, valid: true, message: null }
@@ -589,6 +596,7 @@ export class SignaturesService {
       select: {
         unitTypeId: true,
         facilityId: true,
+        facility: { select: { preOpening: true } },
         basePriceMonthly: true,
         unitType: { select: { propertyKind: true, defaultDepositAmount: true } },
       },
@@ -617,6 +625,8 @@ export class SignaturesService {
       couponCode: args.couponCode,
       isNewCustomer: await this.coupons.isNewCustomer(args.tenantId, args.customerId),
       customerId: args.customerId,
+      preOpening: unit.facility.preOpening,
+      ...(unit.facility.preOpening ? { months: 1 } : {}),
       // El trastero adicional empieza hoy (en la hora del local).
       startDate: todayInTimezone(facility?.timezone ?? undefined)
         .toISOString()

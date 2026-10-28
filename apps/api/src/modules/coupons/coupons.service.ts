@@ -316,9 +316,11 @@ export class CouponsService {
       publicMessages?: boolean;
       /** Fecha de entrada (YYYY-MM-DD): el primer pago mensual sale exacto. */
       startDate?: string | null | undefined;
+      /** Local por abrir: una mensualidad completa, sin cupón. */
+      preOpening?: boolean;
     },
   ): Promise<FirstPaymentQuoteDto> {
-    const code = args.couponCode?.trim();
+    const code = args.preOpening ? undefined : args.couponCode?.trim();
     const quote = code
       ? await this.quote(tenantId, code, {
           monthlyPrice: args.monthlyPrice,
@@ -339,6 +341,7 @@ export class CouponsService {
       freeMonths: quote?.valid ? quote.freeMonths : 0,
       deposit: args.deposit,
       prorated: args.months === 1 && !quote?.valid,
+      ...(args.preOpening ? { preOpening: true } : {}),
       firstMonth: args.startDate
         ? firstMonthPlan(args.startDate, await this.nextMonthFromDay(tenantId))
         : null,

@@ -1470,3 +1470,10 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Migración `20261117100000_first_payment_next_month` (se aplica sola): `tenants.first_payment_next_month_from_day`, 20 por defecto para todos los tenants.
 - Desde el despliegue, un contrato mensual que empiece a partir del día 20 paga en su primera factura los días que quedan del mes más el mes siguiente completo. Cada negocio puede cambiar el día o desactivarlo en Configuración → Facturación → «Primer pago al entrar a final de mes».
 - No cambia nada en contratos ya firmados ni en los que pagan varios meses por adelantado.
+
+## 51. Reservas antes de la apertura (2026-10-28)
+
+- Migración `20261118100000_pre_opening_reservations` (se aplica sola): `facilities.pre_opening/opening_date/pre_opening_max_months` y `contracts.pre_opening*`. No cambia nada en locales ni contratos existentes.
+- Cron nuevo `contracts.pre-opening` (min. 15 de cada hora, en el **worker**): el día de apertura (en la hora del local) empiezan las reservas; tres días antes avisa a los inquilinos. Redesplegar también el worker.
+- Para usarlo: ficha del local → Ajustes → «Próxima apertura».
+- **Revisar con la asesoría** el texto de las condiciones de la reserva (arras penitenciales del art. 1454 CC tras los 14 días de desistimiento).

@@ -4,6 +4,7 @@ import { rentTax } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { toCents } from '../../common/money';
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_BILLING_GENERATE_RECURRING, QUEUE_BILLING } from '../queues/queues.module';
@@ -102,6 +103,8 @@ export class BillingJobsService {
         tenantId,
         status: { in: ['active', 'ending'] },
         deletedAt: null,
+        // Reservas anticipadas: no se factura hasta que abre el local.
+        ...STARTED_CONTRACT_WHERE,
       },
       include: {
         unit: {

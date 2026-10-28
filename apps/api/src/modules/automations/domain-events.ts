@@ -45,6 +45,8 @@ export const DOMAIN_EVENTS = {
   unit_available: 'domain.unit_available',
   /** Un contrato cambió de trastero → el acceso del inquilino se rehace con sus trasteros. */
   contract_unit_changed: 'domain.contract_unit_changed',
+  /** Abre el local de una reserva anticipada: empieza el alquiler (acceso). */
+  contract_pre_opening_started: 'domain.contract_pre_opening_started',
   /** Un cobro automático (auto-charge, reintento, domiciliación) fue rechazado → aviso al inquilino. */
   payment_failed: 'domain.payment_failed',
   /** Remesa SEPA generada → preaviso de cargo a cada deudor. */
@@ -108,6 +110,13 @@ export interface PaymentFailedPayload {
 export interface UnitAvailablePayload {
   tenantId: string;
   unitId: string;
+}
+
+/** Payload de `contract_pre_opening_started` (no es trigger de automations). */
+export interface ContractPreOpeningStartedPayload {
+  tenantId: string;
+  contractId: string;
+  customerId: string;
 }
 
 /** Payload de `contract_unit_changed` (no es trigger de automations). */

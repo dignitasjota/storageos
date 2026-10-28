@@ -4,7 +4,7 @@ import { mapEmbedUrl, WEEKDAYS } from '@storageos/shared';
 import { Clock, MapPin, MessageCircle, Phone, Mail, Star, Quote } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
 import { trackEvent } from './google-analytics';
@@ -72,7 +72,7 @@ export function FacilityMeta({
         )}
         {f.contactPhone && <WhatsAppButton phone={f.contactPhone} tenantName={tenantName} />}
       </div>
-      <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
+      <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} preOpening={f} />
       <FacilityMap f={f} />
     </div>
   );
@@ -165,9 +165,46 @@ export function isOpenNow(hours: OpeningHours, timezone: string): boolean | null
   }
 }
 
-/** Horario semanal desplegable + indicador "abierto ahora" (calculado en la zona horaria del local). */
-export function OpeningHoursInfo({ hours, timezone }: { hours: OpeningHours; timezone: string }) {
+/** «Próxima apertura» (con la fecha si la hay) de un local que aún no ha abierto. */
+export function PreOpeningBadge({
+  f,
+  className = '',
+}: {
+  f: { preOpening: boolean; openingDate: string | null };
+  className?: string;
+}) {
   const t = useTranslations('publicWeb.hours');
+  const locale = useLocale();
+  if (!f.preOpening) return null;
+  const date = f.openingDate
+    ? new Date(`${f.openingDate}T12:00:00Z`).toLocaleDateString(
+        locale === 'en' ? 'en-GB' : 'es-ES',
+        { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' },
+      )
+    : null;
+  return (
+    <span
+      className={`inline-flex w-fit items-center gap-1.5 rounded-full bg-sky-100 px-3 py-1 text-xs font-bold text-sky-800 dark:bg-sky-950 dark:text-sky-200 ${className}`}
+    >
+      <span className="h-2 w-2 rounded-full bg-sky-500" />
+      {date ? t('preOpeningDate', { date }) : t('preOpening')}
+    </span>
+  );
+}
+
+/** Horario semanal desplegable + indicador "abierto ahora" (calculado en la zona horaria del local). */
+export function OpeningHoursInfo({
+  hours,
+  timezone,
+  preOpening,
+}: {
+  hours: OpeningHours;
+  timezone: string;
+  /** Local por abrir: en vez del horario, «Próxima apertura». */
+  preOpening?: { preOpening: boolean; openingDate: string | null };
+}) {
+  const t = useTranslations('publicWeb.hours');
+  if (preOpening?.preOpening) return <PreOpeningBadge f={preOpening} />;
   const hasAny = WEEKDAYS.some((d) => hours[d]);
   if (!hasAny) return null;
   const open = isOpenNow(hours, timezone);

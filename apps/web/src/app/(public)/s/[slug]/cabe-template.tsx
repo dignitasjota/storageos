@@ -35,7 +35,7 @@ import {
 import { grossPrice } from './price-format';
 import { goToSection, goToTop } from './site-sections';
 import { StorageCalculator } from './storage-calculator';
-import { cities, formatPrice, useHeadlineFallback } from './templates';
+import { cities, formatPrice, PreOpeningBadge, useHeadlineFallback } from './templates';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
@@ -905,6 +905,7 @@ function FacilityCard({
               <span className="rounded-md bg-slate-100 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:bg-muted dark:text-foreground">
                 {f.city || t('center')}
               </span>
+              <PreOpeningBadge f={f} />
             </div>
             <div>
               <h3 className="text-2xl font-black">{f.name}</h3>
@@ -935,7 +936,7 @@ function FacilityCard({
                 )}
               </div>
             )}
-            {hasHours && (
+            {hasHours && !f.preOpening && (
               <div className="border-t border-slate-100 pt-3 dark:border-border">
                 <p className="mb-1 text-[11px] font-black uppercase tracking-wider text-slate-400">
                   {t('hoursTitle')}

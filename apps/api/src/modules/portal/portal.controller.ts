@@ -96,6 +96,7 @@ import { AccessCredentialsService } from '../access/access-credentials.service';
 import { AccessVerifyService } from '../access/access-verify.service';
 import { AiService } from '../ai/ai.service';
 import { ContractsService } from '../contracts/contracts.service';
+import { PreOpeningService } from '../contracts/pre-opening.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqService } from '../faq/faq.service';
@@ -115,6 +116,7 @@ import { NightPassService } from './night-pass.service';
 import { PortalAccountService } from './portal-account.service';
 import { PortalService } from './portal.service';
 
+import type { PreOpeningCancelPreviewDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchema) {}
@@ -173,6 +175,7 @@ export class PortalController {
     private readonly retention: RetentionService,
     private readonly ai: AiService,
     private readonly accessVerify: AccessVerifyService,
+    private readonly preOpening: PreOpeningService,
   ) {}
 
   // Envía un email (magic link) — mismo preset que el homólogo de staff
@@ -613,6 +616,42 @@ export class PortalController {
       contractId: id,
       endDate: input.endDate,
     });
+  }
+
+  /** Lo que se le devolvería al cancelar su reserva antes de la apertura. */
+  @Public()
+  @Get('me/contracts/:id/pre-opening-cancel')
+  async preOpeningCancelPreview(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PreOpeningCancelPreviewDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.preOpening.cancelPreview(tenantId, id, { customerId });
+  }
+
+  /** El inquilino cancela su reserva antes de que abra el local. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/contracts/:id/pre-opening-cancel')
+  @HttpCode(HttpStatus.OK)
+  async preOpeningCancel(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<{ cancelled: true }> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.preOpening.cancel({
+      tenantId,
+      userId: null,
+      contractId: id,
+      customerId,
+      reason: 'Cancelada por el inquilino desde su área de clientes',
+      meta: {
+        ...(req.header('user-agent') ? { userAgent: req.header('user-agent')! } : {}),
+        ...(req.ip ? { ipAddress: req.ip } : {}),
+      },
+    });
+    return { cancelled: true };
   }
 
   /** El inquilino cancela una baja en curso → el contrato vuelve a `active`. */

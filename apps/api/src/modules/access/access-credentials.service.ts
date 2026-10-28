@@ -11,6 +11,7 @@ import { accessWindowsFrom } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { todayInTimezone, zonedNextDayStart } from '../../common/format';
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -887,6 +888,7 @@ export class AccessCredentialsService {
             customerId,
             status: { in: ['active', 'ending'] },
             deletedAt: null,
+            ...STARTED_CONTRACT_WHERE,
             ...(facilityId ? { unit: { facilityId } } : {}),
           },
           select: { unitId: true, unit: { select: { facilityId: true } } },

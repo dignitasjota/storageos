@@ -584,6 +584,23 @@
       "notices": {
         "title": "Notices we have sent you",
         "subtitle": "Emails from the business: reminders, price changes and other notices."
+      },
+      "preOpening": {
+        "startsOn": "Your rental starts the day the site opens: {date} (approximate date).",
+        "noDate": "Your rental starts the day the site opens. We will email you the date.",
+        "accessNote": "Your access code will arrive on opening day. Until then nothing else is charged.",
+        "cancel": "Cancel the booking",
+        "cancelTitle": "Cancel the booking?",
+        "cancelWithdrawal": "You are within the withdrawal period (until {date}): we refund everything you paid.",
+        "cancelNotOpened": "The site did not open within the maximum period: we refund everything you paid.",
+        "cancelStandard": "The 14-day withdrawal period has passed: we refund the first month and the deposit is kept as earnest money, as your contract says.",
+        "refundRent": "First month: {amount} refunded.",
+        "refundDeposit": "Deposit: {amount} refunded.",
+        "keepDeposit": "Deposit: {amount} is not refunded.",
+        "keep": "Keep the booking",
+        "confirmCancel": "Cancel the booking",
+        "cancelled": "Booking cancelled. We will refund you by the same payment method.",
+        "error": "The booking could not be cancelled."
       }
     },
     "gocardless": {

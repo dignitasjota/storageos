@@ -3,8 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 
 import { tenantPortalLoginUrl } from '../../common/portal-url';
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import {
-  type ContractUnitChangedPayload,
+  type ContractPreOpeningStartedPayload,
+  ContractUnitChangedPayload,
   DOMAIN_EVENTS,
   type DomainEventPayload,
 } from '../automations/domain-events';
@@ -145,7 +147,12 @@ export class AccessIntegrationsService {
     const contracts = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findMany({
-          where: { customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
+          where: {
+            customerId,
+            status: { in: ['active', 'ending'] },
+            ...STARTED_CONTRACT_WHERE,
+            deletedAt: null,
+          },
           orderBy: { startDate: 'desc' },
           select: {
             unitId: true,
@@ -362,6 +369,55 @@ export class AccessIntegrationsService {
     );
   }
 
+  /**
+   * Abre el local de una reserva anticipada: el inquilino que ya pagó la reserva
+   * recibe su acceso (o el que ya tenía pasa a abrir también este trastero).
+   * Si aún no la pagó, el acceso llegará al pagarla (listener invoice_paid).
+   */
+  @OnEvent(DOMAIN_EVENTS.contract_pre_opening_started, { async: true, promisify: true })
+  async onPreOpeningStarted(payload: ContractPreOpeningStartedPayload): Promise<void> {
+    try {
+      const unpaid = await this.prisma.withTenant(
+        (tx) =>
+          tx.invoice.count({
+            where: {
+              contractId: payload.contractId,
+              status: { in: ['draft', 'issued', 'overdue'] },
+              deletedAt: null,
+            },
+          }),
+        payload.tenantId,
+      );
+      if (unpaid > 0) return;
+      await this.serialized(payload.customerId, async () => {
+        if (await this.hasOwnCredential(payload.tenantId, payload.customerId)) {
+          await this.credentials.rescopeForCustomer(payload.tenantId, payload.customerId);
+          return;
+        }
+        const customer = await this.prisma.withTenant(
+          (tx) =>
+            tx.customer.findFirst({
+              where: { id: payload.customerId, deletedAt: null },
+              select: { email: true, firstName: true },
+            }),
+          payload.tenantId,
+        );
+        if (!customer) return;
+        await this.issueCredential({
+          tenantId: payload.tenantId,
+          customerId: payload.customerId,
+          source: 'contract_signed',
+          label: 'Acceso',
+          recipientEmail: customer.email ?? null,
+          scope: { customer: { firstName: customer.firstName ?? '' } },
+          entityId: payload.contractId,
+        });
+      });
+    } catch (err) {
+      this.logger.warn(`contract_pre_opening_started: ${String(err)}`);
+    }
+  }
+
   /** Traslado de trastero: el acceso del inquilino pasa a abrir el trastero nuevo. */
   @OnEvent(DOMAIN_EVENTS.contract_unit_changed, { async: true, promisify: true })
   async onContractUnitChanged(payload: ContractUnitChangedPayload): Promise<void> {
@@ -397,6 +453,7 @@ export class AccessIntegrationsService {
           where: {
             customerId,
             status: { in: ['active', 'ending'] },
+            ...STARTED_CONTRACT_WHERE,
             deletedAt: null,
           },
         }),

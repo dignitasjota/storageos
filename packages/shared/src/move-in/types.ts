@@ -1,3 +1,4 @@
+import type { ContractPreOpeningDto } from '../contracts/pre-opening';
 import type { FirstPaymentQuoteDto } from '../coupons';
 
 /** Vista pública de un contrato a punto de firmarse (página /sign/[token]). */
@@ -31,6 +32,8 @@ export interface ContractSignViewDto {
   signedAt: string | null;
   /** Firmado y con la 1ª factura sin pagar: la página ofrece pagarla. */
   paymentPending: boolean;
+  /** Reserva antes de la apertura del local (null si no lo es). */
+  preOpening: ContractPreOpeningDto | null;
 }
 
 /** Token de portal para pagar la 1ª factura de un contrato ya firmado. */
@@ -108,6 +111,10 @@ export interface BookingAvailabilityDto {
     name: string;
     /** Slug público del local (`/reservar/<slug>` en el dominio propio), o null. */
     publicSlug: string | null;
+    /** Local en «próxima apertura»: reserva anticipada (primera mensualidad + fianza). */
+    preOpening: boolean;
+    /** Fecha de apertura prevista, o null si aún no está fijada. */
+    openingDate: string | null;
     unitTypes: {
       id: string;
       name: string;

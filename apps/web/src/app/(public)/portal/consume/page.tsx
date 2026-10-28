@@ -49,6 +49,7 @@ import { PortalLanguageSwitcher } from '../i18n/language-switcher';
 import { intlLocaleForPortal } from '../i18n/messages';
 import { usePortalLocale } from '../i18n/provider';
 
+
 import { AccessCredentialItem } from './access-credential';
 import { AccessLogsCard } from './access-logs-card';
 import { AdditionalUnitCard } from './additional-unit-card';
@@ -64,6 +65,7 @@ import { NightAccessCard } from './night-access-card';
 import { NoticesCard } from './notices-card';
 import { OffersCard } from './offers-card';
 import { OverviewCard } from './overview-card';
+import { PreOpeningNotice } from './pre-opening-notice';
 import { ProfileCard } from './profile-card';
 import { RetentionOfferCard } from './retention-offer-card';
 import { ShopCard } from './shop-card';
@@ -1141,7 +1143,7 @@ function PortalConsumeContent() {
                               : ''}
                           </p>
                         </div>
-                        {c.status === 'ending' ? (
+                        {c.preOpening && !c.preOpening.startedAt ? null : c.status === 'ending' ? (
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary">{tContracts('moveOutRequested')}</Badge>
                             <Button
@@ -1164,6 +1166,15 @@ function PortalConsumeContent() {
                           </Button>
                         )}
                       </div>
+                      {session && (
+                        <PreOpeningNotice
+                          session={session}
+                          contract={c}
+                          onCancelled={() =>
+                            setContracts((prev) => (prev ?? []).filter((x) => x.id !== c.id))
+                          }
+                        />
+                      )}
                       {c.overlocked && (
                         <div className="rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-xs text-orange-800 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200">
                           {tContracts('overlockedWarning')}

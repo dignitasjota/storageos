@@ -1,3 +1,4 @@
+import type { ContractPreOpeningDto } from '../contracts/pre-opening';
 import { z } from 'zod';
 
 import type { ContractDepositStatusValue, ContractStatusValue } from '../customers/schemas';
@@ -37,6 +38,8 @@ export interface PortalContractDto {
   hasSignedPdf: boolean;
   /** true si el trastero tiene el candado puesto por impago (expediente overlock). */
   overlocked: boolean;
+  /** Reserva anticipada en un local por abrir (null si no lo es). */
+  preOpening: ContractPreOpeningDto | null;
 }
 
 /** Un pago del inquilino, visto en su portal (historial de cobros). */

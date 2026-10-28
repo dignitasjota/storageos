@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  PreOpeningCancelPreviewDto,
   CustomerExtrasDto,
   CustomerAccountDto,
   CustomerOverviewDto,
@@ -737,5 +738,31 @@ export function useCustomerExtras() {
     queryKey: ['customers', 'extras'] as const,
     queryFn: () => apiFetch<CustomerExtrasDto>('/customers/extras'),
     staleTime: 60_000,
+  });
+}
+
+/** Lo que se devolvería al cancelar una reserva antes de la apertura. */
+export function usePreOpeningCancelPreview(contractId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['contracts', contractId, 'pre-opening-cancel'],
+    queryFn: () =>
+      apiFetch<PreOpeningCancelPreviewDto>(`/contracts/${contractId}/pre-opening/cancel-preview`),
+    enabled,
+  });
+}
+
+export function useCancelPreOpening(contractId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reason?: string) =>
+      apiFetch<ContractDto>(`/contracts/${contractId}/cancel-pre-opening`, {
+        method: 'POST',
+        json: reason ? { reason } : {},
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: ['invoices'] });
+      void qc.invalidateQueries({ queryKey: ['units'] });
+    },
   });
 }

@@ -4,6 +4,9 @@ import { apiFetch } from '../auth/api';
 import { compressImage } from '../images/compress';
 
 import type {
+  FacilityOpeningDto,
+  FacilityOpeningResultDto,
+  UpdateFacilityOpeningInput,
   ChangeUnitStatusInput,
   CreateFacilityInput,
   CreateFloorInput,
@@ -418,5 +421,31 @@ export function useOccupancyDashboard(facilityId?: string) {
         `/dashboard/occupancy${facilityId ? `?facilityId=${facilityId}` : ''}`,
       ),
     staleTime: 60_000,
+  });
+}
+
+const facilityOpeningKey = (id: string) => ['facilities', id, 'opening'] as const;
+
+/** Local en «próxima apertura»: fecha, plazo y reservas que tiene. */
+export function useFacilityOpening(id: string) {
+  return useQuery({
+    queryKey: facilityOpeningKey(id),
+    queryFn: () => apiFetch<FacilityOpeningDto>(`/facilities/${id}/opening`),
+  });
+}
+
+export function useUpdateFacilityOpening(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateFacilityOpeningInput) =>
+      apiFetch<FacilityOpeningResultDto>(`/facilities/${id}/opening`, {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: facilitiesKey });
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: ['units'] });
+    },
   });
 }

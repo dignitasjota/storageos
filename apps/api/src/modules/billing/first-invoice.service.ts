@@ -76,12 +76,13 @@ export class FirstInvoiceService {
         startDate: true,
         billingIntervalMonths: true,
         firstPaymentMonths: true,
+        preOpening: true,
         tenant: { select: { firstPaymentNextMonthFromDay: true } },
         _count: { select: { couponRedemptions: true } },
       },
     });
     if (!c) return false;
-    if (c.firstPaymentMonths > 1 || c._count.couponRedemptions > 0) return true;
+    if (c.preOpening || c.firstPaymentMonths > 1 || c._count.couponRedemptions > 0) return true;
     return (
       c.billingIntervalMonths === 1 &&
       firstMonthPlan(ymd(c.startDate), c.tenant.firstPaymentNextMonthFromDay).includesNextMonth
@@ -158,7 +159,38 @@ export class FirstInvoiceService {
         periodEnd: ymd(periodEnd),
       });
 
-      if (interval > 1 || months > 1 || coupon) {
+      // Reserva anticipada (local por abrir): la primera mensualidad completa,
+      // que cubre el primer mes desde la apertura. Sin periodo en la factura:
+      // la fecha de apertura puede cambiar y la recurrente empieza al mes
+      // siguiente de abrir (lo fija el día de apertura).
+      const preOpening = contract.preOpening && !contract.preOpeningStartedAt;
+      if (preOpening) {
+        periodStart = start;
+        periodEnd = start;
+        items.push({
+          description: `Primera mensualidad ${contract.contractNumber} — cubre el primer mes desde la apertura del local`,
+          quantity: 1,
+          unitPrice: fullPrice,
+          ...rent,
+          relatedContractId: contractId,
+          relatedUnitId: contract.unit.id,
+        });
+        if (
+          contract.insurancePlanId &&
+          contract.insurancePrice &&
+          Number(contract.insurancePrice) > 0
+        ) {
+          items.push({
+            description: `Protección de contenido${
+              contract.insurancePlan?.name ? ` — ${contract.insurancePlan.name}` : ''
+            } (primer mes desde la apertura)`,
+            quantity: 1,
+            unitPrice: Number(contract.insurancePrice),
+            taxRate: Number(contract.insurancePlan?.taxRate ?? 21),
+            relatedContractId: contractId,
+          });
+        }
+      } else if (interval > 1 || months > 1 || coupon) {
         // Meses completos desde el alta: [alta, alta + N meses − 1 día].
         periodStart = start;
         periodEnd = addDays(addMonths(start, months), -1);
@@ -321,8 +353,12 @@ export class FirstInvoiceService {
       // meses por adelantado: a los 15 días del inicio (si no, un anual vencía
       // al cabo de un año y no entraba nunca en impagos).
       // Con el mes siguiente incluido, igual que varios meses.
-      const dueDate =
-        months > 1 || includesNextMonth ? addDays(periodStart, 15) : addDays(periodEnd, 15);
+      // Reserva anticipada: se paga para reservar (como la reserva online, 3 días).
+      const dueDate = preOpening
+        ? addDays(new Date(), 3)
+        : months > 1 || includesNextMonth
+          ? addDays(periodStart, 15)
+          : addDays(periodEnd, 15);
       invoice = await this.invoices
         .create({
           tenantId,
@@ -332,8 +368,7 @@ export class FirstInvoiceService {
             customerId,
             contractId,
             seriesId: series.id,
-            periodStart: ymd(periodStart),
-            periodEnd: ymd(periodEnd),
+            ...(preOpening ? {} : { periodStart: ymd(periodStart), periodEnd: ymd(periodEnd) }),
             dueDate: ymd(dueDate),
             items,
             verifactuMode: 'verifactu',
