@@ -3,6 +3,7 @@ import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
+import { signedContractFor } from './helpers/contract-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -32,6 +33,7 @@ describe('Portal: historial de pases nocturnos (e2e)', () => {
   async function portalAuthFor(
     ownerToken: string,
     customer: { firstName: string; lastName: string; email: string },
+    withContract = true,
   ): Promise<{ headers: { Authorization: string }; customerId: string }> {
     const auth = { Authorization: `Bearer ${ownerToken}` };
     const created = await request(app.getHttpServer())
@@ -39,6 +41,8 @@ describe('Portal: historial de pases nocturnos (e2e)', () => {
       .set(auth)
       .send({ customerType: 'individual', ...customer });
     const customerId = created.body.id as string;
+    // Los pases exigen un trastero en uso.
+    if (withContract) await signedContractFor(app, ownerToken, { id: customerId });
     const link = await request(app.getHttpServer())
       .post(`/customers/${customerId}/portal-link`)
       .set(auth);
@@ -124,11 +128,15 @@ describe('Portal: historial de pases nocturnos (e2e)', () => {
       .send({ nightPassEnabled: true, nightPassPrice: 0 })
       .expect(200);
 
-    const portalAuth = await portalAuthFor(owner.accessToken, {
-      firstName: 'Estela',
-      lastName: 'Dos',
-      email: 'estela-np@x.com',
-    });
+    const portalAuth = await portalAuthFor(
+      owner.accessToken,
+      {
+        firstName: 'Estela',
+        lastName: 'Dos',
+        email: 'estela-np@x.com',
+      },
+      false,
+    );
     const a = await createFacilityWithUnits(app, owner.accessToken, {
       facilityName: 'Local Norte',
       unitsCount: 1,

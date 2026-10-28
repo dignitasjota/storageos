@@ -21,7 +21,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ApiError, apiFetch } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 const ALLOWED_MIME = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
 
@@ -48,7 +49,7 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
 
   async function load() {
     try {
-      const list = await apiFetch<CustomerDocumentDto[]>('/portal/me/documents', {
+      const list = await portalApiFetch<CustomerDocumentDto[]>('/portal/me/documents', {
         headers,
         requiresAuth: false,
       });
@@ -65,7 +66,7 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
 
   async function download(id: string) {
     try {
-      const { url } = await apiFetch<{ url: string }>(`/portal/me/documents/${id}/download`, {
+      const { url } = await portalApiFetch<{ url: string }>(`/portal/me/documents/${id}/download`, {
         headers,
         requiresAuth: false,
       });
@@ -89,12 +90,15 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
     setBusy(true);
     try {
       // 1) URL firmada para subir a MinIO.
-      const up = await apiFetch<CustomerDocumentUploadDto>('/portal/me/documents/upload-url', {
-        method: 'POST',
-        json: { type, mimeType: file.type, sizeBytes: file.size, fileName: file.name },
-        headers,
-        requiresAuth: false,
-      });
+      const up = await portalApiFetch<CustomerDocumentUploadDto>(
+        '/portal/me/documents/upload-url',
+        {
+          method: 'POST',
+          json: { type, mimeType: file.type, sizeBytes: file.size, fileName: file.name },
+          headers,
+          requiresAuth: false,
+        },
+      );
       // 2) Subida directa al almacenamiento.
       const put = await fetch(up.uploadUrl, {
         method: 'PUT',
@@ -103,7 +107,7 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
       });
       if (!put.ok) throw new Error('upload_failed');
       // 3) Registrar el documento.
-      await apiFetch<CustomerDocumentDto>('/portal/me/documents', {
+      await portalApiFetch<CustomerDocumentDto>('/portal/me/documents', {
         method: 'POST',
         json: {
           type,

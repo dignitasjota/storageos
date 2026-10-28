@@ -18,6 +18,7 @@ import {
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
 import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
+import { endDateAfterCancellingMoveOut } from '../../common/move-out';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
 import { AuditService } from '../auth/audit.service';
@@ -1237,7 +1238,12 @@ export class ContractsService {
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
-        data: { status: 'ending', endingRequestedAt: new Date(), endDate },
+        data: {
+          status: 'ending',
+          endingRequestedAt: new Date(),
+          endDate,
+          endDateBeforeEnding: existing.endDate,
+        },
         include: {
           customer: {
             select: {
@@ -1446,7 +1452,12 @@ export class ContractsService {
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
-        data: { status: 'ending', endDate: requested, endingRequestedAt: new Date() },
+        data: {
+          status: 'ending',
+          endDate: requested,
+          endingRequestedAt: new Date(),
+          endDateBeforeEnding: existing.endDate,
+        },
         include: {
           customer: {
             select: {
@@ -1548,7 +1559,13 @@ export class ContractsService {
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
-        data: { status: 'active', endDate: null, endingRequestedAt: null },
+        data: {
+          status: 'active',
+          // Vuelve la fecha de fin que tenía antes de pedir la baja (si sigue por delante).
+          endDate: endDateAfterCancellingMoveOut(existing.endDateBeforeEnding),
+          endDateBeforeEnding: null,
+          endingRequestedAt: null,
+        },
         include: {
           customer: {
             select: { firstName: true, lastName: true, companyName: true, customerType: true },
@@ -2483,7 +2500,7 @@ export class ContractsService {
           endDate: newEndDate,
           // Renovar reactiva un contrato en baja y limpia la solicitud.
           ...(existing.status === 'ending'
-            ? { status: 'active' as const, endingRequestedAt: null }
+            ? { status: 'active' as const, endingRequestedAt: null, endDateBeforeEnding: null }
             : {}),
           endingSoonNotifiedAt: null,
         },

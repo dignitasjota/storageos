@@ -73,8 +73,11 @@ export interface UnitRequestDto {
 /** Self-service: contratar un trastero disponible desde el portal (con pago online). */
 export const PortalBookUnitSchema = z.object({
   unitId: z.string().uuid(),
-  /** Nombre con el que firma (aceptación del contrato). */
-  signerName: z.string().trim().min(2).max(120),
+  /**
+   * Obsoleto: la firma se hace después, en la página del contrato (`/sign`),
+   * leyendo las condiciones. Se acepta para no romper clientes antiguos.
+   */
+  signerName: z.string().trim().max(120).optional(),
   /** Meses que se pagan ahora (1, 3, 6 o 12); después, mensual. */
   months: FirstPaymentMonthsSchema.default(1),
   /** Cupón de descuento sobre el pago de ahora. */
@@ -84,7 +87,9 @@ export type PortalBookUnitInput = z.infer<typeof PortalBookUnitSchema>;
 
 export interface PortalBookUnitResultDto {
   contractId: string;
-  /** Factura emitida a pagar (null si no se pudo emitir; el staff la generará). */
+  /** Enlace de firma: el inquilino lee el contrato, lo firma y paga (`/sign/<token>`). */
+  signingToken: string;
+  /** La primera factura se emite al firmar: aquí siempre null. */
   invoiceId: string | null;
   /** Token de portal renovado (para pagar sin re-loguear). */
   portalToken: string;

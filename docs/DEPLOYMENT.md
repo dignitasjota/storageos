@@ -1490,3 +1490,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
   - **Domiciliación**: pone su IBAN y firma el mandato; con el mandato firmado la reserva ya no caduca y se cobra en la próxima remesa SEPA.
   - En los tres casos el equipo recibe un aviso (campana y push) y no se le manda el recordatorio de «paga online».
 - Al cobrar, «Marcar pagada» en la factura propone la forma que eligió el inquilino y admite efectivo, transferencia, domiciliación SEPA, tarjeta u otro.
+
+## 53. Revisión del área de clientes, arreglos (2026-10-28)
+
+- Migración `20261122100000_portal_review` (se aplica sola): `contracts.end_date_before_ending`. Redesplegar api y web.
+- Contratar otro trastero desde el área de clientes ya no firma solo: lleva a la página del contrato (`/sign/<token>`) para leerlo, firmarlo y pagar, igual que la reserva online; mientras tanto el trastero queda reservado (se libera a las 72 h si no firma y paga).
+- Las sesiones abiertas del portal no cambian; los tokens nuevos llevan un identificador para poder cerrar cada sesión al salir.

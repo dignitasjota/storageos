@@ -10,7 +10,7 @@ import { usePortalLocale } from '../i18n/provider';
 import type { PortalNoticeDto, PortalSessionDto } from '@storageos/shared';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { apiFetch } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 /** Los avisos que el negocio le ha enviado por correo, a mano en su área de clientes. */
 export function NoticesCard({ session }: { session: PortalSessionDto }) {
@@ -21,7 +21,7 @@ export function NoticesCard({ session }: { session: PortalSessionDto }) {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<PortalNoticeDto[]>('/portal/me/notices', {
+    portalApiFetch<PortalNoticeDto[]>('/portal/me/notices', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       requiresAuth: false,
     })

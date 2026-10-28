@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
@@ -164,9 +166,16 @@ describe('Cupones en la reserva online, la firma y el portal (e2e)', () => {
     const booked = await http()
       .post('/portal/me/contracts')
       .set(portal)
-      .send({ unitId: fac.unitIds[1], signerName: 'Leo Paz', months: 6, couponCode: 'VEINTE' });
+      .send({ unitId: fac.unitIds[1], months: 6, couponCode: 'VEINTE' });
     expect(booked.status).toBe(201);
-    const detail = await http().get(`/invoices/${booked.body.invoiceId}`).set(a);
+    await http()
+      .post(`/public/move-in/sign/${booked.body.signingToken}`)
+      .send({ signerName: 'Leo Paz', method: 'typed', typedSignature: 'Leo Paz', accept: true })
+      .expect(201);
+    const invoice = await app
+      .get(PrismaAdminService)
+      .invoice.findFirstOrThrow({ where: { contractId: booked.body.contractId, kind: 'invoice' } });
+    const detail = await http().get(`/invoices/${invoice.id}`).set(a);
     expect(Number(detail.body.subtotal)).toBe(192);
     const contract = await http().get(`/contracts/${booked.body.contractId}`).set(a);
     expect(contract.body.coupon).toMatchObject({ code: 'VEINTE', months: 6, discountAmount: 48 });

@@ -1,6 +1,7 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { signedContractFor } from './helpers/contract-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
@@ -88,7 +89,8 @@ describe('Portal: acceso por QR/PIN (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'portal-extra');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const email = `pex-${Date.now()}@e2e.local`;
-    await createCustomer(app, owner.accessToken, { email });
+    const extraCustomerId = await createCustomer(app, owner.accessToken, { email });
+    await signedContractFor(app, owner.accessToken, { id: extraCustomerId });
 
     // El tenant fija el límite de accesos adicionales en 1.
     const setLimit = await request(app.getHttpServer())

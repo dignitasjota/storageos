@@ -2,6 +2,7 @@ import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
+import { signedContractFor } from './helpers/contract-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -47,6 +48,7 @@ describe('Staff: subpágina de pases nocturnos (e2e)', () => {
       lastName: 'Sol',
       email: 'nel-np@x.com',
     });
+    await signedContractFor(app, owner.accessToken, { id: customer.body.id });
     const link = await request(app.getHttpServer())
       .post(`/customers/${customer.body.id}/portal-link`)
       .set(auth);

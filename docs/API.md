@@ -2415,3 +2415,14 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - `GET /portal/me/payments/options` → `PortalPaymentOptionsDto { cardPayments, bankTransfer, payAtFacility, sepaDebit }` (la domiciliación también exige que el plan incluya SEPA).
 - `POST /portal/me/invoices/:id/offline-payment {method: bank_transfer|cash|sepa_debit, iban?, bic?}` (sesión del portal) → `PortalOfflinePaymentResultDto { method, holdUntil, emailSentTo, mandateSigningUrl }`. Transferencia: correo con IBAN, importe (con la fianza que va en el mismo pago) y concepto (`source: offline_payment.transfer`). Transferencia o en el local amplían una vez 24 h (`OFFLINE_PAYMENT_EXTRA_HOURS`) el plazo de la reserva. Domiciliación: da de alta el mandato y devuelve el enlace para firmarlo (null si ya tiene uno firmado de esa cuenta); con el mandato firmado `expireUnpaidBookings` no cancela la reserva. Siempre: notificación `invoice.offline_payment_chosen` al equipo (también push). 400 `invoice_not_payable`, `offline_method_not_available`, `customer_without_email`; 404 `invoice_not_found`.
 - `InvoiceDto.offlinePaymentMethod`: lo que eligió el inquilino; «Marcar pagada» lo propone. `POST /invoices/:id/mark-paid` admite `methodType` `sepa_debit` y `other` (el diálogo los ofrece).
+
+### Revisión del área de clientes, arreglos (2026-10-28)
+
+- `POST /portal/me/access/extra` y `POST /portal/me/access/night-pass` → 409 `no_active_contract` sin un trastero en uso (antes el acceso salía sin alcance y abría todos los locales). `GET /portal/me/access/night-pass` da `enabled: false` en ese caso.
+- `GET /portal/me/access`: no incluye pases caducados ni ya usados; `PortalAccessCredentialDto.extra` marca los accesos adicionales que se creó el inquilino.
+- `GET /portal/me/account`: `nextCharge` cuenta lo ya pagado por adelantado (último periodo facturado, `billingStartsOn`, con la parte proporcional si empieza a mitad de mes), los meses gratis, el descuento del prepago y no incluye las reservas antes de la apertura.
+- `POST /portal/me/contracts {unitId, months?, couponCode?}` crea el contrato en borrador, reserva el trastero y devuelve `signingToken` (`PortalBookUnitResultDto`); la firma y la primera factura llegan al firmar en `/sign/<token>`. `signerName` ya no hace falta.
+- Pedir la baja guarda la fecha de fin anterior (`contracts.end_date_before_ending`); cancelarla (portal) o aceptar una oferta de retención la devuelve si aún no ha pasado.
+- Login por enlace o recuperación de contraseña con un email repetido: se elige el inquilino con contratos vivos y, si no, el más reciente.
+- `PATCH /portal/me/profile`: con DNI/NIE/NIF/CIF (o sin tipo y país ES) valida el número → 400 `invalid_tax_id`; lo guarda normalizado.
+- `POST /portal/me/logout` (cierra la sesión de este token en el servidor) y `POST /portal/me/sessions/close-all` (todas, también la actual).

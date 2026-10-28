@@ -12,7 +12,8 @@ import type { OpportunityKind, PortalOfferDto, PortalSessionDto } from '@storage
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 /** Dónde se contrata cada propuesta dentro del portal. */
 export const OFFER_TAB: Record<OpportunityKind, string> = {
@@ -42,7 +43,7 @@ export function OffersCard({
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<PortalOfferDto[]>('/portal/me/offers', { headers, requiresAuth: false })
+    portalApiFetch<PortalOfferDto[]>('/portal/me/offers', { headers, requiresAuth: false })
       .then((o) => {
         if (!cancelled) setOffers(o);
       })
@@ -58,7 +59,7 @@ export function OffersCard({
   async function respond(o: PortalOfferDto, response: 'interested' | 'declined') {
     setBusy(o.id);
     try {
-      const next = await apiFetch<PortalOfferDto[]>(`/portal/me/offers/${o.id}/respond`, {
+      const next = await portalApiFetch<PortalOfferDto[]>(`/portal/me/offers/${o.id}/respond`, {
         method: 'POST',
         json: { response },
         headers,

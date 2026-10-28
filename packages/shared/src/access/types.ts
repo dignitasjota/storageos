@@ -113,6 +113,8 @@ export interface PortalAccessCredentialDto {
   value: string | null;
   expiresAt: string | null;
   lastUsedAt: string | null;
+  /** Acceso adicional que se creó el propio inquilino (familiar, empleado…). */
+  extra?: boolean;
   /**
    * Acceso suspendido: por un impago (con la factura y lo que falta por pagar)
    * u otro motivo del operador. `value` va a null mientras esté suspendido.

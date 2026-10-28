@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import { InjectQueue } from '@nestjs/bullmq';
 import {
@@ -16,6 +16,8 @@ import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { Prisma } from '@storageos/database';
 import {
+  isValidSpanishTaxId,
+  normalizeTaxId,
   NON_CASH_PAYMENT_METHODS,
   PORTAL_APP_SESSION_DAYS,
   type PortalNoticeDto,
@@ -86,6 +88,8 @@ const RESET_TOKEN_TTL_SECONDS = 30 * 60;
 /** Enlace de restablecimiento generado por el staff (lo reparte a mano): 7 días. */
 const STAFF_RESET_TTL_SECONDS = 7 * 24 * 60 * 60;
 const RESET_KEY_PREFIX = 'portal:pwreset:';
+/** Sesiones del portal cerradas a mano (hasta que caduca el token). */
+const CLOSED_SESSION_KEY_PREFIX = 'portal:closed:';
 
 /** El valor en BD es texto libre; cualquier valor no reconocido cae a 'es'. */
 function normalizePortalLocale(value: string): PortalLocaleValue {
@@ -366,9 +370,7 @@ export class PortalService {
       where: { slug: input.tenantSlug },
     });
     if (!tenant || !tenantUsable(tenant)) return; // 204 silencioso para no filtrar.
-    const customer = await this.admin.customer.findFirst({
-      where: { tenantId: tenant.id, email: emailEquals(input.email), deletedAt: null },
-    });
+    const customer = await this.findCustomerByEmail(tenant.id, input.email);
     if (!customer) {
       // Sin el email en el log (no filtrar quién es cliente); basta para
       // saber por qué no llegó nada.
@@ -397,6 +399,47 @@ export class PortalService {
         locale: emailLocale(customer.locale),
       }),
     });
+  }
+
+  /**
+   * El email no es único por negocio (altas repetidas, importaciones): entre
+   * los inquilinos con ese email se elige el que tiene contratos vivos y, si
+   * no, el más reciente. Antes se cogía uno cualquiera y el enlace podía
+   * abrir una ficha antigua sin trasteros.
+   */
+  private async findCustomerByEmail(tenantId: string, email: string) {
+    const candidates = await this.admin.customer.findMany({
+      where: { tenantId, email: emailEquals(email), deletedAt: null },
+    });
+    return this.pickCustomer(candidates);
+  }
+
+  private async pickCustomer<T extends { id: string; tenantId: string; createdAt: Date }>(
+    candidates: T[],
+  ): Promise<T | null> {
+    if (candidates.length <= 1) return candidates[0] ?? null;
+    const live = await this.admin.contract.groupBy({
+      by: ['customerId'],
+      where: {
+        tenantId: candidates[0]!.tenantId,
+        customerId: { in: candidates.map((c) => c.id) },
+        deletedAt: null,
+        status: { in: ['draft', 'active', 'ending'] },
+      },
+    });
+    const withContracts = new Set(live.map((l) => l.customerId));
+    const sorted = [...candidates].sort(
+      (a, b) =>
+        Number(withContracts.has(b.id)) - Number(withContracts.has(a.id)) ||
+        b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+    // Con contraseña: si hay varios con contratos no se adivina cuál es.
+    if (withContracts.size > 1) {
+      this.logger.warn(
+        `[portal] ${candidates.length} inquilinos con el mismo email y contratos en el tenant ${candidates[0]!.tenantId}`,
+      );
+    }
+    return sorted[0]!;
   }
 
   async consumeMagicLink(token: string, installedApp = false): Promise<PortalSessionDto> {
@@ -483,7 +526,7 @@ export class PortalService {
         portalPasswordHash: { not: null },
       },
     });
-    const customer = tenantUsable && candidates.length === 1 ? candidates[0]! : null;
+    const customer = tenantUsable ? await this.pickCustomer(candidates) : null;
 
     // `argonVerify` SIEMPRE se ejecuta —contra el hash real o uno dummy— para
     // que el tiempo de respuesta no delate si el email resuelve a una cuenta
@@ -576,9 +619,7 @@ export class PortalService {
   async requestPasswordReset(input: PortalRequestMagicLinkInput): Promise<void> {
     const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
     if (!tenant || !tenantUsable(tenant)) return;
-    const customer = await this.admin.customer.findFirst({
-      where: { tenantId: tenant.id, email: emailEquals(input.email), deletedAt: null },
-    });
+    const customer = await this.findCustomerByEmail(tenant.id, input.email);
     if (!customer) {
       // Sin el email en el log (no filtrar quién es cliente); basta para
       // saber por qué no llegó nada.
@@ -807,7 +848,8 @@ export class PortalService {
         purpose: 'portal',
         sv: customer.portalSessionVersion,
       },
-      { subject: customer.id, secret: this.portalSecret(), expiresIn: ttl },
+      // `jwtid`: permite cerrar esta sesión concreta al salir (`logout`).
+      { subject: customer.id, secret: this.portalSecret(), expiresIn: ttl, jwtid: randomUUID() },
     );
     const displayName =
       customer.customerType === 'business'
@@ -828,7 +870,13 @@ export class PortalService {
   }
 
   async verifyPortalToken(token: string): Promise<{ customerId: string; tenantId: string }> {
-    let payload: { customerId: string; tenantId: string; purpose: string; sv?: number };
+    let payload: {
+      customerId: string;
+      tenantId: string;
+      purpose: string;
+      sv?: number;
+      jti?: string;
+    };
     try {
       payload = await this.jwt.verifyAsync<{
         sub: string;
@@ -836,6 +884,7 @@ export class PortalService {
         tenantId: string;
         purpose: string;
         sv?: number;
+        jti?: string;
       }>(token, {
         secret: this.portalSecret(),
       });
@@ -846,6 +895,13 @@ export class PortalService {
       throw new UnauthorizedException({
         code: 'portal_token_invalid',
         message: 'Sesion invalida',
+      });
+    }
+    // Sesión cerrada con «Cerrar sesión» en este dispositivo.
+    if (payload.jti && (await this.isSessionClosed(payload.jti))) {
+      throw new UnauthorizedException({
+        code: 'portal_session_revoked',
+        message: 'Tu sesión ha caducado. Vuelve a entrar.',
       });
     }
     // Revocación: el JWT vive 48 h y se guarda en el navegador del inquilino.
@@ -890,6 +946,43 @@ export class PortalService {
       })();
     }
     return { customerId: payload.customerId, tenantId: payload.tenantId };
+  }
+
+  /**
+   * «Cerrar sesión»: invalida este token en el servidor hasta que caduque (no
+   * basta con borrarlo del navegador: una copia seguiría sirviendo).
+   */
+  async closeSession(token: string): Promise<void> {
+    try {
+      const payload = await this.jwt.verifyAsync<{ jti?: string; exp?: number; purpose?: string }>(
+        token,
+        { secret: this.portalSecret() },
+      );
+      if (payload.purpose !== 'portal' || !payload.jti || !payload.exp) return;
+      const ttl = payload.exp - Math.floor(Date.now() / 1000);
+      if (ttl <= 0) return;
+      const client = await this.emailQueue.client;
+      await client.set(`${CLOSED_SESSION_KEY_PREFIX}${payload.jti}`, '1', 'EX', ttl);
+    } catch {
+      /* token ya inválido: nada que cerrar */
+    }
+  }
+
+  /** «Cerrar sesión en todos mis dispositivos»: también este. */
+  async closeAllSessions(tenantId: string, customerId: string): Promise<void> {
+    await this.admin.customer.updateMany({
+      where: { id: customerId, tenantId, deletedAt: null },
+      data: { portalSessionVersion: { increment: 1 } },
+    });
+  }
+
+  private async isSessionClosed(jti: string): Promise<boolean> {
+    try {
+      const client = await this.emailQueue.client;
+      return (await client.exists(`${CLOSED_SESSION_KEY_PREFIX}${jti}`)) === 1;
+    } catch {
+      return false;
+    }
   }
 
   async listMyInvoices(tenantId: string, customerId: string): Promise<PortalInvoiceDto[]> {
@@ -1282,6 +1375,23 @@ export class PortalService {
     input: PortalUpdateProfileInput,
   ): Promise<PortalProfileDto> {
     await this.requireCustomer(tenantId, customerId);
+    // Un NIF mal puesto haría fallar sus facturas (Veri*Factu exige uno válido).
+    if (input.documentNumber) {
+      const current = await this.admin.customer.findUniqueOrThrow({
+        where: { id: customerId },
+        select: { documentType: true, country: true },
+      });
+      const type = (input.documentType ?? current.documentType ?? '').trim().toLowerCase();
+      const country = (input.country ?? current.country ?? 'ES').toUpperCase();
+      const spanish = ['dni', 'nie', 'nif', 'cif'].includes(type) || (!type && country === 'ES');
+      if (spanish && !isValidSpanishTaxId(input.documentNumber)) {
+        throw new BadRequestException({
+          code: 'invalid_tax_id',
+          message: 'El DNI, NIE o CIF no es válido. Revisa la letra y los números.',
+        });
+      }
+      if (spanish) input = { ...input, documentNumber: normalizeTaxId(input.documentNumber) };
+    }
     // Solo se tocan los campos presentes; '' = borrar (null). undefined = no tocar.
     const data: Prisma.CustomerUpdateInput = {
       ...(input.firstName !== undefined && { firstName: input.firstName || null }),

@@ -2,6 +2,7 @@ import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
+import { signedContractFor } from './helpers/contract-fixtures';
 import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -59,6 +60,8 @@ describe('Pase nocturno (single-use de pago) (e2e)', () => {
       hardwareId: 'np-dev-1',
     });
     const apiKey = device.body.revealedApiKey as string;
+    // Los pases exigen un trastero en uso en ese local.
+    await signedContractFor(app, owner.accessToken, { email }, facility.body.id);
 
     // El tenant activa el pase nocturno GRATUITO (precio 0). Un pase de pago
     // exige método de cobro (se cobra en el acto, ver portal-night-passes),

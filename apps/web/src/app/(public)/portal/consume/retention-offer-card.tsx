@@ -5,11 +5,14 @@ import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { intlLocaleForPortal } from '../i18n/messages';
+import { usePortalLocale } from '../i18n/provider';
+
 import type { PortalRetentionOfferDto, PortalSessionDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { apiFetch } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 /**
  * Oferta de retención: si el inquilino ha pedido la baja y el operador le ofrece
@@ -24,11 +27,14 @@ export function RetentionOfferCard({
   onChanged?: () => void;
 }) {
   const t = useTranslations('portal.consume.retention');
+  const { locale } = usePortalLocale();
+  const money = (n: number) =>
+    n.toLocaleString(intlLocaleForPortal(locale), { style: 'currency', currency: 'EUR' });
   const [offers, setOffers] = useState<PortalRetentionOfferDto[]>([]);
   const [busy, setBusy] = useState(false);
 
   function load() {
-    apiFetch<PortalRetentionOfferDto[]>('/portal/me/retention-offers', {
+    portalApiFetch<PortalRetentionOfferDto[]>('/portal/me/retention-offers', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       requiresAuth: false,
     })
@@ -44,7 +50,7 @@ export function RetentionOfferCard({
   async function respond(id: string, action: 'accept' | 'decline') {
     setBusy(true);
     try {
-      await apiFetch(`/portal/me/retention-offers/${id}/${action}`, {
+      await portalApiFetch(`/portal/me/retention-offers/${id}/${action}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${session.accessToken}` },
         requiresAuth: false,
@@ -78,16 +84,16 @@ export function RetentionOfferCard({
                 discount:
                   o.discountType === 'percentage'
                     ? t('offerPercentage', { value: o.discountValue })
-                    : t('offerFixed', { value: o.discountValue }),
+                    : t('offerFixed', { value: money(o.discountValue) }),
                 months: o.months,
               })}
             </p>
             <p className="text-sm text-muted-foreground">
               {t('priceChangeIntro')}{' '}
-              <span className="line-through">{o.currentPriceMonthly.toFixed(2)} €</span>{' '}
+              <span className="line-through">{money(o.currentPriceMonthly)}</span>{' '}
               {t('priceChangeTo')}{' '}
               <strong className="text-foreground">
-                {o.discountedPriceMonthly.toFixed(2)} €/mes
+                {t('perMonth', { price: money(o.discountedPriceMonthly) })}
               </strong>
               .
             </p>

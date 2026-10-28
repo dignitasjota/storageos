@@ -1425,6 +1425,7 @@ model Contract {
   /// Marca cuándo se emitió el aviso "vence pronto" (idempotencia del cron).
   endingSoonNotifiedAt   DateTime?             @map("ending_soon_notified_at") @db.Timestamptz(6)
   firstPaymentDeadline   DateTime?             @map("first_payment_deadline") @db.Timestamptz(6)
+  endDateBeforeEnding    DateTime?             @map("end_date_before_ending") @db.Date
   offlinePaymentMethod   String?               @map("offline_payment_method")
   offlinePaymentChosenAt DateTime?             @map("offline_payment_chosen_at") @db.Timestamptz(6)
   /// Recordatorio de reserva online sin terminar ya enviado (una vez).

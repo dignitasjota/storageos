@@ -249,6 +249,24 @@ export class PortalController {
     return this.portal.renewSession(tenantId, customerId, input.installedApp ?? false);
   }
 
+  /** Cierra la sesión de este dispositivo en el servidor. */
+  @Public()
+  @Post('me/logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(@Headers('authorization') auth: string | undefined): Promise<void> {
+    if (auth?.startsWith('Bearer ')) await this.portal.closeSession(auth.slice('Bearer '.length));
+  }
+
+  /** Cierra la sesión en todos sus dispositivos (también en este). */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/sessions/close-all')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async closeAllSessions(@Headers('authorization') auth: string | undefined): Promise<void> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.portal.closeAllSessions(tenantId, customerId);
+  }
+
   /** Solicitar un enlace de restablecimiento de contraseña por email (204 silencioso). */
   // Mismo motivo que `login/request`: envía email, se alinea al preset de
   // recuperación de cuenta del staff (3/hora) en vez del de login (5/min).
@@ -925,7 +943,6 @@ export class PortalController {
       tenantId,
       customerId,
       unitId: input.unitId,
-      signerName: input.signerName,
       months: input.months,
       couponCode: input.couponCode || undefined,
       meta: { ipAddress: req.ip, userAgent: req.header('user-agent') },

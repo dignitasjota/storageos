@@ -64,7 +64,11 @@ export function OverviewCard({
   const inProgress = invoices
     .filter((i) => i.amountPending > 0 && i.paymentInProgress)
     .reduce((s, i) => s + i.amountPending, 0);
-  const overdue = invoices.filter((i) => i.status === 'overdue' && !i.paymentInProgress);
+  // La fianza que se paga junto a su factura no cuenta como otra factura.
+  const pendingCount = pending.filter((i) => !i.paidWithInvoiceId).length;
+  const overdue = invoices.filter(
+    (i) => i.status === 'overdue' && !i.paymentInProgress && !i.paidWithInvoiceId,
+  );
   const nextDue = [...pending].sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))[0];
   const activeContracts = contracts.filter((c) => c.status === 'active' || c.status === 'ending');
   const ending = contracts.filter((c) => c.status === 'ending');
@@ -171,11 +175,9 @@ export function OverviewCard({
         <QuickAction
           icon={CreditCard}
           tint="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"
-          label={pending.length > 0 ? t('quickPay') : t('quickInvoices')}
+          label={pendingCount > 0 ? t('quickPay') : t('quickInvoices')}
           hint={
-            pending.length > 0
-              ? t('quickPendingCount', { count: pending.length })
-              : t('quickUpToDate')
+            pendingCount > 0 ? t('quickPendingCount', { count: pendingCount }) : t('quickUpToDate')
           }
           onClick={() => onNavigate('facturas')}
         />

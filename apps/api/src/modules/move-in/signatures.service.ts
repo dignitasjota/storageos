@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import {
   BadRequestException,
@@ -557,6 +557,7 @@ export class SignaturesService {
       {
         secret: this.portalSecret(),
         expiresIn: PORTAL_TOKEN_TTL_SECONDS,
+        jwtid: randomUUID(),
       },
     );
   }
@@ -638,33 +639,20 @@ export class SignaturesService {
     tenantId: string;
     customerId: string;
     unitId: string;
-    signerName: string;
     months?: FirstPaymentMonths;
     couponCode?: string | undefined;
     meta: RequestMeta;
-  }): Promise<{ contractId: string; invoiceId: string | null; portalToken: string }> {
+  }): Promise<{
+    contractId: string;
+    signingToken: string;
+    invoiceId: string | null;
+    portalToken: string;
+  }> {
     const { tenantId, customerId, unitId } = args;
     const couponCode = args.couponCode?.trim() || undefined;
-    // El trastero debe estar disponible y en un local donde el inquilino ya
-    // tiene un contrato activo (mismo criterio que la disponibilidad del portal).
-    const unit = await this.admin.unit.findFirst({
-      where: {
-        id: unitId,
-        tenantId,
-        facility: { deletedAt: null, isActive: true },
-        unitType: { isActive: true },
-      },
-      include: { unitType: { select: { defaultDepositAmount: true } } },
-    });
-    if (!unit || unit.status !== 'available') {
-      throw new BadRequestException({
-        code: 'unit_not_available',
-        message: 'El trastero ya no está disponible',
-      });
-    }
     const customer = await this.admin.customer.findFirst({
       where: { id: customerId, tenantId, deletedAt: null },
-      select: { email: true },
+      select: { id: true },
     });
     if (!customer) {
       throw new NotFoundException({
@@ -672,22 +660,60 @@ export class SignaturesService {
         message: 'Inquilino no encontrado',
       });
     }
-    const ownsFacility = await this.admin.contract.findFirst({
-      where: {
-        tenantId,
-        customerId,
-        status: { in: ['active', 'ending'] },
-        deletedAt: null,
-        unit: { facilityId: unit.facilityId },
-      },
-      select: { id: true },
-    });
-    if (!ownsFacility) {
-      throw new BadRequestException({
-        code: 'facility_not_allowed',
-        message: 'Solo puedes contratar trasteros de tu mismo local',
+    // El trastero debe estar disponible y en un local donde el inquilino ya
+    // tiene un contrato activo (mismo criterio que la disponibilidad del portal).
+    // Se reserva en la misma transacción (con candado por trastero) para que
+    // nadie se lo lleve mientras lee y firma el contrato.
+    const unit = await this.admin.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${unitId}))`;
+      const u = await tx.unit.findFirst({
+        where: {
+          id: unitId,
+          tenantId,
+          facility: { deletedAt: null, isActive: true },
+          unitType: { isActive: true },
+        },
+        include: { unitType: { select: { defaultDepositAmount: true } } },
       });
-    }
+      if (!u || u.status !== 'available') {
+        throw new BadRequestException({
+          code: 'unit_not_available',
+          message: 'El trastero ya no está disponible',
+        });
+      }
+      const ownsFacility = await tx.contract.findFirst({
+        where: {
+          tenantId,
+          customerId,
+          status: { in: ['active', 'ending'] },
+          deletedAt: null,
+          unit: { facilityId: u.facilityId },
+        },
+        select: { id: true },
+      });
+      if (!ownsFacility) {
+        throw new BadRequestException({
+          code: 'facility_not_allowed',
+          message: 'Solo puedes contratar trasteros de tu mismo local',
+        });
+      }
+      await tx.unit.update({ where: { id: u.id }, data: { status: 'reserved' } });
+      await tx.unitStatusHistory.create({
+        data: {
+          tenantId,
+          unitId: u.id,
+          previousStatus: 'available',
+          newStatus: 'reserved',
+          changedByUserId: null,
+          reason: 'Contratación desde el área de clientes',
+        },
+      });
+      return u;
+    });
+    const release = () =>
+      this.admin.unit
+        .updateMany({ where: { id: unitId, status: 'reserved' }, data: { status: 'available' } })
+        .catch(() => undefined);
 
     // Si el staff creó una oferta para este trastero (y se le muestra al
     // inquilino en el portal), se aplica al contratarlo.
@@ -696,6 +722,7 @@ export class SignaturesService {
     });
     const offer = promos.map((p) => toActiveUnitOffer(p)).find((o) => o?.unitId === unitId);
     if (offer && couponCode) {
+      await release();
       throw new BadRequestException({
         code: 'unit_has_offer',
         message: 'Este trastero ya tiene una oferta: no se combina con un cupón',
@@ -710,59 +737,48 @@ export class SignaturesService {
     const today = todayInTimezone(facility?.timezone ?? undefined)
       .toISOString()
       .slice(0, 10);
-    const contract = await this.contracts.create({
-      tenantId,
-      userId: null,
-      input: {
-        ...(offer ? { promotionCode: offer.code } : {}),
-        customerId,
-        unitId,
-        startDate: today,
-        billingCycle: 'monthly',
-        billingIntervalMonths: 1,
-        firstPaymentMonths: args.months ?? 1,
-        ...(couponCode ? { couponCode } : {}),
-        prepayDiscountPct: 0,
-        priceMonthly: Number(unit.basePriceMonthly),
-        discountAmount: 0,
-        depositAmount: Number(unit.unitType.defaultDepositAmount ?? 0),
-        depositPaymentMethod: 'online',
-        cancellationNoticeDays: 15,
-        autoRenew: true,
-      },
-      meta: args.meta,
-    });
-    await this.contracts.sign({
-      tenantId,
-      userId: null,
-      contractId: contract.id,
-      meta: args.meta,
-      signature: {
-        signerName: args.signerName,
-        signerEmail: customer.email,
-        method: 'typed',
-        typedSignature: args.signerName,
-        channel: 'portal',
-      },
-      deferAccessUntilPaid: true,
-    });
-    await this.maybeIssueFirstInvoice(tenantId, contract.id, customerId);
-    // Plazo para pagar la 1ª factura: si no se paga, el cron cancela el
-    // contrato y libera la unidad (no deja un contrato «zombi» facturando sin
-    // acceso ni pago). El acceso se emite al pagar (deferAccessUntilPaid).
+    let contract: Awaited<ReturnType<ContractsService['create']>>;
+    try {
+      contract = await this.contracts.create({
+        tenantId,
+        userId: null,
+        input: {
+          ...(offer ? { promotionCode: offer.code } : {}),
+          customerId,
+          unitId,
+          startDate: today,
+          billingCycle: 'monthly',
+          billingIntervalMonths: 1,
+          firstPaymentMonths: args.months ?? 1,
+          ...(couponCode ? { couponCode } : {}),
+          prepayDiscountPct: 0,
+          priceMonthly: Number(unit.basePriceMonthly),
+          discountAmount: 0,
+          depositAmount: Number(unit.unitType.defaultDepositAmount ?? 0),
+          depositPaymentMethod: 'online',
+          cancellationNoticeDays: 15,
+          autoRenew: true,
+        },
+        meta: args.meta,
+      });
+    } catch (err) {
+      await release();
+      throw err;
+    }
+    // El inquilino firma en la página del contrato (lee las condiciones, firma
+    // y paga, como en la reserva online). Si no firma y paga en plazo, el cron
+    // cancela el borrador y libera el trastero.
     await this.admin.contract.update({
       where: { id: contract.id },
       data: {
         firstPaymentDeadline: new Date(Date.now() + BOOKING_PAYMENT_DEADLINE_HOURS * 3_600_000),
       },
     });
-    const invoice = await this.admin.invoice.findFirst({
-      where: { tenantId, contractId: contract.id, deletedAt: null },
-      select: { id: true },
-    });
+    const { token } = await this.generateSigningToken(contract.id);
     return {
       contractId: contract.id,
-      invoiceId: invoice?.id ?? null,
+      signingToken: token,
+      invoiceId: null,
       portalToken: await this.mintPortalToken(tenantId, customerId),
     };
   }

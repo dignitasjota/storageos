@@ -2,6 +2,7 @@ import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
+import { signedContractFor } from './helpers/contract-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { waitForEmail } from './helpers/mailpit';
@@ -99,6 +100,8 @@ describe('Fixes de control de accesos (e2e)', () => {
       hardwareId: 'race-dev-1',
     });
     const apiKey = device.body.revealedApiKey as string;
+    // Los pases exigen un trastero en uso en ese local.
+    await signedContractFor(app, owner.accessToken, { email }, facility.body.id);
     await request(app.getHttpServer())
       .patch('/settings/tenant/access')
       .set(auth)

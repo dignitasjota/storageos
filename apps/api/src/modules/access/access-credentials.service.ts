@@ -738,10 +738,13 @@ export class AccessCredentialsService {
           customerId,
           status: { in: ['active', 'suspended'] as AccessCredentialStatus[] },
           method: { in: ['pin', 'qr'] as AccessMethod[] },
+          // Un pase caducado sin usar no se marca solo: no se enseña.
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         },
         orderBy: { createdAt: 'desc' },
       });
-      const invoiceIds = rows
+      const live = rows.filter((r) => r.maxUses == null || r.usesCount < r.maxUses);
+      const invoiceIds = live
         .map((r) => /^dunning:invoice-([0-9a-f-]{36})$/.exec(r.suspendReason ?? '')?.[1])
         .filter((id): id is string => !!id);
       const invoices = invoiceIds.length
@@ -751,7 +754,7 @@ export class AccessCredentialsService {
           })
         : [];
       const byId = new Map(invoices.map((i) => [i.id, i]));
-      return rows.map((r) => {
+      return live.map((r) => {
         const suspended = r.status === 'suspended';
         const invoiceId =
           /^dunning:invoice-([0-9a-f-]{36})$/.exec(r.suspendReason ?? '')?.[1] ?? null;
@@ -768,6 +771,7 @@ export class AccessCredentialsService {
               : null,
           expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
           lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
+          extra: (r.metadata as { source?: string } | null)?.source === 'portal_self_service',
           suspension: suspended
             ? {
                 unpaid: !!invoiceId,
@@ -904,6 +908,26 @@ export class AccessCredentialsService {
   }
 
   /**
+   * Alcance de un acceso que pide el propio inquilino. Sin contratos en marcha
+   * el alcance saldría vacío, y un alcance vacío abre todos los locales: se
+   * rechaza (ex-inquilino con la sesión aún viva, reserva antes de la apertura).
+   */
+  private async requireCustomerScope(
+    tenantId: string,
+    customerId: string,
+    facilityId?: string,
+  ): Promise<{ allowedFacilityIds: string[]; allowedUnitIds: string[] }> {
+    const scope = await this.customerScope(tenantId, customerId, facilityId);
+    if (scope.allowedFacilityIds.length === 0) {
+      throw new ConflictException({
+        code: 'no_active_contract',
+        message: 'Necesitas un trastero en uso para crear accesos',
+      });
+    }
+    return scope;
+  }
+
+  /**
    * El inquilino se crea un **acceso adicional** (p. ej. para un familiar)
    * desde el portal, hasta el máximo configurado por el tenant
    * (`tenants.extra_access_limit`). Solo PIN (con etiqueta).
@@ -935,7 +959,7 @@ export class AccessCredentialsService {
         message: `Has alcanzado el máximo de accesos adicionales (${max})`,
       });
     }
-    const scope = await this.customerScope(tenantId, customerId);
+    const scope = await this.requireCustomerScope(tenantId, customerId);
     const created = await this.create({
       tenantId,
       userId: null,
@@ -976,7 +1000,7 @@ export class AccessCredentialsService {
     customerId: string,
     facilityId?: string,
   ): Promise<PortalAccessCredentialDto> {
-    const scope = await this.customerScope(tenantId, customerId, facilityId);
+    const scope = await this.requireCustomerScope(tenantId, customerId, facilityId);
     const created = await this.create({
       tenantId,
       userId: null,

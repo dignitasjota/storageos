@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
+import { endDateAfterCancellingMoveOut } from '../../common/move-out';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
@@ -210,6 +211,7 @@ export class RetentionService {
               status: true,
               priceMonthly: true,
               contractNumber: true,
+              endDateBeforeEnding: true,
               customer: {
                 select: { firstName: true, lastName: true, companyName: true, customerType: true },
               },
@@ -236,7 +238,12 @@ export class RetentionService {
         where: { id: offer.contractId },
         data: {
           ...(offer.contract.status === 'ending'
-            ? { status: 'active', endDate: null, endingRequestedAt: null }
+            ? {
+                status: 'active',
+                endDate: endDateAfterCancellingMoveOut(offer.contract.endDateBeforeEnding),
+                endDateBeforeEnding: null,
+                endingRequestedAt: null,
+              }
             : {}),
           discountAmount: disc,
           discountReason: `Retención: oferta ${offer.id}`,
