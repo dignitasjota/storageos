@@ -426,7 +426,10 @@
         "summaryDeposit": "Fianza",
         "summaryTotal": "Total a pagar ahora",
         "summaryAfter": "Después se paga cada mes.",
-        "summaryProrated": "El primer mes se cobra hasta fin de mes, así que puede ser menos."
+        "summaryProrated": "El primer mes se cobra hasta fin de mes, así que puede ser menos.",
+        "preOpeningNotice": "Este local aún no ha abierto. Reservas el trastero ahora y tu alquiler empieza el día de apertura; hasta entonces no tienes acceso ni cuotas.",
+        "summaryPreOpeningRent": "Primera mensualidad (desde la apertura)",
+        "summaryPreOpeningNote": "Cubre tu primer mes desde el día de apertura. Después, la cuota mensual. Puedes cancelar sin coste en los 14 días siguientes a la reserva."
       },
       "waitlist": {
         "title": "Lista de espera",

@@ -3,7 +3,6 @@ import { BadRequestException } from '@nestjs/common';
 import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 
-
 import type { Prisma } from '@storageos/database';
 
 /**

@@ -163,20 +163,45 @@ export class PreOpeningService {
     return rows.length;
   }
 
-  /** Cada día: arranca las reservas de los locales que abren hoy y recuerda las que abren pronto. */
-  async runDue(): Promise<{ started: number; reminded: number }> {
+  /**
+   * Cada hora: arranca las reservas de los locales que abren hoy (y las que se
+   * quedaron sin arrancar en un local ya abierto, p. ej. por un fallo a medias),
+   * recuerda las que abren pronto y avisa de las que pasan el plazo máximo.
+   */
+  async runDue(): Promise<{ started: number; reminded: number; expired: number }> {
     const facilities = await this.admin.facility.findMany({
-      where: { preOpening: true, deletedAt: null, openingDate: { not: null } },
-      select: { id: true, tenantId: true, timezone: true, openingDate: true },
+      where: {
+        deletedAt: null,
+        OR: [
+          { preOpening: true, openingDate: { not: null } },
+          // Local ya abierto con reservas sin arrancar.
+          {
+            preOpening: false,
+            units: {
+              some: {
+                contracts: {
+                  some: {
+                    preOpening: true,
+                    preOpeningStartedAt: null,
+                    status: { in: ['draft', 'active', 'ending'] },
+                    deletedAt: null,
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true, tenantId: true, timezone: true, preOpening: true, openingDate: true },
     });
     let started = 0;
     let reminded = 0;
     for (const f of facilities) {
       const today = ymd(todayInTimezone(f.timezone));
-      const opening = ymd(f.openingDate!);
+      const opening = f.openingDate ? ymd(f.openingDate) : today;
       try {
-        if (opening <= today) {
-          started += await this.startFacility(f.tenantId, f.id, opening);
+        if (!f.preOpening || opening <= today) {
+          started += await this.startFacility(f.tenantId, f.id, opening <= today ? opening : today);
         } else {
           reminded += await this.remindSoon(f.tenantId, f.id, today, opening);
         }
@@ -184,7 +209,74 @@ export class PreOpeningService {
         this.logger.warn(`pre-opening ${f.id}: ${(err as Error).message}`);
       }
     }
-    return { started, reminded };
+    const expired = await this.notifyExpiredDeadlines().catch((err: unknown) => {
+      this.logger.warn(`pre-opening plazo vencido: ${(err as Error).message}`);
+      return 0;
+    });
+    return { started, reminded, expired };
+  }
+
+  /**
+   * Reservas firmadas cuyo local no ha abierto en el plazo máximo: el inquilino
+   * puede cancelar y recuperar todo. Se le avisa (y al equipo) una vez.
+   */
+  private async notifyExpiredDeadlines(): Promise<number> {
+    const rows = await this.admin.contract.findMany({
+      where: {
+        preOpening: true,
+        preOpeningStartedAt: null,
+        preOpeningDeadlineNotifiedAt: null,
+        preOpeningDeadline: { lt: new Date() },
+        status: { in: ['active', 'ending'] },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        contractNumber: true,
+        customerId: true,
+        preOpeningDeadline: true,
+        unit: {
+          select: {
+            code: true,
+            facilityId: true,
+            facility: { select: { name: true, timezone: true } },
+          },
+        },
+        customer: { select: { email: true, firstName: true, companyName: true } },
+      },
+      take: 200,
+    });
+    let sent = 0;
+    for (const c of rows) {
+      const today = ymd(todayInTimezone(c.unit.facility.timezone));
+      if (!c.preOpeningDeadline || today <= ymd(c.preOpeningDeadline)) continue;
+      const claim = await this.admin.contract.updateMany({
+        where: { id: c.id, preOpeningDeadlineNotifiedAt: null },
+        data: { preOpeningDeadlineNotifiedAt: new Date() },
+      });
+      if (claim.count === 0) continue;
+      const deadline = dayLabel(c.preOpeningDeadline);
+      await this.notify(c.tenantId, c, {
+        subject: `Tu reserva del trastero ${c.unit.code}: el local aún no ha abierto`,
+        body: `El local ${c.unit.facility.name} no ha abierto antes del ${deadline}, el plazo que acordamos al reservar. Puedes cancelar la reserva desde tu área de clientes y te devolveremos todo lo pagado (la primera mensualidad y la fianza), o seguir esperando: tu reserva y su precio se mantienen.`,
+        source: 'pre_opening.deadline_passed',
+      });
+      await this.admin.notification
+        .create({
+          data: {
+            tenantId: c.tenantId,
+            facilityId: c.unit.facilityId,
+            type: 'contract.pre_opening_deadline_passed',
+            title: `Plazo de apertura vencido — ${c.contractNumber}`,
+            body: `El local ${c.unit.facility.name} no ha abierto antes del ${deadline}. El inquilino puede cancelar la reserva y recuperar todo lo pagado.`,
+            link: `/contracts/${c.id}`,
+          },
+        })
+        .catch(() => undefined);
+      sent += 1;
+    }
+    return sent;
   }
 
   /** Aviso 3 días antes de abrir (una vez por reserva). */
@@ -219,21 +311,61 @@ export class PreOpeningService {
   /**
    * El local abre: sus reservas empiezan. El trastero pasa a ocupado, la
    * facturación recurrente sigue al mes siguiente (la primera mensualidad ya
-   * está pagada) y llega el acceso. El local deja de estar en «próxima apertura».
+   * está pagada) y llega el acceso. Las reservas aún sin firmar pasan a ser un
+   * alta normal que empieza el día de apertura. El local deja de estar en
+   * «próxima apertura» solo cuando han arrancado todas (si alguna falla, la
+   * siguiente pasada del cron la reintenta).
    */
   private async startFacility(
     tenantId: string,
     facilityId: string,
     openingDay: string,
   ): Promise<number> {
-    await this.admin.facility.update({
-      where: { id: facilityId },
-      data: { preOpening: false, openingDate: asDate(openingDay) },
-    });
     const rows = await this.pendingContracts(tenantId, facilityId);
     let started = 0;
+    let failed = 0;
     for (const c of rows) {
+      try {
+        if (await this.startContract(tenantId, c, openingDay)) started += 1;
+      } catch (err) {
+        failed += 1;
+        this.logger.warn(`reserva ${c.id} sin arrancar: ${(err as Error).message}`);
+      }
+    }
+    if (failed === 0) {
+      await this.admin.facility.update({
+        where: { id: facilityId },
+        data: { preOpening: false, openingDate: asDate(openingDay) },
+      });
+    }
+    if (started > 0) this.logger.log(`Local ${facilityId} abierto: ${started} reservas empiezan`);
+    return started;
+  }
+
+  /** Arranca una reserva. Devuelve false si otra pasada ya la arrancó. */
+  private async startContract(
+    tenantId: string,
+    c: Awaited<ReturnType<PreOpeningService['pendingContracts']>>[number],
+    openingDay: string,
+  ): Promise<boolean> {
+    if (c.status === 'draft') {
+      // Sin firmar: deja de ser una reserva anticipada y sigue como un alta
+      // normal que empieza el día de apertura (su primera factura irá del alta
+      // a fin de mes, como cualquier otra, sin hueco con la recurrente).
       const claim = await this.admin.contract.updateMany({
+        where: { id: c.id, status: 'draft', preOpeningStartedAt: null },
+        data: {
+          preOpening: false,
+          preOpeningDateConfirmed: false,
+          preOpeningDeadline: null,
+          startDate: asDate(openingDay),
+        },
+      });
+      return claim.count > 0;
+    }
+    // Firmada: todo en una transacción (si algo falla, se reintenta entera).
+    const claimed = await this.admin.$transaction(async (tx) => {
+      const claim = await tx.contract.updateMany({
         where: { id: c.id, preOpeningStartedAt: null },
         data: {
           preOpeningStartedAt: new Date(),
@@ -242,17 +374,14 @@ export class PreOpeningService {
           billingStartsOn: asDate(addMonthsYmd(openingDay, 1)),
         },
       });
-      if (claim.count === 0) continue;
-      started += 1;
-      // Un borrador (reserva sin firmar) sigue su curso como un alta normal.
-      if (c.status === 'draft') continue;
-      const unit = await this.admin.unit.findUnique({
+      if (claim.count === 0) return false;
+      const unit = await tx.unit.findUnique({
         where: { id: c.unitId },
         select: { status: true },
       });
       if (unit?.status === 'reserved') {
-        await this.admin.unit.update({ where: { id: c.unitId }, data: { status: 'occupied' } });
-        await this.admin.unitStatusHistory.create({
+        await tx.unit.update({ where: { id: c.unitId }, data: { status: 'occupied' } });
+        await tx.unitStatusHistory.create({
           data: {
             tenantId,
             unitId: c.unitId,
@@ -262,7 +391,7 @@ export class PreOpeningService {
           },
         });
       }
-      await this.admin.contractEvent.create({
+      await tx.contractEvent.create({
         data: {
           tenantId,
           contractId: c.id,
@@ -270,19 +399,20 @@ export class PreOpeningService {
           payload: { kind: 'pre_opening_started', openingDay },
         },
       });
-      this.events.emit(DOMAIN_EVENTS.contract_pre_opening_started, {
-        tenantId,
-        contractId: c.id,
-        customerId: c.customerId,
-      } satisfies ContractPreOpeningStartedPayload);
-      await this.notify(tenantId, c, {
-        subject: `¡Ya hemos abierto! Tu trastero ${c.unit.code} está listo`,
-        body: `El local ${c.unit.facility.name} ya está abierto y hoy empieza tu alquiler del trastero ${c.unit.code}. Si ya has pagado tu reserva, en unos minutos recibirás tu código de acceso (también lo verás en tu área de clientes).`,
-        source: 'pre_opening.started',
-      });
-    }
-    if (started > 0) this.logger.log(`Local ${facilityId} abierto: ${started} reservas empiezan`);
-    return started;
+      return true;
+    });
+    if (!claimed) return false;
+    this.events.emit(DOMAIN_EVENTS.contract_pre_opening_started, {
+      tenantId,
+      contractId: c.id,
+      customerId: c.customerId,
+    } satisfies ContractPreOpeningStartedPayload);
+    await this.notify(tenantId, c, {
+      subject: `¡Ya hemos abierto! Tu trastero ${c.unit.code} está listo`,
+      body: `El local ${c.unit.facility.name} ya está abierto y hoy empieza tu alquiler del trastero ${c.unit.code}. Si ya has pagado tu reserva, en unos minutos recibirás tu código de acceso (también lo verás en tu área de clientes).`,
+      source: 'pre_opening.started',
+    });
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -324,17 +454,16 @@ export class PreOpeningService {
         : preview.reason === 'not_opened_in_time'
           ? 'El local no abrió en el plazo máximo'
           : 'Cancelación de la reserva antes de la apertura';
+    // Lo que no se puede devolver desde la app (efectivo, transferencia,
+    // Redsys): el equipo lo devuelve a mano.
+    const manual: string[] = [];
+    const automatic: string[] = [];
     // 1. La primera mensualidad: se devuelve si se cobró; si no, se anula.
     if (rentInvoice) {
       const paid = subtractAmounts(rentInvoice.amountPaid, rentInvoice.amountRefunded);
       if (paid > 0) {
-        await this.invoices.refund({
-          tenantId: args.tenantId,
-          userId: args.userId,
-          invoiceId: rentInvoice.id,
-          input: { amount: paid, reason: why },
-          meta: args.meta,
-        });
+        const how = await this.refundDocument(args, rentInvoice.id, paid, why);
+        (how === 'gateway' ? automatic : manual).push(`primera mensualidad ${formatEur(paid)}`);
       } else if (rentInvoice.status === 'issued' || rentInvoice.status === 'overdue') {
         await this.invoices.cancel({
           tenantId: args.tenantId,
@@ -347,6 +476,27 @@ export class PreOpeningService {
     }
     // 2. La fianza: se devuelve entera o se retiene (arras) con constancia.
     if (contract.depositStatus === 'held') {
+      const depositAmount = Number(contract.depositAmount);
+      if (preview.refundDeposit && depositAmount > 0) {
+        const receipt = await this.admin.invoice.findFirst({
+          where: {
+            tenantId: args.tenantId,
+            contractId: args.contractId,
+            kind: 'deposit_receipt',
+            status: { in: ['paid', 'partially_refunded'] },
+            deletedAt: null,
+          },
+          select: { id: true, amountPaid: true, amountRefunded: true },
+        });
+        const refundable = receipt
+          ? Math.min(depositAmount, subtractAmounts(receipt.amountPaid, receipt.amountRefunded))
+          : 0;
+        const how =
+          receipt && refundable > 0
+            ? await this.refundDocument(args, receipt.id, refundable, why, true)
+            : 'manual';
+        (how === 'gateway' ? automatic : manual).push(`fianza ${formatEur(depositAmount)}`);
+      }
       await this.contracts.settleDeposit({
         tenantId: args.tenantId,
         userId: args.userId,
@@ -371,12 +521,11 @@ export class PreOpeningService {
       input: { reason: args.reason?.trim() || why },
       meta: args.meta,
     });
-    // Aviso al equipo: la fianza (y lo cobrado en efectivo o por transferencia)
-    // se devuelve a mano.
-    const toReturn = [
-      preview.rentAmount > 0 ? `primera mensualidad ${formatEur(preview.rentAmount)}` : null,
-      preview.refundDeposit && preview.depositAmount > 0
-        ? `fianza ${formatEur(preview.depositAmount)}`
+    // Aviso al equipo, con lo que hay que devolver a mano.
+    const parts = [
+      automatic.length ? `Devuelto por la pasarela: ${automatic.join(' y ')}.` : null,
+      manual.length
+        ? `A devolver a mano (efectivo, transferencia o Redsys): ${manual.join(' y ')}.`
         : null,
     ].filter(Boolean);
     await this.admin.notification
@@ -386,9 +535,7 @@ export class PreOpeningService {
           facilityId: contract.unit.facilityId,
           type: 'contract.pre_opening_cancelled',
           title: `Reserva cancelada antes de la apertura — ${contract.contractNumber}`,
-          body: toReturn.length
-            ? `${why}. A devolver: ${toReturn.join(' y ')}. Los cobros con tarjeta se devuelven solos; la fianza y los cobros en efectivo o por transferencia, a mano.`
-            : `${why}.`,
+          body: [`${why}.`, ...parts].join(' '),
           link: `/contracts/${args.contractId}`,
         },
       })
@@ -408,6 +555,45 @@ export class PreOpeningService {
       },
     });
     return dto;
+  }
+
+  /**
+   * Devuelve lo cobrado de una factura (o del justificante de fianza): por la
+   * pasarela si se cobró con tarjeta o domiciliación; si no (efectivo,
+   * transferencia) queda registrado y lo devuelve el equipo. Redsys no admite
+   * reembolsos desde la app: no se toca y se devuelve desde su panel.
+   */
+  private async refundDocument(
+    args: { tenantId: string; userId: string | null; meta: RequestMeta },
+    invoiceId: string,
+    amount: number,
+    reason: string,
+    deposit = false,
+  ): Promise<'gateway' | 'manual'> {
+    const gateway = await this.admin.payment.findFirst({
+      where: {
+        invoiceId,
+        gatewayPaymentId: { not: null },
+        gateway: { in: ['stripe', 'gocardless'] },
+        status: { in: ['succeeded', 'partially_refunded'] },
+      },
+      select: { id: true },
+    });
+    try {
+      await this.invoices.refund({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        invoiceId,
+        input: { amount, reason },
+        meta: args.meta,
+        ...(deposit ? { allowDepositReceipt: true } : {}),
+      });
+    } catch (err) {
+      const code = (err as { response?: { code?: string } }).response?.code;
+      if (code === 'refund_not_supported_gateway') return 'manual';
+      throw err;
+    }
+    return gateway ? 'gateway' : 'manual';
   }
 
   /** Justificante de fianza sin cobrar: se anula para que no quede como deuda. */

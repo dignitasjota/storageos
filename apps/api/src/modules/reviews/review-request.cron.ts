@@ -56,7 +56,12 @@ export class ReviewRequestCron {
           tenantId: tenant.id,
           deletedAt: null,
           status: { in: ['active', 'ending'] },
-          signedAt: { gte: windowStart, lte: threshold },
+          // Reservas antes de la apertura: se cuenta desde el día que abrió el
+          // local (no desde la firma, meses antes de poder usar el trastero).
+          OR: [
+            { preOpening: false, signedAt: { gte: windowStart, lte: threshold } },
+            { preOpening: true, preOpeningStartedAt: { gte: windowStart, lte: threshold } },
+          ],
           reviews: { none: {} },
         },
         include: {

@@ -50,6 +50,8 @@ export type CustomerEmailData =
       facilityName: string;
       priceMonthly: number;
       startDate: Date;
+      /** Reserva antes de la apertura (null si no lo es o ya empezó). */
+      preOpening?: { openingDate: Date | null } | null;
     }
   | {
       kind: 'contract_ending_soon';
@@ -245,12 +247,16 @@ function content(data: CustomerEmailData, l: Locale): Content {
         paragraphs: en
           ? [
               `Your contract ${data.contractNumber} for storage unit ${data.unitCode} at ${data.facilityName} has been signed.`,
-              `Start date: ${day(data.startDate, l)}. Monthly fee: ${eur(data.priceMonthly, l)}.`,
+              data.preOpening
+                ? `Your rental starts the day the facility opens${data.preOpening.openingDate ? ` (expected on ${day(data.preOpening.openingDate, l)})` : ' (date to be confirmed; we will let you know)'}. Monthly fee: ${eur(data.priceMonthly, l)}.`
+                : `Start date: ${day(data.startDate, l)}. Monthly fee: ${eur(data.priceMonthly, l)}.`,
               'You can download a copy of the signed contract from your customer area.',
             ]
           : [
               `Tu contrato ${data.contractNumber} del trastero ${data.unitCode} en ${data.facilityName} ha quedado firmado.`,
-              `Fecha de inicio: ${day(data.startDate, l)}. Cuota mensual: ${eur(data.priceMonthly, l)}.`,
+              data.preOpening
+                ? `Tu alquiler empieza el día de apertura del local${data.preOpening.openingDate ? ` (prevista para el ${day(data.preOpening.openingDate, l)})` : ' (fecha por confirmar; te avisaremos)'}. Cuota mensual: ${eur(data.priceMonthly, l)}.`
+                : `Fecha de inicio: ${day(data.startDate, l)}. Cuota mensual: ${eur(data.priceMonthly, l)}.`,
               'Puedes descargar una copia del contrato firmado en tu área de clientes.',
             ],
         cta: en ? 'View my contract' : 'Ver mi contrato',

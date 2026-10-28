@@ -426,7 +426,10 @@
         "summaryDeposit": "Deposit",
         "summaryTotal": "Total due now",
         "summaryAfter": "After that you pay monthly.",
-        "summaryProrated": "The first month is charged to the end of the month, so it may be less."
+        "summaryProrated": "The first month is charged to the end of the month, so it may be less.",
+        "preOpeningNotice": "This facility has not opened yet. You book the unit now and your rental starts on opening day; until then there is no access and no monthly fees.",
+        "summaryPreOpeningRent": "First month (from opening day)",
+        "summaryPreOpeningNote": "Covers your first month from opening day. After that, the monthly fee. You can cancel free of charge within 14 days of booking."
       },
       "waitlist": {
         "title": "Waiting list",

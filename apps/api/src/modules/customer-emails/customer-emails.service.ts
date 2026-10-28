@@ -207,6 +207,11 @@ export class CustomerEmailsService {
           facilityName: c.unit.facility.name,
           priceMonthly: Number(c.priceMonthly),
           startDate: c.startDate,
+          // Reserva antes de la apertura: empieza el día que abre el local.
+          preOpening:
+            c.preOpening && !c.preOpeningStartedAt
+              ? { openingDate: c.preOpeningDateConfirmed ? c.startDate : null }
+              : null,
         },
         contractId: c.id,
       });
@@ -562,6 +567,9 @@ export class CustomerEmailsService {
         priceMonthly: true,
         startDate: true,
         endDate: true,
+        preOpening: true,
+        preOpeningDateConfirmed: true,
+        preOpeningStartedAt: true,
         unit: { select: { code: true, facility: { select: { name: true } } } },
       },
     });

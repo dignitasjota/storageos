@@ -1982,6 +1982,12 @@ export class InvoicesService {
     facilityScope?: string[] | null;
     input: RefundInvoiceInput;
     meta: RequestMeta;
+    /**
+     * Uso interno: permite devolver un justificante de fianza (cancelación de
+     * una reserva antes de la apertura). Desde el panel la fianza se devuelve
+     * al liquidarla.
+     */
+    allowDepositReceipt?: boolean;
   }): Promise<InvoiceDto> {
     // Alcance por local y existencia (fuera de la transacción: solo lectura).
     await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
@@ -2004,7 +2010,7 @@ export class InvoicesService {
           where: { id: args.invoiceId },
           select: { status: true, total: true, amountRefunded: true, kind: true },
         });
-        if (existing.kind === 'deposit_receipt') {
+        if (existing.kind === 'deposit_receipt' && !args.allowDepositReceipt) {
           throw new BadRequestException({
             code: 'invoice_not_refundable',
             message: 'La fianza se devuelve al liquidarla desde el contrato',
