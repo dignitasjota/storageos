@@ -9,6 +9,7 @@ import type {
   ContractSignViewDto,
   PortalChargeResultDto,
   PortalInvoiceDto,
+  PortalPaymentOptionsDto,
   RedsysPayMethod,
   SetupIntentResponseDto,
   SignResultDto,
@@ -21,6 +22,7 @@ import { type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { SignaturePad } from '@/components/move-in/signature-pad';
+import { OfflinePaymentChoice } from '@/components/payments/offline-payment-choice';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -359,17 +361,31 @@ function BookingPayment({
 
   // Tarjeta por Stripe: desactivada mientras no haya Stripe Connect.
   const [cardPayments, setCardPayments] = useState(false);
+  // Transferencia, en el local o domiciliación: solo las que active el negocio.
+  const [offline, setOffline] = useState({
+    bankTransfer: false,
+    payAtFacility: false,
+    sepaDebit: false,
+  });
 
   const auth = { Authorization: `Bearer ${portalToken}` };
 
   useEffect(() => {
-    apiFetch<{ cardPayments: boolean }>('/portal/me/payments/options', {
+    apiFetch<PortalPaymentOptionsDto>('/portal/me/payments/options', {
       requiresAuth: false,
       headers: { Authorization: `Bearer ${portalToken}` },
     })
-      .then((o) => setCardPayments(o.cardPayments))
+      .then((o) => {
+        setCardPayments(o.cardPayments);
+        setOffline({
+          bankTransfer: !!o.bankTransfer,
+          payAtFacility: !!o.payAtFacility,
+          sepaDebit: !!o.sepaDebit,
+        });
+      })
       .catch(() => setCardPayments(false));
   }, [portalToken]);
+  const hasOffline = offline.bankTransfer || offline.payAtFacility || offline.sepaDebit;
 
   useEffect(() => {
     apiFetch<{
@@ -484,7 +500,7 @@ function BookingPayment({
               {t('payWithCard')}
             </Button>
           )}
-          {!cardPayments && redsys && !redsys.enabled && !redsys.bizumEnabled && (
+          {!cardPayments && redsys && !redsys.enabled && !redsys.bizumEnabled && !hasOffline && (
             <p className="text-sm text-muted-foreground">{t('noOnlinePayment')}</p>
           )}
           {redsys?.bizumEnabled && (
@@ -511,6 +527,16 @@ function BookingPayment({
               />
               {t('saveCard')}
             </label>
+          )}
+          {hasOffline && (
+            <div className="pt-2">
+              <OfflinePaymentChoice
+                invoiceId={invoice.id}
+                portalToken={portalToken}
+                options={offline}
+                locale={locale}
+              />
+            </div>
           )}
         </div>
       )}

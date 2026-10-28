@@ -20,19 +20,22 @@ export function isValidIban(raw: string): boolean {
   return remainder === 1;
 }
 
-const ibanSchema = z
+export const SepaIbanSchema = z
   .string()
   .trim()
   .transform(normalizeIban)
   .refine(isValidIban, { message: 'IBAN no válido (dígito de control incorrecto)' });
 
-const bicSchema = z
+export const SepaBicSchema = z
   .string()
   .trim()
   .toUpperCase()
   .regex(/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/, 'BIC no válido')
   .optional()
   .or(z.literal(''));
+
+const ibanSchema = SepaIbanSchema;
+const bicSchema = SepaBicSchema;
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
 

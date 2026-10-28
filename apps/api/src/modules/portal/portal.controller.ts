@@ -86,6 +86,9 @@ import {
   type PortalNoticeDto,
   type PortalOfferDto,
   PortalRespondOfferSchema,
+  PortalOfflinePaymentSchema,
+  type PortalOfflinePaymentResultDto,
+  type PortalPaymentOptionsDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -113,6 +116,7 @@ import { UnitRequestsService } from '../unit-requests/unit-requests.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 
 import { NightPassService } from './night-pass.service';
+import { OfflinePaymentsService } from './offline-payments.service';
 import { PortalAccountService } from './portal-account.service';
 import { PortalService } from './portal.service';
 
@@ -148,6 +152,7 @@ class PortalUnitChangeRequestDto2 extends createZodDto(PortalUnitChangeRequestSc
 class PortalUnitRequestDto2 extends createZodDto(PortalUnitRequestSchema) {}
 class PortalBookUnitDto2 extends createZodDto(PortalBookUnitSchema) {}
 class PortalUnitQuoteDto extends createZodDto(PortalUnitQuoteSchema) {}
+class PortalOfflinePaymentDto extends createZodDto(PortalOfflinePaymentSchema) {}
 
 @Controller('portal')
 export class PortalController {
@@ -176,6 +181,7 @@ export class PortalController {
     private readonly ai: AiService,
     private readonly accessVerify: AccessVerifyService,
     private readonly preOpening: PreOpeningService,
+    private readonly offline: OfflinePaymentsService,
   ) {}
 
   // Envía un email (magic link) — mismo preset que el homólogo de staff
@@ -1054,9 +1060,13 @@ export class PortalController {
   @Get('me/payments/options')
   async paymentOptions(
     @Headers('authorization') auth: string | undefined,
-  ): Promise<{ cardPayments: boolean }> {
+  ): Promise<PortalPaymentOptionsDto> {
     const { tenantId } = await this.requirePortalSession(auth);
-    return { cardPayments: await this.portal.cardPaymentsAvailable(tenantId) };
+    const [cardPayments, offline] = await Promise.all([
+      this.portal.cardPaymentsAvailable(tenantId),
+      this.offline.options(tenantId),
+    ]);
+    return { cardPayments, ...offline };
   }
 
   /** ¿Ofrece el negocio pago con tarjeta/Bizum vía Redsys? (para gatear los botones). */
@@ -1114,6 +1124,20 @@ export class PortalController {
   ): Promise<PortalChargeResultDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.chargeMyInvoice(tenantId, customerId, invoiceId);
+  }
+
+  /** Pagará por transferencia (IBAN por correo), en el local o por domiciliación. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/invoices/:id/offline-payment')
+  @HttpCode(HttpStatus.OK)
+  async chooseOfflinePayment(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', ParseUUIDPipe) invoiceId: string,
+    @Body() input: PortalOfflinePaymentDto,
+  ): Promise<PortalOfflinePaymentResultDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.offline.choose(tenantId, customerId, invoiceId, input);
   }
 
   @Public()

@@ -251,6 +251,10 @@ export const UpdateTenantBillingSettingsSchema = z.object({
     .refine((v) => v === '' || isValidIban(v), 'IBAN no válido')
     .transform((v) => (v === '' ? '' : normalizeIban(v)))
     .optional(),
+  /** Formas de pago sin pasarela que el inquilino puede elegir (cada una opt-in). */
+  offlineTransferEnabled: z.boolean().optional(),
+  offlineCashEnabled: z.boolean().optional(),
+  offlineSepaEnabled: z.boolean().optional(),
 });
 export type UpdateTenantBillingSettingsInput = z.infer<typeof UpdateTenantBillingSettingsSchema>;
 

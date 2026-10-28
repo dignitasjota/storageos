@@ -48,6 +48,8 @@ export class WhatsappBookingRemindersService {
           bookingReminderSentAt: null,
           firstPaymentDeadline: { gt: new Date(now.getTime() + MIN_LEFT_MS) },
           createdAt: { lte: new Date(now.getTime() - MIN_AGE_MS) },
+          // Eligió transferencia, pago en el local o domiciliación: sin recordatorio.
+          offlinePaymentMethod: null,
         },
       },
       select: { id: true },
