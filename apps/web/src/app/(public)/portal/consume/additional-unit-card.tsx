@@ -23,7 +23,6 @@ import { firstMonthLabels } from '@/app/(public)/s/[slug]/first-month-lines';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -35,7 +34,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { ApiError, apiFetch } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 function statusLabel(
   status: string,
@@ -52,14 +52,7 @@ function priceWithIva(net: number, taxRate: number): number {
   return net * (1 + taxRate / 100);
 }
 
-export function AdditionalUnitCard({
-  session,
-  onBooked,
-}: {
-  session: PortalSessionDto;
-  /** Tras contratar: refresca facturas y lleva al inquilino a pagar. */
-  onBooked?: () => void;
-}) {
+export function AdditionalUnitCard({ session }: { session: PortalSessionDto }) {
   const t = useTranslations('portal.consume.additionalUnit');
   const { locale } = usePortalLocale();
   const auth = { Authorization: `Bearer ${session.accessToken}` };
@@ -70,8 +63,6 @@ export function AdditionalUnitCard({
 
   // Estado del diálogo «Contratar ahora».
   const [target, setTarget] = useState<AvailableUnitDto | null>(null);
-  const [signerName, setSignerName] = useState(session.customerName ?? '');
-  const [accepted, setAccepted] = useState(false);
   const [booking, setBooking] = useState(false);
   const [months, setMonths] = useState<FirstPaymentMonths>(1);
   const [couponInput, setCouponInput] = useState('');
@@ -91,7 +82,7 @@ export function AdditionalUnitCard({
       return;
     }
     let cancelled = false;
-    apiFetch<FirstPaymentQuoteDto>(`/portal/me/units/${target.id}/quote`, {
+    portalApiFetch<FirstPaymentQuoteDto>(`/portal/me/units/${target.id}/quote`, {
       method: 'POST',
       json: { months, ...(couponCode ? { couponCode } : {}) },
       headers: auth,
@@ -112,11 +103,11 @@ export function AdditionalUnitCard({
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      apiFetch<AvailableUnitDto[]>('/portal/me/available-units', {
+      portalApiFetch<AvailableUnitDto[]>('/portal/me/available-units', {
         headers: auth,
         requiresAuth: false,
       }),
-      apiFetch<PortalUnitRequestDto[]>('/portal/me/unit-requests', {
+      portalApiFetch<PortalUnitRequestDto[]>('/portal/me/unit-requests', {
         headers: auth,
         requiresAuth: false,
       }),
@@ -140,29 +131,20 @@ export function AdditionalUnitCard({
     if (!target) return;
     setBooking(true);
     try {
-      await apiFetch<PortalBookUnitResultDto>('/portal/me/contracts', {
+      const res = await portalApiFetch<PortalBookUnitResultDto>('/portal/me/contracts', {
         method: 'POST',
         json: {
           unitId: target.id,
-          signerName: signerName.trim(),
           months,
           ...(couponCode && quote?.coupon?.valid ? { couponCode } : {}),
         },
         headers: auth,
         requiresAuth: false,
       });
-      toast.success(t('bookedSuccess'));
-      setTarget(null);
-      setAccepted(false);
-      setMonths(1);
-      setCouponCode(null);
-      setCouponInput('');
-      // Quitamos el trastero de la lista de disponibles.
-      setUnits((prev) => (prev ?? []).filter((u) => u.id !== target.id));
-      onBooked?.();
+      // Lee el contrato, lo firma y paga en la misma página que la reserva online.
+      window.location.href = `/sign/${res.signingToken}`;
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : t('bookError'));
-    } finally {
       setBooking(false);
     }
   }
@@ -170,7 +152,7 @@ export function AdditionalUnitCard({
   async function requestGeneric() {
     setGenericBusy(true);
     try {
-      const created = await apiFetch<PortalUnitRequestDto>('/portal/me/unit-requests', {
+      const created = await portalApiFetch<PortalUnitRequestDto>('/portal/me/unit-requests', {
         method: 'POST',
         json: { note: note.trim() },
         headers: auth,
@@ -228,13 +210,7 @@ export function AdditionalUnitCard({
                     </div>
                   )}
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setTarget(u);
-                    setAccepted(false);
-                  }}
-                >
+                <Button size="sm" onClick={() => setTarget(u)}>
                   {t('bookNow')}
                 </Button>
               </div>
@@ -451,20 +427,10 @@ export function AdditionalUnitCard({
                 </p>
               </div>
             )}
-            <div className="space-y-1">
-              <Label>{t('signerNameLabel')}</Label>
-              <Input value={signerName} onChange={(e) => setSignerName(e.target.value)} />
-            </div>
-            <label className="flex items-start gap-2 text-sm">
-              <Checkbox checked={accepted} onCheckedChange={(v) => setAccepted(v === true)} />
-              <span>{t('acceptTerms')}</span>
-            </label>
+            <p className="text-xs text-muted-foreground">{t('signNext')}</p>
           </div>
           <DialogFooter>
-            <Button
-              onClick={confirmBooking}
-              disabled={booking || !accepted || signerName.trim().length < 2}
-            >
+            <Button onClick={confirmBooking} disabled={booking}>
               {booking ? <Loader2 className="mr-1 size-4 animate-spin" /> : null}
               {t('confirmButton')}
             </Button>

@@ -13,7 +13,8 @@ import type { PortalSessionDto, PortalWaitlistDto } from '@storageos/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 /**
  * Lista de espera desde el portal: el inquilino se apunta a un tipo de trastero
@@ -29,7 +30,7 @@ export function WaitlistCard({ session }: { session: PortalSessionDto }) {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<PortalWaitlistDto>('/portal/me/waitlist', { headers: auth, requiresAuth: false })
+    portalApiFetch<PortalWaitlistDto>('/portal/me/waitlist', { headers: auth, requiresAuth: false })
       .then((d) => {
         if (!cancelled) setData(d);
       })
@@ -54,7 +55,7 @@ export function WaitlistCard({ session }: { session: PortalSessionDto }) {
   async function join(facilityId: string, unitTypeId: string) {
     setBusy(`${facilityId}:${unitTypeId}`);
     try {
-      const d = await apiFetch<PortalWaitlistDto>('/portal/me/waitlist', {
+      const d = await portalApiFetch<PortalWaitlistDto>('/portal/me/waitlist', {
         method: 'POST',
         json: { facilityId, unitTypeId },
         headers: auth,
@@ -72,7 +73,7 @@ export function WaitlistCard({ session }: { session: PortalSessionDto }) {
   async function leave(id: string) {
     setBusy(id);
     try {
-      const d = await apiFetch<PortalWaitlistDto>(`/portal/me/waitlist/${id}`, {
+      const d = await portalApiFetch<PortalWaitlistDto>(`/portal/me/waitlist/${id}`, {
         method: 'DELETE',
         headers: auth,
         requiresAuth: false,

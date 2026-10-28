@@ -134,7 +134,7 @@
         "cancelMoveOut": "Cancel move-out",
         "requestMoveOut": "Request move-out",
         "overlockedWarning": "🔒 Access to this unit is restricted due to a pending payment. Settle the debt from «Invoices» to restore it.",
-        "depositLine": "Deposit €{amount} · {status}",
+        "depositLine": "Deposit {amount} · {status}",
         "depositHeld": "held",
         "depositReturned": "returned",
         "depositPartiallyReturned": "partially returned",
@@ -142,7 +142,7 @@
         "insuranceLine": "Insurance: {name}",
         "insurancePriceSuffix": " (€{price}/mo)",
         "freeMonthsRemaining": "{count, plural, one {# free month remaining} other {# free months remaining}}",
-        "discountLine": "Discount €{amount}/mo",
+        "discountLine": "Discount {amount}/mo",
         "downloadContract": "Download signed contract",
         "moveOutSuccess": "Move-out request sent. We'll contact you about the closing.",
         "moveOutError": "Couldn't request the move-out.",
@@ -353,7 +353,7 @@
         "cityLabel": "City",
         "countryLabel": "Country (ISO code)",
         "documentTypeLabel": "Document type",
-        "documentTypePlaceholder": "ID / passport…",
+        "documentTypePlaceholder": "Choose a type",
         "documentNumberLabel": "Document number",
         "languageLabel": "Portal language",
         "languageEs": "Español",
@@ -375,7 +375,12 @@
           "saved": "Password saved. We signed you out on your other devices; you can now sign in with email and password.",
           "saveError": "Couldn't save the password.",
           "currentPasswordLabel": "Current password"
-        }
+        },
+        "docTypePassport": "Passport",
+        "docTypeOther": "Other",
+        "closeAllTitle": "Open sessions",
+        "closeAllDescription": "Signs you out on every phone and computer you used, including this one.",
+        "closeAllButton": "Sign out everywhere"
       },
       "accessLogs": {
         "title": "Access history",
@@ -411,7 +416,7 @@
         "bookingGenerates": ". Your contract and first invoice will be generated, which you can then pay.",
         "signerNameLabel": "Full name (signature)",
         "acceptTerms": "I have read and accept the storage unit rental terms and the data processing policy.",
-        "confirmButton": "Sign and continue to payment",
+        "confirmButton": "Continue to the contract",
         "monthsLabel": "How many months do you pay now?",
         "monthsOption": "{count, plural, one {# month} other {# months}}",
         "couponLabel": "Discount coupon (optional)",
@@ -430,7 +435,8 @@
         "summaryProrated": "The first month is charged to the end of the month, so it may be less.",
         "preOpeningNotice": "This facility has not opened yet. You book the unit now and your rental starts on opening day; until then there is no access and no monthly fees.",
         "summaryPreOpeningRent": "First month (from opening day)",
-        "summaryPreOpeningNote": "Covers your first month from opening day. After that, the monthly fee. You can cancel free of charge within 14 days of booking."
+        "summaryPreOpeningNote": "Covers your first month from opening day. After that, the monthly fee. You can cancel free of charge within 14 days of booking.",
+        "signNext": "Next you will see the full contract to read, sign and pay."
       },
       "waitlist": {
         "title": "Waiting list",
@@ -517,7 +523,7 @@
       "retention": {
         "title": "An offer to keep you",
         "offerPercentage": "{value}% off",
-        "offerFixed": "€{value} off",
+        "offerFixed": "{value} off",
         "offerLine": "Unit {unitCode}: {discount} for {months, plural, one {# month} other {# months}}.",
         "priceChangeIntro": "Your rent would go from",
         "priceChangeTo": "to",
@@ -525,7 +531,8 @@
         "decline": "No, thanks",
         "acceptSuccess": "Great! You're keeping your unit.",
         "declineSuccess": "Offer declined.",
-        "respondError": "Couldn't process the offer."
+        "respondError": "Couldn't process the offer.",
+        "perMonth": "{price}/month"
       },
       "shop": {
         "title": "Shop",

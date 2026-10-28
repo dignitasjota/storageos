@@ -15,7 +15,7 @@ import type {
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { apiFetch } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 /**
  * «Mis extras»: lo que tiene contratado y lo que puede añadir, cada cosa con
@@ -41,7 +41,7 @@ export function ExtrasCard({
   const [hasPlans, setHasPlans] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    apiFetch<InsurancePlanDto[]>('/portal/me/insurance-plans', {
+    portalApiFetch<InsurancePlanDto[]>('/portal/me/insurance-plans', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       requiresAuth: false,
     })
@@ -58,7 +58,7 @@ export function ExtrasCard({
   const live = contracts.filter((c) => c.status === 'active' || c.status === 'ending');
   if (live.length === 0) return null;
   const insured = live.filter((c) => c.insurancePlanId).length;
-  const extraAccess = Math.max(0, access.filter((a) => a.status === 'active').length - live.length);
+  const extraAccess = access.filter((a) => a.extra && a.status === 'active').length;
 
   const items: { key: string; has: boolean; detail: string; tab: string }[] = [
     ...(hasPlans || insured > 0

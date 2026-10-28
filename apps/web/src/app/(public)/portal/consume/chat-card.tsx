@@ -22,7 +22,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ApiError, apiFetch } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 export function ChatCard({ session }: { session: PortalSessionDto }) {
   const t = useTranslations('portal.consume.chat');
@@ -35,7 +36,7 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
 
   const load = useCallback(async () => {
     try {
-      const list = await apiFetch<CustomerMessageDto[]>('/portal/me/messages', {
+      const list = await portalApiFetch<CustomerMessageDto[]>('/portal/me/messages', {
         headers: { Authorization: `Bearer ${session.accessToken}` },
         requiresAuth: false,
       });
@@ -64,7 +65,7 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
       const headers = { Authorization: `Bearer ${session.accessToken}` };
       const attachment = file
         ? await uploadMessageAttachment(file, (mimeType) =>
-            apiFetch<MessageAttachmentUploadDto>('/portal/me/messages/upload-url', {
+            portalApiFetch<MessageAttachmentUploadDto>('/portal/me/messages/upload-url', {
               method: 'POST',
               json: { mimeType },
               headers,
@@ -72,7 +73,7 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
             }),
           )
         : undefined;
-      const created = await apiFetch<CustomerMessageDto>('/portal/me/messages', {
+      const created = await portalApiFetch<CustomerMessageDto>('/portal/me/messages', {
         method: 'POST',
         json: { body, ...(attachment ? { attachment } : {}) },
         headers,

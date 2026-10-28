@@ -134,7 +134,7 @@
         "cancelMoveOut": "Cancelar baja",
         "requestMoveOut": "Solicitar baja",
         "overlockedWarning": "🔒 Acceso al trastero restringido por un pago pendiente. Regulariza la deuda desde «Tus facturas» para reactivarlo.",
-        "depositLine": "Fianza {amount} € · {status}",
+        "depositLine": "Fianza {amount} · {status}",
         "depositHeld": "retenida",
         "depositReturned": "devuelta",
         "depositPartiallyReturned": "devuelta parcialmente",
@@ -142,7 +142,7 @@
         "insuranceLine": "Seguro: {name}",
         "insurancePriceSuffix": " ({price} €/mes)",
         "freeMonthsRemaining": "{count, plural, one {# mes gratis pendiente} other {# meses gratis pendientes}}",
-        "discountLine": "Descuento {amount} €/mes",
+        "discountLine": "Descuento {amount}/mes",
         "downloadContract": "Descargar contrato firmado",
         "moveOutSuccess": "Solicitud de baja enviada. Te contactaremos para el cierre.",
         "moveOutError": "No se pudo solicitar la baja.",
@@ -353,7 +353,7 @@
         "cityLabel": "Ciudad",
         "countryLabel": "País (cód. ISO)",
         "documentTypeLabel": "Tipo de documento",
-        "documentTypePlaceholder": "NIF / CIF / NIE…",
+        "documentTypePlaceholder": "Elige el tipo",
         "documentNumberLabel": "Nº de documento",
         "languageLabel": "Idioma del portal",
         "languageEs": "Español",
@@ -375,7 +375,12 @@
           "saved": "Contraseña guardada. Hemos cerrado tu sesión en los demás dispositivos; ya puedes entrar con email y contraseña.",
           "saveError": "No se pudo guardar la contraseña.",
           "currentPasswordLabel": "Contraseña actual"
-        }
+        },
+        "docTypePassport": "Pasaporte",
+        "docTypeOther": "Otro",
+        "closeAllTitle": "Sesiones abiertas",
+        "closeAllDescription": "Cierra la sesión en todos los móviles y ordenadores donde hayas entrado, también en este.",
+        "closeAllButton": "Cerrar en todos"
       },
       "accessLogs": {
         "title": "Historial de accesos",
@@ -411,7 +416,7 @@
         "bookingGenerates": ". Se generará tu contrato y la primera factura, que podrás pagar a continuación.",
         "signerNameLabel": "Nombre completo (firma)",
         "acceptTerms": "He leído y acepto las condiciones del contrato de alquiler de trastero y la política de tratamiento de datos.",
-        "confirmButton": "Firmar y continuar al pago",
+        "confirmButton": "Continuar al contrato",
         "monthsLabel": "¿Cuántos meses pagas ahora?",
         "monthsOption": "{count, plural, one {# mes} other {# meses}}",
         "couponLabel": "Cupón de descuento (opcional)",
@@ -430,7 +435,8 @@
         "summaryProrated": "El primer mes se cobra hasta fin de mes, así que puede ser menos.",
         "preOpeningNotice": "Este local aún no ha abierto. Reservas el trastero ahora y tu alquiler empieza el día de apertura; hasta entonces no tienes acceso ni cuotas.",
         "summaryPreOpeningRent": "Primera mensualidad (desde la apertura)",
-        "summaryPreOpeningNote": "Cubre tu primer mes desde el día de apertura. Después, la cuota mensual. Puedes cancelar sin coste en los 14 días siguientes a la reserva."
+        "summaryPreOpeningNote": "Cubre tu primer mes desde el día de apertura. Después, la cuota mensual. Puedes cancelar sin coste en los 14 días siguientes a la reserva.",
+        "signNext": "Al continuar verás el contrato completo para leerlo, firmarlo y pagar."
       },
       "waitlist": {
         "title": "Lista de espera",
@@ -517,7 +523,7 @@
       "retention": {
         "title": "Una oferta para que te quedes",
         "offerPercentage": "{value}% de descuento",
-        "offerFixed": "{value} € de descuento",
+        "offerFixed": "{value} de descuento",
         "offerLine": "Trastero {unitCode}: {discount} durante {months, plural, one {# mes} other {# meses}}.",
         "priceChangeIntro": "Tu cuota pasaría de",
         "priceChangeTo": "a",
@@ -525,7 +531,8 @@
         "decline": "No, gracias",
         "acceptSuccess": "¡Genial! Mantienes tu trastero.",
         "declineSuccess": "Oferta rechazada.",
-        "respondError": "No se pudo procesar la oferta."
+        "respondError": "No se pudo procesar la oferta.",
+        "perMonth": "{price}/mes"
       },
       "shop": {
         "title": "Tienda",

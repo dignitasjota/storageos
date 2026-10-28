@@ -11,7 +11,7 @@ import type { PortalAccessLogDto, PortalSessionDto } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { apiFetch } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 function methodLabel(
   m: string,
@@ -30,7 +30,7 @@ export function AccessLogsCard({ session }: { session: PortalSessionDto }) {
   const [logs, setLogs] = useState<PortalAccessLogDto[]>([]);
 
   useEffect(() => {
-    apiFetch<PortalAccessLogDto[]>('/portal/me/access-logs', {
+    portalApiFetch<PortalAccessLogDto[]>('/portal/me/access-logs', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       requiresAuth: false,
     })

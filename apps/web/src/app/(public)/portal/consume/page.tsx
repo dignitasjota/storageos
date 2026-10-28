@@ -91,6 +91,7 @@ import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
 import { clearOfflineAccess, saveOfflineAccess } from '@/lib/portal/offline-access';
+import { PORTAL_UNAUTHORIZED_EVENT } from '@/lib/portal/portal-fetch';
 import { iconVersion } from '@/lib/portal/tenant-app';
 import { urlBase64ToUint8Array } from '@/lib/push/vapid';
 import { isInstalledApp } from '@/lib/pwa/installed';
@@ -282,6 +283,8 @@ function PortalConsumeContent() {
   const tReferrals = useTranslations('portal.consume.referrals');
   const tPush = useTranslations('portal.consume.push');
   const { locale } = usePortalLocale();
+  const money = (n: number) =>
+    n.toLocaleString(intlLocaleForPortal(locale), { style: 'currency', currency: 'EUR' });
   const portalNav = useMemo(() => buildPortalNav(tNav), [tNav]);
   const portalPrimary = portalNav.slice(0, 4);
   const portalMore = portalNav.slice(4);
@@ -728,9 +731,36 @@ function PortalConsumeContent() {
 
   /** Cierra la sesión: borra la sesión persistida y vuelve al acceso del portal. */
   function logout() {
+    // La sesión se cierra también en el servidor (una copia del token no sirve).
+    if (session) {
+      void apiFetch('/portal/me/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+        requiresAuth: false,
+        keepalive: true,
+      }).catch(() => undefined);
+    }
     clearStoredPortalSession();
     window.location.href = '/portal/login';
   }
+
+  // Una tarjeta del portal recibió 401 (sesión caducada o cerrada por el
+  // equipo): a la pantalla de volver a entrar.
+  useEffect(() => {
+    function onUnauthorized(e: Event) {
+      const detail = (e as CustomEvent<{ code?: string; message?: string }>).detail;
+      clearStoredPortalSession();
+      setSession(null);
+      setError(
+        detail?.code === 'account_unavailable' && detail.message
+          ? detail.message
+          : t('sessionExpired'),
+      );
+    }
+    window.addEventListener(PORTAL_UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(PORTAL_UNAUTHORIZED_EVENT, onUnauthorized);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function downloadContract(contractId: string) {
     if (!session) return;
@@ -991,6 +1021,14 @@ function PortalConsumeContent() {
     );
   }
 
+  // Accesos adicionales y pases: solo con un trastero ya en uso (no una
+  // reserva antes de la apertura ni un contrato terminado).
+  const hasStartedContract = (contracts ?? []).some(
+    (c) =>
+      (c.status === 'active' || c.status === 'ending') &&
+      !(c.preOpening && !c.preOpening.startedAt),
+  );
+
   // Contadores de las pestañas (novedades del inquilino).
   const pendingUnitChanges = (unitChanges ?? []).filter((r) => r.status === 'pending').length;
   const openIncidents = (incidents ?? []).filter(
@@ -1151,7 +1189,12 @@ function PortalConsumeContent() {
                               ),
                             })}
                             {c.status === 'ending' && c.endDate
-                              ? tContracts('moveOutPlanned', { date: c.endDate })
+                              ? tContracts('moveOutPlanned', {
+                                  date: new Date(`${c.endDate}T12:00:00Z`).toLocaleDateString(
+                                    intlLocaleForPortal(locale),
+                                    { day: 'numeric', month: 'long', year: 'numeric' },
+                                  ),
+                                })
                               : ''}
                           </p>
                         </div>
@@ -1196,7 +1239,7 @@ function PortalConsumeContent() {
                         {c.depositAmount > 0 && (
                           <span>
                             {tContracts('depositLine', {
-                              amount: c.depositAmount.toFixed(2),
+                              amount: money(c.depositAmount),
                               status: depositLabel(c.depositStatus, tContracts),
                             })}
                           </span>
@@ -1223,7 +1266,7 @@ function PortalConsumeContent() {
                         )}
                         {c.discountAmount > 0 && (
                           <span>
-                            {tContracts('discountLine', { amount: c.discountAmount.toFixed(2) })}
+                            {tContracts('discountLine', { amount: money(c.discountAmount) })}
                           </span>
                         )}
                       </div>
@@ -1319,13 +1362,7 @@ function PortalConsumeContent() {
           </TabsContent>
 
           <TabsContent value="nuevo" className="space-y-6">
-            <AdditionalUnitCard
-              session={session}
-              onBooked={() => {
-                void reloadInvoices();
-                setTab('facturas');
-              }}
-            />
+            <AdditionalUnitCard session={session} />
             <WaitlistCard session={session} />
           </TabsContent>
 
@@ -1536,7 +1573,7 @@ function PortalConsumeContent() {
                     ))}
                   </ul>
                 )}
-                {access !== null && (
+                {access !== null && hasStartedContract && (
                   <div className="mt-4">
                     <Button
                       variant="outline"

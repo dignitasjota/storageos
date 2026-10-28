@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import type { FaqEntryDto, PortalSessionDto } from '@storageos/shared';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { apiFetch } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 export function FaqCard({ session }: { session: PortalSessionDto }) {
   const t = useTranslations('portal.consume.helpCenter');
@@ -16,7 +16,7 @@ export function FaqCard({ session }: { session: PortalSessionDto }) {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<FaqEntryDto[]>('/portal/me/faq', {
+    portalApiFetch<FaqEntryDto[]>('/portal/me/faq', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       requiresAuth: false,
     })

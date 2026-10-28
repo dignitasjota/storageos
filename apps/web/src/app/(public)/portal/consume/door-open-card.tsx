@@ -9,7 +9,7 @@ import type { PortalDoorDto, PortalOpenDoorResultDto, PortalSessionDto } from '@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { apiFetch } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 export function DoorOpenCard({ session }: { session: PortalSessionDto }) {
   const t = useTranslations('portal.consume.doorOpen');
@@ -19,7 +19,10 @@ export function DoorOpenCard({ session }: { session: PortalSessionDto }) {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<PortalDoorDto[]>('/portal/me/doors', { headers: authHeaders, requiresAuth: false })
+    portalApiFetch<PortalDoorDto[]>('/portal/me/doors', {
+      headers: authHeaders,
+      requiresAuth: false,
+    })
       .then((list) => {
         if (!cancelled) setDoors(list);
       })
@@ -35,11 +38,14 @@ export function DoorOpenCard({ session }: { session: PortalSessionDto }) {
   async function open(door: PortalDoorDto) {
     setOpening(door.id);
     try {
-      const res = await apiFetch<PortalOpenDoorResultDto>(`/portal/me/doors/${door.id}/open`, {
-        method: 'POST',
-        headers: authHeaders,
-        requiresAuth: false,
-      });
+      const res = await portalApiFetch<PortalOpenDoorResultDto>(
+        `/portal/me/doors/${door.id}/open`,
+        {
+          method: 'POST',
+          headers: authHeaders,
+          requiresAuth: false,
+        },
+      );
       if (res.opened) toast.success(res.message);
       else toast.error(res.message);
     } catch {

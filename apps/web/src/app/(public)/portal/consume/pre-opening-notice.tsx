@@ -23,7 +23,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { apiFetch, ApiError } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 /** Reserva antes de la apertura: cuándo empieza y, si quiere, cancelarla. */
 export function PreOpeningNotice({
@@ -57,7 +58,7 @@ export function PreOpeningNotice({
     setBusy(true);
     try {
       setPreview(
-        await apiFetch<PreOpeningCancelPreviewDto>(
+        await portalApiFetch<PreOpeningCancelPreviewDto>(
           `/portal/me/contracts/${contract.id}/pre-opening-cancel`,
           { headers, requiresAuth: false },
         ),
@@ -72,7 +73,7 @@ export function PreOpeningNotice({
   async function doCancel() {
     setBusy(true);
     try {
-      await apiFetch(`/portal/me/contracts/${contract.id}/pre-opening-cancel`, {
+      await portalApiFetch(`/portal/me/contracts/${contract.id}/pre-opening-cancel`, {
         method: 'POST',
         headers,
         requiresAuth: false,

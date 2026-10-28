@@ -174,6 +174,8 @@ export async function apiFetch<T = unknown>(
     ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),
     ...(options.formData !== undefined ? { body: options.formData } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
+    // Que la petición siga aunque la página se cierre (p. ej. al cerrar sesión).
+    ...(options.keepalive ? { keepalive: true } : {}),
   };
 
   let res = await executeFetch(url, init, options);

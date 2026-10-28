@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { InvoiceSeriesService } from '../billing/invoice-series.service';
 import { InvoicesService } from '../billing/invoices.service';
@@ -45,7 +46,8 @@ export class NightPassService {
       this.customerFacilities(tenantId, customerId),
     ]);
     return {
-      enabled: tenant?.nightPassEnabled ?? false,
+      // Sin un trastero en uso no hay local para el que comprarlo.
+      enabled: (tenant?.nightPassEnabled ?? false) && facilities.length > 0,
       price: Number(tenant?.nightPassPrice ?? 0),
       facilities,
     };
@@ -63,7 +65,12 @@ export class NightPassService {
         units: {
           some: {
             contracts: {
-              some: { customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
+              some: {
+                customerId,
+                status: { in: ['active', 'ending'] },
+                deletedAt: null,
+                ...STARTED_CONTRACT_WHERE,
+              },
             },
           },
         },
@@ -76,7 +83,7 @@ export class NightPassService {
   /**
    * Local para el que se compra el pase: el indicado (debe ser uno de los del
    * inquilino), o el único que tiene. Con varios y sin elegir → 400.
-   * Sin contratos vivos → null (pase sin local, comportamiento previo).
+   * Sin contratos en marcha → null (no se puede comprar).
    */
   private async resolveFacility(
     tenantId: string,
@@ -193,14 +200,16 @@ export class NightPassService {
     }
     const price = Number(tenant.nightPassPrice);
     const facilityId = await this.resolveFacility(tenantId, customerId, requestedFacilityId);
+    if (!facilityId) {
+      throw new ConflictException({
+        code: 'no_active_contract',
+        message: 'Necesitas un trastero en uso para comprar un pase nocturno',
+      });
+    }
 
     // Pase gratuito: nada que cobrar, se emite directamente.
     if (price <= 0) {
-      return this.credentials.createNightPassForCustomer(
-        tenantId,
-        customerId,
-        facilityId ?? undefined,
-      );
+      return this.credentials.createNightPassForCustomer(tenantId, customerId, facilityId);
     }
 
     // Cobro en el acto: exige método de pago cobrable ANTES de emitir el PIN.
@@ -209,7 +218,7 @@ export class NightPassService {
     const credential = await this.credentials.createNightPassForCustomer(
       tenantId,
       customerId,
-      facilityId ?? undefined,
+      facilityId,
     );
 
     // Emitir la factura del pase. Si falla (p. ej. sin serie por defecto), no

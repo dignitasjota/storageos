@@ -12,7 +12,7 @@ import { reportInterest } from './portal-interest';
 import type { PortalFacilityDto, PortalNightPassDto, PortalSessionDto } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
-import { apiFetch } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 function passStatus(
   status: PortalNightPassDto['status'],
@@ -61,7 +61,7 @@ export function NightAccessCard({
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<PortalNightPassDto[]>('/portal/me/access/night-passes', {
+    portalApiFetch<PortalNightPassDto[]>('/portal/me/access/night-passes', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       requiresAuth: false,
     })

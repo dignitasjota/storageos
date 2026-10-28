@@ -24,6 +24,13 @@ describe('Portal: self-service de contratación de trastero (e2e)', () => {
     app = await createTestApp();
   });
 
+  async function signPortalBooking(signingToken: string) {
+    await request(app.getHttpServer())
+      .post(`/public/move-in/sign/${signingToken}`)
+      .send({ signerName: 'Leo Paz', method: 'typed', typedSignature: 'Leo Paz', accept: true })
+      .expect(201);
+  }
+
   afterAll(async () => {
     await app.close();
     await admin.$disconnect();
@@ -96,11 +103,30 @@ describe('Portal: self-service de contratación de trastero (e2e)', () => {
     const booked = await request(app.getHttpServer())
       .post('/portal/me/contracts')
       .set(portalAuth)
-      .send({ unitId: u2.body.id, signerName: 'Leo Paz' });
+      .send({ unitId: u2.body.id });
     expect(booked.status).toBe(201);
     expect(booked.body.contractId).toBeTruthy();
-    expect(booked.body.invoiceId).toBeTruthy();
+    expect(booked.body.signingToken).toBeTruthy();
     expect(booked.body.portalToken).toBeTruthy();
+
+    // Aún sin firmar: borrador y el trastero queda reservado mientras lo lee.
+    const draft = await admin.contract.findUniqueOrThrow({ where: { id: booked.body.contractId } });
+    expect(draft.status).toBe('draft');
+    expect((await admin.unit.findUniqueOrThrow({ where: { id: u2.body.id } })).status).toBe(
+      'reserved',
+    );
+
+    // Ve el contrato completo y lo firma (como en la reserva online).
+    const view = await request(app.getHttpServer()).get(
+      `/public/move-in/sign/${booked.body.signingToken}`,
+    );
+    expect(view.status).toBe(200);
+    expect(view.body.termsText).toContain('SB-002');
+    await signPortalBooking(booked.body.signingToken);
+    const invoice = await admin.invoice.findFirstOrThrow({
+      where: { contractId: booked.body.contractId, kind: 'invoice' },
+    });
+    booked.body.invoiceId = invoice.id;
 
     // La factura aparece en sus facturas del portal (emitida).
     const invoices = await request(app.getHttpServer()).get('/portal/me/invoices').set(portalAuth);
@@ -115,7 +141,7 @@ describe('Portal: self-service de contratación de trastero (e2e)', () => {
     // Sin sesión → 401.
     await request(app.getHttpServer())
       .post('/portal/me/contracts')
-      .send({ unitId: u2.body.id, signerName: 'Leo Paz' })
+      .send({ unitId: u2.body.id })
       .expect(401);
   });
 
@@ -176,13 +202,21 @@ describe('Portal: self-service de contratación de trastero (e2e)', () => {
     const bookUnpaid = await request(app.getHttpServer())
       .post('/portal/me/contracts')
       .set(portalAuth)
-      .send({ unitId: uUnpaid.body.id, signerName: 'Ana Ríos' });
+      .send({ unitId: uUnpaid.body.id });
     const bookPaid = await request(app.getHttpServer())
       .post('/portal/me/contracts')
       .set(portalAuth)
-      .send({ unitId: uPaid.body.id, signerName: 'Ana Ríos' });
+      .send({ unitId: uPaid.body.id });
     expect(bookUnpaid.status).toBe(201);
     expect(bookPaid.status).toBe(201);
+    for (const b of [bookUnpaid, bookPaid]) {
+      await signPortalBooking(b.body.signingToken);
+      b.body.invoiceId = (
+        await admin.invoice.findFirstOrThrow({
+          where: { contractId: b.body.contractId, kind: 'invoice' },
+        })
+      ).id;
+    }
 
     // El booking «pagado» se marca como cobrado.
     await admin.invoice.update({

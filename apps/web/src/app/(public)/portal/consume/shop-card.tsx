@@ -13,7 +13,8 @@ import type { PortalSessionDto, ProductDto, ProductSaleDto } from '@storageos/sh
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ApiError, apiFetch } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 function priceWithTax(p: ProductDto): number {
   return p.price * (1 + p.taxRate / 100);
@@ -34,7 +35,7 @@ export function ShopCard({
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<ProductDto[]>('/portal/me/products', {
+    portalApiFetch<ProductDto[]>('/portal/me/products', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       requiresAuth: false,
     })
@@ -53,7 +54,7 @@ export function ShopCard({
     const quantity = qty[product.id] ?? 1;
     setBusyId(product.id);
     try {
-      await apiFetch<ProductSaleDto>('/portal/me/purchases', {
+      await portalApiFetch<ProductSaleDto>('/portal/me/purchases', {
         method: 'POST',
         json: { items: [{ productId: product.id, quantity }] },
         headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -63,7 +64,7 @@ export function ShopCard({
       setQty((q) => ({ ...q, [product.id]: 1 }));
       onPurchased();
       // Refresca el stock visible.
-      const fresh = await apiFetch<ProductDto[]>('/portal/me/products', {
+      const fresh = await portalApiFetch<ProductDto[]>('/portal/me/products', {
         headers: { Authorization: `Bearer ${session.accessToken}` },
         requiresAuth: false,
       });

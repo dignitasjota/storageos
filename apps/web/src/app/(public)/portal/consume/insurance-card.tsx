@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ApiError, apiFetch } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 const NONE = 'none';
 
@@ -45,7 +46,7 @@ export function InsuranceCard({
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<InsurancePlanDto[]>('/portal/me/insurance-plans', {
+    portalApiFetch<InsurancePlanDto[]>('/portal/me/insurance-plans', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       requiresAuth: false,
     })
@@ -77,7 +78,7 @@ export function InsuranceCard({
     const planId = value === NONE ? null : value;
     setBusyId(contractId);
     try {
-      const updated = await apiFetch<PortalContractDto[]>(
+      const updated = await portalApiFetch<PortalContractDto[]>(
         `/portal/me/contracts/${contractId}/insurance`,
         {
           method: 'PUT',

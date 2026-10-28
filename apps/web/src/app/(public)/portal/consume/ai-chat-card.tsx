@@ -9,7 +9,7 @@ import type { PortalAiChatResultDto, PortalSessionDto } from '@storageos/shared'
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { apiFetch } from '@/lib/auth/api';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 type Turn = { role: 'user' | 'assistant'; content: string };
 
@@ -24,7 +24,7 @@ export function PortalAiChatCard({ session }: { session: PortalSessionDto }) {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<{ enabled: boolean }>('/portal/me/ai-enabled', {
+    portalApiFetch<{ enabled: boolean }>('/portal/me/ai-enabled', {
       headers: authHeaders,
       requiresAuth: false,
     })
@@ -52,7 +52,7 @@ export function PortalAiChatCard({ session }: { session: PortalSessionDto }) {
     setText('');
     setBusy(true);
     try {
-      const res = await apiFetch<PortalAiChatResultDto>('/portal/me/ai-chat', {
+      const res = await portalApiFetch<PortalAiChatResultDto>('/portal/me/ai-chat', {
         method: 'POST',
         headers: authHeaders,
         requiresAuth: false,

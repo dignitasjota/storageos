@@ -21,8 +21,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ApiError, apiFetch } from '@/lib/auth/api';
+import { ApiError } from '@/lib/auth/api';
+import { clearOfflineAccess } from '@/lib/portal/offline-access';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 import { isInstalledApp } from '@/lib/pwa/installed';
+
+const DOC_TYPES = ['DNI', 'NIE', 'NIF', 'CIF', 'Pasaporte', 'Otro'];
+const NO_DOC_TYPE = '__none';
 
 type FormState = {
   firstName: string;
@@ -66,10 +71,33 @@ export function ProfileCard({
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [savingLocale, setSavingLocale] = useState(false);
+  const [closingAll, setClosingAll] = useState(false);
+
+  /** Cierra la sesión en todos sus dispositivos (también aquí) y vuelve al acceso. */
+  async function closeAll() {
+    setClosingAll(true);
+    try {
+      await portalApiFetch('/portal/me/sessions/close-all', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+        requiresAuth: false,
+      });
+      try {
+        localStorage.removeItem('storageos.portal.session');
+      } catch {
+        /* ignore */
+      }
+      clearOfflineAccess();
+      window.location.href = '/portal/login';
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : t('saveError'));
+      setClosingAll(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<PortalProfileDto>('/portal/me/profile', {
+    portalApiFetch<PortalProfileDto>('/portal/me/profile', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       requiresAuth: false,
     })
@@ -94,7 +122,7 @@ export function ProfileCard({
     if (!form) return;
     setSaving(true);
     try {
-      const updated = await apiFetch<PortalProfileDto>('/portal/me/profile', {
+      const updated = await portalApiFetch<PortalProfileDto>('/portal/me/profile', {
         method: 'PATCH',
         json: form,
         headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -116,7 +144,7 @@ export function ProfileCard({
     setLocale(next);
     setSavingLocale(true);
     try {
-      const updated = await apiFetch<PortalProfileDto>('/portal/me/profile', {
+      const updated = await portalApiFetch<PortalProfileDto>('/portal/me/profile', {
         method: 'PATCH',
         json: { locale: next as PortalLocaleValue },
         headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -184,11 +212,31 @@ export function ProfileCard({
             />
           </Field>
           <Field label={t('documentTypeLabel')}>
-            <Input
-              value={form.documentType}
-              placeholder={t('documentTypePlaceholder')}
-              onChange={(e) => set('documentType', e.target.value)}
-            />
+            <Select
+              value={form.documentType || NO_DOC_TYPE}
+              onValueChange={(v) => set('documentType', v === NO_DOC_TYPE ? '' : v)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_DOC_TYPE}>{t('documentTypePlaceholder')}</SelectItem>
+                {[
+                  ...DOC_TYPES,
+                  ...(form.documentType && !DOC_TYPES.includes(form.documentType)
+                    ? [form.documentType]
+                    : []),
+                ].map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {d === 'Pasaporte'
+                      ? t('docTypePassport')
+                      : d === 'Otro'
+                        ? t('docTypeOther')
+                        : d}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           <Field label={t('documentNumberLabel')}>
             <Input
@@ -225,6 +273,17 @@ export function ProfileCard({
             onSessionRenewed(renewed);
           }}
         />
+
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3">
+          <div className="text-sm">
+            <p className="font-medium">{t('closeAllTitle')}</p>
+            <p className="text-xs text-muted-foreground">{t('closeAllDescription')}</p>
+          </div>
+          <Button variant="outline" size="sm" disabled={closingAll} onClick={() => void closeAll()}>
+            {closingAll && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            {t('closeAllButton')}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -257,7 +316,7 @@ function PasswordSection({
     }
     setSaving(true);
     try {
-      const renewed = await apiFetch<PortalSessionDto>('/portal/me/password', {
+      const renewed = await portalApiFetch<PortalSessionDto>('/portal/me/password', {
         method: 'POST',
         json: {
           password: pwd,

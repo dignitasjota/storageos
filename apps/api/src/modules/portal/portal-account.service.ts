@@ -6,6 +6,8 @@ import {
   type PortalDunningStepDto,
 } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
+import { isPendingPreOpening } from '../../common/pre-opening';
 import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -57,6 +59,11 @@ export class PortalAccountService {
           discountAmount: true,
           insurancePrice: true,
           billingIntervalMonths: true,
+          billingStartsOn: true,
+          freeMonthsRemaining: true,
+          prepayDiscountPct: true,
+          preOpening: true,
+          preOpeningStartedAt: true,
           insurancePlan: { select: { name: true, taxRate: true } },
           unit: {
             select: {
@@ -66,7 +73,12 @@ export class PortalAccountService {
             },
           },
           invoices: {
-            where: { deletedAt: null, kind: 'invoice', periodEnd: { not: null } },
+            where: {
+              deletedAt: null,
+              kind: 'invoice',
+              periodEnd: { not: null },
+              status: { notIn: ['draft', 'cancelled', 'rectified'] },
+            },
             select: { periodEnd: true },
             orderBy: { periodEnd: 'desc' },
             take: 1,
@@ -115,17 +127,44 @@ export class PortalAccountService {
       };
     });
 
-    // Próximo cargo: mensual → día 1 del mes siguiente; prepagado → el día
-    // siguiente al fin del último periodo facturado.
+    // Próximo cargo: el primer día que no está ya pagado. Mensual → el día 1
+    // del mes siguiente, salvo que ya pagara meses por adelantado (cupón,
+    // primer pago con el mes siguiente) o que la facturación empiece más
+    // tarde; prepagado → el día siguiente al fin del último periodo. Una
+    // reserva antes de la apertura aún no tiene cargos.
+    const today = todayInTimezone('Europe/Madrid', now);
+    const firstOfNextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
+    const startOfMonth = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
     const charges = contracts
       .map((c, i) => ({ c, line: lines[i]! }))
-      .filter(({ c }) => c.status === 'active')
+      .filter(({ c }) => c.status === 'active' && !isPendingPreOpening(c))
       .map(({ c, line }) => {
-        const amount = line.total * c.billingIntervalMonths;
-        if (c.billingIntervalMonths > 1 && c.invoices[0]?.periodEnd) {
-          return { date: new Date(c.invoices[0].periodEnd.getTime() + DAY), amount };
+        const coveredUntil = c.invoices[0]?.periodEnd ?? null;
+        const nextUncovered = coveredUntil ? new Date(coveredUntil.getTime() + DAY) : null;
+        // Meses gratis: el alquiler sale a 0 (la protección se sigue cobrando).
+        const rent = c.freeMonthsRemaining > 0 ? 0 : line.rent;
+        if (c.billingIntervalMonths > 1) {
+          const pct = Number(c.prepayDiscountPct) / 100;
+          const amount = (rent * (1 - pct) + line.insurance) * c.billingIntervalMonths;
+          const date = nextUncovered ?? c.billingStartsOn ?? firstOfNextMonth;
+          return { date, amount };
         }
-        return { date: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)), amount };
+        let date = firstOfNextMonth;
+        for (const d of [nextUncovered, c.billingStartsOn]) {
+          if (d && startOfMonth(d) > date) date = startOfMonth(d);
+        }
+        // Si la facturación empieza a mitad de ese mes, se cobra la parte.
+        let share = 1;
+        const from = [nextUncovered, c.billingStartsOn]
+          .filter((d): d is Date => !!d && startOfMonth(d).getTime() === date.getTime())
+          .sort((a, b) => b.getTime() - a.getTime())[0];
+        if (from && from.getUTCDate() > 1) {
+          const days = new Date(
+            Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
+          ).getUTCDate();
+          share = (days - from.getUTCDate() + 1) / days;
+        }
+        return { date, amount: (rent + line.insurance) * share };
       })
       .sort((a, b) => a.date.getTime() - b.date.getTime());
     let nextCharge: PortalAccountDto['nextCharge'] = null;
