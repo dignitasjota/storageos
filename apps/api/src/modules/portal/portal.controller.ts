@@ -12,6 +12,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   UnauthorizedException,
   Logger,
@@ -89,6 +90,15 @@ import {
   PortalOfflinePaymentSchema,
   type PortalOfflinePaymentResultDto,
   type PortalPaymentOptionsDto,
+  CustomerAuthorizedPersonSchema,
+  type CustomerAuthorizedPersonDto,
+  PortalVisitorPassSchema,
+  type PortalContractTermsDto,
+  type PortalAnnualInvoicesDto,
+  PortalEmailChangeConfirmSchema,
+  PortalEmailChangeSchema,
+  PortalPreferencesSchema,
+  type PortalPreferencesDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -101,9 +111,11 @@ import { AiService } from '../ai/ai.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { PreOpeningService } from '../contracts/pre-opening.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
+import { CustomerAuthorizedPersonsService } from '../customers/customer-authorized-persons.service';
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqService } from '../faq/faq.service';
 import { SignaturesService } from '../move-in/signatures.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { IncidentsService } from '../operations/incidents.service';
 import { CustomerOffersService } from '../opportunities/customer-offers.service';
 import { OpportunitiesService } from '../opportunities/opportunities.service';
@@ -118,6 +130,7 @@ import { WaitlistService } from '../waitlist/waitlist.service';
 import { NightPassService } from './night-pass.service';
 import { OfflinePaymentsService } from './offline-payments.service';
 import { PortalAccountService } from './portal-account.service';
+import { PortalInvoiceExportService } from './portal-invoice-export.service';
 import { PortalService } from './portal.service';
 
 import type { PreOpeningCancelPreviewDto } from '@storageos/shared';
@@ -153,6 +166,11 @@ class PortalUnitRequestDto2 extends createZodDto(PortalUnitRequestSchema) {}
 class PortalBookUnitDto2 extends createZodDto(PortalBookUnitSchema) {}
 class PortalUnitQuoteDto extends createZodDto(PortalUnitQuoteSchema) {}
 class PortalOfflinePaymentDto extends createZodDto(PortalOfflinePaymentSchema) {}
+class PortalAuthorizedPersonDto extends createZodDto(CustomerAuthorizedPersonSchema) {}
+class PortalVisitorPassDto extends createZodDto(PortalVisitorPassSchema) {}
+class PortalEmailChangeDto extends createZodDto(PortalEmailChangeSchema) {}
+class PortalPreferencesBodyDto extends createZodDto(PortalPreferencesSchema) {}
+class PortalEmailChangeConfirmDto extends createZodDto(PortalEmailChangeConfirmSchema) {}
 
 @Controller('portal')
 export class PortalController {
@@ -182,6 +200,9 @@ export class PortalController {
     private readonly accessVerify: AccessVerifyService,
     private readonly preOpening: PreOpeningService,
     private readonly offline: OfflinePaymentsService,
+    private readonly authorized: CustomerAuthorizedPersonsService,
+    private readonly notifications: NotificationsService,
+    private readonly invoiceExport: PortalInvoiceExportService,
   ) {}
 
   // Envía un email (magic link) — mismo preset que el homólogo de staff
@@ -247,6 +268,28 @@ export class PortalController {
   ): Promise<PortalSessionDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.renewSession(tenantId, customerId, input.installedApp ?? false);
+  }
+
+  /** Cambiar el email de acceso: envía el enlace de confirmación al nuevo. */
+  @Public()
+  @ThrottleRegister()
+  @Post('me/email-change')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async requestEmailChange(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalEmailChangeDto,
+  ): Promise<void> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.portal.requestEmailChange(tenantId, customerId, input.email);
+  }
+
+  /** Confirmar el email nuevo con el enlace (no hace falta sesión). */
+  @Public()
+  @ThrottleLogin()
+  @Post('email-change/confirm')
+  @HttpCode(HttpStatus.OK)
+  async confirmEmailChange(@Body() input: PortalEmailChangeConfirmDto): Promise<{ email: string }> {
+    return this.portal.confirmEmailChange(input.token);
   }
 
   /** Cierra la sesión de este dispositivo en el servidor. */
@@ -341,6 +384,18 @@ export class PortalController {
   ): Promise<PortalInvoiceDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.listMyInvoices(tenantId, customerId);
+  }
+
+  /** Las facturas de un año en un ZIP (resumen CSV + PDF), para su asesoría. */
+  @Public()
+  @ThrottleLogin()
+  @Get('me/invoices/annual')
+  async myAnnualInvoices(
+    @Headers('authorization') auth: string | undefined,
+    @Query('year') year: string | undefined,
+  ): Promise<PortalAnnualInvoicesDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.invoiceExport.annual(tenantId, customerId, Number(year));
   }
 
   /** URL temporal para descargar el PDF de una factura del inquilino. */
@@ -551,6 +606,27 @@ export class PortalController {
     return this.portal.setMyContractInsurance(tenantId, customerId, id, body.planId);
   }
 
+  /** Preferencias de comunicación: ofertas y avisos por WhatsApp. */
+  @Public()
+  @Get('me/preferences')
+  async myPreferences(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalPreferencesDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.getPreferences(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Patch('me/preferences')
+  async updateMyPreferences(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalPreferencesBodyDto,
+  ): Promise<PortalPreferencesDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.updatePreferences(tenantId, customerId, input);
+  }
+
   /** Datos de perfil del inquilino (contacto + facturación). */
   @Public()
   @Get('me/profile')
@@ -624,6 +700,17 @@ export class PortalController {
     return this.portal.getMyContractPdf(tenantId, customerId, id);
   }
 
+  /** El texto del contrato firmado (para leerlo aunque aún no haya PDF). */
+  @Public()
+  @Get('me/contracts/:id/terms')
+  async myContractTerms(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PortalContractTermsDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.getMyContractTerms(tenantId, customerId, id);
+  }
+
   @Public()
   @ThrottleLogin()
   @Post('me/contracts/:id/request-move-out')
@@ -676,6 +763,35 @@ export class PortalController {
       },
     });
     return { cancelled: true };
+  }
+
+  /** Cambia la fecha de una baja ya pedida. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/contracts/:id/move-out-date')
+  @HttpCode(HttpStatus.OK)
+  async changeMoveOutDate(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: RequestMoveOutDto,
+  ): Promise<PortalContractDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    const updated = await this.contracts.changeMoveOutDateByCustomer({
+      tenantId,
+      customerId,
+      contractId: id,
+      endDate: input.endDate,
+    });
+    await this.notifications
+      .create(tenantId, {
+        type: 'contract.move_out_date_changed',
+        title: `Nueva fecha de baja — ${updated.unitCode}`,
+        body: `El inquilino cambia la salida al ${input.endDate.split('-').reverse().join('/')}.`,
+        link: `/contracts/${id}`,
+        contractId: id,
+      })
+      .catch(() => undefined);
+    return updated;
   }
 
   /** El inquilino cancela una baja en curso → el contrato vuelve a `active`. */
@@ -773,6 +889,19 @@ export class PortalController {
       input,
       meta: { ipAddress: undefined, userAgent: undefined },
     });
+  }
+
+  /** Borra un documento que subió él mismo. */
+  @Public()
+  @ThrottleLogin()
+  @Delete('me/documents/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteMyDocument(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.documents.deleteOwn(tenantId, customerId, id);
   }
 
   /** URL temporal para descargar uno de sus documentos (bucket privado). */
@@ -992,6 +1121,80 @@ export class PortalController {
     return this.access.regenerateForCustomer(tenantId, customerId, id);
   }
 
+  /** Personas a las que el inquilino autoriza (entrar, recoger, gestionar). */
+  @Public()
+  @Get('me/authorized-persons')
+  async myAuthorizedPersons(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<CustomerAuthorizedPersonDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.authorized.list(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/authorized-persons')
+  async addAuthorizedPerson(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalAuthorizedPersonDto,
+  ): Promise<CustomerAuthorizedPersonDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.authorized.create({ tenantId, userId: null, customerId, input });
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Delete('me/authorized-persons/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeAuthorizedPerson(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.authorized.remove({ tenantId, userId: null, customerId, id });
+  }
+
+  /** Pase de visita de un solo uso para hoy (mudanza, un familiar…). */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/access/visitor')
+  async createVisitorPass(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalVisitorPassDto,
+  ): Promise<PortalAccessCredentialDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    let name = input.name?.trim() ?? '';
+    if (input.authorizedPersonId) {
+      const person = (await this.authorized.list(tenantId, customerId)).find(
+        (p) => p.id === input.authorizedPersonId,
+      );
+      if (!person) {
+        throw new BadRequestException({
+          code: 'authorized_person_not_found',
+          message: 'Esa persona no está entre tus autorizados',
+        });
+      }
+      name = person.fullName;
+    }
+    const pass = await this.access.createVisitorPassForCustomer(tenantId, customerId, {
+      label: name,
+      facilityId: input.facilityId,
+      authorizedPersonId: input.authorizedPersonId ?? null,
+    });
+    // El equipo sabe quién va a venir hoy.
+    await this.notifications
+      .create(tenantId, {
+        type: 'access.visitor_pass_created',
+        title: `Pase de visita para hoy: ${name}`,
+        body: 'Creado por el inquilino desde su área de clientes. Vale una entrada hasta medianoche.',
+        link: `/customers/${customerId}`,
+        facilityId: pass.facilityId,
+      })
+      .catch(() => undefined);
+    const { facilityId: _f, ...dto } = pass;
+    return dto;
+  }
+
   /** El inquilino se crea un acceso adicional (familiar, etc.) hasta el límite. */
   @Public()
   @ThrottleLogin()
@@ -1171,6 +1374,7 @@ export class PortalController {
       expectedCustomerId: customerId,
       ...(body.payMethod ? { payMethod: body.payMethod } : {}),
       ...(body.saveCard ? { saveCard: true } : {}),
+      ...(body.extraInvoiceIds?.length ? { extraInvoiceIds: body.extraInvoiceIds } : {}),
     });
   }
 

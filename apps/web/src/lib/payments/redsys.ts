@@ -67,11 +67,17 @@ export async function fetchPortalRedsysRedirect(
   payMethod?: RedsysPayMethod,
   /** Guardar la tarjeta para cobrar solas las próximas cuotas (pago por referencia). */
   saveCard?: boolean,
+  /** «Pagar todo»: otras facturas que se pagan en la misma orden. */
+  extraInvoiceIds?: string[],
 ): Promise<RedsysRedirectDto> {
   return apiFetch<RedsysRedirectDto>(`/portal/me/invoices/${invoiceId}/redsys-redirect`, {
     method: 'POST',
     requiresAuth: false,
     headers: { Authorization: `Bearer ${portalToken}` },
-    json: { ...(payMethod ? { payMethod } : {}), ...(saveCard ? { saveCard: true } : {}) },
+    json: {
+      ...(payMethod ? { payMethod } : {}),
+      ...(saveCard ? { saveCard: true } : {}),
+      ...(extraInvoiceIds?.length ? { extraInvoiceIds } : {}),
+    },
   });
 }

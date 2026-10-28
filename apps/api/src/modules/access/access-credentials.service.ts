@@ -1,6 +1,7 @@
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -10,7 +11,7 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { accessWindowsFrom } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
-import { todayInTimezone, zonedNextDayStart } from '../../common/format';
+import { todayInTimezone, zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
@@ -112,6 +113,9 @@ function nextMorningIso(hour = 8): string {
   if (deltaMin <= 0) deltaMin += 1440; // ya pasó hoy → mañana
   return new Date(now.getTime() + deltaMin * 60_000).toISOString();
 }
+
+/** Pases de visita que puede crear un inquilino al día desde su área de clientes. */
+const VISITOR_PASSES_PER_DAY = 3;
 
 @Injectable()
 export class AccessCredentialsService {
@@ -983,6 +987,96 @@ export class AccessCredentialsService {
       value: created.revealedSecret,
       expiresAt: created.expiresAt,
       lastUsedAt: null,
+    };
+  }
+
+  /**
+   * Pase de visita que crea el propio inquilino (mudanza, un familiar, un
+   * transportista): PIN de un solo uso, válido hasta el final del día en la
+   * hora del local y solo en ese local. Como mucho `VISITOR_PASSES_PER_DAY`
+   * al día.
+   */
+  async createVisitorPassForCustomer(
+    tenantId: string,
+    customerId: string,
+    args: { label: string; facilityId?: string | undefined; authorizedPersonId?: string | null },
+  ): Promise<PortalAccessCredentialDto & { facilityId: string }> {
+    const all = await this.requireCustomerScope(tenantId, customerId);
+    let facilityId = args.facilityId;
+    if (facilityId && !all.allowedFacilityIds.includes(facilityId)) {
+      throw new BadRequestException({
+        code: 'facility_not_allowed',
+        message: 'Solo puedes crear pases para un local donde tengas trastero',
+      });
+    }
+    if (!facilityId) {
+      if (all.allowedFacilityIds.length > 1) {
+        throw new BadRequestException({
+          code: 'facility_required',
+          message: 'Elige el local de la visita',
+        });
+      }
+      facilityId = all.allowedFacilityIds[0]!;
+    }
+    const facility = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findFirst({
+          where: { id: facilityId, deletedAt: null },
+          select: { timezone: true },
+        }),
+      tenantId,
+    );
+    const tz = facility?.timezone ?? 'Europe/Madrid';
+    const today = todayInTimezone(tz).toISOString().slice(0, 10);
+    const dayStart = zonedDayStart(today, tz);
+    const used = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.count({
+          where: {
+            customerId,
+            createdAt: { gte: dayStart },
+            metadata: { path: ['source'], equals: 'portal_visitor' },
+          },
+        }),
+      tenantId,
+    );
+    if (used >= VISITOR_PASSES_PER_DAY) {
+      throw new ConflictException({
+        code: 'visitor_pass_limit_reached',
+        message: `Puedes crear como mucho ${VISITOR_PASSES_PER_DAY} pases de visita al día`,
+      });
+    }
+    const scope = await this.requireCustomerScope(tenantId, customerId, facilityId);
+    const created = await this.create({
+      tenantId,
+      userId: null,
+      input: {
+        customerId,
+        method: 'pin',
+        label: `Visita: ${args.label.trim()}`.slice(0, 120),
+        allowedFacilityIds: scope.allowedFacilityIds,
+        allowedUnitIds: scope.allowedUnitIds,
+        allowedHours: { windows: [] },
+        bypassCurfew: false,
+        maxUses: 1,
+        expiresAt: zonedNextDayStart(today, tz).toISOString(),
+        metadata: {
+          source: 'portal_visitor',
+          facilityId,
+          ...(args.authorizedPersonId ? { authorizedPersonId: args.authorizedPersonId } : {}),
+        },
+      } as CreateCredentialInput,
+      meta: {},
+    });
+    return {
+      id: created.id,
+      method: 'pin',
+      label: created.label,
+      status: created.status,
+      value: created.revealedSecret,
+      expiresAt: created.expiresAt,
+      lastUsedAt: null,
+      facilityId,
     };
   }
 

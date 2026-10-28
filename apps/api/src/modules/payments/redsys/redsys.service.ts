@@ -54,7 +54,13 @@ export class RedsysService {
   async createRedirect(
     tenantId: string,
     invoiceId: string,
-    opts?: { expectedCustomerId?: string; payMethod?: RedsysPayMethod; saveCard?: boolean },
+    opts?: {
+      expectedCustomerId?: string;
+      payMethod?: RedsysPayMethod;
+      saveCard?: boolean;
+      /** Otras facturas del mismo inquilino que se pagan en la misma orden. */
+      extraInvoiceIds?: string[];
+    },
   ): Promise<RedsysRedirectDto> {
     const expectedCustomerId = opts?.expectedCustomerId;
     const payMethod = opts?.payMethod;
@@ -109,10 +115,65 @@ export class RedsysService {
       },
       select: { total: true, amountPaid: true },
     });
-    const amountCents =
+    let amountCents =
       toCents(invoice.total) -
       toCents(invoice.amountPaid) +
       bundled.reduce((sum, r) => sum + Math.max(0, toCents(r.total) - toCents(r.amountPaid)), 0);
+    // «Pagar todo»: el resto de facturas (y sus fianzas) en el mismo cobro.
+    const extraIds = [...new Set(opts?.extraInvoiceIds ?? [])].filter((id) => id !== invoiceId);
+    const extraNumbers: string[] = [];
+    if (extraIds.length > 0) {
+      if (!invoice.customerId) {
+        throw new BadRequestException({
+          code: 'invoice_not_payable',
+          message: 'Solo se pueden juntar facturas de un mismo inquilino',
+        });
+      }
+      const extras = await this.admin.invoice.findMany({
+        where: { id: { in: extraIds }, tenantId, customerId: invoice.customerId, deletedAt: null },
+      });
+      if (extras.length !== extraIds.length) {
+        throw new NotFoundException({
+          code: 'invoice_not_found',
+          message: 'Factura no encontrada',
+        });
+      }
+      for (const x of extras) {
+        if (x.status !== 'issued' && x.status !== 'overdue') {
+          throw new BadRequestException({
+            code: 'invoice_not_payable',
+            message: `La factura ${x.invoiceNumber} no está pendiente`,
+          });
+        }
+        const live = await this.admin.payment.count({
+          where: { invoiceId: x.id, tenantId, status: { in: ['processing', 'pending'] } },
+        });
+        if (live > 0) {
+          throw new ConflictException({
+            code: 'payment_in_progress',
+            message: `Ya hay un pago en curso para la factura ${x.invoiceNumber}`,
+          });
+        }
+        await assertNotInSepaRemittance(this.admin, x.id);
+        const xBundled = await this.admin.invoice.findMany({
+          where: {
+            tenantId,
+            bundledWithInvoiceId: x.id,
+            kind: 'deposit_receipt',
+            status: { in: ['issued', 'overdue'] },
+            deletedAt: null,
+          },
+          select: { total: true, amountPaid: true },
+        });
+        amountCents +=
+          Math.max(0, toCents(x.total) - toCents(x.amountPaid)) +
+          xBundled.reduce(
+            (sum, r) => sum + Math.max(0, toCents(r.total) - toCents(r.amountPaid)),
+            0,
+          );
+        if (x.invoiceNumber) extraNumbers.push(x.invoiceNumber);
+      }
+    }
     if (amountCents <= 0) {
       throw new BadRequestException({
         code: 'nothing_to_pay',
@@ -143,7 +204,9 @@ export class RedsysService {
         where: { tenantId, invoiceId, status: 'pending' },
         orderBy: { createdAt: 'desc' },
       });
-      if (existing && existing.amountCents === amountCents) {
+      const sameExtras =
+        !!existing && [...existing.extraInvoiceIds].sort().join() === [...extraIds].sort().join();
+      if (existing && existing.amountCents === amountCents && sameExtras) {
         if (existing.saveCard === saveCard) return existing;
         return tx.redsysOrder.update({ where: { order: existing.order }, data: { saveCard } });
       }
@@ -164,6 +227,7 @@ export class RedsysService {
           amountCents,
           status: 'pending',
           saveCard,
+          extraInvoiceIds: extraIds,
         },
       });
     }, tenantId);
@@ -189,7 +253,10 @@ export class RedsysService {
       // Con el negocio en la dirección: la página de vuelta lleva su marca.
       DS_MERCHANT_URLOK: `${webBase}/pay/redsys/ok?t=${encodeURIComponent(tenantSlug)}`,
       DS_MERCHANT_URLKO: `${webBase}/pay/redsys/ko?t=${encodeURIComponent(tenantSlug)}`,
-      DS_MERCHANT_PRODUCTDESCRIPTION: `Factura ${invoice.invoiceNumber}`,
+      DS_MERCHANT_PRODUCTDESCRIPTION: (extraNumbers.length
+        ? `Facturas ${[invoice.invoiceNumber, ...extraNumbers].join(', ')}`
+        : `Factura ${invoice.invoiceNumber}`
+      ).slice(0, 125),
       // 'z' = Bizum, 'C' = tarjeta. Sin el campo, el TPV ofrece los métodos que
       // tenga configurados el comercio (retrocompatible con el flujo anterior).
       ...(payMethod ? { DS_MERCHANT_PAYMETHODS: payMethod === 'bizum' ? 'z' : 'C' } : {}),
@@ -446,20 +513,28 @@ export class RedsysService {
     tenantId: string;
     invoiceId: string;
     amountCents: number;
+    extraInvoiceIds?: string[];
   }): Promise<{ invoiceId: string; cents: number }[]> {
+    const mains = [orderRow.invoiceId, ...(orderRow.extraInvoiceIds ?? [])];
     const docs = await this.admin.invoice.findMany({
       where: {
         tenantId: orderRow.tenantId,
         OR: [
-          { id: orderRow.invoiceId },
-          { bundledWithInvoiceId: orderRow.invoiceId, kind: 'deposit_receipt' },
+          { id: { in: mains } },
+          { bundledWithInvoiceId: { in: mains }, kind: 'deposit_receipt' },
         ],
         status: { in: ['issued', 'overdue'] },
         deletedAt: null,
       },
-      select: { id: true, total: true, amountPaid: true },
+      select: { id: true, total: true, amountPaid: true, bundledWithInvoiceId: true },
     });
-    docs.sort((a, b) => Number(b.id === orderRow.invoiceId) - Number(a.id === orderRow.invoiceId));
+    // Cada factura seguida de su fianza, en el orden de la orden.
+    const rank = (d: { id: string; bundledWithInvoiceId: string | null }) => {
+      const main = mains.indexOf(d.id);
+      if (main >= 0) return main * 2;
+      return mains.indexOf(d.bundledWithInvoiceId ?? '') * 2 + 1;
+    };
+    docs.sort((a, b) => rank(a) - rank(b));
     let remaining = orderRow.amountCents;
     const parts: { invoiceId: string; cents: number }[] = [];
     for (const d of docs) {

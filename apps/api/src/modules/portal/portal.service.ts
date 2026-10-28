@@ -17,6 +17,10 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { Prisma } from '@storageos/database';
 import {
   isValidSpanishTaxId,
+  mapEmbedUrl,
+  waMeNumber,
+  type OpeningHours,
+  type PortalFacilityPlanDto,
   normalizeTaxId,
   NON_CASH_PAYMENT_METHODS,
   PORTAL_APP_SESSION_DAYS,
@@ -25,6 +29,7 @@ import {
 import { Queue } from 'bullmq';
 
 import { emailLocale } from '../../common/format';
+import { escapeHtml, tenantEmailShell } from '../../common/tenant-email-layout';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { ContractsService } from '../contracts/contracts.service';
@@ -47,6 +52,7 @@ import type {
   PaymentMethodDto,
   PortalChargeResultDto,
   PortalContractDto,
+  PortalContractTermsDto,
   PortalDownloadDto,
   PortalFacilityDto,
   PortalInvoiceDto,
@@ -54,6 +60,8 @@ import type {
   PortalLocaleValue,
   PortalMagicLinkDto,
   PortalPaymentDto,
+  PortalPreferencesDto,
+  PortalPreferencesInput,
   PortalProfileDto,
   PortalPurchaseInput,
   PortalRegisterPaymentMethodInput,
@@ -88,6 +96,9 @@ const RESET_TOKEN_TTL_SECONDS = 30 * 60;
 /** Enlace de restablecimiento generado por el staff (lo reparte a mano): 7 días. */
 const STAFF_RESET_TTL_SECONDS = 7 * 24 * 60 * 60;
 const RESET_KEY_PREFIX = 'portal:pwreset:';
+/** Cambio de email del inquilino pendiente de confirmar: 24 h. */
+const EMAIL_CHANGE_TTL_SECONDS = 24 * 60 * 60;
+const EMAIL_CHANGE_KEY_PREFIX = 'portal:emailchange:';
 /** Sesiones del portal cerradas a mano (hasta que caduca el token). */
 const CLOSED_SESSION_KEY_PREFIX = 'portal:closed:';
 
@@ -819,6 +830,146 @@ export class PortalService {
     });
   }
 
+  /**
+   * El inquilino pide cambiar su email de acceso: enlace de confirmación (24 h)
+   * al email nuevo y aviso al actual. No cambia nada hasta que lo confirma.
+   */
+  async requestEmailChange(tenantId: string, customerId: string, email: string): Promise<void> {
+    await this.requireCustomer(tenantId, customerId);
+    const [customer, tenant, taken] = await Promise.all([
+      this.admin.customer.findUniqueOrThrow({
+        where: { id: customerId },
+        select: { email: true, firstName: true, locale: true },
+      }),
+      this.admin.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: {
+          name: true,
+          portalBrandColor: true,
+          portalLogoUrl: true,
+          customDomain: true,
+          customDomainVerifiedAt: true,
+        },
+      }),
+      this.admin.customer.count({
+        where: {
+          tenantId,
+          id: { not: customerId },
+          deletedAt: null,
+          email: emailEquals(email),
+        },
+      }),
+    ]);
+    if (customer.email && customer.email.toLowerCase() === email.toLowerCase()) {
+      throw new BadRequestException({ code: 'same_email', message: 'Ya es tu email' });
+    }
+    if (taken > 0) {
+      throw new BadRequestException({
+        code: 'email_in_use',
+        message: 'Ese email ya es de otra persona en este negocio. Escríbenos si es tuyo.',
+      });
+    }
+    const tokenId = randomBytes(16).toString('hex');
+    const secret = randomBytes(24).toString('base64url');
+    const client = await this.emailQueue.client;
+    await client.set(
+      `${EMAIL_CHANGE_KEY_PREFIX}${tokenId}`,
+      JSON.stringify({ secretHash: await argonHash(secret), customerId, tenantId, email }),
+      'EX',
+      EMAIL_CHANGE_TTL_SECONDS,
+    );
+    const link = `${this.portalBaseUrl(tenant)}/portal/email-change?token=${tokenId}.${secret}`;
+    const en = emailLocale(customer.locale) === 'en';
+    const brand = {
+      name: tenant.name,
+      logoUrl: tenant.portalLogoUrl,
+      brandColor: tenant.portalBrandColor,
+    };
+    const hi = customer.firstName
+      ? `${en ? 'Hello' : 'Hola'} ${customer.firstName},`
+      : en
+        ? 'Hello,'
+        : 'Hola,';
+    const body = en
+      ? 'Confirm this email to use it in your customer area. The link is valid for 24 hours.'
+      : 'Confirma este email para usarlo en tu área de clientes. El enlace vale 24 horas.';
+    await this.email.sendRendered({
+      tenantId,
+      to: email,
+      subject: en
+        ? `Confirm your new email — ${tenant.name}`
+        : `Confirma tu nuevo email — ${tenant.name}`,
+      text: `${hi}\n\n${body}\n\n${link}\n\n${tenant.name}`,
+      html: tenantEmailShell(
+        brand,
+        `<p>${escapeHtml(hi)}</p><p>${escapeHtml(body)}</p><p><a href="${escapeHtml(link)}">${en ? 'Confirm my email' : 'Confirmar mi email'}</a></p>`,
+      ),
+    });
+    if (customer.email) {
+      const notice = en
+        ? `Someone asked to change the email of your customer area to ${email}. If it was not you, contact us.`
+        : `Se ha pedido cambiar el email de tu área de clientes a ${email}. Si no has sido tú, escríbenos.`;
+      await this.email
+        .sendRendered({
+          tenantId,
+          to: customer.email,
+          subject: en
+            ? `Email change requested — ${tenant.name}`
+            : `Cambio de email solicitado — ${tenant.name}`,
+          text: `${hi}\n\n${notice}\n\n${tenant.name}`,
+          html: tenantEmailShell(brand, `<p>${escapeHtml(hi)}</p><p>${escapeHtml(notice)}</p>`),
+        })
+        .catch(() => undefined);
+    }
+  }
+
+  /** Confirma el cambio de email con el enlace (un solo uso). */
+  async confirmEmailChange(token: string): Promise<{ email: string }> {
+    const [tokenId, secret] = token.split('.');
+    if (!tokenId || !secret || !/^[0-9a-f]{32}$/.test(tokenId)) {
+      throw new UnauthorizedException({
+        code: 'portal_token_invalid',
+        message: 'Enlace no válido',
+      });
+    }
+    const client = await this.emailQueue.client;
+    const raw = await client.getdel(`${EMAIL_CHANGE_KEY_PREFIX}${tokenId}`);
+    if (!raw) {
+      throw new UnauthorizedException({ code: 'portal_token_expired', message: 'Enlace caducado' });
+    }
+    const entry = JSON.parse(raw) as {
+      secretHash: string;
+      customerId: string;
+      tenantId: string;
+      email: string;
+    };
+    if (!(await argonVerify(entry.secretHash, secret).catch(() => false))) {
+      throw new UnauthorizedException({
+        code: 'portal_token_invalid',
+        message: 'Enlace no válido',
+      });
+    }
+    const updated = await this.admin.customer.updateMany({
+      where: { id: entry.customerId, tenantId: entry.tenantId, deletedAt: null },
+      data: { email: entry.email },
+    });
+    if (updated.count === 0) {
+      throw new UnauthorizedException({
+        code: 'portal_token_invalid',
+        message: 'Enlace no válido',
+      });
+    }
+    await this.audit.write({
+      tenantId: entry.tenantId,
+      userId: null,
+      action: 'customer.email_changed_by_customer',
+      entityType: 'Customer',
+      entityId: entry.customerId,
+      changes: { email: entry.email },
+    });
+    return { email: entry.email };
+  }
+
   /** Construye la sesión (JWT de portal + DTO) para un cliente autenticado. */
   private async buildSession(
     customer: {
@@ -1149,31 +1300,117 @@ export class PortalService {
     }));
   }
 
-  /** Locales donde el inquilino tiene un trastero activo (dirección, horario, contacto). */
+  /**
+   * Locales donde el inquilino tiene un trastero activo: dirección, horario,
+   * contacto, fotos, mapa, WhatsApp del negocio y el plano con su trastero.
+   */
   async listMyFacilities(tenantId: string, customerId: string): Promise<PortalFacilityDto[]> {
     await this.requireCustomer(tenantId, customerId);
     const contracts = await this.admin.contract.findMany({
       where: { tenantId, customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
-      select: { unit: { select: { facilityId: true } } },
+      select: { unit: { select: { id: true, code: true, facilityId: true, floorId: true } } },
     });
     const facilityIds = [...new Set(contracts.map((c) => c.unit.facilityId))];
     if (facilityIds.length === 0) return [];
-    const facilities = await this.admin.facility.findMany({
-      where: { id: { in: facilityIds }, deletedAt: null },
-      orderBy: { name: 'asc' },
+    const [facilities, whatsappNumber] = await Promise.all([
+      this.admin.facility.findMany({
+        where: { id: { in: facilityIds }, deletedAt: null },
+        orderBy: { name: 'asc' },
+      }),
+      this.businessWhatsapp(tenantId),
+    ]);
+    const myUnitIds = new Set(contracts.map((c) => c.unit.id));
+    const floorIds = [
+      ...new Set(contracts.map((c) => c.unit.floorId).filter((x): x is string => !!x)),
+    ];
+    const floors = floorIds.length
+      ? await this.admin.facilityFloor.findMany({
+          where: { id: { in: floorIds } },
+          include: {
+            units: {
+              where: { planX: { not: null }, planY: { not: null } },
+              select: {
+                id: true,
+                code: true,
+                planX: true,
+                planY: true,
+                planWidth: true,
+                planHeight: true,
+              },
+            },
+          },
+        })
+      : [];
+    const plansByFacility = new Map<string, PortalFacilityPlanDto[]>();
+    for (const f of floors) {
+      const units = f.units.map((u) => ({
+        code: u.code,
+        x: Number(u.planX),
+        y: Number(u.planY),
+        width: Number(u.planWidth ?? 40),
+        height: Number(u.planHeight ?? 40),
+        mine: myUnitIds.has(u.id),
+      }));
+      if (!units.some((u) => u.mine)) continue;
+      const width = f.planWidthPx ?? Math.max(...units.map((u) => u.x + u.width)) + 20;
+      const height = f.planHeightPx ?? Math.max(...units.map((u) => u.y + u.height)) + 20;
+      const plan: PortalFacilityPlanDto = {
+        floorName: f.name,
+        imageUrl: f.planImageUrl
+          ? await this.files.presignFromPublicUrl('plans', f.planImageUrl, 600)
+          : null,
+        width,
+        height,
+        units,
+      };
+      plansByFacility.set(f.facilityId, [...(plansByFacility.get(f.facilityId) ?? []), plan]);
+    }
+    return facilities.map((f) => {
+      const latitude = f.latitude != null ? Number(f.latitude) : null;
+      const longitude = f.longitude != null ? Number(f.longitude) : null;
+      const place =
+        latitude != null && longitude != null
+          ? `${latitude},${longitude}`
+          : [f.address, f.postalCode, f.city].filter(Boolean).join(', ');
+      return {
+        id: f.id,
+        name: f.name,
+        address: f.address,
+        city: f.city,
+        postalCode: f.postalCode,
+        contactPhone: f.contactPhone,
+        contactEmail: f.contactEmail,
+        accessCurfewEnabled: f.accessCurfewEnabled,
+        accessCurfewStart: f.accessCurfewStart,
+        accessCurfewEnd: f.accessCurfewEnd,
+        imageUrls: (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key)),
+        openingHours: (f.openingHours ?? {}) as OpeningHours,
+        mapEmbedUrl: mapEmbedUrl({
+          address: f.address,
+          city: f.city,
+          postalCode: f.postalCode,
+          latitude,
+          longitude,
+        }),
+        directionsUrl: place
+          ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place)}`
+          : null,
+        whatsappNumber,
+        myUnitCodes: contracts.filter((c) => c.unit.facilityId === f.id).map((c) => c.unit.code),
+        plans: plansByFacility.get(f.id) ?? [],
+      };
     });
-    return facilities.map((f) => ({
-      id: f.id,
-      name: f.name,
-      address: f.address,
-      city: f.city,
-      postalCode: f.postalCode,
-      contactPhone: f.contactPhone,
-      contactEmail: f.contactEmail,
-      accessCurfewEnabled: f.accessCurfewEnabled,
-      accessCurfewStart: f.accessCurfewStart,
-      accessCurfewEnd: f.accessCurfewEnd,
-    }));
+  }
+
+  /** WhatsApp Business del negocio (si lo tiene activo y con el extra). */
+  private async businessWhatsapp(tenantId: string): Promise<string | null> {
+    const row = await this.admin.tenantWhatsappSettings.findUnique({
+      where: { tenantId },
+      select: { enabled: true, displayPhone: true },
+    });
+    if (!row?.enabled) return null;
+    if (!(await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'))) return null;
+    return waMeNumber(row.displayPhone);
   }
 
   /** URL temporal para descargar el PDF del contrato firmado del inquilino. */
@@ -1207,6 +1444,31 @@ export class PortalService {
       });
     }
     return { url };
+  }
+
+  /** El contrato tal y como lo firmó (texto congelado al firmar). */
+  async getMyContractTerms(
+    tenantId: string,
+    customerId: string,
+    contractId: string,
+  ): Promise<PortalContractTermsDto> {
+    await this.requireCustomer(tenantId, customerId);
+    const c = await this.admin.contract.findFirst({
+      where: { id: contractId, customerId, tenantId, deletedAt: null },
+      select: { contractNumber: true, signedAt: true, signedTermsText: true, signedPdfUrl: true },
+    });
+    if (!c) {
+      throw new NotFoundException({
+        code: 'contract_not_found',
+        message: 'Contrato no encontrado',
+      });
+    }
+    return {
+      contractNumber: c.contractNumber,
+      signedAt: c.signedAt?.toISOString() ?? null,
+      text: c.signedTermsText,
+      hasSignedPdf: !!c.signedPdfUrl,
+    };
   }
 
   /** Planes de seguro/protección activos que ofrece el negocio (para contratar). */
@@ -1355,6 +1617,49 @@ export class PortalService {
         }`,
       );
     }
+  }
+
+  /** Preferencias de comunicación (ofertas y WhatsApp). */
+  async getPreferences(tenantId: string, customerId: string): Promise<PortalPreferencesDto> {
+    await this.requireCustomer(tenantId, customerId);
+    const c = await this.admin.customer.findUniqueOrThrow({
+      where: { id: customerId },
+      select: { marketingOptOutAt: true, whatsappOptOutAt: true },
+    });
+    return { marketing: !c.marketingOptOutAt, whatsapp: !c.whatsappOptOutAt };
+  }
+
+  async updatePreferences(
+    tenantId: string,
+    customerId: string,
+    input: PortalPreferencesInput,
+  ): Promise<PortalPreferencesDto> {
+    await this.requireCustomer(tenantId, customerId);
+    const current = await this.admin.customer.findUniqueOrThrow({
+      where: { id: customerId },
+      select: { marketingOptOutAt: true, whatsappOptOutAt: true },
+    });
+    const now = new Date();
+    await this.admin.customer.update({
+      where: { id: customerId },
+      data: {
+        ...(input.marketing !== undefined
+          ? { marketingOptOutAt: input.marketing ? null : (current.marketingOptOutAt ?? now) }
+          : {}),
+        ...(input.whatsapp !== undefined
+          ? { whatsappOptOutAt: input.whatsapp ? null : (current.whatsappOptOutAt ?? now) }
+          : {}),
+      },
+    });
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: 'customer.preferences_changed_by_customer',
+      entityType: 'Customer',
+      entityId: customerId,
+      changes: { ...input },
+    });
+    return this.getPreferences(tenantId, customerId);
   }
 
   /** Datos de perfil del inquilino (para precargar el formulario). */

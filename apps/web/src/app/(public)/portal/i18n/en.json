@@ -154,8 +154,15 @@
           "description": "{days, plural, one {The notice period is # day} other {The notice period is # days}}: the earliest move-out date is {minDate}.",
           "dateLabel": "Move-out date",
           "cancel": "Cancel",
-          "confirm": "Confirm move-out"
-        }
+          "confirm": "Confirm move-out",
+          "changeTitle": "Change the move-out date"
+        },
+        "viewContract": "View contract",
+        "termsTitle": "Contract {number}",
+        "signedOn": "Signed on {date}",
+        "noTerms": "This contract was signed outside the customer area: ask your manager for a copy.",
+        "changeMoveOutDate": "Change date",
+        "moveOutDateChanged": "Move-out date changed."
       },
       "unitChange": {
         "title": "Change your unit",
@@ -168,7 +175,16 @@
         "error": "Couldn't send the request.",
         "statusPending": "Pending",
         "statusHandled": "Handled",
-        "statusRejected": "Rejected"
+        "statusRejected": "Rejected",
+        "pickTitle": "Free units at your facility",
+        "perMonth": "{price}/month",
+        "diffSame": "You would pay the same as now.",
+        "diffMore": "You would pay {amount} more per month (VAT included).",
+        "diffLess": "You would pay {amount} less per month (VAT included).",
+        "dateLabel": "From when?",
+        "noteOptionalPlaceholder": "Anything else we should know (optional)",
+        "submitWithUnit": "Request the move to {code}",
+        "requestedUnit": "Move to {code} from {date}"
       },
       "invoices": {
         "title": "Your invoices",
@@ -250,7 +266,9 @@
         "removed": "Payment method removed.",
         "defaultSaved": "This method will be charged.",
         "pmError": "The change could not be saved.",
-        "otherWays": "Other ways to pay"
+        "otherWays": "Other ways to pay",
+        "payAllCard": "Pay all by card ({amount})",
+        "payAllBizum": "Pay all with Bizum"
       },
       "access": {
         "title": "Your access",
@@ -314,7 +332,23 @@
         "subtitle": "Address, access hours and contact.",
         "curfewClosed": "Access closed from {start} to {end}",
         "curfew24h": "24h access",
-        "phoneSuffix": " · Tel. {phone}"
+        "phoneSuffix": " · Tel. {phone}",
+        "directions": "Directions",
+        "call": "Call",
+        "accessTitle": "Facility access",
+        "officeHours": "Office hours",
+        "yourUnits": "Your units: {codes}",
+        "planTitle": "Where your unit is ({floor})",
+        "closed": "Closed",
+        "day": {
+          "mon": "Monday",
+          "tue": "Tuesday",
+          "wed": "Wednesday",
+          "thu": "Thursday",
+          "fri": "Friday",
+          "sat": "Saturday",
+          "sun": "Sunday"
+        }
       },
       "referrals": {
         "title": "Refer and earn",
@@ -338,7 +372,9 @@
         "unsupported": "Your browser doesn't support push notifications.",
         "permissionDenied": "Notification permission denied.",
         "success": "Notifications enabled.",
-        "error": "Couldn't enable them."
+        "error": "Couldn't enable them.",
+        "disable": "Turn off on this device",
+        "disabled": "Notifications turned off on this device."
       },
       "profile": {
         "title": "My details",
@@ -380,7 +416,11 @@
         "docTypeOther": "Other",
         "closeAllTitle": "Open sessions",
         "closeAllDescription": "Signs you out on every phone and computer you used, including this one.",
-        "closeAllButton": "Sign out everywhere"
+        "closeAllButton": "Sign out everywhere",
+        "changeEmail": "Change",
+        "newEmailPlaceholder": "Your new email",
+        "sendConfirmation": "Send confirmation",
+        "emailChangeSent": "We've sent a link to {email}. Open it to confirm the change."
       },
       "accessLogs": {
         "title": "Access history",
@@ -485,7 +525,10 @@
         "tooLarge": "The file exceeds 10 MB.",
         "uploaded": "Document uploaded.",
         "uploadError": "Couldn't upload the document.",
-        "downloadError": "Couldn't download the document."
+        "downloadError": "Couldn't download the document.",
+        "deleted": "Document deleted.",
+        "deleteError": "Couldn't delete.",
+        "deleteSr": "Delete {fileName}"
       },
       "doorOpen": {
         "title": "Open door",
@@ -612,6 +655,52 @@
         "confirmCancel": "Cancel the booking",
         "cancelled": "Booking cancelled. We will refund you by the same payment method.",
         "error": "The booking could not be cancelled."
+      },
+      "visitors": {
+        "title": "Visitors and authorised people",
+        "subtitle": "Create a single-use code for someone coming today (movers, a relative, a courier) and keep a list of the people you authorise.",
+        "newPass": "Visitor pass for today",
+        "peopleTitle": "Authorised people",
+        "peopleEmpty": "You haven't added anyone yet.",
+        "addPerson": "Add person",
+        "namePlaceholder": "Full name",
+        "relationshipPlaceholder": "Relationship (relative, employee…)",
+        "phonePlaceholder": "Phone (optional)",
+        "save": "Save",
+        "cancel": "Cancel",
+        "remove": "Remove",
+        "added": "Person added.",
+        "error": "Couldn't save.",
+        "passTitle": "Visitor pass",
+        "passDescription": "A code that opens once, until midnight. The facility team will know who is coming.",
+        "whoLabel": "Who is coming?",
+        "someoneElse": "Someone else",
+        "visitorNamePlaceholder": "Visitor's name",
+        "facilityLabel": "Facility",
+        "createPass": "Create the code",
+        "passValidToday": "Valid for one entry today, until midnight.",
+        "share": "Send",
+        "copy": "Copy",
+        "copied": "Copied.",
+        "shareText": "Your code to get in today: {pin}. Valid for one entry, until midnight. {facility}"
+      },
+      "annualInvoices": {
+        "title": "Invoices for the year",
+        "subtitle": "Download all invoices for a year in a ZIP: a summary in Excel (CSV) and the PDF of each one, for your accountant.",
+        "yearLabel": "Year",
+        "download": "Download the ZIP",
+        "error": "Couldn't prepare the download."
+      },
+      "preferences": {
+        "title": "What you want to receive",
+        "subtitle": "Choose how we contact you.",
+        "marketing": "Offers and news from the business",
+        "marketingHint": "Promotions, discounts and news by email.",
+        "whatsapp": "Notices by WhatsApp",
+        "whatsappHint": "If you turn it off, we will only notify you by email.",
+        "note": "Important notices (invoices, payments, your access) always reach you by email.",
+        "saved": "Preferences saved.",
+        "error": "Couldn't save."
       }
     },
     "gocardless": {
@@ -623,6 +712,13 @@
       "errorFallback": "Couldn't complete the direct debit.",
       "notFound": "We couldn't find the direct debit in progress.",
       "back": "Back to the portal"
+    },
+    "emailChange": {
+      "title": "Confirm email",
+      "loading": "Confirming…",
+      "success": "Done: you can now sign in with {email}.",
+      "error": "The link is not valid or has expired. Request the change again from «My details».",
+      "goToPortal": "Go to my customer area"
     }
   },
   "appHeader": {

@@ -38,7 +38,8 @@ export class CustomerAuthorizedPersonsService {
 
   async create(args: {
     tenantId: string;
-    userId: string;
+    /** null cuando lo añade el propio inquilino desde su área de clientes. */
+    userId: string | null;
     customerId: string;
     input: CustomerAuthorizedPersonInput;
   }): Promise<CustomerAuthorizedPersonDto> {
@@ -81,7 +82,7 @@ export class CustomerAuthorizedPersonsService {
 
   async remove(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     customerId: string;
     id: string;
   }): Promise<void> {
@@ -107,7 +108,7 @@ export class CustomerAuthorizedPersonsService {
   }
 
   private async trace(
-    args: { tenantId: string; userId: string; customerId: string },
+    args: { tenantId: string; userId: string | null; customerId: string },
     action: string,
     id: string,
   ): Promise<void> {

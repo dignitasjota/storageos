@@ -72,6 +72,28 @@ export function ProfileCard({
   const [saving, setSaving] = useState(false);
   const [savingLocale, setSavingLocale] = useState(false);
   const [closingAll, setClosingAll] = useState(false);
+  const [changingEmail, setChangingEmail] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  async function requestEmailChange() {
+    setSendingEmail(true);
+    try {
+      await portalApiFetch('/portal/me/email-change', {
+        method: 'POST',
+        json: { email: newEmail.trim() },
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+        requiresAuth: false,
+      });
+      toast.success(t('emailChangeSent', { email: newEmail.trim() }));
+      setChangingEmail(false);
+      setNewEmail('');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : t('saveError'));
+    } finally {
+      setSendingEmail(false);
+    }
+  }
 
   /** Cierra la sesión en todos sus dispositivos (también aquí) y vuelve al acceso. */
   async function closeAll() {
@@ -190,7 +212,34 @@ export function ProfileCard({
             </>
           )}
           <Field label={t('emailLabel')}>
-            <Input value={profile.email ?? ''} disabled />
+            {changingEmail ? (
+              <div className="flex gap-2">
+                <Input
+                  type="email"
+                  value={newEmail}
+                  autoComplete="email"
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder={t('newEmailPlaceholder')}
+                  className="text-base sm:text-sm"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={sendingEmail || !newEmail.includes('@')}
+                  onClick={() => void requestEmailChange()}
+                >
+                  {sendingEmail && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                  {t('sendConfirmation')}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Input value={profile.email ?? ''} disabled />
+                <Button size="sm" variant="ghost" onClick={() => setChangingEmail(true)}>
+                  {t('changeEmail')}
+                </Button>
+              </div>
+            )}
           </Field>
           <Field label={t('phoneLabel')}>
             <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} />

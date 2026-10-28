@@ -1,6 +1,6 @@
 'use client';
 
-import { Download, FileText, Loader2, Upload } from 'lucide-react';
+import { Download, FileText, Loader2, Trash2, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -73,6 +73,20 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
       window.open(url, '_blank', 'noopener');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : t('downloadError'));
+    }
+  }
+
+  async function remove(id: string) {
+    try {
+      await portalApiFetch(`/portal/me/documents/${id}`, {
+        method: 'DELETE',
+        headers,
+        requiresAuth: false,
+      });
+      setDocs((d) => d.filter((x) => x.id !== id));
+      toast.success(t('deleted'));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : t('deleteError'));
     }
   }
 
@@ -195,6 +209,18 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
                     <Download className="h-4 w-4" />
                     <span className="sr-only">{t('downloadSr', { fileName: d.fileName })}</span>
                   </Button>
+                  {!d.uploadedByUserId && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-destructive"
+                      onClick={() => void remove(d.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="sr-only">{t('deleteSr', { fileName: d.fileName })}</span>
+                    </Button>
+                  )}
                 </span>
               </li>
             ))}

@@ -45,13 +45,20 @@ export class UnitChangesService {
   }): Promise<PortalUnitChangeRequestDto> {
     const { tenantId, customerId, input } = args;
     // Si indica contrato, validamos que es suyo.
+    let contractFacilityId: string | null = null;
     if (input.contractId) {
       const contractId = input.contractId;
       const owned = await this.prisma.withTenant(
         (tx) =>
           tx.contract.findFirst({
-            where: { id: contractId, tenantId, customerId },
-            select: { id: true },
+            where: {
+              id: contractId,
+              tenantId,
+              customerId,
+              deletedAt: null,
+              status: { in: ['active', 'ending'] },
+            },
+            select: { id: true, unit: { select: { facilityId: true } } },
           }),
         tenantId,
       );
@@ -59,6 +66,36 @@ export class UnitChangesService {
         throw new NotFoundException({
           code: 'contract_not_found',
           message: 'Contrato no encontrado',
+        });
+      }
+      contractFacilityId = owned.unit.facilityId;
+    }
+    // Trastero elegido: libre y del mismo local que el suyo.
+    if (input.targetUnitId) {
+      const targetUnitId = input.targetUnitId;
+      if (!contractFacilityId) {
+        throw new BadRequestException({
+          code: 'contract_required',
+          message: 'Indica qué trastero quieres cambiar',
+        });
+      }
+      const target = await this.prisma.withTenant(
+        (tx) =>
+          tx.unit.findFirst({
+            where: {
+              id: targetUnitId,
+              tenantId,
+              facilityId: contractFacilityId!,
+              status: 'available',
+            },
+            select: { id: true },
+          }),
+        tenantId,
+      );
+      if (!target) {
+        throw new BadRequestException({
+          code: 'unit_not_available',
+          message: 'Ese trastero ya no está disponible',
         });
       }
     }
@@ -69,10 +106,12 @@ export class UnitChangesService {
             tenantId,
             customerId,
             contractId: input.contractId ?? null,
+            targetUnitId: input.targetUnitId ?? null,
+            desiredDate: input.desiredDate ? new Date(`${input.desiredDate}T00:00:00Z`) : null,
             note: input.note,
             status: 'pending',
           },
-          include: { contract: { select: { contractNumber: true } } },
+          include: PORTAL_INCLUDE,
         }),
       tenantId,
     );
@@ -87,7 +126,12 @@ export class UnitChangesService {
     await this.notifications.create(tenantId, {
       type: 'unit_change.requested',
       title: `Cambio de trastero solicitado — ${customerName(customer)}`,
-      body: input.note.slice(0, 140),
+      body: (created.targetUnit
+        ? `Quiere el trastero ${created.targetUnit.code}${input.desiredDate ? ` desde el ${input.desiredDate}` : ''}. ${input.note}`
+        : input.note
+      )
+        .trim()
+        .slice(0, 140),
       link: '/unit-change-requests',
       contractId: created.contractId,
     });
@@ -103,7 +147,7 @@ export class UnitChangesService {
         tx.unitChangeRequest.findMany({
           where: { tenantId, customerId },
           orderBy: { createdAt: 'desc' },
-          include: { contract: { select: { contractNumber: true } } },
+          include: PORTAL_INCLUDE,
         }),
       tenantId,
     );
@@ -142,7 +186,14 @@ export class UnitChangesService {
             customer: {
               select: { customerType: true, firstName: true, lastName: true, companyName: true },
             },
-            contract: { select: { contractNumber: true, unit: { select: { code: true } } } },
+            contract: {
+              select: {
+                contractNumber: true,
+                priceMonthly: true,
+                unit: { select: { code: true } },
+              },
+            },
+            targetUnit: { select: { id: true, code: true, basePriceMonthly: true } },
           },
         }),
       tenantId,
@@ -237,7 +288,14 @@ export class UnitChangesService {
             customer: {
               select: { customerType: true, firstName: true, lastName: true, companyName: true },
             },
-            contract: { select: { contractNumber: true, unit: { select: { code: true } } } },
+            contract: {
+              select: {
+                contractNumber: true,
+                priceMonthly: true,
+                unit: { select: { code: true } },
+              },
+            },
+            targetUnit: { select: { id: true, code: true, basePriceMonthly: true } },
           },
         }),
       tenantId,
@@ -266,11 +324,15 @@ export class UnitChangesService {
     status: string;
     resolutionNote: string | null;
     createdAt: Date;
+    desiredDate: Date | null;
     contract: { contractNumber: string } | null;
+    targetUnit: { code: string } | null;
   }): PortalUnitChangeRequestDto {
     return {
       id: r.id,
       contractNumber: r.contract?.contractNumber ?? null,
+      targetUnitCode: r.targetUnit?.code ?? null,
+      desiredDate: r.desiredDate?.toISOString().slice(0, 10) ?? null,
       note: r.note,
       status: r.status as UnitChangeRequestStatus,
       resolutionNote: r.resolutionNote,
@@ -287,13 +349,20 @@ export class UnitChangesService {
     resolutionNote: string | null;
     createdAt: Date;
     handledAt: Date | null;
+    desiredDate: Date | null;
+    targetUnitId: string | null;
+    targetUnit: { id: string; code: string; basePriceMonthly: unknown } | null;
     customer: {
       customerType: string;
       firstName: string | null;
       lastName: string | null;
       companyName: string | null;
     } | null;
-    contract: { contractNumber: string; unit: { code: string } | null } | null;
+    contract: {
+      contractNumber: string;
+      priceMonthly: unknown;
+      unit: { code: string } | null;
+    } | null;
   }): UnitChangeRequestDto {
     return {
       id: r.id,
@@ -302,6 +371,11 @@ export class UnitChangesService {
       contractId: r.contractId,
       contractNumber: r.contract?.contractNumber ?? null,
       unitCode: r.contract?.unit?.code ?? null,
+      targetUnitId: r.targetUnitId,
+      targetUnitCode: r.targetUnit?.code ?? null,
+      targetUnitPrice: r.targetUnit ? Number(r.targetUnit.basePriceMonthly) : null,
+      currentPrice: r.contract ? Number(r.contract.priceMonthly) : null,
+      desiredDate: r.desiredDate?.toISOString().slice(0, 10) ?? null,
       note: r.note,
       status: r.status as UnitChangeRequestStatus,
       resolutionNote: r.resolutionNote,
@@ -310,3 +384,8 @@ export class UnitChangesService {
     };
   }
 }
+
+const PORTAL_INCLUDE = {
+  contract: { select: { contractNumber: true } },
+  targetUnit: { select: { code: true } },
+} as const;

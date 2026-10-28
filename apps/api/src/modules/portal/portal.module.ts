@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { CustomerMessagesModule } from '../customer-messages/customer-messages.module';
+import { CustomerAuthorizedPersonsService } from '../customers/customer-authorized-persons.service';
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqModule } from '../faq/faq.module';
 import { MoveInModule } from '../move-in/move-in.module';
@@ -28,6 +29,7 @@ import { WaitlistModule } from '../waitlist/waitlist.module';
 import { NightPassService } from './night-pass.service';
 import { OfflinePaymentsService } from './offline-payments.service';
 import { PortalAccountService } from './portal-account.service';
+import { PortalInvoiceExportService } from './portal-invoice-export.service';
 import { PortalLinkController } from './portal-link.controller';
 import { PortalController } from './portal.controller';
 import { PortalService } from './portal.service';
@@ -84,7 +86,9 @@ import { PortalService } from './portal.service';
     PortalAccountService,
     NightPassService,
     OfflinePaymentsService,
+    PortalInvoiceExportService,
     CustomerDocumentsService,
+    CustomerAuthorizedPersonsService,
   ],
 })
 export class PortalModule {}

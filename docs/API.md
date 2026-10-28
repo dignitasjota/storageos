@@ -2426,3 +2426,17 @@ El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la
 - Login por enlace o recuperación de contraseña con un email repetido: se elige el inquilino con contratos vivos y, si no, el más reciente.
 - `PATCH /portal/me/profile`: con DNI/NIE/NIF/CIF (o sin tipo y país ES) valida el número → 400 `invalid_tax_id`; lo guarda normalizado.
 - `POST /portal/me/logout` (cierra la sesión de este token en el servidor) y `POST /portal/me/sessions/close-all` (todas, también la actual).
+
+**Mejoras del área de clientes (2026-10-28):**
+
+- `POST /portal/me/unit-change-requests {contractId?, note?, targetUnitId?, desiredDate?}`: con `targetUnitId` (trastero libre del mismo local, si no 400) la nota es opcional. Los DTO llevan `targetUnitCode`, `desiredDate` y, en el panel, `targetUnitId`, `targetUnitPrice` y `currentPrice`; `PortalContractDto.facilityId`.
+- `GET/POST /portal/me/authorized-persons` y `DELETE /portal/me/authorized-persons/:id`: personas autorizadas del propio inquilino.
+- `POST /portal/me/access/visitor {authorizedPersonId? | name, facilityId?}`: PIN de un uso hasta medianoche en la hora del local, como mucho 3 al día, solo con un trastero en uso (409 `no_active_contract`); aviso al equipo `access.visitor_pass_created`.
+- `GET /portal/me/contracts/:id/terms` → texto firmado del contrato (`PortalContractTermsDto`).
+- `GET /portal/me/facilities`: `PortalFacilityDto` gana `imageUrls`, `openingHours`, `mapEmbedUrl`, `directionsUrl`, `whatsappNumber`, `myUnitCodes` y `plans` (plano de cada planta con sus trasteros marcados).
+- `GET /portal/me/invoices/annual?year=` → `{url, year, invoices, withPdf}`: ZIP con el resumen en CSV y el PDF de cada factura del año (enlace de 1 h). 404 `no_invoices`, 400 `invalid_year`.
+- `POST /portal/me/email-change {email}` (204; 400 `same_email` / `email_in_use`): enlace de 24 h al email nuevo y aviso al actual. `POST /portal/email-change/confirm {token}` (público, un solo uso) → `{email}`; página web `/portal/email-change?token=`.
+- `DELETE /portal/me/documents/:id`: borra un documento que subió el propio inquilino (400 `document_added_by_staff` si lo añadió el equipo).
+- `GET/PATCH /portal/me/preferences {marketing?, whatsapp?}` → `{marketing, whatsapp}`: baja de lo comercial (`marketingOptOutAt`) y de los avisos por WhatsApp (`whatsappOptOutAt`; el envío queda `skipped`).
+- `POST /portal/me/contracts/:id/move-out-date {endDate}`: cambia la fecha de una baja en curso respetando el preaviso (400 `contract_not_ending` / `notice_period_not_met`); aviso al equipo `contract.move_out_date_changed`.
+- `POST /portal/me/invoices/:id/redsys-redirect {…, extraInvoiceIds?}`: varias facturas (y sus fianzas) del mismo inquilino en una sola orden de tarjeta o Bizum; la notificación reparte el cobro entre ellas.

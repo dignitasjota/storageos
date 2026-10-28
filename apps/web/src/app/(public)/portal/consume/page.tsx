@@ -54,10 +54,13 @@ import { AccessCredentialItem } from './access-credential';
 import { AccessLogsCard } from './access-logs-card';
 import { AdditionalUnitCard } from './additional-unit-card';
 import { PortalAiChatCard } from './ai-chat-card';
+import { AnnualInvoicesCard } from './annual-invoices-card';
 import { ChatCard } from './chat-card';
+import { ContractTermsButton } from './contract-terms-button';
 import { DocumentsCard } from './documents-card';
 import { DoorOpenCard } from './door-open-card';
 import { ExtrasCard } from './extras-card';
+import { FacilityInfoCard } from './facility-info-card';
 import { FaqCard } from './faq-card';
 import { InsuranceCard } from './insurance-card';
 import { InvoicesList } from './invoices-list';
@@ -66,9 +69,12 @@ import { NoticesCard } from './notices-card';
 import { OffersCard } from './offers-card';
 import { OverviewCard } from './overview-card';
 import { PreOpeningNotice } from './pre-opening-notice';
+import { PreferencesCard } from './preferences-card';
 import { ProfileCard } from './profile-card';
 import { RetentionOfferCard } from './retention-offer-card';
 import { ShopCard } from './shop-card';
+import { UnitChangeCard } from './unit-change-card';
+import { VisitorsCard } from './visitors-card';
 import { WaitlistCard } from './waitlist-card';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
@@ -275,11 +281,9 @@ function PortalConsumeContent() {
   const t = useTranslations('portal.consume');
   const tNav = useTranslations('portal.consume.nav');
   const tContracts = useTranslations('portal.consume.contracts');
-  const tUnitChange = useTranslations('portal.consume.unitChange');
   const tInvoices = useTranslations('portal.consume.invoices');
   const tAccess = useTranslations('portal.consume.access');
   const tIncidents = useTranslations('portal.consume.incidents');
-  const tFacility = useTranslations('portal.consume.facility');
   const tReferrals = useTranslations('portal.consume.referrals');
   const tPush = useTranslations('portal.consume.push');
   const { locale } = usePortalLocale();
@@ -322,10 +326,9 @@ function PortalConsumeContent() {
     if (wanted) setTab(wanted);
   }, []);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [ucNote, setUcNote] = useState('');
-  const [ucContractId, setUcContractId] = useState('');
-  const [ucBusy, setUcBusy] = useState(false);
   const [moveOutId, setMoveOutId] = useState<string | null>(null);
+  // Cambiar la fecha de una baja ya pedida (mismo diálogo).
+  const [moveOutChange, setMoveOutChange] = useState(false);
   const [cancelingMoveOutId, setCancelingMoveOutId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [addingAccess, setAddingAccess] = useState(false);
@@ -639,6 +642,29 @@ function PortalConsumeContent() {
     }
   }
 
+  /** Desactiva los avisos en este dispositivo. */
+  async function disablePush() {
+    if (!session) return;
+    setPushBusy(true);
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) {
+        await portalFetch(session, '/portal/me/push/unsubscribe', {
+          method: 'POST',
+          json: { endpoint: sub.endpoint },
+        });
+        await sub.unsubscribe().catch(() => undefined);
+      }
+      setPushEnabled(false);
+      toast.success(tPush('disabled'));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : tPush('error'));
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
   async function enablePush() {
     if (!session || !pushKey) return;
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -667,29 +693,6 @@ function PortalConsumeContent() {
       toast.error(err instanceof ApiError ? err.body.message : tPush('error'));
     } finally {
       setPushBusy(false);
-    }
-  }
-
-  async function requestUnitChange() {
-    if (!session || ucNote.trim().length < 5) {
-      toast.error(tUnitChange('noteTooShort'));
-      return;
-    }
-    setUcBusy(true);
-    try {
-      const created = await portalFetch<PortalUnitChangeRequestDto>(
-        session,
-        '/portal/me/unit-change-requests',
-        { method: 'POST', json: { note: ucNote.trim(), contractId: ucContractId || undefined } },
-      );
-      setUnitChanges((prev) => [created, ...(prev ?? [])]);
-      setUcNote('');
-      setUcContractId('');
-      toast.success(tUnitChange('success'));
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : tUnitChange('error'));
-    } finally {
-      setUcBusy(false);
     }
   }
 
@@ -793,12 +796,17 @@ function PortalConsumeContent() {
     try {
       const updated = await portalFetch<PortalContractDto>(
         session,
-        `/portal/me/contracts/${id}/request-move-out`,
+        moveOutChange
+          ? `/portal/me/contracts/${id}/move-out-date`
+          : `/portal/me/contracts/${id}/request-move-out`,
         { method: 'POST', json: { endDate } },
       );
       setContracts((prev) => (prev ?? []).map((c) => (c.id === id ? updated : c)));
       setMoveOutId(null);
-      toast.success(tContracts('moveOutSuccess'));
+      toast.success(
+        moveOutChange ? tContracts('moveOutDateChanged') : tContracts('moveOutSuccess'),
+      );
+      setMoveOutChange(false);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : tContracts('moveOutError'));
     }
@@ -1202,6 +1210,16 @@ function PortalConsumeContent() {
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary">{tContracts('moveOutRequested')}</Badge>
                             <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setMoveOutChange(true);
+                                setMoveOutId(c.id);
+                              }}
+                            >
+                              {tContracts('changeMoveOutDate')}
+                            </Button>
+                            <Button
                               variant="outline"
                               size="sm"
                               disabled={cancelingMoveOutId === c.id}
@@ -1216,7 +1234,14 @@ function PortalConsumeContent() {
                             </Button>
                           </div>
                         ) : (
-                          <Button variant="outline" size="sm" onClick={() => setMoveOutId(c.id)}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setMoveOutChange(false);
+                              setMoveOutId(c.id);
+                            }}
+                          >
                             <LogOut className="mr-1 h-4 w-4" /> {tContracts('requestMoveOut')}
                           </Button>
                         )}
@@ -1270,15 +1295,18 @@ function PortalConsumeContent() {
                           </span>
                         )}
                       </div>
-                      {c.hasSignedPdf && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void downloadContract(c.id)}
-                        >
-                          <Download className="mr-1 h-4 w-4" /> {tContracts('downloadContract')}
-                        </Button>
-                      )}
+                      <div className="flex flex-wrap gap-1">
+                        <ContractTermsButton session={session} contractId={c.id} />
+                        {c.hasSignedPdf && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void downloadContract(c.id)}
+                          >
+                            <Download className="mr-1 h-4 w-4" /> {tContracts('downloadContract')}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </CardContent>
@@ -1295,70 +1323,12 @@ function PortalConsumeContent() {
           </TabsContent>
 
           <TabsContent value="cambio" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Boxes className="h-4 w-4" /> {tUnitChange('title')}
-                </CardTitle>
-                <CardDescription>{tUnitChange('subtitle')}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {(contracts ?? []).length > 0 && (
-                  <select
-                    value={ucContractId}
-                    onChange={(e) => setUcContractId(e.target.value)}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
-                  >
-                    <option value="">{tUnitChange('currentUnitOption')}</option>
-                    {(contracts ?? []).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.unitCode} · {c.facilityName}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <textarea
-                  value={ucNote}
-                  onChange={(e) => setUcNote(e.target.value)}
-                  placeholder={tUnitChange('notePlaceholder')}
-                  maxLength={1000}
-                  rows={3}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
-                />
-                <Button onClick={requestUnitChange} disabled={ucBusy || ucNote.trim().length < 5}>
-                  {ucBusy ? (
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Plus className="mr-1 h-4 w-4" />
-                  )}
-                  {tUnitChange('submit')}
-                </Button>
-
-                {(unitChanges ?? []).length > 0 && (
-                  <ul className="space-y-2 border-t pt-3">
-                    {(unitChanges ?? []).map((r) => (
-                      <li key={r.id} className="space-y-1 text-sm">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="line-clamp-1">{r.note}</span>
-                          <Badge variant={r.status === 'handled' ? 'default' : 'secondary'}>
-                            {r.status === 'pending'
-                              ? tUnitChange('statusPending')
-                              : r.status === 'handled'
-                                ? tUnitChange('statusHandled')
-                                : tUnitChange('statusRejected')}
-                          </Badge>
-                        </div>
-                        {r.status !== 'pending' && r.resolutionNote && (
-                          <p className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-                            {r.resolutionNote}
-                          </p>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
+            <UnitChangeCard
+              session={session}
+              contracts={contracts ?? []}
+              requests={unitChanges ?? []}
+              onCreated={(created) => setUnitChanges((prev) => [created, ...(prev ?? [])])}
+            />
           </TabsContent>
 
           <TabsContent value="nuevo" className="space-y-6">
@@ -1448,6 +1418,8 @@ function PortalConsumeContent() {
                 </CardContent>
               </Card>
             )}
+
+            <AnnualInvoicesCard session={session} invoices={invoices} />
 
             {session && <ShopCard session={session} onPurchased={reloadInvoices} />}
 
@@ -1624,6 +1596,7 @@ function PortalConsumeContent() {
               </CardContent>
             </Card>
 
+            {hasStartedContract && <VisitorsCard session={session} facilities={facilities} />}
             <AccessLogsCard session={session} />
           </TabsContent>
 
@@ -1692,38 +1665,9 @@ function PortalConsumeContent() {
           </TabsContent>
 
           <TabsContent value="local" className="space-y-6">
-            {facilities.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <MapPin className="h-5 w-5 text-muted-foreground" /> {tFacility('title')}
-                  </CardTitle>
-                  <CardDescription>{tFacility('subtitle')}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {facilities.map((f) => (
-                    <div key={f.id} className="rounded-md border p-3 text-sm">
-                      <p className="font-medium">{f.name}</p>
-                      {(f.address || f.city) && (
-                        <p className="text-muted-foreground">
-                          {[f.address, f.postalCode, f.city].filter(Boolean).join(', ')}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        {f.accessCurfewEnabled && f.accessCurfewStart && f.accessCurfewEnd
-                          ? tFacility('curfewClosed', {
-                              start: f.accessCurfewStart,
-                              end: f.accessCurfewEnd,
-                            })
-                          : tFacility('curfew24h')}
-                        {f.contactPhone ? tFacility('phoneSuffix', { phone: f.contactPhone }) : ''}
-                        {f.contactEmail ? ` · ${f.contactEmail}` : ''}
-                      </p>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
+            {facilities.map((f) => (
+              <FacilityInfoCard key={f.id} facility={f} />
+            ))}
 
             {session && <FaqCard session={session} />}
           </TabsContent>
@@ -1738,6 +1682,8 @@ function PortalConsumeContent() {
             />
 
             <DocumentsCard session={session} />
+
+            <PreferencesCard session={session} />
 
             {referrals?.enabled && referrals.referralCode && (
               <Card>
@@ -1821,7 +1767,17 @@ function PortalConsumeContent() {
                 </CardHeader>
                 <CardContent>
                   {pushEnabled ? (
-                    <p className="text-sm text-emerald-600">{tPush('enabled')}</p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm text-emerald-600">{tPush('enabled')}</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={pushBusy}
+                        onClick={() => void disablePush()}
+                      >
+                        {tPush('disable')}
+                      </Button>
+                    </div>
                   ) : (
                     <Button onClick={enablePush} disabled={pushBusy} variant="outline">
                       {pushBusy ? (
@@ -1901,7 +1857,11 @@ function PortalConsumeContent() {
       {moveOutId && (
         <MoveOutDialog
           contract={contracts?.find((c) => c.id === moveOutId) ?? null}
-          onClose={() => setMoveOutId(null)}
+          change={moveOutChange}
+          onClose={() => {
+            setMoveOutId(null);
+            setMoveOutChange(false);
+          }}
           onConfirm={(endDate) => requestMoveOut(moveOutId, endDate)}
         />
       )}
@@ -2036,10 +1996,13 @@ export default function PortalConsumePage() {
 
 function MoveOutDialog({
   contract,
+  change = false,
   onClose,
   onConfirm,
 }: {
   contract: PortalContractDto | null;
+  /** Cambia la fecha de una baja ya pedida. */
+  change?: boolean;
   onClose: () => void;
   onConfirm: (endDate: string) => void;
 }) {
@@ -2051,13 +2014,15 @@ function MoveOutDialog({
   const minDate = `${min.getFullYear()}-${String(min.getMonth() + 1).padStart(2, '0')}-${String(
     min.getDate(),
   ).padStart(2, '0')}`;
-  const [endDate, setEndDate] = useState(minDate);
+  const [endDate, setEndDate] = useState(
+    change && contract?.endDate && contract.endDate >= minDate ? contract.endDate : minDate,
+  );
 
   return (
     <Dialog open={!!contract} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('title')}</DialogTitle>
+          <DialogTitle>{change ? t('changeTitle') : t('title')}</DialogTitle>
           <DialogDescription>
             {contract ? `${contract.unitCode} · ${contract.facilityName}. ` : ''}
             {t('description', { days: notice, minDate })}
