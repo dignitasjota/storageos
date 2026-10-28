@@ -46,7 +46,7 @@ function buildFakeRedis(): {
 }
 
 function buildAdmin(): {
-  customer: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
+  customer: { findFirst: jest.Mock; findMany: jest.Mock; findUniqueOrThrow: jest.Mock };
   tenant: { findUnique: jest.Mock; findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
 } {
   const fullCustomer = {
@@ -66,6 +66,8 @@ function buildAdmin(): {
       // `consumeMagicLink` (PR4 del portal) lee el customer con `findFirst`
       // (deletedAt:null) y usa sus campos para el displayName de la sesión.
       findFirst: jest.fn().mockResolvedValue(fullCustomer),
+      // La búsqueda por email trae todos los que lo comparten.
+      findMany: jest.fn().mockResolvedValue([fullCustomer]),
       findUniqueOrThrow: jest.fn().mockResolvedValue(fullCustomer),
     },
     tenant: {
@@ -279,7 +281,7 @@ describe('PortalService', () => {
 
     // Tenant OK pero email sin customer.
     admin.tenant.findUnique.mockResolvedValue({ id: TENANT, name: 'T', deletedAt: null });
-    admin.customer.findFirst.mockResolvedValue(null);
+    admin.customer.findMany.mockResolvedValue([]);
     await expect(
       service.requestMagicLink({ tenantSlug: 'trasteros', email: 'nadie@y.z' }),
     ).resolves.toBeUndefined();
