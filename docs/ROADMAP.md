@@ -838,3 +838,11 @@ Decisiones de Jota: un local en «próxima apertura» (fecha opcional, cambiable
 ### Otras formas de pago para el inquilino (2026-10-28, #855) ✅
 
 Decisiones de Jota: al reservar online (tras firmar) o al pagar una factura desde el área de clientes, el inquilino puede elegir **transferencia** (el IBAN le llega **por correo**, no se enseña en pantalla), **pagar en el local** o **domiciliar** con la remesa SEPA propia del negocio (pone su IBAN y firma el mandato). Cada una **solo aparece si el tenant la activa** en Configuración → Cobros. Con transferencia o en el local la reserva se guarda **24 h más** (72 → 96 h, una vez) y el equipo recibe un aviso; con el mandato firmado la reserva no caduca y se cobra en la próxima remesa. En el panel, «Marcar pagada» propone lo que eligió el inquilino y admite efectivo, transferencia, domiciliación SEPA, tarjeta u otro. **Posible siguiente paso**: dar el acceso al firmar el mandato (hoy llega al confirmar la remesa, que con 14 días de preaviso puede tardar).
+
+### Área de clientes del inquilino: revisión y mejoras (2026-10-28, #857 + PR B) ✅
+
+Arreglos (#857): accesos adicionales y pases nocturnos solo con un trastero en uso (antes abrían todos los locales), próximo cargo con lo ya pagado por adelantado, la fecha de fin vuelve al cancelar la baja, contratar otro trastero lleva a leer y firmar el contrato, email repetido, NIF validado y cerrar sesión de verdad (también en todos los dispositivos).
+
+Mejoras (PR B): cambio de trastero eligiendo uno libre de su local con la diferencia de precio y la fecha; personas autorizadas y pases de visita de un uso para hoy (máx. 3 al día); ver el contrato firmado; «Tu local» con fotos, mapa, cómo llegar, WhatsApp, horario y su trastero en el plano; facturas del año en un ZIP (resumen CSV + PDF); cambiar el email de acceso con confirmación; borrar un documento propio; preferencias de comunicación (ofertas y WhatsApp) y desactivar los avisos en el móvil; cambiar la fecha de una baja ya pedida; pagar varias facturas en un solo cobro con tarjeta o Bizum.
+
+Pendiente (menor): que el equipo vea en la ficha del inquilino quién tiene pases de visita activos; plano también en el móvil con zoom.
