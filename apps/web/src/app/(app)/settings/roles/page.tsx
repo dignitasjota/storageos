@@ -1,6 +1,13 @@
 'use client';
 
-import { Permissions, type Permission, type TenantRoleDto, type UserRole } from '@storageos/shared';
+import {
+  PERMISSION_ACTION_LABELS,
+  PERMISSION_RESOURCE_LABELS,
+  Permissions,
+  type Permission,
+  type TenantRoleDto,
+  type UserRole,
+} from '@storageos/shared';
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -44,6 +51,12 @@ import {
 
 // Roles enum válidos como "base" de un rol custom (owner no es asignable).
 const BASE_ROLES: UserRole[] = ['manager', 'staff', 'readonly'];
+const ROLE_LABELS: Record<UserRole, string> = {
+  owner: 'Propietario',
+  manager: 'Gestor',
+  staff: 'Personal',
+  readonly: 'Solo lectura',
+};
 
 // Agrupa los permisos del catálogo por recurso (lo de antes de ':').
 const PERMISSION_GROUPS: { resource: string; items: Permission[] }[] = (() => {
@@ -108,7 +121,7 @@ export default function RolesPage() {
                   )}
                 </TableCell>
                 <TableCell>
-                  <Badge variant="secondary">{r.baseRole}</Badge>
+                  <Badge variant="secondary">{ROLE_LABELS[r.baseRole]}</Badge>
                 </TableCell>
                 <TableCell className="text-right">{r.permissions.length}</TableCell>
                 <TableCell className="text-right">{r.userCount}</TableCell>
@@ -245,7 +258,7 @@ function RoleDialog({ role, onClose }: { role: TenantRoleDto | null; onClose: ()
                 <SelectContent>
                   {BASE_ROLES.map((r) => (
                     <SelectItem key={r} value={r}>
-                      {r}
+                      {ROLE_LABELS[r]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -266,13 +279,15 @@ function RoleDialog({ role, onClose }: { role: TenantRoleDto | null; onClose: ()
             {PERMISSION_GROUPS.map((group) => (
               <div key={group.resource} className="rounded-md border p-3">
                 <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
-                  {group.resource}
+                  {PERMISSION_RESOURCE_LABELS[group.resource] ?? group.resource}
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {group.items.map((p) => (
                     <label key={p} className="flex items-center gap-2 text-sm">
                       <Checkbox checked={perms.has(p)} onCheckedChange={() => toggle(p)} />
-                      {p.split(':')[1]}
+                      <span title={p}>
+                        {PERMISSION_ACTION_LABELS[p.split(':')[1] ?? ''] ?? p.split(':')[1]}
+                      </span>
                     </label>
                   ))}
                 </div>

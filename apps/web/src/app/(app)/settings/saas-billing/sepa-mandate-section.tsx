@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetchBlob } from '@/lib/auth/api';
+import { formatDateTime } from '@/lib/format';
 import {
   useCancelSaasSepaMandate,
   useCreateSaasSepaMandate,
@@ -176,8 +177,7 @@ export function SepaMandateSection({ billingMode }: { billingMode: string }) {
             </p>
             {m.signatureStatus === 'signed' && m.signedAtTimestamp && (
               <p className="text-xs text-muted-foreground">
-                Firmado por {m.signedByName} el{' '}
-                {new Date(m.signedAtTimestamp).toLocaleString('es-ES')}.
+                Firmado por {m.signedByName} el {formatDateTime(m.signedAtTimestamp)}.
               </p>
             )}
             <div className="flex flex-wrap gap-2">

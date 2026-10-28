@@ -1,5 +1,6 @@
 'use client';
 
+import { OFFERED_WEBHOOK_EVENTS, WEBHOOK_EVENT_LABELS } from '@storageos/shared';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -27,6 +28,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { formatDateTime } from '@/lib/format';
 import {
   useApiKeys,
   useCreateApiKey,
@@ -45,13 +47,7 @@ const SCOPES: ApiKeyScope[] = [
   'webhooks:trigger',
 ];
 
-const EVENT_TYPES: WebhookEventType[] = [
-  'invoice.created',
-  'invoice.paid',
-  'invoice.overdue',
-  'contract.signed',
-  'lead.created',
-];
+const EVENT_TYPES: WebhookEventType[] = [...OFFERED_WEBHOOK_EVENTS];
 
 export default function SettingsIntegrationsPage() {
   return (
@@ -145,10 +141,8 @@ function ApiKeyRow({ item, onRevoke }: { item: ApiKeyDto; onRevoke: () => void }
           </div>
         ) : null}
         <span className="text-xs text-muted-foreground">
-          Creada {new Date(item.createdAt).toLocaleString('es-ES')}
-          {item.lastUsedAt
-            ? ` · usada ${new Date(item.lastUsedAt).toLocaleString('es-ES')}`
-            : ' · sin uso'}
+          Creada {formatDateTime(item.createdAt)}
+          {item.lastUsedAt ? ` · usada ${formatDateTime(item.lastUsedAt)}` : ' · sin uso'}
         </span>
       </div>
       {!revoked ? (
@@ -433,7 +427,10 @@ function CreateWebhookDialog({
                         setEvents((cur) => (isOn ? [...cur, e] : cur.filter((x) => x !== e)));
                       }}
                     />
-                    <code className="text-xs">{e}</code>
+                    <span>
+                      {WEBHOOK_EVENT_LABELS[e]}{' '}
+                      <code className="text-xs text-muted-foreground">{e}</code>
+                    </span>
                   </label>
                 );
               })}

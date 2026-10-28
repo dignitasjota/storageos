@@ -187,6 +187,30 @@ export const UpdateTenantSecuritySettingsSchema = z.object({
 });
 export type UpdateTenantSecuritySettingsInput = z.infer<typeof UpdateTenantSecuritySettingsSchema>;
 
+/** Zona horaria IANA válida (la comprueba el motor de Intl del entorno). */
+export function isValidTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * PATCH /settings/tenant/profile — nombre comercial del negocio (web, portal,
+ * correos) y zona horaria (decide «hoy», los avisos y las fechas de factura).
+ */
+export const UpdateTenantProfileSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Indica el nombre del negocio').max(120).optional(),
+    timezone: z.string().trim().refine(isValidTimeZone, 'Zona horaria no válida').optional(),
+  })
+  .refine((v) => v.name !== undefined || v.timezone !== undefined, {
+    message: 'Nada que cambiar',
+  });
+export type UpdateTenantProfileInput = z.infer<typeof UpdateTenantProfileSchema>;
+
 /**
  * PATCH /settings/tenant/billing — body. Solo rol `owner`. Activa o
  * desactiva el cobro automatico al emitir factura: con el flag activo,

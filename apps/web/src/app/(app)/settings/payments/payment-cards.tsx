@@ -229,7 +229,7 @@ export function AutoChargeRetryCard() {
   );
 }
 
-/** Emisión automática de las facturas recurrentes (sin revisión manual). */
+/** Datos del acreedor de las remesas SEPA (fichero de adeudos para tu banco). */
 export function SepaSettingsCard() {
   const canConfigure = useHasPermission('billing:configure');
   const settings = useSepaSettings(canConfigure);
@@ -239,28 +239,40 @@ export function SepaSettingsCard() {
   const [creditorId, setCreditorId] = useState('');
   const [creditorIban, setCreditorIban] = useState('');
   const [creditorBic, setCreditorBic] = useState('');
-  const [prenoticeDays, setPrenoticeDays] = useState(14);
+  const [prenoticeDays, setPrenoticeDays] = useState('14');
   const [creditorAddress, setCreditorAddress] = useState('');
   const [creditorPostalCode, setCreditorPostalCode] = useState('');
   const [creditorCity, setCreditorCity] = useState('');
   const [loaded, setLoaded] = useState(false);
 
+  // Se rellena una vez al cargar (no en el render, y sin pisar lo que se escribe).
+  useEffect(() => {
+    const s = settings.data;
+    if (!s || loaded) return;
+    if (s.configured) {
+      setCreditorName(s.creditorName);
+      setCreditorId(s.creditorId);
+      setCreditorBic(s.creditorBic ?? '');
+      setPrenoticeDays(String(s.prenoticeDays));
+      setCreditorAddress(s.creditorAddress ?? '');
+      setCreditorPostalCode(s.creditorPostalCode ?? '');
+      setCreditorCity(s.creditorCity ?? '');
+    }
+    setLoaded(true);
+  }, [settings.data, loaded]);
+
   if (!canConfigure || settings.isLoading || !settings.data) return null;
   const s = settings.data;
-  if (!loaded && s.configured) {
-    setCreditorName(s.creditorName);
-    setCreditorId(s.creditorId);
-    setCreditorBic(s.creditorBic ?? '');
-    setPrenoticeDays(s.prenoticeDays);
-    setCreditorAddress(s.creditorAddress ?? '');
-    setCreditorPostalCode(s.creditorPostalCode ?? '');
-    setCreditorCity(s.creditorCity ?? '');
-    setLoaded(true);
-  }
+  const prenotice = Number(prenoticeDays);
+  const prenoticeValid = Number.isInteger(prenotice) && prenotice >= 1 && prenotice <= 30;
 
   async function save(enabled: boolean) {
     if (!creditorName.trim() || !creditorId.trim()) {
       toast.error('Indica el nombre y el identificador del acreedor.');
+      return;
+    }
+    if (!prenoticeValid) {
+      toast.error('El preaviso debe ser de 1 a 30 días.');
       return;
     }
     if (!s.configured && !creditorIban.trim()) {
@@ -274,7 +286,7 @@ export function SepaSettingsCard() {
         // El IBAN solo se envía si se reescribe; si no, el backend conserva el actual.
         ...(creditorIban.trim() ? { creditorIban: creditorIban.trim() } : {}),
         creditorBic,
-        prenoticeDays,
+        prenoticeDays: prenotice,
         enabled,
         creditorAddress: creditorAddress.trim(),
         creditorPostalCode: creditorPostalCode.trim(),
@@ -372,10 +384,10 @@ export function SepaSettingsCard() {
               min={1}
               max={30}
               value={prenoticeDays}
-              onChange={(e) =>
-                setPrenoticeDays(Math.min(30, Math.max(1, Number(e.target.value) || 14)))
-              }
+              onChange={(e) => setPrenoticeDays(e.target.value)}
+              aria-invalid={!prenoticeValid}
             />
+            {!prenoticeValid && <p className="text-xs text-destructive">De 1 a 30 días.</p>}
             <p className="text-xs text-muted-foreground">
               La normativa SEPA exige 14 días salvo que se pacte otro plazo: el que pongas aquí
               figura en la orden de domiciliación que firma el inquilino. Al generar una remesa te

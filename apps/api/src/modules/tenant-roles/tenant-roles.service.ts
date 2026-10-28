@@ -118,6 +118,12 @@ export class TenantRolesService {
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user)
         throw new NotFoundException({ message: 'Usuario no encontrado', code: 'user_not_found' });
+      if (tenantRoleId && user.role === 'owner') {
+        throw new BadRequestException({
+          message: 'El propietario tiene siempre todos los permisos',
+          code: 'owner_full_access',
+        });
+      }
 
       if (tenantRoleId) {
         const role = await tx.tenantRole.findUnique({ where: { id: tenantRoleId } });
@@ -140,6 +146,12 @@ export class TenantRolesService {
         throw new NotFoundException({ message: 'Usuario no encontrado', code: 'user_not_found' });
       }
       const unique = [...new Set(facilityIds)];
+      if (unique.length > 0 && user.role === 'owner') {
+        throw new BadRequestException({
+          message: 'El propietario ve siempre todos los locales',
+          code: 'owner_full_access',
+        });
+      }
       if (unique.length > 0) {
         const valid = await tx.facility.count({
           where: { id: { in: unique }, deletedAt: null },

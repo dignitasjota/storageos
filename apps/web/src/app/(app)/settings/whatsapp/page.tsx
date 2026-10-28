@@ -12,6 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
+import { formatDateTime } from '@/lib/format';
 import {
   useTestWhatsapp,
   useUpdateWhatsappSettings,
@@ -107,7 +108,7 @@ export default function WhatsappSettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   {data.enabled ? 'Activo' : 'Desactivado'}
                   {data.lastCheckedAt
-                    ? ` · comprobado el ${new Date(data.lastCheckedAt).toLocaleString('es-ES')}`
+                    ? ` · comprobado el ${formatDateTime(data.lastCheckedAt)}`
                     : ''}
                 </p>
               </div>

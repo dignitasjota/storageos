@@ -7,6 +7,7 @@ import {
   type TenantFaviconUploadDto,
   type TenantReferralSettingsResponse,
   type TenantReviewsSettingsResponse,
+  type TenantProfileResponse,
   type TenantSecuritySettingsResponse,
   RequestTenantFaviconUploadSchema,
   RequestTenantLogoUploadSchema,
@@ -18,6 +19,7 @@ import {
   UpdateTenantBrandingSchema,
   UpdateTenantReferralSettingsSchema,
   UpdateTenantReviewsSettingsSchema,
+  UpdateTenantProfileSchema,
   UpdateTenantSecuritySettingsSchema,
   UpdateWebSettingsSchema,
   type WebSettingsResponse,
@@ -36,6 +38,7 @@ import { TenantSettingsService } from './tenant-settings.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
 
+class UpdateTenantProfileDto extends createZodDto(UpdateTenantProfileSchema) {}
 class UpdateTenantSecuritySettingsDto extends createZodDto(UpdateTenantSecuritySettingsSchema) {}
 class UpdateTenantBillingSettingsDto extends createZodDto(UpdateTenantBillingSettingsSchema) {}
 class UpdateTenantReviewsSettingsDto extends createZodDto(UpdateTenantReviewsSettingsSchema) {}
@@ -67,6 +70,28 @@ function extractMeta(req: Request): RequestMeta {
 @Controller('settings/tenant')
 export class TenantSettingsController {
   constructor(private readonly settings: TenantSettingsService) {}
+
+  /** Nombre comercial y zona horaria del negocio. */
+  @RequirePermission('settings:read')
+  @Get('profile')
+  async getProfile(@CurrentUser() user: AuthenticatedUser): Promise<TenantProfileResponse> {
+    return this.settings.getProfile(user.tenantId);
+  }
+
+  @RequirePermission('settings:manage')
+  @Patch('profile')
+  async updateProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateTenantProfileDto,
+    @Req() req: Request,
+  ): Promise<TenantProfileResponse> {
+    return this.settings.updateProfile({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
 
   @RequirePermission('settings:read')
   @Get('security')

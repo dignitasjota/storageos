@@ -662,8 +662,8 @@
       "subtitle": "Gestiona el equipo que accede al panel.",
       "tableTitle": "Miembros del equipo",
       "invite": "Invitar usuario",
-      "invitationsTitle": "Invitaciones pendientes",
-      "noInvitations": "No hay invitaciones pendientes.",
+      "invitationsTitle": "Invitaciones sin aceptar",
+      "noInvitations": "No hay invitaciones sin aceptar.",
       "columns": {
         "name": "Nombre",
         "email": "Email",

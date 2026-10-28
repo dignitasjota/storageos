@@ -527,6 +527,13 @@ export const CreateDataSubjectRequestSchema = z.object({
 });
 export type CreateDataSubjectRequestInput = z.infer<typeof CreateDataSubjectRequestSchema>;
 
+/** PATCH /rgpd/requests/:id — avanzar o cerrar una solicitud. */
+export const UpdateDataSubjectRequestSchema = z.object({
+  status: z.enum(['open', 'in_progress', 'fulfilled', 'denied']),
+  notes: optionalText(2000),
+});
+export type UpdateDataSubjectRequestInput = z.infer<typeof UpdateDataSubjectRequestSchema>;
+
 // ============================================================================
 // Customer portal magic link
 // ============================================================================

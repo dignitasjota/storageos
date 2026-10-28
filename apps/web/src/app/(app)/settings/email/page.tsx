@@ -36,6 +36,7 @@ import {
   useUpdateStaffEmailSettings,
   useVerifyEmailDomain,
 } from '@/lib/email-domain/hooks';
+import { formatDateTime } from '@/lib/format';
 
 export default function EmailSettingsPage() {
   const hasFeature = useHasFeature('custom_domain');
@@ -334,8 +335,7 @@ function DnsRecordsCard({ domain, canVerify }: { domain: EmailDomainDto; canVeri
           Crea estos registros en el DNS de {domain.domain} y pulsa «Verificar». El nombre va sin el
           dominio (tu proveedor lo añade solo); «@» es el propio dominio (en algunos paneles se deja
           vacío).
-          {domain.lastCheckedAt &&
-            ` Última comprobación: ${new Date(domain.lastCheckedAt).toLocaleString('es-ES')}.`}
+          {domain.lastCheckedAt && ` Última comprobación: ${formatDateTime(domain.lastCheckedAt)}.`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

@@ -149,7 +149,8 @@ export default function UsersSettingsPage() {
   // (`users:manage`). El backend lo impone; aquí ocultamos las acciones.
   const canManage = useHasPermission('users:manage');
 
-  const pendingInvitations = invitations.data?.filter((i) => i.status === 'pending') ?? [];
+  const pendingInvitations =
+    invitations.data?.filter((i) => i.status === 'pending' || i.status === 'expired') ?? [];
 
   return (
     <div className="space-y-8">
@@ -288,6 +289,14 @@ export default function UsersSettingsPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(inv.expiresAt)}
+                      {inv.status === 'expired' && (
+                        <Badge
+                          variant="outline"
+                          className="ml-2 text-amber-700 dark:text-amber-300"
+                        >
+                          Caducada
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>

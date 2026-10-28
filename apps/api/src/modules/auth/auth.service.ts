@@ -696,7 +696,12 @@ export class AuthService {
    */
   private async resolveFacilityScope(tenantId: string, userId: string): Promise<string[] | null> {
     const rows = await this.prisma.withTenant(
-      (tx) => tx.userFacility.findMany({ where: { userId }, select: { facilityId: true } }),
+      (tx) =>
+        tx.userFacility.findMany({
+          // El propietario ve siempre todos los locales.
+          where: { userId, user: { role: { not: 'owner' } } },
+          select: { facilityId: true },
+        }),
       tenantId,
     );
     return rows.length > 0 ? rows.map((r) => r.facilityId) : null;
@@ -713,7 +718,8 @@ export class AuthService {
     tenantId: string,
     user: { role: UserRole; tenantRoleId: string | null },
   ): Promise<Permission[]> {
-    if (user.tenantRoleId) {
+    // El propietario no puede quedarse sin acceso: ignora un rol a medida.
+    if (user.tenantRoleId && user.role !== 'owner') {
       const customRole = await this.prisma.withTenant(
         (tx) => tx.tenantRole.findUnique({ where: { id: user.tenantRoleId! } }),
         tenantId,

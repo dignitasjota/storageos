@@ -217,8 +217,10 @@ export class UsersService {
       }),
       this.admin.user.update({
         where: { id: target.id },
-        data: { role: 'owner' },
+        // El propietario tiene todos los permisos y todos los locales.
+        data: { role: 'owner', tenantRoleId: null },
       }),
+      this.admin.userFacility.deleteMany({ where: { userId: target.id } }),
     ]);
 
     await this.audit.write({

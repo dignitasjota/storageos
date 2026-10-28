@@ -5,12 +5,17 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   ParseUUIDPipe,
   Post,
   Query,
   Req,
 } from '@nestjs/common';
-import { CreateDataSubjectRequestSchema, type DataSubjectRequestDto } from '@storageos/shared';
+import {
+  CreateDataSubjectRequestSchema,
+  type DataSubjectRequestDto,
+  UpdateDataSubjectRequestSchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -25,6 +30,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
 
 class CreateDataSubjectRequestDto extends createZodDto(CreateDataSubjectRequestSchema) {}
+class UpdateDataSubjectRequestDto extends createZodDto(UpdateDataSubjectRequestSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -55,6 +61,23 @@ export class RgpdController {
     return this.rgpd.create({
       tenantId: user.tenantId,
       userId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('rgpd:manage')
+  @Patch('requests/:id')
+  async update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateDataSubjectRequestDto,
+    @Req() req: Request,
+  ): Promise<DataSubjectRequestDto> {
+    return this.rgpd.updateRequest({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      id,
       input,
       meta: extractMeta(req),
     });
