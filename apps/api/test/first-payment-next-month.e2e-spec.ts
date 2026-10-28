@@ -148,6 +148,52 @@ describe('Primer pago con el mes siguiente (e2e)', () => {
     expect(invoice.periodEnd?.toISOString().slice(0, 10)).toBe('2027-04-30');
   });
 
+  it('el saldo a favor se descuenta de las dos líneas de alquiler', async () => {
+    const ctx = await setup('fpcredit');
+    const customer = await request(app.getHttpServer())
+      .post('/customers')
+      .set(ctx.auth)
+      .send({
+        customerType: 'individual',
+        firstName: 'Ana',
+        lastName: 'Mas',
+        sendPortalAccess: false,
+      })
+      .expect(201);
+    const unit = await admin.unit.findFirstOrThrow({
+      where: { tenantId: ctx.owner.tenantId, status: 'available' },
+    });
+    const contract = await request(app.getHttpServer())
+      .post('/contracts')
+      .set(ctx.auth)
+      .send({
+        customerId: customer.body.id,
+        unitId: unit.id,
+        startDate: '2027-03-28',
+        priceMonthly: 50,
+        billingCycle: 'monthly',
+      })
+      .expect(201);
+    // Señal de 10 € ya cobrada: más que los 6,45 € de los días de marzo.
+    await admin.contract.update({
+      where: { id: contract.body.id },
+      data: { pendingCreditAmount: 10, pendingCreditReason: 'señal de la reserva' },
+    });
+    await request(app.getHttpServer())
+      .post(`/contracts/${contract.body.id}/sign`)
+      .set(ctx.auth)
+      .send({})
+      .expect(200);
+    const invoice = await admin.invoice.findFirstOrThrow({
+      where: { contractId: contract.body.id, kind: 'invoice' },
+      include: { items: { orderBy: { position: 'asc' } } },
+    });
+    expect(invoice.items.map((i) => Number(i.unitPrice))).toEqual([0, 46.45]);
+    expect(invoice.items[1]?.description).toContain('descontados 3,55 €');
+    const after = await admin.contract.findUniqueOrThrow({ where: { id: contract.body.id } });
+    expect(Number(after.pendingCreditAmount)).toBe(0);
+  });
+
   it('antes del día 20, o desactivado, solo los días que quedan', async () => {
     const ctx = await setup('fpprorated');
     const early = await book(ctx, '2027-03-05');

@@ -486,8 +486,8 @@ function FirstPaymentCard() {
         <p className="text-xs text-muted-foreground">
           Ejemplo con el día 20: quien entra el 28 de octubre paga del 28 al 31 de octubre más todo
           noviembre, y su siguiente cuota es la de diciembre. Vale para la reserva online, el área
-          de clientes y los contratos que se firman con enlace. No afecta a quien paga varios meses
-          por adelantado.
+          de clientes y los contratos que se firman en el panel o con enlace (la primera factura se
+          emite al firmar). No afecta a quien paga varios meses por adelantado.
         </p>
       </CardContent>
     </Card>

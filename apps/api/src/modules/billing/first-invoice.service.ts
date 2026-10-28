@@ -139,6 +139,14 @@ export class FirstInvoiceService {
       let periodStart: Date;
       let periodEnd: Date;
       const items: CreateInvoiceItemInput[] = [];
+      // Desde cuándo factura la recurrente tras esta factura. Se guarda
+      // DESPUÉS de crearla: si la emisión falla, la recurrente sigue
+      // facturando esos meses en vez de saltárselos.
+      let billingStartsOn: Date | null = null;
+      // Líneas de alquiler sobre las que se descuenta el saldo a favor.
+      let rentLineCount = 1;
+      // El primer pago mensual incluye el mes siguiente completo.
+      let includesNextMonth = false;
       const line = (description: string, quantity: number, unitPrice: number) => ({
         description,
         quantity,
@@ -215,12 +223,7 @@ export class FirstInvoiceService {
         }
         // Después de este periodo se factura mes a mes (el prepago
         // semestral/anual se renueva por su cuenta con su periodo).
-        if (interval === 1) {
-          await this.admin.contract.update({
-            where: { id: contractId },
-            data: { billingStartsOn: addDays(periodEnd, 1) },
-          });
-        }
+        if (interval === 1) billingStartsOn = addDays(periodEnd, 1);
       } else {
         // MENSUAL: desde el alta hasta fin del mes natural, prorrateado por
         // días (el día 1, el mes completo). Desde el día que fije el negocio,
@@ -280,38 +283,46 @@ export class FirstInvoiceService {
           });
         }
         if (plan.includesNextMonth) {
-          await this.admin.contract.update({
-            where: { id: contractId },
-            data: { billingStartsOn: new Date(`${plan.billingStartsOn}T00:00:00Z`) },
-          });
+          includesNextMonth = true;
+          rentLineCount = 2;
+          billingStartsOn = new Date(`${plan.billingStartsOn}T00:00:00Z`);
         }
       }
 
       // Descuento pendiente del contrato (la señal de la reserva ya cobrada): se
-      // resta del alquiler de esta primera factura.
-      const rentLine = items[0];
-      const credit = rentLine
-        ? await claimContractCredit(
-            this.admin,
-            contractId,
-            toCents(rentLine.unitPrice) * rentLine.quantity,
-          )
-        : null;
-      if (rentLine && credit && credit.cents > 0) {
-        rentLine.unitPrice = (toCents(rentLine.unitPrice) * rentLine.quantity - credit.cents) / 100;
-        rentLine.quantity = 1;
-        rentLine.description = `${rentLine.description} — descontados ${centsLabel(credit.cents)} (${
-          credit.reason ?? 'saldo a favor'
-        })`;
+      // resta del alquiler de esta primera factura (de las dos líneas si
+      // incluye el mes siguiente: primero los días del mes de entrada, después
+      // el mes siguiente).
+      const rentLines = items.slice(0, rentLineCount);
+      const rentCentsTotal = rentLines.reduce(
+        (sum, l) => sum + toCents(l.unitPrice) * l.quantity,
+        0,
+      );
+      const credit =
+        rentLines.length > 0
+          ? await claimContractCredit(this.admin, contractId, rentCentsTotal)
+          : null;
+      if (credit && credit.cents > 0) {
+        let remaining = credit.cents;
+        for (const rentLine of rentLines) {
+          if (remaining <= 0) break;
+          const lineCents = toCents(rentLine.unitPrice) * rentLine.quantity;
+          const applied = Math.min(lineCents, remaining);
+          remaining -= applied;
+          rentLine.unitPrice = (lineCents - applied) / 100;
+          rentLine.quantity = 1;
+          rentLine.description = `${rentLine.description} — descontados ${centsLabel(applied)} (${
+            credit.reason ?? 'saldo a favor'
+          })`;
+        }
       }
 
       // Un mes: vence a los 15 días del fin del mes (como la recurrente). Varios
       // meses por adelantado: a los 15 días del inicio (si no, un anual vencía
       // al cabo de un año y no entraba nunca en impagos).
       // Con el mes siguiente incluido, igual que varios meses.
-      const coversNextMonth = periodEnd.getUTCMonth() !== periodStart.getUTCMonth();
       const dueDate =
-        months > 1 || coversNextMonth ? addDays(periodStart, 15) : addDays(periodEnd, 15);
+        months > 1 || includesNextMonth ? addDays(periodStart, 15) : addDays(periodEnd, 15);
       invoice = await this.invoices
         .create({
           tenantId,
@@ -333,6 +344,12 @@ export class FirstInvoiceService {
           await credit?.restore().catch(() => undefined);
           throw err;
         });
+      if (billingStartsOn) {
+        await this.admin.contract.update({
+          where: { id: contractId },
+          data: { billingStartsOn },
+        });
+      }
       await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
       if (coupon) {
         await this.admin.couponRedemption.update({
