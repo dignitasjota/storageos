@@ -139,6 +139,8 @@ export default function ContractDetailPage() {
   }
 
   const c = contract.data;
+  // Reserva antes de la apertura sin empezar: se cancela desde su tarjeta.
+  const pendingPreOpening = !!c.preOpening && !c.preOpening.startedAt;
 
   async function handle(action: () => Promise<unknown>, ok: string) {
     try {
@@ -224,7 +226,7 @@ export default function ContractDetailPage() {
                 </Button>
               </>
             )}
-            {c.status === 'active' && canManageC && (
+            {c.status === 'active' && canManageC && !pendingPreOpening && (
               <Button
                 variant="outline"
                 onClick={() => {
@@ -237,31 +239,39 @@ export default function ContractDetailPage() {
                 <Pause className="mr-1 h-4 w-4" /> Solicitar baja
               </Button>
             )}
-            {(c.status === 'active' || c.status === 'ending') && canManageC && (
-              <Button
-                variant="outline"
-                onClick={() => handle(() => end.mutateAsync({ id: c.id }), 'Contrato finalizado.')}
-              >
-                <Square className="mr-1 h-4 w-4" /> Finalizar
-              </Button>
-            )}
-            {(c.status === 'active' || c.status === 'ending') && canManageC && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setPriceValue(c.priceMonthly);
-                  setPriceReason('');
-                  setPriceOpen(true);
-                }}
-              >
-                Cambiar precio
-              </Button>
-            )}
-            {(c.status === 'active' || c.status === 'ending') && canManageC && (
-              <Button variant="outline" onClick={() => setRenewOpen(true)}>
-                Renovar
-              </Button>
-            )}
+            {(c.status === 'active' || c.status === 'ending') &&
+              canManageC &&
+              !pendingPreOpening && (
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    handle(() => end.mutateAsync({ id: c.id }), 'Contrato finalizado.')
+                  }
+                >
+                  <Square className="mr-1 h-4 w-4" /> Finalizar
+                </Button>
+              )}
+            {(c.status === 'active' || c.status === 'ending') &&
+              canManageC &&
+              !pendingPreOpening && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setPriceValue(c.priceMonthly);
+                    setPriceReason('');
+                    setPriceOpen(true);
+                  }}
+                >
+                  Cambiar precio
+                </Button>
+              )}
+            {(c.status === 'active' || c.status === 'ending') &&
+              canManageC &&
+              !pendingPreOpening && (
+                <Button variant="outline" onClick={() => setRenewOpen(true)}>
+                  Renovar
+                </Button>
+              )}
             {(c.status === 'active' || c.status === 'ending') && canManageC && (
               <Button
                 variant="outline"
@@ -275,17 +285,20 @@ export default function ContractDetailPage() {
                 Trasladar
               </Button>
             )}
-            {c.status !== 'ended' && c.status !== 'cancelled' && canManageC && (
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  setCancelReason('');
-                  setCancelOpen(true);
-                }}
-              >
-                <CircleSlash className="mr-1 h-4 w-4" /> Cancelar
-              </Button>
-            )}
+            {c.status !== 'ended' &&
+              c.status !== 'cancelled' &&
+              canManageC &&
+              !(pendingPreOpening && c.status !== 'draft') && (
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    setCancelReason('');
+                    setCancelOpen(true);
+                  }}
+                >
+                  <CircleSlash className="mr-1 h-4 w-4" /> Cancelar
+                </Button>
+              )}
             {canManageC && (
               <Button
                 variant="outline"

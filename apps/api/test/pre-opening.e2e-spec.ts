@@ -3,6 +3,7 @@ import request from 'supertest';
 
 import { todayInTimezone } from '../src/common/format';
 import { BillingJobsService } from '../src/modules/billing/billing-jobs.service';
+import { PreOpeningService } from '../src/modules/contracts/pre-opening.service';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -256,5 +257,82 @@ describe('Reservas antes de la apertura (e2e)', () => {
     expect(c.depositStatus).toBe('partially_returned');
     expect(Number(c.depositReturnedAmount)).toBe(0);
     expect(c.depositRetentionReason).toContain('arras');
+  });
+
+  it('plazo vencido, arranque tras un fallo y reservas sin firmar al abrir', async () => {
+    const ctx = await setup('prereview', addDays(today(), 40));
+    const signed = await bookAndPay(ctx);
+    // Reserva online: la primera mensualidad vence a los 3 días.
+    const inv = await admin.invoice.findUniqueOrThrow({ where: { id: signed.invoiceId } });
+    expect(inv.dueDate?.toISOString().slice(0, 10)).toBe(
+      addDays(new Date().toISOString().slice(0, 10), 3),
+    );
+    // Sin empezar: ni baja ni renovación (se cancela como reserva).
+    const endRes = await request(app.getHttpServer())
+      .post(`/contracts/${signed.contractId}/request-end`)
+      .set(ctx.auth)
+      .send({})
+      .expect(400);
+    expect(endRes.body.code).toBe('pre_opening_not_started');
+
+    // Otra reserva que se queda sin firmar.
+    const draft = await request(app.getHttpServer())
+      .post(`/public/move-in/book/${ctx.owner.slug}`)
+      .send({
+        facilityId: ctx.facilityId,
+        unitTypeId: ctx.unitTypeId,
+        startDate: today(),
+        customer: {
+          phone: '600000001',
+          documentNumber: '87654321X',
+          firstName: 'Luis',
+          lastName: 'Gil',
+          email: `po-d-${Date.now()}@e2e.local`,
+        },
+      })
+      .expect(201);
+
+    // Plazo vencido: se avisa una vez.
+    await admin.contract.update({
+      where: { id: signed.contractId },
+      data: { preOpeningDeadline: new Date(`${addDays(today(), -2)}T00:00:00Z`) },
+    });
+    const service = app.get(PreOpeningService);
+    expect((await service.runDue()).expired).toBeGreaterThanOrEqual(1);
+    let c = await admin.contract.findUniqueOrThrow({ where: { id: signed.contractId } });
+    expect(c.preOpeningDeadlineNotifiedAt).not.toBeNull();
+    expect(
+      await admin.notification.count({
+        where: { tenantId: ctx.owner.tenantId, type: 'contract.pre_opening_deadline_passed' },
+      }),
+    ).toBe(1);
+    await service.runDue();
+    expect(
+      await admin.notification.count({
+        where: { tenantId: ctx.owner.tenantId, type: 'contract.pre_opening_deadline_passed' },
+      }),
+    ).toBe(1);
+
+    // El local quedó abierto sin arrancar sus reservas (fallo a medias): el
+    // cron las arranca.
+    await admin.facility.update({
+      where: { id: ctx.facilityId },
+      data: { preOpening: false, openingDate: new Date(`${today()}T00:00:00Z`) },
+    });
+    expect((await service.runDue()).started).toBe(2);
+    c = await admin.contract.findUniqueOrThrow({ where: { id: signed.contractId } });
+    expect(c.preOpeningStartedAt).not.toBeNull();
+    // La reserva sin firmar pasa a ser un alta normal desde la apertura.
+    const d = await admin.contract.findUniqueOrThrow({ where: { id: draft.body.contractId } });
+    expect(d.preOpening).toBe(false);
+    expect(d.startDate.toISOString().slice(0, 10)).toBe(today());
+    await request(app.getHttpServer())
+      .post(`/public/move-in/sign/${draft.body.signingToken}`)
+      .send({ signerName: 'Luis Gil', method: 'typed', typedSignature: 'Luis Gil', accept: true })
+      .expect(201);
+    const first = await admin.invoice.findFirstOrThrow({
+      where: { contractId: draft.body.contractId, kind: 'invoice' },
+    });
+    expect(first.periodStart?.toISOString().slice(0, 10)).toBe(today());
   });
 });

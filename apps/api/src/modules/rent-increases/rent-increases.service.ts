@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { formatDateLong, formatEur } from '../../common/format';
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -123,6 +124,8 @@ export class RentIncreasesService {
       deletedAt: null,
       status: { in: ['active', 'ending'] },
       signedAt: { not: null },
+      // Reservas antes de la apertura: precio congelado hasta que empiecen.
+      ...STARTED_CONTRACT_WHERE,
     };
     if (scope.minMonthsSinceSigned > 0) {
       const cutoff = new Date();

@@ -1219,6 +1219,12 @@ export class ContractsService {
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'ending');
+    if (isPendingPreOpening(existing)) {
+      throw new BadRequestException({
+        code: 'pre_opening_not_started',
+        message: 'La reserva aún no ha empezado: cancélala como reserva antes de la apertura',
+      });
+    }
     // Sin fecha de fin la recurrente seguía facturando y la baja no salía en «Hoy».
     const endDate = args.endDate
       ? new Date(`${args.endDate}T00:00:00Z`)
@@ -1423,6 +1429,12 @@ export class ContractsService {
         message: 'Solo puedes solicitar la baja de un contrato activo',
       });
     }
+    if (isPendingPreOpening(existing)) {
+      throw new BadRequestException({
+        code: 'pre_opening_not_started',
+        message: 'La reserva aún no ha empezado: cancélala como reserva antes de la apertura',
+      });
+    }
     // Preaviso: la fecha de salida debe respetar `cancellationNoticeDays`.
     const minDate = new Date();
     minDate.setHours(0, 0, 0, 0);
@@ -1598,6 +1610,12 @@ export class ContractsService {
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'ended');
+    if (isPendingPreOpening(existing)) {
+      throw new BadRequestException({
+        code: 'pre_opening_not_started',
+        message: 'La reserva aún no ha empezado: cancélala como reserva antes de la apertura',
+      });
+    }
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
@@ -2331,6 +2349,12 @@ export class ContractsService {
         message: 'Solo se puede cambiar el precio en contratos activos',
       });
     }
+    if (isPendingPreOpening(existing)) {
+      throw new BadRequestException({
+        code: 'pre_opening_not_started',
+        message: 'El precio de una reserva antes de la apertura queda fijado desde la reserva',
+      });
+    }
     const previousPrice = Number(existing.priceMonthly);
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
@@ -2446,6 +2470,12 @@ export class ContractsService {
       throw new BadRequestException({
         code: 'contract_not_renewable',
         message: 'Solo se pueden renovar contratos activos o en baja',
+      });
+    }
+    if (isPendingPreOpening(existing)) {
+      throw new BadRequestException({
+        code: 'pre_opening_not_started',
+        message: 'La reserva aún no ha empezado: cancélala como reserva antes de la apertura',
       });
     }
     const base =

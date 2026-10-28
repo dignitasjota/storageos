@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
+import { CONFIRMED_START_WHERE } from '../../common/pre-opening';
 import { PrismaService } from '../database/prisma.service';
 
 import type { CalendarEventDto } from '@storageos/shared';
@@ -89,6 +90,7 @@ export class CalendarService {
             status: { in: ['draft', 'active'] },
             deletedAt: null,
             startDate: range,
+            ...CONFIRMED_START_WHERE,
             ...byUnit,
           },
           select: {

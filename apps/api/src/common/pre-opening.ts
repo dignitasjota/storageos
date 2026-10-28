@@ -33,3 +33,11 @@ export function preOpeningDto(c: {
     startedAt: c.preOpeningStartedAt ? c.preOpeningStartedAt.toISOString() : null,
   };
 }
+
+/**
+ * Excluye las reservas anticipadas sin fecha de apertura: su `startDate` es la
+ * fecha límite (provisional) y no una entrada real (calendario, «Hoy»).
+ */
+export const CONFIRMED_START_WHERE = {
+  NOT: { preOpening: true, preOpeningDateConfirmed: false },
+} as const;

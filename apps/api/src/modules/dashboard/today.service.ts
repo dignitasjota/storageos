@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
+import { CONFIRMED_START_WHERE } from '../../common/pre-opening';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -210,13 +211,23 @@ export class TodayService {
         }),
         // Entradas de hoy: contratos que empiezan hoy.
         tx.contract.findMany({
-          where: { status: { in: ['active', 'ending'] }, startDate: today, ...facContract },
+          where: {
+            status: { in: ['active', 'ending'] },
+            startDate: today,
+            ...CONFIRMED_START_WHERE,
+            ...facContract,
+          },
           orderBy: [{ startDate: 'asc' }],
           take: TAKE,
           include: { customer: customerSelect, unit: { select: { code: true } } },
         }),
         tx.contract.count({
-          where: { status: { in: ['active', 'ending'] }, startDate: today, ...facContract },
+          where: {
+            status: { in: ['active', 'ending'] },
+            startDate: today,
+            ...CONFIRMED_START_WHERE,
+            ...facContract,
+          },
         }),
         // Salidas de hoy: contratos que terminan hoy.
         tx.contract.findMany({

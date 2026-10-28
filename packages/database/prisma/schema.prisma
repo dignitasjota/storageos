@@ -1369,6 +1369,7 @@ model Contract {
   /// Día de apertura: desde aquí acceso y facturación recurrente.
   preOpeningStartedAt    DateTime?             @map("pre_opening_started_at") @db.Timestamptz(6)
   preOpeningReminderSentAt DateTime?           @map("pre_opening_reminder_sent_at") @db.Timestamptz(6)
+  preOpeningDeadlineNotifiedAt DateTime?       @map("pre_opening_deadline_notified_at") @db.Timestamptz(6)
   /// Vivienda: fianza depositada en el organismo autonómico.
   depositRegistryBody        String?   @map("deposit_registry_body")
   depositRegisteredAt        DateTime? @map("deposit_registered_at") @db.Date

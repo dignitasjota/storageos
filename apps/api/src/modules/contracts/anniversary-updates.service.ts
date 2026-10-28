@@ -1,5 +1,6 @@
 import { HttpException, Injectable } from '@nestjs/common';
 
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -129,6 +130,7 @@ export class AnniversaryUpdatesService {
           where: {
             status: { in: ['active', 'ending'] },
             deletedAt: null,
+            ...STARTED_CONTRACT_WHERE,
             unit: {
               ...(facilityScope ? { facilityId: { in: facilityScope } } : {}),
               ...(settings.scope === 'housing' ? { unitType: { propertyKind: 'housing' } } : {}),

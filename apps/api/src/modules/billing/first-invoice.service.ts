@@ -353,9 +353,11 @@ export class FirstInvoiceService {
       // meses por adelantado: a los 15 días del inicio (si no, un anual vencía
       // al cabo de un año y no entraba nunca en impagos).
       // Con el mes siguiente incluido, igual que varios meses.
-      // Reserva anticipada: se paga para reservar (como la reserva online, 3 días).
+      // Reserva anticipada: se paga para reservar. La online (con plazo de pago,
+      // a las 72 h se cancela sola) vence a los 3 días; la firmada en el panel,
+      // a los 15 (si no, entraba en impagos a los pocos días).
       const dueDate = preOpening
-        ? addDays(new Date(), 3)
+        ? addDays(new Date(), contract.firstPaymentDeadline ? 3 : 15)
         : months > 1 || includesNextMonth
           ? addDays(periodStart, 15)
           : addDays(periodEnd, 15);

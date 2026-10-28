@@ -4,7 +4,11 @@ import { parseTaskAutoRules, type TaskAutoRules } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
 import { AuditService } from '../auth/audit.service';
-import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import {
+  type ContractPreOpeningStartedPayload,
+  DOMAIN_EVENTS,
+  type DomainEventPayload,
+} from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -77,11 +81,28 @@ export class TaskRulesService {
   async onSigned(p: DomainEventPayload): Promise<void> {
     const rules = await this.get(p.tenantId).catch(() => null);
     if (!rules?.welcomeCall.enabled) return;
-    await this.createFor(p, 'welcome_call', rules.welcomeCall.days, (c) => ({
-      title: `Llamada de bienvenida — ${c.customer}`,
-      description: `Llamar a ${c.customer} (trastero ${c.unitCode}) para ver qué tal le va y si necesita algo.`,
-      type: 'other',
-    }));
+    await this.createFor(
+      p,
+      'welcome_call',
+      rules.welcomeCall.days,
+      (c) => ({
+        title: `Llamada de bienvenida — ${c.customer}`,
+        description: `Llamar a ${c.customer} (trastero ${c.unitCode}) para ver qué tal le va y si necesita algo.`,
+        type: 'other',
+      }),
+      // Reserva antes de la apertura: la llamada va cuando abra el local.
+      { skipPendingPreOpening: true },
+    );
+  }
+
+  /** El local abre: la llamada de bienvenida de las reservas anticipadas. */
+  @OnEvent(DOMAIN_EVENTS.contract_pre_opening_started, { async: true, promisify: true })
+  async onPreOpeningStarted(p: ContractPreOpeningStartedPayload): Promise<void> {
+    await this.onSigned({
+      tenantId: p.tenantId,
+      entityType: 'contract',
+      entityId: p.contractId,
+    } as DomainEventPayload);
   }
 
   @OnEvent(DOMAIN_EVENTS.contract_ended, { async: true, promisify: true })
@@ -121,7 +142,7 @@ export class TaskRulesService {
       description: string;
       type: 'other' | 'inspection';
     },
-    opts: { onlyWithoutAutoRenew?: boolean } = {},
+    opts: { onlyWithoutAutoRenew?: boolean; skipPendingPreOpening?: boolean } = {},
   ): Promise<void> {
     if (p.entityType !== 'contract') return;
     const contractId = p.entityId;
@@ -135,6 +156,8 @@ export class TaskRulesService {
             autoRenew: true,
             endDate: true,
             unitId: true,
+            preOpening: true,
+            preOpeningStartedAt: true,
             unit: {
               select: { code: true, facilityId: true, facility: { select: { timezone: true } } },
             },
@@ -145,6 +168,7 @@ export class TaskRulesService {
         });
         if (!c) return;
         if (opts.onlyWithoutAutoRenew && c.autoRenew) return;
+        if (opts.skipPendingPreOpening && c.preOpening && !c.preOpeningStartedAt) return;
         const exists = await tx.task.findFirst({
           where: {
             deletedAt: null,

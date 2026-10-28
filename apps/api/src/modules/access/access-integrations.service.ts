@@ -382,6 +382,9 @@ export class AccessIntegrationsService {
           tx.invoice.count({
             where: {
               contractId: payload.contractId,
+              // La fianza en efectivo se cobra en el local: no retrasa el acceso
+              // (como en un alta normal, basta con la mensualidad pagada).
+              kind: 'invoice',
               status: { in: ['draft', 'issued', 'overdue'] },
               deletedAt: null,
             },

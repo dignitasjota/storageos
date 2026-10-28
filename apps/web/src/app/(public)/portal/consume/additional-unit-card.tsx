@@ -301,22 +301,29 @@ export function AdditionalUnitCard({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-1">
-              <Label htmlFor="extra-unit-months">{t('monthsLabel')}</Label>
-              <select
-                id="extra-unit-months"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm"
-                value={months}
-                onChange={(e) => setMonths(Number(e.target.value) as FirstPaymentMonths)}
-              >
-                {FIRST_PAYMENT_MONTHS.map((m) => (
-                  <option key={m} value={m}>
-                    {t('monthsOption', { count: m })}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {!target?.offer && (
+            {quote?.preOpening && (
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                {t('preOpeningNotice')}
+              </p>
+            )}
+            {!quote?.preOpening && (
+              <div className="space-y-1">
+                <Label htmlFor="extra-unit-months">{t('monthsLabel')}</Label>
+                <select
+                  id="extra-unit-months"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm"
+                  value={months}
+                  onChange={(e) => setMonths(Number(e.target.value) as FirstPaymentMonths)}
+                >
+                  {FIRST_PAYMENT_MONTHS.map((m) => (
+                    <option key={m} value={m}>
+                      {t('monthsOption', { count: m })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {!target?.offer && !quote?.preOpening && (
               <div className="space-y-1">
                 <Label htmlFor="extra-unit-coupon">{t('couponLabel')}</Label>
                 <div className="flex gap-2">
@@ -363,6 +370,14 @@ export function AdditionalUnitCard({
               <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-sm">
                 {(() => {
                   const fm = quote.firstMonth;
+                  if (quote.preOpening) {
+                    return (
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground">{t('summaryPreOpeningRent')}</span>
+                        <span className="tabular-nums">{money(quote.rentSubtotal)}</span>
+                      </div>
+                    );
+                  }
                   if (!fm) {
                     return (
                       <div className="flex justify-between gap-3">
@@ -426,11 +441,13 @@ export function AdditionalUnitCard({
                   <span className="tabular-nums">{money(quote.totalToPay)}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {quote.firstMonth?.includesNextMonth
-                    ? t('summaryNextMonthNote')
-                    : quote.prorated && !quote.firstMonth
-                      ? t('summaryProrated')
-                      : t('summaryAfter')}
+                  {quote.preOpening
+                    ? t('summaryPreOpeningNote')
+                    : quote.firstMonth?.includesNextMonth
+                      ? t('summaryNextMonthNote')
+                      : quote.prorated && !quote.firstMonth
+                        ? t('summaryProrated')
+                        : t('summaryAfter')}
                 </p>
               </div>
             )}
