@@ -826,3 +826,15 @@ Segunda pasada a las webs de los tenants (plantillas, landings, reserva, firma, 
 - ✅ **#723** — selección múltiple en Tenants: etiquetar, ampliar la prueba y enviar un correo a los seleccionados.
 - ✅ **#724** — avisos por Telegram y Slack: lo urgente de «Hoy» cada mañana y el resumen semanal.
 - ✅ **#725** — cola de aprobación: soporte pide la acción con su motivo y el super admin la aprueba en «Hoy» (se aplica tal cual) o la rechaza.
+
+### Primer pago al entrar a final de mes (2026-10-28, #850) ✅
+
+Desde el día 20 del mes (configurable por negocio en Configuración → Facturación; vacío = no) el primer pago mensual cubre los días que quedan del mes **y** el mes siguiente completo, en un solo cobro; la recurrente empieza el mes después. El resumen de la reserva, el portal y la firma enseñan exactamente lo que se cobra (`firstMonth`). Antes, quien entraba el 28 pagaba unos días y a la semana la cuota entera.
+
+### Reservas antes de la apertura del local (2026-10-28, #852–#854) ✅
+
+Decisiones de Jota: un local en «próxima apertura» (fecha opcional, cambiable; plazo máximo 6 meses) admite reservas con la **primera mensualidad completa** + fianza; el trastero queda reservado y el alquiler, el acceso y la facturación empiezan el día que abre (cron `contracts.pre-opening`, aviso 3 días antes). Cancelación: 14 días de desistimiento → todo; plazo vencido sin abrir → todo; si no, se devuelve la mensualidad y la fianza queda como arras (art. 1454 CC). Cambio de trastero solo a otro del mismo local y precio, **sin avisar al inquilino** (le da igual mientras no esté listo). Revisión (#853): arranque reintentable, borrador al abrir → alta normal, fianza devuelta por la pasarela, aviso de plazo vencido, baja/renovación/precio bloqueados hasta abrir. Extras (#854): cupón de preapertura, «Locales por abrir» en Hoy, preventa en Analítica → Ocupación, correo de resumen al equipo el día de apertura y reasignación si el trastero está en mantenimiento. **Pendiente**: revisar el texto de las condiciones con la asesoría.
+
+### Otras formas de pago para el inquilino (2026-10-28, #855) ✅
+
+Decisiones de Jota: al reservar online (tras firmar) o al pagar una factura desde el área de clientes, el inquilino puede elegir **transferencia** (el IBAN le llega **por correo**, no se enseña en pantalla), **pagar en el local** o **domiciliar** con la remesa SEPA propia del negocio (pone su IBAN y firma el mandato). Cada una **solo aparece si el tenant la activa** en Configuración → Cobros. Con transferencia o en el local la reserva se guarda **24 h más** (72 → 96 h, una vez) y el equipo recibe un aviso; con el mandato firmado la reserva no caduca y se cobra en la próxima remesa. En el panel, «Marcar pagada» propone lo que eligió el inquilino y admite efectivo, transferencia, domiciliación SEPA, tarjeta u otro. **Posible siguiente paso**: dar el acceso al firmar el mandato (hoy llega al confirmar la remesa, que con 14 días de preaviso puede tardar).
