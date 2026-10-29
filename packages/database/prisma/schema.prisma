@@ -491,6 +491,9 @@ model Tenant {
   aiMode                String  @default("platform") @map("ai_mode")
   aiOwnApiKeyEncrypted  String? @map("ai_own_api_key_encrypted")
   aiOwnModel            String? @map("ai_own_model")
+  /// «Ignorar» en la lista de tenants en riesgo hasta esta fecha.
+  riskSnoozedUntil      DateTime? @map("risk_snoozed_until") @db.Timestamptz(6)
+  riskSnoozeReason      String?   @map("risk_snooze_reason")
   createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -4037,6 +4040,8 @@ model SuperAdmin {
   auditLogs          SuperAdminAuditLog[]
   tenantInteractions TenantInteraction[]      @relation("TenantInteractionAuthor")
   tenantFollowups    TenantFollowup[]         @relation("TenantFollowupAuthor")
+  followupsAssigned    TenantFollowup[]      @relation("TenantFollowupAssignee")
+  savedViews           SuperAdminSavedView[]
 
   platformMessages      TenantPlatformMessage[]
   @@map("super_admins")
@@ -5441,13 +5446,17 @@ model TenantFollowup {
   /// "pending" | "done".
   status       String    @default("pending")
   completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
+  /// Super admin que se encarga.
+  assignedToId String?   @map("assigned_to_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   superAdmin SuperAdmin? @relation("TenantFollowupAuthor", fields: [superAdminId], references: [id], onDelete: SetNull)
+  assignedTo SuperAdmin? @relation("TenantFollowupAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+  @@index([assignedToId])
   @@index([status, dueDate])
   @@map("tenant_followups")
 }
@@ -6599,5 +6608,20 @@ model LegalDocAcceptance {
   @@index([customerId])
   @@index([versionId])
   @@map("legal_doc_acceptances")
+}
+
+/// Vista guardada de una lista del panel admin (global, sin RLS; REVOKE).
+model SuperAdminSavedView {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  superAdminId String   @map("super_admin_id") @db.Uuid
+  page         String
+  name         String
+  filters      Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  superAdmin SuperAdmin @relation(fields: [superAdminId], references: [id], onDelete: Cascade)
+
+  @@unique([superAdminId, page, name], map: "super_admin_saved_views_admin_page_name_key")
+  @@map("super_admin_saved_views")
 }
 

@@ -3,14 +3,19 @@
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 
 import type { AdminTenantBillingHealthDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useAdminBillingHealth } from '@/lib/admin/hooks';
+import { useAdminAeatAction } from '@/lib/admin/tenant-tools-hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
+import { ApiError } from '@/lib/auth/api';
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '—');
 
@@ -140,13 +145,14 @@ export default function AdminBillingHealthPage() {
                     </span>
                   )}
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
                   <span className="text-xs text-muted-foreground">
                     Emitida {fmtDate(i.issueDate)}
                   </span>
                   <Badge variant={i.aeatStatus === 'pending' ? 'secondary' : 'destructive'}>
                     {AEAT_LABEL[i.aeatStatus] ?? i.aeatStatus}
                   </Badge>
+                  <AeatButtons invoiceId={i.invoiceId} />
                 </div>
               </div>
             ))
@@ -198,5 +204,44 @@ function TenantRow({ t }: { t: AdminTenantBillingHealthDto }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/** Consultar el estado en la AEAT o volver a enviar la factura (esto último, superadmin). */
+function AeatButtons({ invoiceId }: { invoiceId: string }) {
+  const canEdit = useIsSuperadmin();
+  const refresh = useAdminAeatAction('refresh-aeat');
+  const resend = useAdminAeatAction('resend-aeat');
+  async function run(kind: 'refresh' | 'resend') {
+    try {
+      const r = await (kind === 'refresh' ? refresh : resend).mutateAsync(invoiceId);
+      toast.success(r.message);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo completar.');
+    }
+  }
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 text-xs"
+        disabled={refresh.isPending}
+        onClick={() => void run('refresh')}
+      >
+        Consultar AEAT
+      </Button>
+      {canEdit && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={resend.isPending}
+          onClick={() => void run('resend')}
+        >
+          Reenviar
+        </Button>
+      )}
+    </>
   );
 }

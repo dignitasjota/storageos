@@ -65,6 +65,55 @@ export const AdminTenantActionSchema = z.object({
 });
 export type AdminTenantActionInput = z.infer<typeof AdminTenantActionSchema>;
 
+/** Reactivar un tenant; con `forgivePeriod` se le regala el periodo impagado. */
+export const ReactivateTenantSchema = AdminTenantActionSchema.extend({
+  forgivePeriod: z.boolean().optional(),
+});
+export type ReactivateTenantInput = z.infer<typeof ReactivateTenantSchema>;
+
+/** Anonimizar exige confirmar que ya se exportaron sus datos. */
+export const AnonymizeTenantSchema = AdminTenantActionSchema.extend({
+  exported: z.literal(true, {
+    errorMap: () => ({ message: 'Confirma que ya has exportado sus datos' }),
+  }),
+});
+export type AnonymizeTenantInput = z.infer<typeof AnonymizeTenantSchema>;
+
+/** Alta manual de un tenant desde el panel admin (venta asistida). */
+export const AdminCreateTenantSchema = z.object({
+  tenantName: z.string().trim().min(2).max(100),
+  tenantSlug: z
+    .string()
+    .trim()
+    .min(3)
+    .max(63)
+    .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, 'Solo minúsculas, dígitos y guiones')
+    .optional(),
+  ownerName: z.string().trim().min(2).max(120),
+  ownerEmail: z.string().trim().toLowerCase().email().max(320),
+  planSlug: z.string().trim().min(1).max(60),
+  /** Días de prueba (0 = activo desde hoy en el plan elegido). */
+  trialDays: z.number().int().min(0).max(365),
+  note: z.string().trim().max(2000).optional(),
+});
+export type AdminCreateTenantInput = z.infer<typeof AdminCreateTenantSchema>;
+
+/** «Ignorar» un tenant en la lista de riesgo durante unos días. */
+export const SnoozeRiskSchema = z.object({
+  days: z.number().int().min(1).max(180),
+  reason: z.string().trim().min(3).max(500),
+});
+export type SnoozeRiskInput = z.infer<typeof SnoozeRiskSchema>;
+
+/** Vista guardada de una lista del panel admin (por super admin). */
+export const AdminSavedViewPageEnum = z.enum(['tenants']);
+export const CreateAdminSavedViewSchema = z.object({
+  page: AdminSavedViewPageEnum,
+  name: z.string().trim().min(1).max(80),
+  filters: z.record(z.unknown()),
+});
+export type CreateAdminSavedViewInput = z.infer<typeof CreateAdminSavedViewSchema>;
+
 /**
  * Motivo de baja (churn) seleccionable al suspender/cancelar un tenant. Alimenta
  * el reporte «churn por razón». Las bajas sin motivo capturado se infieren en el
@@ -198,13 +247,23 @@ export const CreateTenantFollowupSchema = z.object({
   note: z.string().trim().max(2000).optional(),
   /** Fecha de recordatorio (YYYY-MM-DD). */
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)'),
+  /** Super admin que se encarga (null = nadie en concreto). */
+  assignedToId: z.string().uuid().nullable().optional(),
 });
 export type CreateTenantFollowupInput = z.infer<typeof CreateTenantFollowupSchema>;
 
 /** Cambia el estado de un seguimiento (hecho / reabrir). */
-export const UpdateTenantFollowupSchema = z.object({
-  status: TenantFollowupStatusEnum,
-});
+export const UpdateTenantFollowupSchema = z
+  .object({
+    status: TenantFollowupStatusEnum.optional(),
+    /** Posponer: nueva fecha (YYYY-MM-DD). */
+    dueDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)')
+      .optional(),
+    assignedToId: z.string().uuid().nullable().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nada que cambiar' });
 export type UpdateTenantFollowupInput = z.infer<typeof UpdateTenantFollowupSchema>;
 
 // ============================================================================

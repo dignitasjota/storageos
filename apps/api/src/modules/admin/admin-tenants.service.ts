@@ -246,27 +246,41 @@ export class AdminTenantsService {
     const inactiveCutoff = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     const planInclude = { subscription: { include: { plan: { select: { name: true } } } } };
 
-    const [trials, pastDue, activeTenants] = await Promise.all([
+    // Los que el super admin ha «ignorado» unos días no salen.
+    const notSnoozed: Prisma.TenantWhereInput = {
+      OR: [{ riskSnoozedUntil: null }, { riskSnoozedUntil: { lte: now } }],
+    };
+    const [trials, pastDue, activeTenants, snoozedCount, health] = await Promise.all([
       this.admin.tenant.findMany({
         where: {
           deletedAt: null,
           billingExempt: false,
           status: 'trial',
           trialEndsAt: { gte: now, lte: in7d },
+          ...notSnoozed,
         },
         include: planInclude,
         orderBy: { trialEndsAt: 'asc' },
       }),
       this.admin.tenant.findMany({
-        where: { deletedAt: null, billingExempt: false, subscription: { status: 'past_due' } },
+        where: {
+          deletedAt: null,
+          billingExempt: false,
+          subscription: { status: 'past_due' },
+          ...notSnoozed,
+        },
         include: planInclude,
         orderBy: { name: 'asc' },
       }),
       this.admin.tenant.findMany({
-        where: { deletedAt: null, billingExempt: false, status: 'active' },
+        where: { deletedAt: null, billingExempt: false, status: 'active', ...notSnoozed },
         include: planInclude,
         orderBy: { name: 'asc' },
       }),
+      this.admin.tenant.count({
+        where: { deletedAt: null, billingExempt: false, riskSnoozedUntil: { gt: now } },
+      }),
+      this.getTenantsHealth(),
     ]);
 
     // Rendimiento: el groupBy de lastLoginAt se acota a los tenants activos ya
@@ -328,7 +342,44 @@ export class AdminTenantsService {
         );
       });
 
-    return { trialExpiring, pastDue: pastDueList, inactive };
+    // Salud «en riesgo» o «dormida» que no sale ya arriba: el mismo criterio que
+    // la página de Salud, para que las dos listas no se contradigan.
+    const listed = new Set([...trialExpiring, ...pastDueList, ...inactive].map((t) => t.id));
+    const snoozed = new Set(
+      (
+        await this.admin.tenant.findMany({
+          where: { riskSnoozedUntil: { gt: now } },
+          select: { id: true },
+        })
+      ).map((t) => t.id),
+    );
+    const exempt = new Set(
+      (
+        await this.admin.tenant.findMany({ where: { billingExempt: true }, select: { id: true } })
+      ).map((t) => t.id),
+    );
+    const lowHealth = health
+      .filter(
+        (h) =>
+          (h.level === 'at_risk' || h.level === 'dormant') &&
+          !listed.has(h.tenantId) &&
+          !snoozed.has(h.tenantId) &&
+          !exempt.has(h.tenantId),
+      )
+      .map((h) => ({
+        id: h.tenantId,
+        name: h.name,
+        slug: h.slug,
+        status: h.status,
+        planName: h.planName,
+        reason: 'low_health',
+        since: h.lastActivityAt,
+        detail: `Salud ${h.score} · ${
+          [...h.factors].sort((a, b) => a.score - b.score)[0]?.detail ?? ''
+        }`,
+      }));
+
+    return { trialExpiring, pastDue: pastDueList, inactive, lowHealth, snoozedCount };
   }
 
   /**
@@ -345,12 +396,35 @@ export class AdminTenantsService {
       orderBy: { trialEndsAt: 'asc' },
     });
     if (trials.length === 0) return [];
-    const logins = await this.admin.user.groupBy({
-      by: ['tenantId'],
-      _max: { lastLoginAt: true },
-      where: { tenantId: { in: trials.map((t) => t.id) }, isActive: true },
-    });
+    const ids = trials.map((t) => t.id);
+    const [logins, facilities, units, contracts] = await Promise.all([
+      this.admin.user.groupBy({
+        by: ['tenantId'],
+        _max: { lastLoginAt: true },
+        where: { tenantId: { in: ids }, isActive: true },
+      }),
+      this.admin.facility.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.admin.unit.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids } },
+        _count: { _all: true },
+      }),
+      this.admin.contract.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, deletedAt: null, status: { in: ['active', 'ending'] } },
+        _count: { _all: true },
+      }),
+    ]);
     const loginMap = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
+    const count = (rows: { tenantId: string; _count: { _all: number } }[]) =>
+      new Map(rows.map((r) => [r.tenantId, r._count._all]));
+    const facBy = count(facilities);
+    const unitBy = count(units);
+    const contractBy = count(contracts);
     const DAY_MS = 24 * 60 * 60 * 1000;
     return trials.map((t) => {
       const last = loginMap.get(t.id) ?? null;
@@ -366,6 +440,9 @@ export class AdminTenantsService {
         createdAt: t.createdAt.toISOString(),
         lastActivityAt: last?.toISOString() ?? null,
         neverUsed: !last,
+        facilities: facBy.get(t.id) ?? 0,
+        units: unitBy.get(t.id) ?? 0,
+        activeContracts: contractBy.get(t.id) ?? 0,
       };
     });
   }
@@ -1369,11 +1446,41 @@ export class AdminTenantsService {
     return this.detail(tenantId);
   }
 
-  async reactivate(tenantId: string, meta: ActionMeta): Promise<AdminTenantDto> {
+  async reactivate(
+    tenantId: string,
+    meta: ActionMeta & { forgivePeriod?: boolean | undefined },
+  ): Promise<AdminTenantDto> {
     const tenant = await this.findOrThrow(tenantId);
     if (tenant.status !== 'suspended') {
       // Idempotente: si ya esta activo o en trial no hacemos nada.
       return this.detail(tenantId);
+    }
+    // «Perdonar este periodo»: la suscripción impagada vuelve a estar al día y
+    // su fin se mueve un mes (no se le cobra ese periodo). Con Stripe no: el
+    // periodo lo lleva Stripe y seguiría reclamando la factura.
+    let forgiven: { previousEnd: string; newEnd: string } | null = null;
+    if (meta.forgivePeriod) {
+      const sub = await this.admin.tenantSubscription.findUnique({ where: { tenantId } });
+      if (sub?.status === 'past_due') {
+        if (sub.stripeSubscriptionId && sub.billingMode === 'stripe') {
+          throw new BadRequestException({
+            code: 'forgive_not_on_stripe',
+            message:
+              'Paga por Stripe: perdona la factura desde Stripe o pásalo antes a pago manual.',
+          });
+        }
+        const next = new Date(sub.currentPeriodEnd);
+        next.setUTCMonth(next.getUTCMonth() + 1);
+        const newEnd = next.getTime() > Date.now() ? next : new Date(Date.now() + 30 * 86_400_000);
+        await this.admin.tenantSubscription.update({
+          where: { tenantId },
+          data: { status: 'active', currentPeriodEnd: newEnd },
+        });
+        forgiven = {
+          previousEnd: sub.currentPeriodEnd.toISOString(),
+          newEnd: newEnd.toISOString(),
+        };
+      }
     }
     // Determinar status destino: si el trial sigue vigente, vuelve a trial;
     // si no, pasa a active.
@@ -1407,7 +1514,11 @@ export class AdminTenantsService {
       targetTenantId: tenantId,
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
-      changes: { reason: meta.reason, newStatus: targetStatus },
+      changes: {
+        reason: meta.reason,
+        newStatus: targetStatus,
+        ...(forgiven ? { forgivenPeriod: forgiven } : {}),
+      },
     });
     return this.detail(tenantId);
   }
@@ -1874,10 +1985,23 @@ export class AdminTenantsService {
         slug: true,
         customDomain: true,
         customDomainVerifiedAt: true,
-        subscription: { select: { plan: { select: { slug: true } } } },
+        customDomainReadyAt: true,
+        subscription: {
+          select: { plan: { select: { slug: true, tenantFeatures: true } } },
+        },
       },
       orderBy: [{ customDomainVerifiedAt: 'asc' }, { name: 'asc' }],
     });
+    const overrides = await this.admin.tenantFeatureOverride.findMany({
+      where: { tenantId: { in: tenants.map((t) => t.id) }, ...liveOverrideWhere() },
+      select: { tenantId: true, feature: true, enabled: true },
+    });
+    const overridesBy = new Map<string, { feature: TenantFeature; enabled: boolean }[]>();
+    for (const o of overrides) {
+      const list = overridesBy.get(o.tenantId) ?? [];
+      list.push({ feature: o.feature as TenantFeature, enabled: o.enabled });
+      overridesBy.set(o.tenantId, list);
+    }
     return tenants.map((t) => ({
       tenantId: t.id,
       tenantName: t.name,
@@ -1885,6 +2009,11 @@ export class AdminTenantsService {
       customDomain: t.customDomain!,
       verifiedAt: t.customDomainVerifiedAt?.toISOString() ?? null,
       planSlug: t.subscription?.plan.slug ?? 'free',
+      featureEnabled: effectiveFeaturesFromList(
+        t.subscription ? resolvePlanFeatures(t.subscription.plan) : [],
+        overridesBy.get(t.id) ?? [],
+      ).includes('custom_domain'),
+      dnsReadyAt: t.customDomainReadyAt?.toISOString() ?? null,
     }));
   }
 

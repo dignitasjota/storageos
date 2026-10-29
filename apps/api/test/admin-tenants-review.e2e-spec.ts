@@ -131,7 +131,7 @@ describe('Admin: revisión del apartado Tenants (e2e)', () => {
     await http()
       .post(`/admin/tenants/${owner.tenantId}/anonymize`)
       .set(admin())
-      .send({ reason: 'Baja y derecho al olvido' })
+      .send({ reason: 'Baja y derecho al olvido', exported: true })
       .expect(200);
 
     const tenantId = owner.tenantId;

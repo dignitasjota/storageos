@@ -2,9 +2,11 @@
 
 import { Check, Loader2, Trash2 } from 'lucide-react';
 import Link from 'next/link';
+import { useState } from 'react';
 
 import type { TenantFollowupDto } from '@storageos/shared';
 
+import { FollowupControls } from '@/components/admin/followup-controls';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,7 +36,8 @@ function dueMeta(due: string): { label: string; className: string } {
 
 export default function AdminFollowupsPage() {
   const confirm = useConfirm();
-  const q = useAdminFollowupsPending();
+  const [mine, setMine] = useState(false);
+  const q = useAdminFollowupsPending(mine);
   const update = useUpdateFollowup();
   const remove = useDeleteFollowup();
 
@@ -59,8 +62,12 @@ export default function AdminFollowupsPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
           <CardTitle className="text-base">{items.length} pendiente(s)</CardTitle>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
+            Solo los míos
+          </label>
         </CardHeader>
         <CardContent>
           {items.length === 0 ? (
@@ -113,10 +120,11 @@ function FollowupRow({
             {f.tenantName}
           </Link>
           {f.note ? ` · ${f.note}` : ''}
-          {f.authorName ? ` · ${f.authorName}` : ''}
+          {f.assignedToName ? ` · se encarga ${f.assignedToName}` : ''}
         </div>
       </div>
       <div className="flex items-center gap-1">
+        <FollowupControls f={f} />
         <Button variant="outline" size="sm" onClick={onDone} disabled={busy}>
           <Check className="mr-1 size-4" /> Hecho
         </Button>

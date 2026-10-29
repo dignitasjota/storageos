@@ -7,12 +7,27 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminCustomDomains, useCustomDomainAction } from '@/lib/admin/hooks';
+import { useCheckCustomDomain } from '@/lib/admin/tenant-tools-hooks';
 import { ApiError } from '@/lib/auth/api';
 
 export default function AdminCustomDomainsPage() {
   const domains = useAdminCustomDomains();
   const verify = useCustomDomainAction('verify');
   const revoke = useCustomDomainAction('revoke');
+  const check = useCheckCustomDomain();
+
+  async function runCheck(tenantId: string) {
+    try {
+      const r = await check.mutateAsync(tenantId);
+      if (r.pointsToPlatform) toast.success(`${r.domain} ya apunta a la plataforma.`);
+      else
+        toast.error(
+          `${r.domain} todavía no apunta: responde ${r.found.join(', ') || 'nada'} y debería ser ${r.expected.join(', ')}.`,
+        );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo comprobar.');
+    }
+  }
 
   async function run(action: 'verify' | 'revoke', tenantId: string, domain: string) {
     const mut = action === 'verify' ? verify : revoke;
@@ -68,14 +83,36 @@ export default function AdminCustomDomainsPage() {
                     <span className="ml-2 text-muted-foreground">
                       {d.tenantName} · {d.planSlug}
                     </span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {d.dnsReadyAt ? (
+                        <Badge variant="secondary">
+                          DNS listo desde el {new Date(d.dnsReadyAt).toLocaleDateString('es-ES')}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">DNS sin comprobar</Badge>
+                      )}
+                      {!d.featureEnabled && (
+                        <Badge variant="destructive">Su plan no incluye dominio propio</Badge>
+                      )}
+                    </div>
                   </div>
-                  <Button
-                    size="sm"
-                    onClick={() => run('verify', d.tenantId, d.customDomain)}
-                    disabled={verify.isPending}
-                  >
-                    Activar
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void runCheck(d.tenantId)}
+                      disabled={check.isPending}
+                    >
+                      Comprobar DNS
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => run('verify', d.tenantId, d.customDomain)}
+                      disabled={verify.isPending}
+                    >
+                      Activar
+                    </Button>
+                  </div>
                 </div>
               ))}
             </CardContent>
@@ -109,6 +146,11 @@ export default function AdminCustomDomainsPage() {
                     <Badge variant="secondary" className="ml-2">
                       activo
                     </Badge>
+                    {!d.featureEnabled && (
+                      <Badge variant="destructive" className="ml-2">
+                        Su plan ya no lo incluye
+                      </Badge>
+                    )}
                   </div>
                   <Button
                     size="sm"

@@ -5,6 +5,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AccessModule } from '../access/access.module';
 import { AccountingModule } from '../accounting/accounting.module';
 import { AuthModule } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
 import { BillingSaasModule } from '../billing-saas/billing-saas.module';
 import { EmailModule } from '../email/email.module';
 import { EmailDomainsModule } from '../email-domains/email-domains.module';
@@ -14,6 +15,7 @@ import { StripeConnectModule } from '../payments/stripe-connect/stripe-connect.m
 import { PlatformModule } from '../platform/platform.module';
 import { PushModule } from '../push/push.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
+import { UsersModule } from '../users/users.module';
 
 import { AdminActivityService } from './admin-activity.service';
 import { AdminApprovalsController } from './admin-approvals.controller';
@@ -52,6 +54,8 @@ import { AdminTenantInteractionsService } from './admin-tenant-interactions.serv
 import { AdminTenantResetService } from './admin-tenant-reset.service';
 import { AdminTenantSummaryService } from './admin-tenant-summary.service';
 import { AdminTenantTimelineService } from './admin-tenant-timeline.service';
+import { AdminTenantToolsController } from './admin-tenant-tools.controller';
+import { AdminTenantToolsService } from './admin-tenant-tools.service';
 import { AdminTenantsOverviewController } from './admin-tenants-overview.controller';
 import { AdminTenantsOverviewService } from './admin-tenants-overview.service';
 import { AdminTenantsController } from './admin-tenants.controller';
@@ -126,8 +130,11 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AccountingModule,
     NotificationsModule,
     StripeConnectModule,
+    BillingModule,
+    UsersModule,
   ],
   controllers: [
+    AdminTenantToolsController,
     AdminBusinessController,
     AdminPushController,
     AdminTenantsOverviewController,
@@ -165,6 +172,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     TenantDataExportController,
   ],
   providers: [
+    AdminTenantToolsService,
     AdminGuard,
     AdminTenantsOverviewService,
     AdminBillingOpsService,

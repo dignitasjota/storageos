@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   XCircle,
 } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import type { AdminTenantUserDto } from '@storageos/shared';
@@ -35,6 +36,7 @@ import {
   useTenantUserAction,
   type TenantUserActionName,
 } from '@/lib/admin/hooks';
+import { useAdminUserSessions, useRevokeAdminUserSession } from '@/lib/admin/tenant-tools-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
@@ -109,7 +111,7 @@ export function TenantUsersDialog({
         ) : (
           <ul className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
             {rows.map((u) => (
-              <UserRow key={u.id} user={u} onRun={(def) => runAction(u, def)} />
+              <UserRow key={u.id} tenantId={tenantId} user={u} onRun={(def) => runAction(u, def)} />
             ))}
           </ul>
         )}
@@ -119,13 +121,16 @@ export function TenantUsersDialog({
 }
 
 function UserRow({
+  tenantId,
   user: u,
   onRun,
 }: {
+  tenantId: string;
   user: AdminTenantUserDto;
   onRun: (def: ActionDef) => void;
 }) {
   const roleLabel = u.tenantRoleName ?? ROLE_LABELS[u.role] ?? u.role;
+  const [showSessions, setShowSessions] = useState(false);
   return (
     <li className="rounded-lg border p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -143,7 +148,7 @@ function UserRow({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Badge variant="secondary">{roleLabel}</Badge>
-          <UserActions user={u} onRun={onRun} />
+          <UserActions user={u} onRun={onRun} onSessions={() => setShowSessions((v) => !v)} />
         </div>
       </div>
 
@@ -173,16 +178,86 @@ function UserRow({
       <div className="mt-1 text-xs text-muted-foreground">
         Último acceso: {fmtDateTime(u.lastLoginAt)} · Alta: {fmtDate(u.createdAt)}
       </div>
+      {showSessions && <UserSessions tenantId={tenantId} userId={u.id} />}
     </li>
   );
+}
+
+/** Sesiones abiertas del usuario, con su dispositivo y la última IP; cerrar una. */
+function UserSessions({ tenantId, userId }: { tenantId: string; userId: string }) {
+  const canEdit = useIsSuperadmin();
+  const sessions = useAdminUserSessions(tenantId, userId);
+  const revoke = useRevokeAdminUserSession(tenantId, userId);
+  if (sessions.isLoading) {
+    return <Loader2 className="mt-2 size-4 animate-spin text-muted-foreground" />;
+  }
+  const rows = sessions.data ?? [];
+  return (
+    <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-2 text-xs">
+      {rows.length === 0 ? (
+        <p className="text-muted-foreground">Sin sesiones abiertas.</p>
+      ) : (
+        rows.map((s) => (
+          <div key={s.id} className="flex flex-wrap items-center justify-between gap-2">
+            <span className="min-w-0 truncate" title={s.userAgent ?? undefined}>
+              {deviceLabel(s.userAgent)}
+              {s.installedApp ? ' · app instalada' : ''} · {s.ipAddress ?? 'sin IP'} · usada{' '}
+              {fmtDateTime(s.lastUsedAt)}
+            </span>
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs"
+                disabled={revoke.isPending}
+                onClick={() =>
+                  revoke.mutate(s.id, { onSuccess: () => toast.success('Sesión cerrada.') })
+                }
+              >
+                Cerrar
+              </Button>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+/** «Chrome en Mac», «Safari en iPhone»… a partir del navegador. */
+function deviceLabel(ua: string | null): string {
+  if (!ua) return 'Dispositivo desconocido';
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /Chrome\//.test(ua)
+      ? 'Chrome'
+      : /Firefox\//.test(ua)
+        ? 'Firefox'
+        : /Safari\//.test(ua)
+          ? 'Safari'
+          : 'Navegador';
+  const os = /iPhone|iPad/.test(ua)
+    ? 'iPhone'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /Mac OS X/.test(ua)
+        ? 'Mac'
+        : /Windows/.test(ua)
+          ? 'Windows'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : '';
+  return os ? `${browser} en ${os}` : browser;
 }
 
 function UserActions({
   user: u,
   onRun,
+  onSessions,
 }: {
   user: AdminTenantUserDto;
   onRun: (def: ActionDef) => void;
+  onSessions: () => void;
 }) {
   const canEdit = useIsSuperadmin();
   return (
@@ -193,6 +268,7 @@ function UserActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem onClick={onSessions}>Ver sesiones abiertas</DropdownMenuItem>
         {canEdit && !u.emailVerified && (
           <DropdownMenuItem
             onClick={() =>

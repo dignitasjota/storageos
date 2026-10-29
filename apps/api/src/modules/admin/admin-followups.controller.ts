@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { type TenantFollowupDto, UpdateTenantFollowupSchema } from '@storageos/shared';
@@ -17,6 +18,7 @@ import { Public } from '../../common/decorators/public.decorator';
 
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminGuard } from './admin.guard';
+import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
 
 class UpdateTenantFollowupDto extends createZodDto(UpdateTenantFollowupSchema) {}
 
@@ -31,20 +33,23 @@ class UpdateTenantFollowupDto extends createZodDto(UpdateTenantFollowupSchema) {
 export class AdminFollowupsController {
   constructor(private readonly followups: AdminTenantFollowupsService) {}
 
-  /** Pendientes de todos los tenants, por fecha de recordatorio. */
+  /** Pendientes de todos los tenants, por fecha de recordatorio (`?mine=1`: los míos). */
   @Get()
-  async pending(): Promise<TenantFollowupDto[]> {
-    return this.followups.listPending();
+  async pending(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Query('mine') mine?: string,
+  ): Promise<TenantFollowupDto[]> {
+    return this.followups.listPending(mine === '1' ? admin.sub : null);
   }
 
-  /** Marca como hecho o reabre. */
+  /** Marca como hecho o reabre, pospone o cambia quién se encarga. */
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
   async update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateTenantFollowupDto,
   ): Promise<TenantFollowupDto> {
-    return this.followups.setStatus(id, body.status);
+    return this.followups.update(id, body);
   }
 
   @Delete(':id')

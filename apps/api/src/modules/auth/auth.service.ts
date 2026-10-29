@@ -33,7 +33,7 @@ import { TokensService } from './tokens.service';
 import { VerificationTokensService } from './verification-tokens.service';
 
 import type { Env } from '../../config/env.schema';
-import type { Tenant, TenantSubscription, User } from '@storageos/database';
+import type { SubscriptionPlan, Tenant, TenantSubscription, User } from '@storageos/database';
 import type { TenantFeature } from '@storageos/shared';
 import type {
   AuthSuccessResponse,
@@ -98,76 +98,15 @@ export class AuthService {
   // ============================ register ===================================
 
   async register(input: RegisterInput, meta: RequestMeta): Promise<RegisterPendingResponse> {
-    const slug = await this.resolveSlug(input.tenantName, input.tenantSlug);
-
-    const plan = await this.admin.subscriptionPlan.findUnique({
-      where: { slug: TRIAL_PLAN_SLUG },
-    });
-    if (!plan) {
-      this.logger.error(`Plan "${TRIAL_PLAN_SLUG}" no encontrado; corre pnpm db:seed`);
-      throw new InternalServerErrorException('Configuracion de planes incompleta');
-    }
-
-    const passwordHash = await argonHash(input.password);
-    const now = new Date();
-    const trialEndsAt = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
-
-    const { tenant, user, subscription } = await this.admin.$transaction(async (tx) => {
-      const newTenant = await tx.tenant.create({
-        data: {
-          name: input.tenantName.trim(),
-          slug,
-          status: 'trial',
-          trialEndsAt,
-          billingEmail: input.email,
-        },
-      });
-      const newSubscription = await tx.tenantSubscription.create({
-        data: {
-          tenantId: newTenant.id,
-          planId: plan.id,
-          status: 'trial',
-          currentPeriodStart: now,
-          currentPeriodEnd: trialEndsAt,
-        },
-      });
-      const newUser = await tx.user.create({
-        data: {
-          tenantId: newTenant.id,
-          email: input.email,
-          passwordHash,
-          fullName: input.fullName.trim(),
-          role: 'owner',
-          // email_verified_at queda NULL hasta que el usuario verifique.
-        },
-      });
-      // Serie de facturación por defecto: sin ella la primera factura de una
-      // reserva online no se emite (el inquilino no puede pagar y la reserva caduca).
-      await tx.invoiceSeries.create({
-        data: { tenantId: newTenant.id, ...DEFAULT_INVOICE_SERIES },
-      });
-      // Siembra las plantillas transaccionales del tenant (bienvenida, factura
-      // vencida, contrato firmado, PIN de acceso, review…) para que los emails
-      // del ciclo de vida funcionen y sean editables en /message-templates.
-      // Atómico con el alta; el `enqueue` también cae a `BUILTIN_TEMPLATES` como
-      // red de seguridad si por lo que sea faltara alguna fila.
-      await tx.messageTemplate.createMany({
-        data: BUILTIN_TEMPLATES.map((b) => ({
-          tenantId: newTenant.id,
-          code: b.code,
-          kind: b.kind,
-          channel: b.channel,
-          name: b.name,
-          subject: b.subject,
-          bodyText: b.bodyText,
-          bodyHtml: b.bodyHtml,
-          locale: b.locale,
-          variables: b.variables,
-          metadata: b.trigger ? { trigger: b.trigger } : {},
-        })),
-        skipDuplicates: true,
-      });
-      return { tenant: newTenant, subscription: newSubscription, user: newUser };
+    const { tenant, user, subscription, plan } = await this.createTenantAccount({
+      tenantName: input.tenantName,
+      ...(input.tenantSlug ? { tenantSlug: input.tenantSlug } : {}),
+      email: input.email,
+      fullName: input.fullName,
+      passwordHash: await argonHash(input.password),
+      planSlug: TRIAL_PLAN_SLUG,
+      trialDays: TRIAL_DAYS,
+      emailVerified: false,
     });
 
     // Token de verificacion + email. El tenant + usuario YA estan creados
@@ -755,6 +694,118 @@ export class AuthService {
       entityType: 'User',
       entityId: user.id,
       ...(extra?.source ? { changes: { source: extra.source } } : {}),
+    });
+  }
+
+  /**
+   * Crea el tenant con su suscripción, el propietario, la serie de facturación
+   * por defecto y las plantillas de correo. Lo usan el registro público y el
+   * alta manual del super admin. `trialDays` 0 = activo desde el primer día.
+   */
+  async createTenantAccount(args: {
+    tenantName: string;
+    tenantSlug?: string;
+    email: string;
+    fullName: string;
+    passwordHash: string;
+    planSlug: string;
+    trialDays: number;
+    emailVerified: boolean;
+  }): Promise<{
+    tenant: Tenant;
+    user: User;
+    subscription: TenantSubscription;
+    plan: SubscriptionPlan;
+  }> {
+    const slug = await this.resolveSlug(args.tenantName, args.tenantSlug);
+    const plan = await this.admin.subscriptionPlan.findUnique({ where: { slug: args.planSlug } });
+    if (!plan) {
+      this.logger.error(`Plan "${args.planSlug}" no encontrado; corre pnpm db:seed`);
+      throw new InternalServerErrorException('Configuracion de planes incompleta');
+    }
+    const now = new Date();
+    const inTrial = args.trialDays > 0;
+    const trialEndsAt = inTrial ? new Date(now.getTime() + args.trialDays * 86_400_000) : null;
+    const periodEnd =
+      trialEndsAt ??
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate()));
+
+    const created = await this.admin.$transaction(async (tx) => {
+      const newTenant = await tx.tenant.create({
+        data: {
+          name: args.tenantName.trim(),
+          slug,
+          status: inTrial ? 'trial' : 'active',
+          trialEndsAt,
+          billingEmail: args.email,
+        },
+      });
+      const newSubscription = await tx.tenantSubscription.create({
+        data: {
+          tenantId: newTenant.id,
+          planId: plan.id,
+          status: inTrial ? 'trial' : 'active',
+          currentPeriodStart: now,
+          currentPeriodEnd: periodEnd,
+        },
+      });
+      const newUser = await tx.user.create({
+        data: {
+          tenantId: newTenant.id,
+          email: args.email,
+          passwordHash: args.passwordHash,
+          fullName: args.fullName.trim(),
+          role: 'owner',
+          // Sin verificar hasta que el usuario pulse el enlace (registro público).
+          ...(args.emailVerified ? { emailVerifiedAt: now } : {}),
+        },
+      });
+      // Serie de facturación por defecto: sin ella la primera factura de una
+      // reserva online no se emite (el inquilino no puede pagar y la reserva caduca).
+      await tx.invoiceSeries.create({
+        data: { tenantId: newTenant.id, ...DEFAULT_INVOICE_SERIES },
+      });
+      // Plantillas transaccionales del tenant (bienvenida, factura vencida,
+      // contrato firmado, PIN de acceso, review…), editables en /message-templates.
+      await tx.messageTemplate.createMany({
+        data: BUILTIN_TEMPLATES.map((b) => ({
+          tenantId: newTenant.id,
+          code: b.code,
+          kind: b.kind,
+          channel: b.channel,
+          name: b.name,
+          subject: b.subject,
+          bodyText: b.bodyText,
+          bodyHtml: b.bodyHtml,
+          locale: b.locale,
+          variables: b.variables,
+          metadata: b.trigger ? { trigger: b.trigger } : {},
+        })),
+        skipDuplicates: true,
+      });
+      return { tenant: newTenant, subscription: newSubscription, user: newUser };
+    });
+    return { ...created, plan };
+  }
+
+  /**
+   * Envía al usuario un enlace para elegir su contraseña (alta manual desde el
+   * panel admin: la cuenta se crea con una contraseña que nadie conoce).
+   */
+  async sendSetPasswordEmail(tenantId: string, userId: string): Promise<void> {
+    const user = await this.admin.user.findUniqueOrThrow({ where: { id: userId } });
+    const { plaintext } = await this.passwordResetTokens.issue({
+      tenantId,
+      userId,
+      ipAddress: null,
+      userAgent: null,
+    });
+    const resetUrl = `${this.config.get('WEB_BASE_URL', { infer: true })}/reset-password/${plaintext}`;
+    await this.email.send({
+      to: user.email,
+      kind: 'password_reset',
+      subject: 'Tu cuenta de TrasterOS está lista: elige tu contraseña',
+      template: PasswordResetEmail({ fullName: user.fullName, resetUrl }),
     });
   }
 

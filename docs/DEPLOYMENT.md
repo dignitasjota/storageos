@@ -1563,3 +1563,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 
 - Sin migración ni variables nuevas. Redesplegar api, worker y web.
 - Anonimizar un tenant (RGPD) ahora también borra sus secretos (certificado de la AEAT, pasarelas, Holded, claves de API) y los datos de los inquilinos que antes se quedaban; antes de usarlo, exporta sus datos si el cliente los pide.
+
+## 64. Mejoras del apartado Tenants del panel admin (2026-10-29)
+
+- **Migración** `20261201100000_admin_tenants_improvements` (se aplica sola). Sin variables nuevas. Redesplegar api, worker y web.
+- Las vistas guardadas de la lista de tenants pasan del navegador al servidor la primera vez que se abre la lista (se suben las de ese navegador).
+- «Anonimizar» pide ahora marcar «Ya he exportado sus datos».

@@ -1,10 +1,12 @@
 'use client';
 
-import { ArrowDown, ArrowUp, Columns3, Download, Loader2, Save, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Columns3, Download, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { NewTenantDialog } from './new-tenant-dialog';
 import { TenantsBulkBar } from './tenants-bulk-bar';
 
 import type { AdminTenantOverviewDto } from '@storageos/shared';
@@ -33,6 +35,8 @@ import {
 } from '@/components/ui/select';
 import { useAdminTenantsOverview } from '@/lib/admin/hooks';
 import { tenantStatusLabel } from '@/lib/admin/labels';
+import { useDeleteView, useSaveView, useSavedViews } from '@/lib/admin/tenant-tools-hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { downloadCsv } from '@/lib/csv';
 
 type Row = AdminTenantOverviewDto;
@@ -108,6 +112,8 @@ interface Filters {
   overdue: boolean;
   trialSoon: boolean;
   noAddons: boolean;
+  /** Sin acceso del equipo en N días (0 = sin filtro). */
+  noLoginDays: number;
 }
 
 const EMPTY: Filters = {
@@ -122,6 +128,7 @@ const EMPTY: Filters = {
   overdue: false,
   trialSoon: false,
   noAddons: false,
+  noLoginDays: 0,
 };
 
 interface View {
@@ -168,9 +175,15 @@ function matches(t: Row, f: Filters): boolean {
   const q = f.search.trim().toLowerCase();
   if (
     q &&
-    ![t.name, t.slug, t.ownerEmail ?? '', t.ownerPhone ?? '', ...t.tags].some((v) =>
-      v.toLowerCase().includes(q),
-    )
+    ![
+      t.name,
+      t.slug,
+      t.ownerEmail ?? '',
+      t.ownerPhone ?? '',
+      t.taxId ?? '',
+      t.billingEmail ?? '',
+      ...t.tags,
+    ].some((v) => v.toLowerCase().includes(q))
   ) {
     return false;
   }
@@ -198,6 +211,10 @@ function matches(t: Row, f: Filters): boolean {
     if (left > 7 * DAY) return false;
   }
   if (f.noAddons && t.addons.some((a) => !a.suspended)) return false;
+  if (f.noLoginDays > 0) {
+    const ago = daysAgo(t.lastTeamLoginAt);
+    if (ago !== null && ago < f.noLoginDays) return false;
+  }
   return true;
 }
 
@@ -233,16 +250,47 @@ function sortValue(t: Row, key: SortKey): number | string {
 export default function AdminTenantsPage() {
   const overview = useAdminTenantsOverview();
   const ask = useConfirm();
+  const canEdit = useIsSuperadmin();
+  const [newOpen, setNewOpen] = useState(false);
   const [filters, setFilters] = useState<Filters>(EMPTY);
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'created', dir: -1 });
+  // Por defecto, los de peor salud primero (los que piden atención).
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'health', dir: 1 });
   const [columns, setColumns] = useState<ColumnKey[]>(DEFAULT_COLUMNS);
-  const [views, setViews] = useState<View[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Vistas guardadas en el servidor (las ve el mismo super admin en cualquier navegador).
+  const savedViews = useSavedViews();
+  const saveViewMut = useSaveView();
+  const deleteViewMut = useDeleteView();
+  const views = savedViews.data ?? [];
 
   useEffect(() => {
-    setViews(readStorage<View[]>(VIEWS_KEY, []));
     setColumns(readStorage<ColumnKey[]>(COLUMNS_KEY, DEFAULT_COLUMNS));
   }, []);
+
+  // Las vistas que había en este navegador pasan al servidor una sola vez.
+  const migrated = useRef(false);
+  useEffect(() => {
+    if (migrated.current || !savedViews.data) return;
+    migrated.current = true;
+    const local = readStorage<View[]>(VIEWS_KEY, []);
+    if (local.length === 0) return;
+    void Promise.all(
+      local.map((v) =>
+        saveViewMut.mutateAsync({
+          name: v.name,
+          filters: v.filters as unknown as Record<string, unknown>,
+        }),
+      ),
+    )
+      .then(() => {
+        try {
+          localStorage.removeItem(VIEWS_KEY);
+        } catch {
+          /* sin almacenamiento */
+        }
+      })
+      .catch(() => undefined);
+  }, [savedViews.data, saveViewMut]);
 
   const all = useMemo(() => overview.data ?? [], [overview.data]);
   const planOptions = useMemo(() => {
@@ -295,21 +343,24 @@ export default function AdminTenantsPage() {
   async function saveView() {
     const res = await ask({
       title: 'Guardar vista',
-      description: 'Se guarda en este navegador con los filtros actuales.',
+      description: 'Se guarda con los filtros actuales y la verás en cualquier navegador.',
       input: { label: 'Nombre de la vista', placeholder: 'p. ej. Candidatos a WhatsApp' },
       confirmLabel: 'Guardar',
     });
     const name = res ? res.value : '';
     if (!name?.trim()) return;
-    const next = [...views.filter((v) => v.name !== name.trim()), { name: name.trim(), filters }];
-    setViews(next);
-    writeStorage(VIEWS_KEY, next);
-    toast.success('Vista guardada en este navegador.');
+    try {
+      await saveViewMut.mutateAsync({
+        name: name.trim(),
+        filters: filters as unknown as Record<string, unknown>,
+      });
+      toast.success('Vista guardada.');
+    } catch {
+      toast.error('No se pudo guardar la vista.');
+    }
   }
-  function deleteView(name: string) {
-    const next = views.filter((v) => v.name !== name);
-    setViews(next);
-    writeStorage(VIEWS_KEY, next);
+  function deleteView(id: string) {
+    deleteViewMut.mutate(id);
   }
   function toggle(id: string) {
     setSelected((prev) => {
@@ -340,6 +391,8 @@ export default function AdminTenantsPage() {
         'Contratos activos',
         'Email propietario',
         'Teléfono propietario',
+        'NIF',
+        'Email de facturación',
         'Alta',
         'Fin prueba',
         'Etiquetas',
@@ -363,6 +416,8 @@ export default function AdminTenantsPage() {
         t.activeContracts,
         t.ownerEmail ?? '',
         t.ownerPhone ?? '',
+        t.taxId ?? '',
+        t.billingEmail ?? '',
         day(t.createdAt),
         day(t.trialEndsAt),
         t.tags.join(', '),
@@ -406,8 +461,8 @@ export default function AdminTenantsPage() {
                   <DropdownMenuLabel>Mis vistas</DropdownMenuLabel>
                   {views.map((v) => (
                     <DropdownMenuItem
-                      key={v.name}
-                      onSelect={() => setFilters({ ...EMPTY, ...v.filters })}
+                      key={v.id}
+                      onSelect={() => setFilters({ ...EMPTY, ...(v.filters as Partial<Filters>) })}
                       className="justify-between"
                     >
                       <span className="truncate">{v.name}</span>
@@ -417,7 +472,7 @@ export default function AdminTenantsPage() {
                         className="text-muted-foreground hover:text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteView(v.name);
+                          deleteView(v.id);
                         }}
                       >
                         <Trash2 className="size-3.5" />
@@ -454,14 +509,20 @@ export default function AdminTenantsPage() {
           <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
             <Download className="mr-1.5 size-4" /> CSV
           </Button>
+          {canEdit && (
+            <Button size="sm" onClick={() => setNewOpen(true)}>
+              <Plus className="mr-1.5 size-4" /> Nuevo tenant
+            </Button>
+          )}
         </div>
+        <NewTenantDialog open={newOpen} onClose={() => setNewOpen(false)} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={filters.search}
           onChange={(e) => set('search', e.target.value)}
-          placeholder="Buscar por nombre, slug, email, teléfono o etiqueta…"
+          placeholder="Buscar por nombre, NIF, email, teléfono o etiqueta…"
           className="w-full sm:max-w-xs"
         />
         <FilterSelect
@@ -540,6 +601,17 @@ export default function AdminTenantsPage() {
           checked={filters.noAddons}
           onChange={(v) => set('noAddons', v)}
           label="Sin extras"
+        />
+        <FilterSelect
+          value={String(filters.noLoginDays)}
+          onChange={(v) => set('noLoginDays', Number(v))}
+          options={[
+            ['0', 'Cualquier acceso'],
+            ['7', 'Sin acceso en 7 días'],
+            ['14', 'Sin acceso en 14 días'],
+            ['30', 'Sin acceso en 30 días'],
+            ['60', 'Sin acceso en 60 días'],
+          ]}
         />
         {activeFilters && (
           <Button variant="ghost" size="sm" onClick={() => setFilters(EMPTY)}>
@@ -743,6 +815,7 @@ function TenantRow({
   selected: boolean;
   onToggle: () => void;
 }) {
+  const router = useRouter();
   const login = daysAgo(t.lastTeamLoginAt);
   const followDue = t.nextFollowup
     ? new Date(t.nextFollowup.dueDate).getTime() <= Date.now()
@@ -751,7 +824,17 @@ function TenantRow({
     ? Math.ceil((new Date(t.trialEndsAt).getTime() - Date.now()) / DAY)
     : null;
   return (
-    <tr className={`border-b last:border-0 hover:bg-muted/30 ${selected ? 'bg-primary/5' : ''}`}>
+    <tr
+      className={`cursor-pointer border-b last:border-0 hover:bg-muted/30 ${selected ? 'bg-primary/5' : ''}`}
+      onClick={(e) => {
+        // La fila entera abre la ficha, salvo los clics en la casilla o en un enlace.
+        const el = e.target as HTMLElement;
+        if (el.closest('a,button,input,[role="checkbox"],label')) return;
+        if (window.getSelection()?.toString()) return;
+        if (e.metaKey || e.ctrlKey) window.open(`/admin/tenants/${t.id}`, '_blank');
+        else router.push(`/admin/tenants/${t.id}`);
+      }}
+    >
       <td className="px-3 py-2 align-top">
         <Checkbox
           checked={selected}

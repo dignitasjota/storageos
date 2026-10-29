@@ -10,6 +10,7 @@ import {
   Mail,
   MessageSquare,
   ShieldCheck,
+  Trophy,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -30,6 +31,7 @@ const FILTERS: { label: string; kinds: AdminTimelineKind[] }[] = [
   { label: 'Acciones del admin', kinds: ['admin_action', 'impersonation'] },
   { label: 'Correos', kinds: ['email'] },
   { label: 'Seguimientos', kinds: ['followup'] },
+  { label: 'Hitos', kinds: ['milestone'] },
 ];
 
 const ICONS: Record<AdminTimelineKind, React.ComponentType<{ className?: string }>> = {
@@ -41,6 +43,7 @@ const ICONS: Record<AdminTimelineKind, React.ComponentType<{ className?: string 
   ticket: LifeBuoy,
   email: Mail,
   followup: CalendarClock,
+  milestone: Trophy,
 };
 
 const TONE: Record<AdminTimelineItemDto['tone'], string> = {

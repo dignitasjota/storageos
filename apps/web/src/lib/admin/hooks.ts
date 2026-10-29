@@ -512,7 +512,10 @@ export function useSuspendTenant() {
 export function useReactivateTenant() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: string; input: AdminTenantActionInput }) =>
+    mutationFn: (args: {
+      id: string;
+      input: AdminTenantActionInput & { forgivePeriod?: boolean };
+    }) =>
       adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/reactivate`, {
         method: 'POST',
         json: args.input,
@@ -817,7 +820,7 @@ export function useImpersonateTenant() {
 export function useAnonymizeTenant() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: string; input: AdminTenantActionInput }) =>
+    mutationFn: (args: { id: string; input: AdminTenantActionInput & { exported: true } }) =>
       adminApiFetch<AnonymizeTenantResultDto>(`/admin/tenants/${args.id}/anonymize`, {
         method: 'POST',
         json: args.input,
@@ -1499,10 +1502,10 @@ export function useDeleteTenantInteraction(id: string) {
 // --- Seguimientos / recordatorios ------------------------------------------
 
 /** Bandeja global de seguimientos pendientes. */
-export function useAdminFollowupsPending() {
+export function useAdminFollowupsPending(mine = false) {
   return useQuery({
-    queryKey: ['admin', 'followups', 'pending'] as const,
-    queryFn: () => adminApiFetch<TenantFollowupDto[]>('/admin/followups'),
+    queryKey: ['admin', 'followups', 'pending', mine ? 'mine' : 'all'] as const,
+    queryFn: () => adminApiFetch<TenantFollowupDto[]>(`/admin/followups${mine ? '?mine=1' : ''}`),
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
@@ -1535,10 +1538,18 @@ export function useCreateFollowup(id: string) {
 export function useUpdateFollowup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { followupId: string; status: 'pending' | 'done' }) =>
-      adminApiFetch<TenantFollowupDto>(`/admin/followups/${args.followupId}`, {
+    mutationFn: ({
+      followupId,
+      ...input
+    }: {
+      followupId: string;
+      status?: 'pending' | 'done';
+      dueDate?: string;
+      assignedToId?: string | null;
+    }) =>
+      adminApiFetch<TenantFollowupDto>(`/admin/followups/${followupId}`, {
         method: 'PATCH',
-        json: { status: args.status },
+        json: input,
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'followups', 'pending'] });
