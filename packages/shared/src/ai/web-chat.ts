@@ -46,6 +46,10 @@ export interface PublicWebChatResultDto {
 
 export interface PublicWebChatHistoryDto {
   messages: { role: 'visitor' | 'assistant'; content: string; createdAt: string }[];
+  /** El visitante ya hizo hoy todas las preguntas que puede. */
+  limited: 'visitor' | null;
+  /** Contacto del negocio (solo con `limited`, para seguir por otra vía). */
+  contact: WebChatContactDto | null;
 }
 
 /** Configuración → Asistente IA → Chat de la web. */
@@ -79,12 +83,16 @@ export interface WebChatConversationDto {
   leadName: string | null;
   /** Primer mensaje del visitante. */
   preview: string;
+  /** Veces que no se pudo responder con IA (límite, sin clave o error). */
+  fallbackCount: number;
 }
 
 export interface WebChatMessageDto {
   id: string;
   role: 'visitor' | 'assistant';
   content: string;
+  /** Respuesta de respaldo, sin IA. */
+  fallback: boolean;
   createdAt: string;
 }
 
@@ -92,7 +100,11 @@ export interface WebChatStatsDto {
   days: number;
   conversations: number;
   visitorMessages: number;
+  /** Respuestas del asistente con IA. */
   assistantReplies: number;
+  /** Veces que no se pudo responder con IA (límite, sin clave o error). */
+  fallbackReplies: number;
+  /** Contactos distintos que dejaron sus datos. */
   leads: number;
   /** Preguntas que más se repiten (para añadirlas a las preguntas frecuentes). */
   topQuestions: { question: string; count: number }[];

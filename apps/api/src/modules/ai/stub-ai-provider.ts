@@ -96,6 +96,7 @@ export class StubAiProvider extends AiProvider {
   private webChat(messages: AiMessageParam[]): AiCompletion {
     const text = this.lastUserText(messages);
     const email = /[^\s@]+@[^\s@]+\.[^\s@]+/.exec(text)?.[0];
+    const phone = /llam/i.test(text) ? /\d[\d\s]*/.exec(text)?.[0]?.trim() : undefined;
     return {
       stopReason: 'end_turn',
       content: [
@@ -103,7 +104,9 @@ export class StubAiProvider extends AiProvider {
           type: 'text',
           text: email
             ? `¡Gracias! El equipo te escribirá pronto.\n[[CONTACTO {"nombre":"Visitante","email":"${email}","mensaje":"Quiere información"}]]`
-            : 'Hola, soy el asistente de la web. Tenemos trasteros de varios tamaños; dime qué necesitas guardar y te digo cuál te encaja.',
+            : phone
+              ? `¡Gracias! El equipo te llamará pronto.\n[[CONTACTO {"nombre":"Visitante","telefono":"${phone}"}]]`
+              : 'Hola, soy el asistente de la web. Tenemos trasteros de varios tamaños; dime qué necesitas guardar y te digo cuál te encaja.',
         },
       ],
     };

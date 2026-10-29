@@ -14,6 +14,7 @@ import {
   type WebLegalSettingsDto,
 } from '@storageos/shared';
 
+import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -36,6 +37,7 @@ const TENANT_SELECT = {
   customDomain: true,
   customDomainVerifiedAt: true,
   googleAnalyticsId: true,
+  webChatEnabled: true,
   webLegal: true,
 } satisfies Prisma.TenantSelect;
 
@@ -147,7 +149,7 @@ export class WebLegalService {
   }
 
   private async context(t: LegalTenant): Promise<TenantLegalContext> {
-    const [facility, whatsapp, places] = await Promise.all([
+    const [facility, whatsapp, places, webChat] = await Promise.all([
       this.admin.facility.findFirst({
         where: { tenantId: t.id, deletedAt: null, isActive: true },
         orderBy: { name: 'asc' },
@@ -162,6 +164,7 @@ export class WebLegalService {
         orderBy: { name: 'asc' },
         select: { name: true, address: true, postalCode: true, city: true },
       }),
+      t.webChatEnabled ? tenantHasFeature(this.admin, t.id, 'ai_assistant') : false,
     ]);
     const address = [
       t.billingAddress,
@@ -182,6 +185,7 @@ export class WebLegalService {
       websiteUrl: domain ? `https://${domain}` : `${base}/s/${t.slug}`,
       analytics: !!t.googleAnalyticsId,
       whatsapp: !!whatsapp?.enabled,
+      webChat,
       tradeName: t.name,
       // Dirección de cada local, para identificar los establecimientos.
       facilities: places

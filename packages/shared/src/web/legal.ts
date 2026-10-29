@@ -78,6 +78,8 @@ export interface TenantLegalContext {
   analytics: boolean;
   /** Tiene el botón o el asistente de WhatsApp Business. */
   whatsapp: boolean;
+  /** Tiene el chat con IA en la web. */
+  webChat?: boolean;
   /** Nombre comercial (el nombre del negocio en la plataforma). */
   tradeName?: string;
   /** Dirección de cada local activo. */
@@ -158,6 +160,11 @@ ${holderLines(h)}
         ? `
 - **WhatsApp:** los mensajes que nos envíes por WhatsApp, para atenderte. Puede responderte un asistente automático y, si lo pides, una persona.`
         : ''
+    }${
+      ctx.webChat
+        ? `
+- **Chat de la web:** lo que escribes en el chat, para responderte. Te responde un asistente automático con inteligencia artificial que solo usa la información pública de esta web. La conversación se guarda en tu navegador con un identificador aleatorio y se borra pasados 90 días sin mensajes. Si nos dejas tu nombre, email o teléfono para que te contactemos, los guardamos como consulta junto con la dirección IP y el navegador desde los que escribiste.`
+        : ''
     }
 
 ## Base legal
@@ -174,7 +181,11 @@ Mientras dure la relación y, después, el tiempo que exige la ley (por ejemplo,
 
 No vendemos tus datos. Los tratan por cuenta nuestra los proveedores que necesitamos para dar el servicio: la plataforma de gestión TrasterOS (alojamiento y gestión de reservas, contratos y facturas), las entidades de pago y el banco para cobrar, el proveedor de correo electrónico${
       ctx.analytics ? ' y Google (analítica de la web, solo si la aceptas)' : ''
-    }${ctx.whatsapp ? ' y Meta (WhatsApp)' : ''}. También a las administraciones públicas cuando lo exige la ley (por ejemplo, la Agencia Tributaria).
+    }${ctx.whatsapp ? ' y Meta (WhatsApp)' : ''}${
+      ctx.webChat
+        ? ', y el proveedor de inteligencia artificial que responde en el chat de la web (Anthropic)'
+        : ''
+    }. También a las administraciones públicas cuando lo exige la ley (por ejemplo, la Agencia Tributaria).
 
 ## Tus derechos
 

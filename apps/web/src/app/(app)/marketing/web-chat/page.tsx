@@ -70,21 +70,34 @@ export default function WebChatPage() {
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
       ) : s ? (
-        <div className="grid gap-3 sm:grid-cols-4">
-          {[
-            { label: 'Conversaciones', value: s.conversations },
-            { label: 'Preguntas', value: s.visitorMessages },
-            { label: 'Respuestas del asistente', value: s.assistantReplies },
-            { label: 'Contactos', value: s.leads },
-          ].map((k) => (
-            <Card key={k.label}>
-              <CardContent className="py-4">
-                <div className="text-xs text-muted-foreground">{k.label}</div>
-                <div className="text-2xl font-semibold tabular-nums">{formatNumber(k.value)}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <>
+          <div className="grid gap-3 sm:grid-cols-4">
+            {[
+              { label: 'Conversaciones', value: s.conversations },
+              { label: 'Preguntas', value: s.visitorMessages },
+              { label: 'Respuestas del asistente', value: s.assistantReplies },
+              { label: 'Contactos', value: s.leads },
+            ].map((k) => (
+              <Card key={k.label}>
+                <CardContent className="py-4">
+                  <div className="text-xs text-muted-foreground">{k.label}</div>
+                  <div className="text-2xl font-semibold tabular-nums">{formatNumber(k.value)}</div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          {s.fallbackReplies > 0 && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              {formatNumber(s.fallbackReplies)}{' '}
+              {s.fallbackReplies === 1 ? 'vez no se pudo' : 'veces no se pudo'} responder con IA
+              (respuestas del mes gastadas, sin clave o un error del modelo): el visitante vio tu
+              contacto.{' '}
+              <Link href="/settings/ai" className="underline">
+                Revisar
+              </Link>
+            </p>
+          )}
+        </>
       ) : null}
 
       {s && s.topQuestions.length > 0 && (
@@ -117,47 +130,74 @@ export default function WebChatPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Conversaciones</CardTitle>
-          <CardDescription>Se guardan 90 días desde el último mensaje.</CardDescription>
+          <CardDescription>
+            Con mensajes en el periodo. Se guardan 90 días desde el último mensaje.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {conversations.isLoading ? (
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          ) : (conversations.data ?? []).length === 0 ? (
+          ) : conversations.rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">Aún no hay conversaciones.</p>
           ) : (
-            <ul className="divide-y">
-              {(conversations.data ?? []).map((c) => (
-                <li key={c.id} className="py-3">
-                  <button
-                    type="button"
-                    className="flex w-full items-start gap-3 text-left"
-                    onClick={() => setOpenId(openId === c.id ? null : c.id)}
+            <>
+              <ul className="divide-y">
+                {conversations.rows.map((c) => (
+                  <li key={c.id} className="py-3">
+                    <button
+                      type="button"
+                      className="flex w-full items-start gap-3 text-left"
+                      onClick={() => setOpenId(openId === c.id ? null : c.id)}
+                    >
+                      <MessageCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">
+                          {c.preview || 'Sin mensajes'}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatDateTime(c.lastMessageAt)} · {c.messageCount} mensajes
+                          {c.pagePath ? ` · ${c.pagePath}` : ''}
+                          {c.locale === 'en' ? ' · inglés' : ''}
+                        </div>
+                        {c.fallbackCount > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="mt-1 text-amber-700 dark:text-amber-300"
+                          >
+                            Sin respuesta de la IA ({c.fallbackCount})
+                          </Badge>
+                        )}
+                      </div>
+                      {c.leadId && (
+                        <Link
+                          href={`/leads?lead=${c.leadId}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex shrink-0 items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <UserPlus className="size-3.5" /> {c.leadName ?? 'Contacto'}
+                        </Link>
+                      )}
+                    </button>
+                    {openId === c.id && <Thread id={c.id} />}
+                  </li>
+                ))}
+              </ul>
+              {conversations.loadMore.hasMore && (
+                <div className="pt-3 text-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={conversations.loadMore.loading}
+                    onClick={conversations.loadMore.onLoadMore}
                   >
-                    <MessageCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">
-                        {c.preview || 'Sin mensajes'}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatDateTime(c.lastMessageAt)} · {c.messageCount} mensajes
-                        {c.pagePath ? ` · ${c.pagePath}` : ''}
-                        {c.locale === 'en' ? ' · inglés' : ''}
-                      </div>
-                    </div>
-                    {c.leadId && (
-                      <Link
-                        href={`/leads?lead=${c.leadId}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex shrink-0 items-center gap-1 text-xs text-primary hover:underline"
-                      >
-                        <UserPlus className="size-3.5" /> {c.leadName ?? 'Contacto'}
-                      </Link>
+                    {conversations.loadMore.loading && (
+                      <Loader2 className="mr-2 size-4 animate-spin" />
                     )}
-                  </button>
-                  {openId === c.id && <Thread id={c.id} />}
-                </li>
-              ))}
-            </ul>
+                    Cargar más
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -179,7 +219,10 @@ function Thread({ id }: { id: string }) {
           )}
           <div className="min-w-0">
             <p className="whitespace-pre-wrap break-words">{m.content}</p>
-            <p className="text-[11px] text-muted-foreground">{formatDateTime(m.createdAt)}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {formatDateTime(m.createdAt)}
+              {m.fallback ? ' · respuesta automática sin IA' : ''}
+            </p>
           </div>
         </div>
       ))}

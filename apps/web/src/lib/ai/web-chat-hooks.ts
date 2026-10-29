@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { usePagedList } from '../pagination';
 
 import type {
   UpdateWebChatSettingsInput,
@@ -36,10 +37,10 @@ export function useWebChatStats(days: number) {
   });
 }
 
+/** Conversaciones del periodo, 50 por página con «Cargar más». */
 export function useWebChatConversations(days: number) {
-  return useQuery({
-    queryKey: ['web-chat', 'conversations', days],
-    queryFn: () => apiFetch<WebChatConversationDto[]>(`/web-chat/conversations?days=${days}`),
+  return usePagedList<WebChatConversationDto>('web-chat', '/web-chat/conversations', {
+    days: String(days),
   });
 }
 
