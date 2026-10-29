@@ -130,6 +130,26 @@ describe('PDF del contrato', () => {
     expect(html).toContain('&lt;b&gt;Ana&lt;/b&gt;');
   });
 
+  it('dice qué versión de las condiciones generales se aceptó', () => {
+    const html = renderContractHtml({
+      ...input,
+      generalTerms: [
+        {
+          title: 'Condiciones Generales de Contratación',
+          version: 3,
+          contentHash: 'a'.repeat(64),
+          acceptedAt: new Date('2026-10-29T10:00:00Z'),
+          channel: 'remote',
+        },
+      ],
+    });
+    expect(html).toContain('Condiciones generales de contratación');
+    expect(html).toContain('versión 3');
+    expect(html).toContain('a'.repeat(64));
+    expect(html).toContain('en la web, antes de pagar');
+    expect(renderContractHtml(input)).not.toContain('Condiciones generales de contratación</h2>');
+  });
+
   it('borrador y contrato sin firma electrónica lo dicen', () => {
     expect(renderContractHtml({ ...input, status: 'draft', signatures: [] })).toContain(
       'Borrador pendiente de firma',

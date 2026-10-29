@@ -1528,4 +1528,5 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 
 - Migración `20261127100000_legal_doc_versions` (versiones y aceptaciones, con RLS). Se aplica sola.
 - Desde este despliegue, quien firma una reserva online (o paga un contrato ya firmado) tiene que marcar la casilla de las Condiciones Generales de Contratación. El texto por defecto se genera con los datos de cada negocio; conviene que cada tenant lo revise en Configuración → Textos legales.
+- En el área de clientes, el primer pago de un contrato que nunca las aceptó (firmado en papel o antes de esto) también pide la casilla; los contratos que ya pagaron alguna factura no.
 - Sin variables nuevas.

@@ -15,6 +15,8 @@ interface TxMock {
   customer: { updateMany: jest.Mock };
   customerDocument: { deleteMany: jest.Mock };
   customerAuthorizedPerson: { deleteMany: jest.Mock };
+  contractSignature: { updateMany: jest.Mock };
+  legalDocAcceptance: { updateMany: jest.Mock };
   paymentMethod: { deleteMany: jest.Mock };
   lead: { updateMany: jest.Mock };
   communication: { updateMany: jest.Mock };
@@ -34,6 +36,8 @@ function buildTx(): TxMock {
     customer: { updateMany: jest.fn().mockResolvedValue({ count: 3 }) },
     customerDocument: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     customerAuthorizedPerson: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    contractSignature: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    legalDocAcceptance: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     paymentMethod: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     lead: { updateMany: jest.fn().mockResolvedValue({ count: 4 }) },
     communication: { updateMany: jest.fn().mockResolvedValue({ count: 7 }) },

@@ -310,8 +310,7 @@ export class SignaturesService {
     hash: string,
     meta: RequestMeta,
   ): Promise<void> {
-    if (await this.generalTerms.isAccepted(contract.tenantId, contract.id)) return;
-    await this.generalTerms.accept({
+    await this.generalTerms.acceptOnce({
       tenantId: contract.tenantId,
       customerId: contract.customerId,
       contractId: contract.id,
@@ -498,7 +497,9 @@ export class SignaturesService {
         message: 'Debes aceptar las condiciones generales de contratación',
       });
     }
-    await this.generalTerms.assertCurrent(contract.tenantId, input.generalTermsHash);
+    // Se guarda la aceptación ANTES de firmar: si después falla la firma, el
+    // contrato sigue en borrador; nunca queda firmado sin ella.
+    await this.acceptGeneralTerms(contract, input.generalTermsHash, meta);
 
     await this.contracts.sign({
       tenantId: contract.tenantId,
@@ -518,7 +519,6 @@ export class SignaturesService {
       ...(input.termsHash ? { expectedTermsHash: input.termsHash } : {}),
     });
 
-    await this.acceptGeneralTerms(contract, input.generalTermsHash, meta);
     await this.maybeIssueFirstInvoice(contract.tenantId, contract.id, contract.customerId);
 
     return {

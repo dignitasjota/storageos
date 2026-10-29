@@ -113,7 +113,35 @@ export class RgpdService {
         where: { id: customerId },
         include: {
           documents: true,
-          contracts: { include: { events: true } },
+          contracts: {
+            include: {
+              events: true,
+              // Firmas y condiciones generales aceptadas (con su evidencia).
+              signatures: {
+                select: {
+                  signerName: true,
+                  signerEmail: true,
+                  method: true,
+                  channel: true,
+                  documentHash: true,
+                  ipAddress: true,
+                  userAgent: true,
+                  signedAt: true,
+                },
+              },
+              legalDocAcceptances: {
+                select: {
+                  channel: true,
+                  ipAddress: true,
+                  userAgent: true,
+                  acceptedAt: true,
+                  version: {
+                    select: { title: true, version: true, contentHash: true, content: true },
+                  },
+                },
+              },
+            },
+          },
           reservations: true,
           invoices: { include: { items: true, payments: true } },
           paymentMethods: { select: { id: true, type: true, brand: true, last4: true } },
@@ -310,6 +338,17 @@ export class RgpdService {
       await tx.sepaMandate.updateMany({
         where: { customerId, status: 'active' },
         data: { status: 'cancelled' },
+      });
+      // Firma del contrato y condiciones generales aceptadas: se conservan como
+      // prueba (qué se firmó, qué versión, cuándo y por qué canal) sin la IP,
+      // el navegador ni el email de quien firmó.
+      await tx.contractSignature.updateMany({
+        where: { contract: { customerId } },
+        data: { ipAddress: null, userAgent: null, signerEmail: null },
+      });
+      await tx.legalDocAcceptance.updateMany({
+        where: { customerId },
+        data: { ipAddress: null, userAgent: null },
       });
       const fileKeys = [...faces.map((f) => f.facePhotoKey!), ...photos.map((p) => p.key)];
       // Conversaciones de WhatsApp: sin texto ni número.

@@ -93,6 +93,90 @@ export class GeneralTermsService {
     return toAcceptanceDto(row);
   }
 
+  /**
+   * Acepta para un contrato si aún no lo estaban. Se llama ANTES de firmar: si
+   * la firma falla después, el contrato sigue en borrador y al reintentar la
+   * aceptación ya está hecha (y nunca queda un contrato firmado sin ella).
+   */
+  async acceptOnce(args: Parameters<GeneralTermsService['accept']>[0] & { contractId: string }) {
+    if (await this.isAccepted(args.tenantId, args.contractId)) return;
+    await this.accept(args);
+  }
+
+  /**
+   * Contratos de esas facturas del inquilino cuyo primer pago está pendiente y
+   * que aún no tienen las condiciones aceptadas (contrato firmado en el local
+   * sin la casilla, en papel o antes de que existiera). Las facturas de un
+   * contrato que ya pagó alguna no las piden.
+   */
+  async contractsNeedingAcceptance(
+    tenantId: string,
+    customerId: string,
+    invoiceIds: string[],
+  ): Promise<string[]> {
+    if (invoiceIds.length === 0) return [];
+    const invoices = await this.admin.invoice.findMany({
+      where: { tenantId, customerId, id: { in: invoiceIds }, contractId: { not: null } },
+      select: { contractId: true },
+    });
+    const ids = [...new Set(invoices.map((i) => i.contractId!))];
+    if (ids.length === 0) return [];
+    const [accepted, paid] = await Promise.all([
+      this.admin.legalDocAcceptance.findMany({
+        where: { tenantId, contractId: { in: ids } },
+        select: { contractId: true },
+        distinct: ['contractId'],
+      }),
+      this.admin.invoice.findMany({
+        where: { tenantId, contractId: { in: ids }, kind: 'invoice', status: 'paid' },
+        select: { contractId: true },
+        distinct: ['contractId'],
+      }),
+    ]);
+    const done = new Set([...accepted, ...paid].map((r) => r.contractId));
+    return ids.filter((id) => !done.has(id));
+  }
+
+  /** El contrato es del inquilino (404 si no) y su primer pago pide aceptarlas. */
+  async contractNeedsAcceptance(
+    tenantId: string,
+    customerId: string,
+    contractId: string,
+  ): Promise<boolean> {
+    const contract = await this.admin.contract.findFirst({
+      where: { id: contractId, tenantId, customerId, deletedAt: null },
+      select: { invoices: { select: { id: true } } },
+    });
+    if (!contract) {
+      throw new NotFoundException({
+        code: 'contract_not_found',
+        message: 'Contrato no encontrado',
+      });
+    }
+    const pending = await this.contractsNeedingAcceptance(
+      tenantId,
+      customerId,
+      contract.invoices.map((i) => i.id),
+    );
+    return pending.includes(contractId);
+  }
+
+  /** 409 `general_terms_required` si alguna de esas facturas las pide antes de pagar. */
+  async assertAcceptedForInvoices(
+    tenantId: string,
+    customerId: string,
+    invoiceIds: string[],
+  ): Promise<void> {
+    const pending = await this.contractsNeedingAcceptance(tenantId, customerId, invoiceIds);
+    if (pending.length > 0) {
+      throw new ConflictException({
+        code: 'general_terms_required',
+        message: 'Debes aceptar las condiciones generales de contratación antes de pagar',
+        details: { contractIds: pending },
+      });
+    }
+  }
+
   /** La versión de este texto (por su huella) o una nueva con el siguiente número. */
   private async ensureVersion(
     tenantId: string,

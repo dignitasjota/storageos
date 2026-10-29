@@ -18,6 +18,7 @@ import type {
   PromotionDiscountTypeValue,
   VerifactuModeValue,
 } from './schemas';
+import type { GeneralTermsToAcceptDto } from '../move-in/types';
 
 export interface InvoiceSeriesDto {
   id: string;
@@ -286,6 +287,11 @@ export interface PortalInvoiceDto {
   hasPdf: boolean;
   /** Hay un cobro en curso (SEPA/GoCardless `processing`) sobre esta factura. */
   paymentInProgress: boolean;
+  /**
+   * Primer pago de un contrato sin las condiciones generales aceptadas: hay que
+   * marcar la casilla antes de pagar (null si no hace falta).
+   */
+  generalTerms: (GeneralTermsToAcceptDto & { contractId: string }) | null;
   /** `deposit_receipt`: justificante de fianza (se paga junto a su factura). */
   kind: InvoiceKind;
   /**

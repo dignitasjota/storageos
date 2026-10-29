@@ -240,7 +240,10 @@ export class ContractsController {
     @Body() body: SignContractDto,
     @Req() req: Request,
   ): Promise<ContractDto> {
+    const meta = extractMeta(req);
     // Firma del inquilino en el local: antes acepta las condiciones generales.
+    // Se guarda ANTES de firmar (si la firma falla, el contrato sigue en
+    // borrador y al reintentar ya está aceptada; nunca firmado sin ella).
     if (body.method) {
       if (!body.generalTermsHash) {
         throw new BadRequestException({
@@ -248,10 +251,20 @@ export class ContractsController {
           message: 'El inquilino debe aceptar las condiciones generales de contratación',
         });
       }
-      await this.generalTerms.assertCurrent(user.tenantId, body.generalTermsHash);
+      const draft = await this.contracts.detail(user.tenantId, id, user.facilityScope ?? null);
+      if (draft.status === 'draft') {
+        await this.generalTerms.acceptOnce({
+          tenantId: user.tenantId,
+          customerId: draft.customerId,
+          contractId: id,
+          hash: body.generalTermsHash,
+          channel: 'in_person',
+          ipAddress: meta.ipAddress ?? null,
+          userAgent: meta.userAgent ?? null,
+        });
+      }
     }
-    const meta = extractMeta(req);
-    const signed = await this.contracts.sign({
+    return this.contracts.sign({
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
@@ -270,18 +283,6 @@ export class ContractsController {
           }
         : {}),
     });
-    if (body.method && body.generalTermsHash) {
-      await this.generalTerms.accept({
-        tenantId: user.tenantId,
-        customerId: signed.customerId,
-        contractId: id,
-        hash: body.generalTermsHash,
-        channel: 'in_person',
-        ipAddress: meta.ipAddress ?? null,
-        userAgent: meta.userAgent ?? null,
-      });
-    }
-    return signed;
   }
 
   /** Condiciones generales vigentes, para la casilla de la firma en el local. */

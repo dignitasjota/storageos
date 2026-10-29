@@ -1373,6 +1373,7 @@ function PortalConsumeContent() {
                   onPay={(i) => void handlePay(i)}
                   onPayAll={(list) => void handlePayAll(list)}
                   onDownload={(id) => void downloadInvoicePdf(id)}
+                  onTermsAccepted={() => void reloadInvoices()}
                 />
               </CardContent>
             </Card>

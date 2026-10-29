@@ -13,8 +13,10 @@ import type { PortalInvoiceDto } from '@storageos/shared';
 import { OfflinePaymentChoice } from '@/components/payments/offline-payment-choice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ApiError } from '@/lib/auth/api';
 import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
+import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 type InvoicesT = ReturnType<typeof useTranslations<'portal.consume.invoices'>>;
 
@@ -87,6 +89,7 @@ export function InvoicesList({
   onPay,
   onPayAll,
   onDownload,
+  onTermsAccepted,
 }: {
   invoices: PortalInvoiceDto[];
   accessToken: string;
@@ -100,6 +103,8 @@ export function InvoicesList({
   onPay: (i: PortalInvoiceDto) => void;
   onPayAll: (list: PortalInvoiceDto[]) => void;
   onDownload: (id: string) => void;
+  /** Tras aceptar las condiciones generales: recargar las facturas. */
+  onTermsAccepted: () => void;
 }) {
   const t = useTranslations('portal.consume.invoices');
   const { locale } = usePortalLocale();
@@ -108,8 +113,17 @@ export function InvoicesList({
   const hasOffline =
     offlineOptions.bankTransfer || offlineOptions.payAtFacility || offlineOptions.sepaDebit;
 
-  const payable = (i: PortalInvoiceDto) =>
+  const open_ = (i: PortalInvoiceDto) =>
     i.amountPending > 0 && !i.paymentInProgress && !i.paidWithInvoiceId;
+  // Primer pago de un contrato sin las condiciones generales aceptadas: se
+  // pagan después de marcar la casilla.
+  const needsTerms = (i: PortalInvoiceDto) => open_(i) && !!i.generalTerms;
+  const payable = (i: PortalInvoiceDto) => open_(i) && !i.generalTerms;
+  const termsGates = [
+    ...new Map(
+      invoices.filter(needsTerms).map((i) => [i.generalTerms!.contractId, i.generalTerms!]),
+    ).values(),
+  ];
   const toPay = invoices.filter(payable);
   const totalToPay = toPay.reduce((s, i) => s + i.amountPending + i.bundledReceiptPending, 0);
 
@@ -117,13 +131,14 @@ export function InvoicesList({
   const groups = useMemo(() => {
     const byYear = new Map<string, PortalInvoiceDto[]>();
     for (const i of invoices) {
-      if (payable(i) || i.paymentInProgress) continue;
+      // Pendiente (con o sin la casilla de las condiciones) o con un cobro en curso.
+      if ((i.amountPending > 0 && !i.paidWithInvoiceId) || i.paymentInProgress) continue;
       const y = (i.issueDate ?? '').slice(0, 4) || '—';
       byYear.set(y, [...(byYear.get(y) ?? []), i]);
     }
     return [...byYear.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [invoices]);
-  const pendingList = invoices.filter((i) => payable(i) || i.paymentInProgress);
+  const pendingList = invoices.filter((i) => payable(i) || needsTerms(i) || i.paymentInProgress);
 
   async function redsys(
     i: PortalInvoiceDto,
@@ -335,6 +350,14 @@ export function InvoicesList({
               </div>
             )}
           </div>
+          {termsGates.map((g) => (
+            <GeneralTermsGate
+              key={g.contractId}
+              terms={g}
+              accessToken={accessToken}
+              onAccepted={onTermsAccepted}
+            />
+          ))}
           <ul className="divide-y rounded-md border">{pendingList.map(row)}</ul>
         </div>
       )}
@@ -358,6 +381,71 @@ export function InvoicesList({
           <ul className="divide-y rounded-md border">{list.map(row)}</ul>
         </details>
       ))}
+    </div>
+  );
+}
+
+/** Casilla de las condiciones generales antes del primer pago de un contrato. */
+function GeneralTermsGate({
+  terms,
+  accessToken,
+  onAccepted,
+}: {
+  terms: NonNullable<PortalInvoiceDto['generalTerms']>;
+  accessToken: string;
+  onAccepted: () => void;
+}) {
+  const t = useTranslations('portal.consume.invoices');
+  const [checked, setChecked] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function accept() {
+    setSaving(true);
+    try {
+      await portalApiFetch(`/portal/me/contracts/${terms.contractId}/general-terms`, {
+        method: 'POST',
+        requiresAuth: false,
+        headers: { Authorization: `Bearer ${accessToken}` },
+        json: { generalTermsHash: terms.hash },
+      });
+      toast.success(t('generalTermsAccepted'));
+      onAccepted();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : t('generalTermsError'));
+      if (err instanceof ApiError && err.body.code === 'general_terms_changed') onAccepted();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/30">
+      <p>{t('generalTermsIntro')}</p>
+      <label className="flex items-start gap-2">
+        <Checkbox
+          checked={checked}
+          onCheckedChange={(v) => setChecked(v === true)}
+          aria-label={t('generalTermsLabel')}
+        />
+        <span>
+          {t.rich('generalTermsCheck', {
+            link: (chunks) => (
+              <a
+                href={terms.url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium underline"
+              >
+                {chunks}
+              </a>
+            ),
+          })}
+        </span>
+      </label>
+      <Button size="sm" onClick={() => void accept()} disabled={!checked || saving}>
+        {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+        {t('generalTermsContinue')}
+      </Button>
     </div>
   );
 }

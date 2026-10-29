@@ -62,6 +62,14 @@ export default function WebLegalPage() {
         {TENANT_LEGAL_DOCS.map((d) => (
           <TabsContent key={d} value={d} className="mt-4 space-y-4">
             <LegalEditor doc={d} data={data} />
+            {d === 'condiciones-contratacion' && !data.texts.terms && (
+              <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-100">
+                Mientras uses el texto por defecto, se rellena con los datos de tu empresa y de tus
+                locales: si los cambias (o das de alta un local), el texto cambia y quien lo acepte
+                a partir de entonces aceptará una versión nueva. Para que solo cambie cuando tú lo
+                decidas, guarda tu propio texto.
+              </p>
+            )}
             {d === 'condiciones-contratacion' && <TermsVersionsCard />}
           </TabsContent>
         ))}

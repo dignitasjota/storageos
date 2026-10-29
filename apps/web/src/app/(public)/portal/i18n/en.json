@@ -268,7 +268,13 @@
         "pmError": "The change could not be saved.",
         "otherWays": "Other ways to pay",
         "payAllCard": "Pay all by card ({amount})",
-        "payAllBizum": "Pay all with Bizum"
+        "payAllBizum": "Pay all with Bizum",
+        "generalTermsIntro": "Before paying your first invoice you need to accept the terms and conditions.",
+        "generalTermsCheck": "I have read and accept the <link>Terms and Conditions</link>.",
+        "generalTermsLabel": "I accept the Terms and Conditions",
+        "generalTermsContinue": "Accept and continue",
+        "generalTermsAccepted": "Terms accepted. You can now pay.",
+        "generalTermsError": "We couldn't save it. Please try again."
       },
       "access": {
         "title": "Your access",

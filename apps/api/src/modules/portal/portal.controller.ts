@@ -18,6 +18,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import {
+  AcceptGeneralTermsSchema,
+  type GeneralTermsToAcceptDto,
   PortalJoinWaitlistSchema,
   type PortalWaitlistDto,
   type GoCardlessMandateStartDto,
@@ -114,6 +116,7 @@ import { CustomerMessagesService } from '../customer-messages/customer-messages.
 import { CustomerAuthorizedPersonsService } from '../customers/customer-authorized-persons.service';
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqService } from '../faq/faq.service';
+import { GeneralTermsService } from '../landing/general-terms.service';
 import { SignaturesService } from '../move-in/signatures.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { IncidentsService } from '../operations/incidents.service';
@@ -154,6 +157,7 @@ class PortalUpdateProfileDto extends createZodDto(PortalUpdateProfileSchema) {}
 class PortalSetInsuranceDto extends createZodDto(PortalSetInsuranceSchema) {}
 class PortalPurchaseDto extends createZodDto(PortalPurchaseSchema) {}
 class RedsysRedirectBody extends createZodDto(RedsysRedirectRequestSchema) {}
+class AcceptGeneralTermsBody extends createZodDto(AcceptGeneralTermsSchema) {}
 class PortalSendMessageDto extends createZodDto(SendCustomerMessageSchema) {}
 class PortalMessageAttachmentUploadDto extends createZodDto(MessageAttachmentUploadSchema) {}
 class RequestDocumentUploadDto extends createZodDto(RequestCustomerDocumentUploadSchema) {}
@@ -203,6 +207,7 @@ export class PortalController {
     private readonly authorized: CustomerAuthorizedPersonsService,
     private readonly notifications: NotificationsService,
     private readonly invoiceExport: PortalInvoiceExportService,
+    private readonly generalTerms: GeneralTermsService,
   ) {}
 
   // Envía un email (magic link) — mismo preset que el homólogo de staff
@@ -1343,7 +1348,35 @@ export class PortalController {
     @Param('id', ParseUUIDPipe) invoiceId: string,
   ): Promise<PortalChargeResultDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [invoiceId]);
     return this.portal.chargeMyInvoice(tenantId, customerId, invoiceId);
+  }
+
+  /** Acepta las condiciones generales de un contrato antes de su primer pago. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/contracts/:id/general-terms')
+  @HttpCode(HttpStatus.OK)
+  async acceptGeneralTerms(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', ParseUUIDPipe) contractId: string,
+    @Body() body: AcceptGeneralTermsBody,
+    @Req() req: Request,
+  ): Promise<GeneralTermsToAcceptDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    // Solo sus contratos (el de otro inquilino da 404) y solo si las pide.
+    if (await this.generalTerms.contractNeedsAcceptance(tenantId, customerId, contractId)) {
+      await this.generalTerms.acceptOnce({
+        tenantId,
+        customerId,
+        contractId,
+        hash: body.generalTermsHash,
+        channel: 'remote',
+        ipAddress: req.ip ?? null,
+        userAgent: req.headers['user-agent'] ?? null,
+      });
+    }
+    return this.generalTerms.toAccept(tenantId, contractId);
   }
 
   /** Pagará por transferencia (IBAN por correo), en el local o por domiciliación. */
@@ -1357,6 +1390,7 @@ export class PortalController {
     @Body() input: PortalOfflinePaymentDto,
   ): Promise<PortalOfflinePaymentResultDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [invoiceId]);
     return this.offline.choose(tenantId, customerId, invoiceId, input);
   }
 
@@ -1370,6 +1404,10 @@ export class PortalController {
     @Body() body: RedsysRedirectBody,
   ): Promise<RedsysRedirectDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [
+      invoiceId,
+      ...(body.extraInvoiceIds ?? []),
+    ]);
     return this.redsys.createRedirect(tenantId, invoiceId, {
       expectedCustomerId: customerId,
       ...(body.payMethod ? { payMethod: body.payMethod } : {}),
