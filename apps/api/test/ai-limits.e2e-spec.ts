@@ -3,6 +3,8 @@ import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createCustomer } from './helpers/customer-fixtures';
+import { waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -173,5 +175,94 @@ describe('Asistente IA: ajustes y límite de consultas (e2e)', () => {
     } finally {
       await http().put('/admin/ai-settings').set(admin()).send({ dailyUserLimit: 50 });
     }
+  });
+
+  it('dos preguntas a la vez no se cuelan en la última consulta', async () => {
+    const owner = await registerVerifiedUser(app, 'airace');
+    await setTenantPlan(owner.slug, 'pro');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await http()
+      .put(`/admin/tenants/${owner.tenantId}/ai-usage`)
+      .set(admin())
+      .send({ monthlyLimit: 1 })
+      .expect(200);
+    const results = await Promise.all(
+      [1, 2, 3].map((n) =>
+        http()
+          .post('/ai/chat')
+          .set(auth)
+          .send({ content: `Hola ${n}` }),
+      ),
+    );
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 429)).toHaveLength(2);
+    const usage = await http().get('/ai/usage').set(auth).expect(200);
+    expect(usage.body.used).toBe(1);
+  });
+
+  it('el área de clientes tiene su tope por inquilino y avisa al equipo', async () => {
+    const owner = await registerVerifiedUser(app, 'aiportal');
+    await setTenantPlan(owner.slug, 'pro');
+    await http().put('/admin/ai-settings').set(admin()).send({ portalDailyLimit: 1 }).expect(200);
+    try {
+      const email = `aiportal-${Date.now()}@e2e.local`;
+      await createCustomer(app, owner.accessToken, { email });
+      await http()
+        .post('/portal/login/request')
+        .send({ tenantSlug: owner.slug, email })
+        .expect(204);
+      const mail = await waitForEmail(email, { subjectIncludes: 'Accede' });
+      const magic = mail.Text.match(/token=([0-9a-f]{32}\.[A-Za-z0-9_-]+)/)?.[1];
+      const consume = await http().post('/portal/login/consume').send({ token: magic });
+      const pAuth = { Authorization: `Bearer ${consume.body.accessToken as string}` };
+
+      await http().post('/portal/me/ai-chat').set(pAuth).send({ message: 'Hola' }).expect(201);
+      const second = await http().post('/portal/me/ai-chat').set(pAuth).send({ message: 'Otra' });
+      expect(second.status).toBe(429);
+      expect(second.body.code).toBe('ai_daily_limit_reached');
+
+      // Al llegar al límite del mes también avisa al equipo.
+      await http()
+        .put(`/admin/tenants/${owner.tenantId}/ai-usage`)
+        .set(admin())
+        .send({ monthlyLimit: 1 })
+        .expect(200);
+      const blocked = await http().post('/portal/me/ai-chat').set(pAuth).send({ message: 'Más' });
+      expect(blocked.status).toBe(429);
+      expect(blocked.body.code).toBe('ai_monthly_limit_reached');
+      // El aviso se crea sin esperar a la respuesta.
+      let notice = null;
+      for (let i = 0; i < 40 && !notice; i++) {
+        notice = await db.notification.findFirst({
+          where: { tenantId: owner.tenantId, type: 'ai.limit' },
+        });
+        if (!notice) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(notice).not.toBeNull();
+    } finally {
+      await http().put('/admin/ai-settings').set(admin()).send({ portalDailyLimit: 20 });
+    }
+  });
+
+  it('«IA ampliada» no se ofrece ni se contrata sin el asistente', async () => {
+    const owner = await registerVerifiedUser(app, 'aiaddon');
+    await setTenantPlan(owner.slug, 'starter');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const addon = await db.subscriptionAddon.upsert({
+      where: { slug: ADDON_SLUG },
+      update: { isActive: true },
+      create: { slug: ADDON_SLUG, name: 'IA ampliada e2e', priceMonthly: 15, grantsAiQueries: 500 },
+    });
+    const view = await http().get('/settings/saas-billing/addons').set(auth).expect(200);
+    const offered = [...view.body.available, ...view.body.includedInPlan].map(
+      (a: { id: string }) => a.id,
+    );
+    expect(offered).not.toContain(addon.id);
+    const res = await http()
+      .post('/settings/saas-billing/addons')
+      .set(auth)
+      .send({ addonId: addon.id });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('addon_requires_ai_assistant');
   });
 });

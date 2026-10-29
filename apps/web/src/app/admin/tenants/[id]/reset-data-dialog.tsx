@@ -143,7 +143,7 @@ export function ResetDataDialog({
               <p className="text-muted-foreground">
                 {formatNumber(p.kept.facilities)} locales, {formatNumber(p.kept.units)} trasteros
                 (los alquilados o reservados quedan libres), {formatNumber(p.kept.products)}{' '}
-                productos con su stock, {formatNumber(p.kept.leads)} contactos,{' '}
+                productos (el stock queda como esté), {formatNumber(p.kept.leads)} contactos,{' '}
                 {formatNumber(p.kept.users)} usuarios y toda la configuración.
               </p>
             </div>

@@ -69,7 +69,7 @@ export class AiController {
   ): Promise<void> {
     this.ai.assertAvailable();
     // Antes de abrir el stream, para que el límite responda con su 429.
-    await this.ai.assertQuota(user.tenantId, user.sub);
+    const reservation = await this.ai.reserveChat(user.tenantId, user.sub);
     res.status(HttpStatus.OK);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -88,6 +88,7 @@ export class AiController {
       });
       send({ type: 'done', ...result });
     } catch (err) {
+      await this.ai.releaseQuota(reservation);
       const response =
         err instanceof HttpException
           ? (err.getResponse() as { code?: string; message?: string })

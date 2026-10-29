@@ -40,11 +40,16 @@ export const TENANT_RESET_COUNT_LABELS: Record<TenantResetCountKey, string> = {
 /** Motivos por los que no se puede vaciar (datos que ya son reales). */
 export type TenantResetBlockerCode =
   | 'aeat_production_invoices'
+  | 'holded_issued_invoices'
   | 'platform_own_tenant'
   | 'platform_invoices';
 
 /** Avisos que no bloquean pero conviene leer antes. */
-export type TenantResetWarningCode = 'holded_documents' | 'gateway_payments' | 'aeat_sent_invoices';
+export type TenantResetWarningCode =
+  | 'holded_documents'
+  | 'gateway_payments'
+  | 'aeat_sent_invoices'
+  | 'synced_credentials';
 
 export interface TenantResetIssueDto<C extends string> {
   code: C;

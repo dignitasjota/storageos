@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 
+import { AccessModule } from '../access/access.module';
 import { AccountingModule } from '../accounting/accounting.module';
 import { AuthModule } from '../auth/auth.module';
 import { BillingSaasModule } from '../billing-saas/billing-saas.module';
@@ -110,6 +111,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
  */
 @Module({
   imports: [
+    AccessModule,
     PushModule,
     EmailDomainsModule,
     AuthModule,

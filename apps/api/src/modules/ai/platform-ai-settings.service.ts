@@ -4,6 +4,7 @@ import {
   type AiConnectionTestDto,
   type AiKeySource,
   DEFAULT_AI_DAILY_USER_LIMIT,
+  DEFAULT_AI_PORTAL_DAILY_LIMIT,
   DEFAULT_AI_MONTHLY_QUERY_LIMIT,
   type PlatformAiSettingsDto,
   type UpdatePlatformAiSettingsInput,
@@ -24,6 +25,7 @@ interface Snapshot {
   model: string | null;
   monthlyQueryLimit: number;
   dailyUserLimit: number;
+  portalDailyLimit: number;
   updatedAt: Date | null;
 }
 
@@ -47,6 +49,7 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
     model: null,
     monthlyQueryLimit: DEFAULT_AI_MONTHLY_QUERY_LIMIT,
     dailyUserLimit: DEFAULT_AI_DAILY_USER_LIMIT,
+    portalDailyLimit: DEFAULT_AI_PORTAL_DAILY_LIMIT,
     updatedAt: null,
   };
   private timer: NodeJS.Timeout | null = null;
@@ -84,6 +87,7 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
         model: row?.model || null,
         monthlyQueryLimit: row?.monthlyQueryLimit ?? DEFAULT_AI_MONTHLY_QUERY_LIMIT,
         dailyUserLimit: row?.dailyUserLimit ?? DEFAULT_AI_DAILY_USER_LIMIT,
+        portalDailyLimit: row?.portalDailyLimit ?? DEFAULT_AI_PORTAL_DAILY_LIMIT,
         updatedAt: row?.updatedAt ?? null,
       };
     } catch (err) {
@@ -93,10 +97,11 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
     }
   }
 
-  get limits(): { monthlyQueryLimit: number; dailyUserLimit: number } {
+  get limits(): { monthlyQueryLimit: number; dailyUserLimit: number; portalDailyLimit: number } {
     return {
       monthlyQueryLimit: this.snapshot.monthlyQueryLimit,
       dailyUserLimit: this.snapshot.dailyUserLimit,
+      portalDailyLimit: this.snapshot.portalDailyLimit,
     };
   }
 
@@ -105,8 +110,9 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
     return this.config.get('ANTHROPIC_API_KEY', { infer: true }) || null;
   }
 
+  /** El modelo de las variables solo si está puesto (no el valor por defecto). */
   private envModel(): string | null {
-    return this.config.get('AI_MODEL', { infer: true }) || null;
+    return process.env.AI_MODEL?.trim() || null;
   }
 
   /** Qué clave y modelo se usan ahora mismo. */
@@ -130,6 +136,7 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
       envModel: this.envModel(),
       monthlyQueryLimit: this.snapshot.monthlyQueryLimit,
       dailyUserLimit: this.snapshot.dailyUserLimit,
+      portalDailyLimit: this.snapshot.portalDailyLimit,
       updatedAt: this.snapshot.updatedAt?.toISOString() ?? null,
     };
   }
@@ -144,6 +151,7 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
         ? { monthlyQueryLimit: input.monthlyQueryLimit }
         : {}),
       ...(input.dailyUserLimit !== undefined ? { dailyUserLimit: input.dailyUserLimit } : {}),
+      ...(input.portalDailyLimit !== undefined ? { portalDailyLimit: input.portalDailyLimit } : {}),
     };
     const row = await this.admin.platformAiSettings.findFirst({ select: { id: true } });
     if (row) await this.admin.platformAiSettings.update({ where: { id: row.id }, data });

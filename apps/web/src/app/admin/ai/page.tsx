@@ -39,6 +39,7 @@ export default function AdminAiPage() {
   const [model, setModel] = useState('');
   const [monthly, setMonthly] = useState('300');
   const [daily, setDaily] = useState('50');
+  const [portalDaily, setPortalDaily] = useState('20');
 
   const loaded = useRef(false);
   useEffect(() => {
@@ -47,6 +48,7 @@ export default function AdminAiPage() {
     setModel(settings.data.panelModel ?? '');
     setMonthly(String(settings.data.monthlyQueryLimit));
     setDaily(String(settings.data.dailyUserLimit));
+    setPortalDaily(String(settings.data.portalDailyLimit));
   }, [settings.data]);
 
   async function save(extra: { apiKey?: string } = {}) {
@@ -55,6 +57,7 @@ export default function AdminAiPage() {
         model: model.trim(),
         monthlyQueryLimit: Math.max(0, Number.parseInt(monthly, 10) || 0),
         dailyUserLimit: Math.max(0, Number.parseInt(daily, 10) || 0),
+        portalDailyLimit: Math.max(0, Number.parseInt(portalDaily, 10) || 0),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         ...extra,
       });
@@ -135,11 +138,15 @@ export default function AdminAiPage() {
                 id="ai-model"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                placeholder={d.envModel ?? 'claude-sonnet-4-6'}
+                placeholder={d.envModel ?? d.model}
                 className="font-mono text-base sm:text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                Vacío = el de las variables del servidor ({d.envModel ?? 'claude-sonnet-4-6'}).
+                Vacío ={' '}
+                {d.envModel
+                  ? `el de las variables del servidor (${d.envModel})`
+                  : 'el de por defecto (claude-sonnet-4-6)'}
+                .
               </p>
             </div>
           </div>
@@ -199,6 +206,22 @@ export default function AdminAiPage() {
                 className="text-base sm:text-sm"
               />
               <p className="text-xs text-muted-foreground">0 = sin tope diario.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-portal-daily">
+                Preguntas al día por inquilino (área de clientes)
+              </Label>
+              <Input
+                id="ai-portal-daily"
+                type="number"
+                min={0}
+                value={portalDaily}
+                onChange={(e) => setPortalDaily(e.target.value)}
+                className="text-base sm:text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Para que un solo inquilino no gaste las consultas del negocio. 0 = sin tope.
+              </p>
             </div>
           </div>
           <Button onClick={() => save()} disabled={update.isPending || !canEdit}>

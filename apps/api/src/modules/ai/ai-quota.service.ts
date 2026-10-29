@@ -7,9 +7,12 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 import { PlatformAiSettingsService } from './platform-ai-settings.service';
 
-/** Día de hoy en Madrid (YYYY-MM-DD). */
-function madridToday(now = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(now);
+/** Clave del bloqueo de las consultas (con el tenant). */
+const AI_QUOTA_LOCK = 7341;
+
+/** Día de hoy en la zona del tenant (YYYY-MM-DD). */
+function todayIn(timeZone: string, now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone }).format(now);
 }
 
 /**
@@ -37,11 +40,22 @@ export class AiQuotaService {
     return rows.reduce((sum, r) => sum + (r.addon.grantsAiQueries ?? 0) * r.quantity, 0);
   }
 
+  private async tenantInfo(tenantId: string) {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { aiMonthlyLimit: true, timezone: true },
+    });
+    return {
+      aiMonthlyLimit: tenant?.aiMonthlyLimit ?? null,
+      timezone: tenant?.timezone || 'Europe/Madrid',
+    };
+  }
+
   async usage(tenantId: string, userId: string | null = null): Promise<AiUsageDto> {
     const month = currentMonth();
-    const today = madridToday();
-    const [tenant, extra, used, dailyUsed] = await Promise.all([
-      this.admin.tenant.findUnique({ where: { id: tenantId }, select: { aiMonthlyLimit: true } }),
+    const tenant = await this.tenantInfo(tenantId);
+    const today = todayIn(tenant.timezone);
+    const [extra, used, dailyUsed] = await Promise.all([
       this.extraQueries(tenantId),
       this.admin.aiUsageEvent.count({
         where: { tenantId, countsAsQuery: true, createdAt: { gte: month.start } },
@@ -52,19 +66,19 @@ export class AiQuotaService {
               tenantId,
               userId,
               countsAsQuery: true,
-              createdAt: { gte: zonedDayStart(today) },
+              createdAt: { gte: zonedDayStart(today, tenant.timezone) },
             },
           })
         : Promise.resolve(null),
     ]);
     const { monthlyQueryLimit, dailyUserLimit } = this.settings.limits;
-    const customLimit = tenant?.aiMonthlyLimit != null;
+    const customLimit = tenant.aiMonthlyLimit != null;
     const [y, m] = month.key.split('-').map(Number) as [number, number];
     const next = new Date(Date.UTC(y, m, 1));
     return {
       month: month.key,
       used,
-      limit: customLimit ? tenant!.aiMonthlyLimit! : monthlyQueryLimit + extra,
+      limit: customLimit ? tenant.aiMonthlyLimit! : monthlyQueryLimit + extra,
       extra: customLimit ? 0 : extra,
       customLimit,
       dailyUsed,
@@ -74,35 +88,112 @@ export class AiQuotaService {
   }
 
   /**
-   * 429 si el tenant gastó las consultas del mes o el usuario las del día.
-   * Avisa al equipo al pasar del 80 % y al llegar al límite (una vez al mes).
+   * Reserva una consulta antes de llamar al modelo: 429 si el tenant gastó las
+   * del mes o la persona (usuario del equipo o inquilino del área de clientes)
+   * las de hoy. El recuento y la reserva van con un bloqueo por tenant, así que
+   * dos preguntas a la vez no se cuelan en la última. Avisa al equipo al pasar
+   * del 80 % y al llegar al límite. Devuelve la reserva, para `release` si la
+   * llamada al modelo falla.
    */
-  async assert(tenantId: string, userId: string | null): Promise<void> {
-    const u = await this.usage(tenantId, userId);
-    if (u.used >= u.limit) {
-      void this.notify(tenantId, u, 100);
-      throw new HttpException(
-        {
-          code: 'ai_monthly_limit_reached',
-          message: `Has usado las ${u.limit} consultas del asistente de este mes. Amplíalas con el extra «IA ampliada» en Configuración → Suscripción, o espera al ${u.resetsOn.split('-').reverse().join('/')}.`,
-          details: { used: u.used, limit: u.limit, resetsOn: u.resetsOn },
+  async reserve(args: {
+    tenantId: string;
+    feature: string;
+    model: string;
+    userId?: string | null;
+    customerId?: string | null;
+  }): Promise<string> {
+    const { tenantId } = args;
+    const portal = !!args.customerId;
+    const month = currentMonth();
+    const tenant = await this.tenantInfo(tenantId);
+    const extra = tenant.aiMonthlyLimit != null ? 0 : await this.extraQueries(tenantId);
+    const { monthlyQueryLimit, dailyUserLimit, portalDailyLimit } = this.settings.limits;
+    const limit = tenant.aiMonthlyLimit ?? monthlyQueryLimit + extra;
+    const dailyLimit = portal ? portalDailyLimit : dailyUserLimit;
+    const dayStart = zonedDayStart(todayIn(tenant.timezone), tenant.timezone);
+    const person = portal
+      ? { customerId: args.customerId! }
+      : args.userId
+        ? { userId: args.userId }
+        : null;
+
+    const outcome = await this.admin.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), ${AI_QUOTA_LOCK}::int4)`;
+      const used = await tx.aiUsageEvent.count({
+        where: { tenantId, countsAsQuery: true, createdAt: { gte: month.start } },
+      });
+      if (used >= limit) return { kind: 'month' as const, used };
+      if (person && dailyLimit > 0) {
+        const today = await tx.aiUsageEvent.count({
+          where: { tenantId, ...person, countsAsQuery: true, createdAt: { gte: dayStart } },
+        });
+        if (today >= dailyLimit) return { kind: 'day' as const, used };
+      }
+      const row = await tx.aiUsageEvent.create({
+        data: {
+          tenantId,
+          userId: args.userId ?? null,
+          customerId: args.customerId ?? null,
+          feature: args.feature,
+          model: args.model,
+          countsAsQuery: true,
         },
+        select: { id: true },
+      });
+      return { kind: 'ok' as const, used: used + 1, id: row.id };
+    });
+
+    const [y, m] = month.key.split('-').map(Number) as [number, number];
+    const resetsOn = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+    const notice = { month: month.key, used: outcome.used, limit };
+    if (outcome.kind === 'month') {
+      void this.notify(tenantId, notice, 100);
+      throw new HttpException(
+        portal
+          ? {
+              code: 'ai_monthly_limit_reached',
+              message: 'El asistente no está disponible ahora. Escríbenos en «Mensajes».',
+            }
+          : {
+              code: 'ai_monthly_limit_reached',
+              message: `Has usado las ${limit} consultas del asistente de este mes. Amplíalas con el extra «IA ampliada» en Configuración → Suscripción, o espera al ${resetsOn.split('-').reverse().join('/')}.`,
+              details: { used: outcome.used, limit, resetsOn },
+            },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    if (u.dailyUsed != null && u.dailyLimit > 0 && u.dailyUsed >= u.dailyLimit) {
+    if (outcome.kind === 'day') {
       throw new HttpException(
-        {
-          code: 'ai_daily_limit_reached',
-          message: `Has hecho las ${u.dailyLimit} consultas que se permiten al día por persona. Mañana podrás seguir.`,
-          details: { dailyUsed: u.dailyUsed, dailyLimit: u.dailyLimit },
-        },
+        portal
+          ? {
+              code: 'ai_daily_limit_reached',
+              message:
+                'Has hecho muchas preguntas hoy. Mañana podrás seguir, o escríbenos en «Mensajes».',
+            }
+          : {
+              code: 'ai_daily_limit_reached',
+              message: `Has hecho las ${dailyLimit} consultas que se permiten al día por persona. Mañana podrás seguir.`,
+              details: { dailyLimit },
+            },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    if (u.limit > 0 && u.used + 1 >= Math.ceil(u.limit * AI_LIMIT_WARNING_RATIO)) {
-      void this.notify(tenantId, u, 80);
+    if (limit > 0 && outcome.used >= limit) void this.notify(tenantId, notice, 100);
+    else if (limit > 0 && outcome.used >= Math.ceil(limit * AI_LIMIT_WARNING_RATIO)) {
+      void this.notify(tenantId, notice, 80);
     }
+    return outcome.id;
+  }
+
+  /** Devuelve una consulta reservada (la llamada al modelo falló). */
+  async release(reservationId: string): Promise<void> {
+    await this.admin.aiUsageEvent
+      .deleteMany({ where: { id: reservationId, inputTokens: 0, outputTokens: 0 } })
+      .catch((err: unknown) =>
+        this.logger.warn(
+          `[ai-quota] no se pudo devolver la consulta: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
   }
 
   /** ¿Puede gastar una consulta? (sin lanzar; para lo que la IA hace sola). */
@@ -111,7 +202,11 @@ export class AiQuotaService {
     return u.used < u.limit;
   }
 
-  private async notify(tenantId: string, u: AiUsageDto, level: 80 | 100): Promise<void> {
+  private async notify(
+    tenantId: string,
+    u: { month: string; used: number; limit: number },
+    level: 80 | 100,
+  ): Promise<void> {
     const mark = `${u.month}:${level}`;
     try {
       // Reserva atómica: un aviso por nivel y mes; el de 100 sustituye al de 80.
@@ -136,7 +231,7 @@ export class AiQuotaService {
         body:
           level === 100
             ? `Se han usado las ${u.limit} consultas del mes. Puedes ampliarlas con el extra «IA ampliada».`
-            : `Llevas ${u.used + 1} de ${u.limit} consultas este mes.`,
+            : `Llevas ${u.used} de ${u.limit} consultas este mes.`,
         link: '/settings/saas-billing',
       });
     } catch (err) {

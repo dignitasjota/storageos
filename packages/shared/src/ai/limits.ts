@@ -8,6 +8,8 @@ import { z } from 'zod';
 /** Consultas al mes incluidas por tenant y al día por usuario, por defecto. */
 export const DEFAULT_AI_MONTHLY_QUERY_LIMIT = 300;
 export const DEFAULT_AI_DAILY_USER_LIMIT = 50;
+/** Preguntas al día por inquilino en el chatbot del área de clientes. */
+export const DEFAULT_AI_PORTAL_DAILY_LIMIT = 20;
 /** A partir de qué parte del límite se avisa (80 %). */
 export const AI_LIMIT_WARNING_RATIO = 0.8;
 
@@ -27,6 +29,7 @@ export interface PlatformAiSettingsDto {
   envModel: string | null;
   monthlyQueryLimit: number;
   dailyUserLimit: number;
+  portalDailyLimit: number;
   updatedAt: string | null;
 }
 
@@ -42,6 +45,7 @@ export const UpdatePlatformAiSettingsSchema = z.object({
     .optional(),
   monthlyQueryLimit: z.number().int().min(0).max(1_000_000).optional(),
   dailyUserLimit: z.number().int().min(0).max(100_000).optional(),
+  portalDailyLimit: z.number().int().min(0).max(100_000).optional(),
 });
 export type UpdatePlatformAiSettingsInput = z.infer<typeof UpdatePlatformAiSettingsSchema>;
 

@@ -5887,6 +5887,8 @@ model AiUsageEvent {
   outputTokens Int      @default(0) @map("output_tokens")
   /// La primera llamada de cada pregunta: cuenta para el límite mensual.
   countsAsQuery Boolean @default(false) @map("counts_as_query")
+  /// Inquilino que pregunta (chatbot del área de clientes).
+  customerId   String?  @map("customer_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -6318,6 +6320,7 @@ model PlatformAiSettings {
   model             String?
   monthlyQueryLimit Int      @default(300) @map("monthly_query_limit")
   dailyUserLimit    Int      @default(50) @map("daily_user_limit")
+  portalDailyLimit  Int      @default(20) @map("portal_daily_limit")
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_ai_settings")

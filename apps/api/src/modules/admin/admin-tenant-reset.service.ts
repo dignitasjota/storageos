@@ -18,6 +18,7 @@ import {
 } from '@storageos/shared';
 
 import { type Env } from '../../config/env.schema';
+import { DahuaSyncService } from '../access/dahua-sync.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 
@@ -101,8 +102,8 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'contracts' },
   { table: 'payment_methods' },
   { table: 'push_subscriptions', where: 'customer_id IS NOT NULL' },
-  // Las credenciales del equipo (sin inquilino) se conservan.
-  { table: 'access_credentials', where: 'customer_id IS NOT NULL' },
+  // Todas las credenciales son de inquilinos (ya quitadas de los terminales).
+  { table: 'access_credentials' },
   { table: 'customers' },
   { table: 'expenses' },
   { table: 'unit_status_history' },
@@ -126,7 +127,8 @@ const COUNT_SOURCES: Record<TenantResetCountKey, { table: string; where?: string
   accessLogs: { table: 'access_logs' },
 };
 
-const AEAT_ACCEPTED = `aeat_status IN ('accepted', 'accepted_with_warnings')`;
+/** Cualquier factura con un envío a la AEAT (aceptada, pendiente o con error). */
+const AEAT_SENT = 'aeat_status IS NOT NULL';
 
 @Injectable()
 export class AdminTenantResetService {
@@ -137,6 +139,7 @@ export class AdminTenantResetService {
     private readonly files: FilesService,
     private readonly audit: SuperAdminAuditService,
     private readonly config: ConfigService<Env, true>,
+    private readonly sync: DahuaSyncService,
   ) {}
 
   async preview(tenantId: string): Promise<TenantResetPreviewDto> {
@@ -191,12 +194,24 @@ export class AdminTenantResetService {
       });
     }
 
+    // Las credenciales de los inquilinos que están en un terminal (validan sin
+    // red) se quitan de él antes: si no, seguirían abriendo la puerta.
+    await this.revokeOnTerminals(tenantId);
+
     const counts = await this.counts(tenantId);
     // Conversaciones de WhatsApp de inquilinos: sus archivos se borran después.
     const waConversations = await this.admin.whatsappConversation.findMany({
       where: { tenantId, customerId: { not: null } },
       select: { id: true },
     });
+    const customerEmails = (
+      await this.admin.customer.findMany({
+        where: { tenantId, email: { not: null } },
+        select: { email: true },
+      })
+    )
+      .map((c) => c.email!.trim().toLowerCase())
+      .filter(Boolean);
 
     const { unitsFreed, seriesReset } = await this.admin.$transaction(
       async (tx) => {
@@ -222,6 +237,18 @@ export class AdminTenantResetService {
         await tx.coupon.updateMany({ where: { tenantId }, data: { usedCount: 0 } });
         await tx.promotion.updateMany({ where: { tenantId }, data: { usedCount: 0 } });
         await tx.marketingChannel.updateMany({ where: { tenantId }, data: { clickCount: 0 } });
+        // Los gastos recurrentes vuelven a generar el mes en curso (sus gastos se han borrado).
+        await tx.recurringExpense.updateMany({
+          where: { tenantId },
+          data: { lastGeneratedMonth: null },
+        });
+        // Las bajas comerciales de los inquilinos de prueba (las del tenant; los
+        // rebotes de toda la plataforma se quedan).
+        if (customerEmails.length > 0) {
+          await tx.emailSuppression.deleteMany({
+            where: { tenantId, email: { in: customerEmails, mode: 'insensitive' } },
+          });
+        }
         return { unitsFreed: freed.count, seriesReset: series.count };
       },
       { timeout: 120_000, maxWait: 10_000 },
@@ -290,33 +317,44 @@ export class AdminTenantResetService {
     const warnings: TenantResetIssueDto<TenantResetWarningCode>[] = [];
     const aeatMode = this.config.get('AEAT_MODE', { infer: true });
 
-    const [accepted, sentAny, platformInvoices, holded, gateway, ownTenant] = await Promise.all([
-      this.countRows('invoices', tenantId, AEAT_ACCEPTED),
-      this.countRows('invoices', tenantId, 'aeat_status IS NOT NULL'),
-      this.countRows('invoices', tenantId, 'platform_payment_id IS NOT NULL'),
-      this.countRows('invoices', tenantId, 'holded_document_id IS NOT NULL'),
-      this.countRows(
-        'payments',
-        tenantId,
-        `gateway_payment_id IS NOT NULL AND status IN ('succeeded', 'partially_refunded', 'refunded')`,
-      ),
-      this.admin.platformBillingSettings.findFirst({
-        where: { ownTenantId: tenantId },
-        select: { id: true },
-      }),
-    ]);
+    const [sentAny, holdedIssued, platformInvoices, holded, gateway, ownTenant, synced] =
+      await Promise.all([
+        this.countRows('invoices', tenantId, AEAT_SENT),
+        this.countRows('invoices', tenantId, `issued_by = 'holded'`),
+        this.countRows('invoices', tenantId, 'platform_payment_id IS NOT NULL'),
+        this.countRows('invoices', tenantId, 'holded_document_id IS NOT NULL'),
+        this.countRows(
+          'payments',
+          tenantId,
+          `gateway_payment_id IS NOT NULL AND status IN ('succeeded', 'partially_refunded', 'refunded')`,
+        ),
+        this.admin.platformBillingSettings.findFirst({
+          where: { ownTenantId: tenantId },
+          select: { id: true },
+        }),
+        this.admin.accessCredentialSync.count({
+          where: { tenantId },
+        }),
+      ]);
 
-    if (aeatMode === 'production' && accepted > 0) {
+    if (aeatMode === 'production' && sentAny > 0) {
       blockers.push({
         code: 'aeat_production_invoices',
-        count: accepted,
-        message: `Hay ${accepted} facturas registradas de verdad en la AEAT: son documentos fiscales y no se pueden borrar.`,
+        count: sentAny,
+        message: `Hay ${sentAny} facturas enviadas a la AEAT (aceptadas, pendientes o con error): son documentos fiscales y no se pueden borrar.`,
       });
     } else if (sentAny > 0) {
       warnings.push({
         code: 'aeat_sent_invoices',
         count: sentAny,
         message: `${sentAny} facturas se enviaron al entorno de pruebas de la AEAT (o están pendientes). Se borran igualmente.`,
+      });
+    }
+    if (holdedIssued > 0) {
+      blockers.push({
+        code: 'holded_issued_invoices',
+        count: holdedIssued,
+        message: `Hay ${holdedIssued} facturas emitidas en Holded: tienen número y registro fiscal allí y no se pueden borrar desde aquí.`,
       });
     }
     if (ownTenant) {
@@ -346,7 +384,48 @@ export class AdminTenantResetService {
         message: `${gateway} cobros pasaron por una pasarela (Stripe, Redsys o GoCardless). Si alguno fue real, devuélvelo desde la pasarela antes.`,
       });
     }
+    if (synced > 0) {
+      warnings.push({
+        code: 'synced_credentials',
+        count: synced,
+        message: `${synced} accesos de inquilinos están guardados en terminales de las puertas. Se quitarán de ellos antes de borrar; si algún terminal no responde, no se borrará nada.`,
+      });
+    }
     return { blockers, warnings };
+  }
+
+  /**
+   * Quita de los terminales las credenciales de los inquilinos. Si alguna no se
+   * puede quitar (terminal sin conexión), no se borra nada: quedaría abriendo.
+   */
+  private async revokeOnTerminals(tenantId: string): Promise<void> {
+    const rows = await this.admin.accessCredentialSync.findMany({
+      where: { tenantId },
+      select: { credentialId: true },
+      distinct: ['credentialId'],
+    });
+    for (const row of rows) {
+      await this.sync.applyState(tenantId, row.credentialId, 'revoked');
+    }
+    if (rows.length === 0) return;
+    const left = await this.admin.accessCredentialSync.findMany({
+      where: { tenantId },
+      select: { deviceId: true },
+    });
+    if (left.length > 0) {
+      const ids = [...new Set(left.map((r) => r.deviceId))];
+      const devices = (
+        await this.admin.accessDevice.findMany({
+          where: { id: { in: ids } },
+          select: { name: true },
+        })
+      ).map((d) => d.name);
+      throw new ConflictException({
+        code: 'terminal_revoke_failed',
+        message: `No se pudieron quitar ${left.length} accesos de ${devices.join(', ')}. Revisa la conexión del terminal y vuelve a intentarlo; no se ha borrado nada.`,
+        details: { devices },
+      });
+    }
   }
 
   /** PDF, documentos, fotos, adjuntos e informes; nunca las exportaciones. */

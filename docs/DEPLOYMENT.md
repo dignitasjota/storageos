@@ -1544,3 +1544,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - **Clave y modelo**: panel admin → Plataforma → **Asistente IA**. Lo que se guarde ahí manda; si no hay clave en el panel, se siguen usando `AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` (y `AI_MODEL`) de Portainer, así que **no hay que tocar nada al desplegar**. Un cambio en el panel llega a todos los procesos en menos de un minuto. «Probar conexión» hace una llamada mínima al modelo.
 - **Límite**: 300 consultas al mes por tenant y 50 al día por persona por defecto (editables en esa página). Una consulta es una pregunta; las vueltas para consultar datos no cuentan, y las «Sugerencias de hoy» tampoco. Al 80 % y al 100 % se avisa al equipo del tenant (campana).
 - **Extra «IA ampliada»** (`addon-ai-extra`, 15 €/mes, +500 consultas): lo crea el bootstrap. Revisar precio en `/admin/addons`. Para un caso puntual, límite propio en la ficha del tenant (tarjeta «Asistente IA»).
+
+## 61. Revisión del asistente IA y del vaciado de datos de prueba (2026-10-29)
+
+- **Migración** `20261129100000_ai_portal_limit` (se aplica sola): `ai_usage_events.customer_id` y `platform_ai_settings.portal_daily_limit` (20).
+- **Vaciar los datos de prueba**: antes de borrar, los accesos de los inquilinos se quitan de los terminales de las puertas (Dahua). Si un terminal no responde, no se borra nada (409 `terminal_revoke_failed`): revisa su conexión y vuelve a intentarlo. Con `AEAT_MODE=production` bloquea cualquier factura enviada a la AEAT (también pendientes o con error) y siempre bloquea las facturas emitidas en Holded.
+- **Asistente IA**: tope diario por inquilino en el chatbot del área de clientes (panel admin → Asistente IA, 20 por defecto). Las consultas se reservan antes de llamar al modelo y se devuelven si falla.
