@@ -48,6 +48,7 @@ import { AdminSystemController } from './admin-system.controller';
 import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
+import { AdminTenantResetService } from './admin-tenant-reset.service';
 import { AdminTenantSummaryService } from './admin-tenant-summary.service';
 import { AdminTenantTimelineService } from './admin-tenant-timeline.service';
 import { AdminTenantsOverviewController } from './admin-tenants-overview.controller';
@@ -204,6 +205,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminUsageService,
     SupportAgilityService,
     TenantDataExportService,
+    AdminTenantResetService,
     AeatCertExpiryService,
     AeatCertExpiryCron,
   ],

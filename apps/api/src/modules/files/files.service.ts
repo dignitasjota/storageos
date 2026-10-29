@@ -237,6 +237,36 @@ export class FilesService implements OnModuleInit {
   }
 
   /**
+   * Borra todos los objetos de un bucket que empiezan por `prefix` (salvo los
+   * que excluya `keep`). Devuelve cuántos borró.
+   */
+  async deleteByPrefix(
+    bucket: PresignArgs['bucket'],
+    prefix: string,
+    keep: (key: string) => boolean = () => false,
+  ): Promise<number> {
+    let token: string | undefined;
+    let deleted = 0;
+    do {
+      const page = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucketMap[bucket],
+          Prefix: prefix,
+          ContinuationToken: token,
+          MaxKeys: 1000,
+        }),
+      );
+      for (const obj of page.Contents ?? []) {
+        if (!obj.Key || keep(obj.Key)) continue;
+        await this.deleteObjectQuietly(bucket, obj.Key);
+        deleted += 1;
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return deleted;
+  }
+
+  /**
    * Borra los objetos de un bucket modificados antes de `before` cuya key pasa
    * el filtro (p. ej. las exportaciones de datos ya caducadas). Devuelve cuántos.
    */

@@ -1530,3 +1530,10 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Desde este despliegue, quien firma una reserva online (o paga un contrato ya firmado) tiene que marcar la casilla de las Condiciones Generales de Contratación. El texto por defecto se genera con los datos de cada negocio; conviene que cada tenant lo revise en Configuración → Textos legales.
 - En el área de clientes, el primer pago de un contrato que nunca las aceptó (firmado en papel o antes de esto) también pide la casilla; los contratos que ya pagaron alguna factura no.
 - Sin variables nuevas.
+
+## 59. Vaciar los datos de prueba de un tenant (2026-10-29)
+
+- Sin migración ni variables nuevas.
+- Panel admin → ficha del tenant → «⋮» → «Vaciar los datos de prueba» (solo rol superadmin). Borra inquilinos, contratos, reservas, facturas, cobros, ventas, gastos y todo lo que cuelga de ellos (también sus ficheros en MinIO, salvo las exportaciones) y deja las series en 1. Conserva locales, trasteros (los alquilados vuelven a libres), productos con su stock, contactos, usuarios y configuración.
+- Bloqueado si hay facturas aceptadas por la AEAT con `AEAT_MODE=production` o si es el negocio que emite las facturas de la plataforma. Avisa de facturas copiadas en Holded y de cobros por pasarela (devuélvelos antes si alguno fue real).
+- Exporta los datos antes desde el propio diálogo. No se puede deshacer.
