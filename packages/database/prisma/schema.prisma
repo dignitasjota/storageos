@@ -501,6 +501,12 @@ model Tenant {
   webChatMonthlyLimit   Int?      @map("web_chat_monthly_limit")
   webChatLimitNotified  String?   @map("web_chat_limit_notified")
   webChatKeyNotified    String?   @map("web_chat_key_notified")
+  /// El chat de la web puede preparar reservas y apuntar a la lista de espera.
+  webChatBookingsEnabled Boolean  @default(true) @map("web_chat_bookings_enabled")
+  /// El visitante puede pedir hablar con una persona.
+  webChatHandoffEnabled Boolean   @default(true) @map("web_chat_handoff_enabled")
+  /// Usar las indicaciones del asistente de WhatsApp también en la web.
+  webChatSharedInstructions Boolean @default(false) @map("web_chat_shared_instructions")
   createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -772,6 +778,7 @@ model User {
   passkeys             UserPasskey[]
   @@unique([tenantId, email])
   @@index([tenantId])
+  webChatMessages WebChatMessage[]
   @@map("users")
   featureInterestEvents FeatureInterestEvent[]
   directNotifications Notification[] @relation("NotificationUser")
@@ -1530,6 +1537,7 @@ model Contract {
   retentionOffers    RetentionOffer[]
 
   communications Communication[]
+  webChatConversations WebChatConversation[]
   whatsappConversations WhatsappConversation[]
   couponRedemptions CouponRedemption[]
   legalDocAcceptances LegalDocAcceptance[]
@@ -5907,12 +5915,26 @@ model WebChatConversation {
   locale        String   @default("es")
   pagePath      String?  @map("page_path")
   leadId        String?  @map("lead_id") @db.Uuid
+  /// Reserva hecha desde el chat, o en la web después de chatear.
+  contractId    String?  @map("contract_id") @db.Uuid
+  /// La reserva se preparó en el propio chat.
+  bookedInChat  Boolean  @default(false) @map("booked_in_chat")
+  /// ai | human (el visitante pidió una persona; la IA no responde).
+  mode          String   @default("ai")
+  handoffRequestedAt DateTime? @map("handoff_requested_at") @db.Timestamptz(6)
+  /// Resumen para el equipo al pasar a una persona.
+  handoffSummary String? @map("handoff_summary")
+  /// Mensajes del visitante que el equipo no ha leído (en modo persona).
+  staffUnread   Int      @default(0) @map("staff_unread")
+  /// Última respuesta de una persona del equipo.
+  staffRepliedAt DateTime? @map("staff_replied_at") @db.Timestamptz(6)
   messageCount  Int      @default(0) @map("message_count")
   lastMessageAt DateTime @default(now()) @map("last_message_at") @db.Timestamptz(6)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead     Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contract Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull)
   messages WebChatMessage[]
 
   @@unique([tenantId, visitorId])
@@ -5924,15 +5946,22 @@ model WebChatMessage {
   id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId       String   @map("tenant_id") @db.Uuid
   conversationId String   @map("conversation_id") @db.Uuid
-  /// visitor | assistant
+  /// visitor | assistant | staff
   role           String
   content        String
   /// Respuesta de respaldo sin IA (límite, sin clave, error del modelo).
   fallback       Boolean  @default(false)
+  /// El asistente no tenía la información para responder.
+  unanswered     Boolean  @default(false)
+  /// Valoración del visitante: 1 (útil) o -1 (no útil).
+  rating         Int?     @db.SmallInt
+  /// Persona del equipo que escribió (role = staff).
+  senderUserId   String?  @map("sender_user_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   conversation WebChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser   User?               @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
   @@index([tenantId, createdAt])
@@ -6298,6 +6327,16 @@ model TenantWhatsappSettings {
   reminderTemplateLanguage String  @default("es") @map("reminder_template_language")
   /// Política de privacidad que enlaza el aviso del primer mensaje del asistente.
   privacyUrl               String? @map("privacy_url")
+  /// always | outside (la IA solo fuera del horario del equipo) | inside.
+  assistantHoursMode       String  @default("always") @map("assistant_hours_mode")
+  /// Horario del equipo (como el de los locales), en la zona del negocio.
+  teamHours                Json?   @map("team_hours")
+  /// Intenciones que avisan al equipo (reclamacion, baja…).
+  alertIntents             String[] @default(["reclamacion", "baja"]) @map("alert_intents")
+  /// Un recordatorio al contacto que preguntó precio y no siguió.
+  followupEnabled          Boolean @default(false) @map("followup_enabled")
+  followupTemplateName     String? @map("followup_template_name")
+  followupTemplateLanguage String  @default("es") @map("followup_template_language")
   /// Secreto de la app de Meta propia del tenant (firma de sus avisos), cifrado.
   appSecretEncrypted          String? @map("app_secret_encrypted")
   /// Token para verificar el webhook en la app propia del tenant (cifrado + hash para buscarlo).
@@ -6329,6 +6368,11 @@ model WhatsappConversation {
   bookingReminderSentAt DateTime? @map("booking_reminder_sent_at") @db.Timestamptz(6)
   /// Idioma del contacto (código ISO de 2 letras, lo detecta el asistente).
   language           String?
+  /// Intención del último mensaje (precio, disponibilidad, reserva, reclamacion…).
+  intent             String?
+  /// Resumen para el equipo al pasar a una persona.
+  handoffSummary     String?   @map("handoff_summary")
+  followupSentAt     DateTime? @map("followup_sent_at") @db.Timestamptz(6)
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

@@ -30,6 +30,19 @@ export const HANDOFF_MARKER = '[[HUMANO]]';
 export const BOOKING_MARKER_RE = /\[\[RESERVA\s*(\{[\s\S]*?\})\s*\]\]/;
 /** Marca con la que el modelo indica el idioma del cliente (la quita el servidor). */
 export const LANGUAGE_MARKER_RE = /\[\[IDIOMA\s+([a-z]{2})\s*\]\]/i;
+/** Marca con la que el modelo indica qué busca el cliente (la quita el servidor). */
+export const INTENT_MARKER_RE = /\[\[INTENCION\s+([a-z]+)\s*\]\]/i;
+
+/**
+ * Prompt de sistema: con `{ stable, dynamic }` la parte estable va a la caché
+ * de prompts de Anthropic (los demás proveedores reciben el texto entero).
+ */
+export type WhatsappAiSystem = string | { stable: string; dynamic?: string };
+
+function systemString(system: WhatsappAiSystem): string {
+  if (typeof system === 'string') return system;
+  return system.dynamic ? `${system.stable}\n\n${system.dynamic}` : system.stable;
+}
 
 const MAX_OUTPUT_TOKENS = 700;
 const TIMEOUT_MS = 30_000;
@@ -52,7 +65,7 @@ export class WhatsappAiClient {
 
   async complete(
     config: WhatsappAiConfig,
-    system: string,
+    system: WhatsappAiSystem,
     turns: WhatsappAiTurn[],
   ): Promise<WhatsappAiCompletion> {
     if (this.stub) return this.stubComplete(config, turns);
@@ -61,30 +74,52 @@ export class WhatsappAiClient {
     if (!config.model) throw new WhatsappAiError('Falta el modelo');
     return config.provider === 'anthropic'
       ? this.anthropic(base, config, system, turns)
-      : this.openaiFormat(base, config, system, turns);
+      : this.openaiFormat(base, config, systemString(system), turns);
   }
 
   private async anthropic(
     base: string,
     config: WhatsappAiConfig,
-    system: string,
+    system: WhatsappAiSystem,
     turns: WhatsappAiTurn[],
   ): Promise<WhatsappAiCompletion> {
+    const cache = { type: 'ephemeral' } as const;
+    const blocks =
+      typeof system === 'string'
+        ? [{ type: 'text', text: system, cache_control: cache }]
+        : [
+            { type: 'text', text: system.stable, cache_control: cache },
+            ...(system.dynamic ? [{ type: 'text', text: system.dynamic }] : []),
+          ];
     const json = await this.post(`${base}/messages`, {
       headers: {
         'x-api-key': config.apiKey,
         'anthropic-version': '2023-06-01',
       },
-      body: { model: config.model, max_tokens: MAX_OUTPUT_TOKENS, system, messages: turns },
+      body: {
+        model: config.model,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        system: blocks,
+        messages: turns,
+      },
     });
     const content = (json.content as { type?: string; text?: string }[] | undefined) ?? [];
-    const usage = (json.usage as { input_tokens?: number; output_tokens?: number }) ?? {};
+    const usage =
+      (json.usage as {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      }) ?? {};
     return {
       text: content
         .filter((b) => b.type === 'text')
         .map((b) => b.text ?? '')
         .join('\n'),
-      inputTokens: usage.input_tokens ?? 0,
+      inputTokens:
+        (usage.input_tokens ?? 0) +
+        (usage.cache_creation_input_tokens ?? 0) +
+        (usage.cache_read_input_tokens ?? 0),
       outputTokens: usage.output_tokens ?? 0,
     };
   }
@@ -155,7 +190,22 @@ export class WhatsappAiClient {
     // «reservar {json}» → la marca de reserva con esos datos (para las pruebas).
     const booking = /^reservar\s+(\{[\s\S]*\})$/i.exec(last.trim());
     const english = /\b(hello|hi|how much|price|please|thanks|storage unit)\b/i.test(last);
-    const text = `[[IDIOMA ${english ? 'en' : 'es'}]] ${
+    // Resumen para el equipo (prompt de resumen): texto fijo.
+    if (last.startsWith('RESUMEN:')) {
+      return {
+        text: 'Busca un trastero y quiere hablar con el equipo.',
+        inputTokens: 50,
+        outputTokens: 10,
+      };
+    }
+    const intent = /reclam|queja/i.test(last)
+      ? 'reclamacion'
+      : /precio|cu[aá]nto|price|how much/i.test(last)
+        ? 'precio'
+        : /baja/i.test(last)
+          ? 'baja'
+          : 'otro';
+    const text = `[[IDIOMA ${english ? 'en' : 'es'}]] [[INTENCION ${intent}]] ${
       booking
         ? `Perfecto, te lo preparo. [[RESERVA ${booking[1]}]]`
         : /humano|persona/i.test(last)

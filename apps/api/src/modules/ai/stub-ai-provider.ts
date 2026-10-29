@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 
-import { type AiCompletion, type AiMessageParam, AiProvider } from './ai-provider';
+import {
+  type AiCompletion,
+  type AiMessageParam,
+  AiProvider,
+  type AiSystemPrompt,
+  systemText,
+} from './ai-provider';
 
 /** Comienzo del prompt del chat de la web pública (el simulador responde como él). */
 export const WEB_CHAT_PROMPT_MARKER = 'Eres el asistente virtual de la web de';
@@ -40,13 +46,14 @@ export class StubAiProvider extends AiProvider {
 
   /** Respuesta simulada + consumo aproximado (≈4 caracteres por token). */
   async createMessage(args: {
-    system?: string;
+    system?: AiSystemPrompt;
     messages: AiMessageParam[];
     tools?: unknown[];
   }): Promise<AiCompletion> {
-    const completion = args.system?.includes(AREA_PAGE_DRAFT_MARKER)
+    const system = args.system ? systemText(args.system) : '';
+    const completion = system.includes(AREA_PAGE_DRAFT_MARKER)
       ? AREA_PAGE_DRAFT_STUB
-      : args.system?.startsWith(WEB_CHAT_PROMPT_MARKER)
+      : system.startsWith(WEB_CHAT_PROMPT_MARKER)
         ? this.webChat(args.messages)
         : await this.respond(args);
     const tokens = (text: string) => Math.max(1, Math.ceil(text.length / 4));
@@ -95,6 +102,21 @@ export class StubAiProvider extends AiProvider {
   /** Chat de la web: si el visitante deja un email, lo guarda como contacto. */
   private webChat(messages: AiMessageParam[]): AiCompletion {
     const text = this.lastUserText(messages);
+    const reply = (t: string): AiCompletion => ({
+      stopReason: 'end_turn',
+      content: [{ type: 'text', text: t }],
+    });
+    // «reservar {json}» / «espera {json}» → la marca con esos datos (pruebas).
+    const booking = /^reservar\s+(\{[\s\S]*\})$/i.exec(text.trim());
+    if (booking) return reply(`Perfecto, te lo preparo.\n[[RESERVA ${booking[1]}]]`);
+    const waiting = /^espera\s+(\{[\s\S]*\})$/i.exec(text.trim());
+    if (waiting) return reply(`Te apunto.\n[[ESPERA ${waiting[1]}]]`);
+    if (/persona|humano/i.test(text)) {
+      return reply('Te paso con una persona del equipo.\n[[HUMANO]]');
+    }
+    if (/aparcamiento|parking/i.test(text)) {
+      return reply('No tengo esa información; escríbenos y te lo confirmamos.\n[[SIN_RESPUESTA]]');
+    }
     const email = /[^\s@]+@[^\s@]+\.[^\s@]+/.exec(text)?.[0];
     const phone = /llam/i.test(text) ? /\d[\d\s]*/.exec(text)?.[0]?.trim() : undefined;
     return {

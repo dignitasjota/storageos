@@ -47,6 +47,19 @@ export interface AiCompletion {
   usage?: AiUsage;
 }
 
+/**
+ * Prompt de sistema. Con `{ stable, dynamic }`, la parte estable (reglas y
+ * contexto que se repite en cada mensaje) se guarda en la caché de prompts de
+ * Anthropic y la dinámica (fecha y hora, datos que cambian) va detrás sin caché.
+ */
+export type AiSystemPrompt = string | { stable: string; dynamic?: string };
+
+/** El prompt de sistema como un solo texto (proveedores sin caché y el simulador). */
+export function systemText(system: AiSystemPrompt): string {
+  if (typeof system === 'string') return system;
+  return system.dynamic ? `${system.stable}\n\n${system.dynamic}` : system.stable;
+}
+
 export const AI_PROVIDER = Symbol('AI_PROVIDER');
 
 export abstract class AiProvider {
@@ -57,7 +70,7 @@ export abstract class AiProvider {
   abstract readonly modelName: string;
 
   abstract createMessage(args: {
-    system: string;
+    system: AiSystemPrompt;
     messages: AiMessageParam[];
     tools: AiToolDef[];
   }): Promise<AiCompletion>;
@@ -68,7 +81,7 @@ export abstract class AiProvider {
    * (stub y providers sin streaming) entrega el texto de una vez.
    */
   async streamMessage(
-    args: { system: string; messages: AiMessageParam[]; tools: AiToolDef[] },
+    args: { system: AiSystemPrompt; messages: AiMessageParam[]; tools: AiToolDef[] },
     onText: (delta: string) => void,
   ): Promise<AiCompletion> {
     const completion = await this.createMessage(args);

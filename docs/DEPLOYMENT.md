@@ -1582,3 +1582,10 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - **Migración** `20261203100000_web_chat_review` (se aplica sola): `web_chat_messages.fallback` y `tenants.web_chat_key_notified`. Sin variables nuevas. Redesplegar api, worker y web.
 - La política de privacidad generada de los tenants con el chat añade el apartado «Chat de la web» y Anthropic entre los proveedores. Quien tenga una política propia en Configuración → Textos legales debe añadirlo a mano.
 - Las conversaciones anteriores no tienen respuestas de respaldo guardadas (solo las nuevas).
+
+## 67. Chat de la web y WhatsApp: mejoras (2026-10-29)
+
+- **Migración** `20261204100000_web_chat_whatsapp_improvements` (se aplica sola). Sin variables nuevas. Redesplegar api, worker y web.
+- **Chat de la web**: reserva y lista de espera desde el chat (activado por defecto; se apaga en Configuración → Asistente IA), paso a una persona (el equipo responde en Marketing → Chat de la web; aviso en la campana y en el móvil), preguntas sugeridas, valoración 👍/👎, «Seguir por WhatsApp», streaming y ayuda proactiva en la página de reserva. La respuesta del equipo llega al visitante si tiene la web abierta o cuando vuelva (no hay aviso por correo).
+- **Caché de prompts de Anthropic** en el asistente del panel, el chat de la web y el asistente de WhatsApp: la parte fija se cobra a un 10 % cuando se repite en 5 minutos. No hay que hacer nada.
+- **WhatsApp**: horario del asistente (siempre / fuera / dentro del horario del equipo), aviso por intención (reclamación y baja por defecto), resumen al pasar a una persona, «Sugerir respuesta» en la bandeja (gasta una consulta del asistente del panel) y seguimiento a las 24 h con una plantilla aprobada (apagado por defecto; corre en el worker, en el mismo cron que los recordatorios de reserva). La plantilla de seguimiento debe estar aprobada en Meta con `{{1}}` = nombre.

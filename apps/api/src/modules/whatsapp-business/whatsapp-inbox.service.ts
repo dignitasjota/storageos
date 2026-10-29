@@ -27,6 +27,7 @@ import {
   type WhatsappStatsDto,
   type WhatsappTemplatesDto,
 } from '@storageos/shared';
+import { isWhatsappIntent } from '@storageos/shared';
 
 import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -787,6 +788,8 @@ export class WhatsappInboxService {
       canReply: this.windowOpen(r.lastInboundAt),
       assistantEnabled: r.assistantEnabled,
       contractId: r.contractId,
+      intent: isWhatsappIntent(r.intent) ? r.intent : null,
+      handoffSummary: r.handoffSummary,
     };
   }
 

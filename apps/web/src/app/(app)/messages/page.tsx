@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Loader2, Mail, MessageCircle, Search, UserRound } from 'lucide-react';
+import { ArrowLeft, Globe, Loader2, Mail, MessageCircle, Search, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
@@ -11,6 +11,7 @@ import type { CustomerConversationDto, WhatsappConversationDto } from '@storageo
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { useWebChatConversations } from '@/lib/ai/web-chat-hooks';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCustomerConversations } from '@/lib/customers/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
@@ -36,6 +37,14 @@ export default function MessagesPage() {
   const hasWhatsapp = useHasFeature('whatsapp_business');
   const canReadComms = useHasPermission('communications:read');
   const whatsapp = useWhatsappConversations(hasWhatsapp && canReadComms);
+  const hasAi = useHasFeature('ai_assistant');
+  const canReadMarketing = useHasPermission('marketing:read');
+  const hasWebChat = hasAi && canReadMarketing;
+  // Visitantes del chat de la web que esperan a una persona o han escrito al equipo.
+  const webChat = useWebChatConversations(30, 'human', hasWebChat);
+  const webItems = hasWebChat
+    ? webChat.rows.filter((c) => c.waitingSince || c.staffUnread > 0)
+    : [];
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [onlyUnread, setOnlyUnread] = useState(false);
@@ -100,6 +109,26 @@ export default function MessagesPage() {
                     </span>
                     <span className="rounded-full bg-emerald-600 px-1.5 text-xs text-white">
                       {c.unreadCount}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            {webItems.length > 0 && (
+              <div className="space-y-1">
+                {webItems.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={`/marketing/web-chat?c=${c.id}`}
+                    className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200"
+                  >
+                    <Globe className="size-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      Chat de la web · {c.leadName ?? (c.preview || 'Visitante')}
+                    </span>
+                    <span className="rounded-full bg-blue-600 px-1.5 text-xs text-white">
+                      {c.waitingSince ? 'Espera' : c.staffUnread}
                     </span>
                   </Link>
                 ))}

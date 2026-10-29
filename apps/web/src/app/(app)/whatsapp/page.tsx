@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  WHATSAPP_INTENT_LABELS,
   WHATSAPP_MEDIA_LABELS,
   WHATSAPP_OUTGOING_MAX_BYTES,
   WHATSAPP_OUTGOING_MEDIA_MIMES,
@@ -20,6 +21,7 @@ import {
   Paperclip,
   Send,
   Settings,
+  Sparkles,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -44,6 +46,7 @@ import {
   useSendWhatsappMedia,
   useSendWhatsappMessage,
   useSendWhatsappTemplate,
+  useSuggestWhatsappReply,
   useSetConversationAssistant,
   useWhatsappConversation,
   useWhatsappConversations,
@@ -309,6 +312,7 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const toggleAssistant = useSetConversationAssistant(id);
   const sendTemplate = useSendWhatsappTemplate(id);
   const sendMedia = useSendWhatsappMedia(id);
+  const suggest = useSuggestWhatsappReply(id);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function attach(file: File | undefined) {
@@ -440,6 +444,11 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
             {c.assistantEnabled ? 'Pausar asistente' : 'Activar asistente'}
           </Button>
         </Can>
+        {c.intent && (
+          <Badge variant="secondary" title="Lo que busca, según el asistente">
+            {WHATSAPP_INTENT_LABELS[c.intent]}
+          </Badge>
+        )}
         {c.contractId && (
           <Link href={`/contracts/${c.contractId}`}>
             <Badge variant="outline">Reserva</Badge>
@@ -456,6 +465,14 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
         ) : null}
       </div>
 
+      {c.handoffSummary && !c.assistantEnabled && (
+        <div className="flex gap-2 border-b bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <Sparkles className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            <span className="font-medium">Resumen del asistente:</span> {c.handoffSummary}
+          </span>
+        </div>
+      )}
       <div className="flex-1 space-y-2 overflow-y-auto bg-muted/30 px-4 py-4">
         {messages.map((m) => (
           <div
@@ -531,6 +548,29 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                 placeholder="Escribe una respuesta…"
                 className="text-base sm:text-sm"
               />
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={suggest.isPending}
+                aria-label="Sugerir respuesta con IA"
+                title="Sugerir respuesta con IA"
+                onClick={() =>
+                  suggest
+                    .mutateAsync()
+                    .then((r) => setText(r.suggestion))
+                    .catch((err: unknown) =>
+                      toast.error(
+                        err instanceof ApiError ? err.body.message : 'No se pudo redactar.',
+                      ),
+                    )
+                }
+              >
+                {suggest.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+              </Button>
               <Button
                 onClick={submit}
                 disabled={send.isPending || !text.trim()}

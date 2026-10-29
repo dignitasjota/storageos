@@ -10,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { isValidSpanishTaxId, normalizeTaxId, rentTax } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
+import { tenantHasFeature } from '../../common/tenant-features';
 import { DOMAIN_EVENTS, type BookingCreatedPayload } from '../automations/domain-events';
 import { ContractsService } from '../contracts/contracts.service';
 import { CouponsService } from '../coupons/coupons.service';
@@ -161,6 +162,10 @@ export class BookingService {
       brandColor: tenant.portalBrandColor,
       logoUrl: tenant.portalLogoUrl,
       googleAnalyticsId: tenant.googleAnalyticsId,
+      webChatEnabled:
+        tenant.webChatEnabled && (await tenantHasFeature(this.admin, tenant.id, 'ai_assistant')),
+      customDomain:
+        tenant.customDomain && tenant.customDomainVerifiedAt ? tenant.customDomain : null,
       facilities: facilities
         .map((f) => ({
           id: f.id,
@@ -521,6 +526,17 @@ export class BookingService {
       where: { id: contract.id },
       data: { firstPaymentDeadline: holdDeadline },
     });
+
+    // Quien chateó con el asistente de la web y luego reserva: la conversación
+    // queda enlazada (el resumen del chat cuenta «reservaron tras chatear»).
+    if (input.visitorId) {
+      await this.admin.webChatConversation
+        .updateMany({
+          where: { tenantId, visitorId: input.visitorId, contractId: null },
+          data: { contractId: contract.id },
+        })
+        .catch(() => undefined);
+    }
 
     this.events.emit(DOMAIN_EVENTS.booking_created, {
       tenantId,

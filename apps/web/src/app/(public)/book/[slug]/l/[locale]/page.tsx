@@ -14,6 +14,7 @@ import {
   isPublicWebLocale,
 } from '@/app/(public)/s/[slug]/i18n/messages';
 import { TenantSiteChrome } from '@/app/(public)/s/[slug]/tenant-site-chrome';
+import { WebChatWidget } from '@/app/(public)/s/[slug]/web-chat-widget';
 
 export async function generateMetadata({
   params,
@@ -53,6 +54,17 @@ export default async function BookLocalePage({
         >
           <BookPageBody slug={slug} locale={locale} initialData={data} />
         </TenantSiteChrome>
+      ) : null}
+      {data ? (
+        <WebChatWidget
+          slug={data.tenantSlug}
+          enabled={data.webChatEnabled}
+          tenantName={data.tenantName}
+          brandColor={data.brandColor}
+          customDomain={data.customDomain}
+          aboveWhatsapp={false}
+          proactive
+        />
       ) : (
         <BookPageBody slug={slug} locale={locale} initialError={error} />
       )}
