@@ -91,17 +91,38 @@ Arrendador: {{tenantName}} · Arrendatario: {{customerName}} · Contrato {{contr
  */
 export const DEFAULT_STORAGE_CLAUSES = `1. Objeto. El trastero {{unitCode}} de {{facilityName}} se cede solo para guardar enseres. No se puede vivir en él, desarrollar una actividad ni cederlo o subarrendarlo a otra persona.
 
-2. Duración y baja. El contrato empieza el {{startDate}} y se renueva cada periodo de facturación. Cualquiera de las partes puede darlo por terminado avisando con {{cancellationNoticeDays}} días de antelación.
+2. Duración y baja. El contrato empieza el {{startDate}} y se renueva cada periodo de facturación. Cualquiera de las partes puede darlo por terminado avisando con {{cancellationNoticeDays}} días de antelación, por escrito al correo electrónico del arrendador o desde el área de clientes, indicando el nombre del inquilino y el trastero.
 
-3. Pago. Las cuotas se pagan por adelantado al inicio de cada periodo. Si una cuota no se paga a su vencimiento, el arrendador podrá suspender el acceso al trastero hasta que se regularice el pago, además de aplicar los recargos que tenga publicados.
+3. Pago. Las cuotas se pagan por adelantado al inicio de cada periodo y se cobran por la forma de pago elegida. Si una cuota no se paga a su vencimiento, el arrendador podrá suspender el acceso al local y al trastero hasta que se regularice el pago y aplicar los recargos que tenga publicados. Cada recibo devuelto o pago con tarjeta rechazado podrá generar unos gastos de gestión por el importe que el arrendador tenga publicado, que no superará el coste que le supone gestionar la devolución.
 
-4. Contenido. El inquilino es el único responsable de lo que guarda. Está prohibido guardar productos perecederos, inflamables, explosivos, tóxicos, ilegales o seres vivos. El arrendador no responde de objetos de valor ni del dinero en efectivo.
+4. Revisión de la cuota. La cuota podrá actualizarse una vez al año conforme a la variación del Índice de Precios al Consumo (IPC) que publique el Instituto Nacional de Estadística, o el índice que lo sustituya. El arrendador lo comunicará con al menos 30 días de antelación al cobro con la cuota nueva; si el inquilino no está de acuerdo, podrá darse de baja antes de esa fecha sin penalización.
 
-5. Acceso. Los códigos o tarjetas de acceso son personales. El inquilino entra en el horario del local y cierra el trastero con su propio candado.
+5. Contenido. El inquilino es el único responsable de lo que guarda y declara que es su legítimo poseedor, que su procedencia es lícita y que no está embargado ni sujeto a ningún procedimiento de ejecución o reclamación. Está prohibido guardar:
+- Alimentos, bebidas, piensos y cualquier producto perecedero.
+- Productos químicos, tóxicos, corrosivos, inflamables o explosivos, bombonas de gas y combustibles.
+- Vehículos, motores o maquinaria con combustible o con baterías que no estén desconectadas.
+- Armas, municiones y explosivos.
+- Objetos o sustancias prohibidos por la ley o de procedencia ilícita.
+- Animales, vivos o muertos, y plantas.
+- Materiales que puedan descomponerse, generar humedad, olores o plagas, o dañar el trastero, los de alrededor o los bienes de otros clientes.
+- Cualquier otro objeto que razonablemente no deba guardarse en un trastero.
+Los daños que cause lo guardado incumpliendo esta condición corren por cuenta del inquilino.
 
-6. Fianza. La fianza de {{depositAmount}} garantiza el cumplimiento del contrato. Se devuelve al terminar, descontando los daños o las cantidades pendientes.
+6. Objetos de valor. Se desaconseja guardar dinero en efectivo, joyas, obras de arte, antigüedades, documentos al portador u objetos de valor sentimental. El arrendador no responde de su valor especial o sentimental ni de los daños por caso fortuito, fuerza mayor, el paso del tiempo, la polilla o los defectos propios de los objetos; sí responde de los daños que cause por su culpa o negligencia.
 
-7. Entrega. Al terminar, el inquilino retira todos sus enseres y deja el trastero vacío, limpio y en el estado en que lo recibió.
+7. Acceso y cierre. Los códigos o tarjetas de acceso son personales e intransferibles. El inquilino entra en el horario del local y cierra el trastero con un solo candado de su propiedad. No puede instalar otras cerraduras ni sistemas de cierre sin permiso escrito del arrendador.
+
+8. Obras. No se pueden hacer obras ni modificaciones en el trastero. Para colocar estanterías u otros elementos fijos hace falta autorización previa por escrito.
+
+9. Inspección y reubicación. Por seguridad, por una emergencia (fuga, olor, plaga…), por requerimiento de una autoridad o por obras en el local, el arrendador podrá abrir el trastero avisando antes al inquilino, salvo urgencia, y dejando constancia de lo que haga. Si por un motivo justificado hubiera que trasladar los enseres a otro trastero de características similares, se avisará al inquilino, que podrá hacerlo por sí mismo; si no, lo hará el arrendador sin coste para él.
+
+10. Impago. Si el inquilino deja de pagar, el arrendador podrá resolver el contrato y requerirle por escrito que pague lo debido o retire sus enseres en un plazo no inferior a 15 días. Resuelto el contrato, podrá trasladar los enseres a otro espacio para dejar libre el trastero; el coste del traslado corre por cuenta del inquilino y el arrendador responde de los daños que cause por su culpa. Si pasadas ocho (8) semanas desde el impago el inquilino no ha pagado ni retirado sus enseres pese al requerimiento, se considerarán abandonados y el arrendador podrá disponer de ellos: lo que obtenga se aplicará a la deuda y el sobrante quedará a disposición del inquilino.
+
+11. Fianza. La fianza de {{depositAmount}} garantiza el cumplimiento del contrato. Se devuelve al terminar, descontando los daños o las cantidades pendientes.
+
+12. Entrega. Al terminar, el inquilino retira todos sus enseres y deja el trastero vacío, limpio y en el estado en que lo recibió.
+
+13. Comunicaciones y datos. Las comunicaciones entre las partes se harán por escrito, al correo electrónico de cada una o desde el área de clientes. El inquilino debe mantener actualizados sus datos de contacto y de pago.
 
 Arrendador: {{tenantName}} · Inquilino: {{customerName}} · Contrato {{contractNumber}}`;
 
