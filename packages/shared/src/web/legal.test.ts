@@ -35,6 +35,12 @@ describe('textos legales del tenant', () => {
     expect(
       buildTenantLegalDoc('privacidad', { ...base, analytics: false, whatsapp: true }),
     ).toContain('WhatsApp');
+    const chat = buildTenantLegalDoc('privacidad', { ...base, analytics: false, webChat: true });
+    expect(chat).toContain('Chat de la web');
+    expect(chat).toContain('Anthropic');
+    expect(buildTenantLegalDoc('privacidad', { ...base, analytics: false })).not.toContain(
+      'Chat de la web',
+    );
   });
 
   it('las condiciones de contratación usan los datos del negocio y sus locales', () => {

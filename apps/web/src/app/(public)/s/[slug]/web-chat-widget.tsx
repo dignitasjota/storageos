@@ -1,6 +1,10 @@
 'use client';
 
-import { WEB_CHAT_MESSAGE_MAX, type PublicWebChatResultDto } from '@storageos/shared';
+import {
+  WEB_CHAT_MESSAGE_MAX,
+  type PublicWebChatHistoryDto,
+  type PublicWebChatResultDto,
+} from '@storageos/shared';
 import { Bot, Loader2, Mail, MessageCircle, Phone, Send, X } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
@@ -86,8 +90,11 @@ export function WebChatWidget({
       body: JSON.stringify({ visitorId: visitorId() }),
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { messages: Line[] } | null) => {
+      .then((data: PublicWebChatHistoryDto | null) => {
         if (data?.messages?.length) setLines(data.messages);
+        if (data?.contact) setContact(data.contact);
+        // Ya hizo hoy todas las preguntas: se bloquea sin esperar a que vuelva a escribir.
+        if (data?.limited === 'visitor') setBlocked(true);
       })
       .catch(() => undefined);
   }, [open, loaded, enabled, slug]);

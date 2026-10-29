@@ -14,12 +14,15 @@ import {
   type WebChatStatsDto,
 } from '@storageos/shared';
 
+import { TtlCache } from '../../common/cache/ttl-cache';
 import { currentMonth, zonedDayStart } from '../../common/format';
+import { pageArgs, toPage, type PageRequest } from '../../common/pagination';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AiQuotaService } from '../ai/ai-quota.service';
 import { AiService } from '../ai/ai.service';
 import { PlatformAiSettingsService } from '../ai/platform-ai-settings.service';
 import { WEB_CHAT_PROMPT_MARKER } from '../ai/stub-ai-provider';
+import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { LandingService } from '../landing/landing.service';
@@ -29,7 +32,7 @@ import { LeadsService } from '../leads/leads.service';
 import type { Env } from '../../config/env.schema';
 import type { AiMessageParam } from '../ai/ai-provider';
 import type { RequestMeta } from '../auth/auth.service';
-import type { PublicLandingDto } from '@storageos/shared';
+import type { PageDto, PublicLandingDto } from '@storageos/shared';
 
 /** Turnos de la conversación que se le pasan al modelo. */
 const HISTORY_MESSAGES = 16;
@@ -42,12 +45,16 @@ const TEXTS = {
       'Has hecho muchas preguntas hoy. Para seguir, escríbenos o llámanos y te atendemos encantados.',
     tenantLimit: 'Ahora mismo no puedo responder. Escríbenos o llámanos y te atendemos encantados.',
     error: 'No he podido responder ahora. Inténtalo de nuevo en un momento o escríbenos.',
+    contactInvalid:
+      'Para que el equipo te contacte necesito un email o un teléfono válidos. ¿Me los dejas?',
   },
   en: {
     visitorLimit:
       'You have asked a lot of questions today. To continue, please write to us or call us.',
     tenantLimit: "I can't answer right now. Please write to us or call us and we'll help you.",
     error: "I couldn't answer just now. Please try again in a moment or write to us.",
+    contactInvalid:
+      'So that the team can contact you I need a valid email or phone number. Could you share it?',
   },
 } as const;
 
@@ -64,6 +71,8 @@ function todayIn(timeZone: string): string {
 @Injectable()
 export class WebChatService {
   private readonly logger = new Logger(WebChatService.name);
+  /** La información pública del negocio cambia poco: se reutiliza 60 s por tenant. */
+  private readonly landingCache = new TtlCache<PublicLandingDto | null>();
 
   constructor(
     private readonly admin: PrismaAdminService,
@@ -73,6 +82,7 @@ export class WebChatService {
     private readonly platform: PlatformAiSettingsService,
     private readonly landing: LandingService,
     private readonly leads: LeadsService,
+    private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -113,7 +123,9 @@ export class WebChatService {
       where: { tenantId_visitorId: { tenantId: tenant.id, visitorId } },
       select: { id: true },
     });
-    if (!conversation) return { messages: [] };
+    if (!conversation) return { messages: [], limited: null, contact: null };
+    const asked = await this.askedToday(conversation.id, tenant.timezone);
+    const limited = asked >= this.platform.web.visitorDailyLimit;
     const rows = await this.admin.webChatMessage.findMany({
       where: { conversationId: conversation.id },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -126,7 +138,21 @@ export class WebChatService {
         content: m.content,
         createdAt: m.createdAt.toISOString(),
       })),
+      limited: limited ? 'visitor' : null,
+      contact: limited ? this.contactOf(tenant, await this.landingOf(tenant.slug)) : null,
     };
+  }
+
+  /** Preguntas del visitante hoy (en la zona del negocio). */
+  private askedToday(conversationId: string, timezone: string): Promise<number> {
+    const dayStart = zonedDayStart(todayIn(timezone), timezone);
+    return this.admin.webChatMessage.count({
+      where: { conversationId, role: 'visitor', createdAt: { gte: dayStart } },
+    });
+  }
+
+  private landingOf(slug: string): Promise<PublicLandingDto | null> {
+    return this.landingCache.get(slug, () => this.landing.getBySlug(slug).catch(() => null));
   }
 
   async answer(
@@ -136,7 +162,7 @@ export class WebChatService {
   ): Promise<PublicWebChatResultDto> {
     const tenant = await this.liveTenant(slug);
     const t = TEXTS[input.locale];
-    const landing = await this.landing.getBySlug(tenant.slug).catch(() => null);
+    const landing = await this.landingOf(tenant.slug);
     const contact = this.contactOf(tenant, landing);
     // Robots: se les responde algo genérico sin gastar IA ni guardar nada.
     if (input.hp || isBotUserAgent(meta.userAgent)) {
@@ -156,10 +182,7 @@ export class WebChatService {
     });
 
     // Tope por visitante y día (en la zona del negocio).
-    const dayStart = zonedDayStart(todayIn(tenant.timezone), tenant.timezone);
-    const asked = await this.admin.webChatMessage.count({
-      where: { conversationId: conversation.id, role: 'visitor', createdAt: { gte: dayStart } },
-    });
+    const asked = await this.askedToday(conversation.id, tenant.timezone);
     if (asked >= this.platform.web.visitorDailyLimit) {
       return { answer: t.visitorLimit, leadCaptured: false, limited: 'visitor', contact };
     }
@@ -197,9 +220,12 @@ export class WebChatService {
       this.logger.warn(
         `[web-chat] ${tenant.slug}: ${err instanceof Error ? err.message : String(err)}`,
       );
+      await this.saveMessage(tenant.id, conversation.id, 'assistant', t.error, true);
       return { answer: t.error, leadCaptured: false, limited: null, contact };
     }
     if ('limited' in result) {
+      // Se guarda para que la conversación no quede con la pregunta sin contestar.
+      await this.saveMessage(tenant.id, conversation.id, 'assistant', t.tenantLimit, true);
       return { answer: t.tenantLimit, leadCaptured: false, limited: 'tenant', contact };
     }
 
@@ -210,10 +236,13 @@ export class WebChatService {
       text = text.replace(CONTACT_MARKER_RE, '').trim();
       if (!conversation.leadId) {
         leadCaptured = await this.saveLead(tenant.id, conversation.id, marker[1]!, input, meta);
+        // La respuesta promete que el equipo contactará: sin un dato válido no es verdad.
+        if (!leadCaptured) text = t.contactInvalid;
       }
     }
-    if (!text) text = t.error;
-    await this.saveMessage(tenant.id, conversation.id, 'assistant', text);
+    const fallback = !text;
+    if (fallback) text = t.error;
+    await this.saveMessage(tenant.id, conversation.id, 'assistant', text, fallback);
     return { answer: text, leadCaptured, limited: null, contact };
   }
 
@@ -222,10 +251,11 @@ export class WebChatService {
     conversationId: string,
     role: 'visitor' | 'assistant',
     content: string,
+    fallback = false,
   ): Promise<void> {
     await this.admin.$transaction([
       this.admin.webChatMessage.create({
-        data: { tenantId, conversationId, role, content: content.slice(0, 4000) },
+        data: { tenantId, conversationId, role, content: content.slice(0, 4000), fallback },
       }),
       this.admin.webChatConversation.update({
         where: { id: conversationId },
@@ -391,6 +421,7 @@ export class WebChatService {
   async updateSettings(
     tenantId: string,
     input: UpdateWebChatSettingsInput,
+    actor: { userId: string; meta: RequestMeta },
   ): Promise<WebChatSettingsDto> {
     await this.admin.tenant.update({
       where: { id: tenantId },
@@ -401,16 +432,34 @@ export class WebChatService {
           : {}),
       },
     });
+    await this.audit.write({
+      tenantId,
+      userId: actor.userId,
+      action: 'tenant.web_chat_settings_changed',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      // Sin el texto de las indicaciones: solo qué se cambió.
+      changes: {
+        ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        ...(input.instructions !== undefined ? { instructions: !!input.instructions } : {}),
+      },
+      ipAddress: actor.meta.ipAddress ?? null,
+      userAgent: actor.meta.userAgent ?? null,
+    });
     return this.settings(tenantId);
   }
 
-  async conversations(tenantId: string, days: number): Promise<WebChatConversationDto[]> {
+  async conversations(
+    tenantId: string,
+    days: number,
+    page: PageRequest,
+  ): Promise<PageDto<WebChatConversationDto>> {
     const since = new Date(Date.now() - days * 86_400_000);
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.webChatConversation.findMany({
         where: { lastMessageAt: { gte: since } },
-        orderBy: { lastMessageAt: 'desc' },
-        take: 100,
+        orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+        ...pageArgs(page),
         select: {
           id: true,
           createdAt: true,
@@ -426,9 +475,10 @@ export class WebChatService {
             take: 1,
             select: { content: true },
           },
+          _count: { select: { messages: { where: { fallback: true } } } },
         },
       });
-      return rows.map((c) => ({
+      const items = rows.map((c) => ({
         id: c.id,
         createdAt: c.createdAt.toISOString(),
         lastMessageAt: c.lastMessageAt.toISOString(),
@@ -440,7 +490,9 @@ export class WebChatService {
           ? [c.lead.firstName, c.lead.lastName].filter(Boolean).join(' ') || c.lead.email
           : null,
         preview: c.messages[0]?.content.slice(0, 160) ?? '',
+        fallbackCount: c._count.messages,
       }));
+      return toPage(items, page);
     }, tenantId);
   }
 
@@ -456,12 +508,13 @@ export class WebChatService {
       const rows = await tx.webChatMessage.findMany({
         where: { conversationId },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        select: { id: true, role: true, content: true, createdAt: true },
+        select: { id: true, role: true, content: true, fallback: true, createdAt: true },
       });
       return rows.map((m) => ({
         id: m.id,
         role: m.role === 'assistant' ? 'assistant' : 'visitor',
         content: m.content,
+        fallback: m.fallback,
         createdAt: m.createdAt.toISOString(),
       }));
     }, tenantId);
@@ -470,21 +523,36 @@ export class WebChatService {
   async stats(tenantId: string, days: number): Promise<WebChatStatsDto> {
     const since = new Date(Date.now() - days * 86_400_000);
     return this.prisma.withTenant(async (tx) => {
-      const [conversations, visitorMessages, assistantReplies, leads, questions] =
-        await Promise.all([
-          tx.webChatConversation.count({ where: { createdAt: { gte: since } } }),
-          tx.webChatMessage.count({ where: { role: 'visitor', createdAt: { gte: since } } }),
-          tx.webChatMessage.count({ where: { role: 'assistant', createdAt: { gte: since } } }),
-          tx.webChatConversation.count({
-            where: { createdAt: { gte: since }, leadId: { not: null } },
-          }),
-          tx.webChatMessage.findMany({
-            where: { role: 'visitor', createdAt: { gte: since } },
-            select: { content: true },
-            orderBy: { createdAt: 'desc' },
-            take: 2000,
-          }),
-        ]);
+      // Mismo criterio que la lista: conversaciones con mensajes en el periodo.
+      const [
+        conversations,
+        visitorMessages,
+        assistantReplies,
+        fallbackReplies,
+        leadRows,
+        questions,
+      ] = await Promise.all([
+        tx.webChatConversation.count({ where: { lastMessageAt: { gte: since } } }),
+        tx.webChatMessage.count({ where: { role: 'visitor', createdAt: { gte: since } } }),
+        tx.webChatMessage.count({
+          where: { role: 'assistant', fallback: false, createdAt: { gte: since } },
+        }),
+        tx.webChatMessage.count({
+          where: { role: 'assistant', fallback: true, createdAt: { gte: since } },
+        }),
+        // Un mismo contacto que vuelve en otra conversación cuenta una vez.
+        tx.webChatConversation.findMany({
+          where: { lastMessageAt: { gte: since }, leadId: { not: null } },
+          distinct: ['leadId'],
+          select: { leadId: true },
+        }),
+        tx.webChatMessage.findMany({
+          where: { role: 'visitor', createdAt: { gte: since } },
+          select: { content: true },
+          orderBy: { createdAt: 'desc' },
+          take: 2000,
+        }),
+      ]);
       const groups = new Map<string, { question: string; count: number }>();
       for (const q of questions) {
         const key = normalizeWebChatQuestion(q.content);
@@ -497,7 +565,15 @@ export class WebChatService {
         .filter((g) => g.count > 1)
         .sort((a, b) => b.count - a.count)
         .slice(0, 10);
-      return { days, conversations, visitorMessages, assistantReplies, leads, topQuestions };
+      return {
+        days,
+        conversations,
+        visitorMessages,
+        assistantReplies,
+        fallbackReplies,
+        leads: leadRows.length,
+        topQuestions,
+      };
     }, tenantId);
   }
 }

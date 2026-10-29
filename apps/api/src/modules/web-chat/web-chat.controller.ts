@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -24,6 +25,7 @@ import {
   type WebChatMessageDto,
   type WebChatSettingsDto,
   type WebChatStatsDto,
+  type PageDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -31,10 +33,12 @@ import { z } from 'zod';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest } from '../../common/pagination';
 
 import { WebChatService } from './web-chat.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import type { Request } from 'express';
 
 class PublicWebChatDto extends createZodDto(PublicWebChatSchema) {}
 class WebChatHistoryDto extends createZodDto(z.object({ visitorId: WebChatVisitorIdSchema })) {}
@@ -88,8 +92,12 @@ export class WebChatController {
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: UpdateWebChatSettingsDto,
+    @Req() req: Request,
   ): Promise<WebChatSettingsDto> {
-    return this.chat.updateSettings(user.tenantId, body);
+    return this.chat.updateSettings(user.tenantId, body, {
+      userId: user.sub,
+      meta: { ipAddress: req.ip, userAgent: req.headers['user-agent'] },
+    });
   }
 
   @RequirePermission('marketing:read')
@@ -101,13 +109,16 @@ export class WebChatController {
     return this.chat.stats(user.tenantId, days(d));
   }
 
+  /** Conversaciones con mensajes en el periodo, por cursor (la última primero). */
   @RequirePermission('marketing:read')
-  @Get('conversations')
+  @Get('conversations/page')
   conversations(
     @CurrentUser() user: AuthenticatedUser,
     @Query('days') d?: string,
-  ): Promise<WebChatConversationDto[]> {
-    return this.chat.conversations(user.tenantId, days(d));
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<WebChatConversationDto>> {
+    return this.chat.conversations(user.tenantId, days(d), parsePageRequest(cursor, limit));
   }
 
   @RequirePermission('marketing:read')

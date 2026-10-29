@@ -206,7 +206,10 @@ export class AiQuotaService {
       ownKey: true,
     };
     if (tenant.mode === 'own') {
-      if (!own) return { kind: 'limit' };
+      if (!own) {
+        void this.notifyWebNoKey(tenantId, month.key);
+        return { kind: 'limit' };
+      }
       const row = await this.admin.aiUsageEvent.create({
         data: { ...ownData, model: own.model },
         select: { id: true },
@@ -240,6 +243,30 @@ export class AiQuotaService {
     if (outcome.kind === 'own') return { kind: 'ok', reservation: { id: outcome.id, ownKey: own } };
     if (limit > 0 && outcome.used >= limit) void this.notifyWebLimit(tenantId, month.key, limit);
     return { kind: 'ok', reservation: { id: outcome.id, ownKey: null } };
+  }
+
+  /** Aviso (una vez al mes) de que el chat no responde: va con su clave y no hay ninguna. */
+  private async notifyWebNoKey(tenantId: string, month: string): Promise<void> {
+    try {
+      const claimed = await this.admin.tenant.updateMany({
+        where: {
+          id: tenantId,
+          OR: [{ webChatKeyNotified: null }, { webChatKeyNotified: { not: month } }],
+        },
+        data: { webChatKeyNotified: month },
+      });
+      if (claimed.count === 0) return;
+      await this.notifications.create(tenantId, {
+        type: 'ai.web_chat_key_missing',
+        title: 'El chat de tu web no responde: falta tu clave de IA',
+        body: 'Tu asistente IA funciona con tu propia clave y no hay ninguna guardada (o no se puede leer). Hasta que la pongas, los visitantes verán tu teléfono, WhatsApp y el formulario de contacto.',
+        link: '/settings/ai',
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[ai-quota] aviso de clave del chat de la web: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /** Aviso (una vez al mes) de que el chat de la web gastó sus respuestas. */

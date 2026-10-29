@@ -500,6 +500,7 @@ model Tenant {
   /// Respuestas al mes del chat de la web (null = el general de la plataforma).
   webChatMonthlyLimit   Int?      @map("web_chat_monthly_limit")
   webChatLimitNotified  String?   @map("web_chat_limit_notified")
+  webChatKeyNotified    String?   @map("web_chat_key_notified")
   createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5926,6 +5927,8 @@ model WebChatMessage {
   /// visitor | assistant
   role           String
   content        String
+  /// Respuesta de respaldo sin IA (límite, sin clave, error del modelo).
+  fallback       Boolean  @default(false)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)

@@ -1576,3 +1576,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - El chat aparece solo en la web de los tenants con el asistente IA (plan Pro o extra), activado por defecto; el tenant lo apaga en Configuración → Asistente IA.
 - Panel admin → Asistente IA → «Chat de la web de los tenants»: modelo (por defecto `claude-haiku-5-5`; si la cuenta de Anthropic no tiene acceso a él, poner otro), 300 respuestas al mes por tenant y 15 preguntas al día por visitante. Sin clave de IA en la plataforma el chat no responde con IA (enseña el contacto del negocio).
 - Las respuestas de la web no gastan las consultas del panel. Sus tokens salen en «Uso por tenant» y Finanzas como el resto de la IA.
+
+## 66. Revisión del chat con IA de la web (2026-10-29)
+
+- **Migración** `20261203100000_web_chat_review` (se aplica sola): `web_chat_messages.fallback` y `tenants.web_chat_key_notified`. Sin variables nuevas. Redesplegar api, worker y web.
+- La política de privacidad generada de los tenants con el chat añade el apartado «Chat de la web» y Anthropic entre los proveedores. Quien tenga una política propia en Configuración → Textos legales debe añadirlo a mano.
+- Las conversaciones anteriores no tienen respuestas de respaldo guardadas (solo las nuevas).
