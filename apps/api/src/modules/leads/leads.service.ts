@@ -395,6 +395,64 @@ export class LeadsService {
     return { id: created.id };
   }
 
+  /**
+   * Contacto que deja sus datos en el chat con IA de la web pública. Lo crea
+   * el asistente (sin usuario); si ya existe con el mismo email o teléfono,
+   * se suma a él.
+   */
+  async createFromWebChat(args: {
+    tenantId: string;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    message: string;
+    meta: RequestMeta;
+  }): Promise<{ id: string }> {
+    const repeated = await this.mergeRepeatContact(args.tenantId, {
+      email: args.email,
+      phone: args.phone,
+      message: args.message.slice(0, 2000),
+      channel: 'web_chat',
+      marketingConsent: false,
+    });
+    if (repeated) return { id: repeated.id };
+    const [firstName, ...rest] = (args.name ?? '').trim().split(/\s+/).filter(Boolean);
+    const created = await this.prisma.withTenant(
+      (tx) =>
+        tx.lead.create({
+          data: {
+            tenantId: args.tenantId,
+            source: 'web_chat',
+            utmSource: 'web_chat',
+            firstName: firstName ?? null,
+            lastName: rest.length > 0 ? rest.join(' ') : null,
+            email: args.email,
+            phone: args.phone,
+            message: args.message.slice(0, 2000),
+            metadata: {
+              origin: 'web_chat',
+              userAgent: args.meta.userAgent ?? null,
+              ipAddress: args.meta.ipAddress ?? null,
+            } satisfies Prisma.InputJsonValue,
+          },
+          include: {
+            preferredFacility: { select: { name: true } },
+            preferredUnitType: { select: { name: true } },
+            assignedTo: { select: { fullName: true } },
+          },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      action: 'lead.web_chat_received',
+      entityType: 'Lead',
+      entityId: created.id,
+    });
+    this.emitLeadCreated(args.tenantId, created);
+    return { id: created.id };
+  }
+
   async update(args: {
     tenantId: string;
     userId: string;

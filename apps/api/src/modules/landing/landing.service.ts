@@ -306,6 +306,7 @@ export class LandingService {
         ),
       ),
       whatsappNumber: await this.whatsappNumber(tenant.id),
+      webChatEnabled: await this.webChatEnabled(tenant.id, tenant.webChatEnabled),
       testimonials,
       faqs,
       faqEnabled: !hasWebPremium || sections.faq,
@@ -371,6 +372,12 @@ export class LandingService {
     if (!row?.enabled || !row.webButtonEnabled) return null;
     if (!(await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'))) return null;
     return waMeNumber(row.displayPhone);
+  }
+
+  /** Chat con IA de la web: con el asistente IA (plan o extra) y sin apagar. */
+  private async webChatEnabled(tenantId: string, enabled: boolean): Promise<boolean> {
+    if (!enabled) return false;
+    return tenantHasFeature(this.admin, tenantId, 'ai_assistant');
   }
 
   /** Páginas de zona publicadas de cada tenant (con texto propio). */
@@ -638,6 +645,7 @@ export class LandingService {
       hasBlog: full.hasBlog,
       googleAnalyticsId: full.googleAnalyticsId,
       whatsappNumber: full.whatsappNumber,
+      webChatEnabled: full.webChatEnabled,
       facility,
       ...(() => {
         const pages = resolveAreaPages(full.facilities, full.areaPages);

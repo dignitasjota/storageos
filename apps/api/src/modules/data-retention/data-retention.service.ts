@@ -25,6 +25,9 @@ const EXPORT_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
 /** Días que se conserva una invitación no aceptada tras caducar o revocarse. */
 const STALE_INVITATION_DAYS = 90;
 
+/** Días que se guardan las conversaciones del chat de la web. */
+const WEB_CHAT_RETENTION_DAYS = 90;
+
 @Injectable()
 export class DataRetentionService {
   private readonly logger = new Logger(DataRetentionService.name);
@@ -82,6 +85,7 @@ export class DataRetentionService {
     whatsappConversations: number;
     whatsappMessages: number;
     webEvents: number;
+    webChatConversations: number;
   }> {
     const now = Date.now();
     const cutoff = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000);
@@ -119,6 +123,7 @@ export class DataRetentionService {
       whatsappConversations,
       whatsappMessages,
       webEvents,
+      webChatConversations,
     ] = await Promise.all([
       this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
       this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
@@ -145,6 +150,10 @@ export class DataRetentionService {
       }),
       // Analítica propia de la web de los tenants.
       this.admin.webEvent.deleteMany({ where: { createdAt: { lt: cutoff(webEventsDays) } } }),
+      // Chat con IA de la web: conversaciones sin movimiento en 90 días (con sus mensajes).
+      this.admin.webChatConversation.deleteMany({
+        where: { lastMessageAt: { lt: cutoff(WEB_CHAT_RETENTION_DAYS) } },
+      }),
     ]);
 
     await this.files.deleteObjects('uploads', expiredMedia.map((m) => m.mediaKey!).filter(Boolean));
@@ -158,6 +167,7 @@ export class DataRetentionService {
       whatsappConversations: whatsappConversations.count,
       whatsappMessages: whatsappMessages.count,
       webEvents: webEvents.count,
+      webChatConversations: webChatConversations.count,
     };
     const total =
       result.auditLogs +
@@ -167,7 +177,8 @@ export class DataRetentionService {
       result.platformEmails +
       result.whatsappConversations +
       result.whatsappMessages +
-      result.webEvents;
+      result.webEvents +
+      result.webChatConversations;
     if (total > 0) {
       this.logger.log(
         `data-retention: borradas ${total} filas ` +
@@ -175,7 +186,7 @@ export class DataRetentionService {
           `comms=${result.communications}, notif=${result.notifications}, ` +
           `platform_emails=${result.platformEmails}, ` +
           `whatsapp=${result.whatsappConversations}/${result.whatsappMessages}, ` +
-          `web_events=${result.webEvents})`,
+          `web_events=${result.webEvents}, web_chat=${result.webChatConversations})`,
       );
     }
     return result;

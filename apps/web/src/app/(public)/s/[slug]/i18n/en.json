@@ -910,6 +910,21 @@
       "nearHeading": "Storage units near {city}",
       "servedAreas": "We also serve:",
       "nearIntro": "The closest location to {city}: {names}."
+    },
+    "webChat": {
+      "open": "Chat with us",
+      "close": "Close chat",
+      "title": "{name} assistant",
+      "subtitle": "Automatic AI replies",
+      "welcome": "Hi! I'm the {name} assistant. Ask me about sizes, prices, opening hours or how to book.",
+      "placeholder": "Type your question…",
+      "blockedPlaceholder": "Write to us or call us to continue",
+      "send": "Send",
+      "thinking": "Typing…",
+      "error": "I couldn't answer just now. Please try again in a moment.",
+      "tooFast": "You're going too fast. Wait a moment and try again.",
+      "disclaimer": "Replies come from an automatic AI assistant and may be wrong. Don't share bank details.",
+      "privacy": "Privacy"
     }
   },
   "offlinePayment": {

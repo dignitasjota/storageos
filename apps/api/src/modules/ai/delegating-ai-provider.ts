@@ -33,13 +33,27 @@ export class DelegatingAiProvider extends AiProvider {
     return this.cached.provider;
   }
 
-  override forKey(apiKey: string, model: string): AiProvider {
+  override forKey(apiKey: string, model: string, maxTokens?: number): AiProvider {
     if (this.testMode) return this.stub;
-    const key = `${model}:${apiKey}`;
+    const key = `${model}:${maxTokens ?? ''}:${apiKey}`;
     let provider = this.ownProviders.get(key);
     if (!provider) {
       if (this.ownProviders.size >= 200) this.ownProviders.clear();
-      provider = new AnthropicAiProvider(apiKey, model);
+      provider = new AnthropicAiProvider(apiKey, model, maxTokens);
+      this.ownProviders.set(key, provider);
+    }
+    return provider;
+  }
+
+  override forModel(model: string, maxTokens?: number): AiProvider {
+    if (this.testMode) return this.stub;
+    const r = this.settings.resolved();
+    if (!r.apiKey) return this.stub;
+    const key = `${model}:${maxTokens ?? ''}:${r.apiKey}`;
+    let provider = this.ownProviders.get(key);
+    if (!provider) {
+      if (this.ownProviders.size >= 200) this.ownProviders.clear();
+      provider = new AnthropicAiProvider(r.apiKey, model, maxTokens);
       this.ownProviders.set(key, provider);
     }
     return provider;

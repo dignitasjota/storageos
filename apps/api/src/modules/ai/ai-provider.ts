@@ -82,7 +82,15 @@ export abstract class AiProvider {
    * El proveedor con otra clave y modelo (la clave propia de un tenant). Por
    * defecto el mismo (el de demostración no sale a la red).
    */
-  forKey(_apiKey: string, _model: string): AiProvider {
+  forKey(_apiKey: string, _model: string, _maxTokens?: number): AiProvider {
+    return this;
+  }
+
+  /**
+   * La misma clave con otro modelo y otro tope de respuesta (el chat de la web
+   * usa uno barato y respuestas cortas). Por defecto, el mismo provider.
+   */
+  forModel(_model: string, _maxTokens?: number): AiProvider {
     return this;
   }
 }

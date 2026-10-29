@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getPublicWebMessages, intlLocaleFor } from '../../i18n/messages';
 import { siteUrl } from '../../landing-shared';
 import { TenantWebChrome } from '../../tenant-web-chrome';
+import { WebChatWidget } from '../../web-chat-widget';
 import { WhatsappFloatButton } from '../../whatsapp-float-button';
 import { PromoBody } from '../promo-body';
 import { themeFor } from '../promo-theme';
@@ -94,6 +95,14 @@ export default async function PromoPage({ params }: Params) {
         <PromoBody data={data} locale={locale} />
       </TenantWebChrome>
       <WhatsappFloatButton number={data.site.whatsappNumber} />
+      <WebChatWidget
+        slug={data.site.tenantSlug}
+        enabled={data.site.webChatEnabled}
+        tenantName={data.site.tenantName}
+        brandColor={data.site.brandColor}
+        customDomain={data.site.customDomain}
+        aboveWhatsapp={!!data.site.whatsappNumber}
+      />
     </NextIntlClientProvider>
   );
 }

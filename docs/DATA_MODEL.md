@@ -1021,3 +1021,11 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `super_admin_saved_views` (global, REVOKE): vistas guardadas de las listas del panel admin por super admin (`page`, `name`, `filters` jsonb; único por super admin + página + nombre).
 - `tenant_followups.assigned_to_id` (FK SET NULL a `super_admins`): quién se encarga del seguimiento.
 - `tenants.risk_snoozed_until` / `risk_snooze_reason`: «ignorar» el tenant en la lista En riesgo hasta esa fecha.
+
+### Chat con IA de la web pública (2026-10-29)
+
+- `web_chat_conversations` (RLS): una por tenant y visitante (`visitor_id`, id aleatorio del navegador; sin datos personales), idioma, página, `lead_id` (FK SET NULL si dejó sus datos), nº de mensajes y último mensaje. Se borran 90 días después del último mensaje y al anonimizar el tenant.
+- `web_chat_messages` (RLS): `role` visitor | assistant, `content`.
+- `tenants.web_chat_enabled` (por defecto sí), `web_chat_instructions`, `web_chat_monthly_limit` (null = el general), `web_chat_limit_notified`.
+- `platform_ai_settings.web_monthly_limit` (300), `web_visitor_daily_limit` (15), `web_model` (null = `claude-haiku-5-5`).
+- `ai_usage_events.feature = 'web_chat'`: respuestas del chat de la web; cuentan para su propio límite, no para el del panel.

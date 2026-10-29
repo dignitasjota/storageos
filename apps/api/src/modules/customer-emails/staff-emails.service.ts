@@ -30,7 +30,7 @@ import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
 
 /** Leads que llegan solos desde fuera (no los que da de alta el staff). */
-const PUBLIC_LEAD_SOURCES = new Set(['web', 'widget']);
+const PUBLIC_LEAD_SOURCES = new Set(['web', 'widget', 'web_chat']);
 
 interface StaffMessage {
   subject: string;

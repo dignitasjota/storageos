@@ -29,10 +29,12 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
   const usage = useAdminTenantAiUsage(tenantId);
   const update = useUpdateAdminTenantAiLimit(tenantId);
   const [limit, setLimit] = useState('');
+  const [webLimit, setWebLimit] = useState('');
 
   useEffect(() => {
     if (!usage.data) return;
     setLimit(usage.data.customLimit ? String(usage.data.limit) : '');
+    setWebLimit(usage.data.webCustomLimit ? String(usage.data.webLimit) : '');
   }, [usage.data]);
 
   const u = usage.data;
@@ -54,6 +56,8 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
     try {
       await update.mutateAsync({
         monthlyLimit: limit.trim() === '' ? null : Math.max(0, Number.parseInt(limit, 10) || 0),
+        webMonthlyLimit:
+          webLimit.trim() === '' ? null : Math.max(0, Number.parseInt(webLimit, 10) || 0),
       });
       toast.success('Límite del asistente guardado.');
     } catch (err) {
@@ -75,7 +79,9 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
           {u.ownQueries > 0 && ` ${formatNumber(u.ownQueries)} con su propia clave.`}
           {u.ownKeyConfigured
             ? ' Tiene su propia clave (se usa al gastar el límite).'
-            : ' No tiene clave propia.'}
+            : ' No tiene clave propia.'}{' '}
+          Chat de su web: {formatNumber(u.webUsed)} de {formatNumber(u.webLimit)} respuestas
+          {u.webCustomLimit ? ' (límite propio)' : ''}.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -129,6 +135,18 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
               value={limit}
               onChange={(e) => setLimit(e.target.value)}
               placeholder="El general + extras"
+              className="w-48 text-base sm:text-sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ai-tenant-web-limit">Chat de su web al mes</Label>
+            <Input
+              id="ai-tenant-web-limit"
+              type="number"
+              min={0}
+              value={webLimit}
+              onChange={(e) => setWebLimit(e.target.value)}
+              placeholder="El general"
               className="w-48 text-base sm:text-sm"
             />
           </div>

@@ -32,6 +32,7 @@ export const LEAD_SOURCE_SUGGESTIONS: { value: string; label: string }[] = [
   { value: 'boca_a_boca', label: 'Boca a boca' },
   { value: 'cartel', label: 'Cartel / publicidad exterior' },
   { value: 'widget', label: 'Web (formulario)' },
+  { value: 'web_chat', label: 'Chat de la web' },
   { value: 'import', label: 'Importado' },
   { value: 'manual', label: 'Alta manual' },
   { value: 'other', label: 'Otro' },

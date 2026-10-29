@@ -107,6 +107,7 @@ import { UnitChangesModule } from './modules/unit-changes/unit-changes.module';
 import { UnitRequestsModule } from './modules/unit-requests/unit-requests.module';
 import { UsersModule } from './modules/users/users.module';
 import { WaitlistModule } from './modules/waitlist/waitlist.module';
+import { WebChatModule } from './modules/web-chat/web-chat.module';
 import { WhatsappBusinessModule } from './modules/whatsapp-business/whatsapp-business.module';
 import { WidgetModule } from './modules/widget/widget.module';
 
@@ -248,6 +249,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ProductUpdatesModule,
     OwnersModule,
     WhatsappBusinessModule,
+    WebChatModule,
     PlatformContactModule,
     BillingSaasModule,
     IntegrationsModule,
