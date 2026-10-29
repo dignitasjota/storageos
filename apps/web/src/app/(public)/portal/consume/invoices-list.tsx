@@ -125,10 +125,20 @@ export function InvoicesList({
   }, [invoices]);
   const pendingList = invoices.filter((i) => payable(i) || i.paymentInProgress);
 
-  async function redsys(i: PortalInvoiceDto, method: 'card' | 'bizum' | undefined) {
+  async function redsys(
+    i: PortalInvoiceDto,
+    method: 'card' | 'bizum' | undefined,
+    extra: PortalInvoiceDto[] = [],
+  ) {
     try {
       submitRedsysForm(
-        await fetchPortalRedsysRedirect(accessToken, i.id, method, method !== 'bizum' && saveCard),
+        await fetchPortalRedsysRedirect(
+          accessToken,
+          i.id,
+          method,
+          method !== 'bizum' && saveCard,
+          extra.map((x) => x.id),
+        ),
       );
     } catch (err) {
       toast.error(
@@ -296,10 +306,33 @@ export function InvoicesList({
         <div className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-medium">{t('pendingTitle')}</p>
-            {canChargeAutomatically && toPay.length > 1 && (
-              <Button size="sm" onClick={() => onPayAll(toPay)} disabled={payingId !== null}>
-                {t('payAll', { amount: eur(totalToPay, locale) })}
-              </Button>
+            {toPay.length > 1 && (
+              <div className="flex flex-wrap gap-2">
+                {canChargeAutomatically && (
+                  <Button size="sm" onClick={() => onPayAll(toPay)} disabled={payingId !== null}>
+                    {t('payAll', { amount: eur(totalToPay, locale) })}
+                  </Button>
+                )}
+                {!canChargeAutomatically && redsysEnabled && (
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      void redsys(toPay[0]!, bizumEnabled ? 'card' : undefined, toPay.slice(1))
+                    }
+                  >
+                    {t('payAllCard', { amount: eur(totalToPay, locale) })}
+                  </Button>
+                )}
+                {bizumEnabled && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void redsys(toPay[0]!, 'bizum', toPay.slice(1))}
+                  >
+                    {t('payAllBizum')}
+                  </Button>
+                )}
+              </div>
             )}
           </div>
           <ul className="divide-y rounded-md border">{pendingList.map(row)}</ul>

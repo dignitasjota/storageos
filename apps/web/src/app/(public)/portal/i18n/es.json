@@ -154,8 +154,15 @@
           "description": "{days, plural, one {El preaviso es de # día} other {El preaviso es de # días}}: la fecha de salida más temprana es el {minDate}.",
           "dateLabel": "Fecha de salida",
           "cancel": "Cancelar",
-          "confirm": "Confirmar baja"
-        }
+          "confirm": "Confirmar baja",
+          "changeTitle": "Cambiar la fecha de la baja"
+        },
+        "viewContract": "Ver contrato",
+        "termsTitle": "Contrato {number}",
+        "signedOn": "Firmado el {date}",
+        "noTerms": "Este contrato se firmó fuera del área de clientes: pide una copia a tu gestor.",
+        "changeMoveOutDate": "Cambiar fecha",
+        "moveOutDateChanged": "Fecha de baja cambiada."
       },
       "unitChange": {
         "title": "Cambiar de trastero",
@@ -168,7 +175,16 @@
         "error": "No se pudo enviar.",
         "statusPending": "Pendiente",
         "statusHandled": "Gestionada",
-        "statusRejected": "Rechazada"
+        "statusRejected": "Rechazada",
+        "pickTitle": "Trasteros libres en tu local",
+        "perMonth": "{price}/mes",
+        "diffSame": "Pagarías lo mismo que ahora.",
+        "diffMore": "Pagarías {amount} más al mes (IVA incluido).",
+        "diffLess": "Pagarías {amount} menos al mes (IVA incluido).",
+        "dateLabel": "¿Desde cuándo?",
+        "noteOptionalPlaceholder": "Algo más que debamos saber (opcional)",
+        "submitWithUnit": "Pedir el cambio al {code}",
+        "requestedUnit": "Cambio al {code} desde el {date}"
       },
       "invoices": {
         "title": "Tus facturas",
@@ -250,7 +266,9 @@
         "removed": "Método de pago quitado.",
         "defaultSaved": "Se cobrará con este método.",
         "pmError": "No se pudo guardar el cambio.",
-        "otherWays": "Otras formas de pago"
+        "otherWays": "Otras formas de pago",
+        "payAllCard": "Pagar todo con tarjeta ({amount})",
+        "payAllBizum": "Pagar todo con Bizum"
       },
       "access": {
         "title": "Tu acceso",
@@ -314,7 +332,23 @@
         "subtitle": "Dirección, horario de acceso y contacto.",
         "curfewClosed": "Acceso cerrado de {start} a {end}",
         "curfew24h": "Acceso 24 h",
-        "phoneSuffix": " · Tel. {phone}"
+        "phoneSuffix": " · Tel. {phone}",
+        "directions": "Cómo llegar",
+        "call": "Llamar",
+        "accessTitle": "Acceso al local",
+        "officeHours": "Horario de atención",
+        "yourUnits": "Tus trasteros: {codes}",
+        "planTitle": "Dónde está tu trastero ({floor})",
+        "closed": "Cerrado",
+        "day": {
+          "mon": "Lunes",
+          "tue": "Martes",
+          "wed": "Miércoles",
+          "thu": "Jueves",
+          "fri": "Viernes",
+          "sat": "Sábado",
+          "sun": "Domingo"
+        }
       },
       "referrals": {
         "title": "Recomienda y gana",
@@ -338,7 +372,9 @@
         "unsupported": "Tu navegador no soporta notificaciones push.",
         "permissionDenied": "Permiso de notificaciones denegado.",
         "success": "Notificaciones activadas.",
-        "error": "No se pudieron activar."
+        "error": "No se pudieron activar.",
+        "disable": "Desactivar en este dispositivo",
+        "disabled": "Avisos desactivados en este dispositivo."
       },
       "profile": {
         "title": "Mis datos",
@@ -380,7 +416,11 @@
         "docTypeOther": "Otro",
         "closeAllTitle": "Sesiones abiertas",
         "closeAllDescription": "Cierra la sesión en todos los móviles y ordenadores donde hayas entrado, también en este.",
-        "closeAllButton": "Cerrar en todos"
+        "closeAllButton": "Cerrar en todos",
+        "changeEmail": "Cambiar",
+        "newEmailPlaceholder": "Tu nuevo email",
+        "sendConfirmation": "Enviar confirmación",
+        "emailChangeSent": "Te hemos enviado un enlace a {email}. Ábrelo para confirmar el cambio."
       },
       "accessLogs": {
         "title": "Historial de accesos",
@@ -485,7 +525,10 @@
         "tooLarge": "El archivo supera los 10 MB.",
         "uploaded": "Documento subido.",
         "uploadError": "No se pudo subir el documento.",
-        "downloadError": "No se pudo descargar el documento."
+        "downloadError": "No se pudo descargar el documento.",
+        "deleted": "Documento borrado.",
+        "deleteError": "No se ha podido borrar.",
+        "deleteSr": "Borrar {fileName}"
       },
       "doorOpen": {
         "title": "Abrir puerta",
@@ -612,6 +655,52 @@
         "confirmCancel": "Cancelar la reserva",
         "cancelled": "Reserva cancelada. Te devolveremos el importe por el mismo medio de pago.",
         "error": "No se pudo cancelar la reserva."
+      },
+      "visitors": {
+        "title": "Visitas y personas autorizadas",
+        "subtitle": "Crea un código de un solo uso para quien venga hoy (mudanza, un familiar, un transportista) y guarda a quién autorizas.",
+        "newPass": "Pase de visita para hoy",
+        "peopleTitle": "Personas autorizadas",
+        "peopleEmpty": "Aún no has añadido a nadie.",
+        "addPerson": "Añadir persona",
+        "namePlaceholder": "Nombre y apellidos",
+        "relationshipPlaceholder": "Relación (familiar, empleado…)",
+        "phonePlaceholder": "Teléfono (opcional)",
+        "save": "Guardar",
+        "cancel": "Cancelar",
+        "remove": "Quitar",
+        "added": "Persona añadida.",
+        "error": "No se ha podido guardar.",
+        "passTitle": "Pase de visita",
+        "passDescription": "Un código que abre una sola vez, hasta medianoche. El equipo del local sabrá quién viene.",
+        "whoLabel": "¿Quién viene?",
+        "someoneElse": "Otra persona",
+        "visitorNamePlaceholder": "Nombre de quien viene",
+        "facilityLabel": "Local",
+        "createPass": "Crear el código",
+        "passValidToday": "Vale para una entrada hoy, hasta medianoche.",
+        "share": "Enviar",
+        "copy": "Copiar",
+        "copied": "Copiado.",
+        "shareText": "Tu código para entrar hoy: {pin}. Vale para una sola entrada, hasta medianoche. {facility}"
+      },
+      "annualInvoices": {
+        "title": "Facturas del año",
+        "subtitle": "Descarga todas las facturas de un año en un ZIP: un resumen en Excel (CSV) y el PDF de cada una, para tu asesoría.",
+        "yearLabel": "Año",
+        "download": "Descargar el ZIP",
+        "error": "No se ha podido preparar la descarga."
+      },
+      "preferences": {
+        "title": "Qué quieres recibir",
+        "subtitle": "Elige cómo te escribimos.",
+        "marketing": "Ofertas y novedades del negocio",
+        "marketingHint": "Promociones, descuentos y novedades por correo.",
+        "whatsapp": "Avisos por WhatsApp",
+        "whatsappHint": "Si lo desactivas, te avisaremos solo por correo.",
+        "note": "Los avisos importantes (facturas, pagos, tu acceso) te llegan siempre por correo.",
+        "saved": "Preferencias guardadas.",
+        "error": "No se ha podido guardar."
       }
     },
     "gocardless": {
@@ -623,6 +712,13 @@
       "errorFallback": "No se pudo completar la domiciliación.",
       "notFound": "No se encontró la domiciliación en curso.",
       "back": "Volver al portal"
+    },
+    "emailChange": {
+      "title": "Confirmar email",
+      "loading": "Confirmando…",
+      "success": "Listo: ya puedes entrar con {email}.",
+      "error": "El enlace no es válido o ha caducado. Pide el cambio otra vez desde «Mis datos».",
+      "goToPortal": "Ir a mi área de clientes"
     }
   },
   "appHeader": {

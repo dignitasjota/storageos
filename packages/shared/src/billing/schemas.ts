@@ -172,6 +172,8 @@ export const RedsysRedirectRequestSchema = z.object({
   payMethod: RedsysPayMethodEnum.optional(),
   /** Guardar la tarjeta para cobrar las próximas cuotas (pago por referencia). */
   saveCard: z.boolean().optional(),
+  /** «Pagar todo» desde el portal: otras facturas del mismo inquilino en la misma orden. */
+  extraInvoiceIds: z.array(z.string().uuid()).max(50).optional(),
 });
 export type RedsysRedirectRequestInput = z.infer<typeof RedsysRedirectRequestSchema>;
 

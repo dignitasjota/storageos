@@ -1184,6 +1184,7 @@ model Unit {
   statusHistory    UnitStatusHistory[]
   contracts        Contract[]
   unitRequests     UnitRequest[]
+  unitChangeTargets UnitChangeRequest[] @relation("UnitChangeTarget")
   reservations     Reservation[]
   tasks            Task[]              @relation("TaskUnit")
   incidents        Incident[]          @relation("IncidentUnit")
@@ -1256,6 +1257,8 @@ model Customer {
   portalSessionVersion  Int          @default(0) @map("portal_session_version")
   /// Se dio de baja de las comunicaciones comerciales (campañas, win-back).
   marketingOptOutAt     DateTime?    @map("marketing_opt_out_at") @db.Timestamptz(6)
+  /// No quiere avisos por WhatsApp (los manda por correo).
+  whatsappOptOutAt      DateTime?    @map("whatsapp_opt_out_at") @db.Timestamptz(6)
   /// Sin fianza: sus contratos nuevos salen con fianza 0.
   depositExempt         Boolean      @default(false) @map("deposit_exempt")
   kycVerified           Boolean      @default(false) @map("kyc_verified")
@@ -2658,6 +2661,9 @@ model UnitChangeRequest {
   tenantId        String    @map("tenant_id") @db.Uuid
   customerId      String    @map("customer_id") @db.Uuid
   contractId      String?   @map("contract_id") @db.Uuid
+  /// Trastero al que quiere cambiarse (autoservicio desde el portal).
+  targetUnitId    String?   @map("target_unit_id") @db.Uuid
+  desiredDate     DateTime? @map("desired_date") @db.Date
   note            String
   /// pending | handled | rejected
   status          String    @default("pending")
@@ -2669,6 +2675,7 @@ model UnitChangeRequest {
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  targetUnit Unit?   @relation("UnitChangeTarget", fields: [targetUnitId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status])
   @@index([tenantId, customerId])
@@ -4360,6 +4367,8 @@ model RedsysOrder {
   dsResponse  String?   @map("ds_response")
   /// El inquilino pidió guardar la tarjeta en este pago (pago por referencia).
   saveCard    Boolean   @default(false) @map("save_card")
+  /// Otras facturas que se pagan en la misma orden («Pagar todo»).
+  extraInvoiceIds String[] @default([]) @map("extra_invoice_ids") @db.Uuid
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
 

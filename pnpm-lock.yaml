@@ -109,6 +109,9 @@ importers:
       ioredis:
         specifier: ^5.10.1
         version: 5.10.1
+      jszip:
+        specifier: 3.10.1
+        version: 3.10.1
       mqtt:
         specifier: ^5.15.1
         version: 5.15.1

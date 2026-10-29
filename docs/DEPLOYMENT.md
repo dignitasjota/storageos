@@ -1496,3 +1496,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Migración `20261122100000_portal_review` (se aplica sola): `contracts.end_date_before_ending`. Redesplegar api y web.
 - Contratar otro trastero desde el área de clientes ya no firma solo: lleva a la página del contrato (`/sign/<token>`) para leerlo, firmarlo y pagar, igual que la reserva online; mientras tanto el trastero queda reservado (se libera a las 72 h si no firma y paga).
 - Las sesiones abiertas del portal no cambian; los tokens nuevos llevan un identificador para poder cerrar cada sesión al salir.
+
+## 54. Mejoras del área de clientes (2026-10-28)
+
+- Migración `20261123100000_portal_improvements` (se aplica sola). Dependencia nueva del API: `jszip` (ZIP de las facturas del año). Redesplegar api, worker y web.
+- Sin variables nuevas. El cambio de email del inquilino guarda el enlace en Redis 24 h (`portal:emailchange:<id>`).
+- Los ZIP de facturas se guardan en `reports` bajo `<tenant>/exports/` y los borra el cron de limpieza a los 2 días.

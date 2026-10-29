@@ -993,3 +993,5 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `reservations.deposit_invoice_id` (FK SET NULL a `invoices`): factura de la señal.
 - `contracts.pending_credit_amount` / `pending_credit_reason`: descuento pendiente (la señal cobrada) que se resta una vez del alquiler de la siguiente factura.
 - Tabla `customer_authorized_persons` (RLS): personas autorizadas por el inquilino (nombre, documento, teléfono, relación, puede entrar / recoger / gestionar, notas). Se borran al anonimizar al inquilino o al tenant.
+- `contracts.end_date_before_ending` (migración `20261122100000_portal_review`): fecha de fin que tenía el contrato antes de pedir la baja; se devuelve al cancelarla.
+- Migración `20261123100000_portal_improvements`: `unit_change_requests.target_unit_id` (FK SET NULL a `units`, el trastero libre que elige el inquilino) y `desired_date`; `customers.whatsapp_opt_out_at` (no quiere avisos por WhatsApp: el outbox los deja `skipped`); `redsys_orders.extra_invoice_ids UUID[]` (otras facturas del mismo inquilino pagadas en la misma orden, «Pagar todo»).

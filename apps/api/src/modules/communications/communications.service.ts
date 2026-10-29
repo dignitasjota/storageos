@@ -484,6 +484,23 @@ export class CommunicationsService {
         providerMessageId = res.providerMessageId;
         deliveredBy = res.provider ?? null;
       } else if (comm.channel === 'whatsapp') {
+        // El inquilino pidió no recibir avisos por WhatsApp (área de clientes).
+        if (comm.customerId) {
+          const optOut = await this.admin.customer.findUnique({
+            where: { id: comm.customerId },
+            select: { whatsappOptOutAt: true },
+          });
+          if (optOut?.whatsappOptOutAt) {
+            await this.admin.communication.update({
+              where: { id: comm.id },
+              data: {
+                status: 'skipped',
+                errorMessage: 'El inquilino no quiere avisos por WhatsApp',
+              },
+            });
+            return;
+          }
+        }
         // Envío por plantilla aprobada (proactivo); si no hay, texto libre.
         const res = await this.whatsapp.send({
           to: comm.recipient,

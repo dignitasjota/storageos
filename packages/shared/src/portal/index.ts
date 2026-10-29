@@ -4,6 +4,7 @@ import { SepaBicSchema, SepaIbanSchema } from '../sepa';
 
 import type { ContractPreOpeningDto } from '../contracts/pre-opening';
 import type { ContractDepositStatusValue, ContractStatusValue } from '../customers/schemas';
+import type { OpeningHours } from '../facilities/schemas';
 
 /** Idiomas soportados por el portal del inquilino. */
 export const PortalLocaleEnum = z.enum(['es', 'en']);
@@ -14,6 +15,7 @@ export interface PortalContractDto {
   id: string;
   contractNumber: string;
   unitCode: string;
+  facilityId: string;
   facilityName: string;
   status: ContractStatusValue;
   startDate: string;
@@ -71,6 +73,28 @@ export interface PortalFacilityDto {
   accessCurfewEnabled: boolean;
   accessCurfewStart: string | null;
   accessCurfewEnd: string | null;
+  /** Fotos del local (públicas). */
+  imageUrls?: string[];
+  /** Horario de apertura del local (atención), por día. */
+  openingHours?: OpeningHours;
+  /** Mapa para incrustar y enlace «Cómo llegar». */
+  mapEmbedUrl?: string | null;
+  directionsUrl?: string | null;
+  /** WhatsApp del negocio (número para wa.me) si lo tiene activo. */
+  whatsappNumber?: string | null;
+  /** Sus trasteros en este local. */
+  myUnitCodes?: string[];
+  /** Planos de las plantas donde tiene trastero, con el suyo marcado. */
+  plans?: PortalFacilityPlanDto[];
+}
+
+export interface PortalFacilityPlanDto {
+  floorName: string;
+  /** Imagen del plano (enlace temporal) o null si no tiene. */
+  imageUrl: string | null;
+  width: number;
+  height: number;
+  units: { code: string; x: number; y: number; width: number; height: number; mine: boolean }[];
 }
 
 /** URL temporal para descargar un documento (p. ej. el contrato firmado). */
@@ -308,3 +332,61 @@ export interface PortalOfflinePaymentResultDto {
   /** Domiciliación: enlace para firmar el mandato (null si ya tenía uno firmado). */
   mandateSigningUrl: string | null;
 }
+
+// ============================================================================
+// Pase de visita (PIN de un día que crea el propio inquilino)
+// ============================================================================
+
+export const PortalVisitorPassSchema = z
+  .object({
+    /** Nombre de quien viene (si no es una persona autorizada guardada). */
+    name: z.string().trim().max(120).optional(),
+    authorizedPersonId: z.string().uuid().optional(),
+    /** Local de la visita (obligatorio si tiene trasteros en varios). */
+    facilityId: z.string().uuid().optional(),
+  })
+  .refine((v) => !!v.authorizedPersonId || (v.name?.length ?? 0) >= 2, {
+    message: 'Indica quién va a venir',
+    path: ['name'],
+  });
+export type PortalVisitorPassInput = z.infer<typeof PortalVisitorPassSchema>;
+
+/** El contrato tal y como lo firmó (texto congelado al firmar). */
+export interface PortalContractTermsDto {
+  contractNumber: string;
+  signedAt: string | null;
+  text: string | null;
+  hasSignedPdf: boolean;
+}
+
+/** Facturas de un año en un ZIP (resumen CSV + PDF de cada una). */
+export interface PortalAnnualInvoicesDto {
+  url: string;
+  year: number;
+  invoices: number;
+  withPdf: number;
+}
+
+/** Cambio del email de acceso: se confirma con un enlace al email nuevo. */
+export const PortalEmailChangeSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(200),
+});
+export type PortalEmailChangeInput = z.infer<typeof PortalEmailChangeSchema>;
+
+export const PortalEmailChangeConfirmSchema = z.object({
+  token: z.string().trim().min(10).max(300),
+});
+
+/** Preferencias de comunicación del inquilino. */
+export interface PortalPreferencesDto {
+  /** Recibe ofertas y campañas del negocio. */
+  marketing: boolean;
+  /** Recibe avisos por WhatsApp (si no, solo por correo). */
+  whatsapp: boolean;
+}
+
+export const PortalPreferencesSchema = z.object({
+  marketing: z.boolean().optional(),
+  whatsapp: z.boolean().optional(),
+});
+export type PortalPreferencesInput = z.infer<typeof PortalPreferencesSchema>;

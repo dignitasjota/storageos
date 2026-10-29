@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useUnits } from '@/lib/facilities/hooks';
-import { formatEur, formatNumber } from '@/lib/format';
+import { formatDate, formatEur, formatNumber } from '@/lib/format';
 import { useMoveFromUnitChange } from '@/lib/operations/features-hooks';
 import { useResolveUnitChangeRequest, useUnitChangeRequests } from '@/lib/unit-changes/hooks';
 
@@ -86,7 +86,20 @@ export default function UnitChangeRequestsPage() {
     {
       accessorKey: 'note',
       header: 'Solicitud',
-      cell: ({ row }) => <span className="line-clamp-2 max-w-md text-sm">{row.original.note}</span>,
+      cell: ({ row }) => (
+        <div className="max-w-md space-y-0.5 text-sm">
+          {row.original.targetUnitCode && (
+            <p className="font-medium">
+              Quiere el {row.original.targetUnitCode}
+              {row.original.desiredDate ? ` desde el ${formatDate(row.original.desiredDate)}` : ''}
+              {row.original.targetUnitPrice != null && row.original.currentPrice != null
+                ? ` (${formatEur(row.original.targetUnitPrice)} frente a ${formatEur(row.original.currentPrice)} sin IVA)`
+                : ''}
+            </p>
+          )}
+          {row.original.note && <p className="line-clamp-2">{row.original.note}</p>}
+        </div>
+      ),
     },
     {
       accessorKey: 'status',
@@ -166,8 +179,11 @@ export default function UnitChangeRequestsPage() {
 function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClose: () => void }) {
   const units = useUnits({ status: 'available' });
   const move = useMoveFromUnitChange();
-  const [newUnitId, setNewUnitId] = useState('');
-  const [newPrice, setNewPrice] = useState('');
+  // Si el inquilino eligió trastero, viene ya puesto (y su precio).
+  const [newUnitId, setNewUnitId] = useState(request.targetUnitId ?? '');
+  const [newPrice, setNewPrice] = useState(
+    request.targetUnitPrice != null ? String(request.targetUnitPrice) : '',
+  );
   const [prorate, setProrate] = useState(false);
 
   async function submit() {
@@ -192,7 +208,12 @@ function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClo
           <DialogTitle>Trasladar a {request.customerName}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <p className="rounded-md bg-muted px-3 py-2 text-sm">{request.note}</p>
+          {request.note && <p className="rounded-md bg-muted px-3 py-2 text-sm">{request.note}</p>}
+          {request.desiredDate && (
+            <p className="text-sm text-muted-foreground">
+              Lo quiere desde el {formatDate(request.desiredDate)}.
+            </p>
+          )}
           <div className="space-y-1">
             <Label>Nuevo trastero (disponible)</Label>
             <select

@@ -160,6 +160,44 @@ export class CustomerDocumentsService {
   }
 
   /**
+   * El inquilino borra un documento que subió él mismo (por error, o para
+   * subir otro). Los que añadió el equipo no los puede borrar.
+   */
+  async deleteOwn(tenantId: string, customerId: string, documentId: string): Promise<void> {
+    await this.assertCustomer(tenantId, customerId);
+    const row = await this.prisma.withTenant(
+      (tx) => tx.customerDocument.findFirst({ where: { id: documentId, customerId } }),
+      tenantId,
+    );
+    if (!row) {
+      throw new NotFoundException({
+        code: 'document_not_found',
+        message: 'Documento no encontrado',
+      });
+    }
+    if (row.uploadedByUserId) {
+      throw new BadRequestException({
+        code: 'document_added_by_staff',
+        message: 'Este documento lo añadió el equipo: pídeles que lo cambien',
+      });
+    }
+    await this.prisma.withTenant(
+      (tx) => tx.customerDocument.delete({ where: { id: documentId } }),
+      tenantId,
+    );
+    const key = this.files.keyFromPublicUrl('uploads', row.fileUrl);
+    if (key) await this.files.deleteObjects('uploads', [key]).catch(() => undefined);
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: 'customer_document.deleted_by_customer',
+      entityType: 'CustomerDocument',
+      entityId: documentId,
+      changes: { customerId },
+    });
+  }
+
+  /**
    * URL temporal (GET firmada) para descargar un documento del inquilino. El
    * bucket `uploads` es privado, así que `fileUrl` no es accesible directamente:
    * hay que firmar una descarga puntual. Valida que el documento es del cliente.

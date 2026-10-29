@@ -1313,6 +1313,7 @@ export class ContractsService {
       signedPdfUrl: string | null;
       unit: {
         code: string;
+        facilityId: string;
         facility: { name: string };
         unitType: { propertyKind: string } | null;
       };
@@ -1333,6 +1334,7 @@ export class ContractsService {
       id: row.id,
       contractNumber: row.contractNumber,
       unitCode: row.unit.code,
+      facilityId: row.unit.facilityId,
       facilityName: row.unit.facility.name,
       status: row.status as ContractStatusValue,
       startDate: row.startDate.toISOString().slice(0, 10),
@@ -1369,6 +1371,7 @@ export class ContractsService {
           unit: {
             select: {
               code: true,
+              facilityId: true,
               facility: { select: { name: true } },
               unitType: { select: { propertyKind: true } },
             },
@@ -1472,6 +1475,7 @@ export class ContractsService {
           unit: {
             select: {
               code: true,
+              facilityId: true,
               facility: { select: { name: true } },
               unitType: { select: { propertyKind: true } },
             },
@@ -1515,6 +1519,88 @@ export class ContractsService {
     };
     this.eventBus.emit(DOMAIN_EVENTS.contract_move_out_requested, payload);
 
+    return this.toPortalDto(updated);
+  }
+
+  /**
+   * El inquilino cambia la fecha de una baja ya pedida (sin cancelarla y
+   * volver a pedirla). La nueva fecha respeta el mismo preaviso desde hoy.
+   */
+  async changeMoveOutDateByCustomer(args: {
+    tenantId: string;
+    customerId: string;
+    contractId: string;
+    endDate: string;
+  }): Promise<PortalContractDto> {
+    const existing = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findFirst({
+          where: {
+            id: args.contractId,
+            customerId: args.customerId,
+            tenantId: args.tenantId,
+            deletedAt: null,
+          },
+        }),
+      args.tenantId,
+    );
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'contract_not_found',
+        message: 'Contrato no encontrado',
+      });
+    }
+    if (existing.status !== 'ending') {
+      throw new BadRequestException({
+        code: 'contract_not_ending',
+        message: 'Solo puedes cambiar la fecha de una baja que esté en curso',
+      });
+    }
+    const minDate = todayInTimezone();
+    minDate.setUTCDate(minDate.getUTCDate() + existing.cancellationNoticeDays);
+    const requested = new Date(`${args.endDate}T00:00:00Z`);
+    if (requested.getTime() < minDate.getTime()) {
+      throw new BadRequestException({
+        code: 'notice_period_not_met',
+        message: `La baja requiere un preaviso de ${existing.cancellationNoticeDays} días`,
+        details: { minEndDate: minDate.toISOString().slice(0, 10) },
+      });
+    }
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.contract.update({
+        where: { id: args.contractId },
+        data: { endDate: requested },
+        include: {
+          unit: {
+            select: {
+              code: true,
+              facilityId: true,
+              facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
+            },
+          },
+          insurancePlan: { select: { name: true, taxRate: true } },
+          owner: { select: { legalName: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
+        },
+      });
+      await tx.contractEvent.create({
+        data: {
+          tenantId: args.tenantId,
+          contractId: args.contractId,
+          eventType: 'ending_requested',
+          payload: {
+            requestedEndDate: args.endDate,
+            previousEndDate: existing.endDate?.toISOString().slice(0, 10) ?? null,
+            channel: 'portal',
+            reason: 'move_out_date_changed',
+          },
+          createdByUserId: null,
+        },
+      });
+      return row;
+    }, args.tenantId);
     return this.toPortalDto(updated);
   }
 
@@ -1573,6 +1659,7 @@ export class ContractsService {
           unit: {
             select: {
               code: true,
+              facilityId: true,
               facility: { select: { name: true } },
               unitType: { select: { propertyKind: true } },
             },
