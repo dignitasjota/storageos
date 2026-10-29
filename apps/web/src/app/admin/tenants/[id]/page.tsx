@@ -499,6 +499,7 @@ export default function AdminTenantDetailPage() {
       <ReactivateDialog
         open={dialog === 'reactivate'}
         tenantId={t.id}
+        pastDue={t.subscription?.status === 'past_due' && !t.billingExempt}
         onClose={() => setDialog(null)}
       />
       <ExtendTrialDialog
@@ -599,7 +600,9 @@ function SuspendDialog({
         <DialogHeader>
           <DialogTitle>Suspender tenant</DialogTitle>
           <DialogDescription>
-            Los usuarios no podrán iniciar sesión hasta que reactives la cuenta.
+            Su equipo solo podrá consultar y pagar la suscripción, sin crear ni cambiar nada. Los
+            cobros automáticos y los correos a sus inquilinos se retienen; el acceso de los
+            inquilinos al local no se corta.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -659,10 +662,13 @@ function SuspendDialog({
 function ReactivateDialog({
   open,
   tenantId,
+  pastDue,
   onClose,
 }: {
   open: boolean;
   tenantId: string;
+  /** La suscripción sigue con un pago pendiente. */
+  pastDue: boolean;
   onClose: () => void;
 }) {
   const reactivate = useReactivateTenant();
@@ -688,8 +694,15 @@ function ReactivateDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Reactivar tenant</DialogTitle>
-          <DialogDescription>Los usuarios podrán volver a entrar.</DialogDescription>
+          <DialogDescription>Su equipo vuelve a poder trabajar con normalidad.</DialogDescription>
         </DialogHeader>
+        {pastDue && (
+          <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            Su suscripción sigue con un pago pendiente y verá el aviso de pago. Registra el pago en
+            la pestaña «Pagos»: si no, el escalado de impagos no vuelve a actuar hasta el siguiente
+            periodo.
+          </p>
+        )}
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <FormField
@@ -1103,6 +1116,7 @@ function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billi
   const setSepa = useSetBillingMode();
   const [confirmMode, setConfirmMode] = useState<'manual' | 'sepa' | null>(null);
   const hasMandate = mandate.data !== null && mandate.data !== undefined;
+  const activeMandate = hasMandate && mandate.data!.status === 'active';
 
   async function confirm() {
     if (!confirmMode) return;
@@ -1175,8 +1189,12 @@ function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billi
           <Button
             variant="secondary"
             size="sm"
-            disabled={!hasMandate}
-            title={hasMandate ? undefined : 'El tenant debe dar de alta un mandato SEPA primero'}
+            disabled={!activeMandate}
+            title={
+              activeMandate
+                ? undefined
+                : 'El tenant necesita un mandato SEPA activo (Ajustes → Suscripción)'
+            }
             onClick={() => setConfirmMode('sepa')}
           >
             Pasar a SEPA

@@ -33,6 +33,13 @@ const ACTION_LABELS: Record<string, string> = {
   'admin.tenant.data_exported': 'Datos exportados',
   'admin.tenant.anonymized': 'Tenant anonimizado',
   'admin.tenant.whatsapp_ai_changed': 'IA de WhatsApp cambiada',
+  'admin.tenant.ai_limit_changed': 'Asistente IA: límite o clave cambiados',
+  'admin.tenant.operational_data_reset': 'Datos de prueba vaciados',
+  'admin.tenant.quote_sent': 'Presupuesto enviado',
+  'admin.approval.requested': 'Aprobación pedida por soporte',
+  'admin.impersonation.revoked': 'Impersonación revocada',
+  'admin.platform_sepa.item_bounced': 'Adeudo SEPA devuelto',
+  'admin.saas_addon.trial_started': 'Prueba de un extra activada',
   'admin.saas_addon.assigned': 'Extra asignado',
   'admin.saas_addon.removed': 'Extra quitado',
   'admin.saas_addon.suspended': 'Extra suspendido',
@@ -50,7 +57,12 @@ const SKIP_ACTIONS = new Set([
   'admin.tenant.email_sent',
 ]);
 
-const NEGATIVE_ACTIONS = new Set(['admin.tenant.suspended', 'admin.tenant.anonymized']);
+const NEGATIVE_ACTIONS = new Set([
+  'admin.tenant.suspended',
+  'admin.tenant.anonymized',
+  'admin.tenant.operational_data_reset',
+  'admin.platform_sepa.item_bounced',
+]);
 
 const INTERACTION_LABELS: Record<string, string> = {
   note: 'Nota',
@@ -174,12 +186,21 @@ export class AdminTenantTimelineService {
             )
         : none,
       want('payment')
-        ? this.admin.tenantSubscriptionPayment
-            .findMany({
-              where: { tenantId, createdAt: lt },
-              orderBy: { createdAt: 'desc' },
-              take,
-            })
+        ? // Se pagina por la misma fecha que se enseña (la del pago o, si no se
+          // cobró, la del alta): un pago manual con fecha anterior no se pierde
+          // ni se repite al cargar más.
+          this.admin.$queryRaw<{ id: string }[]>`
+            SELECT id FROM tenant_subscription_payments
+            WHERE tenant_id = ${tenantId}::uuid AND COALESCE(paid_at, created_at) < ${before}
+            ORDER BY COALESCE(paid_at, created_at) DESC
+            LIMIT ${take}`
+            .then((ids) =>
+              ids.length
+                ? this.admin.tenantSubscriptionPayment.findMany({
+                    where: { id: { in: ids.map((r) => r.id) } },
+                  })
+                : [],
+            )
             .then((rows) =>
               rows.map((r) => {
                 const failed = r.status === 'failed';

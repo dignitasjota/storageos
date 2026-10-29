@@ -68,13 +68,14 @@ export class AdminTenantSummaryService {
           status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
           paidAt: { gte: since },
           methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+          invoice: { kind: 'invoice' },
         },
-        _sum: { amount: true },
+        _sum: { amount: true, refundedAmount: true },
       }),
       this.admin.invoice.aggregate({
         where: { tenantId, kind: 'invoice', status: 'overdue' },
         _count: { _all: true },
-        _sum: { total: true, amountPaid: true },
+        _sum: { total: true, amountPaid: true, amountRefunded: true },
       }),
       this.admin.contract.count({
         where: { tenantId, status: { in: ['active', 'ending'] }, deletedAt: null },
@@ -109,9 +110,14 @@ export class AdminTenantSummaryService {
       activeUsers: users._count._all,
       invoiced30d: round2(num(invoiced._sum.total)),
       invoices30d: invoiced._count._all,
-      collected30d: round2(num(collected._sum.amount)),
+      collected30d: round2(num(collected._sum.amount) - num(collected._sum.refundedAmount)),
       overdueInvoices: overdue._count._all,
-      overdueAmount: round2(num(overdue._sum.total) - num(overdue._sum.amountPaid)),
+      overdueAmount: round2(
+        Math.max(
+          0,
+          num(overdue._sum.total) - num(overdue._sum.amountPaid) - num(overdue._sum.amountRefunded),
+        ),
+      ),
       activeContracts,
       occupancyPct: unitsTotal > 0 ? Math.round((unitsOccupied / unitsTotal) * 100) : null,
       openTickets,
