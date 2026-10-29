@@ -103,6 +103,16 @@ export function useSendWhatsappMessage(conversationId: string) {
   });
 }
 
+/** Borrador de respuesta con IA (gasta una consulta del asistente del panel). */
+export function useSuggestWhatsappReply(conversationId: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ suggestion: string }>(`/whatsapp/conversations/${conversationId}/suggest-reply`, {
+        method: 'POST',
+      }),
+  });
+}
+
 /** Resumen del WhatsApp en los últimos `days` días. */
 export function useWhatsappStats(days: number) {
   return useQuery({

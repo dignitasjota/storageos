@@ -5,7 +5,7 @@ import { WhatsappBookingRemindersService } from './whatsapp-booking-reminders.se
 
 /**
  * Cada hora: recordatorio por WhatsApp de las reservas del asistente sin
- * terminar. Solo con `ENABLE_WORKERS_IN_API=true` (en producción, el worker).
+ * terminar y seguimiento de quien preguntó y no reservó. Solo con `ENABLE_WORKERS_IN_API=true` (en producción, el worker).
  */
 @Injectable()
 export class WhatsappBookingRemindersCron {
@@ -17,5 +17,7 @@ export class WhatsappBookingRemindersCron {
   async run(): Promise<void> {
     const sent = await this.reminders.sendDue();
     if (sent > 0) this.logger.log(`[whatsapp] ${sent} recordatorios de reserva enviados`);
+    const followups = await this.reminders.sendFollowups();
+    if (followups > 0) this.logger.log(`[whatsapp] ${followups} seguimientos enviados`);
   }
 }

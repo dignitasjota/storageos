@@ -924,7 +924,24 @@
       "error": "I couldn't answer just now. Please try again in a moment.",
       "tooFast": "You're going too fast. Wait a moment and try again.",
       "disclaimer": "Replies come from an automatic AI assistant and may be wrong. Don't share bank details.",
-      "privacy": "Privacy"
+      "privacy": "Privacy",
+      "subtitleHuman": "A person from the team is helping you",
+      "placeholderHuman": "Write to the team…",
+      "askPerson": "Talk to a person",
+      "followWhatsapp": "Continue on WhatsApp",
+      "whatsappIntro": "Hi, I come from the website chat. I was asking:",
+      "proactive": "Can I help you choose a size or book?",
+      "staff": "Team",
+      "helpful": "Helpful",
+      "notHelpful": "Not helpful",
+      "waiting": "We've let the team know. They'll reply here as soon as they can.",
+      "contactTitle": "Nobody is available right now. Leave us your details and we'll contact you:",
+      "contactName": "Your name",
+      "contactEmail": "Email",
+      "contactPhone": "Phone",
+      "contactSend": "Send",
+      "contactError": "We couldn't save your details. Please try again.",
+      "contactThanks": "Thanks! The team will contact you soon."
     }
   },
   "offlinePayment": {

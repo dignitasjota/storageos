@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AdminGuard } from '../admin/admin.guard';
 import { SuperAdminAuditService } from '../admin/super-admin-audit.service';
+import { AiModule } from '../ai/ai.module';
 import { AuthModule } from '../auth/auth.module';
 import { LandingModule } from '../landing/landing.module';
 import { LeadsModule } from '../leads/leads.module';
@@ -34,6 +35,7 @@ import { WhatsappSettingsService } from './whatsapp-settings.service';
   // que BillingSaasModule).
   imports: [
     AuthModule,
+    AiModule,
     LeadsModule,
     NotificationsModule,
     LandingModule,

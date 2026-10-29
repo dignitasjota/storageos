@@ -58,3 +58,30 @@ export function publicBusinessContextLines(args: {
   }
   return lines;
 }
+
+/**
+ * Códigos de los tamaños en el contexto del asistente: `L<n>-T<m>` (local n,
+ * tipo m, en el orden de la web). Así el modelo no maneja ids.
+ */
+export function bookingCodes(
+  landing: PublicLandingDto,
+): Map<
+  string,
+  { facilityId: string; facilityName: string; unitTypeId: string; unitTypeName: string }
+> {
+  const out = new Map<
+    string,
+    { facilityId: string; facilityName: string; unitTypeId: string; unitTypeName: string }
+  >();
+  landing.facilities.forEach((f, fi) => {
+    f.unitTypes.forEach((t, ti) => {
+      out.set(`L${fi + 1}-T${ti + 1}`, {
+        facilityId: f.id,
+        facilityName: f.name,
+        unitTypeId: t.id,
+        unitTypeName: t.name,
+      });
+    });
+  });
+  return out;
+}

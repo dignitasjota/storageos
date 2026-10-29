@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { whatsappTextLanguage } from '@storageos/shared';
+import { WHATSAPP_SALES_INTENTS, whatsappTextLanguage } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
@@ -209,6 +209,103 @@ export class WhatsappBookingRemindersService {
       });
       return false;
     }
+    await this.admin.whatsappConversation.update({
+      where: { id: conv.id },
+      data: { lastMessageAt: now, lastMessagePreview: body.slice(0, 120) },
+    });
+    return true;
+  }
+
+  /**
+   * Seguimiento de quien preguntó por precios, disponibilidad o reservar y no
+   * reservó: pasadas 24 h desde su último mensaje (la ventana ya está cerrada),
+   * una plantilla aprobada del tenant. Una sola vez por conversación y nunca si
+   * la atiende una persona del equipo.
+   */
+  async sendFollowups(now = new Date()): Promise<number> {
+    const rows = await this.admin.whatsappConversation.findMany({
+      where: {
+        followupSentAt: null,
+        contractId: null,
+        assistantEnabled: true,
+        intent: { in: [...WHATSAPP_SALES_INTENTS] },
+        lastInboundAt: {
+          lte: new Date(now.getTime() - WINDOW_MS),
+          gt: new Date(now.getTime() - 2 * WINDOW_MS),
+        },
+        tenant: {
+          whatsappSettings: {
+            enabled: true,
+            assistantEnabled: true,
+            followupEnabled: true,
+            followupTemplateName: { not: null },
+          },
+        },
+      },
+      select: { id: true },
+      take: 200,
+    });
+    let sent = 0;
+    for (const r of rows) {
+      try {
+        if (await this.followup(r.id, now)) sent += 1;
+      } catch (err) {
+        this.logger.warn(
+          `whatsapp-followup ${r.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return sent;
+  }
+
+  private async followup(conversationId: string, now: Date): Promise<boolean> {
+    const claimed = await this.admin.whatsappConversation.updateMany({
+      where: { id: conversationId, followupSentAt: null },
+      data: { followupSentAt: now },
+    });
+    if (claimed.count === 0) return false;
+    const conv = await this.admin.whatsappConversation.findUniqueOrThrow({
+      where: { id: conversationId },
+      include: { tenant: { select: { whatsappSettings: true } } },
+    });
+    const settings = conv.tenant.whatsappSettings;
+    const template = settings?.followupTemplateName;
+    if (!settings || !template) return false;
+    const accessToken = this.decrypt(settings.accessTokenEncrypted, settings.tenantId);
+    if (!accessToken) return false;
+    const name =
+      conv.contactName?.split(' ')[0] ||
+      (whatsappTextLanguage(conv.language) === 'en' ? 'there' : 'cliente');
+    const body = `Plantilla «${template}» (seguimiento): ${name}`;
+    let waMessageId: string | null = null;
+    let error: string | null = null;
+    try {
+      waMessageId = (
+        await this.cloud.sendTemplate({
+          phoneNumberId: settings.phoneNumberId,
+          accessToken,
+          to: conv.waId,
+          name: template,
+          language: settings.followupTemplateLanguage,
+          params: [name],
+        })
+      ).messageId;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'No se pudo enviar';
+    }
+    await this.admin.whatsappMessage.create({
+      data: {
+        tenantId: settings.tenantId,
+        conversationId: conv.id,
+        direction: 'out',
+        sender: 'assistant',
+        body,
+        waMessageId,
+        status: error ? 'failed' : 'sent',
+        error,
+      },
+    });
+    if (error) return false;
     await this.admin.whatsappConversation.update({
       where: { id: conv.id },
       data: { lastMessageAt: now, lastMessagePreview: body.slice(0, 120) },

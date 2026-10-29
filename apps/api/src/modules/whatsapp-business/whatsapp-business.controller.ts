@@ -129,7 +129,10 @@ export class WhatsappSettingsController {
 @RequireFeature('whatsapp_business')
 @Controller('whatsapp/conversations')
 export class WhatsappConversationsController {
-  constructor(private readonly inbox: WhatsappInboxService) {}
+  constructor(
+    private readonly inbox: WhatsappInboxService,
+    private readonly assistant: WhatsappAssistantService,
+  ) {}
 
   @RequirePermission('communications:read')
   @Get()
@@ -186,6 +189,17 @@ export class WhatsappConversationsController {
     @Body() body: UpdateWhatsappConversationBody,
   ): Promise<WhatsappConversationDto> {
     return this.inbox.setAssistant(user.tenantId, id, body.assistantEnabled);
+  }
+
+  /** Borrador de respuesta con IA (gasta una consulta del asistente del panel). */
+  @RequirePermission('communications:send')
+  @Post(':id/suggest-reply')
+  @HttpCode(HttpStatus.OK)
+  suggest(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ suggestion: string }> {
+    return this.assistant.suggestReply(user.tenantId, user.sub, id);
   }
 
   @RequirePermission('communications:send')

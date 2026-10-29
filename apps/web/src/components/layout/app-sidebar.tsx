@@ -79,6 +79,7 @@ import {
   SidebarMenuSubItem,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { useWebChatPending } from '@/lib/ai/web-chat-hooks';
 import { useFeatures, usePanelBrand, usePermissions } from '@/lib/auth/hooks';
 import { useCustomerUnreadSummary } from '@/lib/customers/hooks';
 import { useIncidentPendingCounts } from '@/lib/operations/hooks';
@@ -481,6 +482,12 @@ export function AppSidebar() {
       permissions.includes('communications:read') && features.includes('whatsapp_business'),
     ).data?.count ?? 0;
 
+  // Visitantes del chat de la web que esperan a una persona (o le han escrito).
+  const webChatPending = useWebChatPending(
+    permissions.includes('marketing:read') && features.includes('ai_assistant'),
+  ).data;
+  const webChatCount = webChatPending ? Math.max(webChatPending.waiting, webChatPending.unread) : 0;
+
   // Grupos colapsados (acordeón). Persistido en localStorage; arranca expandido
   // para no romper la hidratación (se sincroniza en cliente tras montar).
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -523,6 +530,7 @@ export function AppSidebar() {
     if (href === '/unit-requests') return unitRequestPending;
     if (href === '/messages') return unreadMessages;
     if (href === '/whatsapp') return whatsappUnread;
+    if (href === '/marketing/web-chat') return webChatCount;
     if (href === '/incidents') return incidentCounts.reported + incidentCounts.investigating;
     return 0;
   }
@@ -547,6 +555,9 @@ export function AppSidebar() {
       return (
         <SidebarMenuBadge className="bg-emerald-600 text-white">{whatsappUnread}</SidebarMenuBadge>
       );
+    }
+    if (href === '/marketing/web-chat' && webChatCount > 0) {
+      return <SidebarMenuBadge className="bg-blue-500 text-white">{webChatCount}</SidebarMenuBadge>;
     }
     if (href === '/messages' && unreadMessages > 0) {
       return (

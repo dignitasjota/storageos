@@ -1,5 +1,93 @@
 import { z } from 'zod';
 
+import { OpeningHoursSchema, type OpeningHours } from '../facilities/schemas';
+
+// ─── Intenciones, horario del asistente y seguimiento ───────────────────────
+
+/** Lo que busca el contacto (lo detecta el asistente en cada mensaje). */
+export const WHATSAPP_INTENTS = [
+  'precio',
+  'disponibilidad',
+  'reserva',
+  'horario',
+  'pago',
+  'reclamacion',
+  'baja',
+  'otro',
+] as const;
+export type WhatsappIntent = (typeof WHATSAPP_INTENTS)[number];
+
+export const WHATSAPP_INTENT_LABELS: Record<WhatsappIntent, string> = {
+  precio: 'Precio',
+  disponibilidad: 'Disponibilidad',
+  reserva: 'Reserva',
+  horario: 'Horario',
+  pago: 'Pagos',
+  reclamacion: 'Reclamación',
+  baja: 'Baja',
+  otro: 'Otro',
+};
+
+export function isWhatsappIntent(v: unknown): v is WhatsappIntent {
+  return typeof v === 'string' && (WHATSAPP_INTENTS as readonly string[]).includes(v);
+}
+
+/** Intenciones de quien está pensando en alquilar (las que reciben el seguimiento). */
+export const WHATSAPP_SALES_INTENTS: readonly WhatsappIntent[] = [
+  'precio',
+  'disponibilidad',
+  'reserva',
+];
+
+/**
+ * Cuándo responde la IA: `always`; `outside` = solo fuera del horario del
+ * equipo (dentro responde el equipo); `inside` = solo dentro.
+ */
+export const WHATSAPP_ASSISTANT_HOURS_MODES = ['always', 'outside', 'inside'] as const;
+export type WhatsappAssistantHoursMode = (typeof WHATSAPP_ASSISTANT_HOURS_MODES)[number];
+
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+
+/** ¿Está `at` dentro del horario `hours` en la zona `timeZone`? Sin horario = no. */
+export function isWithinHours(
+  hours: OpeningHours | null | undefined,
+  timeZone: string,
+  at: Date = new Date(),
+): boolean {
+  if (!hours) return false;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(at);
+  const wd = parts
+    .find((p) => p.type === 'weekday')
+    ?.value.toLowerCase()
+    .slice(0, 3);
+  const hh = parts.find((p) => p.type === 'hour')?.value ?? '00';
+  const mm = parts.find((p) => p.type === 'minute')?.value ?? '00';
+  const key = WEEKDAY_KEYS.find((k) => k === wd);
+  if (!key) return false;
+  const day = hours[key];
+  if (!day) return false;
+  const now = `${hh}:${mm}`;
+  return now >= day.open && (day.close === '00:00' || now < day.close);
+}
+
+/** ¿Responde la IA ahora según el modo y el horario del equipo? */
+export function assistantRespondsNow(
+  mode: string,
+  teamHours: OpeningHours | null | undefined,
+  timeZone: string,
+  at: Date = new Date(),
+): boolean {
+  if (mode === 'outside') return !isWithinHours(teamHours, timeZone, at);
+  if (mode === 'inside') return isWithinHours(teamHours, timeZone, at);
+  return true;
+}
+
 /**
  * Extra «WhatsApp Business»: el número de WhatsApp del tenant (Cloud API de
  * Meta) en su web, con bandeja de conversaciones en el panel.
@@ -86,6 +174,10 @@ export interface WhatsappConversationDto {
   assistantEnabled: boolean;
   /** Reserva preparada por el asistente en esta conversación. */
   contractId: string | null;
+  /** Intención del último mensaje del contacto (la detecta el asistente). */
+  intent: WhatsappIntent | null;
+  /** Resumen para el equipo cuando el asistente pasó la conversación a una persona. */
+  handoffSummary: string | null;
 }
 
 export const WHATSAPP_MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'] as const;
@@ -328,6 +420,17 @@ export const UpdateWhatsappAssistantSchema = z
       .refine((v) => v.startsWith('https://'), 'La URL debe empezar por https://')
       .optional()
       .or(z.literal('')),
+    /** Cuándo responde la IA: siempre, solo fuera del horario del equipo o solo dentro. */
+    assistantHoursMode: z.enum(WHATSAPP_ASSISTANT_HOURS_MODES).optional(),
+    /** Horario del equipo, en la zona del negocio. */
+    teamHours: OpeningHoursSchema.optional(),
+    /** Intenciones que avisan al equipo. */
+    alertIntents: z.array(z.enum(WHATSAPP_INTENTS)).max(WHATSAPP_INTENTS.length).optional(),
+    /** Recordatorio al contacto que preguntó y no siguió. */
+    followupEnabled: z.boolean().optional(),
+    /** Plantilla para el recordatorio pasadas las 24 h ({{1}} nombre). '' = ninguna. */
+    followupTemplateName: WhatsappTemplateNameSchema.optional().or(z.literal('')),
+    followupTemplateLanguage: WhatsappTemplateLanguageSchema.optional(),
   })
   .refine((v) => Object.values(v).some((f) => f !== undefined), {
     message: 'Debes enviar al menos un campo',
@@ -351,6 +454,12 @@ export interface WhatsappAssistantDto {
   reminderTemplateName: string | null;
   reminderTemplateLanguage: string;
   privacyUrl: string | null;
+  assistantHoursMode: WhatsappAssistantHoursMode;
+  teamHours: OpeningHours;
+  alertIntents: WhatsappIntent[];
+  followupEnabled: boolean;
+  followupTemplateName: string | null;
+  followupTemplateLanguage: string;
 }
 
 export const UpdateWhatsappConversationSchema = z.object({

@@ -14,9 +14,14 @@ export function usePagedList<T>(
   root: string,
   path: string,
   params: Record<string, string | undefined> = {},
+  options: { enabled?: boolean; refetchInterval?: number } = {},
 ) {
   const query = useInfiniteQuery({
     queryKey: [root, 'page', params] as const,
+    enabled: options.enabled ?? true,
+    ...(options.refetchInterval
+      ? { refetchInterval: options.refetchInterval, refetchIntervalInBackground: false }
+      : {}),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => {
       const qs = new URLSearchParams();

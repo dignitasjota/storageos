@@ -2,7 +2,12 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import {
   type AdminTenantWhatsappAiDto,
+  assistantRespondsNow,
   isWhatsappAiProvider,
+  isWhatsappIntent,
+  OpeningHoursSchema,
+  type WhatsappIntent,
+  WHATSAPP_INTENT_LABELS,
   type PlatformWhatsappAiDto,
   type PublicLandingDto,
   type UpdateAdminTenantWhatsappAiInput,
@@ -21,17 +26,20 @@ import {
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { currentMonth } from '../../common/format';
 import { tenantHasFeature } from '../../common/tenant-features';
+import { AiService } from '../ai/ai.service';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { LandingService } from '../landing/landing.service';
-import { publicBusinessContextLines } from '../landing/public-business-context';
+import { bookingCodes, publicBusinessContextLines } from '../landing/public-business-context';
 import { BookingService } from '../move-in/booking.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import {
   BOOKING_MARKER_RE,
   HANDOFF_MARKER,
+  INTENT_MARKER_RE,
   LANGUAGE_MARKER_RE,
+  type WhatsappAiSystem,
   type WhatsappAiConfig,
   WhatsappAiClient,
   type WhatsappAiTurn,
@@ -49,37 +57,22 @@ type ResolvedAi =
   | { ok: true; config: WhatsappAiConfig; source: 'platform' | 'own' }
   | { ok: false; reason: 'limit_reached' | 'no_ai' };
 
-/**
- * Códigos de los tamaños en el contexto del asistente: `L<n>-T<m>` (local n,
- * tipo m, en el orden de la web). Así el modelo no maneja ids.
- */
-export function bookingCodes(
-  landing: PublicLandingDto,
-): Map<
-  string,
-  { facilityId: string; facilityName: string; unitTypeId: string; unitTypeName: string }
-> {
-  const out = new Map<
-    string,
-    { facilityId: string; facilityName: string; unitTypeId: string; unitTypeName: string }
-  >();
-  landing.facilities.forEach((f, fi) => {
-    f.unitTypes.forEach((t, ti) => {
-      out.set(`L${fi + 1}-T${ti + 1}`, {
-        facilityId: f.id,
-        facilityName: f.name,
-        unitTypeId: t.id,
-        unitTypeName: t.name,
-      });
-    });
-  });
-  return out;
-}
+export { bookingCodes } from '../landing/public-business-context';
 
 export { currentMonth } from '../../common/format';
 
 /** Máximo de respuestas del asistente por conversación en 24 h (abuso o bucles). */
 const DAILY_REPLIES_PER_CONVERSATION = 30;
+
+/** Instrucción para el resumen que acompaña al paso a una persona. */
+const HANDOFF_SUMMARY_PROMPT =
+  'Resume para el equipo de un negocio de alquiler de trasteros lo que quiere este cliente, en dos frases cortas en español: qué busca (tamaño, local, fecha, precio) y qué tiene pendiente o le preocupa. Sin saludos ni introducciones. Solo el resumen.';
+
+/** El horario del equipo guardado (jsonb), validado. */
+function teamHoursOf(v: unknown) {
+  const parsed = OpeningHoursSchema.safeParse(v ?? {});
+  return parsed.success ? parsed.data : {};
+}
 
 /**
  * Asistente de IA del WhatsApp Business de los tenants. Usa la IA de WhatsApp
@@ -105,6 +98,7 @@ export class WhatsappAssistantService {
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
+    private readonly panelAi: AiService,
   ) {}
 
   // ─── IA de WhatsApp de la plataforma (panel admin) ─────────────────────────
@@ -262,6 +256,15 @@ export class WhatsappAssistantService {
       reminderTemplateName: row?.reminderTemplateName ?? null,
       reminderTemplateLanguage: row?.reminderTemplateLanguage ?? 'es',
       privacyUrl: row?.privacyUrl ?? null,
+      assistantHoursMode:
+        row?.assistantHoursMode === 'outside' || row?.assistantHoursMode === 'inside'
+          ? row.assistantHoursMode
+          : 'always',
+      teamHours: teamHoursOf(row?.teamHours),
+      alertIntents: (row?.alertIntents ?? ['reclamacion', 'baja']).filter(isWhatsappIntent),
+      followupEnabled: row?.followupEnabled ?? false,
+      followupTemplateName: row?.followupTemplateName ?? null,
+      followupTemplateLanguage: row?.followupTemplateLanguage ?? 'es',
     };
   }
 
@@ -302,6 +305,18 @@ export class WhatsappAssistantService {
         ? { reminderTemplateLanguage: input.reminderTemplateLanguage }
         : {}),
       ...(input.privacyUrl !== undefined ? { privacyUrl: input.privacyUrl || null } : {}),
+      ...(input.assistantHoursMode !== undefined
+        ? { assistantHoursMode: input.assistantHoursMode }
+        : {}),
+      ...(input.teamHours !== undefined ? { teamHours: input.teamHours } : {}),
+      ...(input.alertIntents !== undefined ? { alertIntents: input.alertIntents } : {}),
+      ...(input.followupEnabled !== undefined ? { followupEnabled: input.followupEnabled } : {}),
+      ...(input.followupTemplateName !== undefined
+        ? { followupTemplateName: input.followupTemplateName || null }
+        : {}),
+      ...(input.followupTemplateLanguage !== undefined
+        ? { followupTemplateLanguage: input.followupTemplateLanguage }
+        : {}),
       ...(input.removeOwnKey
         ? { ownAiProvider: null, ownAiModel: null, ownAiBaseUrl: null, ownAiApiKeyEncrypted: null }
         : {
@@ -445,6 +460,22 @@ export class WhatsappAssistantService {
     if (latestIn?.id !== args.messageId) return; // llegó otro después: responde a ese
     if (!(await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'))) return;
 
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { slug: true, name: true, timezone: true },
+    });
+    if (!tenant) return;
+    // Dentro del horario del equipo (o fuera, según el ajuste) responde una persona.
+    if (
+      !assistantRespondsNow(
+        settings.assistantHoursMode,
+        teamHoursOf(settings.teamHours),
+        tenant.timezone || 'Europe/Madrid',
+      )
+    ) {
+      return;
+    }
+
     // Tope por conversación: si alguien escribe sin parar, pasa a una persona.
     const recentReplies = await this.admin.whatsappMessage.count({
       where: {
@@ -470,11 +501,6 @@ export class WhatsappAssistantService {
       return;
     }
 
-    const tenant = await this.admin.tenant.findUnique({
-      where: { id: tenantId },
-      select: { slug: true, name: true },
-    });
-    if (!tenant) return;
     const landing = await this.landing.getBySlug(tenant.slug).catch(() => null);
     const faqs = await this.admin.faqEntry.findMany({
       where: { tenantId, isPublished: true },
@@ -530,6 +556,24 @@ export class WhatsappAssistantService {
     ]);
     if (!stillOn?.assistantEnabled || newest?.id !== args.messageId) return;
     let handoff = completion.text.includes(HANDOFF_MARKER);
+    const intentRaw = INTENT_MARKER_RE.exec(completion.text)?.[1]?.toLowerCase() ?? null;
+    const intent: WhatsappIntent | null = isWhatsappIntent(intentRaw) ? intentRaw : null;
+    if (intent && intent !== conversation.intent) {
+      await this.admin.whatsappConversation.update({
+        where: { id: conversationId },
+        data: { intent },
+      });
+      if (settings.alertIntents.includes(intent)) {
+        await this.notifications
+          .create(tenantId, {
+            type: 'whatsapp.intent',
+            title: `WhatsApp: ${conversation.contactName ?? 'un contacto'} · ${WHATSAPP_INTENT_LABELS[intent]}`,
+            body: `Ha escrito por WhatsApp sobre: ${WHATSAPP_INTENT_LABELS[intent].toLowerCase()}.`,
+            link: `/whatsapp?c=${conversationId}`,
+          })
+          .catch(() => undefined);
+      }
+    }
     const bookingMatch = BOOKING_MARKER_RE.exec(completion.text);
     const detected = LANGUAGE_MARKER_RE.exec(completion.text)?.[1]?.toLowerCase() ?? null;
     if (detected && detected !== conversation.language) {
@@ -542,6 +586,7 @@ export class WhatsappAssistantService {
     let text = completion.text
       .replace(BOOKING_MARKER_RE, '')
       .replace(new RegExp(LANGUAGE_MARKER_RE.source, 'gi'), '')
+      .replace(new RegExp(INTENT_MARKER_RE.source, 'gi'), '')
       .split(HANDOFF_MARKER)
       .join('')
       .trim();
@@ -577,7 +622,12 @@ export class WhatsappAssistantService {
       text = `${text}\n\n${whatsappAssistantNotice(settings.privacyUrl, lang)}`;
     }
     if (text) await this.send(settings, conversation, text, resolved.source);
-    if (handoff) await this.handOff(tenantId, conversationId, conversation.contactName ?? null);
+    if (handoff) {
+      await this.handOff(tenantId, conversationId, conversation.contactName ?? null, {
+        config: resolved.config,
+        turns,
+      });
+    }
   }
 
   private async send(
@@ -741,17 +791,85 @@ export class WhatsappAssistantService {
     };
   }
 
+  /**
+   * Borrador de respuesta para el equipo con la información pública del negocio
+   * (gasta una consulta del asistente del panel: lo pide una persona).
+   */
+  async suggestReply(
+    tenantId: string,
+    userId: string,
+    conversationId: string,
+  ): Promise<{ suggestion: string }> {
+    const conversation = await this.admin.whatsappConversation.findFirst({
+      where: { id: conversationId, tenantId },
+      select: { id: true, tenant: { select: { slug: true } } },
+    });
+    if (!conversation) {
+      throw new NotFoundException({ code: 'conversation_not_found', message: 'No encontrada' });
+    }
+    const [rows, faqs, landing] = await Promise.all([
+      this.admin.whatsappMessage.findMany({
+        where: { conversationId, status: { not: 'failed' } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: HISTORY_MESSAGES,
+        select: { direction: true, body: true },
+      }),
+      this.admin.faqEntry.findMany({
+        where: { tenantId, isPublished: true },
+        select: { question: true, answer: true },
+        orderBy: { position: 'asc' },
+        take: 30,
+      }),
+      this.landing.getBySlug(conversation.tenant.slug).catch(() => null),
+    ]);
+    return this.panelAi.suggestConversationReply({
+      tenantId,
+      userId,
+      channel: 'whatsapp',
+      businessContext: publicBusinessContextLines({ landing, faqs }).join('\n'),
+      thread: rows.reverse().map((m) => ({
+        from: m.direction === 'in' ? 'contact' : 'us',
+        text: m.body,
+      })),
+    });
+  }
+
   /** El asistente se calla en esta conversación y avisa al equipo. */
-  private async handOff(tenantId: string, conversationId: string, name: string | null) {
+  private async handOff(
+    tenantId: string,
+    conversationId: string,
+    name: string | null,
+    summarize?: { config: WhatsappAiConfig; turns: WhatsappAiTurn[] },
+  ) {
+    // Resumen en dos frases para que el equipo no tenga que leerlo todo.
+    let summary: string | null = null;
+    if (summarize) {
+      const transcript = summarize.turns
+        .map((t) => `${t.role === 'user' ? 'Cliente' : 'Asistente'}: ${t.content}`)
+        .join('\n')
+        .slice(-6000);
+      try {
+        const res = await this.ai.complete(summarize.config, HANDOFF_SUMMARY_PROMPT, [
+          { role: 'user', content: `RESUMEN:\n${transcript}` },
+        ]);
+        summary =
+          res.text
+            .replace(/\[\[[^\]]*\]\]/g, '')
+            .trim()
+            .slice(0, 600) || null;
+      } catch {
+        summary = null;
+      }
+    }
     await this.admin.whatsappConversation.update({
       where: { id: conversationId },
-      data: { assistantEnabled: false },
+      data: { assistantEnabled: false, ...(summary ? { handoffSummary: summary } : {}) },
     });
     await this.notifications
       .create(tenantId, {
         type: 'whatsapp.handoff',
         title: `WhatsApp: ${name ?? 'un contacto'} necesita a una persona`,
-        body: 'El asistente ha pasado la conversación al equipo.',
+        body: summary ?? 'El asistente ha pasado la conversación al equipo.',
         link: `/whatsapp?c=${conversationId}`,
       })
       .catch(() => undefined);
@@ -819,7 +937,7 @@ export class WhatsappAssistantService {
     firstReply: boolean;
     bookingsEnabled: boolean;
     contactPhone: string;
-  }): string {
+  }): WhatsappAiSystem {
     const today = new Intl.DateTimeFormat('es-ES', {
       timeZone: 'Europe/Madrid',
       dateStyle: 'full',
@@ -827,8 +945,9 @@ export class WhatsappAssistantService {
     }).format(new Date());
     const lines: string[] = [];
     lines.push(
-      `Eres el asistente automático de WhatsApp de «${args.tenantName}», una empresa de alquiler de trasteros. Hoy es ${today}.`,
+      `Eres el asistente automático de WhatsApp de «${args.tenantName}», una empresa de alquiler de trasteros.`,
       'Empieza SIEMPRE tu respuesta con [[IDIOMA xx]], donde xx es el código ISO de 2 letras del idioma en que escribe el cliente (es, en, fr, de…). El sistema lo quita antes de enviarla.',
+      `Después añade [[INTENCION x]] con lo que busca el cliente en su último mensaje: ${Object.keys(WHATSAPP_INTENT_LABELS).join(', ')}. También lo quita el sistema.`,
       'Responde SOLO con la información de abajo. Si no está, no la inventes: di que lo consultas con el equipo.',
       'Escribe como en WhatsApp: mensajes breves, cordiales, sin listas largas ni formato Markdown (como mucho *negrita*). Responde en el idioma del cliente.',
       'Los precios son al mes con IVA incluido. No prometas descuentos que no estén abajo.',
@@ -837,8 +956,9 @@ export class WhatsappAssistantService {
       'Los mensajes «[Foto]», «[Audio]», «[Nota de voz]», «[Vídeo]», «[Documento: …]» o «[Sticker]» son archivos que no puedes ver ni escuchar: pide amablemente que lo escriban o, si hace falta verlo, pasa la conversación al equipo.',
       `Si el cliente pide hablar con una persona, quiere reclamar, tiene un problema con su contrato o sus pagos, o no sabes responder, contesta en una frase que le pasas con el equipo y termina con ${HANDOFF_MARKER}.`,
     );
+    const dynamic = [`Hoy es ${today}.`];
     if (args.firstReply) {
-      lines.push(
+      dynamic.push(
         'Es tu primera respuesta: saluda en una frase (el aviso de que eres un asistente automático se añade solo).',
       );
     }
@@ -860,7 +980,7 @@ export class WhatsappAssistantService {
     if (args.instructions) {
       lines.push('', '## Indicaciones del negocio', args.instructions);
     }
-    return lines.join('\n');
+    return { stable: lines.join('\n'), dynamic: dynamic.join('\n') };
   }
 
   private decrypt(value: string, aad: string): string | null {

@@ -1,4 +1,10 @@
-import { type AiCompletion, type AiMessageParam, AiProvider, type AiToolDef } from './ai-provider';
+import {
+  type AiCompletion,
+  type AiMessageParam,
+  AiProvider,
+  type AiSystemPrompt,
+  type AiToolDef,
+} from './ai-provider';
 import { AnthropicAiProvider } from './anthropic-ai-provider';
 import { type PlatformAiSettingsService } from './platform-ai-settings.service';
 import { StubAiProvider } from './stub-ai-provider';
@@ -68,7 +74,7 @@ export class DelegatingAiProvider extends AiProvider {
   }
 
   createMessage(args: {
-    system: string;
+    system: AiSystemPrompt;
     messages: AiMessageParam[];
     tools: AiToolDef[];
   }): Promise<AiCompletion> {
@@ -76,7 +82,7 @@ export class DelegatingAiProvider extends AiProvider {
   }
 
   override streamMessage(
-    args: { system: string; messages: AiMessageParam[]; tools: AiToolDef[] },
+    args: { system: AiSystemPrompt; messages: AiMessageParam[]; tools: AiToolDef[] },
     onText: (delta: string) => void,
   ): Promise<AiCompletion> {
     return this.current().streamMessage(args, onText);

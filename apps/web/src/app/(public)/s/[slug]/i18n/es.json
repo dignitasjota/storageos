@@ -924,7 +924,24 @@
       "error": "No he podido responder ahora. Inténtalo de nuevo en un momento.",
       "tooFast": "Vas muy rápido. Espera un momento y vuelve a escribir.",
       "disclaimer": "Te responde un asistente automático con inteligencia artificial; puede equivocarse. No compartas datos bancarios.",
-      "privacy": "Privacidad"
+      "privacy": "Privacidad",
+      "subtitleHuman": "Te atiende una persona del equipo",
+      "placeholderHuman": "Escribe al equipo…",
+      "askPerson": "Hablar con una persona",
+      "followWhatsapp": "Seguir por WhatsApp",
+      "whatsappIntro": "Hola, vengo del chat de la web. Os preguntaba:",
+      "proactive": "¿Te ayudo a elegir el tamaño o a reservar?",
+      "staff": "Equipo",
+      "helpful": "Me ha servido",
+      "notHelpful": "No me ha servido",
+      "waiting": "Hemos avisado al equipo. Te responderán aquí en cuanto puedan.",
+      "contactTitle": "Ahora no hay nadie disponible. Déjanos tus datos y te contactamos:",
+      "contactName": "Tu nombre",
+      "contactEmail": "Email",
+      "contactPhone": "Teléfono",
+      "contactSend": "Enviar",
+      "contactError": "No se han podido guardar tus datos. Inténtalo de nuevo.",
+      "contactThanks": "¡Gracias! El equipo te contactará pronto."
     }
   },
   "offlinePayment": {

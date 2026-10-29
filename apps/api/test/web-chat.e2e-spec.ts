@@ -4,6 +4,7 @@ import request from 'supertest';
 import { PlatformAiSettingsService } from '../src/modules/ai/platform-ai-settings.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -71,7 +72,8 @@ describe('Chat de la web (e2e)', () => {
       .post(`/public/landing/${owner.slug}/chat/history`)
       .send({ visitorId: v })
       .expect(200);
-    expect(history.body).toMatchObject({ limited: null, contact: null });
+    expect(history.body).toMatchObject({ limited: null, mode: 'ai', leadCaptured: true });
+    expect(history.body.suggestions.length).toBeGreaterThan(0);
     expect(history.body.messages).toHaveLength(4);
 
     // No gasta las consultas del panel.
@@ -217,5 +219,186 @@ describe('Chat de la web (e2e)', () => {
     const landing = await http().get(`/public/landing/${owner.slug}`).expect(200);
     expect(landing.body.webChatEnabled).toBe(false);
     await chat(owner.slug, { visitorId: visitor(), message: 'Hola' }).expect(404);
+  });
+
+  it('reserva y lista de espera desde el chat, paso a una persona y valoraciones', async () => {
+    const owner = await registerVerifiedUser(app, 'webchatbook');
+    await setTenantPlan(owner.slug, 'pro');
+    await db.platformAiSettings.updateMany({ data: { webVisitorDailyLimit: 15 } });
+    await app.get(PlatformAiSettingsService).refresh();
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Centro Chat',
+      typeName: 'Mediano',
+      unitsCount: 1,
+      pricePerUnit: 50,
+    });
+    const start = new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10);
+
+    // Reserva preparada en el chat: enlace de firma y conversación enlazada.
+    const v = visitor();
+    const booked = await chat(owner.slug, {
+      visitorId: v,
+      message: `reservar ${JSON.stringify({
+        tipo: 'L1-T1',
+        fecha: start,
+        nombre: 'Lucía',
+        apellidos: 'Pérez',
+        email: 'lucia-chat@e2e.local',
+        telefono: '600111222',
+        documento: '12345678Z',
+      })}`,
+    }).expect(200);
+    expect(booked.body.answer).toContain('/sign/');
+    expect(booked.body.answer).not.toContain('[[RESERVA');
+    expect(booked.body.messageId).toEqual(expect.any(String));
+    const conv = await db.webChatConversation.findFirstOrThrow({
+      where: { tenantId: owner.tenantId, visitorId: v },
+    });
+    expect(conv).toMatchObject({ bookedInChat: true });
+    expect(conv.contractId).toEqual(expect.any(String));
+
+    // Agotado: lista de espera.
+    const waiting = await chat(owner.slug, {
+      visitorId: visitor(),
+      message: `espera ${JSON.stringify({ tipo: 'L1-T1', nombre: 'Pablo', email: 'pablo-chat@e2e.local' })}`,
+    }).expect(200);
+    expect(waiting.body.answer).toContain('lista de espera');
+    expect(
+      await db.waitlistEntry.count({
+        where: { tenantId: owner.tenantId, contactEmail: 'pablo-chat@e2e.local' },
+      }),
+    ).toBe(1);
+
+    // 👍 a la respuesta.
+    await http()
+      .post(`/public/landing/${owner.slug}/chat/feedback`)
+      .send({ visitorId: v, messageId: booked.body.messageId, rating: 1 })
+      .expect(200);
+
+    // Pregunta sin respuesta y paso a una persona.
+    const h = visitor();
+    await chat(owner.slug, { visitorId: h, message: '¿Tenéis aparcamiento?' }).expect(200);
+    const handoff = await chat(owner.slug, {
+      visitorId: h,
+      message: 'Quiero hablar con una persona',
+    }).expect(200);
+    expect(handoff.body.mode).toBe('human');
+    // Ya no responde la IA: el mensaje espera al equipo.
+    const waitingMsg = await chat(owner.slug, { visitorId: h, message: '¿Hola?' }).expect(200);
+    expect(waitingMsg.body).toMatchObject({ mode: 'human', answer: '' });
+    const pending = await http().get('/web-chat/pending').set(auth).expect(200);
+    expect(pending.body.waiting).toBe(1);
+    const hConv = await db.webChatConversation.findFirstOrThrow({
+      where: { tenantId: owner.tenantId, visitorId: h },
+    });
+    expect(hConv.handoffSummary).toEqual(expect.any(String));
+
+    // El equipo responde desde el panel; el visitante lo ve.
+    await http()
+      .post(`/web-chat/conversations/${hConv.id}/messages`)
+      .set(auth)
+      .send({ body: 'Hola, soy Marta. Sí, hay aparcamiento.' })
+      .expect(201);
+    const seen = await http()
+      .post(`/public/landing/${owner.slug}/chat/history`)
+      .send({ visitorId: h })
+      .expect(200);
+    expect(seen.body.waitingSince).toBeNull();
+    expect(seen.body.messages.at(-1)).toMatchObject({ role: 'staff' });
+    // Borrador con IA para el equipo.
+    const draft = await http()
+      .post(`/web-chat/conversations/${hConv.id}/suggest-reply`)
+      .set(auth)
+      .expect(200);
+    expect(draft.body.suggestion.length).toBeGreaterThan(0);
+    // Devuelta al asistente.
+    await http()
+      .patch(`/web-chat/conversations/${hConv.id}`)
+      .set(auth)
+      .send({ mode: 'ai' })
+      .expect(200);
+    const back = await chat(owner.slug, { visitorId: h, message: 'Gracias' }).expect(200);
+    expect(back.body.mode).toBe('ai');
+
+    // Datos de contacto si nadie responde.
+    const c = visitor();
+    await http()
+      .post(`/public/landing/${owner.slug}/chat/handoff`)
+      .set('User-Agent', UA)
+      .send({ visitorId: c })
+      .expect(200);
+    await http()
+      .post(`/public/landing/${owner.slug}/chat/contact`)
+      .set('User-Agent', UA)
+      .send({ visitorId: c, name: 'Rosa', phone: '600 333 444' })
+      .expect(200);
+    expect(await db.lead.count({ where: { tenantId: owner.tenantId, phone: '600 333 444' } })).toBe(
+      1,
+    );
+
+    // Reserva en la web después de chatear: queda enlazada.
+    const w = visitor();
+    await chat(owner.slug, { visitorId: w, message: 'Hola' }).expect(200);
+    await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Centro Web',
+      typeName: 'Grande',
+      unitsCount: 1,
+      pricePerUnit: 80,
+    });
+    const avail = await http().get(`/public/move-in/book/${owner.slug}/availability`).expect(200);
+    const fac = avail.body.facilities.find((f: { name: string }) => f.name === 'Centro Web');
+    await http()
+      .post(`/public/move-in/book/${owner.slug}`)
+      .send({
+        facilityId: fac.id,
+        unitTypeId: fac.unitTypes[0].id,
+        startDate: start,
+        visitorId: w,
+        customer: {
+          firstName: 'Iván',
+          lastName: 'Ruiz',
+          email: 'ivan-chat@e2e.local',
+          phone: '600555666',
+          documentNumber: '87654321X',
+        },
+      })
+      .expect(201);
+    const stats = await http().get('/web-chat/stats').set(auth).expect(200);
+    expect(stats.body).toMatchObject({
+      bookingsInChat: 1,
+      bookedAfterChat: 1,
+      handoffs: 2,
+      ratingsUp: 1,
+      ratingsDown: 0,
+    });
+    expect(stats.body.unansweredQuestions[0].question).toContain('aparcamiento');
+  });
+
+  it('streaming: entrega el texto por partes y el final limpio', async () => {
+    const owner = await registerVerifiedUser(app, 'webchatsse');
+    await setTenantPlan(owner.slug, 'pro');
+    const res = await http()
+      .post(`/public/landing/${owner.slug}/chat/stream`)
+      .set('User-Agent', UA)
+      .send({ visitorId: visitor(), message: 'Quiero hablar con una persona' })
+      .buffer(true)
+      .parse((r, cb) => {
+        let data = '';
+        r.on('data', (chunk: Buffer) => (data += chunk.toString()));
+        r.on('end', () => cb(null, data));
+      })
+      .expect(200);
+    const events = String(res.body)
+      .split('\n\n')
+      .filter((e) => e.startsWith('data:'))
+      .map((e) => JSON.parse(e.slice(5)) as Record<string, unknown>);
+    const text = events
+      .filter((e) => e.type === 'text')
+      .map((e) => e.delta)
+      .join('');
+    expect(text).not.toContain('[[');
+    const done = events.find((e) => e.type === 'done');
+    expect(done).toMatchObject({ mode: 'human' });
   });
 });

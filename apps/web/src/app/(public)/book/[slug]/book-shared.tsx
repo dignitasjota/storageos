@@ -34,7 +34,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { currentTrafficSource } from '@/lib/attribution';
+import { currentTrafficSource, visitorId } from '@/lib/attribution';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
 /**
@@ -229,6 +229,8 @@ export function BookPageBody({
           months: preOpening ? 1 : months,
           ...(couponValid && couponCode ? { couponCode } : {}),
           website,
+          // Enlaza la reserva con la conversación del chat de la web (si chateó).
+          visitorId: visitorId(),
           ...utm,
         },
       });

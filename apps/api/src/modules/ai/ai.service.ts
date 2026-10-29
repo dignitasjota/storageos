@@ -26,6 +26,7 @@ import {
   type AiCompletion,
   type AiMessageParam,
   type AiProvider,
+  type AiSystemPrompt,
   type AiToolResultBlock,
 } from './ai-provider';
 import { type AiReservation, AiQuotaService } from './ai-quota.service';
@@ -70,6 +71,10 @@ Encadena varias herramientas si hace falta. Si una herramienta dice que el usuar
 Para ACCIONES (crear una tarea, enviar un recordatorio de pago, escribir a un inquilino) usa las herramientas propose_*: solo dejan la acción preparada y el usuario la confirma en pantalla. Nunca digas que ya está hecha; di que la has dejado lista para que la confirme.
 
 Responde en español, de forma concisa y profesional. Usa euros (€) y el formato español. Si no tienes datos suficientes, dilo claramente.`;
+
+const CONVERSATION_SUMMARY_PROMPT = `Resume para el equipo de un negocio de alquiler de trasteros lo que quiere este cliente, en dos frases cortas en español: qué busca (tamaño, local, fecha, precio) y qué tiene pendiente o le preocupa. Sin saludos ni introducciones. Solo el resumen.`;
+
+const CONVERSATION_REPLY_PROMPT = `Eres una persona del equipo de un negocio de alquiler de trasteros respondiendo a un cliente. Redacta una respuesta breve y cordial en el idioma del cliente, usando solo la información del negocio de abajo y la conversación. No inventes precios, plazas ni descuentos. Devuelve SOLO el texto de la respuesta, sin comillas ni explicaciones.`;
 
 const SUGGEST_REPLY_SYSTEM_PROMPT = `Eres un agente de atención al cliente de un negocio de self-storage (alquiler de trasteros). Redacta una respuesta breve, cordial y profesional EN ESPAÑOL para el inquilino, basada en la conversación y sus datos.
 
@@ -364,8 +369,10 @@ export class AiService {
    */
   async webChatComplete(args: {
     tenantId: string;
-    system: string;
+    system: AiSystemPrompt;
     messages: AiMessageParam[];
+    /** Texto según llega (streaming del widget). */
+    onText?: (delta: string) => void;
   }): Promise<{ text: string } | { limited: true }> {
     const web = this.platformSettings.web;
     const reserved = await this.quota.reserveWeb(args.tenantId, web.model);
@@ -381,11 +388,10 @@ export class AiService {
       : this.provider.forModel(web.model, WEB_CHAT_MAX_TOKENS);
     let completion: AiCompletion;
     try {
-      completion = await provider.createMessage({
-        system: args.system,
-        messages: args.messages,
-        tools: [],
-      });
+      const request = { system: args.system, messages: args.messages, tools: [] };
+      completion = args.onText
+        ? await provider.streamMessage(request, args.onText)
+        : await provider.createMessage(request);
     } catch (err) {
       await this.quota.release(reserved.reservation.id);
       throw err;
@@ -411,6 +417,96 @@ export class AiService {
       .join('')
       .trim();
     return { text };
+  }
+
+  /**
+   * Resumen en dos líneas de una conversación con un visitante, para el equipo
+   * al pasarla a una persona. Con la clave de la plataforma (o la del tenant en
+   * modo `own`), sin gastar respuestas del chat. Nunca lanza: null si no hay IA.
+   */
+  async webChatSummary(tenantId: string, transcript: string): Promise<string | null> {
+    try {
+      const platformKey = this.platformSettings.resolved().apiKey;
+      // Con la IA de la plataforma; sin ella, con la clave del tenant si la tiene.
+      const own = platformKey ? null : await this.quota.ownKey(tenantId);
+      if (!own && !platformKey && process.env.NODE_ENV !== 'test') return null;
+      const web = this.platformSettings.web;
+      const provider = own
+        ? this.provider.forKey(own.apiKey, own.model, 200)
+        : this.provider.forModel(web.model, 200);
+      const completion = await provider.createMessage({
+        system: CONVERSATION_SUMMARY_PROMPT,
+        messages: [{ role: 'user', content: transcript.slice(-6000) }],
+        tools: [],
+      });
+      if (completion.usage) {
+        void this.admin.aiUsageEvent
+          .create({
+            data: {
+              tenantId,
+              feature: WEB_CHAT_AI_FEATURE,
+              model: provider.modelName,
+              inputTokens: completion.usage.inputTokens,
+              outputTokens: completion.usage.outputTokens,
+              countsAsQuery: false,
+              ownKey: !!own,
+            },
+          })
+          .catch(() => undefined);
+      }
+      const text = completion.content
+        .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+        .trim();
+      return text ? text.slice(0, 600) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Borrador de respuesta del equipo a un contacto de WhatsApp o a un visitante
+   * del chat de la web: el equipo lo revisa antes de enviarlo. Gasta una
+   * consulta del panel (la pide una persona del equipo).
+   */
+  async suggestConversationReply(args: {
+    tenantId: string;
+    userId: string;
+    channel: 'whatsapp' | 'web_chat';
+    businessContext: string;
+    thread: { from: 'contact' | 'us'; text: string }[];
+  }): Promise<{ suggestion: string }> {
+    this.assertAvailable();
+    const threadText =
+      args.thread
+        .map((m) => `${m.from === 'contact' ? 'Cliente' : 'Nosotros'}: ${m.text}`)
+        .join('\n') || '(sin mensajes)';
+    const channel = args.channel === 'whatsapp' ? 'WhatsApp' : 'el chat de la web';
+    const completion = await this.withQuota(
+      { tenantId: args.tenantId, userId: args.userId, feature: 'suggest_reply' },
+      () =>
+        this.llm.createMessage({
+          system: {
+            stable: `${CONVERSATION_REPLY_PROMPT}\n\n${args.businessContext}`,
+            dynamic: `Canal: ${channel}.`,
+          },
+          messages: [
+            {
+              role: 'user',
+              content: `Conversación (la última línea del cliente es a lo que respondemos):\n${threadText}\n\nRedacta la respuesta:`,
+            },
+          ],
+          tools: [],
+        }),
+    );
+    this.recordUsage(args.tenantId, args.userId, 'suggest_reply', completion);
+    const suggestion = completion.content
+      .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    return { suggestion: suggestion || 'No he podido redactar una respuesta. Escríbela a mano.' };
   }
 
   /** 503 si el provider no está configurado (antes de abrir un stream). */
@@ -488,7 +584,12 @@ export class AiService {
     };
     const toolDefs = this.tools.definitions(toolCtx);
 
-    const system = `${SYSTEM_PROMPT}\n\n${await this.businessContext(tenantId, args.permissions, args.facilityScope)}`;
+    // Las reglas y las herramientas son las mismas en cada pregunta (caché de
+    // prompts); el contexto lleva la hora y lo que puede ver este usuario.
+    const system: AiSystemPrompt = {
+      stable: SYSTEM_PROMPT,
+      dynamic: await this.businessContext(tenantId, args.permissions, args.facilityScope),
+    };
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const request = { system, messages, tools: toolDefs };
       const completion = hooks

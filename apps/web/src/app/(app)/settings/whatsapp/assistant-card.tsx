@@ -1,6 +1,16 @@
 'use client';
 
-import { WHATSAPP_AI_PROVIDERS, type WhatsappAiProvider } from '@storageos/shared';
+import {
+  type OpeningHours,
+  WEEKDAYS,
+  WHATSAPP_AI_PROVIDERS,
+  WHATSAPP_INTENT_LABELS,
+  WHATSAPP_INTENTS,
+  type Weekday,
+  type WhatsappAiProvider,
+  type WhatsappAssistantHoursMode,
+  type WhatsappIntent,
+} from '@storageos/shared';
 import { Bot, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -27,6 +37,16 @@ import {
   useWhatsappTemplates,
 } from '@/lib/whatsapp/hooks';
 
+const DAY_LABELS: Record<Weekday, string> = {
+  mon: 'Lunes',
+  tue: 'Martes',
+  wed: 'Miércoles',
+  thu: 'Jueves',
+  fri: 'Viernes',
+  sat: 'Sábado',
+  sun: 'Domingo',
+};
+
 /**
  * Asistente automático de WhatsApp: responde con los datos de tu web (locales,
  * horarios, tamaños, precios, disponibilidad, promoción y preguntas frecuentes)
@@ -49,6 +69,12 @@ export function AssistantCard() {
   const [templateName, setTemplateName] = useState('');
   const [templateLanguage, setTemplateLanguage] = useState('es');
   const [privacyUrl, setPrivacyUrl] = useState('');
+  const [hoursMode, setHoursMode] = useState<WhatsappAssistantHoursMode>('always');
+  const [teamHours, setTeamHours] = useState<OpeningHours>({});
+  const [alertIntents, setAlertIntents] = useState<WhatsappIntent[]>([]);
+  const [followup, setFollowup] = useState(false);
+  const [followupTpl, setFollowupTpl] = useState('');
+  const [followupLang, setFollowupLang] = useState('es');
 
   const loaded = useRef(false);
   useEffect(() => {
@@ -60,6 +86,12 @@ export function AssistantCard() {
     setTemplateName(assistant.data.reminderTemplateName ?? '');
     setTemplateLanguage(assistant.data.reminderTemplateLanguage);
     setPrivacyUrl(assistant.data.privacyUrl ?? '');
+    setHoursMode(assistant.data.assistantHoursMode);
+    setTeamHours(assistant.data.teamHours);
+    setAlertIntents(assistant.data.alertIntents);
+    setFollowup(assistant.data.followupEnabled);
+    setFollowupTpl(assistant.data.followupTemplateName ?? '');
+    setFollowupLang(assistant.data.followupTemplateLanguage);
     if (assistant.data.ownAi) {
       setProvider(assistant.data.ownAi.provider);
       setModel(assistant.data.ownAi.model);
@@ -81,6 +113,12 @@ export function AssistantCard() {
         reminderTemplateName: templateName.trim(),
         reminderTemplateLanguage: templateLanguage.trim() || 'es',
         privacyUrl: privacyUrl.trim(),
+        assistantHoursMode: hoursMode,
+        teamHours,
+        alertIntents,
+        followupEnabled: followup,
+        followupTemplateName: followupTpl.trim(),
+        followupTemplateLanguage: followupLang.trim() || 'es',
       });
       toast.success('Asistente guardado.');
     } catch (err) {
@@ -219,6 +257,126 @@ export function AssistantCard() {
             escribir con una plantilla aprobada en Meta: su texto debe llevar {'{{1}}'} (nombre) y{' '}
             {'{{2}}'} (enlace). Sin plantilla, el recordatorio sale por correo.
           </p>
+          <div className="space-y-2 border-t pt-4">
+            <Label>Cuándo responde el asistente</Label>
+            <Select
+              value={hoursMode}
+              onValueChange={(v) => setHoursMode(v as WhatsappAssistantHoursMode)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="always">Siempre</SelectItem>
+                <SelectItem value="outside">Solo fuera del horario del equipo</SelectItem>
+                <SelectItem value="inside">Solo dentro del horario del equipo</SelectItem>
+              </SelectContent>
+            </Select>
+            {hoursMode !== 'always' && (
+              <div className="space-y-1.5 rounded-md border p-3">
+                <p className="text-xs text-muted-foreground">
+                  Horario del equipo (en la zona horaria de tu negocio). Un día sin marcar cuenta
+                  como fuera del horario.
+                </p>
+                {WEEKDAYS.map((day: Weekday) => {
+                  const v = teamHours[day];
+                  return (
+                    <div key={day} className="flex flex-wrap items-center gap-2 text-sm">
+                      <label className="flex w-28 items-center gap-2">
+                        <Checkbox
+                          checked={!!v}
+                          onCheckedChange={(c) =>
+                            setTeamHours((h) => ({
+                              ...h,
+                              [day]: c === true ? { open: '09:00', close: '18:00' } : null,
+                            }))
+                          }
+                        />
+                        {DAY_LABELS[day]}
+                      </label>
+                      {v && (
+                        <>
+                          <Input
+                            type="time"
+                            value={v.open}
+                            onChange={(e) =>
+                              setTeamHours((h) => ({ ...h, [day]: { ...v, open: e.target.value } }))
+                            }
+                            className="h-8 w-28 text-base sm:text-sm"
+                          />
+                          <span>a</span>
+                          <Input
+                            type="time"
+                            value={v.close}
+                            onChange={(e) =>
+                              setTeamHours((h) => ({
+                                ...h,
+                                [day]: { ...v, close: e.target.value },
+                              }))
+                            }
+                            className="h-8 w-28 text-base sm:text-sm"
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Avisarme cuando alguien escribe por</Label>
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              {WHATSAPP_INTENTS.filter((i) => i !== 'otro').map((i) => (
+                <label key={i} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={alertIntents.includes(i)}
+                    onCheckedChange={(c) =>
+                      setAlertIntents((list) =>
+                        c === true ? [...list, i] : list.filter((x) => x !== i),
+                      )
+                    }
+                  />
+                  {WHATSAPP_INTENT_LABELS[i]}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              El asistente detecta qué busca cada contacto y lo verás en la bandeja.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox checked={followup} onCheckedChange={(v) => setFollowup(v === true)} />
+              <span>
+                Recordar a quien preguntó y no reservó
+                <span className="block text-xs text-muted-foreground">
+                  Si preguntó por precios, disponibilidad o reservar y no reservó, pasadas 24 horas
+                  desde su último mensaje se le envía una vez una plantilla aprobada ({'{{1}}'} =
+                  nombre).
+                </span>
+              </span>
+            </label>
+            {followup && (
+              <div className="grid gap-4 sm:grid-cols-[1fr_120px]">
+                <Input
+                  list="wa-approved-templates"
+                  value={followupTpl}
+                  onChange={(e) => setFollowupTpl(e.target.value)}
+                  placeholder="seguimiento_consulta"
+                  aria-label="Plantilla de seguimiento"
+                  className="text-base sm:text-sm"
+                />
+                <Input
+                  value={followupLang}
+                  onChange={(e) => setFollowupLang(e.target.value)}
+                  placeholder="es"
+                  aria-label="Idioma de la plantilla"
+                  className="text-base sm:text-sm"
+                />
+              </div>
+            )}
+          </div>
           {noAi && (
             <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
               {ownMode

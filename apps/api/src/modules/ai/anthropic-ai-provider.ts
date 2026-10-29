@@ -5,8 +5,36 @@ import {
   type AiContentBlock,
   type AiMessageParam,
   AiProvider,
+  type AiSystemPrompt,
   type AiToolDef,
 } from './ai-provider';
+
+/** Caché de prompts de Anthropic (5 min): solo se aplica a partir de un tamaño mínimo. */
+const CACHE = { type: 'ephemeral' } as const;
+
+/**
+ * Sistema y herramientas con la caché de prompts: la parte estable se marca y
+ * la dinámica va detrás. Con un texto suelto se marca entero.
+ */
+export function anthropicPromptParts(system: AiSystemPrompt, tools: AiToolDef[]) {
+  const blocks =
+    typeof system === 'string'
+      ? [{ type: 'text' as const, text: system, cache_control: CACHE }]
+      : [
+          { type: 'text' as const, text: system.stable, cache_control: CACHE },
+          ...(system.dynamic ? [{ type: 'text' as const, text: system.dynamic }] : []),
+        ];
+  const cachedTools = tools.map((t, i) =>
+    i === tools.length - 1 ? { ...t, cache_control: CACHE } : t,
+  );
+  return { system: blocks, tools: cachedTools };
+}
+
+/** Tokens de entrada contando también los leídos o guardados en la caché. */
+function inputTokensOf(u: Record<string, unknown> | undefined): number {
+  const n = (k: string) => (typeof u?.[k] === 'number' ? (u[k] as number) : 0);
+  return n('input_tokens') + n('cache_creation_input_tokens') + n('cache_read_input_tokens');
+}
 
 /** Modelo por defecto si ni el panel ni `AI_MODEL` dicen otro. */
 export const DEFAULT_AI_MODEL = 'claude-sonnet-4-6';
@@ -42,7 +70,7 @@ export class AnthropicAiProvider extends AiProvider {
   }
 
   private request(
-    args: { system: string; messages: AiMessageParam[]; tools: AiToolDef[] },
+    args: { system: AiSystemPrompt; messages: AiMessageParam[]; tools: AiToolDef[] },
     stream: boolean,
   ): Promise<Response> {
     return fetch('https://api.anthropic.com/v1/messages', {
@@ -55,8 +83,7 @@ export class AnthropicAiProvider extends AiProvider {
       body: JSON.stringify({
         model: this.model,
         max_tokens: this.maxTokens,
-        system: args.system,
-        tools: args.tools,
+        ...anthropicPromptParts(args.system, args.tools),
         messages: args.messages,
         ...(stream ? { stream: true } : {}),
       }),
@@ -71,7 +98,7 @@ export class AnthropicAiProvider extends AiProvider {
   }
 
   async createMessage(args: {
-    system: string;
+    system: AiSystemPrompt;
     messages: AiMessageParam[];
     tools: AiToolDef[];
   }): Promise<AiCompletion> {
@@ -79,7 +106,7 @@ export class AnthropicAiProvider extends AiProvider {
     await this.assertOk(res);
     const data = (await res.json()) as {
       stop_reason: string;
-      usage?: { input_tokens?: number; output_tokens?: number };
+      usage?: Record<string, unknown> & { output_tokens?: number };
       content: Array<
         | { type: 'text'; text: string }
         | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
@@ -96,7 +123,7 @@ export class AnthropicAiProvider extends AiProvider {
       stopReason: data.stop_reason,
       content,
       usage: {
-        inputTokens: data.usage?.input_tokens ?? 0,
+        inputTokens: inputTokensOf(data.usage),
         outputTokens: data.usage?.output_tokens ?? 0,
       },
     };
@@ -109,7 +136,7 @@ export class AnthropicAiProvider extends AiProvider {
    * texto a `onText` según llega y se reconstruyen los bloques completos.
    */
   override async streamMessage(
-    args: { system: string; messages: AiMessageParam[]; tools: AiToolDef[] },
+    args: { system: AiSystemPrompt; messages: AiMessageParam[]; tools: AiToolDef[] },
     onText: (delta: string) => void,
   ): Promise<AiCompletion> {
     const res = await this.request(args, true);
@@ -197,7 +224,7 @@ export class AnthropicStreamAccumulator {
       case 'message_start': {
         const message = event.message as Record<string, unknown> | undefined;
         const usage = message?.usage as Record<string, unknown> | undefined;
-        if (typeof usage?.input_tokens === 'number') this.inputTokens = usage.input_tokens;
+        if (usage) this.inputTokens = inputTokensOf(usage);
         break;
       }
       case 'message_delta': {

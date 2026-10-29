@@ -67,6 +67,13 @@ export const PublicBookingSchema = z.object({
   couponCode: z.string().trim().toUpperCase().max(40).optional().or(z.literal('')),
   /** Honeypot anti-bot: debe venir vacío. */
   website: z.string().optional(),
+  /** Id aleatorio del navegador: enlaza la reserva con la conversación del chat de la web. */
+  visitorId: z
+    .string()
+    .trim()
+    .max(64)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .optional(),
   ...utmFields,
 });
 export type PublicBookingInput = z.infer<typeof PublicBookingSchema>;
