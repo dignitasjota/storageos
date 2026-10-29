@@ -1,3 +1,5 @@
+import { PortalReturnLink } from './portal-return-link';
+
 import type { ReactNode } from 'react';
 
 const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
@@ -23,7 +25,6 @@ export function TenantMiniChrome({
 }) {
   if (!brand) return <>{children}</>;
   const color = brand.brandColor ?? '#2563EB';
-  const portalHref = `/portal/login?slug=${encodeURIComponent(brand.tenantSlug)}`;
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b border-border/60" style={{ borderTop: `3px solid ${color}` }}>
@@ -34,13 +35,13 @@ export function TenantMiniChrome({
           ) : (
             <span className="font-semibold">{brand.tenantName}</span>
           )}
-          <a
-            href={portalHref}
+          <PortalReturnLink
+            tenantSlug={brand.tenantSlug}
             className="inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white"
             style={{ backgroundColor: color }}
           >
             Área de clientes
-          </a>
+          </PortalReturnLink>
         </div>
       </header>
       <main className="flex flex-1 flex-col">{children}</main>
