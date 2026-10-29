@@ -322,6 +322,12 @@ En el proceso de contratación se indicarán claramente:
 
 Las renovaciones, vencimientos, medios de pago posteriores y consecuencias del impago se regirán por el contrato de alquiler suscrito.
 
+Cada recibo devuelto o pago con tarjeta rechazado podrá generar unos gastos de gestión por el importe publicado por ${brand}, que no superará el coste de gestionar la devolución.
+
+La cuota podrá actualizarse una vez al año conforme a la variación del Índice de Precios al Consumo (IPC) publicado por el Instituto Nacional de Estadística, o el índice que lo sustituya, avisando al cliente con al menos 30 días de antelación. Si no está de acuerdo, el cliente podrá darse de baja antes de esa fecha sin penalización.
+
+En caso de impago, ${brand} podrá suspender el acceso al local y al espacio hasta que se regularice. Si el impago continúa, podrá resolver el contrato y requerir al cliente por escrito que pague o retire sus bienes en un plazo no inferior a 15 días; resuelto el contrato, podrá trasladar los bienes a otro espacio, con el coste del traslado a cargo del cliente y respondiendo ${brand} de los daños que cause por su culpa. Si pasadas ocho (8) semanas desde el impago el cliente no ha pagado ni retirado sus bienes pese al requerimiento, se considerarán abandonados y ${brand} podrá disponer de ellos, aplicando lo que obtenga a la deuda y dejando el sobrante a disposición del cliente.
+
 Cualquier cargo recurrente o posterior deberá contar con la autorización correspondiente y ajustarse a las condiciones comunicadas al cliente.
 
 El cliente podrá solicitar su factura o justificante mediante los canales habilitados, sin perjuicio de las obligaciones legales de facturación de ${brand}.
@@ -384,7 +390,7 @@ Las condiciones de preaviso, baja y terminación serán las expresamente aceptad
 
 La contratación online no implica necesariamente una permanencia mínima distinta de la indicada expresamente antes del pago.
 
-La baja del servicio deberá comunicarse por los medios previstos contractualmente y no eximirá del pago de las cantidades válidamente devengadas hasta su fecha efectiva.
+La baja del servicio deberá comunicarse por escrito, al correo electrónico de ${brand} o desde el área de clientes, indicando el nombre del cliente y el espacio alquilado, con la antelación prevista en el contrato. No eximirá del pago de las cantidades válidamente devengadas hasta su fecha efectiva.
 
 ## 11. Acceso a las instalaciones
 
@@ -402,17 +408,27 @@ Por motivos de seguridad, mantenimiento, emergencia o causas legalmente justific
 
 Los espacios alquilados deberán utilizarse exclusivamente para los fines de almacenamiento autorizados en el contrato.
 
+El cliente declara que es el legítimo poseedor de los bienes que guarda, que su procedencia es lícita y que no están embargados ni sujetos a ningún procedimiento de ejecución o reclamación.
+
 Queda prohibido, salvo que la normativa y el contrato permitan expresamente otra cosa:
 
-- Almacenar sustancias inflamables, explosivas, tóxicas, peligrosas o ilícitas.
-- Guardar alimentos perecederos o productos que puedan generar olores, plagas o condiciones insalubres.
-- Introducir animales o seres vivos.
+- Guardar alimentos, bebidas, piensos o cualquier producto perecedero.
+- Almacenar productos químicos, tóxicos, corrosivos, inflamables o explosivos, bombonas de gas o combustibles.
+- Guardar vehículos, motores o maquinaria con combustible o con baterías que no estén desconectadas.
+- Guardar armas, municiones o explosivos.
+- Guardar objetos o sustancias prohibidos por la ley o de procedencia ilícita.
+- Introducir animales, vivos o muertos, o plantas.
+- Guardar materiales que puedan descomponerse, generar humedad, olores o plagas, o dañar el espacio, los de alrededor o los bienes de otros clientes.
+- Guardar cualquier otro objeto que razonablemente no deba guardarse en un trastero.
+- Instalar otras cerraduras o sistemas de cierre, o hacer obras o modificaciones en el espacio, sin autorización escrita de ${brand}.
 - Utilizar los trasteros como vivienda, oficina de atención al público o lugar de residencia.
 - Realizar actividades comerciales o industriales dentro de los espacios que no estén expresamente autorizadas.
 - Manipular las instalaciones eléctricas, de seguridad o de protección contra incendios.
 - Depositar objetos que excedan las cargas o condiciones técnicas permitidas.
 
-El cliente será responsable de utilizar el espacio de forma diligente, respetando las instalaciones, las zonas comunes y los derechos de los demás usuarios.
+El cliente será responsable de utilizar el espacio de forma diligente, respetando las instalaciones, las zonas comunes y los derechos de los demás usuarios, y de los daños que causen los bienes guardados incumpliendo estas normas.
+
+Por seguridad, por una emergencia, por requerimiento de una autoridad o por obras en el establecimiento, ${brand} podrá abrir el espacio avisando antes al cliente, salvo urgencia, y dejando constancia de lo que haga. Si por un motivo justificado hubiera que trasladar los bienes a otro espacio de características similares, se avisará al cliente, que podrá hacerlo por sí mismo; si no, lo hará ${brand} sin coste para él.
 
 ## 13. Seguridad y responsabilidad
 
@@ -425,6 +441,10 @@ El cliente será responsable de la correcta utilización y cierre de su espacio,
 La responsabilidad de ${brand} por daños, pérdidas o incumplimientos se determinará conforme al contrato y a la normativa aplicable, sin excluir ni limitar los derechos legalmente reconocidos al cliente.
 
 La cobertura de los objetos almacenados mediante seguros, cuando exista, será la expresamente indicada en el contrato o en la documentación de la póliza correspondiente.
+
+Se desaconseja guardar dinero en efectivo, joyas, obras de arte, antigüedades, documentos al portador u objetos de valor sentimental. ${brand} no responde de su valor especial o sentimental ni de los daños por caso fortuito, fuerza mayor, el paso del tiempo o los defectos propios de los objetos.
+
+El cliente debe mantener actualizados sus datos de contacto y de pago.
 
 ## 14. Incidencias, reclamaciones y atención al cliente
 

@@ -52,6 +52,11 @@ describe('textos legales del tenant', () => {
     expect(md).toContain('  - Centro Sur: Calle B 2');
     expect(md).toContain('declaración inequívoca enviada a hola@garcia.es');
     expect(md).toContain('[política de privacidad](./privacidad)');
+    // Prohibidos, impago y revisión de la cuota alineados con el contrato.
+    expect(md).toContain('Guardar armas, municiones o explosivos.');
+    expect(md).toContain('ocho (8) semanas desde el impago');
+    expect(md).toContain('Índice de Precios al Consumo (IPC)');
+    expect(md).toContain('gastos de gestión por el importe publicado por Trasteros García');
     // Sin huecos tipo «[RAZÓN SOCIAL]» por rellenar.
     expect(md).not.toMatch(/\[[A-ZÁÉÍÓÚÑ ]{4,}\]/);
   });
