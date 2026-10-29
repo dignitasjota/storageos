@@ -72,10 +72,49 @@ export interface AiUsageDto {
   dailyLimit: number;
   /** Día en que se reinicia (YYYY-MM-DD, primer día del mes siguiente). */
   resetsOn: string;
+  /** platform = la IA de TrasterOS (con límite); own = siempre su clave. */
+  mode: AiKeyMode;
+  /** Tiene su propia clave (se usa sola al gastar las consultas del mes). */
+  ownKeyConfigured: boolean;
+  /** Consultas del mes hechas con su propia clave (no cuentan para el límite). */
+  ownQueries: number;
 }
 
+export const AiKeyModeEnum = z.enum(['platform', 'own']);
+export type AiKeyMode = z.infer<typeof AiKeyModeEnum>;
+
 export const UpdateTenantAiLimitSchema = z.object({
-  /** null = el general + extras. */
-  monthlyLimit: z.number().int().min(0).max(1_000_000).nullable(),
+  /** null = el general + extras; sin enviar = no cambia. */
+  monthlyLimit: z.number().int().min(0).max(1_000_000).nullable().optional(),
+  mode: AiKeyModeEnum.optional(),
 });
 export type UpdateTenantAiLimitInput = z.infer<typeof UpdateTenantAiLimitSchema>;
+
+/** Clave propia del tenant para el asistente del panel (Configuración → Asistente IA). */
+export interface TenantAiSettingsDto {
+  mode: AiKeyMode;
+  ownKeyConfigured: boolean;
+  ownKeyLast4: string | null;
+  ownModel: string | null;
+  /** Modelo que se usa con su clave si no pone otro. */
+  defaultModel: string;
+}
+
+export const UpdateTenantAiSettingsSchema = z.object({
+  /** Clave de Anthropic; `''` la quita. */
+  apiKey: z.string().trim().max(500).optional(),
+  model: z
+    .string()
+    .trim()
+    .max(100)
+    .regex(/^[a-zA-Z0-9._:-]*$/, 'Modelo no válido')
+    .optional(),
+});
+export type UpdateTenantAiSettingsInput = z.infer<typeof UpdateTenantAiSettingsSchema>;
+
+/** Resultado de probar la clave propia del tenant. */
+export interface TenantAiTestDto {
+  ok: boolean;
+  model: string;
+  message: string;
+}

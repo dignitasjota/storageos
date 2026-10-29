@@ -266,6 +266,34 @@ export class FilesService implements OnModuleInit {
     return deleted;
   }
 
+  /** Cuántos objetos y bytes hay bajo un prefijo (sin los que `skip` descarta). */
+  async sizeByPrefix(
+    bucket: PresignArgs['bucket'],
+    prefix: string,
+    skip: (key: string) => boolean = () => false,
+  ): Promise<{ objects: number; bytes: number }> {
+    let token: string | undefined;
+    let objects = 0;
+    let bytes = 0;
+    do {
+      const page = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucketMap[bucket],
+          Prefix: prefix,
+          ContinuationToken: token,
+          MaxKeys: 1000,
+        }),
+      );
+      for (const obj of page.Contents ?? []) {
+        if (!obj.Key || skip(obj.Key)) continue;
+        objects += 1;
+        bytes += obj.Size ?? 0;
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return { objects, bytes };
+  }
+
   /**
    * Borra los objetos de un bucket modificados antes de `before` cuya key pasa
    * el filtro (p. ej. las exportaciones de datos ya caducadas). Devuelve cuántos.

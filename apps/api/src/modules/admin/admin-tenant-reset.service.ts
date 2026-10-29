@@ -1,3 +1,4 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
   ConflictException,
@@ -10,17 +11,20 @@ import {
   TENANT_RESET_COUNT_KEYS,
   type TenantResetBlockerCode,
   type TenantResetCountKey,
+  type TenantResetFilesDto,
   type TenantResetInput,
   type TenantResetIssueDto,
   type TenantResetPreviewDto,
   type TenantResetResultDto,
   type TenantResetWarningCode,
 } from '@storageos/shared';
+import { Queue } from 'bullmq';
 
 import { type Env } from '../../config/env.schema';
 import { DahuaSyncService } from '../access/dahua-sync.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
+import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
@@ -34,6 +38,29 @@ import { SuperAdminAuditService } from './super-admin-audit.service';
  * contactos (leads) con sus seguimientos y actividad, usuarios, roles,
  * propietarios y toda la configuración.
  */
+/** Un grupo de ficheros del tenant que se borra al vaciar. */
+interface FileTarget {
+  label: string;
+  bucket: 'invoices' | 'uploads' | 'reports';
+  prefix: string;
+  skip?: (key: string) => boolean;
+}
+
+/** Nombres legibles de lo que se borra (resumen por correo). */
+const COUNT_LABELS: Record<TenantResetCountKey, string> = {
+  customers: 'inquilinos',
+  contracts: 'contratos',
+  reservations: 'reservas',
+  invoices: 'facturas',
+  payments: 'cobros',
+  communications: 'comunicaciones',
+  tasks: 'tareas',
+  incidents: 'incidencias',
+  productSales: 'ventas',
+  accessLogs: 'registros de acceso',
+  expenses: 'gastos',
+};
+
 const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'notification_reads' },
   { table: 'notifications' },
@@ -140,6 +167,7 @@ export class AdminTenantResetService {
     private readonly audit: SuperAdminAuditService,
     private readonly config: ConfigService<Env, true>,
     private readonly sync: DahuaSyncService,
+    @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
 
   async preview(tenantId: string): Promise<TenantResetPreviewDto> {
@@ -157,7 +185,10 @@ export class AdminTenantResetService {
         orderBy: { prefix: 'asc' },
       }),
     ]);
-    const { blockers, warnings } = await this.issues(tenantId);
+    const [{ blockers, warnings }, files] = await Promise.all([
+      this.issues(tenantId),
+      this.fileSummary(tenantId),
+    ]);
     return {
       tenantId,
       tenantName: tenant.name,
@@ -167,6 +198,7 @@ export class AdminTenantResetService {
       series,
       blockers,
       warnings,
+      files,
     };
   }
 
@@ -200,10 +232,7 @@ export class AdminTenantResetService {
 
     const counts = await this.counts(tenantId);
     // Conversaciones de WhatsApp de inquilinos: sus archivos se borran después.
-    const waConversations = await this.admin.whatsappConversation.findMany({
-      where: { tenantId, customerId: { not: null } },
-      select: { id: true },
-    });
+    const waConversations = await this.waConversationIds(tenantId);
     const customerEmails = (
       await this.admin.customer.findMany({
         where: { tenantId, email: { not: null } },
@@ -254,10 +283,7 @@ export class AdminTenantResetService {
       { timeout: 120_000, maxWait: 10_000 },
     );
 
-    const filesDeleted = await this.deleteFiles(
-      tenantId,
-      waConversations.map((c) => c.id),
-    );
+    const filesDeleted = await this.deleteFiles(tenantId, waConversations);
 
     const result: TenantResetResultDto = { counts, unitsFreed, seriesReset, filesDeleted };
     await this.audit.record({
@@ -272,6 +298,11 @@ export class AdminTenantResetService {
     });
     this.logger.warn(
       `Datos de prueba borrados del tenant ${tenant.slug}: ${JSON.stringify(result.counts)}`,
+    );
+    await this.notifyDone(tenant, input.reason, result).catch((err: unknown) =>
+      this.logger.warn(
+        `[tenant-reset] resumen no enviado: ${err instanceof Error ? err.message : String(err)}`,
+      ),
     );
     return result;
   }
@@ -428,22 +459,126 @@ export class AdminTenantResetService {
     }
   }
 
-  /** PDF, documentos, fotos, adjuntos e informes; nunca las exportaciones. */
-  private async deleteFiles(tenantId: string, waConversationIds: string[]): Promise<number> {
-    const tasks: Promise<number>[] = [
-      this.files.deleteByPrefix('invoices', `${tenantId}/invoices/`),
-      this.files.deleteByPrefix('uploads', `${tenantId}/customers/`),
-      this.files.deleteByPrefix('uploads', `${tenantId}/contracts/`),
-      this.files.deleteByPrefix('uploads', `${tenantId}/collections/`),
-      this.files.deleteByPrefix('uploads', `${tenantId}/chat/`),
-      this.files.deleteByPrefix('reports', `${tenantId}/`, (key) =>
-        key.startsWith(`${tenantId}/exports/`),
-      ),
-      ...waConversationIds.map((id) =>
-        this.files.deleteByPrefix('uploads', `${tenantId}/whatsapp/${id}/`),
+  /**
+   * Deja constancia para el super admin: aviso en el panel y resumen por correo
+   * al email de alertas (si está configurado).
+   */
+  private async notifyDone(
+    tenant: { id: string; name: string; slug: string },
+    reason: string,
+    result: TenantResetResultDto,
+  ): Promise<void> {
+    const lines = TENANT_RESET_COUNT_KEYS.filter((k) => result.counts[k] > 0).map(
+      (k) => `- ${result.counts[k]} ${COUNT_LABELS[k]}`,
+    );
+    const summary = lines.length > 0 ? lines.join('\n') : '- No había nada que borrar.';
+    const title = `Datos de prueba borrados: ${tenant.name}`;
+    await this.admin.superAdminNotification.create({
+      data: {
+        type: 'tenant.reset',
+        title,
+        body: `${reason} — ${lines.length} tipos de datos, ${result.filesDeleted} ficheros`,
+        link: `/admin/tenants/${tenant.id}`,
+      },
+    });
+    const settings = await this.admin.platformAlertSettings.findFirst({
+      select: { alertEmail: true },
+    });
+    const to = settings?.alertEmail?.trim();
+    if (!to) return;
+    const text = [
+      `Se han borrado los datos de prueba de ${tenant.name} (${tenant.slug}).`,
+      '',
+      `Motivo: ${reason}`,
+      '',
+      summary,
+      `- ${result.filesDeleted} ficheros`,
+      `- ${result.unitsFreed} trasteros vuelven a estar libres`,
+      `- ${result.seriesReset} series de facturación empiezan en 1`,
+      '',
+      'Se conservan los locales, los trasteros, los productos, los contactos, los usuarios y la configuración.',
+    ].join('\n');
+    const html = `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:14px;color:#111;line-height:1.6">${text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>')}</div>`;
+    await this.emailQueue.add(JOB_EMAIL_SEND, {
+      to,
+      kind: 'staff_notice',
+      subject: title,
+      html,
+      text,
+    });
+  }
+
+  /**
+   * Ficheros que se borran: PDF, documentos, fotos, adjuntos e informes; nunca
+   * las exportaciones. La misma lista sirve para la vista previa y el borrado.
+   */
+  private fileTargets(tenantId: string, waConversationIds: string[]): FileTarget[] {
+    return [
+      { label: 'PDF de facturas', bucket: 'invoices', prefix: `${tenantId}/invoices/` },
+      {
+        label: 'Documentos de los inquilinos',
+        bucket: 'uploads',
+        prefix: `${tenantId}/customers/`,
+      },
+      {
+        label: 'Contratos y fotos de inspección',
+        bucket: 'uploads',
+        prefix: `${tenantId}/contracts/`,
+      },
+      { label: 'Expedientes de impago', bucket: 'uploads', prefix: `${tenantId}/collections/` },
+      { label: 'Adjuntos de los mensajes', bucket: 'uploads', prefix: `${tenantId}/chat/` },
+      {
+        label: 'Informes',
+        bucket: 'reports',
+        prefix: `${tenantId}/`,
+        skip: (key) => key.startsWith(`${tenantId}/exports/`),
+      },
+      ...waConversationIds.map(
+        (id): FileTarget => ({
+          label: 'Archivos de WhatsApp',
+          bucket: 'uploads',
+          prefix: `${tenantId}/whatsapp/${id}/`,
+        }),
       ),
     ];
-    const results = await Promise.allSettled(tasks);
+  }
+
+  private async waConversationIds(tenantId: string): Promise<string[]> {
+    const rows = await this.admin.whatsappConversation.findMany({
+      where: { tenantId, customerId: { not: null } },
+      select: { id: true },
+    });
+    return rows.map((c) => c.id);
+  }
+
+  /** Cuántos ficheros se borrarían, agrupados por tipo. */
+  private async fileSummary(tenantId: string): Promise<TenantResetFilesDto[]> {
+    const targets = this.fileTargets(tenantId, await this.waConversationIds(tenantId));
+    const sizes = await Promise.allSettled(
+      targets.map((t) => this.files.sizeByPrefix(t.bucket, t.prefix, t.skip)),
+    );
+    const byLabel = new Map<string, TenantResetFilesDto>();
+    sizes.forEach((r, i) => {
+      if (r.status !== 'fulfilled') return;
+      const label = targets[i]!.label;
+      const row = byLabel.get(label) ?? { label, objects: 0, bytes: 0 };
+      row.objects += r.value.objects;
+      row.bytes += r.value.bytes;
+      byLabel.set(label, row);
+    });
+    return [...byLabel.values()].filter((r) => r.objects > 0);
+  }
+
+  private async deleteFiles(tenantId: string, waConversationIds: string[]): Promise<number> {
+    const results = await Promise.allSettled(
+      this.fileTargets(tenantId, waConversationIds).map((t) =>
+        this.files.deleteByPrefix(t.bucket, t.prefix, t.skip),
+      ),
+    );
     let total = 0;
     for (const r of results) {
       if (r.status === 'fulfilled') total += r.value;

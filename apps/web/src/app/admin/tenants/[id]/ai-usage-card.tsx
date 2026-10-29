@@ -8,6 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useAdminTenantAiUsage, useUpdateAdminTenantAiLimit } from '@/lib/admin/ai-hooks';
 import { useAdminTenantFeatures } from '@/lib/admin/hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
@@ -32,6 +39,17 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
   if (!u || (!hasAi && u.used === 0)) return null;
   const pct = u.limit > 0 ? Math.min(100, Math.round((u.used / u.limit) * 100)) : 100;
 
+  async function setMode(mode: 'platform' | 'own') {
+    try {
+      await update.mutateAsync({ mode });
+      toast.success(
+        mode === 'own' ? 'Ahora usa su propia clave de IA.' : 'Ahora usa la IA de TrasterOS.',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
   async function save() {
     try {
       await update.mutateAsync({
@@ -54,6 +72,10 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
           {formatNumber(u.used)} de {formatNumber(u.limit)} consultas este mes
           {u.extra > 0 ? ` (${formatNumber(u.extra)} de extras)` : ''}
           {u.customLimit ? ', con límite propio' : ''}. Se reinicia el {formatDate(u.resetsOn)}.
+          {u.ownQueries > 0 && ` ${formatNumber(u.ownQueries)} con su propia clave.`}
+          {u.ownKeyConfigured
+            ? ' Tiene su propia clave (se usa al gastar el límite).'
+            : ' No tiene clave propia.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -75,6 +97,27 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
             }
             style={{ width: `${pct}%` }}
           />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ai-tenant-mode">IA que usa</Label>
+          <Select
+            value={u.mode}
+            onValueChange={(v) => void setMode(v as 'platform' | 'own')}
+            disabled={update.isPending || !canEdit}
+          >
+            <SelectTrigger id="ai-tenant-mode" className="w-full sm:w-80">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="platform">La de TrasterOS, con su límite</SelectItem>
+              <SelectItem value="own">Siempre su propia clave (sin límite)</SelectItem>
+            </SelectContent>
+          </Select>
+          {u.mode === 'own' && !u.ownKeyConfigured && (
+            <p className="text-xs text-red-600">
+              No tiene clave: el asistente no responderá hasta que la añada.
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">

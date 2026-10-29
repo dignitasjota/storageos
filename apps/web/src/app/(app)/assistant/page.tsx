@@ -352,6 +352,22 @@ function ActionCard({ action }: { action: AiPendingActionDto }) {
 
 /** «Este mes: 120 de 300 consultas», en ámbar al 80 % y en rojo al llegar. */
 function UsageLine({ usage }: { usage: AiUsageDto }) {
+  if (usage.mode === 'own') {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">
+        Usáis vuestra propia clave de IA
+        {usage.ownQueries > 0 ? `: ${formatNumber(usage.ownQueries)} consultas este mes` : ''}.
+      </p>
+    );
+  }
+  if (usage.used >= usage.limit && usage.ownKeyConfigured) {
+    return (
+      <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+        Se han usado las {formatNumber(usage.limit)} consultas del mes: el asistente sigue con
+        vuestra propia clave hasta el {formatDate(usage.resetsOn)}.
+      </p>
+    );
+  }
   const left = Math.max(0, usage.limit - usage.used);
   const ratio = usage.limit > 0 ? usage.used / usage.limit : 1;
   const tone =

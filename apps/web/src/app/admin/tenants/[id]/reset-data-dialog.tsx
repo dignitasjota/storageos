@@ -138,6 +138,25 @@ export function ResetDataDialog({
               </p>
             </div>
 
+            {p.files.length > 0 && (
+              <div>
+                <p className="mb-1.5 font-medium">Ficheros que se borran</p>
+                <ul className="space-y-1">
+                  {p.files.map((f) => (
+                    <li key={f.label} className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">{f.label}</span>
+                      <span className="font-medium tabular-nums">
+                        {formatNumber(f.objects)} · {formatBytes(f.bytes)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Las exportaciones de datos se conservan.
+                </p>
+              </div>
+            )}
+
             <div>
               <p className="mb-1.5 font-medium">Se conserva</p>
               <p className="text-muted-foreground">
@@ -245,4 +264,11 @@ export function ResetDataDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1).replace('.', ',')} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1).replace('.', ',')} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1).replace('.', ',')} GB`;
 }

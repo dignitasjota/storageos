@@ -77,4 +77,12 @@ export abstract class AiProvider {
     }
     return completion;
   }
+
+  /**
+   * El proveedor con otra clave y modelo (la clave propia de un tenant). Por
+   * defecto el mismo (el de demostración no sale a la red).
+   */
+  forKey(_apiKey: string, _model: string): AiProvider {
+    return this;
+  }
 }

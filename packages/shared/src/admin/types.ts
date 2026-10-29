@@ -1354,6 +1354,18 @@ export interface AdminFinanceOverviewDto {
   monthly: AdminFinanceMonthDto[];
   /** Los mismos meses justo antes, para comparar. */
   previous: { collectedTotal: number; refundedTotal: number; invoicedTotal: number };
+  /** Asistente IA este mes: lo que pagan por él y lo que nos cuesta. */
+  ai: AdminFinanceAiDto;
+}
+
+export interface AdminFinanceAiDto {
+  /** Al mes, por el extra del asistente y los de consultas (€). */
+  revenueMonthly: number;
+  /** Coste estimado del mes en curso con la IA de la plataforma (USD). */
+  costUsdThisMonth: number;
+  /** Consultas del mes con la IA de la plataforma y con la clave de cada tenant. */
+  queriesThisMonth: number;
+  ownKeyQueriesThisMonth: number;
 }
 
 /** Analítica global de un add-on del catálogo (cross-tenant). */
@@ -1682,6 +1694,11 @@ export interface AdminTenantUsageRowDto {
     costUsd: number;
     /** Llamadas con la clave de IA propia del tenant (no nos cuestan). */
     ownKeyCalls: number;
+    /** Consultas del asistente del panel este mes y su límite (null = sin el asistente). */
+    queriesThisMonth: number;
+    queryLimit: number | null;
+    /** Lo que paga al mes por la IA: el extra del asistente y los de consultas (€). */
+    revenueMonthly: number;
   };
   storage: {
     bytes: number;
@@ -1696,6 +1713,8 @@ export interface AdminUsageDto {
   totals: {
     emailsSent: number;
     aiCostUsd: number;
+    /** Lo que pagan al mes por la IA todos los tenants (€). */
+    aiRevenueMonthly: number;
     storageBytes: number;
   };
   aiPricing: { inputPerMTokUsd: number; outputPerMTokUsd: number };

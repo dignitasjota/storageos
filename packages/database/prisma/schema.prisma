@@ -487,6 +487,10 @@ model Tenant {
   aiMonthlyLimit  Int?    @map("ai_monthly_limit")
   /// Último aviso de consumo de IA (AAAA-MM:80 o AAAA-MM:100).
   aiLimitNotified String? @map("ai_limit_notified")
+  /// IA del asistente del panel: platform | own (lo decide el super admin).
+  aiMode                String  @default("platform") @map("ai_mode")
+  aiOwnApiKeyEncrypted  String? @map("ai_own_api_key_encrypted")
+  aiOwnModel            String? @map("ai_own_model")
   createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5889,6 +5893,8 @@ model AiUsageEvent {
   countsAsQuery Boolean @default(false) @map("counts_as_query")
   /// Inquilino que pregunta (chatbot del área de clientes).
   customerId   String?  @map("customer_id") @db.Uuid
+  /// Con la clave propia del tenant (no cuenta para el límite ni el coste).
+  ownKey       Boolean  @default(false) @map("own_key")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)

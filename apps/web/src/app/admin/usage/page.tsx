@@ -40,6 +40,8 @@ function formatBytes(bytes: number): string {
 const usd = (n: number) =>
   `$${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const num = (n: number) => n.toLocaleString('es-ES');
+const eur = (n: number) =>
+  n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 });
 const emailAlert = (r: AdminTenantUsageRowDto) =>
   r.email.complaints > 0 || (r.email.bounceRate ?? 0) > BOUNCE_ALERT;
 
@@ -121,6 +123,11 @@ export default function AdminUsagePage() {
               label={`Coste estimado de IA (${data.days} días, sin las claves propias)`}
               value={usd(data.totals.aiCostUsd)}
               hint={`$${data.aiPricing.inputPerMTokUsd} / $${data.aiPricing.outputPerMTokUsd} por millón de tokens`}
+            />
+            <Kpi
+              label="Ingresos por IA al mes"
+              value={eur(data.totals.aiRevenueMonthly)}
+              hint="Extra del asistente y de consultas"
             />
             <Kpi
               label="Almacenamiento total"
@@ -267,6 +274,18 @@ function UsageRow({ r }: { r: AdminTenantUsageRowDto }) {
               </span>
             )}
           </>
+        )}
+        {r.ai.queryLimit != null && (
+          <div className="text-muted-foreground">
+            <span
+              className={
+                r.ai.queriesThisMonth >= r.ai.queryLimit ? 'font-medium text-red-600' : undefined
+              }
+            >
+              {num(r.ai.queriesThisMonth)} de {num(r.ai.queryLimit)} consultas este mes
+            </span>
+            {r.ai.revenueMonthly > 0 && ` · paga ${eur(r.ai.revenueMonthly)}/mes`}
+          </div>
         )}
       </div>
       <div className="text-xs md:text-right">
