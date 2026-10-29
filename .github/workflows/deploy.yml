@@ -29,7 +29,7 @@ concurrency:
 jobs:
   trigger-redeploy:
     name: Disparar redeploy de Portainer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: POST al webhook de Portainer
         env:

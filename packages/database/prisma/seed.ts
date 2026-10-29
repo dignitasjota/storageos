@@ -58,6 +58,7 @@ async function seedPlans() {
         'access_control',
         'automations',
         'collections',
+        'business_reminders',
       ],
     },
     {
@@ -81,6 +82,7 @@ async function seedPlans() {
         'collections',
         'cameras',
         'branded_panel',
+        'business_reminders',
       ],
     },
     {
@@ -105,6 +107,7 @@ async function seedPlans() {
         'cameras',
         'branded_panel',
         'multi_owner',
+        'business_reminders',
       ],
     },
   ];

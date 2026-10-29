@@ -995,3 +995,12 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - Tabla `customer_authorized_persons` (RLS): personas autorizadas por el inquilino (nombre, documento, teléfono, relación, puede entrar / recoger / gestionar, notas). Se borran al anonimizar al inquilino o al tenant.
 - `contracts.end_date_before_ending` (migración `20261122100000_portal_review`): fecha de fin que tenía el contrato antes de pedir la baja; se devuelve al cancelarla.
 - Migración `20261123100000_portal_improvements`: `unit_change_requests.target_unit_id` (FK SET NULL a `units`, el trastero libre que elige el inquilino) y `desired_date`; `customers.whatsapp_opt_out_at` (no quiere avisos por WhatsApp: el outbox los deja `skipped`); `redsys_orders.extra_invoice_ids UUID[]` (otras facturas del mismo inquilino pagadas en la misma orden, «Pagar todo»).
+
+
+### Vencimientos y avisos (2026-10-29, migración `20261124100000_business_reminders`)
+
+- `business_reminders` (RLS): título, `category`, `due_date` (DATE), `recurrence` + `interval_months`, `notify_days_before` INT[] (por defecto 30/7/1/0), `notify_email`/`notify_in_app`/`notify_push`, `recipient_mode` (`managers`|`users`) + `recipient_user_ids` UUID[], `extra_emails` TEXT[], `overdue_reminders` + `overdue_max_days` (7), `amount`, `vendor`, `link`, `notes`, `facility_id` (SET NULL; null = toda la empresa), `status` (`active`|`paused`|`done`), `snoozed_until` (DATE), `template_key` (`fiscal_303:4-20`, `business_domain`…) y `created_by_user_id` (SET NULL).
+- `business_reminder_completions` (RLS): cada vez que se marca hecho — fecha que vencía, quién y cuándo, nota, importe, `expense_id` (SET NULL) y justificante (`receipt_key` en `uploads`, nombre y tipo).
+- `business_reminder_notices` (RLS): avisos enviados, único por (`reminder_id`, `due_date`, `kind`); `kind` = `d<días>`, `overdue:<fecha>` o `snooze:<fecha>`.
+- `tenants.reminders_weekly_digest` (false), `reminders_digest_last_date`, `reminders_ics_token_hash` (único, sha256 del token del calendario) y `reminders_ics_token_encrypted` (AES-GCM, AAD = tenant, para volver a enseñar el enlace).
+- Planes: la migración añade `business_reminders` a `subscription_plans.tenant_features` de `starter`, `pro` y `administrador`.

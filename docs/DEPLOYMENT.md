@@ -1502,3 +1502,10 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Migración `20261123100000_portal_improvements` (se aplica sola). Dependencia nueva del API: `jszip` (ZIP de las facturas del año). Redesplegar api, worker y web.
 - Sin variables nuevas. El cambio de email del inquilino guarda el enlace en Redis 24 h (`portal:emailchange:<id>`).
 - Los ZIP de facturas se guardan en `reports` bajo `<tenant>/exports/` y los borra el cron de limpieza a los 2 días.
+
+## 55. Vencimientos y avisos (2026-10-29)
+
+- Migración `20261124100000_business_reminders` (se aplica sola). Añade la función a los planes Starter, Pro y Administrador de la instancia viva; el bootstrap la mantiene en cada despliegue. Redesplegar api, worker y web.
+- Sin variables nuevas. El enlace del calendario usa `API_BASE_URL` (`https://api.trasteros.pro/v1/public/reminders-calendar/<token>`): comprobar que esa URL es pública (el Proxy Host del API ya lo cubre).
+- Los avisos salen del API (cron horario, a partir de las 8:00 de cada negocio). El correo al equipo usa el remitente «Avisos al equipo» de Correo saliente; el de los correos de fuera (asesoría), el del negocio.
+- Tras desplegar: entrar en un tenant de pago → Operaciones diarias → Vencimientos, añadir una plantilla y comprobar que llega el aviso al día siguiente a las 8:00.

@@ -45,7 +45,14 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
     maxFacilities: 3,
     maxUsers: 10,
     features: { support: 'email', branding: false, api: false },
-    tenantFeatures: ['rent_increases', 'insurance', 'access_control', 'automations', 'collections'],
+    tenantFeatures: [
+      'rent_increases',
+      'insurance',
+      'access_control',
+      'automations',
+      'collections',
+      'business_reminders',
+    ],
   },
   {
     name: 'Pro',
@@ -68,6 +75,7 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
       'collections',
       'cameras',
       'branded_panel',
+      'business_reminders',
     ],
   },
   {
@@ -92,6 +100,7 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
       'cameras',
       'branded_panel',
       'multi_owner',
+      'business_reminders',
     ],
   },
 ];

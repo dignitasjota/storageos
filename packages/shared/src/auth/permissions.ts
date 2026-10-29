@@ -65,6 +65,8 @@ export const Permissions = [
   'collections:manage', // gestionar expedientes de impago (owner+manager)
   'expenses:read',
   'expenses:manage', // registrar/editar gastos (owner+manager, contabilidad)
+  'reminders:read',
+  'reminders:manage', // vencimientos del negocio (owner+manager)
   'marketing:read',
   'marketing:manage', // canales/campañas de captación (owner+manager)
   'referrals:read',
@@ -180,6 +182,7 @@ export const PERMISSION_RESOURCE_LABELS: Record<string, string> = {
   insurance: 'Seguros',
   collections: 'Impagos',
   expenses: 'Gastos',
+  reminders: 'Vencimientos',
   marketing: 'Marketing',
   referrals: 'Referidos',
   access: 'Accesos',
@@ -261,6 +264,7 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
       'collections:read',
       'access:read',
       'reports:read',
+      'reminders:read',
       'ai:use',
       'notifications:read',
     ],
@@ -280,6 +284,8 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
       'payments:charge',
       'expenses:read',
       'expenses:manage',
+      'reminders:read',
+      'reminders:manage',
       'collections:read',
       'reports:read',
       'reports:run',

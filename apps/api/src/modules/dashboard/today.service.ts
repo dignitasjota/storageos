@@ -3,6 +3,8 @@ import { Injectable } from '@nestjs/common';
 import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
 import { CONFIRMED_START_WHERE } from '../../common/pre-opening';
+import { tenantFeatures } from '../../common/tenant-features';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -40,9 +42,15 @@ const RGPD_REQUEST_LABELS: Record<string, string> = {
   restriction: 'Pide limitar el uso de sus datos',
 };
 
+/** Vencimientos del negocio que salen en «Hoy»: los vencidos y los de 7 días. */
+const REMINDERS_SOON_DAYS = 7;
+
 @Injectable()
 export class TodayService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
+  ) {}
 
   async getToday(
     tenantId: string,
@@ -69,6 +77,8 @@ export class TodayService {
     // (@db.Date) se comparan con la medianoche UTC de ese día.
     const startOfToday = todayInTimezone(tenantRow?.timezone ?? 'Europe/Madrid', now);
     const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000);
+    // Vencimientos del negocio (función de los planes de pago).
+    const remindersOn = (await tenantFeatures(this.admin, tenantId)).includes('business_reminders');
     const startOfTomorrow = addDays(startOfToday, 1);
     const contractsLimit = addDays(startOfToday, SOON_DAYS);
     const reservationsLimit = new Date(now.getTime() + RESERVATION_SOON_DAYS * 86_400_000);
@@ -602,6 +612,29 @@ export class TodayService {
       // Inventario: stock bajo, trasteros parados y documentos que caducan.
       const outOfServiceCut = new Date(now.getTime() - OUT_OF_SERVICE_DAYS * 86_400_000);
       const docsLimit = new Date(now.getTime() + 30 * 86_400_000);
+      const remindersLimit = addDays(startOfToday, REMINDERS_SOON_DAYS);
+      const reminders = remindersOn
+        ? await tx.businessReminder.findMany({
+            where: {
+              status: 'active',
+              dueDate: { lte: remindersLimit },
+              AND: [
+                facOwn,
+                mine && userId
+                  ? { OR: [{ recipientMode: 'managers' }, { recipientUserIds: { has: userId } }] }
+                  : {},
+              ],
+            },
+            orderBy: { dueDate: 'asc' },
+            select: {
+              id: true,
+              title: true,
+              dueDate: true,
+              amount: true,
+              facility: { select: { name: true } },
+            },
+          })
+        : [];
       const [stocks, parked, docs, preOpeningFacilities] = await Promise.all([
         tx.productStock.findMany({
           where: {
@@ -729,6 +762,7 @@ export class TodayService {
         marketingRenewalsCount +
         retentionOffersCount +
         docs.filter((d) => d.expiresOn! < startOfToday).length +
+        reminders.filter((r) => r.dueDate <= startOfToday).length +
         preOpeningSoon.filter((x) => x.pastDeadline > 0).length;
 
       return {
@@ -905,6 +939,22 @@ export class TodayService {
             detail: `${u.facility.name} · ${u.status === 'maintenance' ? 'mantenimiento' : 'bloqueado'} desde hace ${Math.floor((now.getTime() - u.since.getTime()) / 86_400_000)} días`,
             date: u.maintenanceUntil ? u.maintenanceUntil.toISOString() : null,
             overdue: !!u.maintenanceUntil && u.maintenanceUntil < startOfToday,
+          })),
+        },
+        businessRemindersDue: {
+          count: reminders.length,
+          items: reminders.slice(0, TAKE).map((r) => ({
+            id: r.id,
+            label: r.title,
+            detail:
+              [
+                r.facility?.name,
+                r.amount !== null ? `${Number(r.amount).toFixed(2).replace('.', ',')} €` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ') || null,
+            date: r.dueDate.toISOString(),
+            overdue: r.dueDate < startOfToday,
           })),
         },
         facilityDocumentsExpiring: {

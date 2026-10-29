@@ -25,6 +25,7 @@ export const TenantFeatures = [
   'whatsapp_business', // WhatsApp del negocio en su web + bandeja en el panel — SOLO add-on
   'local_seo', // páginas de zona, revisión de SEO, posiciones e informe — SOLO add-on
   'branded_panel', // panel del equipo con el logo y nombre del tenant (también la app instalada)
+  'business_reminders', // /reminders: vencimientos del negocio con avisos (planes de pago)
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -38,7 +39,14 @@ export type TenantFeature = (typeof TenantFeatures)[number];
  */
 export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
   free: [],
-  starter: ['rent_increases', 'insurance', 'access_control', 'automations', 'collections'],
+  starter: [
+    'rent_increases',
+    'insurance',
+    'access_control',
+    'automations',
+    'collections',
+    'business_reminders',
+  ],
   pro: [
     'ai_assistant',
     'sepa',
@@ -51,6 +59,7 @@ export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
     'collections',
     'cameras',
     'branded_panel',
+    'business_reminders',
   ],
   /** Todo Pro + varios propietarios (administradores de cartera). */
   administrador: [
@@ -66,6 +75,7 @@ export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
     'cameras',
     'branded_panel',
     'multi_owner',
+    'business_reminders',
   ],
 };
 
@@ -144,4 +154,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   whatsapp_business: 'WhatsApp Business',
   local_seo: 'SEO local',
   branded_panel: 'Panel con tu marca',
+  business_reminders: 'Vencimientos y avisos',
 };
