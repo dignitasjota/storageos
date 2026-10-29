@@ -31,6 +31,6 @@ export class AdCampaignDraftController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: SuggestAdCampaignDto,
   ): Promise<AdCampaignDraftDto> {
-    return this.ai.suggestAdCampaign({ tenantId: user.tenantId, input: body });
+    return this.ai.suggestAdCampaign({ tenantId: user.tenantId, input: body, userId: user.sub });
   }
 }

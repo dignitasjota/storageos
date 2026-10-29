@@ -20,6 +20,7 @@ import {
   type AiProvider,
   type AiToolResultBlock,
 } from './ai-provider';
+import { AiQuotaService } from './ai-quota.service';
 import { type AiToolContext, AiToolsService } from './ai-tools.service';
 import {
   applySuggestedActionsRanking,
@@ -33,6 +34,7 @@ import type {
   AiConversationDto,
   AiMessageDto,
   AiPendingActionDto,
+  AiUsageDto,
   ChatInput,
   ChatResultDto,
   Permission,
@@ -134,7 +136,46 @@ export class AiService {
     private readonly actions: AiActionsService,
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
     private readonly admin: PrismaAdminService,
+    private readonly quota: AiQuotaService,
   ) {}
+
+  usage(tenantId: string, userId: string): Promise<AiUsageDto> {
+    return this.quota.usage(tenantId, userId);
+  }
+
+  /** Reserva la consulta del chat (antes de abrir el stream): 429 si no quedan. */
+  reserveChat(tenantId: string, userId: string): Promise<string> {
+    return this.quota.reserve({
+      tenantId,
+      userId,
+      feature: 'chat',
+      model: this.provider.modelName,
+    });
+  }
+
+  /** Devuelve una consulta reservada si la respuesta no llegó a generarse. */
+  releaseQuota(reservationId: string): Promise<void> {
+    return this.quota.release(reservationId);
+  }
+
+  /** Reserva una consulta, llama al modelo y la devuelve si la llamada falla. */
+  private async withQuota<T>(
+    reserve: {
+      tenantId: string;
+      feature: string;
+      userId?: string | null;
+      customerId?: string | null;
+    },
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const id = await this.quota.reserve({ ...reserve, model: this.provider.modelName });
+    try {
+      return await fn();
+    } catch (err) {
+      await this.quota.release(id);
+      throw err;
+    }
+  }
 
   /**
    * Guarda los tokens de una llamada al modelo (para el panel del super admin).
@@ -156,6 +197,8 @@ export class AiService {
           model: this.provider.modelName,
           inputTokens: completion.usage.inputTokens,
           outputTokens: completion.usage.outputTokens,
+          // La consulta ya cuenta por su reserva; esto son solo los tokens.
+          countsAsQuery: false,
         },
       })
       .catch((err: unknown) => {
@@ -177,11 +220,15 @@ export class AiService {
     user: string;
   }): Promise<string> {
     this.assertAvailable();
-    const completion = await this.provider.createMessage({
-      system: args.system,
-      messages: [{ role: 'user', content: args.user }],
-      tools: [],
-    });
+    const completion = await this.withQuota(
+      { tenantId: args.tenantId, userId: args.userId, feature: args.feature },
+      () =>
+        this.provider.createMessage({
+          system: args.system,
+          messages: [{ role: 'user', content: args.user }],
+          tools: [],
+        }),
+    );
     this.recordUsage(args.tenantId, args.userId, args.feature, completion);
     return completion.content
       .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
@@ -202,7 +249,9 @@ export class AiService {
 
   async chat(args: ChatArgs): Promise<ChatResultDto> {
     this.assertAvailable();
-    return this.runChat(args);
+    return this.withQuota({ tenantId: args.tenantId, userId: args.userId, feature: 'chat' }, () =>
+      this.runChat(args),
+    );
   }
 
   /**
@@ -264,6 +313,7 @@ export class AiService {
       const completion = hooks
         ? await this.provider.streamMessage(request, hooks.onText)
         : await this.provider.createMessage(request);
+      // Solo la primera vuelta es la consulta; las de herramientas no cuentan.
       this.recordUsage(tenantId, userId, 'chat', completion);
       messages.push({ role: 'assistant', content: completion.content });
 
@@ -326,6 +376,7 @@ export class AiService {
   async suggestReply(args: {
     tenantId: string;
     customerId: string;
+    userId?: string | null;
   }): Promise<{ suggestion: string }> {
     if (!this.provider.available) {
       throw new ServiceUnavailableException({
@@ -334,6 +385,7 @@ export class AiService {
       });
     }
     const { tenantId, customerId } = args;
+
     const ctx = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findFirst({
         where: { id: customerId, deletedAt: null },
@@ -396,12 +448,16 @@ ${threadText}
 
 Redacta la respuesta al inquilino:`;
 
-    const completion = await this.provider.createMessage({
-      system: SUGGEST_REPLY_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: contextText }],
-      tools: [],
-    });
-    this.recordUsage(args.tenantId, null, 'suggest_reply', completion);
+    const completion = await this.withQuota(
+      { tenantId: args.tenantId, userId: args.userId ?? null, feature: 'suggest_reply' },
+      () =>
+        this.provider.createMessage({
+          system: SUGGEST_REPLY_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: contextText }],
+          tools: [],
+        }),
+    );
+    this.recordUsage(args.tenantId, args.userId ?? null, 'suggest_reply', completion);
     const suggestion = completion.content
       .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
       .map((b) => b.text)
@@ -420,6 +476,7 @@ Redacta la respuesta al inquilino:`;
   async suggestAdCampaign(args: {
     tenantId: string;
     input: SuggestAdCampaignInput;
+    userId?: string | null;
   }): Promise<AdCampaignDraftDto> {
     if (!this.provider.available) {
       throw new ServiceUnavailableException({
@@ -498,12 +555,16 @@ ${promoText}
 
 Redacta el borrador de campaña:`;
 
-    const completion = await this.provider.createMessage({
-      system: AD_CAMPAIGN_SYSTEM_PROMPTS[input.platform],
-      messages: [{ role: 'user', content: contextText }],
-      tools: [],
-    });
-    this.recordUsage(args.tenantId, null, 'ad_campaign', completion);
+    const completion = await this.withQuota(
+      { tenantId: args.tenantId, userId: args.userId ?? null, feature: 'ad_campaign' },
+      () =>
+        this.provider.createMessage({
+          system: AD_CAMPAIGN_SYSTEM_PROMPTS[input.platform],
+          messages: [{ role: 'user', content: contextText }],
+          tools: [],
+        }),
+    );
+    this.recordUsage(args.tenantId, args.userId ?? null, 'ad_campaign', completion);
     const draft = completion.content
       .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
       .map((b) => b.text)
@@ -528,6 +589,8 @@ Redacta el borrador de campaña:`;
   ): Promise<SuggestedActionDto[] | null> {
     if (actions.length < 2) return null;
     if (!(await this.isAiEnabled(tenantId))) return null;
+    // Lo que la IA hace sola no gasta consultas, pero tampoco sigue si no quedan.
+    if (!(await this.quota.hasRoom(tenantId))) return null;
     let timer: NodeJS.Timeout | undefined;
     try {
       const completion = await Promise.race([
@@ -668,11 +731,14 @@ Datos del inquilino (${custName}):
       role: m.role,
       content: m.content,
     }));
-    const completion = await this.provider.createMessage({
-      system,
-      messages: [...history, { role: 'user', content: input.message }],
-      tools: [],
-    });
+    // Cuenta para el tenant y para el tope diario de este inquilino.
+    const completion = await this.withQuota({ tenantId, customerId, feature: 'portal' }, () =>
+      this.provider.createMessage({
+        system,
+        messages: [...history, { role: 'user', content: input.message }],
+        tools: [],
+      }),
+    );
     this.recordUsage(args.tenantId, null, 'portal', completion);
     const answer = completion.content
       .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')

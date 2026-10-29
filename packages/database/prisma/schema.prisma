@@ -483,6 +483,10 @@ model Tenant {
   /// Reparto automático de contactos nuevos: off | round_robin | facility.
   leadAutoAssign               String                @default("off") @map("lead_auto_assign")
   deletedAt                    DateTime?             @map("deleted_at") @db.Timestamptz(6)
+  /// Límite mensual de consultas del asistente IA (null = el general + extras).
+  aiMonthlyLimit  Int?    @map("ai_monthly_limit")
+  /// Último aviso de consumo de IA (AAAA-MM:80 o AAAA-MM:100).
+  aiLimitNotified String? @map("ai_limit_notified")
   createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5881,6 +5885,10 @@ model AiUsageEvent {
   model        String
   inputTokens  Int      @default(0) @map("input_tokens")
   outputTokens Int      @default(0) @map("output_tokens")
+  /// La primera llamada de cada pregunta: cuenta para el límite mensual.
+  countsAsQuery Boolean @default(false) @map("counts_as_query")
+  /// Inquilino que pregunta (chatbot del área de clientes).
+  customerId   String?  @map("customer_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -6029,6 +6037,8 @@ model SubscriptionAddon {
   grantsUnits      Int?     @map("grants_units")
   grantsFacilities Int?     @map("grants_facilities")
   grantsUsers      Int?     @map("grants_users")
+  /// Consultas al mes del asistente IA que añade (por unidad).
+  grantsAiQueries  Int?     @map("grants_ai_queries")
   /// Mapeo a Stripe (se autocrea al pasar el add-on a modo Stripe; null = sin Price).
   stripePriceId    String?  @map("stripe_price_id")
   stripeProductId  String?  @map("stripe_product_id")
@@ -6303,6 +6313,19 @@ model WhatsappMessage {
 }
 
 /// IA de WhatsApp de la plataforma (un registro; distinta de la del panel).
+/// IA del asistente del panel (un registro). Tabla global (REVOKE).
+model PlatformAiSettings {
+  id                String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  apiKeyEncrypted   String?  @map("api_key_encrypted")
+  model             String?
+  monthlyQueryLimit Int      @default(300) @map("monthly_query_limit")
+  dailyUserLimit    Int      @default(50) @map("daily_user_limit")
+  portalDailyLimit  Int      @default(20) @map("portal_daily_limit")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_ai_settings")
+}
+
 model PlatformWhatsappAiSettings {
   id                String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   enabled           Boolean  @default(false)

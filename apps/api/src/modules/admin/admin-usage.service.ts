@@ -49,7 +49,8 @@ export class AdminUsageService {
       }),
       this.admin.aiUsageEvent.groupBy({
         by: ['tenantId', 'feature'],
-        where: { createdAt: { gte: since } },
+        // Solo las llamadas al modelo (no las reservas de consulta del límite).
+        where: { createdAt: { gte: since }, countsAsQuery: false },
         _count: { _all: true },
         _sum: { inputTokens: true, outputTokens: true },
       }),

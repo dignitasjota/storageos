@@ -19,6 +19,7 @@ import {
 } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { currentMonth } from '../../common/format';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -74,29 +75,7 @@ export function bookingCodes(
   return out;
 }
 
-/** Mes en curso (AAAA-MM) y su comienzo (medianoche del día 1 en hora de Madrid). */
-export function currentMonth(now = new Date()): { key: string; start: Date } {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Madrid',
-    year: 'numeric',
-    month: '2-digit',
-  }).formatToParts(now);
-  const y = Number(parts.find((p) => p.type === 'year')?.value);
-  const m = Number(parts.find((p) => p.type === 'month')?.value);
-  // Diferencia de Madrid con UTC ese día (1 h en invierno, 2 en verano).
-  const guess = new Date(Date.UTC(y, m - 1, 1));
-  const madridHour = Number(
-    new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Europe/Madrid',
-      hour: '2-digit',
-      hourCycle: 'h23',
-    }).format(guess),
-  );
-  return {
-    key: `${y}-${String(m).padStart(2, '0')}`,
-    start: new Date(guess.getTime() - madridHour * 3_600_000),
-  };
-}
+export { currentMonth } from '../../common/format';
 
 /** Máximo de respuestas del asistente por conversación en 24 h (abuso o bucles). */
 const DAILY_REPLIES_PER_CONVERSATION = 30;

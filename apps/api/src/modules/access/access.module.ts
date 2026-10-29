@@ -57,6 +57,11 @@ import { SyncProviderRegistry } from './providers/sync-provider.registry';
     DahuaSyncService,
     ...(WORKERS_ENABLED_IN_API ? [DahuaReconcileCron] : []),
   ],
-  exports: [AccessCredentialsService, AccessIntegrationsService, AccessVerifyService],
+  exports: [
+    AccessCredentialsService,
+    AccessIntegrationsService,
+    AccessVerifyService,
+    DahuaSyncService,
+  ],
 })
 export class AccessModule {}

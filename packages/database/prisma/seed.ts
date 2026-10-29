@@ -227,7 +227,20 @@ async function seedAuditLogs(args: {
  * (packages/database no depende de shared); mantener en sincronía. Idempotente.
  */
 async function seedAddons() {
-  const addons = [
+  const addons: {
+    slug: string;
+    name: string;
+    priceMonthly: number;
+    feature: string | null;
+    grantsAiQueries?: number;
+  }[] = [
+    {
+      slug: 'addon-ai-extra',
+      name: 'IA ampliada',
+      priceMonthly: 15,
+      feature: null,
+      grantsAiQueries: 500,
+    },
     { slug: 'addon-ai-assistant', name: 'Asistente IA', priceMonthly: 12, feature: 'ai_assistant' },
     {
       slug: 'addon-sepa',
@@ -277,7 +290,13 @@ async function seedAddons() {
     await prisma.subscriptionAddon.upsert({
       where: { slug: a.slug },
       update: {},
-      create: { slug: a.slug, name: a.name, priceMonthly: a.priceMonthly, feature: a.feature },
+      create: {
+        slug: a.slug,
+        name: a.name,
+        priceMonthly: a.priceMonthly,
+        feature: a.feature,
+        grantsAiQueries: a.grantsAiQueries ?? null,
+      },
     });
   }
   console.info(`  Add-ons: ${addons.length}`);

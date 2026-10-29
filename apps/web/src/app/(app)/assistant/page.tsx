@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { AiMessageDto, AiPendingActionDto } from '@storageos/shared';
+import type { AiMessageDto, AiPendingActionDto, AiUsageDto } from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
@@ -16,11 +16,14 @@ import {
   useAiActionDecision,
   useAiChat,
   useAiConversation,
+  aiUsageKey,
   useAiConversations,
+  useAiUsage,
   useDeleteConversation,
 } from '@/lib/ai/hooks';
 import { streamAiChat } from '@/lib/ai/stream';
 import { ApiError } from '@/lib/auth/api';
+import { formatDate, formatNumber } from '@/lib/format';
 
 const TOOL_LABELS: Record<string, string> = {
   get_business_metrics: 'métricas del negocio',
@@ -53,6 +56,7 @@ const SUGGESTIONS = [
 export default function AssistantPage() {
   const ask = useConfirm();
   const conversations = useAiConversations();
+  const usage = useAiUsage();
   const [activeId, setActiveId] = useState<string | null>(null);
   const detail = useAiConversation(activeId);
   const chat = useAiChat();
@@ -99,6 +103,7 @@ export default function AssistantPage() {
       await Promise.all([
         qc.invalidateQueries({ queryKey: aiConversationsKey }),
         qc.invalidateQueries({ queryKey: [...aiConversationsKey, res.conversationId] }),
+        qc.invalidateQueries({ queryKey: aiUsageKey }),
       ]);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -138,6 +143,7 @@ export default function AssistantPage() {
           <p className="text-sm text-muted-foreground">
             Pregunta sobre tu negocio o pide ayuda para redactar. Consulta datos en tiempo real.
           </p>
+          {usage.data && <UsageLine usage={usage.data} />}
         </div>
         <Button variant="outline" onClick={() => setActiveId(null)}>
           <Plus className="mr-1 h-4 w-4" /> Nueva conversación
@@ -341,5 +347,41 @@ function ActionCard({ action }: { action: AiPendingActionDto }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** «Este mes: 120 de 300 consultas», en ámbar al 80 % y en rojo al llegar. */
+function UsageLine({ usage }: { usage: AiUsageDto }) {
+  const left = Math.max(0, usage.limit - usage.used);
+  const ratio = usage.limit > 0 ? usage.used / usage.limit : 1;
+  const tone =
+    ratio >= 1
+      ? 'text-red-600 dark:text-red-400'
+      : ratio >= 0.8
+        ? 'text-amber-700 dark:text-amber-300'
+        : 'text-muted-foreground';
+  return (
+    <p className={`mt-1 text-xs ${tone}`}>
+      Este mes: {formatNumber(usage.used)} de {formatNumber(usage.limit)} consultas
+      {ratio >= 1 ? (
+        <>
+          . Se reinicia el {formatDate(usage.resetsOn)} o{' '}
+          <Link href="/settings/saas-billing" className="underline">
+            amplíalas con «IA ampliada»
+          </Link>
+          .
+        </>
+      ) : ratio >= 0.8 ? (
+        <>
+          {' '}
+          (te quedan {formatNumber(left)}).{' '}
+          <Link href="/settings/saas-billing" className="underline">
+            Ampliar
+          </Link>
+        </>
+      ) : (
+        '.'
+      )}
+    </p>
   );
 }

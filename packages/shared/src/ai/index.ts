@@ -80,3 +80,4 @@ export type PortalAiChatInput = z.infer<typeof PortalAiChatSchema>;
 export interface PortalAiChatResultDto {
   answer: string;
 }
+export * from './limits';

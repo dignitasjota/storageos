@@ -1060,6 +1060,8 @@ export interface SaasAddonDto {
   grantsUnits: number | null;
   grantsFacilities: number | null;
   grantsUsers: number | null;
+  /** Consultas al mes del asistente IA que añade (por unidad). */
+  grantsAiQueries: number | null;
   isActive: boolean;
   /** Price recurrente de Stripe mapeado (null = aún sin sincronizar). */
   stripePriceId: string | null;

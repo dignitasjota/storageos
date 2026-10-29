@@ -19,6 +19,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { AccountActivationBanner } from './account-activation-banner';
+import { AiUsageCard } from './ai-usage-card';
 import { ApprovalRequestsCard } from './approval-requests-card';
 import { FeatureOverridesCard } from './feature-overrides-card';
 import { OnboardingCard } from './onboarding-card';
@@ -425,6 +426,7 @@ export default function AdminTenantDetailPage() {
             <TenantHealthCard tenantId={id} />
             <OnboardingCard tenantId={id} />
             <FeatureOverridesCard tenantId={id} />
+            <AiUsageCard tenantId={id} />
             <WhatsappAiCard tenantId={id} />
             <TenantNotesCard tenantId={id} />
           </div>

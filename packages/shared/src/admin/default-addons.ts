@@ -12,10 +12,21 @@ export interface DefaultAddon {
   name: string;
   description: string;
   priceMonthly: number;
-  feature: TenantFeature;
+  /** Función que activa (null = extra de capacidad, sin función propia). */
+  feature: TenantFeature | null;
+  /** Consultas al mes del asistente IA que añade. */
+  grantsAiQueries?: number;
 }
 
 export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
+  {
+    slug: 'addon-ai-extra',
+    name: 'IA ampliada',
+    description: '500 consultas más al mes del asistente IA.',
+    priceMonthly: 15,
+    feature: null,
+    grantsAiQueries: 500,
+  },
   {
     slug: 'addon-ai-assistant',
     name: 'Asistente IA',

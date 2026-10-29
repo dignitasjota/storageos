@@ -133,6 +133,7 @@ async function main(): Promise<void> {
           description: a.description,
           priceMonthly: a.priceMonthly,
           feature: a.feature,
+          grantsAiQueries: a.grantsAiQueries ?? null,
         },
       });
     }

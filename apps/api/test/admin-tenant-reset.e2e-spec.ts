@@ -2,12 +2,15 @@ import { hash as argonHash } from '@node-rs/argon2';
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { StubSyncProvider } from '../src/modules/access/providers/stub-sync.provider';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
 import { signedContractFor } from './helpers/contract-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
+import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -180,5 +183,75 @@ describe('Admin: vaciar los datos de prueba de un tenant (e2e)', () => {
           data: { ownTenantId: previous },
         });
     }
+  });
+
+  it('quita los accesos de los inquilinos de los terminales antes de borrar', async () => {
+    const owner = await registerVerifiedUser(app, 'resetterm');
+    await setTenantPlan(owner.slug, 'starter');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const admin = { Authorization: `Bearer ${token}` };
+    const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local con terminal',
+      unitsCount: 1,
+    });
+    const dev = await http()
+      .post('/access/devices')
+      .set(auth)
+      .send({
+        facilityId,
+        type: 'door',
+        name: 'Terminal',
+        hardwareId: `t-${Date.now()}`,
+        provider: 'stub',
+      })
+      .expect(201);
+    const customerId = await createCustomer(app, owner.accessToken, { email: 'term@e2e.local' });
+    await signedContractFor(app, owner.accessToken, { id: customerId }, facilityId);
+    const cred = await http()
+      .post('/access/credentials')
+      .set(auth)
+      .send({ customerId, method: 'pin', allowedFacilityIds: [facilityId], allowedUnitIds: [] })
+      .expect(201);
+    const stub = app.get(StubSyncProvider);
+    expect(stub.stateOf(dev.body.id, cred.body.id)).toBe('active');
+
+    const preview = await http()
+      .get(`/admin/tenants/${owner.tenantId}/reset-preview`)
+      .set(admin)
+      .expect(200);
+    expect(preview.body.warnings.map((w: { code: string }) => w.code)).toContain(
+      'synced_credentials',
+    );
+
+    await http()
+      .post(`/admin/tenants/${owner.tenantId}/reset-operational-data`)
+      .set(admin)
+      .send({ confirmSlug: owner.slug, reason: 'Empezar en real', exported: true })
+      .expect(200);
+    expect(stub.stateOf(dev.body.id, cred.body.id)).toBeUndefined();
+    expect(await db.accessCredential.count({ where: { tenantId: owner.tenantId } })).toBe(0);
+    // El terminal se conserva.
+    expect(await db.accessDevice.count({ where: { id: dev.body.id } })).toBe(1);
+  });
+
+  it('no deja borrar facturas emitidas en Holded', async () => {
+    const owner = await registerVerifiedUser(app, 'resetholded');
+    const admin = { Authorization: `Bearer ${token}` };
+    const customerId = await createCustomer(app, owner.accessToken, { email: 'hold@e2e.local' });
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId);
+    await db.invoice.update({ where: { id: invoiceId }, data: { issuedBy: 'holded' } });
+    const preview = await http()
+      .get(`/admin/tenants/${owner.tenantId}/reset-preview`)
+      .set(admin)
+      .expect(200);
+    expect(preview.body.blockers.map((b: { code: string }) => b.code)).toContain(
+      'holded_issued_invoices',
+    );
+    const res = await http()
+      .post(`/admin/tenants/${owner.tenantId}/reset-operational-data`)
+      .set(admin)
+      .send({ confirmSlug: owner.slug, reason: 'Empezar en real', exported: true });
+    expect(res.status).toBe(409);
+    expect(await db.invoice.count({ where: { id: invoiceId } })).toBe(1);
   });
 });

@@ -11,6 +11,7 @@ import { resolvePlanFeatures, type TenantFeature, TenantFeatures } from '@storag
 import StripeSDK from 'stripe';
 
 import { PAYING_SUBSCRIPTION_WHERE } from '../../common/saas-metrics';
+import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
@@ -203,6 +204,7 @@ export class SaasAddonsService {
         grantsUnits: input.grantsUnits ?? null,
         grantsFacilities: input.grantsFacilities ?? null,
         grantsUsers: input.grantsUsers ?? null,
+        grantsAiQueries: input.grantsAiQueries ?? null,
         isActive: input.isActive,
       },
     });
@@ -243,6 +245,7 @@ export class SaasAddonsService {
         grantsUnits: input.grantsUnits ?? null,
         grantsFacilities: input.grantsFacilities ?? null,
         grantsUsers: input.grantsUsers ?? null,
+        grantsAiQueries: input.grantsAiQueries ?? null,
         isActive: input.isActive,
       },
     });
@@ -341,7 +344,11 @@ export class SaasAddonsService {
     ]);
     const owned = new Set(summary.addons.map((a) => a.addonId));
     const { planFeatures, billingExempt } = await this.planContext(tenantId);
-    const notOwned = catalog.filter((a) => !owned.has(a.id));
+    // Las consultas extra del asistente solo tienen sentido con el asistente.
+    const hasAi = await tenantHasFeature(this.admin, tenantId, 'ai_assistant');
+    const notOwned = catalog.filter(
+      (a) => !owned.has(a.id) && (hasAi || !(a.grantsAiQueries && a.grantsAiQueries > 0)),
+    );
     const inPlan = (a: { feature: string | null }) =>
       !!a.feature && planFeatures.includes(a.feature as TenantFeature);
     const available = notOwned.filter((a) => !inPlan(a)).map((a) => this.toCatalogDto(a));
@@ -481,6 +488,16 @@ export class SaasAddonsService {
       throw new BadRequestException({
         code: 'addon_not_available',
         message: 'Add-on no disponible',
+      });
+    }
+    if (
+      addon.grantsAiQueries &&
+      addon.grantsAiQueries > 0 &&
+      !(await tenantHasFeature(this.admin, tenantId, 'ai_assistant'))
+    ) {
+      throw new BadRequestException({
+        code: 'addon_requires_ai_assistant',
+        message: 'Este extra amplía el asistente IA, que no tienes en tu plan.',
       });
     }
     const { planFeatures } = await this.planContext(tenantId);
@@ -1018,6 +1035,7 @@ export class SaasAddonsService {
     grantsUnits: number | null;
     grantsFacilities: number | null;
     grantsUsers: number | null;
+    grantsAiQueries: number | null;
     stripePriceId: string | null;
     isActive: boolean;
   }): SaasAddonDto {
@@ -1031,6 +1049,7 @@ export class SaasAddonsService {
       grantsUnits: r.grantsUnits,
       grantsFacilities: r.grantsFacilities,
       grantsUsers: r.grantsUsers,
+      grantsAiQueries: r.grantsAiQueries,
       isActive: r.isActive,
       stripePriceId: r.stripePriceId,
     };
