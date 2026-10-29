@@ -20,6 +20,7 @@ const TYPE_COLOR: Record<CalendarEventType, string> = {
   contract_starting: 'bg-emerald-500',
   contract_ending: 'bg-amber-500',
   reservation_expiring: 'bg-red-500',
+  business_reminder: 'bg-cyan-600',
 };
 
 const TYPE_LABEL: Record<CalendarEventType, string> = {
@@ -28,6 +29,7 @@ const TYPE_LABEL: Record<CalendarEventType, string> = {
   contract_starting: 'Entrada',
   contract_ending: 'Fin de contrato',
   reservation_expiring: 'Fin de reserva',
+  business_reminder: 'Vencimiento',
 };
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];

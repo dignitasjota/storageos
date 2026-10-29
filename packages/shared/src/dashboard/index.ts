@@ -78,6 +78,8 @@ export interface TodayDto {
   unitsOutOfService: { count: number; items: TodayItemDto[] };
   /** Documentos de locales que caducan en 30 días o ya caducados. */
   facilityDocumentsExpiring: { count: number; items: TodayItemDto[] };
+  /** Vencimientos del negocio vencidos o en los próximos 7 días. */
+  businessRemindersDue: { count: number; items: TodayItemDto[] };
 }
 
 /** Un paso de la puesta en marcha del operador. */

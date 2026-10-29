@@ -2,6 +2,8 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
 import { CONFIRMED_START_WHERE } from '../../common/pre-opening';
+import { tenantFeatures } from '../../common/tenant-features';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { CalendarEventDto } from '@storageos/shared';
@@ -27,7 +29,10 @@ function customerName(
  */
 @Injectable()
 export class CalendarService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
+  ) {}
 
   async getEvents(
     tenantId: string,
@@ -50,8 +55,15 @@ export class CalendarService {
       throw new BadRequestException({ code: 'range_too_wide', message: 'Rango demasiado amplio' });
     }
     const range = { gte: from, lte: to };
+    const remindersOn = (await tenantFeatures(this.admin, tenantId)).includes('business_reminders');
 
     return this.prisma.withTenant(async (tx) => {
+      const reminders = remindersOn
+        ? await tx.businessReminder.findMany({
+            where: { status: 'active', dueDate: range, ...own },
+            select: { id: true, title: true, dueDate: true, facility: { select: { name: true } } },
+          })
+        : [];
       const [tasks, maintenance, contracts, reservations, starting] = await Promise.all([
         tx.task.findMany({
           where: { status: { in: ['open', 'in_progress'] }, dueDate: range, ...own },
@@ -124,6 +136,16 @@ export class CalendarService {
           label: t.title,
           detail: null,
           href: `/tasks?task=${t.id}`,
+        });
+      }
+      for (const r of reminders) {
+        events.push({
+          id: r.id,
+          type: 'business_reminder',
+          date: r.dueDate.toISOString(),
+          label: r.title,
+          detail: r.facility?.name ?? null,
+          href: `/reminders?reminder=${r.id}`,
         });
       }
       for (const m of maintenance) {

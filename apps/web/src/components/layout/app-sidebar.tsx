@@ -11,6 +11,7 @@ import {
   Boxes,
   Building2,
   UserRound,
+  BellRing,
   CalendarClock,
   Hourglass,
   CalendarDays,
@@ -162,6 +163,13 @@ const GROUPS: NavGroup[] = [
           { href: '/calendar', labelKey: 'calendar', icon: CalendarDays, permission: 'tasks:read' },
           { href: '/tasks', labelKey: 'tasks', icon: ClipboardList, permission: 'tasks:read' },
           { href: '/maintenance', labelKey: 'maintenance', icon: Wrench, permission: 'tasks:read' },
+          {
+            href: '/reminders',
+            labelKey: 'reminders',
+            icon: BellRing,
+            permission: 'reminders:read',
+            feature: 'business_reminders',
+          },
           {
             href: '/incidents',
             labelKey: 'incidents',

@@ -539,6 +539,10 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 > Nota: **API pública + webhooks** ya NO es backlog (Fases 14-15: API keys + webhooks HMAC + scopes + retry + dashboard). La limpieza de `webhook_deliveries` ya es un cron (`WebhooksCleanupService`). El **KPI de inquilinos** se implementó (`GET /analytics/customers` + `<CustomersKpiCard>`).
 
+### Vencimientos y avisos ✅ (2026-10-29)
+
+Apuntar lo que no se puede pasar (dominio, hosting, alquiler del local, seguros, revisiones, licencias, impuestos…) y recibir avisos antes: días a elegir, correo, campana y móvil, a propietarios y gestores, a personas concretas o a correos de fuera (asesoría). Repeticiones, marcar hecho con importe, gasto y justificante, posponer, historial, plantillas (calendario fiscal de la AEAT, revisándolo con la asesoría, y las típicas del negocio), plazos que el sistema ya conoce (certificado de la AEAT, documentos de los locales, suscripción), «Hoy», calendario, resumen semanal y enlace ICS para Google o Apple Calendar. Solo en los planes de pago. **Fuera**: avisos por Telegram o Slack para los tenants (solo existen para el super admin).
+
 ## Criterio de "MVP listo para vender"
 
 Fases 0 a 4 completas + un subset esencial de la 5 (al menos email transaccional y recordatorios de pago) + Fase 8 mínima para poder cobrar suscripciones.

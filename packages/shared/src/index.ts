@@ -12,6 +12,7 @@ export * from './facilities';
 export * from './customers';
 export * from './contracts';
 export * from './expenses';
+export * from './business-reminders';
 export * from './billing';
 export * from './cash';
 export * from './communications';

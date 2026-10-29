@@ -669,6 +669,7 @@ export class AdminTenantsService {
       overrideRows,
       whatsappRows,
       areaPageRows,
+      reminderRows,
     ] = await Promise.all([
       this.admin.tenant.findMany({
         where: { deletedAt: null, status: { in: ['active', 'trial'] } },
@@ -728,6 +729,11 @@ export class AdminTenantsService {
         where: { isPublished: true },
         _count: { _all: true },
       }),
+      this.admin.businessReminder.groupBy({
+        by: ['tenantId'],
+        where: { status: { in: ['active', 'paused'] } },
+        _count: { _all: true },
+      }),
     ]);
 
     const countMap = (
@@ -752,6 +758,7 @@ export class AdminTenantsService {
     const ownedFacilities = countMap(ownerRows);
     const whatsappEnabled = new Set(whatsappRows.map((r) => r.tenantId));
     const areaPages = countMap(areaPageRows);
+    const reminders = countMap(reminderRows);
     const overridesByTenant = new Map<string, { feature: TenantFeature; enabled: boolean }[]>();
     for (const o of overrideRows) {
       const list = overridesByTenant.get(o.tenantId) ?? [];
@@ -782,6 +789,7 @@ export class AdminTenantsService {
       if ((ownedFacilities.get(id) ?? 0) > 0) s.add('multi_owner');
       if (whatsappEnabled.has(id)) s.add('whatsapp_business');
       if ((areaPages.get(id) ?? 0) > 0) s.add('local_seo');
+      if ((reminders.get(id) ?? 0) > 0) s.add('business_reminders');
       return s;
     };
 

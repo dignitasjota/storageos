@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ArrowRight,
+  BellRing,
   CalendarClock,
   Check,
   ClipboardList,
@@ -312,6 +313,7 @@ export default function TodayPage() {
           (data.preOpeningSoon?.count ?? 0) +
           (data.unitsOutOfService?.count ?? 0) +
           (data.facilityDocumentsExpiring?.count ?? 0) +
+          (data.businessRemindersDue?.count ?? 0) +
           (data.rgpdRequestsDue?.count ?? 0),
         sales:
           // Los contactos sin atender ya están entre los nuevos: no se suman dos veces.
@@ -745,6 +747,17 @@ export default function TodayPage() {
                     items={data.facilityDocumentsExpiring.items}
                     href="/facilities"
                     itemHref={(it) => `/facilities/${it.linkId}?tab=documents`}
+                    empty=""
+                  />
+                )}
+                {(data.businessRemindersDue?.count ?? 0) > 0 && (
+                  <SectionCard
+                    title="Vencimientos del negocio"
+                    icon={BellRing}
+                    count={data.businessRemindersDue.count}
+                    items={data.businessRemindersDue.items}
+                    href="/reminders"
+                    itemHref={(it) => `/reminders?reminder=${it.id}`}
                     empty=""
                   />
                 )}
