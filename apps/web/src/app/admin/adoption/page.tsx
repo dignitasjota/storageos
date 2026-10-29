@@ -25,6 +25,7 @@ function exportCsv(tenants: AdminTenantAdoptionDto[]) {
       'Trasteros',
       'Locales',
       'Usuarios',
+      'Paga al mes (EUR)',
       'Candidato',
       'Plan recomendado',
     ],
@@ -43,6 +44,7 @@ function exportCsv(tenants: AdminTenantAdoptionDto[]) {
       limit(t.usage.units, t.usage.maxUnits),
       limit(t.usage.facilities, t.usage.maxFacilities),
       limit(t.usage.users, t.usage.maxUsers),
+      t.monthlyPaid,
       t.isCandidate ? 'Sí' : 'No',
       t.recommendedPlanName ?? '',
     ]),
@@ -78,7 +80,8 @@ export default function AdminAdoptionPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Adopción y upsell</h1>
           <p className="text-sm text-muted-foreground">
             Qué features premium usa cada tenant y quién es candidato a subir de plan (usa features
-            fuera de su plan o topa sus límites).
+            que no tiene, topa sus límites contando los extras o el plan superior no le cuesta más
+            que lo que ya paga con los extras).
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => exportCsv(d.tenants)}>
@@ -146,6 +149,9 @@ export default function AdminAdoptionPage() {
   );
 }
 
+const eur = (n: number) =>
+  n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+
 function limitClass(value: number, max: number | null): string {
   if (max == null) return 'text-muted-foreground';
   return value >= max ? 'text-red-600 font-medium' : 'text-muted-foreground';
@@ -165,8 +171,10 @@ function AdoptionRow({ t }: { t: AdminTenantAdoptionDto }) {
           {t.isCandidate && (
             <Badge className="border-0 bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
               Subir a {t.recommendedPlanName}
+              {t.recommendedPlanPrice !== null ? ` (${eur(t.recommendedPlanPrice)}/mes)` : ''}
             </Badge>
           )}
+          <span className="text-xs text-muted-foreground">Paga {eur(t.monthlyPaid)}/mes</span>
         </div>
         {/* Features usadas (ámbar = fuera del plan actual). */}
         <div className="mt-1 flex flex-wrap items-center gap-1">

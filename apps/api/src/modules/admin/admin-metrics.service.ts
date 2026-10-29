@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
+import {
+  aliveAtWhere,
+  churnDate,
+  churnedBetweenWhere,
+  CHURNED_STATUSES,
+  isLiveTenantStatus,
+  netPaid,
+} from '../../common/saas-metrics';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -126,24 +134,19 @@ export class AdminMetricsService {
         _count: { _all: true },
       }),
       this.admin.tenant.count({
-        where: { deletedAt: null, billingExempt: false, createdAt: { gte: monthStart } },
+        where: { billingExempt: false, createdAt: { gte: monthStart } },
       }),
-      this.admin.tenant.count({
-        where: {
-          deletedAt: null,
-          billingExempt: false,
-          status: 'cancelled',
-          updatedAt: { gte: monthStart },
-        },
-      }),
-      this.admin.tenant.count({
-        where: { deletedAt: null, billingExempt: false, createdAt: { lt: monthStart } },
-      }),
+      // Bajas: cancelados o suspendidos por su fecha de baja, también los
+      // anonimizados (borrados), igual que «Churn por razón».
+      this.admin.tenant.count({ where: churnedBetweenWhere(monthStart) }),
+      // Base del churn: los que estaban vivos al empezar el mes.
+      this.admin.tenant.count({ where: aliveAtWhere(monthStart) }),
       this.admin.tenantSubscription.findMany({
         where: { tenant: { deletedAt: null, billingExempt: false } },
         select: {
           tenantId: true,
           status: true,
+          tenant: { select: { status: true } },
           plan: { select: { slug: true, name: true, priceMonthly: true } },
         },
       }),
@@ -164,23 +167,44 @@ export class AdminMetricsService {
       this.admin.contract.count(),
       this.admin.user.count(),
       this.admin.tenant.findMany({
-        where: { deletedAt: null, billingExempt: false, createdAt: { gte: from12 } },
+        where: { billingExempt: false, createdAt: { gte: from12 } },
         select: { createdAt: true },
       }),
       this.admin.tenant.findMany({
-        where: {
-          deletedAt: null,
-          billingExempt: false,
-          status: 'cancelled',
-          updatedAt: { gte: from12 },
-        },
-        select: { updatedAt: true },
+        where: churnedBetweenWhere(from12),
+        select: { canceledAt: true, updatedAt: true },
       }),
+      // Ingresos netos: lo cobrado menos lo devuelto (reembolsos y contracargos
+      // perdidos); los reembolsados del todo quedan en `refunded`.
       this.admin.tenantSubscriptionPayment.findMany({
-        where: { status: 'paid', paidAt: { gte: from12 } },
-        select: { paidAt: true, amount: true },
+        where: {
+          status: { in: ['paid', 'partially_refunded', 'refunded'] },
+          paidAt: { gte: from12 },
+        },
+        select: { paidAt: true, amount: true, refundedAmount: true },
       }),
     ]);
+
+    const trialsEnded = await this.admin.tenant.findMany({
+      where: { billingExempt: false, trialEndedAt: { gte: monthStart } },
+      select: {
+        status: true,
+        subscription: { select: { status: true, plan: { select: { priceMonthly: true } } } },
+      },
+    });
+    const trialsEndedThisMonth = { ended: trialsEnded.length, converted: 0, toFree: 0, churned: 0 };
+    for (const t of trialsEnded) {
+      if ((CHURNED_STATUSES as readonly string[]).includes(t.status)) {
+        trialsEndedThisMonth.churned += 1;
+      } else if (
+        t.subscription?.status === 'active' &&
+        Number(t.subscription.plan.priceMonthly) > 0
+      ) {
+        trialsEndedThisMonth.converted += 1;
+      } else {
+        trialsEndedThisMonth.toFree += 1;
+      }
+    }
 
     // --- Tenants por estado ---
     const tenants = { total: 0, trial: 0, active: 0, suspended: 0, cancelled: 0 };
@@ -200,6 +224,7 @@ export class AdminMetricsService {
     // por plan, porque no pertenecen a ningún plan).
     const addonsByTenant = await this.addons.addonsMonthlyByTenant();
     let addonsMrr = 0;
+    let payingTenants = 0;
     for (const s of subscriptions) {
       const slug = s.plan.slug;
       const entry = planMap.get(slug) ?? {
@@ -209,8 +234,11 @@ export class AdminMetricsService {
         mrr: 0,
       };
       entry.count += 1;
-      if (s.status === 'active') {
+      // Solo pagan las suscripciones activas de tenants vivos: suspender a mano
+      // no toca la suscripción.
+      if (s.status === 'active' && isLiveTenantStatus(s.tenant.status)) {
         const monthly = Number(s.plan.priceMonthly);
+        if (monthly > 0) payingTenants += 1;
         entry.mrr += monthly;
         mrrTotal += monthly;
         addonsMrr += addonsByTenant.get(s.tenantId) ?? 0;
@@ -230,14 +258,14 @@ export class AdminMetricsService {
     }
     const cancelsByKey = new Map<string, number>();
     for (const r of cancelRows) {
-      const k = monthKey(r.updatedAt);
+      const k = monthKey(churnDate(r));
       cancelsByKey.set(k, (cancelsByKey.get(k) ?? 0) + 1);
     }
     const revenueByKey = new Map<string, number>();
     for (const r of revenueRows) {
       if (!r.paidAt) continue;
       const k = monthKey(r.paidAt);
-      revenueByKey.set(k, (revenueByKey.get(k) ?? 0) + Number(r.amount));
+      revenueByKey.set(k, (revenueByKey.get(k) ?? 0) + netPaid(r));
     }
 
     const churnRatePercent =
@@ -249,7 +277,9 @@ export class AdminMetricsService {
       signupsThisMonth,
       cancellationsThisMonth,
       churnRatePercent: round2(churnRatePercent),
-      averageRevenuePerTenant: tenants.active > 0 ? round2(mrrTotal / tenants.active) : 0,
+      averageRevenuePerTenant: payingTenants > 0 ? round2(mrrTotal / payingTenants) : 0,
+      payingTenants,
+      trialsEndedThisMonth,
       trialsExpiringSoon,
       openSupportTickets,
       platform: { facilities, units, customers, contracts, users },
@@ -269,8 +299,9 @@ export class AdminMetricsService {
   /**
    * Matriz de cohortes de retención: agrupa los tenants por su mes de alta y,
    * para cada offset de mes, calcula el % que seguía vivo. "Vivo" = no
-   * `cancelled`/`suspended`; la fecha de baja se aproxima por `updatedAt` (igual
-   * criterio que el resto de métricas). M0 es 100% por construcción.
+   * `cancelled`/`suspended`; la fecha de baja es `canceledAt` (o `updatedAt` en
+   * las bajas antiguas). Cuenta también a los anonimizados. M0 es 100% por
+   * construcción; una cohorte sin altas no tiene porcentaje.
    */
   private async computeRetention(months: number): Promise<AdminRetentionDto> {
     const span = Math.min(Math.max(months, 1), 24);
@@ -278,15 +309,15 @@ export class AdminMetricsService {
     const firstCohort = addMonthsUtc(nowMonth, -(span - 1));
 
     const tenants = await this.admin.tenant.findMany({
-      where: { deletedAt: null, billingExempt: false, createdAt: { gte: firstCohort } },
-      select: { createdAt: true, status: true, updatedAt: true },
+      where: { billingExempt: false, createdAt: { gte: firstCohort } },
+      select: { createdAt: true, status: true, updatedAt: true, canceledAt: true },
     });
 
     // Por tenant: mes de alta + mes de baja (null si sigue vivo).
     const records = tenants.map((t) => {
       const cohortMonth = startOfMonthUtc(t.createdAt);
-      const churned = t.status === 'cancelled' || t.status === 'suspended';
-      return { cohortMonth, churnMonth: churned ? startOfMonthUtc(t.updatedAt) : null };
+      const churned = (CHURNED_STATUSES as readonly string[]).includes(t.status);
+      return { cohortMonth, churnMonth: churned ? startOfMonthUtc(churnDate(t)) : null };
     });
 
     const maxOffset = monthDiff(firstCohort, nowMonth);
@@ -303,7 +334,7 @@ export class AdminMetricsService {
           continue;
         }
         if (size === 0) {
-          retention.push(0);
+          retention.push(null);
           continue;
         }
         const target = addMonthsUtc(c, k);
@@ -330,17 +361,8 @@ export class AdminMetricsService {
     const windowStart = addMonthsUtc(startOfMonthUtc(new Date()), -(span - 1));
 
     const tenants = await this.admin.tenant.findMany({
-      where: {
-        deletedAt: null,
-        billingExempt: false,
-        status: { in: ['suspended', 'cancelled'] },
-        // `canceledAt` es fiable; para bajas anteriores a la columna cae a
-        // `updatedAt` (mismo proxy que el resto de métricas).
-        OR: [
-          { canceledAt: { gte: windowStart } },
-          { canceledAt: null, updatedAt: { gte: windowStart } },
-        ],
-      },
+      // Misma definición de baja que el KPI de Métricas (anonimizados incluidos).
+      where: churnedBetweenWhere(windowStart),
       select: {
         churnReason: true,
         subscription: {
@@ -409,8 +431,8 @@ export class AdminMetricsService {
     // Agregado por tenant de sus pagos `paid` (una sola agregación en BD).
     const payGroups = await this.admin.tenantSubscriptionPayment.groupBy({
       by: ['tenantId'],
-      where: { status: 'paid' },
-      _sum: { amount: true },
+      where: { status: { in: ['paid', 'partially_refunded', 'refunded'] } },
+      _sum: { amount: true, refundedAmount: true },
       _count: { _all: true },
       _min: { paidAt: true },
     });
@@ -419,7 +441,11 @@ export class AdminMetricsService {
     const countByTenant = new Map<string, number>();
     const firstPaidByTenant = new Map<string, Date | null>();
     for (const g of payGroups) {
-      totalByTenant.set(g.tenantId, Number(g._sum.amount ?? 0));
+      // Neto: lo cobrado menos lo devuelto.
+      totalByTenant.set(
+        g.tenantId,
+        Math.max(0, Number(g._sum.amount ?? 0) - Number(g._sum.refundedAmount ?? 0)),
+      );
       countByTenant.set(g.tenantId, g._count._all);
       firstPaidByTenant.set(g.tenantId, g._min.paidAt ?? null);
     }
@@ -430,7 +456,14 @@ export class AdminMetricsService {
       payerIds.length > 0
         ? await this.admin.tenant.findMany({
             where: { id: { in: payerIds } },
-            select: { id: true, name: true, createdAt: true, status: true, updatedAt: true },
+            select: {
+              id: true,
+              name: true,
+              createdAt: true,
+              status: true,
+              updatedAt: true,
+              canceledAt: true,
+            },
           })
         : [];
 
@@ -440,8 +473,8 @@ export class AdminMetricsService {
     let sumLifespan = 0;
     for (const t of payerTenants) {
       const totalPaid = totalByTenant.get(t.id) ?? 0;
-      const churned = t.status === 'cancelled' || t.status === 'suspended';
-      const end = churned ? t.updatedAt : now;
+      const churned = (CHURNED_STATUSES as readonly string[]).includes(t.status);
+      const end = churned ? churnDate(t) : now;
       const lifespanMonths = Math.max(
         monthDiff(startOfMonthUtc(t.createdAt), startOfMonthUtc(end)),
         1,
@@ -471,7 +504,7 @@ export class AdminMetricsService {
 
     // Cohortes de ingresos por mes de alta (últimos `span` meses).
     const cohortTenants = await this.admin.tenant.findMany({
-      where: { deletedAt: null, billingExempt: false, createdAt: { gte: firstCohort } },
+      where: { billingExempt: false, createdAt: { gte: firstCohort } },
       select: { id: true, createdAt: true },
     });
     const cohortAcc = new Map<string, { tenants: number; revenue: number }>();
@@ -507,47 +540,147 @@ export class AdminMetricsService {
   }
 
   /**
-   * Retry analysis de cobros de la suscripción SaaS: de las facturas de Stripe
-   * que fallaron al menos una vez en la ventana (`firstFailedAt`), cuántas se
-   * acabaron cobrando (`recoveredAt`), la tasa de recuperación, el importe en
-   * riesgo (no recuperado) vs recuperado y los intentos medios.
+   * Recuperación de cobros fallidos de la suscripción. Tres fuentes:
+   *  - Stripe: facturas con `firstFailedAt` (recuperadas = `recoveredAt`).
+   *  - Adeudos SEPA devueltos: un episodio por tenant y periodo.
+   *  - Cobro automático de Redsys rechazado: los intentos seguidos de un tenant
+   *    forman un episodio.
+   * Un episodio SEPA o Redsys está recuperado si el tenant pagó después.
    */
   async getPaymentRetryAnalysis(months: number): Promise<AdminPaymentRetryAnalysisDto> {
     const span = Math.min(Math.max(months, 1), 24);
     const windowStart = addMonthsUtc(startOfMonthUtc(new Date()), -(span - 1));
 
-    const rows = await this.admin.tenantSubscriptionPayment.findMany({
-      where: { firstFailedAt: { gte: windowStart } },
-      select: { amount: true, recoveredAt: true, failedAttempts: true },
-    });
+    const [stripeRows, sepaRows, redsysRows] = await Promise.all([
+      this.admin.tenantSubscriptionPayment.findMany({
+        where: { firstFailedAt: { gte: windowStart } },
+        select: { amount: true, recoveredAt: true, failedAttempts: true },
+      }),
+      this.admin.platformSepaRemittanceItem.findMany({
+        where: { itemStatus: 'bounced', bouncedAt: { gte: windowStart } },
+        select: { tenantId: true, amount: true, bouncedAt: true, periodCovered: true },
+        orderBy: { bouncedAt: 'asc' },
+      }),
+      this.admin.platformRedsysOrder.findMany({
+        where: { kind: 'auto', status: 'failed', createdAt: { gte: windowStart } },
+        select: { tenantId: true, amountCents: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
 
+    type Episode = { amount: number; attempts: number; recovered: boolean };
+    const stripe: Episode[] = stripeRows.map((r) => ({
+      amount: Number(r.amount),
+      attempts: Math.max(1, r.failedAttempts),
+      recovered: Boolean(r.recoveredAt),
+    }));
+
+    // Pagos de los tenants afectados, para saber si pagaron después del fallo.
+    const tenantIds = [...new Set([...sepaRows, ...redsysRows].map((r) => r.tenantId))];
+    const paid =
+      tenantIds.length > 0
+        ? await this.admin.tenantSubscriptionPayment.findMany({
+            where: {
+              tenantId: { in: tenantIds },
+              status: { in: ['paid', 'partially_refunded'] },
+              paidAt: { gte: windowStart },
+            },
+            select: { tenantId: true, paidAt: true },
+          })
+        : [];
+    const paidAtByTenant = new Map<string, number[]>();
+    for (const p of paid) {
+      if (!p.paidAt) continue;
+      const list = paidAtByTenant.get(p.tenantId) ?? [];
+      list.push(p.paidAt.getTime());
+      paidAtByTenant.set(p.tenantId, list);
+    }
+    /** Primer pago del tenant posterior a `at` (null si no ha pagado). */
+    const paidAfter = (tenantId: string, at: Date): number | null => {
+      const later = (paidAtByTenant.get(tenantId) ?? []).filter((t) => t > at.getTime());
+      return later.length > 0 ? Math.min(...later) : null;
+    };
+
+    const sepaEpisodes = new Map<string, Episode & { first: Date; tenantId: string }>();
+    for (const r of sepaRows) {
+      if (!r.bouncedAt) continue;
+      const key = `${r.tenantId}:${r.periodCovered.toISOString().slice(0, 10)}`;
+      const e = sepaEpisodes.get(key);
+      if (e) e.attempts += 1;
+      else
+        sepaEpisodes.set(key, {
+          tenantId: r.tenantId,
+          first: r.bouncedAt,
+          amount: r.amount / 100,
+          attempts: 1,
+          recovered: false,
+        });
+    }
+    const sepa: Episode[] = [...sepaEpisodes.values()].map((e) => ({
+      amount: e.amount,
+      attempts: e.attempts,
+      recovered: paidAfter(e.tenantId, e.first) !== null,
+    }));
+
+    const redsys: Episode[] = [];
+    const redsysByTenant = new Map<string, typeof redsysRows>();
+    for (const r of redsysRows) {
+      const list = redsysByTenant.get(r.tenantId) ?? [];
+      list.push(r);
+      redsysByTenant.set(r.tenantId, list);
+    }
+    for (const [tenantId, rows] of redsysByTenant) {
+      let current: (Episode & { until: number | null }) | null = null;
+      for (const r of rows) {
+        // Un intento posterior al pago que cerró el episodio abre otro.
+        if (current && (current.until === null || r.createdAt.getTime() < current.until)) {
+          current.attempts += 1;
+          continue;
+        }
+        if (current) redsys.push(current);
+        const until = paidAfter(tenantId, r.createdAt);
+        current = { amount: r.amountCents / 100, attempts: 1, recovered: until !== null, until };
+      }
+      if (current) redsys.push(current);
+    }
+
+    const all = [...stripe, ...sepa, ...redsys];
     let recovered = 0;
     let amountRecovered = 0;
-    let stillFailing = 0;
     let amountAtRisk = 0;
     let totalAttempts = 0;
-    for (const r of rows) {
-      totalAttempts += r.failedAttempts;
-      const amount = Number(r.amount);
-      if (r.recoveredAt) {
+    for (const e of all) {
+      totalAttempts += e.attempts;
+      if (e.recovered) {
         recovered += 1;
-        amountRecovered += amount;
+        amountRecovered += e.amount;
       } else {
-        stillFailing += 1;
-        amountAtRisk += amount;
+        amountAtRisk += e.amount;
       }
     }
-    const totalFailed = rows.length;
+    const totalFailed = all.length;
+    const bySource = (
+      [
+        ['stripe', stripe],
+        ['sepa', sepa],
+        ['redsys', redsys],
+      ] as const
+    ).map(([source, list]) => ({
+      source,
+      totalFailed: list.length,
+      recovered: list.filter((e) => e.recovered).length,
+    }));
     return {
       months: span,
       totalFailed,
       recovered,
-      stillFailing,
+      stillFailing: totalFailed - recovered,
       recoveryRatePercent: totalFailed > 0 ? round2((recovered / totalFailed) * 100) : 0,
       avgAttempts: totalFailed > 0 ? round2(totalAttempts / totalFailed) : 0,
       amountAtRisk: round2(amountAtRisk),
       amountRecovered: round2(amountRecovered),
       currency: 'EUR',
+      bySource,
     };
   }
 }

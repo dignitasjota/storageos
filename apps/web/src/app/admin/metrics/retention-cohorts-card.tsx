@@ -59,7 +59,11 @@ export function RetentionCohortsCard() {
                       {c.size}
                     </td>
                     {Array.from({ length: q.data!.maxOffset + 1 }, (_, k) => {
-                      const s = cellStyle(c.retention[k] ?? null);
+                      // Un mes sin altas no tiene porcentaje.
+                      const s =
+                        c.size === 0 && k === 0
+                          ? { className: 'text-muted-foreground', text: '—' }
+                          : cellStyle(c.retention[k] ?? null);
                       return (
                         <td
                           key={k}

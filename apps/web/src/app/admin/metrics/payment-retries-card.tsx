@@ -12,6 +12,12 @@ const eur = (n: number) =>
     maximumFractionDigits: 0,
   }).format(n);
 
+const SOURCE_LABELS: Record<'stripe' | 'sepa' | 'redsys', string> = {
+  stripe: 'Stripe',
+  sepa: 'Adeudos SEPA',
+  redsys: 'Redsys automático',
+};
+
 export function PaymentRetriesCard() {
   const q = useAdminPaymentRetries(12);
   const d = q.data;
@@ -21,8 +27,8 @@ export function PaymentRetriesCard() {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Recuperación de cobros</CardTitle>
         <p className="text-xs text-muted-foreground">
-          De las facturas de suscripción que fallaron al menos una vez (últimos 12 meses), cuántas
-          se acabaron cobrando.
+          De los cobros de suscripción que fallaron al menos una vez (últimos 12 meses: Stripe,
+          adeudos SEPA devueltos y cobros automáticos de Redsys), cuántos se acabaron cobrando.
         </p>
       </CardHeader>
       <CardContent>
@@ -75,6 +81,18 @@ export function PaymentRetriesCard() {
                 <dd className="font-medium">{d.avgAttempts.toFixed(1)}</dd>
               </div>
             </dl>
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {d.bySource
+                .filter((s) => s.totalFailed > 0)
+                .map((s) => (
+                  <li key={s.source} className="flex justify-between">
+                    <span>{SOURCE_LABELS[s.source]}</span>
+                    <span className="tabular-nums">
+                      {s.recovered}/{s.totalFailed} recuperados
+                    </span>
+                  </li>
+                ))}
+            </ul>
           </div>
         )}
       </CardContent>

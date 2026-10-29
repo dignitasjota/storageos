@@ -104,7 +104,7 @@ export default function AdminMetricsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Métricas</h1>
           <p className="text-sm text-muted-foreground">
-            Vista global de la plataforma. Datos en tiempo real.
+            Vista global de la plataforma. Se actualiza cada minuto.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={exportCsv}>
@@ -127,14 +127,18 @@ export default function AdminMetricsPage() {
       {/* Negocio */}
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">Negocio</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-          <MetricCard label="MRR" value={eur(m.mrr.total)} />
-          <MetricCard label="Ingreso medio / tenant" value={eur(m.averageRevenuePerTenant)} />
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <MetricCard label="MRR" value={eur(m.mrr.total)} hint="plan + extras" />
+          <MetricCard
+            label="Ingreso medio / tenant"
+            value={eur(m.averageRevenuePerTenant)}
+            hint={`${m.payingTenants} que pagan`}
+          />
           <MetricCard label="Altas este mes" value={m.signupsThisMonth} />
           <MetricCard
             label="Churn (mes)"
             value={`${m.churnRatePercent.toFixed(1)}%`}
-            hint={`${m.cancellationsThisMonth} bajas`}
+            hint={`${m.cancellationsThisMonth} bajas (cancelados o suspendidos)`}
           />
           <MetricCard
             label="Trials por expirar"
@@ -146,6 +150,24 @@ export default function AdminMetricsPage() {
             label="Tickets abiertos"
             value={m.openSupportTickets}
             accent={m.openSupportTickets > 0 ? 'amber' : undefined}
+          />
+          <MetricCard
+            label="Pruebas terminadas (mes)"
+            value={m.trialsEndedThisMonth.ended}
+            hint={
+              m.trialsEndedThisMonth.ended > 0
+                ? `${m.trialsEndedThisMonth.converted} pagan · ${m.trialsEndedThisMonth.toFree} a Free · ${m.trialsEndedThisMonth.churned} de baja`
+                : 'ninguna este mes'
+            }
+          />
+          <MetricCard
+            label="Conversión de pruebas (mes)"
+            value={
+              m.trialsEndedThisMonth.ended > 0
+                ? `${Math.round((m.trialsEndedThisMonth.converted / m.trialsEndedThisMonth.ended) * 100)}%`
+                : '—'
+            }
+            hint="pasan a pagar un plan"
           />
         </div>
       </section>
@@ -226,7 +248,7 @@ export default function AdminMetricsPage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Ingresos de suscripción cobrados</CardTitle>
+              <CardTitle className="text-base">Ingresos de suscripción cobrados (netos)</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="h-64">
@@ -261,7 +283,12 @@ export default function AdminMetricsPage() {
                       formatter={(v) => eur(Number(v) || 0)}
                       contentStyle={{ borderRadius: 8, fontSize: 13 }}
                     />
-                    <Bar dataKey="collected" name="Cobrado" fill="#2563eb" radius={[3, 3, 0, 0]} />
+                    <Bar
+                      dataKey="collected"
+                      name="Cobrado neto"
+                      fill="#2563eb"
+                      radius={[3, 3, 0, 0]}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

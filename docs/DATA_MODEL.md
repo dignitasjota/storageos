@@ -80,7 +80,7 @@ El tercer argumento `true` hace el valor local a la transacción → se descarta
 
 Empresas clientes del SaaS.
 
-- id, name, slug (único), status (trial/active/suspended/cancelled), trial_ends_at, billing_email, country, locale, currency, timezone, tax_id, created_at
+- id, name, slug (único), status (trial/active/suspended/cancelled), trial_ends_at, trial_ended_at (salida de la prueba, la pone el disparador `tenants_trial_ended_at`), billing_email, country, locale, currency, timezone, tax_id, created_at
 - **Fase 12A.1**: `require_two_factor_for_managers BOOLEAN DEFAULT false`. Cuando `true`, todos los users con role `owner`/`manager` quedan obligados a tener 2FA activo; el `/auth/login` les devuelve un `enrolmentToken` corto en lugar de access/refresh hasta que se enrolen. Solo el `owner` puede modificar este flag (`PATCH /settings/tenant/security`).
 - **Auto-charge (2026-06-11)**: `auto_charge_on_issue BOOLEAN DEFAULT false`. Cuando `true`, al emitir una factura se encola un cobro automático al método de pago predeterminado del cliente (cola BullMQ `payments`, listener de `domain.invoice_issued`). Solo el `owner` puede modificarlo (`PATCH /settings/tenant/billing`).
 - **Primer pago con el mes siguiente (2026-10-28)**: `first_payment_next_month_from_day INT DEFAULT 20` (NULL = desactivado). Un contrato mensual que empieza a partir de ese día (y no el día 1) paga en su primera factura los días que quedan del mes más el mes siguiente completo; `billing_starts_on` pasa al mes después.

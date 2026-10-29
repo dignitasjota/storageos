@@ -567,9 +567,14 @@ export class AdminTenantsService {
       const trialDaysLeft = s.trialEndsAt
         ? (s.trialEndsAt.getTime() - now) / (24 * 60 * 60 * 1000)
         : 0;
-      subscription = trialDaysLeft > 7 ? 70 : 40;
-      subDetail =
-        trialDaysLeft > 0 ? `Trial: ${Math.ceil(trialDaysLeft)} d restantes` : 'Trial vencido';
+      if (!s.trialEndsAt) {
+        subscription = 70;
+        subDetail = 'En prueba, sin fecha de fin';
+      } else {
+        subscription = trialDaysLeft > 7 ? 70 : 40;
+        subDetail =
+          trialDaysLeft > 0 ? `Trial: ${Math.ceil(trialDaysLeft)} d restantes` : 'Trial vencido';
+      }
     } else if (s.subStatus === 'active' || s.status === 'active') {
       subscription = 100;
       subDetail = 'Suscripción activa';
@@ -670,6 +675,8 @@ export class AdminTenantsService {
       whatsappRows,
       areaPageRows,
       reminderRows,
+      inviteRows,
+      addonRows,
     ] = await Promise.all([
       this.admin.tenant.findMany({
         where: { deletedAt: null, status: { in: ['active', 'trial'] } },
@@ -704,7 +711,12 @@ export class AdminTenantsService {
         where: { deletedAt: null },
         _count: { _all: true },
       }),
-      this.admin.user.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      // Usuarios como los cuenta el límite del plan: activos + invitaciones pendientes.
+      this.admin.user.groupBy({
+        by: ['tenantId'],
+        where: { isActive: true },
+        _count: { _all: true },
+      }),
       this.admin.delinquencyCase.groupBy({ by: ['tenantId'], _count: { _all: true } }),
       this.admin.blogPost.groupBy({ by: ['tenantId'], _count: { _all: true } }),
       this.admin.unitType.groupBy({
@@ -734,6 +746,20 @@ export class AdminTenantsService {
         where: { status: { in: ['active', 'paused'] } },
         _count: { _all: true },
       }),
+      this.admin.invitation.groupBy({
+        by: ['tenantId'],
+        where: { acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+        _count: { _all: true },
+      }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: { suspendedAt: null },
+        select: {
+          tenantId: true,
+          priceMonthly: true,
+          quantity: true,
+          addon: { select: { grantsUnits: true, grantsFacilities: true, grantsUsers: true } },
+        },
+      }),
     ]);
 
     const countMap = (
@@ -759,6 +785,22 @@ export class AdminTenantsService {
     const whatsappEnabled = new Set(whatsappRows.map((r) => r.tenantId));
     const areaPages = countMap(areaPageRows);
     const reminders = countMap(reminderRows);
+    const invites = countMap(inviteRows);
+    // Extras activos: lo que suman al mes y la capacidad que añaden.
+    const addonsByTenant = new Map<
+      string,
+      { monthly: number; units: number; facilities: number; users: number }
+    >();
+    for (const a of addonRows) {
+      const e = addonsByTenant.get(a.tenantId) ?? { monthly: 0, units: 0, facilities: 0, users: 0 };
+      e.monthly += Number(a.priceMonthly) * a.quantity;
+      e.units += (a.addon.grantsUnits ?? 0) * a.quantity;
+      e.facilities += (a.addon.grantsFacilities ?? 0) * a.quantity;
+      e.users += (a.addon.grantsUsers ?? 0) * a.quantity;
+      addonsByTenant.set(a.tenantId, e);
+    }
+    const plus = (max: number | null, extra: number): number | null =>
+      max === null ? null : max + extra;
     const overridesByTenant = new Map<string, { feature: TenantFeature; enabled: boolean }[]>();
     for (const o of overrideRows) {
       const list = overridesByTenant.get(o.tenantId) ?? [];
@@ -798,20 +840,25 @@ export class AdminTenantsService {
     // Las features que no entran en ningún plan (solo se venden como extra) no
     // cuentan para recomendar plan: ninguno las cubre y el tenant nunca saldría.
     const sellableInPlans = new Set(plans.flatMap((p) => resolvePlanFeatures(p)));
+    // Los extras de capacidad que ya tiene el tenant siguen sumando con otro plan.
     const planCovers = (
       plan: (typeof plans)[number],
       used: Set<TenantFeature>,
       u: number,
       f: number,
       usr: number,
+      extra: { units: number; facilities: number; users: number },
     ): boolean => {
       const feats = resolvePlanFeatures(plan);
       for (const ft of used) {
         if (sellableInPlans.has(ft) && !feats.includes(ft)) return false;
       }
-      if (plan.maxUnits !== null && u > plan.maxUnits) return false;
-      if (plan.maxFacilities !== null && f > plan.maxFacilities) return false;
-      if (plan.maxUsers !== null && usr > plan.maxUsers) return false;
+      const maxU = plus(plan.maxUnits, extra.units);
+      const maxF = plus(plan.maxFacilities, extra.facilities);
+      const maxUsr = plus(plan.maxUsers, extra.users);
+      if (maxU !== null && u > maxU) return false;
+      if (maxF !== null && f > maxF) return false;
+      if (maxUsr !== null && usr > maxUsr) return false;
       return true;
     };
 
@@ -823,7 +870,11 @@ export class AdminTenantsService {
       const used = usedFeaturesOf(t.id);
       const u = units.get(t.id) ?? 0;
       const f = facilities.get(t.id) ?? 0;
-      const usr = users.get(t.id) ?? 0;
+      const usr = (users.get(t.id) ?? 0) + (invites.get(t.id) ?? 0);
+      const extra = addonsByTenant.get(t.id) ?? { monthly: 0, units: 0, facilities: 0, users: 0 };
+      const maxUnits = plus(plan?.maxUnits ?? null, extra.units);
+      const maxFacilities = plus(plan?.maxFacilities ?? null, extra.facilities);
+      const maxUsers = plus(plan?.maxUsers ?? null, extra.users);
 
       const features = TenantFeatures.map((ft) => ({
         feature: ft,
@@ -835,13 +886,21 @@ export class AdminTenantsService {
       // Fuera de plan = la usa sin tenerla contratada de ninguna forma.
       const usesFeatureOutsidePlan = [...used].some((ft) => !effective.includes(ft));
       const tapsLimit =
-        (plan?.maxUnits != null && u >= plan.maxUnits) ||
-        (plan?.maxFacilities != null && f >= plan.maxFacilities) ||
-        (plan?.maxUsers != null && usr >= plan.maxUsers);
+        (maxUnits !== null && u >= maxUnits) ||
+        (maxFacilities !== null && f >= maxFacilities) ||
+        (maxUsers !== null && usr >= maxUsers);
 
       const currentPrice = plan ? Number(plan.priceMonthly) : 0;
-      const recommended = sortedPlans.find((p) => planCovers(p, used, u, f, usr)) ?? null;
-      const isCandidate = !!recommended && Number(recommended.priceMonthly) > currentPrice;
+      const monthlyPaid = currentPrice + extra.monthly;
+      const recommended = sortedPlans.find((p) => planCovers(p, used, u, f, usr, extra)) ?? null;
+      const recommendedPrice = recommended ? Number(recommended.priceMonthly) : null;
+      // Candidato si el plan recomendado es más caro que el suyo y lo necesita
+      // (usa algo que no tiene o topa un límite) o no le cuesta más que lo que ya
+      // paga con los extras. Quien paga a gusto plan + extras no es candidato.
+      const isCandidate =
+        recommendedPrice !== null &&
+        recommendedPrice > currentPrice &&
+        (usesFeatureOutsidePlan || tapsLimit || recommendedPrice <= monthlyPaid);
 
       return {
         tenantId: t.id,
@@ -850,14 +909,9 @@ export class AdminTenantsService {
         planSlug,
         planName: plan?.name ?? null,
         features,
-        usage: {
-          units: u,
-          maxUnits: plan?.maxUnits ?? null,
-          facilities: f,
-          maxFacilities: plan?.maxFacilities ?? null,
-          users: usr,
-          maxUsers: plan?.maxUsers ?? null,
-        },
+        usage: { units: u, maxUnits, facilities: f, maxFacilities, users: usr, maxUsers },
+        monthlyPaid: Math.round(monthlyPaid * 100) / 100,
+        recommendedPlanPrice: isCandidate ? recommendedPrice : null,
         usesFeatureOutsidePlan,
         tapsLimit,
         isCandidate,
@@ -1926,7 +1980,7 @@ export class AdminTenantsService {
    * `NOT NULL`). Deja rastro en `audit_logs` del tenant + `super_admin_audit_logs`.
    */
   async anonymize(tenantId: string, meta: ActionMeta): Promise<AnonymizeTenantResult> {
-    await this.findOrThrow(tenantId);
+    const existing = await this.findOrThrow(tenantId);
 
     // Hash de un secreto aleatorio que nadie conoce: invalida la credencial
     // sin dejar un `passwordHash` mal formado que rompa `argon2.verify`.
@@ -2020,7 +2074,15 @@ export class AdminTenantsService {
 
       await tx.tenant.update({
         where: { id: tenantId },
-        data: { status: 'cancelled', deletedAt: now, billingEmail: null, taxId: null },
+        // La fecha de baja se conserva (o se pone ahora): las métricas de bajas
+        // y de retención cuentan también a los tenants anonimizados.
+        data: {
+          status: 'cancelled',
+          deletedAt: now,
+          canceledAt: existing.canceledAt ?? now,
+          billingEmail: null,
+          taxId: null,
+        },
       });
 
       return {

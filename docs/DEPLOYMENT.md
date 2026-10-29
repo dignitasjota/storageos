@@ -1509,3 +1509,9 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Sin variables nuevas. El enlace del calendario usa `API_BASE_URL` (`https://api.trasteros.pro/v1/public/reminders-calendar/<token>`): comprobar que esa URL es pública (el Proxy Host del API ya lo cubre).
 - Los avisos salen del API (cron horario, a partir de las 8:00 de cada negocio). El correo al equipo usa el remitente «Avisos al equipo» de Correo saliente; el de los correos de fuera (asesoría), el del negocio.
 - Tras desplegar: entrar en un tenant de pago → Operaciones diarias → Vencimientos, añadir una plantilla y comprobar que llega el aviso al día siguiente a las 8:00.
+## 56. Revisión de «Negocio» del panel admin, arreglos (2026-10-29)
+
+- Migración `20261125100000_trial_ended_at`: columna `tenants.trial_ended_at` y el disparador `tenants_trial_ended_at` (función `tenants_set_trial_ended_at`). Se aplica sola al arrancar el API. Rellena una fecha aproximada a los tenants que ya no están en prueba (fin de la prueba o alta + 30 días).
+- Tras redesplegar cambian algunas cifras del panel admin, a propósito: el MRR deja fuera a los tenants suspendidos, los ingresos son netos de reembolsos, las bajas cuentan suspendidos y anonimizados, y el coste de IA no incluye las claves propias de los tenants.
+- El snapshot de MRR del mes en curso se recalcula en la tarea diaria `mrr.daily-snapshot` (03:00): hasta entonces los movimientos de este mes pueden no llevar los extras.
+- Sin variables nuevas.
