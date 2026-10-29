@@ -61,7 +61,17 @@ export default function AdminHealthPage() {
   function exportCsv() {
     const factorKeys = all[0]?.factors.map((f) => f.label) ?? [];
     downloadCsv('salud-tenants.csv', [
-      ['Tenant', 'Slug', 'Estado', 'Plan', 'Score', 'Nivel', ...factorKeys, 'Última actividad'],
+      [
+        'Tenant',
+        'Slug',
+        'Estado',
+        'Plan',
+        'Score',
+        'Nivel',
+        'Cambio en el mes',
+        ...factorKeys,
+        'Última actividad',
+      ],
       ...all.map((t) => [
         t.name,
         t.slug,
@@ -69,6 +79,7 @@ export default function AdminHealthPage() {
         t.planName ?? '',
         t.score,
         t.level,
+        t.trend ?? '',
         ...t.factors.map((f) => f.score),
         t.lastActivityAt ? new Date(t.lastActivityAt).toLocaleDateString('es-ES') : '',
       ]),
@@ -104,7 +115,8 @@ export default function AdminHealthPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Salud de tenants</h1>
           <p className="text-sm text-muted-foreground">
-            Score 0-100 por tenant (actividad del equipo, facturación, suscripción y adopción).
+            Score 0-100 por tenant (actividad del equipo, facturación, suscripción, adopción, uso
+            del área de clientes por sus inquilinos y soporte) y cómo ha cambiado este mes.
             Ordenados de más urgente a más sano.
           </p>
         </div>
@@ -174,6 +186,14 @@ function HealthRow({ t }: { t: AdminTenantHealthDto }) {
           <span className="text-2xl font-bold tabular-nums">{t.score}</span>
           <span className="text-xs text-muted-foreground">/100</span>
         </div>
+        {t.trend !== null && t.trend !== 0 && (
+          <div
+            className={`text-xs tabular-nums ${t.trend > 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}
+            title="Frente al mes pasado"
+          >
+            {t.trend > 0 ? '▲' : '▼'} {Math.abs(t.trend)} este mes
+          </div>
+        )}
         <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div className={`h-full ${level?.bar}`} style={{ width: `${t.score}%` }} />
         </div>
@@ -198,7 +218,7 @@ function HealthRow({ t }: { t: AdminTenantHealthDto }) {
       </div>
 
       <Button asChild variant="outline" size="icon" aria-label="Ver tenant" title="Ver tenant">
-        <Link href={`/admin/tenants/${t.tenantId}`}>
+        <Link href={`/admin/tenants/${t.tenantId}?tab=business`}>
           <ArrowRight className="size-4" />
         </Link>
       </Button>

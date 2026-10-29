@@ -225,7 +225,7 @@ function AdoptionRow({ t }: { t: AdminTenantAdoptionDto }) {
         </div>
       </div>
       <Button asChild variant="outline" size="icon" aria-label="Ver tenant" title="Ver tenant">
-        <Link href={`/admin/tenants/${t.tenantId}`}>
+        <Link href={`/admin/tenants/${t.tenantId}?tab=business`}>
           <ArrowRight className="size-4" />
         </Link>
       </Button>

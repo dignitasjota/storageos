@@ -18,8 +18,8 @@ const SOURCE_LABELS: Record<'stripe' | 'sepa' | 'redsys', string> = {
   redsys: 'Redsys automático',
 };
 
-export function PaymentRetriesCard() {
-  const q = useAdminPaymentRetries(12);
+export function PaymentRetriesCard({ months = 12 }: { months?: number }) {
+  const q = useAdminPaymentRetries(months);
   const d = q.data;
 
   return (
@@ -27,8 +27,9 @@ export function PaymentRetriesCard() {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Recuperación de cobros</CardTitle>
         <p className="text-xs text-muted-foreground">
-          De los cobros de suscripción que fallaron al menos una vez (últimos 12 meses: Stripe,
-          adeudos SEPA devueltos y cobros automáticos de Redsys), cuántos se acabaron cobrando.
+          De los cobros de suscripción que fallaron al menos una vez (últimos {months} meses:
+          Stripe, adeudos SEPA devueltos y cobros automáticos de Redsys), cuántos se acabaron
+          cobrando.
         </p>
       </CardHeader>
       <CardContent>
@@ -38,7 +39,7 @@ export function PaymentRetriesCard() {
           </div>
         ) : d.totalFailed === 0 ? (
           <p className="py-4 text-sm text-muted-foreground">
-            Sin cobros fallidos en los últimos 12 meses. 🎉
+            Sin cobros fallidos en los últimos {months} meses. 🎉
           </p>
         ) : (
           <div className="space-y-4">

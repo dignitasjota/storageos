@@ -831,34 +831,35 @@ export function useAnonymizeTenant() {
 
 export const adminMetricsKey = ['admin', 'metrics'] as const;
 
-export function useAdminMetrics() {
+export function useAdminMetrics(months = 12) {
   return useQuery({
-    queryKey: adminMetricsKey,
-    queryFn: () => adminApiFetch<AdminMetricsDto>('/admin/metrics'),
+    queryKey: [...adminMetricsKey, 'overview', months] as const,
+    queryFn: () => adminApiFetch<AdminMetricsDto>(`/admin/metrics?months=${months}`),
     staleTime: 30_000,
   });
 }
 
-export function useAdminMrrMovements() {
+export function useAdminMrrMovements(months = 12) {
   return useQuery({
-    queryKey: ['admin', 'metrics', 'mrr-movements'] as const,
-    queryFn: () => adminApiFetch<AdminMetricsMrrMovementsDto>('/admin/metrics/mrr-movements'),
+    queryKey: ['admin', 'metrics', 'mrr-movements', months] as const,
+    queryFn: () =>
+      adminApiFetch<AdminMetricsMrrMovementsDto>(`/admin/metrics/mrr-movements?months=${months}`),
     staleTime: 60_000,
   });
 }
 
-export function useAdminRetention() {
+export function useAdminRetention(months = 12) {
   return useQuery({
-    queryKey: ['admin', 'metrics', 'retention'] as const,
-    queryFn: () => adminApiFetch<AdminRetentionDto>('/admin/metrics/retention'),
+    queryKey: ['admin', 'metrics', 'retention', months] as const,
+    queryFn: () => adminApiFetch<AdminRetentionDto>(`/admin/metrics/retention?months=${months}`),
     staleTime: 60_000,
   });
 }
 
-export function useAdminLtv() {
+export function useAdminLtv(months = 12) {
   return useQuery({
-    queryKey: ['admin', 'metrics', 'ltv'] as const,
-    queryFn: () => adminApiFetch<AdminLtvDto>('/admin/metrics/ltv'),
+    queryKey: ['admin', 'metrics', 'ltv', months] as const,
+    queryFn: () => adminApiFetch<AdminLtvDto>(`/admin/metrics/ltv?months=${months}`),
     staleTime: 60_000,
   });
 }

@@ -13,8 +13,8 @@ const eur = (n: number) =>
     maximumFractionDigits: 0,
   }).format(n);
 
-export function ChurnByReasonCard() {
-  const q = useAdminChurnByReason(12);
+export function ChurnByReasonCard({ months = 12 }: { months?: number }) {
+  const q = useAdminChurnByReason(months);
   const data = q.data;
   const max = data ? Math.max(1, ...data.slices.map((s) => s.count)) : 1;
 
@@ -23,8 +23,8 @@ export function ChurnByReasonCard() {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Churn por razón</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Bajas de tenants de los últimos 12 meses agrupadas por motivo. El motivo se captura al
-          suspender; las bajas sin motivo se infieren (impago / voluntaria).
+          Bajas de tenants de los últimos {months} meses agrupadas por motivo. El motivo se captura
+          al suspender; las bajas sin motivo se infieren (impago / voluntaria).
         </p>
       </CardHeader>
       <CardContent>
@@ -34,7 +34,7 @@ export function ChurnByReasonCard() {
           </div>
         ) : data.totalChurned === 0 ? (
           <p className="py-4 text-sm text-muted-foreground">
-            Sin bajas de tenants en los últimos 12 meses. 🎉
+            Sin bajas de tenants en los últimos {months} meses. 🎉
           </p>
         ) : (
           <div className="space-y-4">

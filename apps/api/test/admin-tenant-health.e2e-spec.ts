@@ -57,7 +57,7 @@ describe('Admin tenant health score (e2e)', () => {
 
   const LEVELS = ['healthy', 'warm', 'at_risk', 'dormant'];
 
-  it('lista la salud de los tenants con score 0-100, nivel y 4 factores', async () => {
+  it('lista la salud de los tenants con score 0-100, nivel y 6 factores', async () => {
     const owner = await registerVerifiedUser(app, 'admin-health');
 
     const res = await request(app.getHttpServer())
@@ -75,7 +75,9 @@ describe('Admin tenant health score (e2e)', () => {
       'adoption',
       'billing',
       'engagement',
+      'portal',
       'subscription',
+      'support',
     ]);
 
     // Ordenado de menor a mayor score (más urgente primero).
@@ -91,7 +93,7 @@ describe('Admin tenant health score (e2e)', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.tenantId).toBe(owner.tenantId);
-    expect(res.body.factors).toHaveLength(4);
+    expect(res.body.factors).toHaveLength(6);
 
     const ghost = await request(app.getHttpServer())
       .get('/admin/tenants/00000000-0000-7000-8000-000000000000/health')

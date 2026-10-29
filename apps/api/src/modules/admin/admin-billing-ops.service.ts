@@ -9,6 +9,8 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Prisma } from '@storageos/database';
 import type {
+  AdminCollectionsForecastBucketDto,
+  AdminCollectionsForecastDto,
   AdminAccountEventDto,
   AdminBillingCalendarDto,
   AdminCalendarChargeDto,
@@ -507,6 +509,85 @@ export class AdminBillingOpsService {
       pricesIncludeVat: pricing.includeVat,
       charges,
       scheduledByMethod,
+    };
+  }
+
+  // ------------------------------------------------------------- previsión
+
+  /**
+   * Lo que se espera cobrar en los próximos 30, 60 y 90 días por forma de cobro:
+   * cada cuota (y extra cobrado aparte) se repite cada mes o cada año desde su
+   * próxima fecha. Aparte, lo vencido sin cobrar, lo que ya va en una remesa
+   * SEPA y las tarjetas de Redsys con el último cobro rechazado.
+   */
+  async collectionsForecast(now = new Date()): Promise<AdminCollectionsForecastDto> {
+    const horizon = 90;
+    const to = new Date(now.getTime() + horizon * DAY);
+    const pricing = await platformPricing(this.admin);
+    const ranges = [
+      { label: 'Próximos 30 días', fromDays: 0, toDays: 30 },
+      { label: 'De 31 a 60 días', fromDays: 31, toDays: 60 },
+      { label: 'De 61 a 90 días', fromDays: 61, toDays: 90 },
+    ];
+    const buckets: AdminCollectionsForecastBucketDto[] = ranges.map((r) => ({
+      ...r,
+      byMethod: { stripe: 0, sepa: 0, redsys: 0, manual: 0 },
+      total: 0,
+      count: 0,
+    }));
+    const add = (date: Date, method: AdminChargeMethod, amount: number) => {
+      if (amount <= 0 || date < now || date > to) return;
+      const days = Math.floor((date.getTime() - now.getTime()) / DAY);
+      const b = buckets.find((x) => days >= x.fromDays && days <= x.toDays) ?? buckets[2]!;
+      b.byMethod[method] = round2(b.byMethod[method] + amount);
+      b.total = round2(b.total + amount);
+      b.count += 1;
+    };
+    /** Repite un cargo cada `stepMonths` desde `first` hasta el horizonte. */
+    const repeat = (first: Date, stepMonths: number, fn: (d: Date) => void) => {
+      for (let i = 0, d = new Date(first); d <= to && i < 24; i++) {
+        fn(d);
+        d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + stepMonths, d.getUTCDate()));
+      }
+    };
+
+    const subs = await this.admin.tenantSubscription.findMany({
+      where: {
+        status: 'active',
+        tenant: { deletedAt: null, billingExempt: false, status: 'active' },
+      },
+      include: SUB_INCLUDE,
+    });
+    for (const s of subs) {
+      const charge = this.planCharge(s, pricing);
+      const step = this.cycleOf(s) === 'yearly' ? 12 : 1;
+      if (s.currentPeriodEnd >= now) {
+        repeat(s.currentPeriodEnd, step, (d) => add(d, charge.method, charge.total));
+      }
+      for (const c of this.separateAddonCharges(s, pricing)) {
+        const first = new Date(c.date);
+        if (first >= now) repeat(first, 1, (d) => add(d, 'manual', c.total));
+      }
+    }
+
+    const [receivables, sepaPending, cardIssues] = await Promise.all([
+      this.receivables(now),
+      this.admin.platformSepaRemittanceItem.findMany({
+        where: { itemStatus: 'pending' },
+        select: { amount: true },
+      }),
+      this.admin.platformRedsysCard.count({ where: { lastError: { not: null } } }),
+    ]);
+
+    return {
+      pricesIncludeVat: pricing.includeVat,
+      buckets,
+      overdue: { total: receivables.total, count: receivables.items.length },
+      inSepaRemittance: {
+        total: round2(sepaPending.reduce((sum, i) => sum + i.amount / 100, 0)),
+        count: sepaPending.length,
+      },
+      cardIssues,
     };
   }
 }

@@ -18,8 +18,8 @@ function cellStyle(pct: number | null): { className: string; text: string } {
   return { className: 'bg-red-500 text-white', text };
 }
 
-export function RetentionCohortsCard() {
-  const q = useAdminRetention();
+export function RetentionCohortsCard({ months = 12 }: { months?: number }) {
+  const q = useAdminRetention(months);
 
   return (
     <Card>

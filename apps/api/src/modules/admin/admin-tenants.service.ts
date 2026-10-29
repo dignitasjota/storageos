@@ -22,7 +22,7 @@ import { FilesService } from '../files/files.service';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
-import type { InvoiceStatus } from '@storageos/database';
+import type { InvoiceStatus, Prisma } from '@storageos/database';
 import type {
   AdminAdoptionDto,
   AdminAtRiskDto,
@@ -424,57 +424,13 @@ export class AdminTenantsService {
   }
 
   private async computeTenantsHealth(): Promise<AdminTenantHealthDto[]> {
-    const now = new Date();
-    const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    const [tenants, lastLogins, recentInvoices, activeContracts, facilities] = await Promise.all([
-      this.admin.tenant.findMany({
-        where: { deletedAt: null, status: { in: ['active', 'trial'] } },
-        include: { subscription: { include: { plan: { select: { name: true } } } } },
-      }),
-      this.admin.user.groupBy({ by: ['tenantId'], _max: { lastLoginAt: true } }),
-      this.admin.invoice.groupBy({
-        by: ['tenantId'],
-        where: {
-          deletedAt: null,
-          status: { in: ['issued', 'paid', 'overdue'] },
-          issueDate: { gte: since30d },
-        },
-        _count: { _all: true },
-      }),
-      this.admin.contract.groupBy({
-        by: ['tenantId'],
-        where: { deletedAt: null, status: { in: ['active', 'ending'] } },
-        _count: { _all: true },
-      }),
-      this.admin.facility.groupBy({
-        by: ['tenantId'],
-        where: { deletedAt: null },
-        _count: { _all: true },
-      }),
-    ]);
-
-    const lastLoginBy = new Map(lastLogins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
-    const invoicesBy = new Map(recentInvoices.map((r) => [r.tenantId, r._count._all]));
-    const contractsBy = new Map(activeContracts.map((c) => [c.tenantId, c._count._all]));
-    const facilitiesBy = new Map(facilities.map((f) => [f.tenantId, f._count._all]));
-
-    const result = tenants.map((t) =>
-      this.scoreTenant({
-        id: t.id,
-        name: t.name,
-        slug: t.slug,
-        status: t.status,
-        planName: t.subscription?.plan?.name ?? null,
-        subStatus: t.subscription?.status ?? null,
-        cancelAtPeriodEnd: t.subscription?.cancelAtPeriodEnd ?? false,
-        trialEndsAt: t.trialEndsAt,
-        lastLoginAt: lastLoginBy.get(t.id) ?? null,
-        recentInvoices: invoicesBy.get(t.id) ?? 0,
-        activeContracts: contractsBy.get(t.id) ?? 0,
-        facilities: facilitiesBy.get(t.id) ?? 0,
-      }),
-    );
+    const tenants = await this.admin.tenant.findMany({
+      where: { deletedAt: null, status: { in: ['active', 'trial'] } },
+      include: { subscription: { include: { plan: { select: { name: true } } } } },
+    });
+    const signals = await this.healthSignals(null);
+    const result = tenants.map((t) => this.scoreTenant(this.healthInput(t, signals)));
+    await this.saveHealthSnapshots(result);
     // Más urgentes primero (menor score).
     result.sort((a, b) => a.score - b.score);
     return result;
@@ -482,8 +438,6 @@ export class AdminTenantsService {
 
   /** Health score de un tenant concreto (404 si no existe). */
   async getTenantHealth(tenantId: string): Promise<AdminTenantHealthDto> {
-    const now = new Date();
-    const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       include: { subscription: { include: { plan: { select: { name: true } } } } },
@@ -491,35 +445,160 @@ export class AdminTenantsService {
     if (!tenant) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
     }
-    const [lastLogin, recentInvoices, activeContracts, facilities] = await Promise.all([
-      this.admin.user.aggregate({ where: { tenantId }, _max: { lastLoginAt: true } }),
-      this.admin.invoice.count({
+    const signals = await this.healthSignals(tenantId);
+    return this.scoreTenant(this.healthInput(tenant, signals));
+  }
+
+  /**
+   * Señales de la salud por tenant (de todos o de uno): último acceso del
+   * equipo, facturas en 30 y 60 días, contratos y locales, tickets sin
+   * responder, uso del área de clientes por sus inquilinos y la foto del mes
+   * pasado (para la tendencia).
+   */
+  private async healthSignals(tenantId: string | null) {
+    const DAY_MS = 86_400_000;
+    const now = Date.now();
+    const since30d = new Date(now - 30 * DAY_MS);
+    const since60d = new Date(now - 60 * DAY_MS);
+    const since90d = new Date(now - 90 * DAY_MS);
+    const ticketStale = new Date(now - 48 * 60 * 60 * 1000);
+    const prevMonth = new Date(
+      Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth() - 1, 1),
+    );
+    const scope: { tenantId?: string } = tenantId ? { tenantId } : {};
+    const liveCustomer: Prisma.CustomerWhereInput = {
+      ...scope,
+      deletedAt: null,
+      contracts: { some: { status: { in: ['active', 'ending'] }, deletedAt: null } },
+    };
+    const [
+      lastLogins,
+      invoices30,
+      invoices60,
+      activeContracts,
+      facilities,
+      tickets,
+      customers,
+      portalUsers,
+      prevSnapshots,
+    ] = await Promise.all([
+      this.admin.user.groupBy({ by: ['tenantId'], where: scope, _max: { lastLoginAt: true } }),
+      this.admin.invoice.groupBy({
+        by: ['tenantId'],
         where: {
-          tenantId,
+          ...scope,
           deletedAt: null,
           status: { in: ['issued', 'paid', 'overdue'] },
           issueDate: { gte: since30d },
         },
+        _count: { _all: true },
       }),
-      this.admin.contract.count({
-        where: { tenantId, deletedAt: null, status: { in: ['active', 'ending'] } },
+      this.admin.invoice.groupBy({
+        by: ['tenantId'],
+        where: {
+          ...scope,
+          deletedAt: null,
+          status: { in: ['issued', 'paid', 'overdue'] },
+          issueDate: { gte: since60d },
+        },
+        _count: { _all: true },
       }),
-      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
+      this.admin.contract.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, deletedAt: null, status: { in: ['active', 'ending'] } },
+        _count: { _all: true },
+      }),
+      this.admin.facility.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.admin.supportTicket.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, status: 'open', firstResponseAt: null, createdAt: { lt: ticketStale } },
+        _count: { _all: true },
+      }),
+      this.admin.customer.groupBy({
+        by: ['tenantId'],
+        where: liveCustomer,
+        _count: { _all: true },
+      }),
+      this.admin.customer.groupBy({
+        by: ['tenantId'],
+        where: { ...liveCustomer, portalLastSeenAt: { gte: since90d } },
+        _count: { _all: true },
+      }),
+      this.admin.tenantHealthSnapshot.findMany({
+        where: { ...scope, month: prevMonth },
+        select: { tenantId: true, score: true },
+      }),
     ]);
-    return this.scoreTenant({
-      id: tenant.id,
-      name: tenant.name,
-      slug: tenant.slug,
-      status: tenant.status,
-      planName: tenant.subscription?.plan?.name ?? null,
-      subStatus: tenant.subscription?.status ?? null,
-      cancelAtPeriodEnd: tenant.subscription?.cancelAtPeriodEnd ?? false,
-      trialEndsAt: tenant.trialEndsAt,
-      lastLoginAt: lastLogin._max.lastLoginAt ?? null,
-      recentInvoices,
-      activeContracts,
-      facilities,
-    });
+    const count = (rows: { tenantId: string; _count: { _all: number } }[]) =>
+      new Map(rows.map((r) => [r.tenantId, r._count._all]));
+    return {
+      lastLogin: new Map(lastLogins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null])),
+      invoices30: count(invoices30),
+      invoices60: count(invoices60),
+      contracts: count(activeContracts),
+      facilities: count(facilities),
+      staleTickets: count(tickets),
+      customers: count(customers),
+      portalUsers: count(portalUsers),
+      prevScore: new Map(prevSnapshots.map((r) => [r.tenantId, r.score])),
+    };
+  }
+
+  private healthInput(
+    t: {
+      id: string;
+      name: string;
+      slug: string;
+      status: string;
+      trialEndsAt: Date | null;
+      subscription: {
+        status: string;
+        cancelAtPeriodEnd: boolean;
+        plan: { name: string } | null;
+      } | null;
+    },
+    s: Awaited<ReturnType<AdminTenantsService['healthSignals']>>,
+  ) {
+    return {
+      id: t.id,
+      name: t.name,
+      slug: t.slug,
+      status: t.status,
+      planName: t.subscription?.plan?.name ?? null,
+      subStatus: t.subscription?.status ?? null,
+      cancelAtPeriodEnd: t.subscription?.cancelAtPeriodEnd ?? false,
+      trialEndsAt: t.trialEndsAt,
+      lastLoginAt: s.lastLogin.get(t.id) ?? null,
+      recentInvoices: s.invoices30.get(t.id) ?? 0,
+      invoices60d: s.invoices60.get(t.id) ?? 0,
+      activeContracts: s.contracts.get(t.id) ?? 0,
+      facilities: s.facilities.get(t.id) ?? 0,
+      staleTickets: s.staleTickets.get(t.id) ?? 0,
+      customers: s.customers.get(t.id) ?? 0,
+      portalUsers: s.portalUsers.get(t.id) ?? 0,
+      previousScore: s.prevScore.get(t.id) ?? null,
+    };
+  }
+
+  /** Guarda la foto del mes en curso (se reescribe con cada cálculo). */
+  private async saveHealthSnapshots(rows: AdminTenantHealthDto[]): Promise<void> {
+    if (rows.length === 0) return;
+    const now = new Date();
+    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    await this.admin
+      .$transaction([
+        this.admin.tenantHealthSnapshot.deleteMany({
+          where: { month, tenantId: { in: rows.map((r) => r.tenantId) } },
+        }),
+        this.admin.tenantHealthSnapshot.createMany({
+          data: rows.map((r) => ({ tenantId: r.tenantId, month, score: r.score, level: r.level })),
+        }),
+      ])
+      .catch(() => undefined);
   }
 
   /** Cálculo puro del score a partir de las señales ya recopiladas. */
@@ -534,8 +613,13 @@ export class AdminTenantsService {
     trialEndsAt: Date | null;
     lastLoginAt: Date | null;
     recentInvoices: number;
+    invoices60d: number;
     activeContracts: number;
     facilities: number;
+    staleTickets: number;
+    customers: number;
+    portalUsers: number;
+    previousScore: number | null;
   }): AdminTenantHealthDto {
     const now = Date.now();
     const daysSince = (d: Date | null): number =>
@@ -550,9 +634,20 @@ export class AdminTenantsService {
       : 'Ningún acceso registrado';
 
     // 2) Facturación: facturas emitidas en los últimos 30 días.
-    const billing =
-      s.recentInvoices >= 5 ? 100 : s.recentInvoices >= 2 ? 75 : s.recentInvoices >= 1 ? 50 : 0;
-    const billingDetail = `${s.recentInvoices} factura(s) en 30 días`;
+    // Con contratos activos y sin facturas en 60 días, algo falla en su facturación.
+    const stalledBilling = s.activeContracts > 0 && s.invoices60d === 0;
+    const billing = stalledBilling
+      ? 0
+      : s.recentInvoices >= 5
+        ? 100
+        : s.recentInvoices >= 2
+          ? 75
+          : s.recentInvoices >= 1
+            ? 50
+            : 0;
+    const billingDetail = stalledBilling
+      ? `Sin facturas en 60 días con ${s.activeContracts} contrato(s) activo(s)`
+      : `${s.recentInvoices} factura(s) en 30 días`;
 
     // 3) Suscripción: estado de pago / trial.
     let subscription: number;
@@ -596,29 +691,61 @@ export class AdminTenantsService {
               : 0;
     const adoptionDetail = `${s.activeContracts} contrato(s) activo(s) · ${s.facilities} local(es)`;
 
+    // 5) Área de clientes: inquilinos con contrato que han entrado en 90 días.
+    const portalPct = s.customers > 0 ? (s.portalUsers / s.customers) * 100 : null;
+    const portal =
+      portalPct === null
+        ? 50
+        : portalPct >= 50
+          ? 100
+          : portalPct >= 25
+            ? 70
+            : portalPct > 0
+              ? 40
+              : 10;
+    const portalDetail =
+      portalPct === null
+        ? 'Sin inquilinos con contrato'
+        : `${Math.round(portalPct)} % de sus inquilinos entró en 90 días`;
+
+    // 6) Soporte: tickets abiertos sin primera respuesta en más de 48 h.
+    const support = s.staleTickets === 0 ? 100 : s.staleTickets === 1 ? 40 : 10;
+    const supportDetail =
+      s.staleTickets === 0
+        ? 'Sin tickets esperando respuesta'
+        : `${s.staleTickets} ticket(s) sin responder en más de 48 h`;
+
     const factors: AdminTenantHealthFactorDto[] = [
       {
         key: 'engagement',
         label: 'Actividad del equipo',
         score: engagement,
-        weight: 0.35,
+        weight: 0.3,
         detail: engagementDetail,
       },
       {
         key: 'billing',
         label: 'Facturación reciente',
         score: billing,
-        weight: 0.25,
+        weight: 0.2,
         detail: billingDetail,
       },
       {
         key: 'subscription',
         label: 'Suscripción',
         score: subscription,
-        weight: 0.25,
+        weight: 0.2,
         detail: subDetail,
       },
       { key: 'adoption', label: 'Adopción', score: adoption, weight: 0.15, detail: adoptionDetail },
+      {
+        key: 'portal',
+        label: 'Área de clientes',
+        score: portal,
+        weight: 0.1,
+        detail: portalDetail,
+      },
+      { key: 'support', label: 'Soporte', score: support, weight: 0.05, detail: supportDetail },
     ];
     const score = Math.round(factors.reduce((acc, f) => acc + f.score * f.weight, 0));
     const level: AdminTenantHealthLevel =
@@ -634,6 +761,7 @@ export class AdminTenantsService {
       level,
       factors,
       lastActivityAt: s.lastLoginAt ? s.lastLoginAt.toISOString() : null,
+      trend: s.previousScore !== null ? score - s.previousScore : null,
     };
   }
 

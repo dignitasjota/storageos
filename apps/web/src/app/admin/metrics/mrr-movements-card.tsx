@@ -21,8 +21,8 @@ function eur(n: number): string {
   return `${n >= 0 ? '' : '−'}${Math.abs(n).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €`;
 }
 
-export function MrrMovementsCard() {
-  const q = useAdminMrrMovements();
+export function MrrMovementsCard({ months = 12 }: { months?: number }) {
+  const q = useAdminMrrMovements(months);
 
   return (
     <Card>
