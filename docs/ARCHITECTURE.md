@@ -426,3 +426,16 @@ Las direcciones «bonitas» (`/reservar/<centro>`, `/precios`, `/contacto`, `/<l
 - **Recordatorio de reservas**: el de WhatsApp y el del correo comparten la misma reserva atómica (`contracts.booking_reminder_sent_at`), porque cada uno genera un enlace de firma nuevo; si WhatsApp no puede (ventana cerrada y sin plantilla), lo manda el correo.
 - **Archivos**: se descargan de Meta en segundo plano (solo de sus dominios, ≤20 MB) al bucket privado; se envían subiéndolos a Meta por multipart (no se expone MinIO a Meta). Anonimizar y la retención borran también los archivos.
 - Pendiente: alta con coexistencia (Embedded Signup) cuando Meta apruebe a TrasterOS como Tech Provider.
+
+## Asistente IA: clave, límite de consultas y clave propia del tenant (2026-10-29, #866–#868)
+
+- **De dónde sale la IA**: la clave y el modelo se guardan en el panel admin (`platform_ai_settings`, clave cifrada); sin ellos, las variables de entorno (`ANTHROPIC_API_KEY` con `AI_PROVIDER=anthropic`, `AI_MODEL`); sin nada, modo de demostración. `PlatformAiSettingsService` los guarda en memoria y los relee cada minuto; `DelegatingAiProvider` elige en cada llamada (en tests, siempre el de demostración).
+- **Una consulta = una pregunta**, no cada llamada al modelo. `AiQuotaService.reserve` la reserva **antes** de llamar, dentro de una transacción con `pg_advisory_xact_lock` por tenant (dos preguntas a la vez no se cuelan en la última) y crea la fila `ai_usage_events` con `counts_as_query`; las llamadas guardan solo los tokens. Si la llamada falla, `release` borra la reserva.
+- **Límites**: al mes por tenant (el general + las consultas de los extras, o el propio que ponga el super admin), al día por usuario del equipo y al día por inquilino del área de clientes. El día se corta en la zona horaria del tenant; el mes, en la de Madrid. Avisos al 80 % y al 100 % (campana; al 100 %, también correo a los propietarios), uno por nivel y mes.
+- **Clave propia del tenant** (cifrada con AAD = tenant): en modo `platform`, al gastar un límite se sigue con ella en vez de cortar; en modo `own` (lo decide el super admin), siempre. Esas consultas llevan `own_key` y no cuentan para el límite ni para el coste. `AiService` fija el proveedor de cada pregunta con un `AsyncLocalStorage`, así todas sus llamadas (herramientas y streaming incluidos) usan la misma clave.
+
+## Vaciar los datos de prueba de un tenant (2026-10-29, #865, #867, #868)
+
+- Solo super admin, con el identificador del tenant escrito y la exportación confirmada. Bloquea si hay facturas aceptadas por la AEAT (en producción, cualquiera enviada) o emitidas en Holded.
+- Antes de borrar, quita los accesos de los inquilinos de los terminales de las puertas (Dahua): si queda alguno, no borra nada (409).
+- Borra en una transacción, en un orden que respeta las claves ajenas (`PURGE_STEPS`), y después los ficheros por prefijo (la misma lista sirve para la vista previa). Conserva locales, trasteros, productos, contactos, usuarios y configuración; las series vuelven a 1. Aviso en el panel admin y resumen al email de alertas.
