@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { isValidTimeZone } from '../auth/schemas';
 import { TenantFeatures } from '../features';
 import { MessageAttachmentSchema } from '../messages';
 
@@ -155,7 +156,7 @@ export const AdminUpdateTenantSchema = z
     billingEmail: z.string().trim().email().max(320).nullable().optional(),
     country: z.string().trim().length(2).toUpperCase().optional(),
     currency: z.string().trim().length(3).toUpperCase().optional(),
-    timezone: z.string().trim().min(1).max(64).optional(),
+    timezone: z.string().trim().refine(isValidTimeZone, 'Zona horaria no válida').optional(),
     taxId: z.string().trim().max(40).nullable().optional(),
     billingLegalName: z.string().trim().max(200).nullable().optional(),
     billingAddress: z.string().trim().max(300).nullable().optional(),

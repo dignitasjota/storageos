@@ -46,7 +46,8 @@ export class AdminTenantFollowupsService {
     const rows = await this.admin.tenantFollowup.findMany({
       where: { tenantId },
       include: followupInclude,
-      orderBy: [{ status: 'asc' }, { dueDate: 'asc' }],
+      // Texto: 'pending' > 'done', así que desc deja primero los pendientes.
+      orderBy: [{ status: 'desc' }, { dueDate: 'asc' }],
     });
     return rows.map(toDto);
   }

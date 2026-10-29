@@ -133,6 +133,9 @@ export class AdminTenantsService {
     // Paginación por cursor: a 500+ tenants la lista completa (con 4 _count por
     // fila) es cara y pesada. Cursor estable por (createdAt desc, id desc).
     const take = Math.min(Math.max(filters.limit ?? 30, 1), 100);
+    if (filters.status && !['trial', 'active', 'suspended', 'cancelled'].includes(filters.status)) {
+      throw new BadRequestException({ code: 'invalid_status', message: 'Estado no válido' });
+    }
     const rows = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
@@ -273,7 +276,7 @@ export class AdminTenantsService {
     const lastLogins = activeIds.length
       ? await this.admin.user.groupBy({
           by: ['tenantId'],
-          where: { tenantId: { in: activeIds } },
+          where: { tenantId: { in: activeIds }, isActive: true },
           _max: { lastLoginAt: true },
         })
       : [];
@@ -345,7 +348,7 @@ export class AdminTenantsService {
     const logins = await this.admin.user.groupBy({
       by: ['tenantId'],
       _max: { lastLoginAt: true },
-      where: { tenantId: { in: trials.map((t) => t.id) } },
+      where: { tenantId: { in: trials.map((t) => t.id) }, isActive: true },
     });
     const loginMap = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
     const DAY_MS = 24 * 60 * 60 * 1000;
@@ -482,7 +485,11 @@ export class AdminTenantsService {
       portalUsers,
       prevSnapshots,
     ] = await Promise.all([
-      this.admin.user.groupBy({ by: ['tenantId'], where: scope, _max: { lastLoginAt: true } }),
+      this.admin.user.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, isActive: true },
+        _max: { lastLoginAt: true },
+      }),
       this.admin.invoice.groupBy({
         by: ['tenantId'],
         where: {
@@ -1424,12 +1431,18 @@ export class AdminTenantsService {
     exempt: boolean,
     meta: ActionMeta,
   ): Promise<AdminTenantDto> {
-    await this.findOrThrow(tenantId);
+    const tenant = await this.findOrThrow(tenantId);
     await this.admin.tenant.update({
       where: { id: tenantId },
       // Al eximir, dejarlo activo y sin trial (no debe expirar ni entrar en dunning).
       data: exempt
-        ? { billingExempt: true, status: 'active', trialEndsAt: null }
+        ? {
+            billingExempt: true,
+            status: 'active',
+            trialEndsAt: null,
+            // Si estaba suspendido, deja de contar como baja.
+            ...(tenant.status === 'suspended' ? { churnReason: null, canceledAt: null } : {}),
+          }
         : { billingExempt: false },
     });
     // La suscripción también: si estaba en prueba o impagada, su panel seguía
@@ -1512,6 +1525,14 @@ export class AdminTenantsService {
 
   async extendTrial(tenantId: string, args: ExtendTrialArgs): Promise<AdminTenantDto> {
     const tenant = await this.findOrThrow(tenantId);
+    // Ampliar la prueba no es la forma de levantar una suspensión (se quedaría
+    // con el motivo y la fecha de baja): primero hay que reactivarlo.
+    if (tenant.status === 'suspended') {
+      throw new BadRequestException({
+        code: 'tenant_suspended',
+        message: 'El tenant está suspendido: reactívalo antes de ampliarle la prueba.',
+      });
+    }
     const base =
       tenant.trialEndsAt && tenant.trialEndsAt.getTime() > Date.now()
         ? tenant.trialEndsAt
@@ -1605,8 +1626,13 @@ export class AdminTenantsService {
     args: ExtendTrialArgs,
   ): Promise<{ updated: number }> {
     let updated = 0;
-    // Sin duplicados (un mismo id no debe extenderse dos veces en el mismo lote).
-    for (const tenantId of [...new Set(tenantIds)]) {
+    // Solo los que están en prueba: el lote no devuelve a prueba a un tenant
+    // activo en Free (eso se hace a propósito desde su ficha). Sin duplicados.
+    const inTrial = await this.admin.tenant.findMany({
+      where: { id: { in: [...new Set(tenantIds)] }, deletedAt: null, status: 'trial' },
+      select: { id: true },
+    });
+    for (const { id: tenantId } of inTrial) {
       try {
         await this.extendTrial(tenantId, args);
         updated += 1;
@@ -2031,13 +2057,20 @@ export class AdminTenantsService {
    * cuyo uso superaría los límites del plan nuevo.
    */
   async changePlanPreview(tenantId: string, planSlug: string): Promise<AdminChangePlanPreviewDto> {
+    if (!planSlug) {
+      throw new BadRequestException({ code: 'plan_required', message: 'Indica el plan' });
+    }
     await this.findOrThrow(tenantId);
-    const [newPlan, subscription, units, facilities, users, addons] = await Promise.all([
+    const [newPlan, subscription, units, facilities, users, invites, addons] = await Promise.all([
       this.admin.subscriptionPlan.findUnique({ where: { slug: planSlug } }),
       this.admin.tenantSubscription.findUnique({ where: { tenantId }, include: { plan: true } }),
       this.admin.unit.count({ where: { tenantId } }),
       this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
       this.admin.user.count({ where: { tenantId, isActive: true } }),
+      // Como el límite real: usuarios activos + invitaciones pendientes.
+      this.admin.invitation.count({
+        where: { tenantId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+      }),
       this.admin.tenantSubscriptionAddon.findMany({
         where: { tenantId, suspendedAt: null },
         include: { addon: { select: { name: true, feature: true } } },
@@ -2064,7 +2097,7 @@ export class AdminTenantsService {
     };
     check('units', units, newPlan.maxUnits);
     check('facilities', facilities, newPlan.maxFacilities);
-    check('users', users, newPlan.maxUsers);
+    check('users', users + invites, newPlan.maxUsers);
 
     const currentPrice = Number(subscription.plan.priceMonthly);
     const newPrice = Number(newPlan.priceMonthly);
@@ -2134,8 +2167,74 @@ export class AdminTenantsService {
           tags: [],
           portalAccessEnabled: false,
           portalPasswordHash: null,
+          // Cierra las sesiones del área de clientes que siguieran abiertas.
+          portalSessionVersion: { increment: 1 },
+          referralCode: null,
           deletedAt: now,
         },
+      });
+
+      // Accesos: revocados y sin secreto, tarjeta ni cara (el PIN no debe abrir
+      // nada y la foto es un dato biométrico). Lo mismo que el RGPD de un inquilino.
+      const faces = await tx.accessCredential.findMany({
+        where: { tenantId, facePhotoKey: { not: null } },
+        select: { facePhotoKey: true },
+      });
+      await tx.accessCredential.updateMany({
+        where: { tenantId },
+        data: {
+          status: 'revoked',
+          revokedAt: now,
+          secretHash: null,
+          secretPreview: null,
+          secretEncrypted: null,
+          rfidUid: null,
+          facePhotoKey: null,
+          label: null,
+          metadata: {},
+        },
+      });
+      await tx.pushSubscription.deleteMany({ where: { tenantId } });
+      // Lo que escribieron los inquilinos o se anotó sobre ellos.
+      const chatFiles = await tx.customerMessage.findMany({
+        where: { tenantId, attachmentKey: { not: null } },
+        select: { attachmentKey: true },
+      });
+      await tx.customerMessage.updateMany({
+        where: { tenantId },
+        data: { body: ANON, attachmentKey: null, attachmentMime: null, attachmentName: null },
+      });
+      await tx.customerInteraction.updateMany({ where: { tenantId }, data: { content: ANON } });
+      await tx.customerFollowup.updateMany({
+        where: { tenantId },
+        data: { title: ANON, note: null },
+      });
+      await tx.review.updateMany({
+        where: { tenantId },
+        data: { comment: null, ip: null, userAgent: null },
+      });
+      await tx.unitChangeRequest.updateMany({
+        where: { tenantId },
+        data: { note: ANON, resolutionNote: null },
+      });
+      await tx.unitRequest.updateMany({
+        where: { tenantId },
+        data: { note: ANON, resolutionNote: null },
+      });
+      await tx.waitlistEntry.updateMany({
+        where: { tenantId },
+        data: { contactName: ANON, contactEmail: ANON, contactPhone: null, notes: null },
+      });
+      const photos = await tx.contractInspectionPhoto.findMany({
+        where: { tenantId },
+        select: { key: true },
+      });
+      await tx.contractInspectionPhoto.deleteMany({ where: { tenantId } });
+      // Mandatos SEPA de los inquilinos: de baja (se conservan como prueba de
+      // los adeudos ya cobrados, como en el RGPD de un inquilino).
+      await tx.sepaMandate.updateMany({
+        where: { tenantId, status: 'active' },
+        data: { status: 'cancelled' },
       });
 
       await tx.customerDocument.deleteMany({ where: { tenantId } });
@@ -2176,8 +2275,33 @@ export class AdminTenantsService {
           bodyText: ANON,
           bodyHtml: null,
           variables: {},
+          secretsEncrypted: null,
           errorMessage: null,
         },
+      });
+
+      // Claves y secretos del propio negocio: el certificado de la AEAT (con su
+      // clave privada), las pasarelas, Holded, el acreedor SEPA, el dominio de
+      // correo, las claves de API y los webhooks. Ya no se van a usar.
+      await tx.tenantAeatCredential.deleteMany({ where: { tenantId } });
+      await tx.redsysSettings.deleteMany({ where: { tenantId } });
+      await tx.goCardlessSettings.deleteMany({ where: { tenantId } });
+      await tx.holdedSettings.deleteMany({ where: { tenantId } });
+      await tx.sepaSettings.deleteMany({ where: { tenantId } });
+      await tx.tenantEmailDomain.deleteMany({ where: { tenantId } });
+      await tx.apiKey.updateMany({
+        where: { tenantId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      await tx.webhook.updateMany({
+        where: { tenantId },
+        data: { isActive: false, revokedAt: now, secret: '' },
+      });
+      // Propietarios: se conservan nombre y NIF (emiten facturas que hay que
+      // guardar) sin su contacto ni su cuenta.
+      await tx.owner.updateMany({
+        where: { tenantId },
+        data: { email: null, phone: null, ibanEncrypted: null, ibanLast4: null },
       });
 
       // WhatsApp: conversaciones sin texto ni números y fuera el token del número.
@@ -2203,10 +2327,12 @@ export class AdminTenantsService {
             twoFactorPendingSecretEncrypted: null,
             twoFactorEnabled: false,
             twoFactorEnrolledAt: null,
+            appPinHash: null,
             isActive: false,
           },
         });
       }
+      await tx.userPasskey.deleteMany({ where: { tenantId } });
 
       await tx.session.deleteMany({ where: { tenantId } });
 
@@ -2220,6 +2346,9 @@ export class AdminTenantsService {
           canceledAt: existing.canceledAt ?? now,
           billingEmail: null,
           taxId: null,
+          contactEmail: null,
+          contactPhone: null,
+          transferIban: null,
         },
       });
 
@@ -2229,7 +2358,12 @@ export class AdminTenantsService {
         leads: leads.count,
         communications: communications.count,
         whatsappConversations: whatsapp.count,
-        whatsappMediaKeys: whatsapp.mediaKeys,
+        fileKeys: [
+          ...whatsapp.mediaKeys,
+          ...faces.map((f) => f.facePhotoKey!),
+          ...photos.map((p) => p.key),
+          ...chatFiles.map((m) => m.attachmentKey!),
+        ],
       };
     });
 
@@ -2241,7 +2375,18 @@ export class AdminTenantsService {
       anonymizedCommunications: counts.communications,
       anonymizedWhatsappConversations: counts.whatsappConversations,
     };
-    await this.files.deleteObjects('uploads', counts.whatsappMediaKeys);
+    await this.files.deleteObjects('uploads', counts.fileKeys);
+    // Documentos de los inquilinos y adjuntos que quedaran sueltos (las facturas
+    // y los contratos firmados se conservan, como en el RGPD de un inquilino).
+    for (const prefix of ['customers', 'chat', 'collections']) {
+      await this.files
+        .deleteByPrefix('uploads', `${tenantId}/${prefix}/`)
+        .catch((err: unknown) =>
+          this.logger.warn(
+            `anonymize: no se pudo borrar ${prefix}/ de ${tenantId}: ${String(err)}`,
+          ),
+        );
+    }
     await this.audit.write({
       tenantId,
       userId: null,

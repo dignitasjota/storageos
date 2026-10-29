@@ -55,7 +55,12 @@ export class AdminTenantsOverviewService {
             addon: { select: { slug: true, name: true } },
           },
         }),
-        this.admin.user.groupBy({ by: ['tenantId'], _max: { lastLoginAt: true } }),
+        // Solo usuarios activos: un ex-empleado que entró ayer no tapa a un equipo que no entra.
+        this.admin.user.groupBy({
+          by: ['tenantId'],
+          where: { isActive: true },
+          _max: { lastLoginAt: true },
+        }),
         this.admin.tenantFollowup.findMany({
           where: { status: 'pending' },
           select: { tenantId: true, title: true, dueDate: true },
@@ -103,7 +108,7 @@ export class AdminTenantsOverviewService {
         .filter((a) => !a.suspendedAt)
         .reduce((sum, a) => sum + Number(a.priceMonthly) * a.quantity, 0);
       const planMonthly = sub?.plan ? Number(sub.plan.priceMonthly) : 0;
-      const paying = !t.billingExempt && t.status !== 'trial' && t.status !== 'cancelled' && !!sub;
+      const paying = !t.billingExempt && t.status === 'active' && !!sub;
       const followup = followupBy.get(t.id);
       const owner = ownerBy.get(t.id);
       const h = healthBy.get(t.id);

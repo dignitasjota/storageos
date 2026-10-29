@@ -1558,3 +1558,8 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Al llegar al límite se avisa también **por correo** a los propietarios.
 - **Vaciar los datos de prueba**: la vista previa dice cuántos ficheros se borran por tipo y, al terminar, llega un aviso al panel admin y un resumen al email de alertas (Alertas al admin).
 - Nada que configurar en Portainer.
+
+## 63. Revisión del apartado Tenants del panel admin (2026-10-29)
+
+- Sin migración ni variables nuevas. Redesplegar api, worker y web.
+- Anonimizar un tenant (RGPD) ahora también borra sus secretos (certificado de la AEAT, pasarelas, Holded, claves de API) y los datos de los inquilinos que antes se quedaban; antes de usarlo, exporta sus datos si el cliente los pide.

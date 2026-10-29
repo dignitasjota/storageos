@@ -31,8 +31,26 @@ interface TxMock {
   tenant: { update: jest.Mock };
 }
 
+/** Cualquier tabla que no esté arriba responde con un mock vacío. */
+function withFallback(tx: TxMock): TxMock {
+  const extra = new Map<string, Record<string, jest.Mock>>();
+  return new Proxy(tx, {
+    get(target, prop: string) {
+      if (prop in target) return target[prop as keyof TxMock];
+      if (!extra.has(prop)) {
+        extra.set(prop, {
+          findMany: jest.fn().mockResolvedValue([]),
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+          deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        });
+      }
+      return extra.get(prop);
+    },
+  });
+}
+
 function buildTx(): TxMock {
-  return {
+  return withFallback({
     customer: { updateMany: jest.fn().mockResolvedValue({ count: 3 }) },
     customerDocument: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     customerAuthorizedPerson: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -53,7 +71,7 @@ function buildTx(): TxMock {
     },
     session: { deleteMany: jest.fn().mockResolvedValue({ count: 5 }) },
     tenant: { update: jest.fn().mockResolvedValue(undefined) },
-  };
+  });
 }
 
 function buildService(opts: { tx: TxMock; tenantFindUnique: jest.Mock }): {
@@ -71,7 +89,10 @@ function buildService(opts: { tx: TxMock; tenantFindUnique: jest.Mock }): {
     admin,
     { write: audit } as unknown as AuditService,
     { record: superAudit } as unknown as SuperAdminAuditService,
-    { deleteObjects: jest.fn().mockResolvedValue(undefined) } as never,
+    {
+      deleteObjects: jest.fn().mockResolvedValue(undefined),
+      deleteByPrefix: jest.fn().mockResolvedValue(0),
+    } as never,
     {} as never,
   );
   return { service, audit, superAudit };
@@ -128,6 +149,12 @@ describe('AdminTenantsService.anonymize', () => {
 
     // Sesiones revocadas.
     expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { tenantId: TENANT } });
+    // Secretos del negocio y accesos de los inquilinos.
+    const anyTx = tx as unknown as Record<string, Record<string, jest.Mock>>;
+    expect(anyTx.tenantAeatCredential!.deleteMany).toHaveBeenCalledWith({
+      where: { tenantId: TENANT },
+    });
+    expect(anyTx.accessCredential!.updateMany).toHaveBeenCalled();
 
     // Tenant: cancelled + deletedAt + PII de contacto borrada.
     const tenantData = tx.tenant.update.mock.calls[0][0].data;
