@@ -63,7 +63,10 @@ describe('Tendencias de Analítica (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'antrend');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 4 });
-    const fourMonthsAgo = new Date(Date.now() - 120 * DAY);
+    // Fechas ancladas al mes (no «hace N días»): la retención a 3 meses solo se
+    // calcula cuando ya han pasado 3 meses desde el fin del mes de alta.
+    const now = new Date();
+    const fourMonthsAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 2));
     await db.unit.updateMany({
       where: { id: { in: unitIds } },
       data: { createdAt: fourMonthsAgo },
@@ -86,7 +89,8 @@ describe('Tendencias de Analítica (e2e)', () => {
       where: { id: { in: [a, b] } },
       data: { signedAt: fourMonthsAgo },
     });
-    const monthAgo = new Date(Date.now() - 30 * DAY);
+    // Baja al empezar hace dos meses: seguía hace tres y no llegó a los 3 meses.
+    const monthAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1));
     await db.contract.update({ where: { id: b }, data: { status: 'ended', endedAt: monthAgo } });
     await db.unit.update({ where: { id: unitIds[1]! }, data: { status: 'available' } });
 
@@ -110,7 +114,7 @@ describe('Tendencias de Analítica (e2e)', () => {
       .run({ tenantId: owner.tenantId, params: {} });
     expect(occ.rows[0]).toMatchObject({ total: 4, occupied: 1, available: 3, mrr: 60 });
 
-    const from = new Date(Date.now() - 60 * DAY).toISOString().slice(0, 10);
+    const from = new Date(Date.now() - 100 * DAY).toISOString().slice(0, 10);
     const to = new Date().toISOString().slice(0, 10);
     const outs = await app
       .get(MoveOutsPeriodGenerator)
