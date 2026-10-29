@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  DEFAULT_AI_MONTHLY_QUERY_LIMIT,
   FEATURE_LABELS,
   effectiveFeaturesFromList,
   resolvePlanFeatures,
   type TenantFeature,
 } from '@storageos/shared';
 
+import { currentMonth } from '../../common/format';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { platformPricing } from '../billing-saas/platform-pricing';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
@@ -203,6 +205,7 @@ export class AdminOpportunitiesService {
         { n: i._count._all, last: i._max.createdAt },
       ]),
     );
+    const aiOver = await this.aiLimitReasons(tenants, now);
     const offerBy = new Map<string, Date>();
     for (const o of offers) {
       const addonId = (o.changes as { addonId?: string } | null)?.addonId;
@@ -243,7 +246,11 @@ export class AdminOpportunitiesService {
         if (ownedSet.has(`${t.id}:${addon.id}`)) continue;
         const s = signals.get(t.id)!;
         if (feature && s.features.has(feature)) continue;
+        // Las consultas extra solo sirven a quien tiene el asistente.
+        if (addon.grantsAiQueries && !s.features.has('ai_assistant')) continue;
         const reasons: string[] = [];
+        const ai = addon.grantsAiQueries ? aiOver.get(t.id) : undefined;
+        if (ai) reasons.push(ai);
         const int = feature ? interestBy.get(`${t.id}:${feature}`) : undefined;
         if (int) {
           reasons.push(
@@ -285,6 +292,68 @@ export class AdminOpportunitiesService {
       });
     }
     return result.sort((a, b) => b.candidates.length - a.candidates.length);
+  }
+
+  /**
+   * Tenants que han llegado al límite de consultas del asistente dos meses
+   * seguidos (el pasado y el anterior, o el pasado y el actual), con su límite
+   * de ahora: el general más sus extras, o el propio.
+   */
+  private async aiLimitReasons(tenants: { id: string }[], now: Date): Promise<Map<string, string>> {
+    const ids = tenants.map((t) => t.id);
+    if (ids.length === 0) return new Map();
+    const current = currentMonth(now);
+    const [y, m] = current.key.split('-').map(Number) as [number, number];
+    const keys = [-2, -1, 0].map((d) => {
+      const date = new Date(Date.UTC(y, m - 1 + d, 1));
+      return date.toISOString().slice(0, 7);
+    });
+    const from = new Date(Date.UTC(y, m - 3, 1) - 2 * 3_600_000);
+    const [rows, settings, tenantRows, extras] = await Promise.all([
+      this.admin.$queryRaw<{ tenant_id: string; month: string; n: number }[]>`
+        SELECT tenant_id, to_char(created_at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM') AS month,
+               COUNT(*)::int AS n
+        FROM ai_usage_events
+        WHERE counts_as_query AND NOT own_key AND created_at >= ${from}
+          AND tenant_id = ANY(${ids}::uuid[])
+        GROUP BY 1, 2`,
+      this.admin.platformAiSettings.findFirst({ select: { monthlyQueryLimit: true } }),
+      this.admin.tenant.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, aiMonthlyLimit: true },
+      }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: { tenantId: { in: ids }, suspendedAt: null, addon: { grantsAiQueries: { gt: 0 } } },
+        select: { tenantId: true, quantity: true, addon: { select: { grantsAiQueries: true } } },
+      }),
+    ]);
+    const general = settings?.monthlyQueryLimit ?? DEFAULT_AI_MONTHLY_QUERY_LIMIT;
+    const extraBy = new Map<string, number>();
+    for (const e of extras) {
+      extraBy.set(
+        e.tenantId,
+        (extraBy.get(e.tenantId) ?? 0) + (e.addon.grantsAiQueries ?? 0) * e.quantity,
+      );
+    }
+    const counts = new Map<string, number>();
+    for (const r of rows) counts.set(`${r.tenant_id}:${r.month}`, r.n);
+    const result = new Map<string, string>();
+    for (const t of tenantRows) {
+      const limit = t.aiMonthlyLimit ?? general + (extraBy.get(t.id) ?? 0);
+      if (limit <= 0) continue;
+      const [older, last, now0] = keys.map((k) => counts.get(`${t.id}:${k}`) ?? 0) as [
+        number,
+        number,
+        number,
+      ];
+      if (last >= limit && (older >= limit || now0 >= limit)) {
+        result.set(
+          t.id,
+          `Ha llegado al límite del asistente IA (${limit} consultas) dos meses seguidos`,
+        );
+      }
+    }
+    return result;
   }
 
   /**

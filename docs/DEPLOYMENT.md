@@ -1550,3 +1550,11 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - **Migración** `20261129100000_ai_portal_limit` (se aplica sola): `ai_usage_events.customer_id` y `platform_ai_settings.portal_daily_limit` (20).
 - **Vaciar los datos de prueba**: antes de borrar, los accesos de los inquilinos se quitan de los terminales de las puertas (Dahua). Si un terminal no responde, no se borra nada (409 `terminal_revoke_failed`): revisa su conexión y vuelve a intentarlo. Con `AEAT_MODE=production` bloquea cualquier factura enviada a la AEAT (también pendientes o con error) y siempre bloquea las facturas emitidas en Holded.
 - **Asistente IA**: tope diario por inquilino en el chatbot del área de clientes (panel admin → Asistente IA, 20 por defecto). Las consultas se reservan antes de llamar al modelo y se devuelven si falla.
+
+## 62. Clave de IA propia del tenant y mejoras del vaciado (2026-10-29)
+
+- **Migración** `20261130100000_ai_own_key` (se aplica sola): `tenants.ai_mode` / `ai_own_api_key_encrypted` / `ai_own_model` y `ai_usage_events.own_key`.
+- **Clave propia del tenant** (Configuración → Asistente IA): con ella, al gastar las consultas del mes el asistente sigue respondiendo y esas consultas no cuentan ni cuestan a la plataforma. En la ficha del tenant (panel admin) se puede poner «Siempre su propia clave».
+- Al llegar al límite se avisa también **por correo** a los propietarios.
+- **Vaciar los datos de prueba**: la vista previa dice cuántos ficheros se borran por tipo y, al terminar, llega un aviso al panel admin y un resumen al email de alertas (Alertas al admin).
+- Nada que configurar en Portainer.

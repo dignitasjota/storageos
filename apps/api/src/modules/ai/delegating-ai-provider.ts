@@ -12,6 +12,8 @@ import { StubAiProvider } from './stub-ai-provider';
 export class DelegatingAiProvider extends AiProvider {
   private readonly stub = new StubAiProvider();
   private cached: { key: string; provider: AnthropicAiProvider } | null = null;
+  /** Claves propias de los tenants (pocas; se reutilizan entre llamadas). */
+  private readonly ownProviders = new Map<string, AnthropicAiProvider>();
 
   constructor(
     private readonly settings: PlatformAiSettingsService,
@@ -29,6 +31,18 @@ export class DelegatingAiProvider extends AiProvider {
       this.cached = { key, provider: new AnthropicAiProvider(r.apiKey, r.model) };
     }
     return this.cached.provider;
+  }
+
+  override forKey(apiKey: string, model: string): AiProvider {
+    if (this.testMode) return this.stub;
+    const key = `${model}:${apiKey}`;
+    let provider = this.ownProviders.get(key);
+    if (!provider) {
+      if (this.ownProviders.size >= 200) this.ownProviders.clear();
+      provider = new AnthropicAiProvider(apiKey, model);
+      this.ownProviders.set(key, provider);
+    }
+    return provider;
   }
 
   get available(): boolean {

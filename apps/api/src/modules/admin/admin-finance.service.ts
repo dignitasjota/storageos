@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
-import { financeSource, netPaid } from '../../common/saas-metrics';
+import { currentMonth } from '../../common/format';
+import { financeSource, netPaid, OWN_KEY_AI_FEATURES } from '../../common/saas-metrics';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import type { Env } from '../../config/env.schema';
 import type {
+  AdminFinanceAiDto,
   AdminFinanceMonthDto,
   AdminFinanceOverviewDto,
   AdminFinanceSource,
@@ -26,7 +30,50 @@ export class AdminFinanceService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly addons: SaasAddonsService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /** Lo que pagan por la IA y lo que cuesta este mes. */
+  private async aiOverview(): Promise<AdminFinanceAiDto> {
+    const month = currentMonth();
+    const [addons, tokens, queries, own] = await Promise.all([
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: {
+          suspendedAt: null,
+          tenant: { deletedAt: null },
+          OR: [{ addon: { feature: 'ai_assistant' } }, { addon: { grantsAiQueries: { gt: 0 } } }],
+        },
+        select: { priceMonthly: true, quantity: true },
+      }),
+      this.admin.aiUsageEvent.aggregate({
+        where: {
+          countsAsQuery: false,
+          ownKey: false,
+          feature: { notIn: OWN_KEY_AI_FEATURES },
+          createdAt: { gte: month.start },
+        },
+        _sum: { inputTokens: true, outputTokens: true },
+      }),
+      this.admin.aiUsageEvent.count({
+        where: { countsAsQuery: true, ownKey: false, createdAt: { gte: month.start } },
+      }),
+      this.admin.aiUsageEvent.count({
+        where: { countsAsQuery: true, ownKey: true, createdAt: { gte: month.start } },
+      }),
+    ]);
+    const input = tokens._sum.inputTokens ?? 0;
+    const output = tokens._sum.outputTokens ?? 0;
+    const cost =
+      (input * this.config.get('AI_COST_INPUT_PER_MTOK_USD', { infer: true }) +
+        output * this.config.get('AI_COST_OUTPUT_PER_MTOK_USD', { infer: true })) /
+      1_000_000;
+    return {
+      revenueMonthly: round2(addons.reduce((n, a) => n + Number(a.priceMonthly) * a.quantity, 0)),
+      costUsdThisMonth: round2(cost),
+      queriesThisMonth: queries,
+      ownKeyQueriesThisMonth: own,
+    };
+  }
 
   async getOverview(monthsArg = 12): Promise<AdminFinanceOverviewDto> {
     const months = Math.min(Math.max(monthsArg, 1), 24);
@@ -35,7 +82,7 @@ export class AdminFinanceService {
     const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
 
     const fromPrev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - months, 1));
-    const [payments, invoiceAgg, addonsMrr, prevPayments, prevInvoices] = await Promise.all([
+    const [payments, invoiceAgg, addonsMrr, prevPayments, prevInvoices, ai] = await Promise.all([
       this.admin.tenantSubscriptionPayment.findMany({
         where: {
           status: { in: ['paid', 'partially_refunded', 'refunded'] },
@@ -68,6 +115,7 @@ export class AdminFinanceService {
         where: { issuedAt: { gte: fromPrev, lt: from }, status: { not: 'rectified' } },
         _sum: { total: true },
       }),
+      this.aiOverview(),
     ]);
 
     // Lista de meses del periodo (para que la serie no tenga huecos).
@@ -139,6 +187,7 @@ export class AdminFinanceService {
         refundedTotal: round2(prevPayments.reduce((sum, p) => sum + Number(p.refundedAmount), 0)),
         invoicedTotal: round2(Number(prevInvoices._sum.total ?? 0)),
       },
+      ai,
     };
   }
 }

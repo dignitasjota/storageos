@@ -103,14 +103,14 @@ export class AiAdminController {
     @Body() body: UpdateTenantAiLimitBody,
     @Req() req: Request,
   ): Promise<AiUsageDto> {
-    const result = await this.quota.setTenantLimit(id, body.monthlyLimit);
+    const result = await this.quota.setTenantLimit(id, body);
     await this.audit.record({
       superAdminId: admin.sub,
       action: 'admin.tenant.ai_limit_changed',
       targetType: 'Tenant',
       targetId: id,
       targetTenantId: id,
-      changes: { monthlyLimit: body.monthlyLimit },
+      changes: { monthlyLimit: body.monthlyLimit, mode: body.mode },
       ipAddress: req.ip ?? null,
       userAgent: req.header('user-agent') ?? null,
     });

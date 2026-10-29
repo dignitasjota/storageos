@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import {
   ForbiddenException,
   Inject,
@@ -9,6 +11,7 @@ import {
 import { effectiveFeaturesFromList, rentTax, resolvePlanFeatures } from '@storageos/shared';
 
 import { liveOverrideWhere } from '../../common/tenant-features';
+import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -20,7 +23,7 @@ import {
   type AiProvider,
   type AiToolResultBlock,
 } from './ai-provider';
-import { AiQuotaService } from './ai-quota.service';
+import { type AiReservation, AiQuotaService } from './ai-quota.service';
 import { type AiToolContext, AiToolsService } from './ai-tools.service';
 import {
   applySuggestedActionsRanking,
@@ -42,7 +45,10 @@ import type {
   PortalAiChatResultDto,
   SuggestAdCampaignInput,
   SuggestedActionDto,
+  TenantAiSettingsDto,
+  TenantAiTestDto,
   TenantFeature,
+  UpdateTenantAiSettingsInput,
 } from '@storageos/shared';
 
 const SYSTEM_PROMPT = `Eres el asistente de TrasterOS, un SaaS de gestión de self-storage (trasteros), integrado en el panel del equipo de un negocio.
@@ -130,6 +136,9 @@ export interface ChatStreamHooks {
 export class AiService {
   private readonly logger = new Logger(AiService.name);
 
+  /** Proveedor de la consulta en curso (clave de la plataforma o del tenant). */
+  private readonly keyContext = new AsyncLocalStorage<{ provider: AiProvider; ownKey: boolean }>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tools: AiToolsService,
@@ -137,14 +146,72 @@ export class AiService {
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
     private readonly admin: PrismaAdminService,
     private readonly quota: AiQuotaService,
+    private readonly audit: AuditService,
   ) {}
 
   usage(tenantId: string, userId: string): Promise<AiUsageDto> {
     return this.quota.usage(tenantId, userId);
   }
 
+  tenantSettings(tenantId: string): Promise<TenantAiSettingsDto> {
+    return this.quota.tenantSettings(tenantId);
+  }
+
+  async updateTenantSettings(
+    tenantId: string,
+    userId: string,
+    input: UpdateTenantAiSettingsInput,
+  ): Promise<TenantAiSettingsDto> {
+    const result = await this.quota.updateTenantSettings(tenantId, input);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'tenant.ai_key_changed',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      // Nunca la clave: solo qué cambió.
+      changes: {
+        ...(input.apiKey !== undefined ? { apiKey: input.apiKey ? 'set' : 'removed' } : {}),
+        ...(input.model !== undefined ? { model: input.model || null } : {}),
+      },
+    });
+    return result;
+  }
+
+  /** Una llamada mínima con la clave propia del tenant. */
+  async testOwnKey(tenantId: string): Promise<TenantAiTestDto> {
+    const own = await this.quota.ownKey(tenantId);
+    if (!own) {
+      return { ok: false, model: '', message: 'No hay ninguna clave guardada.' };
+    }
+    if (process.env.NODE_ENV === 'test') {
+      const ok = !own.apiKey.startsWith('invalid');
+      return {
+        ok,
+        model: own.model,
+        message: ok ? 'Conexión correcta (simulada).' : 'La clave no es válida (simulado).',
+      };
+    }
+    try {
+      await this.provider.forKey(own.apiKey, own.model).createMessage({
+        system: 'Responde solo «ok».',
+        messages: [{ role: 'user', content: 'ok' }],
+        tools: [],
+      });
+      return { ok: true, model: own.model, message: 'Conexión correcta.' };
+    } catch (err) {
+      const code = err instanceof Error ? err.message : String(err);
+      const message = code.endsWith('401')
+        ? 'La clave no es válida.'
+        : code.endsWith('404')
+          ? `El modelo «${own.model}» no existe o la clave no tiene acceso a él.`
+          : `No se pudo conectar (${code}).`;
+      return { ok: false, model: own.model, message };
+    }
+  }
+
   /** Reserva la consulta del chat (antes de abrir el stream): 429 si no quedan. */
-  reserveChat(tenantId: string, userId: string): Promise<string> {
+  reserveChat(tenantId: string, userId: string): Promise<AiReservation> {
     return this.quota.reserve({
       tenantId,
       userId,
@@ -154,8 +221,24 @@ export class AiService {
   }
 
   /** Devuelve una consulta reservada si la respuesta no llegó a generarse. */
-  releaseQuota(reservationId: string): Promise<void> {
-    return this.quota.release(reservationId);
+  releaseQuota(reservation: AiReservation): Promise<void> {
+    return this.quota.release(reservation.id);
+  }
+
+  /**
+   * El proveedor de la consulta en curso: el de la plataforma o, si la reserva
+   * va con la clave del tenant, uno con ella. Todas las llamadas de una misma
+   * pregunta (también las de las herramientas) usan la misma.
+   */
+  private get llm(): AiProvider {
+    return this.keyContext.getStore()?.provider ?? this.provider;
+  }
+
+  /** Ejecuta `fn` con el proveedor que corresponde a la reserva. */
+  private withReservation<T>(reservation: AiReservation, fn: () => Promise<T>): Promise<T> {
+    const own = reservation.ownKey;
+    const provider = own ? this.provider.forKey(own.apiKey, own.model) : this.provider;
+    return this.keyContext.run({ provider, ownKey: !!own }, fn);
   }
 
   /** Reserva una consulta, llama al modelo y la devuelve si la llamada falla. */
@@ -168,11 +251,11 @@ export class AiService {
     },
     fn: () => Promise<T>,
   ): Promise<T> {
-    const id = await this.quota.reserve({ ...reserve, model: this.provider.modelName });
+    const reservation = await this.quota.reserve({ ...reserve, model: this.provider.modelName });
     try {
-      return await fn();
+      return await this.withReservation(reservation, fn);
     } catch (err) {
-      await this.quota.release(id);
+      await this.quota.release(reservation.id);
       throw err;
     }
   }
@@ -194,11 +277,12 @@ export class AiService {
           tenantId,
           userId,
           feature,
-          model: this.provider.modelName,
+          model: this.llm.modelName,
           inputTokens: completion.usage.inputTokens,
           outputTokens: completion.usage.outputTokens,
           // La consulta ya cuenta por su reserva; esto son solo los tokens.
           countsAsQuery: false,
+          ownKey: this.keyContext.getStore()?.ownKey ?? false,
         },
       })
       .catch((err: unknown) => {
@@ -223,7 +307,7 @@ export class AiService {
     const completion = await this.withQuota(
       { tenantId: args.tenantId, userId: args.userId, feature: args.feature },
       () =>
-        this.provider.createMessage({
+        this.llm.createMessage({
           system: args.system,
           messages: [{ role: 'user', content: args.user }],
           tools: [],
@@ -261,9 +345,13 @@ export class AiService {
    * parte de la respuesta final (igual que en `chat`): el cliente lo descarta
    * al recibir `onTool`.
    */
-  async chatStream(args: ChatArgs, hooks: ChatStreamHooks): Promise<ChatResultDto> {
+  async chatStream(
+    args: ChatArgs,
+    hooks: ChatStreamHooks,
+    reservation: AiReservation,
+  ): Promise<ChatResultDto> {
     this.assertAvailable();
-    return this.runChat(args, hooks);
+    return this.withReservation(reservation, () => this.runChat(args, hooks));
   }
 
   private async runChat(args: ChatArgs, hooks?: ChatStreamHooks): Promise<ChatResultDto> {
@@ -311,8 +399,8 @@ export class AiService {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const request = { system: SYSTEM_PROMPT, messages, tools: toolDefs };
       const completion = hooks
-        ? await this.provider.streamMessage(request, hooks.onText)
-        : await this.provider.createMessage(request);
+        ? await this.llm.streamMessage(request, hooks.onText)
+        : await this.llm.createMessage(request);
       // Solo la primera vuelta es la consulta; las de herramientas no cuentan.
       this.recordUsage(tenantId, userId, 'chat', completion);
       messages.push({ role: 'assistant', content: completion.content });
@@ -451,7 +539,7 @@ Redacta la respuesta al inquilino:`;
     const completion = await this.withQuota(
       { tenantId: args.tenantId, userId: args.userId ?? null, feature: 'suggest_reply' },
       () =>
-        this.provider.createMessage({
+        this.llm.createMessage({
           system: SUGGEST_REPLY_SYSTEM_PROMPT,
           messages: [{ role: 'user', content: contextText }],
           tools: [],
@@ -558,7 +646,7 @@ Redacta el borrador de campaña:`;
     const completion = await this.withQuota(
       { tenantId: args.tenantId, userId: args.userId ?? null, feature: 'ad_campaign' },
       () =>
-        this.provider.createMessage({
+        this.llm.createMessage({
           system: AD_CAMPAIGN_SYSTEM_PROMPTS[input.platform],
           messages: [{ role: 'user', content: contextText }],
           tools: [],
@@ -594,7 +682,7 @@ Redacta el borrador de campaña:`;
     let timer: NodeJS.Timeout | undefined;
     try {
       const completion = await Promise.race([
-        this.provider.createMessage({
+        this.llm.createMessage({
           system: SUGGESTED_ACTIONS_SYSTEM_PROMPT,
           messages: [{ role: 'user', content: buildSuggestedActionsPrompt(actions) }],
           tools: [],
@@ -733,7 +821,7 @@ Datos del inquilino (${custName}):
     }));
     // Cuenta para el tenant y para el tope diario de este inquilino.
     const completion = await this.withQuota({ tenantId, customerId, feature: 'portal' }, () =>
-      this.provider.createMessage({
+      this.llm.createMessage({
         system,
         messages: [...history, { role: 'user', content: input.message }],
         tools: [],

@@ -218,6 +218,13 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
           'Conecta el WhatsApp de tu negocio: botón en tu web y conversaciones en el panel.',
         permission: 'settings:manage',
       },
+      {
+        href: '/settings/ai',
+        label: 'Asistente IA',
+        description:
+          'Consultas del mes y tu propia clave de IA para seguir cuando se gasten las del plan.',
+        permission: 'settings:manage',
+      },
     ],
   },
   {

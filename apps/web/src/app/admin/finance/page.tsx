@@ -100,6 +100,39 @@ export default function AdminFinancePage() {
         ))}
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Asistente IA este mes</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Kpi
+            label="Pagan al mes por la IA"
+            value={eur(d.ai.revenueMonthly)}
+            hint={
+              <span className="text-xs text-muted-foreground">
+                Extras del asistente y de consultas
+              </span>
+            }
+          />
+          <Kpi
+            label="Coste estimado (USD)"
+            value={d.ai.costUsdThisMonth.toLocaleString('es-ES', {
+              style: 'currency',
+              currency: 'USD',
+            })}
+            hint={<span className="text-xs text-muted-foreground">Con la IA de TrasterOS</span>}
+          />
+          <Kpi
+            label="Consultas con la IA de TrasterOS"
+            value={d.ai.queriesThisMonth.toLocaleString('es-ES')}
+          />
+          <Kpi
+            label="Consultas con la clave de cada tenant"
+            value={d.ai.ownKeyQueriesThisMonth.toLocaleString('es-ES')}
+          />
+        </CardContent>
+      </Card>
+
       {!reconciled && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
           ⚠ El cobrado neto ({eur(d.collectedTotal)}) y el facturado neto ({eur(d.invoicedTotal)})

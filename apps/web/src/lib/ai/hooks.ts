@@ -10,6 +10,9 @@ import type {
   ChatInput,
   ChatResultDto,
   SuggestReplyResultDto,
+  TenantAiSettingsDto,
+  TenantAiTestDto,
+  UpdateTenantAiSettingsInput,
 } from '@storageos/shared';
 
 export const aiConversationsKey = ['ai', 'conversations'] as const;
@@ -79,5 +82,33 @@ export function useAiActionDecision() {
     mutationFn: ({ id, decision }: { id: string; decision: 'confirm' | 'discard' }) =>
       apiFetch<AiPendingActionDto>(`/ai/actions/${id}/${decision}`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: aiConversationsKey }),
+  });
+}
+
+const aiSettingsKey = ['ai', 'settings'] as const;
+
+/** Clave de IA propia del negocio (Configuración → Asistente IA). */
+export function useTenantAiSettings() {
+  return useQuery({
+    queryKey: aiSettingsKey,
+    queryFn: () => apiFetch<TenantAiSettingsDto>('/ai/settings'),
+  });
+}
+
+export function useUpdateTenantAiSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateTenantAiSettingsInput) =>
+      apiFetch<TenantAiSettingsDto>('/ai/settings', { method: 'PUT', json: input }),
+    onSuccess: (data) => {
+      qc.setQueryData(aiSettingsKey, data);
+      void qc.invalidateQueries({ queryKey: aiUsageKey });
+    },
+  });
+}
+
+export function useTestTenantAiSettings() {
+  return useMutation({
+    mutationFn: () => apiFetch<TenantAiTestDto>('/ai/settings/test', { method: 'POST' }),
   });
 }

@@ -68,6 +68,14 @@ export interface TenantResetPreviewDto {
   series: { prefix: string; nextNumber: number }[];
   blockers: TenantResetIssueDto<TenantResetBlockerCode>[];
   warnings: TenantResetIssueDto<TenantResetWarningCode>[];
+  /** Ficheros que se borrarían, por tipo (las exportaciones se conservan). */
+  files: TenantResetFilesDto[];
+}
+
+export interface TenantResetFilesDto {
+  label: string;
+  objects: number;
+  bytes: number;
 }
 
 export const TenantResetSchema = z.object({

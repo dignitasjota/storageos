@@ -9,6 +9,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Req,
   Res,
 } from '@nestjs/common';
@@ -22,6 +23,9 @@ import {
   permissionsForRole,
   SuggestReplySchema,
   type SuggestReplyResultDto,
+  type TenantAiSettingsDto,
+  type TenantAiTestDto,
+  UpdateTenantAiSettingsSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -39,6 +43,7 @@ import type { Request, Response } from 'express';
 
 class ChatDto extends createZodDto(ChatSchema) {}
 class SuggestReplyDto extends createZodDto(SuggestReplySchema) {}
+class UpdateTenantAiSettingsDto extends createZodDto(UpdateTenantAiSettingsSchema) {}
 
 @RequirePermission('ai:use')
 @Controller('ai')
@@ -82,10 +87,14 @@ export class AiController {
       if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(event)}\n\n`);
     };
     try {
-      const result = await this.ai.chatStream(chatArgs(user, body), {
-        onText: (delta) => send({ type: 'text', delta }),
-        onTool: (name) => send({ type: 'tool', name }),
-      });
+      const result = await this.ai.chatStream(
+        chatArgs(user, body),
+        {
+          onText: (delta) => send({ type: 'text', delta }),
+          onTool: (name) => send({ type: 'tool', name }),
+        },
+        reservation,
+      );
       send({ type: 'done', ...result });
     } catch (err) {
       await this.ai.releaseQuota(reservation);
@@ -107,6 +116,29 @@ export class AiController {
   @Get('usage')
   usage(@CurrentUser() user: AuthenticatedUser): Promise<AiUsageDto> {
     return this.ai.usage(user.tenantId, user.sub);
+  }
+
+  /** Clave de IA propia del negocio (se usa al gastar las consultas, o siempre). */
+  @RequirePermission('settings:manage')
+  @Get('settings')
+  settings(@CurrentUser() user: AuthenticatedUser): Promise<TenantAiSettingsDto> {
+    return this.ai.tenantSettings(user.tenantId);
+  }
+
+  @RequirePermission('settings:manage')
+  @Put('settings')
+  updateSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: UpdateTenantAiSettingsDto,
+  ): Promise<TenantAiSettingsDto> {
+    return this.ai.updateTenantSettings(user.tenantId, user.sub, body);
+  }
+
+  @RequirePermission('settings:manage')
+  @Post('settings/test')
+  @HttpCode(HttpStatus.OK)
+  testSettings(@CurrentUser() user: AuthenticatedUser): Promise<TenantAiTestDto> {
+    return this.ai.testOwnKey(user.tenantId);
   }
 
   /** Confirma una acción propuesta por el asistente: se ejecuta con tus permisos actuales. */
