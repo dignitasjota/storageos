@@ -81,3 +81,4 @@ export interface PortalAiChatResultDto {
   answer: string;
 }
 export * from './limits';
+export * from './web-chat';

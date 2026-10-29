@@ -20,7 +20,28 @@ describe('AiToolsService — permisos', () => {
       'search_customers',
       'get_customer_summary',
       'get_unit_availability',
+      'search_records',
+      'get_record',
+      'list_records',
     ]);
+    // get_record y list_records solo ofrecen los tipos que el rol puede ver.
+    const record = tools
+      .definitions({ permissions: ['units:read', 'customers:read'] })
+      .find((d) => d.name === 'get_record');
+    expect(
+      (record?.input_schema as { properties: { type: { enum: string[] } } }).properties.type.enum,
+    ).toEqual(['customer', 'unit']);
+  });
+
+  it('rechaza un tipo que el rol no puede ver sin consultar la BD', async () => {
+    const out = JSON.parse(
+      await tools.execute(
+        { tenantId: 't', permissions: ['units:read'], facilityScope: null },
+        'get_record',
+        { type: 'invoice', id: 'F-1' },
+      ),
+    );
+    expect(out.error).toMatch(/permiso/);
   });
 
   it('sin permisos relevantes no ofrece ninguna herramienta', () => {

@@ -11,6 +11,8 @@ import {
 /** Modelo por defecto si ni el panel ni `AI_MODEL` dicen otro. */
 export const DEFAULT_AI_MODEL = 'claude-sonnet-4-6';
 
+const MAX_TOKENS = 2048;
+
 /**
  * Provider de IA real contra la Messages API de Anthropic (vía `fetch`, sin SDK
  * para no añadir dependencia). La clave y el modelo los decide
@@ -25,7 +27,11 @@ export class AnthropicAiProvider extends AiProvider {
     return this.model;
   }
 
-  constructor(apiKey: string, model: string) {
+  constructor(
+    apiKey: string,
+    model: string,
+    private readonly maxTokens: number = MAX_TOKENS,
+  ) {
     super();
     this.apiKey = apiKey;
     this.model = model || DEFAULT_AI_MODEL;
@@ -48,7 +54,7 @@ export class AnthropicAiProvider extends AiProvider {
       },
       body: JSON.stringify({
         model: this.model,
-        max_tokens: MAX_TOKENS,
+        max_tokens: this.maxTokens,
         system: args.system,
         tools: args.tools,
         messages: args.messages,
@@ -128,8 +134,6 @@ export class AnthropicAiProvider extends AiProvider {
     return accumulator.result();
   }
 }
-
-const MAX_TOKENS = 2048;
 
 type PartialBlock =
   | { type: 'text'; text: string }

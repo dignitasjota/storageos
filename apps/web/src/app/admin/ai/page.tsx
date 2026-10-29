@@ -40,6 +40,9 @@ export default function AdminAiPage() {
   const [monthly, setMonthly] = useState('300');
   const [daily, setDaily] = useState('50');
   const [portalDaily, setPortalDaily] = useState('20');
+  const [webModel, setWebModel] = useState('');
+  const [webMonthly, setWebMonthly] = useState('300');
+  const [webDaily, setWebDaily] = useState('15');
 
   const loaded = useRef(false);
   useEffect(() => {
@@ -49,6 +52,9 @@ export default function AdminAiPage() {
     setMonthly(String(settings.data.monthlyQueryLimit));
     setDaily(String(settings.data.dailyUserLimit));
     setPortalDaily(String(settings.data.portalDailyLimit));
+    setWebModel(settings.data.panelWebModel ?? '');
+    setWebMonthly(String(settings.data.webMonthlyLimit));
+    setWebDaily(String(settings.data.webVisitorDailyLimit));
   }, [settings.data]);
 
   async function save(extra: { apiKey?: string } = {}) {
@@ -58,6 +64,9 @@ export default function AdminAiPage() {
         monthlyQueryLimit: Math.max(0, Number.parseInt(monthly, 10) || 0),
         dailyUserLimit: Math.max(0, Number.parseInt(daily, 10) || 0),
         portalDailyLimit: Math.max(0, Number.parseInt(portalDaily, 10) || 0),
+        webModel: webModel.trim(),
+        webMonthlyLimit: Math.max(0, Number.parseInt(webMonthly, 10) || 0),
+        webVisitorDailyLimit: Math.max(0, Number.parseInt(webDaily, 10) || 0),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         ...extra,
       });
@@ -221,6 +230,66 @@ export default function AdminAiPage() {
               />
               <p className="text-xs text-muted-foreground">
                 Para que un solo inquilino no gaste las consultas del negocio. 0 = sin tope.
+              </p>
+            </div>
+          </div>
+          <Button onClick={() => save()} disabled={update.isPending || !canEdit}>
+            Guardar
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Chat de la web de los tenants</CardTitle>
+          <CardDescription>
+            El chat con IA que ven los visitantes de la web pública de cada tenant con el asistente
+            IA. Sus respuestas tienen un límite propio (no gastan las consultas del panel) y usan un
+            modelo más barato. Al llegar al límite, el visitante ve el teléfono, WhatsApp y el email
+            del negocio; si el tenant tiene su propia clave, sigue respondiendo con ella.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-web-model">Modelo</Label>
+              <Input
+                id="ai-web-model"
+                value={webModel}
+                onChange={(e) => setWebModel(e.target.value)}
+                placeholder={settings.data?.webModel}
+                className="text-base sm:text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Ahora: {settings.data?.webModel}. Vacío = el de por defecto.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-web-monthly">Respuestas al mes por tenant</Label>
+              <Input
+                id="ai-web-monthly"
+                type="number"
+                min={0}
+                value={webMonthly}
+                onChange={(e) => setWebMonthly(e.target.value)}
+                className="text-base sm:text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Se puede cambiar por tenant en su ficha.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-web-daily">Preguntas al día por visitante</Label>
+              <Input
+                id="ai-web-daily"
+                type="number"
+                min={0}
+                value={webDaily}
+                onChange={(e) => setWebDaily(e.target.value)}
+                className="text-base sm:text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Además, 10 mensajes por minuto desde la misma IP.
               </p>
             </div>
           </div>

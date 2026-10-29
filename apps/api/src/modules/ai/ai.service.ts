@@ -8,7 +8,12 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { effectiveFeaturesFromList, rentTax, resolvePlanFeatures } from '@storageos/shared';
+import {
+  effectiveFeaturesFromList,
+  rentTax,
+  resolvePlanFeatures,
+  WEB_CHAT_AI_FEATURE,
+} from '@storageos/shared';
 
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
@@ -25,6 +30,7 @@ import {
 } from './ai-provider';
 import { type AiReservation, AiQuotaService } from './ai-quota.service';
 import { type AiToolContext, AiToolsService } from './ai-tools.service';
+import { PlatformAiSettingsService } from './platform-ai-settings.service';
 import {
   applySuggestedActionsRanking,
   buildSuggestedActionsPrompt,
@@ -55,7 +61,11 @@ const SYSTEM_PROMPT = `Eres el asistente de TrasterOS, un SaaS de gestión de se
 
 Ayudas al staff a: resumir información, redactar comunicaciones (emails, WhatsApp) y responder preguntas sobre el negocio.
 
-Cuando la pregunta requiera datos reales (ocupación, facturas vencidas, métricas, un cliente concreto), USA las herramientas disponibles; no inventes cifras. Si necesitas el id de un cliente, búscalo primero con search_customers.
+Tienes acceso a TODOS los datos del negocio que el usuario puede ver, a través de las herramientas. Cuando la pregunta requiera datos reales, USA las herramientas; no inventes cifras ni digas que no tienes acceso sin haberlo intentado:
+- search_records para encontrar un inquilino, contrato, trastero, factura o contacto por nombre, número o código; después get_record para su ficha completa.
+- list_records para listados con filtros (facturas, cobros, contratos, trasteros, reservas, lista de espera, accesos al local, contactos, tareas, incidencias, gastos, comunicaciones, campañas, vencimientos, cupones, promociones, valoraciones, cambios de trastero, planes de pago).
+- get_collections_month, list_debtors, get_calendar, get_business_settings y get_contracts_trend para cobros, deudores, agenda, configuración y evolución; las demás para métricas, ocupación, ingresos, contactos y gastos.
+Encadena varias herramientas si hace falta. Si una herramienta dice que el usuario no tiene permiso, díselo tal cual (no es un fallo tuyo).
 
 Para ACCIONES (crear una tarea, enviar un recordatorio de pago, escribir a un inquilino) usa las herramientas propose_*: solo dejan la acción preparada y el usuario la confirma en pantalla. Nunca digas que ya está hecha; di que la has dejado lista para que la confirme.
 
@@ -116,7 +126,31 @@ Reglas ESTRICTAS:
 - Si la duda no se puede resolver con lo dado (p. ej. requiere una gestión o una decisión), dile amablemente que escriba a su gestor desde la pestaña «Mensajes» del portal.
 - Español, tono cercano y breve. Devuelve SOLO el texto de la respuesta.`;
 
-const MAX_TOOL_ITERATIONS = 5;
+const MAX_TOOL_ITERATIONS = 8;
+
+/** Tope de la respuesta del chat de la web (respuestas cortas, menos coste). */
+const WEB_CHAT_MAX_TOKENS = 450;
+
+/** Áreas del negocio y el permiso para verlas (para decirle al modelo lo que el usuario no puede ver). */
+const AREA_PERMISSIONS: [string, Permission][] = [
+  ['inquilinos', 'customers:read'],
+  ['contratos', 'contracts:read'],
+  ['facturas', 'invoices:read'],
+  ['cobros', 'payments:read'],
+  ['trasteros', 'units:read'],
+  ['locales', 'facilities:read'],
+  ['reservas', 'reservations:read'],
+  ['accesos al local', 'access:read'],
+  ['contactos', 'leads:read'],
+  ['tareas', 'tasks:read'],
+  ['incidencias', 'incidents:read'],
+  ['gastos', 'expenses:read'],
+  ['comunicaciones', 'communications:read'],
+  ['vencimientos', 'reminders:read'],
+  ['cupones y promociones', 'promotions:read'],
+  ['valoraciones', 'reviews:read'],
+  ['analítica', 'analytics:read'],
+];
 
 interface ChatArgs {
   tenantId: string;
@@ -147,6 +181,7 @@ export class AiService {
     private readonly admin: PrismaAdminService,
     private readonly quota: AiQuotaService,
     private readonly audit: AuditService,
+    private readonly platformSettings: PlatformAiSettingsService,
   ) {}
 
   usage(tenantId: string, userId: string): Promise<AiUsageDto> {
@@ -321,6 +356,63 @@ export class AiService {
       .trim();
   }
 
+  /**
+   * Respuesta del chat de la web pública (visitante anónimo): modelo barato,
+   * respuesta corta, sin herramientas y con la cuota de la web (aparte de la
+   * del panel). `limited` si el negocio gastó las del mes y no tiene clave
+   * propia, o si la plataforma no tiene IA configurada.
+   */
+  async webChatComplete(args: {
+    tenantId: string;
+    system: string;
+    messages: AiMessageParam[];
+  }): Promise<{ text: string } | { limited: true }> {
+    const web = this.platformSettings.web;
+    const reserved = await this.quota.reserveWeb(args.tenantId, web.model);
+    if (reserved.kind === 'limit') return { limited: true };
+    const own = reserved.reservation.ownKey;
+    // Sin clave de la plataforma (modo demo) no se responde a visitantes reales.
+    if (!own && !this.platformSettings.resolved().apiKey && process.env.NODE_ENV !== 'test') {
+      await this.quota.release(reserved.reservation.id);
+      return { limited: true };
+    }
+    const provider = own
+      ? this.provider.forKey(own.apiKey, own.model, WEB_CHAT_MAX_TOKENS)
+      : this.provider.forModel(web.model, WEB_CHAT_MAX_TOKENS);
+    let completion: AiCompletion;
+    try {
+      completion = await provider.createMessage({
+        system: args.system,
+        messages: args.messages,
+        tools: [],
+      });
+    } catch (err) {
+      await this.quota.release(reserved.reservation.id);
+      throw err;
+    }
+    if (completion.usage) {
+      void this.admin.aiUsageEvent
+        .create({
+          data: {
+            tenantId: args.tenantId,
+            feature: WEB_CHAT_AI_FEATURE,
+            model: provider.modelName,
+            inputTokens: completion.usage.inputTokens,
+            outputTokens: completion.usage.outputTokens,
+            countsAsQuery: false,
+            ownKey: !!own,
+          },
+        })
+        .catch(() => undefined);
+    }
+    const text = completion.content
+      .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    return { text };
+  }
+
   /** 503 si el provider no está configurado (antes de abrir un stream). */
   assertAvailable(): void {
     if (!this.provider.available) {
@@ -396,8 +488,9 @@ export class AiService {
     };
     const toolDefs = this.tools.definitions(toolCtx);
 
+    const system = `${SYSTEM_PROMPT}\n\n${await this.businessContext(tenantId, args.permissions, args.facilityScope)}`;
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      const request = { system: SYSTEM_PROMPT, messages, tools: toolDefs };
+      const request = { system, messages, tools: toolDefs };
       const completion = hooks
         ? await this.llm.streamMessage(request, hooks.onText)
         : await this.llm.createMessage(request);
@@ -454,6 +547,58 @@ export class AiService {
         ? ((await this.actions.listByMessage(tenantId, conversationId)).get(assistant.id) ?? [])
         : [];
     return { conversationId, message: this.messageDto(assistant, actions) };
+  }
+
+  /**
+   * Contexto fijo de cada pregunta: el día y la hora en la zona del negocio,
+   * su nombre, sus locales y lo que el usuario no tiene permiso para ver.
+   */
+  private async businessContext(
+    tenantId: string,
+    permissions: readonly Permission[],
+    facilityScope: string[] | null,
+  ): Promise<string> {
+    const data = await this.prisma.withTenant(
+      async (tx) => ({
+        tenant: await tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: { name: true, timezone: true },
+        }),
+        facilities: await tx.facility.findMany({
+          where: { deletedAt: null, ...(facilityScope ? { id: { in: facilityScope } } : {}) },
+          select: { name: true, city: true, isActive: true, _count: { select: { units: true } } },
+          orderBy: { name: 'asc' },
+          take: 30,
+        }),
+      }),
+      tenantId,
+    );
+    const tz = data.tenant?.timezone || 'Europe/Madrid';
+    const now = new Intl.DateTimeFormat('es-ES', {
+      timeZone: tz,
+      dateStyle: 'full',
+      timeStyle: 'short',
+    }).format(new Date());
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+    const lines = [
+      `## Contexto`,
+      `Negocio: ${data.tenant?.name ?? '—'}. Hoy es ${now} (${today}, zona ${tz}). Usa estas fechas para «hoy», «esta semana» o «este mes».`,
+      `Locales${facilityScope ? ' que puede ver este usuario' : ''}: ${
+        data.facilities
+          .map(
+            (f) =>
+              `${f.name}${f.city ? ` (${f.city})` : ''}, ${f._count.units} trasteros${f.isActive ? '' : ', inactivo'}`,
+          )
+          .join('; ') || 'ninguno todavía'
+      }.`,
+    ];
+    const missing = AREA_PERMISSIONS.filter(([, p]) => !permissions.includes(p)).map(([a]) => a);
+    if (missing.length > 0) {
+      lines.push(
+        `Este usuario NO tiene permiso para ver: ${missing.join(', ')}. Si pregunta por eso, dile que su rol no se lo permite y que lo pida al propietario del negocio.`,
+      );
+    }
+    return lines.join('\n');
   }
 
   /**

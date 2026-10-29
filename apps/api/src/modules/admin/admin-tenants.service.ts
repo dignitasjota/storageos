@@ -2436,6 +2436,8 @@ export class AdminTenantsService {
       // WhatsApp: conversaciones sin texto ni números y fuera el token del número.
       const whatsapp = await anonymizeWhatsappConversations(tx, { tenantId });
       await tx.tenantWhatsappSettings.deleteMany({ where: { tenantId } });
+      // Chat con IA de la web: lo que escribieron los visitantes.
+      await tx.webChatConversation.deleteMany({ where: { tenantId } });
       // La cuenta de Stripe del tenant (la cuenta sigue en Stripe, a su nombre).
       await tx.tenantStripeAccount.deleteMany({ where: { tenantId } });
       // Instagram y Facebook: fuera el token de la página y lo descargado.

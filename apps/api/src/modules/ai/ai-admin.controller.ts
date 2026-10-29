@@ -110,7 +110,11 @@ export class AiAdminController {
       targetType: 'Tenant',
       targetId: id,
       targetTenantId: id,
-      changes: { monthlyLimit: body.monthlyLimit, mode: body.mode },
+      changes: {
+        monthlyLimit: body.monthlyLimit,
+        webMonthlyLimit: body.webMonthlyLimit,
+        mode: body.mode,
+      },
       ipAddress: req.ip ?? null,
       userAgent: req.header('user-agent') ?? null,
     });

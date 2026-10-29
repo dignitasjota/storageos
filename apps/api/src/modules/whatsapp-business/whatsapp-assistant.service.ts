@@ -24,6 +24,7 @@ import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { LandingService } from '../landing/landing.service';
+import { publicBusinessContextLines } from '../landing/public-business-context';
 import { BookingService } from '../move-in/booking.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -842,42 +843,8 @@ export class WhatsappAssistantService {
       );
     }
     const l = args.landing;
-    if (l) {
-      lines.push('', '## Locales');
-      for (const [fi, f] of l.facilities.entries()) {
-        const hours = Object.entries(f.openingHours ?? {})
-          .map(([day, h]) => {
-            const v = h as { open?: string; close?: string } | null;
-            return `${day}: ${v?.open && v.close ? `${v.open}-${v.close}` : 'cerrado'}`;
-          })
-          .join(', ');
-        lines.push(
-          `- [L${fi + 1}] ${f.name}${f.address ? `, ${f.address}` : ''}${f.city ? ` (${f.city})` : ''}${
-            f.contactPhone ? ` · tel. ${f.contactPhone}` : ''
-          }${hours ? ` · horario de atención: ${hours}` : ''}`,
-        );
-        for (const [ti, t] of f.unitTypes.entries()) {
-          const price = (t.priceMonthly * (1 + t.taxRate / 100)).toFixed(2).replace('.', ',');
-          lines.push(
-            `  · [L${fi + 1}-T${ti + 1}] ${t.name}${t.areaM2 ? ` (unos ${t.areaM2} m²)` : ''}: ${price} €/mes · ${
-              t.available > 0
-                ? `${t.available} libres`
-                : 'agotado (se puede apuntar a la lista de espera en la web)'
-            }`,
-          );
-        }
-      }
-      if (l.activePromotion) {
-        const p = l.activePromotion;
-        const value =
-          p.discountType === 'percentage'
-            ? `${p.discountValue} % de descuento`
-            : p.discountType === 'fixed'
-              ? `${p.discountValue} € de descuento`
-              : `${p.discountValue} meses gratis`;
-        lines.push('', `## Promoción activa\n${p.name}: ${value} con el código ${p.code}.`);
-      }
-    }
+    // Locales, tamaños y promoción (las preguntas frecuentes van después de la reserva).
+    lines.push(...publicBusinessContextLines({ landing: l, faqs: [], codes: true }));
     if (args.bookingsEnabled && l && l.facilities.length > 0) {
       lines.push(
         '',
@@ -889,10 +856,7 @@ export class WhatsappAssistantService {
         'usando el código entre corchetes del tamaño elegido. No escribas el enlace de firma: lo añade el sistema.',
       );
     }
-    if (args.faqs.length > 0) {
-      lines.push('', '## Preguntas frecuentes');
-      for (const q of args.faqs) lines.push(`P: ${q.question}\nR: ${q.answer}`);
-    }
+    lines.push(...publicBusinessContextLines({ landing: null, faqs: args.faqs }));
     if (args.instructions) {
       lines.push('', '## Indicaciones del negocio', args.instructions);
     }

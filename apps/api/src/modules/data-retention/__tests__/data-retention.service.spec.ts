@@ -26,6 +26,7 @@ function build() {
       findMany: jest.fn().mockResolvedValue([{ mediaKey: 't/whatsapp/c/m.jpg' }]),
     },
     webEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 8 }) },
+    webChatConversation: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
   };
   const config = {
     get: jest.fn((key: string) => RETENTION[key]),
@@ -80,6 +81,7 @@ describe('DataRetentionService', () => {
       whatsappConversations: 6,
       whatsappMessages: 7,
       webEvents: 8,
+      webChatConversations: 2,
     });
   });
 });

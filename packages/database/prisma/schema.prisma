@@ -494,6 +494,12 @@ model Tenant {
   /// «Ignorar» en la lista de tenants en riesgo hasta esta fecha.
   riskSnoozedUntil      DateTime? @map("risk_snoozed_until") @db.Timestamptz(6)
   riskSnoozeReason      String?   @map("risk_snooze_reason")
+  /// Chat con IA en la web pública (con el asistente IA; el tenant lo apaga).
+  webChatEnabled        Boolean   @default(true) @map("web_chat_enabled")
+  webChatInstructions   String?   @map("web_chat_instructions")
+  /// Respuestas al mes del chat de la web (null = el general de la plataforma).
+  webChatMonthlyLimit   Int?      @map("web_chat_monthly_limit")
+  webChatLimitNotified  String?   @map("web_chat_limit_notified")
   createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -663,6 +669,8 @@ model Tenant {
   @@index([status, updatedAt])
   @@map("tenants")
   aiUsageEvents       AiUsageEvent[]
+  webChatConversations WebChatConversation[]
+  webChatMessages      WebChatMessage[]
   storageUsage        TenantStorageUsage?
   featureInterestEvents FeatureInterestEvent[]
   customerAuthorizedPersons CustomerAuthorizedPerson[]
@@ -3097,6 +3105,7 @@ model Lead {
   convertedReservation Reservation?    @relation("LeadConvertedReservation", fields: [convertedReservationId], references: [id], onDelete: SetNull)
   communications       Communication[]
   whatsappConversations WhatsappConversation[]
+  webChatConversations WebChatConversation[]
   followups            LeadFollowup[]
   activities           LeadActivity[]
 
@@ -5889,6 +5898,44 @@ model ProductUpdate {
 }
 
 /// Consumo del asistente de IA por llamada al modelo (lo lee el super admin).
+/// Conversación del chat de la web pública con un visitante anónimo.
+model WebChatConversation {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  visitorId     String   @map("visitor_id")
+  locale        String   @default("es")
+  pagePath      String?  @map("page_path")
+  leadId        String?  @map("lead_id") @db.Uuid
+  messageCount  Int      @default(0) @map("message_count")
+  lastMessageAt DateTime @default(now()) @map("last_message_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead     Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  messages WebChatMessage[]
+
+  @@unique([tenantId, visitorId])
+  @@index([tenantId, lastMessageAt])
+  @@map("web_chat_conversations")
+}
+
+model WebChatMessage {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  /// visitor | assistant
+  role           String
+  content        String
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation WebChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("web_chat_messages")
+}
+
 model AiUsageEvent {
   id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId     String   @map("tenant_id") @db.Uuid
@@ -6336,6 +6383,10 @@ model PlatformAiSettings {
   monthlyQueryLimit Int      @default(300) @map("monthly_query_limit")
   dailyUserLimit    Int      @default(50) @map("daily_user_limit")
   portalDailyLimit  Int      @default(20) @map("portal_daily_limit")
+  /// Chat de la web pública: respuestas al mes por tenant y por visitante al día.
+  webMonthlyLimit      Int     @default(300) @map("web_monthly_limit")
+  webVisitorDailyLimit Int     @default(15) @map("web_visitor_daily_limit")
+  webModel             String? @map("web_model")
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_ai_settings")

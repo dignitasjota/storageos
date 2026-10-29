@@ -23,6 +23,7 @@ import { faqPageLd, localBusinessFields } from '../local-business-ld';
 import { formatPrice, grossPrice } from '../price-format';
 import { themeFor } from '../promo/promo-theme';
 import { TenantWebChrome } from '../tenant-web-chrome';
+import { WebChatWidget } from '../web-chat-widget';
 import { WhatsappFloatButton } from '../whatsapp-float-button';
 
 import { CityBody } from './city-body';
@@ -195,6 +196,14 @@ export async function CityPageBody({
           />
         </TenantWebChrome>
         <WhatsappFloatButton number={sole.whatsappNumber} facilityName={sole.facility.name} />
+        <WebChatWidget
+          slug={sole.tenantSlug}
+          enabled={sole.webChatEnabled}
+          tenantName={sole.tenantName}
+          brandColor={sole.brandColor}
+          customDomain={sole.customDomain}
+          aboveWhatsapp={!!sole.whatsappNumber}
+        />
       </NextIntlClientProvider>
     );
   }
@@ -259,6 +268,14 @@ export async function CityPageBody({
         />
       </TenantWebChrome>
       <WhatsappFloatButton number={data.whatsappNumber} />
+      <WebChatWidget
+        slug={data.tenantSlug}
+        enabled={data.webChatEnabled}
+        tenantName={data.tenantName}
+        brandColor={data.brandColor}
+        customDomain={data.customDomain}
+        aboveWhatsapp={!!data.whatsappNumber}
+      />
     </NextIntlClientProvider>
   );
 }

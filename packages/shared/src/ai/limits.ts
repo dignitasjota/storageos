@@ -10,6 +10,16 @@ export const DEFAULT_AI_MONTHLY_QUERY_LIMIT = 300;
 export const DEFAULT_AI_DAILY_USER_LIMIT = 50;
 /** Preguntas al día por inquilino en el chatbot del área de clientes. */
 export const DEFAULT_AI_PORTAL_DAILY_LIMIT = 20;
+/**
+ * Chat de la web pública del tenant (visitantes anónimos): respuestas al mes
+ * por tenant (aparte de las del panel) y por visitante al día, y modelo (uno
+ * barato por defecto).
+ */
+export const DEFAULT_WEB_CHAT_MONTHLY_LIMIT = 300;
+export const DEFAULT_WEB_CHAT_VISITOR_DAILY_LIMIT = 15;
+/** `feature` de las respuestas del chat de la web en el registro de uso de IA. */
+export const WEB_CHAT_AI_FEATURE = 'web_chat';
+export const DEFAULT_WEB_CHAT_MODEL = 'claude-haiku-5-5';
 /** A partir de qué parte del límite se avisa (80 %). */
 export const AI_LIMIT_WARNING_RATIO = 0.8;
 
@@ -30,6 +40,11 @@ export interface PlatformAiSettingsDto {
   monthlyQueryLimit: number;
   dailyUserLimit: number;
   portalDailyLimit: number;
+  /** Chat de la web: modelo que se usa, el guardado y los límites. */
+  webModel: string;
+  panelWebModel: string | null;
+  webMonthlyLimit: number;
+  webVisitorDailyLimit: number;
   updatedAt: string | null;
 }
 
@@ -46,6 +61,15 @@ export const UpdatePlatformAiSettingsSchema = z.object({
   monthlyQueryLimit: z.number().int().min(0).max(1_000_000).optional(),
   dailyUserLimit: z.number().int().min(0).max(100_000).optional(),
   portalDailyLimit: z.number().int().min(0).max(100_000).optional(),
+  /** Modelo del chat de la web; `''` = el de por defecto. */
+  webModel: z
+    .string()
+    .trim()
+    .max(100)
+    .regex(/^[a-zA-Z0-9._:-]*$/, 'Modelo no válido')
+    .optional(),
+  webMonthlyLimit: z.number().int().min(0).max(1_000_000).optional(),
+  webVisitorDailyLimit: z.number().int().min(0).max(1000).optional(),
 });
 export type UpdatePlatformAiSettingsInput = z.infer<typeof UpdatePlatformAiSettingsSchema>;
 
@@ -78,6 +102,10 @@ export interface AiUsageDto {
   ownKeyConfigured: boolean;
   /** Consultas del mes hechas con su propia clave (no cuentan para el límite). */
   ownQueries: number;
+  /** Chat de la web pública: respuestas del mes (con la IA de TrasterOS) y su límite. */
+  webUsed: number;
+  webLimit: number;
+  webCustomLimit: boolean;
 }
 
 export const AiKeyModeEnum = z.enum(['platform', 'own']);
@@ -86,6 +114,8 @@ export type AiKeyMode = z.infer<typeof AiKeyModeEnum>;
 export const UpdateTenantAiLimitSchema = z.object({
   /** null = el general + extras; sin enviar = no cambia. */
   monthlyLimit: z.number().int().min(0).max(1_000_000).nullable().optional(),
+  /** Respuestas al mes del chat de la web (null = el general). */
+  webMonthlyLimit: z.number().int().min(0).max(1_000_000).nullable().optional(),
   mode: AiKeyModeEnum.optional(),
 });
 export type UpdateTenantAiLimitInput = z.infer<typeof UpdateTenantAiLimitSchema>;

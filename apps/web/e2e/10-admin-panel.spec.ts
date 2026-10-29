@@ -33,9 +33,10 @@ test('borrar un seguimiento del tenant pide confirmación en un diálogo', async
     await page.getByRole('button', { name: 'Tenants' }).click();
   }
   await tenantsLink.click();
+  await expect(page).toHaveURL(/\/admin\/tenants/, { timeout: 15_000 });
   // El CSV recorre todos los tenants del filtro.
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: /CSV/ }).click();
+  await page.getByRole('button', { name: 'CSV', exact: true }).click();
   expect((await download).suggestedFilename()).toBe('tenants.csv');
 
   // Acción masiva: seleccionar y etiquetar.

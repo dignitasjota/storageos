@@ -4,6 +4,8 @@ import { Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { WebChatCard } from './web-chat-card';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -168,6 +170,8 @@ export default function AiSettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <WebChatCard />
     </div>
   );
 }

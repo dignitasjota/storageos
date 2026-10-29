@@ -13,6 +13,7 @@ import { ScrollToSection } from './scroll-to-section';
 import { LandingTemplate } from './templates';
 import { TenantWebChrome } from './tenant-web-chrome';
 import { TrstromTemplate } from './trstrom-template';
+import { WebChatWidget } from './web-chat-widget';
 import { WhatsappFloatButton } from './whatsapp-float-button';
 
 import type { LandingSection, PublicLandingDto } from '@storageos/shared';
@@ -371,6 +372,14 @@ export async function LandingPageBody({
         </TenantWebChrome>
       )}
       <WhatsappFloatButton number={data.whatsappNumber} />
+      <WebChatWidget
+        slug={data.tenantSlug}
+        enabled={data.webChatEnabled}
+        tenantName={data.tenantName}
+        brandColor={data.brandColor}
+        customDomain={data.customDomain}
+        aboveWhatsapp={!!data.whatsappNumber}
+      />
     </NextIntlClientProvider>
   );
 }

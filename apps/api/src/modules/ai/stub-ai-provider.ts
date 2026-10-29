@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 
 import { type AiCompletion, type AiMessageParam, AiProvider } from './ai-provider';
 
+/** Comienzo del prompt del chat de la web pública (el simulador responde como él). */
+export const WEB_CHAT_PROMPT_MARKER = 'Eres el asistente virtual de la web de';
+
 /** Marca del prompt de borrador de página de zona (el simulador responde un JSON). */
 export const AREA_PAGE_DRAFT_MARKER = 'Redactas páginas de zona';
 
@@ -43,7 +46,9 @@ export class StubAiProvider extends AiProvider {
   }): Promise<AiCompletion> {
     const completion = args.system?.includes(AREA_PAGE_DRAFT_MARKER)
       ? AREA_PAGE_DRAFT_STUB
-      : await this.respond(args);
+      : args.system?.startsWith(WEB_CHAT_PROMPT_MARKER)
+        ? this.webChat(args.messages)
+        : await this.respond(args);
     const tokens = (text: string) => Math.max(1, Math.ceil(text.length / 4));
     const inputTokens = tokens(JSON.stringify(args.messages));
     const outputTokens = tokens(JSON.stringify(completion.content));
@@ -85,6 +90,23 @@ export class StubAiProvider extends AiProvider {
         },
       ],
     });
+  }
+
+  /** Chat de la web: si el visitante deja un email, lo guarda como contacto. */
+  private webChat(messages: AiMessageParam[]): AiCompletion {
+    const text = this.lastUserText(messages);
+    const email = /[^\s@]+@[^\s@]+\.[^\s@]+/.exec(text)?.[0];
+    return {
+      stopReason: 'end_turn',
+      content: [
+        {
+          type: 'text',
+          text: email
+            ? `¡Gracias! El equipo te escribirá pronto.\n[[CONTACTO {"nombre":"Visitante","email":"${email}","mensaje":"Quiere información"}]]`
+            : 'Hola, soy el asistente de la web. Tenemos trasteros de varios tamaños; dime qué necesitas guardar y te digo cuál te encaja.',
+        },
+      ],
+    };
   }
 
   private lastUserText(messages: AiMessageParam[]): string {

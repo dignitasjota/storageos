@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   AI_LIMIT_WARNING_RATIO,
+  WEB_CHAT_AI_FEATURE,
   type AiKeyMode,
   type AiUsageDto,
   type TenantAiSettingsDto,
@@ -39,8 +40,18 @@ export interface AiReservation {
   ownKey: AiOwnKey | null;
 }
 
-/** Consultas que cuentan para el límite (las de la clave propia no). */
-const PLATFORM_QUERY = { countsAsQuery: true, ownKey: false } as const;
+/** Consultas que cuentan para el límite del panel (ni la clave propia ni el chat de la web). */
+const PLATFORM_QUERY = {
+  countsAsQuery: true,
+  ownKey: false,
+  feature: { not: WEB_CHAT_AI_FEATURE },
+} as const;
+
+/** Respuestas de la web que cuentan para su límite. */
+const WEB_QUERY = { countsAsQuery: true, ownKey: false, feature: WEB_CHAT_AI_FEATURE } as const;
+
+/** Clave del bloqueo de las respuestas del chat de la web (con el tenant). */
+const WEB_QUOTA_LOCK = 7342;
 
 /** Clave del bloqueo de las consultas (con el tenant). */
 const AI_QUOTA_LOCK = 7341;
@@ -91,9 +102,11 @@ export class AiQuotaService {
         aiMode: true,
         aiOwnApiKeyEncrypted: true,
         aiOwnModel: true,
+        webChatMonthlyLimit: true,
       },
     });
     return {
+      webChatMonthlyLimit: tenant?.webChatMonthlyLimit ?? null,
       aiMonthlyLimit: tenant?.aiMonthlyLimit ?? null,
       timezone: tenant?.timezone || 'Europe/Madrid',
       mode: (tenant?.aiMode === 'own' ? 'own' : 'platform') as AiKeyMode,
@@ -123,13 +136,19 @@ export class AiQuotaService {
     const month = currentMonth();
     const tenant = await this.tenantInfo(tenantId);
     const today = todayIn(tenant.timezone);
-    const [extra, used, ownQueries, dailyUsed] = await Promise.all([
+    const [extra, used, ownQueries, dailyUsed, webUsed] = await Promise.all([
       this.extraQueries(tenantId),
       this.admin.aiUsageEvent.count({
         where: { tenantId, ...PLATFORM_QUERY, createdAt: { gte: month.start } },
       }),
       this.admin.aiUsageEvent.count({
-        where: { tenantId, countsAsQuery: true, ownKey: true, createdAt: { gte: month.start } },
+        where: {
+          tenantId,
+          countsAsQuery: true,
+          ownKey: true,
+          feature: { not: WEB_CHAT_AI_FEATURE },
+          createdAt: { gte: month.start },
+        },
       }),
       userId
         ? this.admin.aiUsageEvent.count({
@@ -141,6 +160,9 @@ export class AiQuotaService {
             },
           })
         : Promise.resolve(null),
+      this.admin.aiUsageEvent.count({
+        where: { tenantId, ...WEB_QUERY, createdAt: { gte: month.start } },
+      }),
     ]);
     const { monthlyQueryLimit, dailyUserLimit } = this.settings.limits;
     const customLimit = tenant.aiMonthlyLimit != null;
@@ -158,7 +180,90 @@ export class AiQuotaService {
       mode: tenant.mode,
       ownKeyConfigured: !!tenant.ownKeyEncrypted,
       ownQueries,
+      webUsed,
+      webLimit: tenant.webChatMonthlyLimit ?? this.settings.web.monthlyLimit,
+      webCustomLimit: tenant.webChatMonthlyLimit != null,
     };
+  }
+
+  /**
+   * Reserva una respuesta del chat de la web pública. Tiene su propio límite
+   * mensual (aparte del panel): al gastarlo sigue con la clave propia del
+   * tenant si la tiene y, si no, no se responde con IA (`limit`). En modo
+   * `own`, siempre con la clave del tenant. Nunca lanza.
+   */
+  async reserveWeb(
+    tenantId: string,
+    model: string,
+  ): Promise<{ kind: 'ok'; reservation: AiReservation } | { kind: 'limit' }> {
+    const month = currentMonth();
+    const tenant = await this.tenantInfo(tenantId);
+    const own = this.ownKeyOf(tenantId, tenant);
+    const ownData = {
+      tenantId,
+      feature: WEB_CHAT_AI_FEATURE,
+      countsAsQuery: true,
+      ownKey: true,
+    };
+    if (tenant.mode === 'own') {
+      if (!own) return { kind: 'limit' };
+      const row = await this.admin.aiUsageEvent.create({
+        data: { ...ownData, model: own.model },
+        select: { id: true },
+      });
+      return { kind: 'ok', reservation: { id: row.id, ownKey: own } };
+    }
+    const limit = tenant.webChatMonthlyLimit ?? this.settings.web.monthlyLimit;
+    const outcome = await this.admin.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), ${WEB_QUOTA_LOCK}::int4)`;
+      const used = await tx.aiUsageEvent.count({
+        where: { tenantId, ...WEB_QUERY, createdAt: { gte: month.start } },
+      });
+      if (used >= limit) {
+        if (!own) return { kind: 'limit' as const, used };
+        const row = await tx.aiUsageEvent.create({
+          data: { ...ownData, model: own.model },
+          select: { id: true },
+        });
+        return { kind: 'own' as const, id: row.id, used };
+      }
+      const row = await tx.aiUsageEvent.create({
+        data: { tenantId, feature: WEB_CHAT_AI_FEATURE, model, countsAsQuery: true },
+        select: { id: true },
+      });
+      return { kind: 'ok' as const, id: row.id, used: used + 1 };
+    });
+    if (outcome.kind === 'limit') {
+      void this.notifyWebLimit(tenantId, month.key, limit);
+      return { kind: 'limit' };
+    }
+    if (outcome.kind === 'own') return { kind: 'ok', reservation: { id: outcome.id, ownKey: own } };
+    if (limit > 0 && outcome.used >= limit) void this.notifyWebLimit(tenantId, month.key, limit);
+    return { kind: 'ok', reservation: { id: outcome.id, ownKey: null } };
+  }
+
+  /** Aviso (una vez al mes) de que el chat de la web gastó sus respuestas. */
+  private async notifyWebLimit(tenantId: string, month: string, limit: number): Promise<void> {
+    try {
+      const claimed = await this.admin.tenant.updateMany({
+        where: {
+          id: tenantId,
+          OR: [{ webChatLimitNotified: null }, { webChatLimitNotified: { not: month } }],
+        },
+        data: { webChatLimitNotified: month },
+      });
+      if (claimed.count === 0) return;
+      await this.notifications.create(tenantId, {
+        type: 'ai.web_chat_limit_reached',
+        title: 'El chat de tu web ha gastado sus respuestas del mes',
+        body: `Ha respondido ${limit} veces este mes. Hasta el mes que viene, los visitantes verán tu teléfono, WhatsApp y el formulario de contacto. Con tu propia clave de IA seguiría respondiendo.`,
+        link: '/settings/ai',
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[ai-quota] aviso del chat de la web: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**
@@ -400,12 +505,19 @@ export class AiQuotaService {
   /** Ajustes del super admin: límite propio (null = el general) y de quién es la IA. */
   async setTenantLimit(
     tenantId: string,
-    input: { monthlyLimit?: number | null | undefined; mode?: AiKeyMode | undefined },
+    input: {
+      monthlyLimit?: number | null | undefined;
+      webMonthlyLimit?: number | null | undefined;
+      mode?: AiKeyMode | undefined;
+    },
   ): Promise<AiUsageDto> {
     await this.admin.tenant.update({
       where: { id: tenantId },
       data: {
         ...(input.monthlyLimit !== undefined ? { aiMonthlyLimit: input.monthlyLimit } : {}),
+        ...(input.webMonthlyLimit !== undefined
+          ? { webChatMonthlyLimit: input.webMonthlyLimit }
+          : {}),
         ...(input.mode ? { aiMode: input.mode } : {}),
       },
     });

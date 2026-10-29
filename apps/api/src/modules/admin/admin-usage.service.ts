@@ -5,6 +5,7 @@ import {
   effectiveFeaturesFromList,
   resolvePlanFeatures,
   type TenantFeature,
+  WEB_CHAT_AI_FEATURE,
 } from '@storageos/shared';
 
 import { currentMonth } from '../../common/format';
@@ -186,7 +187,13 @@ export class AdminUsageService {
       }),
       this.admin.aiUsageEvent.groupBy({
         by: ['tenantId'],
-        where: { countsAsQuery: true, ownKey: false, createdAt: { gte: month.start } },
+        // Las del chat de la web tienen su propio límite.
+        where: {
+          countsAsQuery: true,
+          ownKey: false,
+          feature: { not: WEB_CHAT_AI_FEATURE },
+          createdAt: { gte: month.start },
+        },
         _count: { _all: true },
       }),
     ]);

@@ -4,6 +4,7 @@ import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 import { PrismaService } from '../database/prisma.service';
 
 import { ACTION_PERMISSIONS, AiActionsService } from './ai-actions.service';
+import { AiBusinessTools } from './ai-business-tools';
 
 import type { AiToolDef } from './ai-provider';
 import type { Prisma } from '@storageos/database';
@@ -99,14 +100,21 @@ function name(
  */
 @Injectable()
 export class AiToolsService {
+  private readonly business: AiBusinessTools;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly actions: AiActionsService,
-  ) {}
+  ) {
+    this.business = new AiBusinessTools(prisma);
+  }
 
   /** Herramientas que se ofrecen al modelo: solo las que el usuario tiene permiso a usar. */
   definitions(ctx: Pick<AiToolContext, 'permissions'>): AiToolDef[] {
-    return this.allDefinitions().filter((d) => this.allowed(ctx, d.name));
+    return [
+      ...this.allDefinitions().filter((d) => this.allowed(ctx, d.name)),
+      ...this.business.definitions(ctx),
+    ];
   }
 
   private allowed(ctx: Pick<AiToolContext, 'permissions'>, toolName: string): boolean {
@@ -260,6 +268,22 @@ export class AiToolsService {
     toolName: string,
     input: Record<string, unknown>,
   ): Promise<string> {
+    // Herramientas genéricas (buscar, ficha, listados, cobros, calendario…).
+    const business = this.business.allowed(ctx, toolName, input);
+    if (business !== null) {
+      if (!business) {
+        return JSON.stringify({
+          error: 'No tienes permiso para ver esos datos. Pídeselo al propietario del negocio.',
+        });
+      }
+      return JSON.stringify(
+        await this.business.execute(
+          { tenantId: ctx.tenantId, scope: ctx.facilityScope, permissions: ctx.permissions },
+          toolName,
+          input,
+        ),
+      );
+    }
     // Defensa en profundidad: el modelo podría pedir una herramienta que no se
     // le ofreció (o una inventada).
     if (!this.allowed(ctx, toolName)) {

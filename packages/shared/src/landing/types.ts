@@ -89,6 +89,8 @@ export interface PublicLandingDto {
    * extra, el número activo y el botón activado). Cifras con prefijo, listo para `wa.me`.
    */
   whatsappNumber: string | null;
+  /** Chat con IA para visitantes (con el asistente IA y sin apagar). */
+  webChatEnabled: boolean;
   /** Testimonios (reseñas NPS ≥ 9). Vacío si la sección está desactivada. */
   testimonials: PublicTestimonialDto[];
   /** Preguntas frecuentes publicadas. Vacío si la sección está desactivada. */
@@ -145,6 +147,7 @@ export interface PublicFacilityLandingDto {
   googleAnalyticsId: string | null;
   /** Igual que en `PublicLandingDto`. */
   whatsappNumber: string | null;
+  webChatEnabled: boolean;
   facility: PublicLandingFacilityDto;
   /** Página de la ciudad del local (`/trasteros-en-<ciudad>`) cuando tiene varios locales. */
   cityPage: { name: string; slug: string } | null;

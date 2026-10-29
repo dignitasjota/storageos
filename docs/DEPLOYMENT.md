@@ -1569,3 +1569,10 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - **Migración** `20261201100000_admin_tenants_improvements` (se aplica sola). Sin variables nuevas. Redesplegar api, worker y web.
 - Las vistas guardadas de la lista de tenants pasan del navegador al servidor la primera vez que se abre la lista (se suben las de ese navegador).
 - «Anonimizar» pide ahora marcar «Ya he exportado sus datos».
+
+## 65. Asistente IA con todo el negocio y chat de la web (2026-10-29)
+
+- **Migración** `20261202100000_web_chat` (se aplica sola). Sin variables nuevas. Redesplegar api, worker y web.
+- El chat aparece solo en la web de los tenants con el asistente IA (plan Pro o extra), activado por defecto; el tenant lo apaga en Configuración → Asistente IA.
+- Panel admin → Asistente IA → «Chat de la web de los tenants»: modelo (por defecto `claude-haiku-5-5`; si la cuenta de Anthropic no tiene acceso a él, poner otro), 300 respuestas al mes por tenant y 15 preguntas al día por visitante. Sin clave de IA en la plataforma el chat no responde con IA (enseña el contacto del negocio).
+- Las respuestas de la web no gastan las consultas del panel. Sus tokens salen en «Uso por tenant» y Finanzas como el resto de la IA.

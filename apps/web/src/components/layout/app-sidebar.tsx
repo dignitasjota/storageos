@@ -35,6 +35,7 @@ import {
   Megaphone,
   Inbox,
   MessageCircle,
+  MessageSquareText,
   MousePointerClick,
   Package,
   PackagePlus,
@@ -393,6 +394,12 @@ const GROUPS: NavGroup[] = [
             href: '/marketing/web',
             labelKey: 'marketingWeb',
             icon: MousePointerClick,
+            permission: 'marketing:read',
+          },
+          {
+            href: '/marketing/web-chat',
+            labelKey: 'marketingWebChat',
+            icon: MessageSquareText,
             permission: 'marketing:read',
           },
           {

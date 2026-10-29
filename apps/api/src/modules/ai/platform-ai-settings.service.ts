@@ -6,6 +6,9 @@ import {
   DEFAULT_AI_DAILY_USER_LIMIT,
   DEFAULT_AI_PORTAL_DAILY_LIMIT,
   DEFAULT_AI_MONTHLY_QUERY_LIMIT,
+  DEFAULT_WEB_CHAT_MODEL,
+  DEFAULT_WEB_CHAT_MONTHLY_LIMIT,
+  DEFAULT_WEB_CHAT_VISITOR_DAILY_LIMIT,
   type PlatformAiSettingsDto,
   type UpdatePlatformAiSettingsInput,
 } from '@storageos/shared';
@@ -26,6 +29,9 @@ interface Snapshot {
   monthlyQueryLimit: number;
   dailyUserLimit: number;
   portalDailyLimit: number;
+  webModel: string | null;
+  webMonthlyLimit: number;
+  webVisitorDailyLimit: number;
   updatedAt: Date | null;
 }
 
@@ -50,6 +56,9 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
     monthlyQueryLimit: DEFAULT_AI_MONTHLY_QUERY_LIMIT,
     dailyUserLimit: DEFAULT_AI_DAILY_USER_LIMIT,
     portalDailyLimit: DEFAULT_AI_PORTAL_DAILY_LIMIT,
+    webModel: null,
+    webMonthlyLimit: DEFAULT_WEB_CHAT_MONTHLY_LIMIT,
+    webVisitorDailyLimit: DEFAULT_WEB_CHAT_VISITOR_DAILY_LIMIT,
     updatedAt: null,
   };
   private timer: NodeJS.Timeout | null = null;
@@ -88,6 +97,9 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
         monthlyQueryLimit: row?.monthlyQueryLimit ?? DEFAULT_AI_MONTHLY_QUERY_LIMIT,
         dailyUserLimit: row?.dailyUserLimit ?? DEFAULT_AI_DAILY_USER_LIMIT,
         portalDailyLimit: row?.portalDailyLimit ?? DEFAULT_AI_PORTAL_DAILY_LIMIT,
+        webModel: row?.webModel || null,
+        webMonthlyLimit: row?.webMonthlyLimit ?? DEFAULT_WEB_CHAT_MONTHLY_LIMIT,
+        webVisitorDailyLimit: row?.webVisitorDailyLimit ?? DEFAULT_WEB_CHAT_VISITOR_DAILY_LIMIT,
         updatedAt: row?.updatedAt ?? null,
       };
     } catch (err) {
@@ -102,6 +114,15 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
       monthlyQueryLimit: this.snapshot.monthlyQueryLimit,
       dailyUserLimit: this.snapshot.dailyUserLimit,
       portalDailyLimit: this.snapshot.portalDailyLimit,
+    };
+  }
+
+  /** Chat de la web pública: modelo (uno barato por defecto) y límites. */
+  get web(): { model: string; monthlyLimit: number; visitorDailyLimit: number } {
+    return {
+      model: this.snapshot.webModel || DEFAULT_WEB_CHAT_MODEL,
+      monthlyLimit: this.snapshot.webMonthlyLimit,
+      visitorDailyLimit: this.snapshot.webVisitorDailyLimit,
     };
   }
 
@@ -137,6 +158,10 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
       monthlyQueryLimit: this.snapshot.monthlyQueryLimit,
       dailyUserLimit: this.snapshot.dailyUserLimit,
       portalDailyLimit: this.snapshot.portalDailyLimit,
+      webModel: this.web.model,
+      panelWebModel: this.snapshot.webModel,
+      webMonthlyLimit: this.snapshot.webMonthlyLimit,
+      webVisitorDailyLimit: this.snapshot.webVisitorDailyLimit,
       updatedAt: this.snapshot.updatedAt?.toISOString() ?? null,
     };
   }
@@ -152,6 +177,11 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
         : {}),
       ...(input.dailyUserLimit !== undefined ? { dailyUserLimit: input.dailyUserLimit } : {}),
       ...(input.portalDailyLimit !== undefined ? { portalDailyLimit: input.portalDailyLimit } : {}),
+      ...(input.webModel !== undefined ? { webModel: input.webModel || null } : {}),
+      ...(input.webMonthlyLimit !== undefined ? { webMonthlyLimit: input.webMonthlyLimit } : {}),
+      ...(input.webVisitorDailyLimit !== undefined
+        ? { webVisitorDailyLimit: input.webVisitorDailyLimit }
+        : {}),
     };
     const row = await this.admin.platformAiSettings.findFirst({ select: { id: true } });
     if (row) await this.admin.platformAiSettings.update({ where: { id: row.id }, data });

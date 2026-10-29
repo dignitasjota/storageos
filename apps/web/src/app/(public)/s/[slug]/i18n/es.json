@@ -910,6 +910,21 @@
       "nearHeading": "Trasteros cerca de {city}",
       "servedAreas": "También damos servicio a:",
       "nearIntro": "El centro más cercano a {city}: {names}."
+    },
+    "webChat": {
+      "open": "Chatea con nosotros",
+      "close": "Cerrar el chat",
+      "title": "Asistente de {name}",
+      "subtitle": "Respuesta automática con IA",
+      "welcome": "¡Hola! Soy el asistente de {name}. Pregúntame por tamaños, precios, horarios o cómo reservar.",
+      "placeholder": "Escribe tu pregunta…",
+      "blockedPlaceholder": "Escríbenos o llámanos para seguir",
+      "send": "Enviar",
+      "thinking": "Escribiendo…",
+      "error": "No he podido responder ahora. Inténtalo de nuevo en un momento.",
+      "tooFast": "Vas muy rápido. Espera un momento y vuelve a escribir.",
+      "disclaimer": "Te responde un asistente automático con inteligencia artificial; puede equivocarse. No compartas datos bancarios.",
+      "privacy": "Privacidad"
     }
   },
   "offlinePayment": {
