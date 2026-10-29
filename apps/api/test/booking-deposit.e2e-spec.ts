@@ -9,6 +9,7 @@ import {
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -69,7 +70,13 @@ describe('Reserva online con fianza (e2e)', () => {
       .expect(201);
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
-      .send({ signerName: 'Bea López', method: 'typed', typedSignature: 'Bea López', accept: true })
+      .send({
+        signerName: 'Bea López',
+        method: 'typed',
+        typedSignature: 'Bea López',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, booking.body.signingToken),
+      })
       .expect(201);
     const contractId = booking.body.contractId as string;
     const docs = await admin.invoice.findMany({

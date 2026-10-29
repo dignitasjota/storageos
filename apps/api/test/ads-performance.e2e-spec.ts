@@ -4,6 +4,7 @@ import { PrismaAdminService } from '../src/modules/database/prisma-admin.service
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -128,6 +129,7 @@ describe('Rendimiento de los anuncios (e2e)', () => {
         method: 'typed',
         typedSignature: 'Marta Ruiz',
         accept: true,
+        generalTermsHash: await generalTermsHash(app, booking.body.signingToken),
       })
       .expect(201);
 

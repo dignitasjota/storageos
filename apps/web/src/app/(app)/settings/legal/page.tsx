@@ -12,6 +12,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { TermsVersionsCard } from './versions-card';
+
 import { MarkdownView } from '@/components/public/markdown-view';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +22,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useUpdateWebLegal, useWebLegal } from '@/lib/web-legal/hooks';
 
-/** Textos legales de la web pública: aviso legal, privacidad y cookies. */
+/** Textos legales de la web pública: aviso legal, privacidad, cookies y condiciones. */
 export default function WebLegalPage() {
   const { data, isLoading } = useWebLegal();
   if (isLoading || !data) {
@@ -35,9 +37,9 @@ export default function WebLegalPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Textos legales de la web</h1>
         <p className="text-sm text-muted-foreground">
-          Aviso legal, privacidad y cookies de tu web pública. Se generan con tus datos de
-          facturación y se enlazan en el pie de todas las páginas. Puedes sustituir cada uno por tu
-          propio texto; revísalos con tu asesor.
+          Aviso legal, privacidad, cookies y condiciones generales de contratación de tu web
+          pública. Se generan con tus datos de facturación y se enlazan en el pie de todas las
+          páginas. Puedes sustituir cada uno por tu propio texto; revísalos con tu asesor.
         </p>
       </div>
       {data.missing.length > 0 && (
@@ -50,7 +52,7 @@ export default function WebLegalPage() {
         </p>
       )}
       <Tabs defaultValue="aviso-legal">
-        <TabsList>
+        <TabsList className="h-auto flex-wrap">
           {TENANT_LEGAL_DOCS.map((d) => (
             <TabsTrigger key={d} value={d}>
               {TENANT_LEGAL_TITLES[d]}
@@ -58,8 +60,17 @@ export default function WebLegalPage() {
           ))}
         </TabsList>
         {TENANT_LEGAL_DOCS.map((d) => (
-          <TabsContent key={d} value={d} className="mt-4">
+          <TabsContent key={d} value={d} className="mt-4 space-y-4">
             <LegalEditor doc={d} data={data} />
+            {d === 'condiciones-contratacion' && !data.texts.terms && (
+              <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-100">
+                Mientras uses el texto por defecto, se rellena con los datos de tu empresa y de tus
+                locales: si los cambias (o das de alta un local), el texto cambia y quien lo acepte
+                a partir de entonces aceptará una versión nueva. Para que solo cambie cuando tú lo
+                decidas, guarda tu propio texto.
+              </p>
+            )}
+            {d === 'condiciones-contratacion' && <TermsVersionsCard />}
           </TabsContent>
         ))}
       </Tabs>

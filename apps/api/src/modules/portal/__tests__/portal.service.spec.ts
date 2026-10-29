@@ -1,6 +1,7 @@
 import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 
+import { GeneralTermsService } from '../../landing/general-terms.service';
 import { PortalService } from '../portal.service';
 
 import type { Env } from '../../../config/env.schema';
@@ -123,6 +124,7 @@ function buildService(opts: { portalSecret?: string | undefined } = {}) {
     {} as ProductSalesService,
     { write: audit } as unknown as AuditService,
     { client: Promise.resolve(redis) } as unknown as Queue,
+    {} as GeneralTermsService,
   );
   return { service, redis, admin, audit, emailSend, jwt };
 }

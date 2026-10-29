@@ -10,6 +10,7 @@ import { CustomerMessagesModule } from '../customer-messages/customer-messages.m
 import { CustomerAuthorizedPersonsService } from '../customers/customer-authorized-persons.service';
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqModule } from '../faq/faq.module';
+import { LandingModule } from '../landing/landing.module';
 import { MoveInModule } from '../move-in/move-in.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OperationsModule } from '../operations/operations.module';
@@ -53,6 +54,8 @@ import { PortalService } from './portal.service';
     ReferralsModule,
     // ContractsModule: el inquilino ve sus contratos y solicita la baja (move-out).
     ContractsModule,
+    // LandingModule: condiciones generales que se aceptan antes de pagar.
+    LandingModule,
     // OperationsModule: el inquilino reporta incidencias desde el portal.
     OperationsModule,
     // PushModule: suscripción a notificaciones push desde el portal.

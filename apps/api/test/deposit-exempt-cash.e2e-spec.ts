@@ -6,6 +6,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -87,7 +88,13 @@ describe('Fianza: sin fianza y en efectivo (e2e)', () => {
     expect(view.body.depositPaymentMethod).toBe('cash');
     await http()
       .post(`/public/move-in/sign/${token}`)
-      .send({ signerName: 'Ana', method: 'typed', typedSignature: 'Ana', accept: true })
+      .send({
+        signerName: 'Ana',
+        method: 'typed',
+        typedSignature: 'Ana',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, token),
+      })
       .expect(201);
 
     const docs = await admin.invoice.findMany({

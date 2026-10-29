@@ -1,6 +1,8 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
+  AcceptGeneralTermsSchema,
+  type GeneralTermsToAcceptDto,
   type BookingAvailabilityDto,
   BookingQuoteSchema,
   type FirstPaymentQuoteDto,
@@ -26,6 +28,7 @@ class PublicBookingBody extends createZodDto(PublicBookingSchema) {}
 class BookingQuoteBody extends createZodDto(BookingQuoteSchema) {}
 class CaptureBookingLeadBody extends createZodDto(CaptureBookingLeadSchema) {}
 class PublicSignBody extends createZodDto(PublicSignSubmitSchema) {}
+class AcceptGeneralTermsBody extends createZodDto(AcceptGeneralTermsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -113,5 +116,21 @@ export class MoveInPublicController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   payment(@Param('token') token: string): Promise<SignPaymentSessionDto> {
     return this.signatures.paymentSession(token);
+  }
+
+  /** Contrato ya firmado: acepta las condiciones generales antes de pagar. */
+  @Post('sign/:token/general-terms')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  acceptGeneralTerms(
+    @Param('token') token: string,
+    @Body() body: AcceptGeneralTermsBody,
+    @Req() req: Request,
+  ): Promise<GeneralTermsToAcceptDto> {
+    return this.signatures.acceptGeneralTermsViaToken(
+      token,
+      body.generalTermsHash,
+      extractMeta(req),
+    );
   }
 }

@@ -1509,6 +1509,7 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Sin variables nuevas. El enlace del calendario usa `API_BASE_URL` (`https://api.trasteros.pro/v1/public/reminders-calendar/<token>`): comprobar que esa URL es pública (el Proxy Host del API ya lo cubre).
 - Los avisos salen del API (cron horario, a partir de las 8:00 de cada negocio). El correo al equipo usa el remitente «Avisos al equipo» de Correo saliente; el de los correos de fuera (asesoría), el del negocio.
 - Tras desplegar: entrar en un tenant de pago → Operaciones diarias → Vencimientos, añadir una plantilla y comprobar que llega el aviso al día siguiente a las 8:00.
+
 ## 56. Revisión de «Negocio» del panel admin, arreglos (2026-10-29)
 
 - Migración `20261125100000_trial_ended_at`: columna `tenants.trial_ended_at` y el disparador `tenants_trial_ended_at` (función `tenants_set_trial_ended_at`). Se aplica sola al arrancar el API. Rellena una fecha aproximada a los tenants que ya no están en prueba (fin de la prueba o alta + 30 días).
@@ -1522,4 +1523,10 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Los avisos de negocio vienen activados con umbrales por defecto (caída del MRR 10 %, churn 5 %, tenant grande desde 100 €/mes, IA 20 $ en 7 días) y solo salen si el resumen semanal (correo o Telegram/Slack) está activado. Se cambian en Métricas → «Avisos de negocio».
 - La tendencia de la salud necesita la foto del mes anterior: hasta el mes que viene no hay tendencia.
 - El informe mensual en PDF usa Chromium como el resto de PDF del API.
+
+## 58. Condiciones generales de contratación con aceptación obligatoria (2026-10-29)
+
+- Migración `20261127100000_legal_doc_versions` (versiones y aceptaciones, con RLS). Se aplica sola.
+- Desde este despliegue, quien firma una reserva online (o paga un contrato ya firmado) tiene que marcar la casilla de las Condiciones Generales de Contratación. El texto por defecto se genera con los datos de cada negocio; conviene que cada tenant lo revise en Configuración → Textos legales.
+- En el área de clientes, el primer pago de un contrato que nunca las aceptó (firmado en papel o antes de esto) también pide la casilla; los contratos que ya pagaron alguna factura no.
 - Sin variables nuevas.

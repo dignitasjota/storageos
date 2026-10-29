@@ -30,6 +30,7 @@ import { composeContractTerms, termsHash } from '../contracts/contract-terms';
 import { ContractsService } from '../contracts/contracts.service';
 import { CouponsService } from '../coupons/coupons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { GeneralTermsService } from '../landing/general-terms.service';
 import { toActiveUnitOffer } from '../promotions/promotions.service';
 
 import type { Env } from '../../config/env.schema';
@@ -38,6 +39,7 @@ import type {
   ContractSignViewDto,
   ContractSignatureDto,
   ContractSigningRecordDto,
+  GeneralTermsToAcceptDto,
   SignPaymentSessionDto,
   PublicSignSubmitInput,
   RequestSignatureResultDto,
@@ -72,6 +74,7 @@ export class SignaturesService {
     private readonly coupons: CouponsService,
     private readonly config: ConfigService<Env, true>,
     private readonly jwt: JwtService,
+    private readonly generalTerms: GeneralTermsService,
   ) {}
 
   /**
@@ -238,6 +241,7 @@ export class SignaturesService {
       logoUrl: tenant?.portalLogoUrl ?? null,
       googleAnalyticsId: tenant?.googleAnalyticsId ?? null,
       firstPayment: await this.firstPaymentOf(contract.id, propertyKind),
+      generalTerms: await this.generalTerms.toAccept(contract.tenantId, contract.id),
       preOpening: preOpeningDto(contract),
     };
   }
@@ -274,7 +278,47 @@ export class SignaturesService {
         message: 'Este contrato no tiene ningún pago pendiente',
       });
     }
+    if (!(await this.generalTerms.isAccepted(contract.tenantId, contract.id))) {
+      throw new ConflictException({
+        code: 'general_terms_required',
+        message: 'Debes aceptar las condiciones generales de contratación antes de pagar',
+      });
+    }
     return { portalToken: await this.mintPortalToken(contract.tenantId, contract.customerId) };
+  }
+
+  /** Público: acepta las condiciones generales (contrato firmado, antes de pagar). */
+  async acceptGeneralTermsViaToken(
+    token: string,
+    hash: string,
+    meta: RequestMeta,
+  ): Promise<GeneralTermsToAcceptDto> {
+    const contract = await this.resolveToken(token);
+    if (contract.status === 'draft') {
+      throw new ConflictException({
+        code: 'contract_not_signed',
+        message: 'Firma el contrato para aceptar las condiciones',
+      });
+    }
+    await this.acceptGeneralTerms(contract, hash, meta);
+    return this.generalTerms.toAccept(contract.tenantId, contract.id);
+  }
+
+  /** Guarda la aceptación (una vez por contrato). */
+  private async acceptGeneralTerms(
+    contract: { id: string; tenantId: string; customerId: string },
+    hash: string,
+    meta: RequestMeta,
+  ): Promise<void> {
+    await this.generalTerms.acceptOnce({
+      tenantId: contract.tenantId,
+      customerId: contract.customerId,
+      contractId: contract.id,
+      hash,
+      channel: 'remote',
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
   }
 
   /**
@@ -343,6 +387,7 @@ export class SignaturesService {
           ? (c.signingTokenExpiresAt?.toISOString() ?? null)
           : null,
       holdUntil: holdActive ? c.firstPaymentDeadline!.toISOString() : null,
+      generalTerms: await this.generalTerms.listForContract(tenantId, contractId),
     };
   }
 
@@ -428,15 +473,33 @@ export class SignaturesService {
   ): Promise<SignResultDto> {
     const contract = await this.resolveToken(token);
     if (contract.status !== 'draft') {
-      // Idempotente: ya firmado. Solo da sesión si queda algo por pagar.
+      // Idempotente: ya firmado. Solo da sesión si queda algo por pagar (y
+      // ha aceptado las condiciones generales).
+      if (input.generalTermsHash) {
+        await this.acceptGeneralTerms(contract, input.generalTermsHash, meta);
+      }
+      const pending = await this.firstPaymentPending(contract);
+      const accepted = await this.generalTerms.isAccepted(contract.tenantId, contract.id);
       return {
         contractId: contract.id,
         status: contract.status,
-        portalToken: (await this.firstPaymentPending(contract))
-          ? await this.mintPortalToken(contract.tenantId, contract.customerId)
-          : null,
+        portalToken:
+          pending && accepted
+            ? await this.mintPortalToken(contract.tenantId, contract.customerId)
+            : null,
       };
     }
+
+    // Antes de pagar hay que aceptar las condiciones generales de contratación.
+    if (!input.generalTermsHash) {
+      throw new BadRequestException({
+        code: 'general_terms_required',
+        message: 'Debes aceptar las condiciones generales de contratación',
+      });
+    }
+    // Se guarda la aceptación ANTES de firmar: si después falla la firma, el
+    // contrato sigue en borrador; nunca queda firmado sin ella.
+    await this.acceptGeneralTerms(contract, input.generalTermsHash, meta);
 
     await this.contracts.sign({
       tenantId: contract.tenantId,

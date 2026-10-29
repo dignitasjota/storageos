@@ -2140,6 +2140,16 @@ export class AdminTenantsService {
 
       await tx.customerDocument.deleteMany({ where: { tenantId } });
       await tx.customerAuthorizedPerson.deleteMany({ where: { tenantId } });
+      // Firmas y condiciones aceptadas: se conservan como prueba, sin IP,
+      // navegador ni email de quien firmó.
+      await tx.contractSignature.updateMany({
+        where: { tenantId },
+        data: { ipAddress: null, userAgent: null, signerEmail: null },
+      });
+      await tx.legalDocAcceptance.updateMany({
+        where: { tenantId },
+        data: { ipAddress: null, userAgent: null },
+      });
       await tx.paymentMethod.deleteMany({ where: { tenantId } });
 
       // PII fuera de customers: leads (nombre/email/telefono/mensaje) y

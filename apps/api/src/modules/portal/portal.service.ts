@@ -38,6 +38,7 @@ import { EmailService } from '../email/email.service';
 import { PortalMagicLinkEmail, portalMagicLinkSubject } from '../email/templates/portal-magic-link';
 import { PortalWelcomeEmail, portalWelcomeSubject } from '../email/templates/portal-welcome';
 import { FilesService } from '../files/files.service';
+import { GeneralTermsService } from '../landing/general-terms.service';
 import { GoCardlessMandatesService } from '../payments/gocardless/gocardless-mandates.service';
 import { PaymentMethodsService } from '../payments/payment-methods.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -152,6 +153,7 @@ export class PortalService {
     private readonly audit: AuditService,
     // Solo para reutilizar su conexion Redis; no se encolan jobs aqui.
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
+    private readonly generalTerms: GeneralTermsService,
   ) {}
 
   /** Formas de pago que ofrece el portal (la tarjeta por Stripe puede estar desactivada). */
@@ -1207,6 +1209,15 @@ export class PortalService {
         ? Math.max(0, Number(r.total) - Number(r.amountPaid))
         : 0;
     const byId = new Map(rows.map((r) => [r.id, r]));
+    // Primer pago de un contrato sin las condiciones generales aceptadas.
+    const termsPending = new Set(
+      await this.generalTerms.contractsNeedingAcceptance(
+        tenantId,
+        customerId,
+        rows.filter((r) => pendingOf(r) > 0).map((r) => r.id),
+      ),
+    );
+    const terms = termsPending.size > 0 ? await this.generalTerms.current(tenantId) : null;
     return rows.map((r) => {
       const total = Number(r.total);
       // La retención de IRPF no es dinero pagado por el inquilino.
@@ -1229,6 +1240,16 @@ export class PortalService {
         status: r.status,
         hasPdf: !!r.pdfUrl,
         paymentInProgress: inFlightIds.has(r.id),
+        generalTerms:
+          terms && r.contractId && termsPending.has(r.contractId) && pendingOf(r) > 0
+            ? {
+                contractId: r.contractId,
+                title: terms.title,
+                url: terms.url,
+                hash: terms.hash,
+                accepted: false,
+              }
+            : null,
         kind: r.kind === 'deposit_receipt' ? ('deposit_receipt' as const) : ('invoice' as const),
         bundledReceiptPending: Math.round(bundledReceiptPending * 100) / 100,
         paidWithInvoiceId: parent && pendingOf(parent) > 0 ? parent.id : null,

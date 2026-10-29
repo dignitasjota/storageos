@@ -119,6 +119,11 @@ export class ContractPdfService implements OnModuleDestroy {
           orderBy: { signedAt: 'asc' },
         }),
       ]);
+      const accepted = await tx.legalDocAcceptance.findMany({
+        where: { contractId: args.contractId },
+        orderBy: { acceptedAt: 'asc' },
+        include: { version: { select: { title: true, version: true, contentHash: true } } },
+      });
       // Firmado: el texto congelado. Si no lo hay (borrador, importado o firmado
       // antes de guardarse el texto), el que se compone con los datos actuales.
       const termsText =
@@ -132,6 +137,13 @@ export class ContractPdfService implements OnModuleDestroy {
         termsFrozen: !!contract.signedTermsText,
         signedAt: contract.signedAt,
         signatures,
+        generalTerms: accepted.map((a) => ({
+          title: a.version.title,
+          version: a.version.version,
+          contentHash: a.version.contentHash,
+          acceptedAt: a.acceptedAt,
+          channel: a.channel,
+        })),
         tenantName: tenant.billingLegalName?.trim() || tenant.name,
         generatedAt: new Date(),
       };

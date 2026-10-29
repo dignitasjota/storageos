@@ -78,6 +78,7 @@ export const RESERVED_FACILITY_SLUGS: ReadonlySet<string> = new Set([
   'aviso-legal',
   'privacidad',
   'cookies',
+  'condiciones-contratacion',
 ]);
 
 /**

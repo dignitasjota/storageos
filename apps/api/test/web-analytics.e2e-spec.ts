@@ -2,6 +2,7 @@ import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -158,6 +159,7 @@ describe('Analítica propia de la web (e2e)', () => {
         method: 'typed',
         typedSignature: 'Marta Ruiz',
         accept: true,
+        generalTermsHash: await generalTermsHash(app, booking.body.signingToken),
       })
       .expect(201);
 

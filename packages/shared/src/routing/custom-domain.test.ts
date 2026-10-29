@@ -180,6 +180,7 @@ describe('resolveCustomDomainRoute', () => {
           'aviso-legal',
           'privacidad',
           'cookies',
+          'condiciones-contratacion',
         ].includes(slug)
       )
         continue;

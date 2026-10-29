@@ -268,7 +268,13 @@
         "pmError": "No se pudo guardar el cambio.",
         "otherWays": "Otras formas de pago",
         "payAllCard": "Pagar todo con tarjeta ({amount})",
-        "payAllBizum": "Pagar todo con Bizum"
+        "payAllBizum": "Pagar todo con Bizum",
+        "generalTermsIntro": "Antes de pagar tu primera factura tienes que aceptar las condiciones generales de contratación.",
+        "generalTermsCheck": "He leído y acepto las <link>Condiciones Generales de Contratación</link>.",
+        "generalTermsLabel": "Acepto las Condiciones Generales de Contratación",
+        "generalTermsContinue": "Aceptar y continuar",
+        "generalTermsAccepted": "Condiciones aceptadas. Ya puedes pagar.",
+        "generalTermsError": "No se han podido guardar. Inténtalo de nuevo."
       },
       "access": {
         "title": "Tu acceso",

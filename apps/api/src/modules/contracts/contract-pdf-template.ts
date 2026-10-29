@@ -23,6 +23,14 @@ export interface ContractPdfInput {
   termsFrozen: boolean;
   signedAt: Date | null;
   signatures: ContractPdfSignature[];
+  /** Condiciones generales de contratación aceptadas (versión exacta). */
+  generalTerms?: {
+    title: string;
+    version: number;
+    contentHash: string;
+    acceptedAt: Date;
+    channel: string;
+  }[];
   tenantName: string;
   generatedAt: Date;
 }
@@ -106,6 +114,20 @@ export function renderContractHtml(input: ContractPdfInput): string {
 ${input.signatures.map((s) => signatureBlock(s, input.termsText, input.termsFrozen)).join('\n')}`;
   } else {
     evidence = `<div class="notice">Contrato activado${input.signedAt ? ` el ${esc(madrid(input.signedAt))}` : ''} sin firma electrónica en TrasterOS (firmado en papel o importado de otro sistema).</div>`;
+  }
+
+  const terms = input.generalTerms ?? [];
+  if (terms.length > 0) {
+    evidence += `
+<h2>Condiciones generales de contratación</h2>
+${terms
+  .map(
+    (t) =>
+      `<p class="small">Aceptadas el ${esc(madrid(t.acceptedAt))} (${esc(
+        t.channel === 'in_person' ? 'en el local' : 'en la web, antes de pagar',
+      )}): «${esc(t.title)}», versión ${t.version}. Huella SHA-256 del texto aceptado: ${esc(t.contentHash)}</p>`,
+  )
+  .join('\n')}`;
   }
 
   return `<!doctype html>

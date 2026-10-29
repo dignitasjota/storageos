@@ -2,6 +2,8 @@
 
 import { CheckCircle2, Clock, Loader2, ShieldAlert } from 'lucide-react';
 
+import { GeneralTermsCard } from './general-terms-card';
+
 import type { ContractSignatureDetailDto } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
@@ -71,6 +73,8 @@ export function SigningCard({ contractId }: { contractId: string }) {
       {r.signatures.map((s) => (
         <SignatureEvidence key={s.id} signature={s} />
       ))}
+
+      <GeneralTermsCard acceptances={r.generalTerms} />
 
       <Card>
         <CardHeader className="pb-2">

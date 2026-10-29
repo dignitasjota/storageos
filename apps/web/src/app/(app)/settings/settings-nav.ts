@@ -151,7 +151,8 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       {
         href: '/settings/legal',
         label: 'Textos legales',
-        description: 'Aviso legal, privacidad y cookies de tu web (se generan con tus datos).',
+        description:
+          'Aviso legal, privacidad, cookies y condiciones de contratación de tu web (se generan con tus datos).',
         permission: 'settings:manage',
       },
       {

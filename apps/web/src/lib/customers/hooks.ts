@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  GeneralTermsToAcceptDto,
+  LegalDocVersionDto,
   PreOpeningCancelPreviewDto,
   CustomerExtrasDto,
   CustomerAccountDto,
@@ -284,6 +286,33 @@ export function useContractSigning(id: string | undefined) {
     queryKey: id ? (['contracts', id, 'signing'] as const) : ['contract', 'none', 'signing'],
     queryFn: () => apiFetch<ContractSigningRecordDto>(`/contracts/${id}/signing`),
     enabled: !!id,
+  });
+}
+
+/** Condiciones generales vigentes, para la casilla de la firma en el local. */
+export function useContractGeneralTerms(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['contracts', id, 'general-terms'] as const,
+    queryFn: () => apiFetch<GeneralTermsToAcceptDto>(`/contracts/${id}/general-terms`),
+    enabled: enabled && !!id,
+  });
+}
+
+/** Texto de una versión aceptada de las condiciones generales. */
+export function useLegalDocVersion(id: string | null) {
+  return useQuery({
+    queryKey: ['legal-doc-version', id] as const,
+    queryFn: () => apiFetch<LegalDocVersionDto>(`/settings/tenant/web-legal/versions/${id}`),
+    enabled: !!id,
+    staleTime: Infinity,
+  });
+}
+
+/** Versiones de las condiciones generales que han aceptado los inquilinos. */
+export function useLegalDocVersions() {
+  return useQuery({
+    queryKey: ['legal-doc-versions'] as const,
+    queryFn: () => apiFetch<LegalDocVersionDto[]>('/settings/tenant/web-legal/versions'),
   });
 }
 

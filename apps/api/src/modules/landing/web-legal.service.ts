@@ -43,7 +43,7 @@ type LegalTenant = Prisma.TenantGetPayload<{ select: typeof TENANT_SELECT }>;
 
 /**
  * Textos legales de la web pública del tenant: aviso legal (LSSI), privacidad
- * (RGPD) y cookies. Se generan con sus datos de facturación y cada uno se
+ * (RGPD), cookies y condiciones generales de contratación. Se generan con sus datos de facturación y cada uno se
  * puede sustituir por uno propio. Para todos los tenants (no es un extra:
  * cualquier web con formulario y reserva los necesita).
  */
@@ -72,6 +72,27 @@ export class WebLegalService {
       doc,
       title: TENANT_LEGAL_TITLES[doc],
       markdown: custom ?? buildTenantLegalDoc(doc, ctx),
+    };
+  }
+
+  /** Texto que se publica ahora de un documento (propio o generado). */
+  async effectiveDoc(
+    tenantId: string,
+    doc: TenantLegalDoc,
+  ): Promise<{ title: string; markdown: string; url: string }> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: TENANT_SELECT,
+    });
+    if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
+    const custom = parseWebLegal(tenant.webLegal)[TENANT_LEGAL_FIELD[doc]];
+    const markdown = custom ?? buildTenantLegalDoc(doc, await this.context(tenant));
+    const domain = this.customDomain(tenant);
+    const base = this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/$/, '');
+    return {
+      title: TENANT_LEGAL_TITLES[doc],
+      markdown,
+      url: domain ? `https://${domain}/${doc}` : `${base}/s/${tenant.slug}/${doc}`,
     };
   }
 
@@ -126,7 +147,7 @@ export class WebLegalService {
   }
 
   private async context(t: LegalTenant): Promise<TenantLegalContext> {
-    const [facility, whatsapp] = await Promise.all([
+    const [facility, whatsapp, places] = await Promise.all([
       this.admin.facility.findFirst({
         where: { tenantId: t.id, deletedAt: null, isActive: true },
         orderBy: { name: 'asc' },
@@ -135,6 +156,11 @@ export class WebLegalService {
       this.admin.tenantWhatsappSettings.findUnique({
         where: { tenantId: t.id },
         select: { enabled: true },
+      }),
+      this.admin.facility.findMany({
+        where: { tenantId: t.id, deletedAt: null, isActive: true },
+        orderBy: { name: 'asc' },
+        select: { name: true, address: true, postalCode: true, city: true },
       }),
     ]);
     const address = [
@@ -156,6 +182,16 @@ export class WebLegalService {
       websiteUrl: domain ? `https://${domain}` : `${base}/s/${t.slug}`,
       analytics: !!t.googleAnalyticsId,
       whatsapp: !!whatsapp?.enabled,
+      tradeName: t.name,
+      // Dirección de cada local, para identificar los establecimientos.
+      facilities: places
+        .map((f) => {
+          const where = [f.address, [f.postalCode, f.city].filter(Boolean).join(' ')]
+            .filter((x) => x && x.trim())
+            .join(', ');
+          return where ? `${f.name}: ${where}` : '';
+        })
+        .filter(Boolean),
     };
   }
 }

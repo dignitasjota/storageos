@@ -5,6 +5,7 @@ import { MarketingRenewalsCron } from '../src/modules/marketing/marketing-renewa
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -137,6 +138,7 @@ describe('Canales de marketing (e2e)', () => {
         method: 'typed',
         typedSignature: 'Marta Ruiz',
         accept: true,
+        generalTermsHash: await generalTermsHash(app, booking.body.signingToken),
       });
     expect(signed.status).toBe(201);
     expect(signed.body.status).toBe('active');

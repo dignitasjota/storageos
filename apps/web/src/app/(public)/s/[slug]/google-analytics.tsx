@@ -131,7 +131,7 @@ gtag('config', '${measurementId}');`}
 
 /**
  * Enlaces legales del pie de la web del tenant (aviso legal, privacidad,
- * cookies y, con analítica, «Configurar cookies»). Hereda el color del pie.
+ * cookies, condiciones de contratación y, con analítica, «Configurar cookies»). Hereda el color del pie.
  */
 export function TenantLegalLinks({
   site,
@@ -159,6 +159,12 @@ export function TenantLegalLinks({
       </Link>
       <Link href={legalHref(site.tenantSlug, 'cookies', site.customDomain)} className={link}>
         {t('cookies')}
+      </Link>
+      <Link
+        href={legalHref(site.tenantSlug, 'condiciones-contratacion', site.customDomain)}
+        className={link}
+      >
+        {t('terms')}
       </Link>
       {analytics && (
         <button type="button" onClick={() => writeConsent(site.tenantSlug, null)} className={link}>

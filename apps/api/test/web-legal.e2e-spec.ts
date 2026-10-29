@@ -9,7 +9,8 @@ import { createTestApp } from './helpers/test-app.factory';
 import type { INestApplication } from '@nestjs/common';
 
 /**
- * Textos legales de la web del tenant (aviso legal, privacidad y cookies):
+ * Textos legales de la web del tenant (aviso legal, privacidad, cookies y
+ * condiciones generales de contratación):
  * generados con sus datos de facturación, sustituibles por un texto propio y
  * para todos los planes (no dependen de Web Premium).
  */
@@ -56,6 +57,24 @@ describe('Textos legales de la web del tenant (e2e)', () => {
     const cookies = await http().get(`/public/landing/${owner.slug}/legal/cookies`).expect(200);
     expect(cookies.body.markdown).toContain('Google Analytics');
     await http().get(`/public/landing/${owner.slug}/legal/otro`).expect(404);
+
+    // Condiciones generales de contratación con los datos del negocio.
+    const terms = await http()
+      .get(`/public/landing/${owner.slug}/legal/condiciones-contratacion`)
+      .expect(200);
+    expect(terms.body.title).toBe('Condiciones Generales de Contratación');
+    expect(terms.body.markdown).toContain('**Razón social:** Trasteros Legal SL');
+    expect(terms.body.markdown).toContain('legal@e2e.local');
+    expect(terms.body.markdown).toContain('14 días naturales');
+    expect(terms.body.markdown).not.toMatch(/GUÁRDALO|guardalobox/i);
+    const ownTerms = await http()
+      .patch('/settings/tenant/web-legal')
+      .set(auth)
+      .send({ terms: '## Mis condiciones\n\nTexto propio.' })
+      .expect(200);
+    expect(ownTerms.body.texts.terms).toContain('Mis condiciones');
+    expect(ownTerms.body.generated['condiciones-contratacion']).toContain('desistimiento');
+    await http().patch('/settings/tenant/web-legal').set(auth).send({ terms: '' }).expect(200);
 
     // Texto propio de la privacidad; vacío vuelve al generado.
     const saved = await http()

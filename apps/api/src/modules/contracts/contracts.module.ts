@@ -4,6 +4,7 @@ import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { CouponsModule } from '../coupons/coupons.module';
+import { LandingModule } from '../landing/landing.module';
 import { PromotionsModule } from '../promotions/promotions.module';
 
 import { AnniversaryUpdatesController } from './anniversary-updates.controller';
@@ -27,7 +28,7 @@ import { ReservationsController } from './reservations.controller';
 import { ReservationsService } from './reservations.service';
 
 @Module({
-  imports: [AuthModule, PromotionsModule, CouponsModule, BillingModule],
+  imports: [AuthModule, PromotionsModule, CouponsModule, BillingModule, LandingModule],
   controllers: [
     AnniversaryUpdatesController,
     DepositRegistryController,

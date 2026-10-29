@@ -44,11 +44,12 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { parsePageRequest, toPage } from '../../common/pagination';
+import { GeneralTermsService } from '../landing/general-terms.service';
 
 import { ContractsService } from './contracts.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { PageDto } from '@storageos/shared';
+import type { GeneralTermsToAcceptDto, PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateContractDto extends createZodDto(CreateContractSchema) {}
@@ -77,7 +78,10 @@ function extractMeta(req: Request): RequestMeta {
 
 @Controller('contracts')
 export class ContractsController {
-  constructor(private readonly contracts: ContractsService) {}
+  constructor(
+    private readonly contracts: ContractsService,
+    private readonly generalTerms: GeneralTermsService,
+  ) {}
 
   /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
   @RequirePermission('contracts:read')
@@ -236,12 +240,36 @@ export class ContractsController {
     @Body() body: SignContractDto,
     @Req() req: Request,
   ): Promise<ContractDto> {
+    const meta = extractMeta(req);
+    // Firma del inquilino en el local: antes acepta las condiciones generales.
+    // Se guarda ANTES de firmar (si la firma falla, el contrato sigue en
+    // borrador y al reintentar ya está aceptada; nunca firmado sin ella).
+    if (body.method) {
+      if (!body.generalTermsHash) {
+        throw new BadRequestException({
+          code: 'general_terms_required',
+          message: 'El inquilino debe aceptar las condiciones generales de contratación',
+        });
+      }
+      const draft = await this.contracts.detail(user.tenantId, id, user.facilityScope ?? null);
+      if (draft.status === 'draft') {
+        await this.generalTerms.acceptOnce({
+          tenantId: user.tenantId,
+          customerId: draft.customerId,
+          contractId: id,
+          hash: body.generalTermsHash,
+          channel: 'in_person',
+          ipAddress: meta.ipAddress ?? null,
+          userAgent: meta.userAgent ?? null,
+        });
+      }
+    }
     return this.contracts.sign({
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
       facilityScope: user.facilityScope ?? null,
-      meta: extractMeta(req),
+      meta,
       // Firma asistida en el local (opcional): si el staff captura la firma.
       ...(body.method
         ? {
@@ -255,6 +283,16 @@ export class ContractsController {
           }
         : {}),
     });
+  }
+
+  /** Condiciones generales vigentes, para la casilla de la firma en el local. */
+  @RequirePermission('contracts:read')
+  @Get(':id/general-terms')
+  generalTermsToAccept(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<GeneralTermsToAcceptDto> {
+    return this.generalTerms.toAccept(user.tenantId, id);
   }
 
   @RequirePermission('contracts:manage')

@@ -5,6 +5,7 @@ import { PrismaAdminService } from '../src/modules/database/prisma-admin.service
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -276,7 +277,13 @@ describe('Landings de promoción (e2e)', () => {
     expect(booked.status).toBe(201);
     await http()
       .post(`/public/move-in/sign/${booked.body.signingToken}`)
-      .send({ signerName: 'Ana Ruiz', method: 'typed', typedSignature: 'Ana Ruiz', accept: true })
+      .send({
+        signerName: 'Ana Ruiz',
+        method: 'typed',
+        typedSignature: 'Ana Ruiz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, booked.body.signingToken),
+      })
       .expect(201);
     const invoices = await http().get('/invoices').set(a);
     const inv = (

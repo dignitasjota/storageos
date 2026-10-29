@@ -858,3 +858,7 @@ Arreglos (PR A): el MRR ya no cuenta a los tenants suspendidos a mano y lleva lo
 Funcionalidades (PR B): embudo de pruebas (alta → primer contrato → pagan / Free / baja, conversión y días hasta pagar); periodo común de 3, 6, 12 o 24 meses con comparación con los meses anteriores en Métricas y Finanzas; previsión de cobros a 30/60/90 días por forma de cobro con lo vencido y lo que va en remesa; objetivos de MRR, altas y conversión con su progreso en Métricas y en «Hoy»; avisos de negocio en el resumen semanal (correo y Telegram/Slack); pestaña «Negocio» en la ficha del tenant; informe mensual en PDF y CSV; salud con el área de clientes de sus inquilinos, tickets sin responder, facturación parada y tendencia del mes.
 
 Pendiente (menor): avisar cuando un tenant baja de nivel de salud de un mes a otro (hoy solo los grandes en riesgo) y enviar el informe mensual por correo solo.
+
+### Condiciones generales de contratación en la web del tenant (2026-10-29)
+
+Cuarto texto legal, editable como los demás, con un texto por defecto rellenado con los datos de cada negocio y enlazado en el pie y en la reserva online. Casilla obligatoria antes de pagar (firma online y en el local) y versión exacta aceptada guardada por contrato, visible en la ficha y con el historial de versiones en Configuración.

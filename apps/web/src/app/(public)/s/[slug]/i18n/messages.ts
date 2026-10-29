@@ -216,10 +216,10 @@ export function facilityHref(
     : `/s/${encodedTenant}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/${encodedFacility}`;
 }
 
-/** Página legal de la web del tenant (aviso legal, privacidad, cookies). */
+/** Página legal de la web del tenant (aviso legal, privacidad, cookies, condiciones). */
 export function legalHref(
   tenantSlug: string,
-  doc: 'aviso-legal' | 'privacidad' | 'cookies',
+  doc: 'aviso-legal' | 'privacidad' | 'cookies' | 'condiciones-contratacion',
   customDomain?: string | null,
 ): string {
   return customDomain
