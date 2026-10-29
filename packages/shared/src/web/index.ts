@@ -192,6 +192,37 @@ export interface WebSettingsResponse {
   externalSiteUrl: string | null;
   /** Títulos y descripciones para Google (solo los rellenos). */
   seo: WebSeo;
+  /** Foto de la entrada para la portada, o null (la primera foto del local). */
+  heroImageUrl: string | null;
+  /** Foto del interior para el fondo difuminado de la portada, o null (sin fondo). */
+  heroBackgroundUrl: string | null;
+}
+
+/**
+ * Fotos de la portada de la web pública: `image` = la entrada del local (a la
+ * derecha del titular) y `background` = el interior, difuminado detrás.
+ */
+export const WEB_HERO_SLOTS = ['image', 'background'] as const;
+export type WebHeroSlot = (typeof WEB_HERO_SLOTS)[number];
+/** Sin SVG: se sirve desde el dominio de ficheros, que comparte sitio con la app. */
+export const WEB_HERO_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export const WEB_HERO_MAX_BYTES = 5 * 1024 * 1024;
+export const RequestWebHeroUploadSchema = z.object({
+  slot: z.enum(WEB_HERO_SLOTS),
+  mimeType: z.enum(WEB_HERO_MIME_TYPES),
+});
+export type RequestWebHeroUploadInput = z.infer<typeof RequestWebHeroUploadSchema>;
+/** `key: null` quita la foto (vuelve la portada de siempre). */
+export const SetWebHeroImageSchema = z.object({
+  slot: z.enum(WEB_HERO_SLOTS),
+  key: z.string().min(1).max(300).nullable(),
+});
+export type SetWebHeroImageInput = z.infer<typeof SetWebHeroImageSchema>;
+/** URL firmada para subir una foto de la portada directo al bucket público. */
+export interface WebHeroUploadDto {
+  uploadUrl: string;
+  key: string;
+  requiredHeaders: Record<string, string>;
 }
 
 /** Envío del formulario de contacto de la web pública → crea un lead. */

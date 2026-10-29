@@ -298,6 +298,14 @@ export class LandingService {
       webAbout: hasWebPremium ? tenant.webAbout : null,
       webContent: hasWebPremium ? parseWebContent(tenant.webContent) : null,
       webSeo: hasWebPremium ? parseWebSeo(tenant.webSeo) : null,
+      webHeroImageUrl:
+        hasWebPremium && tenant.webHeroImageKey
+          ? this.files.buildPublicUrl('public', tenant.webHeroImageKey)
+          : null,
+      webHeroBackgroundUrl:
+        hasWebPremium && tenant.webHeroBackgroundKey
+          ? this.files.buildPublicUrl('public', tenant.webHeroBackgroundKey)
+          : null,
       areaPages,
       areaLinks: areaPageLinks(
         resolveAreaPages(

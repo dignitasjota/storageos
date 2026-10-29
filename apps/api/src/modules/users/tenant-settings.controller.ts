@@ -22,6 +22,9 @@ import {
   UpdateTenantProfileSchema,
   UpdateTenantSecuritySettingsSchema,
   UpdateWebSettingsSchema,
+  RequestWebHeroUploadSchema,
+  SetWebHeroImageSchema,
+  type WebHeroUploadDto,
   type WebSettingsResponse,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -52,6 +55,8 @@ class UpdateContractTemplateDto extends createZodDto(UpdateContractTemplateSchem
 class UpdateWebSettingsDto extends createZodDto(UpdateWebSettingsSchema) {}
 class RequestTenantFaviconUploadDto extends createZodDto(RequestTenantFaviconUploadSchema) {}
 class SetTenantFaviconDto extends createZodDto(SetTenantFaviconSchema) {}
+class RequestWebHeroUploadDto extends createZodDto(RequestWebHeroUploadSchema) {}
+class SetWebHeroImageDto extends createZodDto(SetWebHeroImageSchema) {}
 class RequestTenantLogoUploadDto extends createZodDto(RequestTenantLogoUploadSchema) {}
 class SetTenantLogoDto extends createZodDto(SetTenantLogoSchema) {}
 
@@ -278,6 +283,35 @@ export class TenantSettingsController {
       tenantId: user.tenantId,
       actorUserId: user.sub,
       input,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** URL firmada para subir una foto de la portada (entrada o fondo). */
+  @RequireFeature('web_premium')
+  @RequirePermission('settings:manage')
+  @Post('web/hero-image-upload-url')
+  @HttpCode(HttpStatus.OK)
+  async requestWebHeroUpload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: RequestWebHeroUploadDto,
+  ): Promise<WebHeroUploadDto> {
+    return this.settings.requestWebHeroUpload(user.tenantId, body);
+  }
+
+  /** Fija la foto subida de la portada (o la quita con `{ slot, key: null }`). */
+  @RequireFeature('web_premium')
+  @RequirePermission('settings:manage')
+  @Put('web/hero-image')
+  async setWebHeroImage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: SetWebHeroImageDto,
+    @Req() req: Request,
+  ): Promise<WebSettingsResponse> {
+    return this.settings.setWebHeroImage({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      input: body,
       meta: extractMeta(req),
     });
   }

@@ -876,6 +876,7 @@ Variable de entorno booleana (default `true`).
 
 - `tenants.web_seo` (jsonb): título y descripción para Google de la portada, `/precios` y `/contacto` (`homeTitle`/`pricesTitle`/`contactTitle` ≤70, `*Description` ≤200; vacío = el generado). Las plantillas «Trstrom» y «Cabe», la reserva en `/reservar/<centro>` y las direcciones `/precios` y `/contacto` no tienen migración (valores de `tenants.web_template` y rutas del dominio propio).
 - `tenants.web_favicon_key` (texto, null = el de TrasterOS): favicon de la web pública del tenant en el bucket público.
+- `tenants.web_hero_image_key` / `tenants.web_hero_background_key` (texto, null = la portada de siempre): fotos de la portada de la web pública (Web Premium) en el bucket público (`<tenant>/web-hero/…`): la entrada del local y el interior para el fondo difuminado.
 
 ### WhatsApp Business (`20261017100000` – `20261022100000`)
 

@@ -749,6 +749,10 @@
       "googleReviewsShort": "Nuestra ficha en Google",
       "heroCardKicker": "Acceso personal",
       "heroCardText": "Entra con tu código o desde el móvil",
+      "heroCardOpen": "Abierto ahora",
+      "heroCardClosed": "Cerrado ahora",
+      "heroCardFrom": "Desde {price}/mes",
+      "heroCardFromVat": "IVA incluido",
       "promoTag": "Promoción",
       "promoCta": "Ver trasteros",
       "nav": {

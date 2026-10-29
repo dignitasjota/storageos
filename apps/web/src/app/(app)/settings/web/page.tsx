@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { WebHeroCard } from './web-hero-card';
 import { WebSeoCard } from './web-seo-card';
 
 import { Button } from '@/components/ui/button';
@@ -227,6 +228,13 @@ export default function WebSettingsPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {template === 'cabe' && settings.data && (
+        <WebHeroCard
+          heroImageUrl={settings.data.heroImageUrl ?? null}
+          heroBackgroundUrl={settings.data.heroBackgroundUrl ?? null}
+        />
       )}
 
       {template !== 'external' && (

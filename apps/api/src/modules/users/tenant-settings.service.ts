@@ -24,6 +24,8 @@ import {
   TENANT_FAVICON_MIME_TYPES,
   TENANT_LOGO_MAX_BYTES,
   TENANT_LOGO_MIME_TYPES,
+  WEB_HERO_MAX_BYTES,
+  WEB_HERO_MIME_TYPES,
 } from '@storageos/shared';
 
 import { liveOverrideWhere } from '../../common/tenant-features';
@@ -53,6 +55,9 @@ import type {
   UpdateTenantReviewsSettingsInput,
   UpdateTenantSecuritySettingsInput,
   UpdateWebSettingsInput,
+  RequestWebHeroUploadInput,
+  SetWebHeroImageInput,
+  WebHeroUploadDto,
   WebSettingsResponse,
 } from '@storageos/shared';
 
@@ -703,6 +708,8 @@ export class TenantSettingsService {
         webContent: true,
         webSeo: true,
         externalSiteUrl: true,
+        webHeroImageKey: true,
+        webHeroBackgroundKey: true,
         deletedAt: true,
       },
     });
@@ -715,7 +722,73 @@ export class TenantSettingsService {
       content: parseWebContent(tenant.webContent),
       externalSiteUrl: tenant.externalSiteUrl,
       seo: parseWebSeo(tenant.webSeo),
+      heroImageUrl: tenant.webHeroImageKey
+        ? this.files.buildPublicUrl('public', tenant.webHeroImageKey)
+        : null,
+      heroBackgroundUrl: tenant.webHeroBackgroundKey
+        ? this.files.buildPublicUrl('public', tenant.webHeroBackgroundKey)
+        : null,
     };
+  }
+
+  /** URL firmada para subir una foto de la portada directo al bucket público. */
+  async requestWebHeroUpload(
+    tenantId: string,
+    input: RequestWebHeroUploadInput,
+  ): Promise<WebHeroUploadDto> {
+    const ext =
+      input.mimeType === 'image/png' ? 'png' : input.mimeType === 'image/webp' ? 'webp' : 'jpg';
+    const key = `${tenantId}/web-hero/${input.slot}-${randomUUID()}.${ext}`;
+    const { uploadUrl } = await this.files.getPresignedPutUrl({
+      bucket: 'public',
+      key,
+      contentType: input.mimeType,
+    });
+    return { uploadUrl, key, requiredHeaders: { 'Content-Type': input.mimeType } };
+  }
+
+  /**
+   * Fija (o quita, con `key: null`) una foto de la portada. La que deja de
+   * usarse se borra del almacenamiento.
+   */
+  async setWebHeroImage(args: {
+    tenantId: string;
+    actorUserId: string;
+    input: SetWebHeroImageInput;
+    meta: RequestMeta;
+  }): Promise<WebSettingsResponse> {
+    const { slot, key } = args.input;
+    if (key) {
+      if (!key.startsWith(`${args.tenantId}/web-hero/${slot}-`) || key.includes('..')) {
+        throw new BadRequestException({
+          code: 'invalid_hero_image_key',
+          message: 'Foto no válida',
+        });
+      }
+      // Los bytes reales: la URL firmada no fija el tipo ni el tamaño.
+      await this.files.assertObjectMimeType('public', key, WEB_HERO_MIME_TYPES, WEB_HERO_MAX_BYTES);
+    }
+    const field = slot === 'image' ? 'webHeroImageKey' : 'webHeroBackgroundKey';
+    const before = await this.admin.tenant.findUnique({
+      where: { id: args.tenantId },
+      select: { webHeroImageKey: true, webHeroBackgroundKey: true },
+    });
+    await this.admin.tenant.update({ where: { id: args.tenantId }, data: { [field]: key } });
+    const previous = before?.[field] ?? null;
+    if (previous && previous !== key) {
+      await this.files.deleteObjects('public', [previous]).catch(() => undefined);
+    }
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: key ? 'tenant.web_hero_image_set' : 'tenant.web_hero_image_removed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: { slot, key },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.getWebSettings(args.tenantId);
   }
 
   /** Hosts de la propia plataforma (no se puede apuntar una web externa a ellos). */

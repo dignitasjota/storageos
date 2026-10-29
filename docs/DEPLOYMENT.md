@@ -1589,3 +1589,8 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - **Chat de la web**: reserva y lista de espera desde el chat (activado por defecto; se apaga en Configuración → Asistente IA), paso a una persona (el equipo responde en Marketing → Chat de la web; aviso en la campana y en el móvil), preguntas sugeridas, valoración 👍/👎, «Seguir por WhatsApp», streaming y ayuda proactiva en la página de reserva. La respuesta del equipo llega al visitante si tiene la web abierta o cuando vuelva (no hay aviso por correo).
 - **Caché de prompts de Anthropic** en el asistente del panel, el chat de la web y el asistente de WhatsApp: la parte fija se cobra a un 10 % cuando se repite en 5 minutos. No hay que hacer nada.
 - **WhatsApp**: horario del asistente (siempre / fuera / dentro del horario del equipo), aviso por intención (reclamación y baja por defecto), resumen al pasar a una persona, «Sugerir respuesta» en la bandeja (gasta una consulta del asistente del panel) y seguimiento a las 24 h con una plantilla aprobada (apagado por defecto; corre en el worker, en el mismo cron que los recordatorios de reserva). La plantilla de seguimiento debe estar aprobada en Meta con `{{1}}` = nombre.
+
+## 68. Fotos de la portada de la web del tenant (2026-10-30)
+
+- **Migración** `20261205100000_web_hero_images` (se aplica sola): `tenants.web_hero_image_key` y `tenants.web_hero_background_key`. Sin variables nuevas. Redesplegar api y web.
+- Las fotos se suben al bucket público (`<tenant>/web-hero/…`), como el logo y el favicon. Sin fotos, la portada se ve como antes.
