@@ -13,6 +13,6 @@ import { UsersService } from './users.service';
   imports: [AuthModule],
   controllers: [UsersController, TenantSettingsController],
   providers: [UsersService, TenantSettingsService, ConfigHealthService, CustomDomainCheckService],
-  exports: [UsersService],
+  exports: [UsersService, CustomDomainCheckService],
 })
 export class UsersModule {}

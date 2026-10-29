@@ -334,6 +334,8 @@ export class AdminTenantTimelineService {
         : none,
     ];
 
+    if (want('milestone')) sources.push(this.milestones(tenantId, before));
+
     const results = await Promise.all(sources);
     const all = results
       .flat()
@@ -343,5 +345,69 @@ export class AdminTenantTimelineService {
     const more = all.length > limit || results.some((r) => r.length >= take);
     const nextBefore = more ? (items[items.length - 1]?.at ?? null) : null;
     return { items, nextBefore };
+  }
+
+  /**
+   * Hitos del propio tenant (alta, primer local, primer trastero, primer
+   * inquilino, primer contrato firmado, primera factura, primer cobro a un
+   * inquilino, certificado de la AEAT, dominio propio): su recorrido completo.
+   */
+  private async milestones(tenantId: string, before: Date): Promise<AdminTimelineItemDto[]> {
+    const [tenant, facility, unit, customer, contract, invoice, payment, cert, owner] =
+      await Promise.all([
+        this.admin.tenant.findUnique({
+          where: { id: tenantId },
+          select: { createdAt: true, customDomain: true, customDomainVerifiedAt: true },
+        }),
+        this.admin.facility.aggregate({ where: { tenantId }, _min: { createdAt: true } }),
+        this.admin.unit.aggregate({ where: { tenantId }, _min: { createdAt: true } }),
+        this.admin.customer.aggregate({ where: { tenantId }, _min: { createdAt: true } }),
+        this.admin.contract.aggregate({ where: { tenantId }, _min: { signedAt: true } }),
+        this.admin.invoice.aggregate({
+          where: { tenantId, kind: 'invoice', status: { notIn: ['draft', 'cancelled'] } },
+          _min: { issueDate: true },
+        }),
+        this.admin.payment.aggregate({
+          where: { tenantId, status: 'succeeded' },
+          _min: { paidAt: true },
+        }),
+        this.admin.tenantAeatCredential.aggregate({
+          where: { tenantId, ownerId: null },
+          _min: { uploadedAt: true },
+        }),
+        this.admin.user.findFirst({
+          where: { tenantId, role: 'owner', emailVerifiedAt: { not: null } },
+          orderBy: { emailVerifiedAt: 'asc' },
+          select: { emailVerifiedAt: true },
+        }),
+      ]);
+    const raw: [string, string, Date | null | undefined][] = [
+      ['signup', 'Alta en TrasterOS', tenant?.createdAt],
+      ['verified', 'El propietario verificó su email', owner?.emailVerifiedAt],
+      ['facility', 'Primer local creado', facility._min.createdAt],
+      ['unit', 'Primer trastero creado', unit._min.createdAt],
+      ['customer', 'Primer inquilino', customer._min.createdAt],
+      ['contract', 'Primer contrato firmado', contract._min.signedAt],
+      ['invoice', 'Primera factura emitida', invoice._min.issueDate],
+      ['payment', 'Primer cobro a un inquilino', payment._min.paidAt],
+      ['aeat', 'Certificado de la AEAT subido', cert._min?.uploadedAt],
+      [
+        'domain',
+        `Dominio propio activo (${tenant?.customDomain ?? ''})`,
+        tenant?.customDomainVerifiedAt,
+      ],
+    ];
+    return raw
+      .filter((r): r is [string, string, Date] => !!r[2] && r[2] < before)
+      .map(([key, title, at]) => ({
+        id: `milestone:${key}`,
+        kind: 'milestone' as const,
+        at: at.toISOString(),
+        title,
+        detail: null,
+        actor: null,
+        link: null,
+        tone: 'positive' as const,
+      }));
   }
 }

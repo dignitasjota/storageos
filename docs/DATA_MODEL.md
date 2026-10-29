@@ -1015,3 +1015,9 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 
 - `legal_doc_versions` (RLS): `tenant_id`, `doc` (`condiciones-contratacion`), `version` (1, 2…), `title`, `content` (Markdown tal cual se aceptó), `content_hash` (SHA-256); únicos `(tenant_id, doc, version)` y `(tenant_id, doc, content_hash)`. Inmutable.
 - `legal_doc_acceptances` (RLS): `version_id` (FK RESTRICT), `customer_id` (CASCADE), `contract_id` (SET NULL), `channel` (`remote` | `in_person`), `ip_address`, `user_agent`, `accepted_at`.
+
+### Mejoras del apartado Tenants del panel admin (2026-10-29)
+
+- `super_admin_saved_views` (global, REVOKE): vistas guardadas de las listas del panel admin por super admin (`page`, `name`, `filters` jsonb; único por super admin + página + nombre).
+- `tenant_followups.assigned_to_id` (FK SET NULL a `super_admins`): quién se encarga del seguimiento.
+- `tenants.risk_snoozed_until` / `risk_snooze_reason`: «ignorar» el tenant en la lista En riesgo hasta esa fecha.

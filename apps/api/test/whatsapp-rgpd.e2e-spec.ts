@@ -181,7 +181,7 @@ describe('RGPD de WhatsApp (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/admin/tenants/${tenantId}/anonymize`)
       .set(adminAuth)
-      .send({ reason: 'baja del cliente (prueba)' })
+      .send({ reason: 'baja del cliente (prueba)', exported: true })
       .expect(200);
     const after = await prismaAdmin.whatsappConversation.findMany({
       where: { tenantId },

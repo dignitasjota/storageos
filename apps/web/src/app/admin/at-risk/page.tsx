@@ -1,16 +1,28 @@
 'use client';
 
-import { AlarmClock, ArrowRight, CreditCard, LifeBuoy, Loader2, MoonStar } from 'lucide-react';
+import {
+  AlarmClock,
+  ArrowRight,
+  BellOff,
+  CreditCard,
+  HeartPulse,
+  LifeBuoy,
+  Loader2,
+  MoonStar,
+} from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
 import type { AdminAtRiskTenantDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminAtRisk, useRetentionPlaybook } from '@/lib/admin/hooks';
+import { useRiskSnooze } from '@/lib/admin/tenant-tools-hooks';
+import { ApiError } from '@/lib/auth/api';
 
 function fmtDate(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString('es-ES') : '—';
@@ -31,7 +43,7 @@ export default function AdminAtRiskPage() {
   }
 
   const d = risk.data;
-  const total = d.trialExpiring.length + d.pastDue.length + d.inactive.length;
+  const total = d.trialExpiring.length + d.pastDue.length + d.inactive.length + d.lowHealth.length;
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
@@ -41,6 +53,7 @@ export default function AdminAtRiskPage() {
           {total === 0
             ? 'Ningún tenant en riesgo ahora mismo. 🎉'
             : `${total} tenant(s) que conviene atender. Pincha un tenant para actuar (extender trial, contactar…).`}
+          {d.snoozedCount > 0 && ` ${d.snoozedCount} ignorado(s) por ahora.`}
         </p>
       </div>
 
@@ -66,6 +79,14 @@ export default function AdminAtRiskPage() {
         icon={MoonStar}
         accent="text-slate-500"
         rows={d.inactive}
+        sinceLabel="Último acceso"
+      />
+      <RiskSection
+        title="Salud baja"
+        subtitle="Salud «en riesgo» o «dormida» que no sale arriba (mismo criterio que la página Salud)"
+        icon={HeartPulse}
+        accent="text-orange-600"
+        rows={d.lowHealth}
         sinceLabel="Último acceso"
       />
     </div>
@@ -116,6 +137,7 @@ function RiskSection({
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <RetentionButton tenantId={t.id} tenantName={t.name} />
+                  <SnoozeButton tenantId={t.id} tenantName={t.name} />
                   <Button
                     asChild
                     variant="outline"
@@ -167,6 +189,39 @@ function RetentionButton({ tenantId, tenantName }: { tenantId: string; tenantNam
         <LifeBuoy className="size-4" />
       )}
       Playbook
+    </Button>
+  );
+}
+
+/** «Ignorar» el tenant en esta lista unos días (con el motivo). */
+function SnoozeButton({ tenantId, tenantName }: { tenantId: string; tenantName: string }) {
+  const ask = useConfirm();
+  const snooze = useRiskSnooze();
+  async function run() {
+    const res = await ask({
+      title: `Ignorar ${tenantName} 30 días`,
+      description: 'Deja de salir en esta lista durante 30 días. Queda anotado en su historial.',
+      input: { label: 'Motivo', placeholder: 'Ya hablado: vuelve tras el verano' },
+      confirmLabel: 'Ignorar',
+    });
+    if (!res || res.value.trim().length < 3) return;
+    try {
+      await snooze.mutateAsync({ tenantId, input: { days: 30, reason: res.value.trim() } });
+      toast.success(`${tenantName} no saldrá aquí en 30 días.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo ignorar.');
+    }
+  }
+  return (
+    <Button
+      variant="outline"
+      size="icon"
+      aria-label="Ignorar 30 días"
+      title="Ignorar 30 días"
+      disabled={snooze.isPending}
+      onClick={() => void run()}
+    >
+      <BellOff className="size-4" />
     </Button>
   );
 }

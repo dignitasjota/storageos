@@ -105,6 +105,7 @@ import {
 } from '@/lib/admin/hooks';
 import { subscriptionStatusLabel, tenantStatusLabel } from '@/lib/admin/labels';
 import { rememberTenant } from '@/lib/admin/recent-tenants';
+import { useAnonymizePreview } from '@/lib/admin/tenant-tools-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { IMPERSONATION_HANDOFF_KEY, IMPERSONATION_URL_PARAM } from '@/lib/auth/impersonation';
@@ -500,6 +501,7 @@ export default function AdminTenantDetailPage() {
         open={dialog === 'reactivate'}
         tenantId={t.id}
         pastDue={t.subscription?.status === 'past_due' && !t.billingExempt}
+        onStripe={t.subscription?.billingMode === 'stripe' && !!t.subscription.stripeSubscriptionId}
         onClose={() => setDialog(null)}
       />
       <ExtendTrialDialog
@@ -663,15 +665,18 @@ function ReactivateDialog({
   open,
   tenantId,
   pastDue,
+  onStripe,
   onClose,
 }: {
   open: boolean;
   tenantId: string;
   /** La suscripción sigue con un pago pendiente. */
   pastDue: boolean;
+  onStripe: boolean;
   onClose: () => void;
 }) {
   const reactivate = useReactivateTenant();
+  const [forgive, setForgive] = useState(false);
   const form = useForm<AdminTenantActionInput>({
     resolver: zodResolver(AdminTenantActionSchema),
     defaultValues: { reason: '' },
@@ -679,8 +684,12 @@ function ReactivateDialog({
 
   async function onSubmit(values: AdminTenantActionInput) {
     try {
-      await reactivate.mutateAsync({ id: tenantId, input: values });
-      toast.success('Tenant reactivado.');
+      await reactivate.mutateAsync({
+        id: tenantId,
+        input: { ...values, ...(forgive ? { forgivePeriod: true } : {}) },
+      });
+      toast.success(forgive ? 'Tenant reactivado y periodo perdonado.' : 'Tenant reactivado.');
+      setForgive(false);
       form.reset();
       onClose();
     } catch (err) {
@@ -702,6 +711,22 @@ function ReactivateDialog({
             la pestaña «Pagos»: si no, el escalado de impagos no vuelve a actuar hasta el siguiente
             periodo.
           </p>
+        )}
+        {pastDue && !onStripe && (
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={forgive}
+              onCheckedChange={(v) => setForgive(v === true)}
+              className="mt-0.5"
+            />
+            <span>
+              Perdonar este periodo
+              <span className="block text-xs text-muted-foreground">
+                Su suscripción vuelve a estar al día y el fin del periodo pasa un mes más adelante,
+                sin cobrarle.
+              </span>
+            </span>
+          </label>
         )}
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
@@ -1004,7 +1029,9 @@ function AnonymizeDialog({
 }) {
   const router = useRouter();
   const anonymize = useAnonymizeTenant();
+  const preview = useAnonymizePreview(tenantId, open);
   const [confirmSlug, setConfirmSlug] = useState('');
+  const [exported, setExported] = useState(false);
   const form = useForm<AdminTenantActionInput>({
     resolver: zodResolver(AdminTenantActionSchema),
     defaultValues: { reason: '' },
@@ -1014,14 +1041,18 @@ function AnonymizeDialog({
 
   function close() {
     setConfirmSlug('');
+    setExported(false);
     form.reset();
     onClose();
   }
 
   async function onSubmit(values: AdminTenantActionInput) {
-    if (!slugMatches) return;
+    if (!slugMatches || !exported) return;
     try {
-      const result = await anonymize.mutateAsync({ id: tenantId, input: values });
+      const result = await anonymize.mutateAsync({
+        id: tenantId,
+        input: { ...values, exported: true },
+      });
       toast.success(
         `Tenant anonimizado: ${result.anonymizedCustomers} inquilino(s) y ${result.anonymizedUsers} usuario(s).`,
       );
@@ -1046,6 +1077,22 @@ function AnonymizeDialog({
             sus datos, descárgalos antes con «Exportar datos (Excel)» del menú.
           </DialogDescription>
         </DialogHeader>
+        {preview.data && (
+          <div className="space-y-2 text-sm">
+            <p className="text-muted-foreground">
+              Se anonimizan {preview.data.customers} inquilino(s) y {preview.data.users} usuario(s).
+              Se conservan {preview.data.invoicesKept} factura(s).
+            </p>
+            {preview.data.warnings.map((w) => (
+              <p
+                key={w.code}
+                className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+              >
+                {w.message}
+              </p>
+            ))}
+          </div>
+        )}
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <FormField
@@ -1077,6 +1124,14 @@ function AnonymizeDialog({
                 placeholder={tenantSlug}
               />
             </div>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={exported}
+                onCheckedChange={(v) => setExported(v === true)}
+                className="mt-0.5"
+              />
+              <span>Ya he exportado sus datos (o el cliente no los quiere)</span>
+            </label>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={close}>
                 Cancelar
@@ -1084,7 +1139,7 @@ function AnonymizeDialog({
               <Button
                 type="submit"
                 variant="destructive"
-                disabled={!slugMatches || form.formState.isSubmitting}
+                disabled={!slugMatches || !exported || form.formState.isSubmitting}
               >
                 Anonimizar definitivamente
               </Button>

@@ -93,7 +93,7 @@ describe('Negocio del super admin: revisión (e2e)', () => {
     await http()
       .post(`/admin/tenants/${tenantId}/anonymize`)
       .set(auth)
-      .send({ reason: 'RGPD de prueba' })
+      .send({ reason: 'RGPD de prueba', exported: true })
       .expect(200);
     const anonymized = await metrics();
     expect(anonymized.cancellationsThisMonth).toBe(before.cancellationsThisMonth + 1);

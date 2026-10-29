@@ -34,6 +34,8 @@ export class AdminTenantsOverviewService {
             trialEndsAt: true,
             tags: true,
             ltvTier: true,
+            taxId: true,
+            billingEmail: true,
             subscription: {
               select: {
                 status: true,
@@ -148,6 +150,8 @@ export class AdminTenantsOverviewService {
         activeContracts: contractsBy.get(t.id) ?? 0,
         ownerEmail: owner?.email ?? null,
         ownerPhone: owner?.phone ?? null,
+        taxId: t.taxId,
+        billingEmail: t.billingEmail,
       };
     });
   }

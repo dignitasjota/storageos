@@ -4,6 +4,7 @@ import { Check, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { FollowupControls } from '@/components/admin/followup-controls';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -105,8 +106,12 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
                     </Badge>
                   </div>
                   {f.note && <p className="text-xs text-muted-foreground">{f.note}</p>}
+                  {f.assignedToName && (
+                    <p className="text-xs text-muted-foreground">Se encarga {f.assignedToName}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-1">
+                  {f.status === 'pending' && <FollowupControls f={f} />}
                   {f.status === 'pending' ? (
                     <Button
                       variant="ghost"

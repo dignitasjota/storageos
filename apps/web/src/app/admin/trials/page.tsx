@@ -8,10 +8,27 @@ import { toast } from 'sonner';
 import type { AdminTrialDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { useAdminTrials, useExtendTrial, useExtendTrialsBatch } from '@/lib/admin/hooks';
+import {
+  useAdminSubscriptionPlans,
+  useAdminTrials,
+  useChangePlan,
+  useEndTrial,
+  useExtendTrial,
+  useExtendTrialsBatch,
+} from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '—');
@@ -146,6 +163,7 @@ export default function AdminTrialsPage() {
                 <th className="p-2">Fin trial</th>
                 <th className="p-2">Vence en</th>
                 <th className="p-2">Última actividad</th>
+                <th className="p-2">Uso</th>
                 <th className="p-2 text-right">Acciones</th>
               </tr>
             </thead>
@@ -176,6 +194,46 @@ function TrialRow({
   onToggle: () => void;
 }) {
   const extend = useExtendTrial();
+  const endTrial = useEndTrial();
+  const changePlan = useChangePlan();
+  const plans = useAdminSubscriptionPlans();
+  const ask = useConfirm();
+  const canEdit = useIsSuperadmin();
+
+  async function onEnd() {
+    const res = await ask({
+      title: `Finalizar la prueba de ${trial.name}`,
+      description: 'Baja al plan Free (gratis, sin funciones de pago) y queda activo.',
+      input: { label: 'Motivo', placeholder: 'No ha convertido' },
+      confirmLabel: 'Finalizar prueba',
+    });
+    if (!res || !res.value.trim()) return;
+    try {
+      await endTrial.mutateAsync({ id: trial.id, input: { reason: res.value.trim() } });
+      toast.success('Prueba finalizada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo finalizar.');
+    }
+  }
+
+  async function onPlan(slug: string, name: string) {
+    const res = await ask({
+      title: `Pasar ${trial.name} al plan ${name}`,
+      description: 'Termina la prueba y queda activo en ese plan.',
+      input: { label: 'Motivo', placeholder: 'Ha aceptado el presupuesto' },
+      confirmLabel: 'Cambiar plan',
+    });
+    if (!res || !res.value.trim()) return;
+    try {
+      await changePlan.mutateAsync({
+        id: trial.id,
+        input: { planSlug: slug, reason: res.value.trim() },
+      });
+      toast.success(`Ahora está en el plan ${name}.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cambiar el plan.');
+    }
+  }
 
   async function onExtend() {
     try {
@@ -234,6 +292,9 @@ function TrialRow({
           fmtDate(trial.lastActivityAt)
         )}
       </td>
+      <td className="p-2 whitespace-nowrap text-xs text-muted-foreground">
+        {trial.facilities} loc. · {trial.units} trast. · {trial.activeContracts} contr.
+      </td>
       <td className="p-2">
         <div className="flex items-center justify-end gap-2">
           <Button
@@ -245,6 +306,32 @@ function TrialRow({
           >
             +14 días
           </Button>
+          {canEdit && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="h-7 text-xs">
+                  Más
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Pasar a un plan</DropdownMenuLabel>
+                {(plans.data ?? [])
+                  .filter((p) => p.isActive && p.slug !== 'free')
+                  .map((p) => (
+                    <DropdownMenuItem key={p.slug} onSelect={() => void onPlan(p.slug, p.name)}>
+                      {p.name}
+                    </DropdownMenuItem>
+                  ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={() => void onEnd()}
+                >
+                  Finalizar prueba (a Free)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button
             asChild
             size="icon"

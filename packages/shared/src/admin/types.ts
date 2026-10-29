@@ -180,6 +180,10 @@ export interface AdminAtRiskDto {
   pastDue: AdminAtRiskTenantDto[];
   /** Activos sin actividad de usuario en 14+ días. */
   inactive: AdminAtRiskTenantDto[];
+  /** Salud «en riesgo» o «dormida» que no salen arriba (mismo criterio que Salud). */
+  lowHealth: AdminAtRiskTenantDto[];
+  /** Cuántos se han ignorado por ahora («ignorar N días»). */
+  snoozedCount: number;
 }
 
 /** Nivel de salud de un tenant según su score 0-100. */
@@ -752,6 +756,9 @@ export interface TenantFollowupDto {
   status: TenantFollowupStatusValue;
   completedAt: string | null;
   authorName: string | null;
+  /** Super admin que se encarga. */
+  assignedToId: string | null;
+  assignedToName: string | null;
   createdAt: string;
 }
 
@@ -1047,6 +1054,10 @@ export interface AdminCustomDomainDto {
   /** null = pendiente de activar; ISO = activo. */
   verifiedAt: string | null;
   planSlug: string;
+  /** Su plan o un extra le dan el dominio propio. */
+  featureEnabled: boolean;
+  /** El tenant dijo que ya configuró el DNS (o lo comprobó el aviso horario). */
+  dnsReadyAt: string | null;
 }
 
 /** Un add-on del catálogo facturable del SaaS. */
@@ -1394,6 +1405,9 @@ export interface AdminTrialDto {
   /** Último login de algún usuario del tenant (null = nunca han accedido). */
   lastActivityAt: string | null;
   neverUsed: boolean;
+  facilities: number;
+  units: number;
+  activeContracts: number;
 }
 
 /** Notas estratégicas + LTV del tenant (uso interno del super admin). */
@@ -1795,7 +1809,8 @@ export type AdminTimelineKind =
   | 'invoice'
   | 'ticket'
   | 'email'
-  | 'followup';
+  | 'followup'
+  | 'milestone';
 
 /** Un evento del historial del tenant (de cualquier origen). */
 export interface AdminTimelineItemDto {
@@ -1906,6 +1921,9 @@ export interface AdminTenantOverviewDto {
   activeContracts: number;
   ownerEmail: string | null;
   ownerPhone: string | null;
+  /** Para buscar por NIF o email de facturación. */
+  taxId: string | null;
+  billingEmail: string | null;
 }
 
 /** Resultado de la búsqueda global del panel admin (⌘K). */
@@ -2008,4 +2026,48 @@ export interface TenantPlatformMessageDto {
   /** Ticket donde responderlo (solo el correo directo). */
   ticketId: string | null;
   createdAt: string;
+}
+
+/** Vista guardada de una lista del panel admin. */
+export interface AdminSavedViewDto {
+  id: string;
+  page: 'tenants';
+  name: string;
+  filters: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** Lo que borraría «Anonimizar» y lo que conviene revisar antes. */
+export interface AdminAnonymizePreviewDto {
+  customers: number;
+  users: number;
+  activeContracts: number;
+  /** Facturas que se conservan por obligación fiscal. */
+  invoicesKept: number;
+  warnings: { code: string; message: string }[];
+}
+
+/** Resultado del alta manual de un tenant. */
+export interface AdminCreateTenantResultDto {
+  tenantId: string;
+  slug: string;
+  ownerEmail: string;
+}
+
+/** Una sesión abierta de un usuario del tenant. */
+export interface AdminUserSessionDto {
+  id: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  installedApp: boolean;
+}
+
+/** Resultado de consultar o reenviar una factura a la AEAT desde el admin. */
+export interface AdminAeatActionResultDto {
+  invoiceId: string;
+  aeatStatus: string | null;
+  message: string;
 }

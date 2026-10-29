@@ -40,6 +40,8 @@ import {
   type AdminTrialDto,
   type AdminTenantUserDto,
   AdminTenantActionSchema,
+  AnonymizeTenantSchema,
+  ReactivateTenantSchema,
   TenantResetSchema,
   type TenantResetPreviewDto,
   type TenantResetResultDto,
@@ -87,6 +89,8 @@ import { TenantDataExportService } from './tenant-data-export.service';
 import type { Request, Response } from 'express';
 
 class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
+class ReactivateTenantDto extends createZodDto(ReactivateTenantSchema) {}
+class AnonymizeTenantDto extends createZodDto(AnonymizeTenantSchema) {}
 class TenantResetDto extends createZodDto(TenantResetSchema) {}
 class SuspendTenantDto extends createZodDto(SuspendTenantSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
@@ -710,6 +714,7 @@ export class AdminTenantsController {
       'ticket',
       'email',
       'followup',
+      'milestone',
     ]);
     const kindList = (kinds ?? '')
       .split(',')
@@ -793,13 +798,14 @@ export class AdminTenantsController {
   async reactivate(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() input: AdminTenantActionDto,
+    @Body() input: ReactivateTenantDto,
     @Req() req: Request,
   ): Promise<AdminTenantDto> {
     const meta = extractMeta(req);
     return this.tenants.reactivate(id, {
       superAdminId: admin.sub,
       reason: input.reason,
+      forgivePeriod: input.forgivePeriod,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
@@ -986,7 +992,7 @@ export class AdminTenantsController {
   async anonymize(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() input: AdminTenantActionDto,
+    @Body() input: AnonymizeTenantDto,
     @Req() req: Request,
   ): Promise<AnonymizeTenantResult> {
     const meta = extractMeta(req);
