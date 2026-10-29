@@ -83,7 +83,11 @@ RUN pnpm --filter @storageos/shared build \
  && pnpm --filter worker build
 
 # Pruning: dejamos solo dependencias de produccion del workspace worker.
-RUN pnpm --filter worker --prod deploy /out \
+# Con la misma caché de pnpm que los install (los paquetes salen de ahí): antes volvía
+# a descargar todas las dependencias del registro en cada despliegue, y un corte
+# o un límite de npm en ese momento hacía fallar el build («exit code: 1»).
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm --filter worker --prod --prefer-offline deploy /out \
  # `pnpm deploy` NO incluye de forma fiable el Prisma client generado
  # (.prisma/client) — deja el stub -> "@prisma/client did not initialize".
  # Copiamos el client ya generado por el build de database al /out.
