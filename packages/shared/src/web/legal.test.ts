@@ -37,6 +37,38 @@ describe('textos legales del tenant', () => {
     ).toContain('WhatsApp');
   });
 
+  it('las condiciones de contratación usan los datos del negocio y sus locales', () => {
+    const md = buildTenantLegalDoc('condiciones-contratacion', {
+      holder,
+      websiteUrl: 'https://garcia.es',
+      analytics: false,
+      whatsapp: false,
+      tradeName: 'Trasteros García',
+      facilities: ['Centro Norte: Calle A 1, 46001 Valencia', 'Centro Sur: Calle B 2'],
+    });
+    expect(md).toContain('bajo el nombre comercial **Trasteros García**');
+    expect(md).toContain('**Razón social:** Trasteros García SL');
+    expect(md).toContain('- **NIF:** B12345674');
+    expect(md).toContain('  - Centro Sur: Calle B 2');
+    expect(md).toContain('declaración inequívoca enviada a hola@garcia.es');
+    expect(md).toContain('[política de privacidad](./privacidad)');
+    // Sin huecos tipo «[RAZÓN SOCIAL]» por rellenar.
+    expect(md).not.toMatch(/\[[A-ZÁÉÍÓÚÑ ]{4,}\]/);
+  });
+
+  it('sin email ni locales no deja huecos en las condiciones', () => {
+    const md = buildTenantLegalDoc('condiciones-contratacion', {
+      holder: { ...holder, email: null, phone: null, taxId: null },
+      websiteUrl: 'https://garcia.es',
+      analytics: false,
+      whatsapp: false,
+    });
+    expect(md).not.toContain('Nombre comercial');
+    expect(md).not.toContain('NIF');
+    expect(md).toContain('a través de los datos de contacto de esta web');
+    expect(md).toContain('- **Sitio web:** https://garcia.es');
+  });
+
   it('avisa de los datos del titular que faltan', () => {
     expect(missingLegalHolderData({ ...holder, taxId: null, address: null })).toEqual([
       'NIF',

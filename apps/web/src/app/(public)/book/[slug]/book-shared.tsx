@@ -591,6 +591,20 @@ export function BookPageBody({
                   ),
                 })}
               </p>
+              <p className="text-center text-xs text-muted-foreground">
+                {t.rich('termsNotice', {
+                  link: (chunks) => (
+                    <a
+                      href={legalHref(slug, 'condiciones-contratacion')}
+                      className="underline"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
             </>
           )}
         </CardContent>

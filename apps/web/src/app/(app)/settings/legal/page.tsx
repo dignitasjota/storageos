@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useUpdateWebLegal, useWebLegal } from '@/lib/web-legal/hooks';
 
-/** Textos legales de la web pública: aviso legal, privacidad y cookies. */
+/** Textos legales de la web pública: aviso legal, privacidad, cookies y condiciones. */
 export default function WebLegalPage() {
   const { data, isLoading } = useWebLegal();
   if (isLoading || !data) {
@@ -35,9 +35,9 @@ export default function WebLegalPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Textos legales de la web</h1>
         <p className="text-sm text-muted-foreground">
-          Aviso legal, privacidad y cookies de tu web pública. Se generan con tus datos de
-          facturación y se enlazan en el pie de todas las páginas. Puedes sustituir cada uno por tu
-          propio texto; revísalos con tu asesor.
+          Aviso legal, privacidad, cookies y condiciones generales de contratación de tu web
+          pública. Se generan con tus datos de facturación y se enlazan en el pie de todas las
+          páginas. Puedes sustituir cada uno por tu propio texto; revísalos con tu asesor.
         </p>
       </div>
       {data.missing.length > 0 && (
@@ -50,7 +50,7 @@ export default function WebLegalPage() {
         </p>
       )}
       <Tabs defaultValue="aviso-legal">
-        <TabsList>
+        <TabsList className="h-auto flex-wrap">
           {TENANT_LEGAL_DOCS.map((d) => (
             <TabsTrigger key={d} value={d}>
               {TENANT_LEGAL_TITLES[d]}
