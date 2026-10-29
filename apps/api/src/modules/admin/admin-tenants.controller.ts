@@ -40,6 +40,9 @@ import {
   type AdminTrialDto,
   type AdminTenantUserDto,
   AdminTenantActionSchema,
+  TenantResetSchema,
+  type TenantResetPreviewDto,
+  type TenantResetResultDto,
   AdminUpdateTenantSchema,
   ChangePlanSchema,
   SuspendTenantSchema,
@@ -70,6 +73,7 @@ import { AdminSupportService } from './admin-support.service';
 import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
+import { AdminTenantResetService } from './admin-tenant-reset.service';
 import { AdminTenantSummaryService } from './admin-tenant-summary.service';
 import { AdminTenantTimelineService } from './admin-tenant-timeline.service';
 import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
@@ -83,6 +87,7 @@ import { TenantDataExportService } from './tenant-data-export.service';
 import type { Request, Response } from 'express';
 
 class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
+class TenantResetDto extends createZodDto(TenantResetSchema) {}
 class SuspendTenantDto extends createZodDto(SuspendTenantSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
 class ExtendTrialsBatchDto extends createZodDto(ExtendTrialsBatchSchema) {}
@@ -127,6 +132,7 @@ export class AdminTenantsController {
     private readonly dataExporter: TenantDataExportService,
     private readonly summaryService: AdminTenantSummaryService,
     private readonly timelineService: AdminTenantTimelineService,
+    private readonly resetService: AdminTenantResetService,
   ) {}
 
   /** Edita datos básicos y fiscales del tenant (salen en sus facturas de suscripción). */
@@ -941,6 +947,37 @@ export class AdminTenantsController {
       userAgent: meta.userAgent,
     });
     return result;
+  }
+
+  /** Lo que borraría «Vaciar los datos de prueba» y lo que lo impide. */
+  @RequireSuperadmin()
+  @Get(':id/reset-preview')
+  resetPreview(@Param('id', new ParseUUIDPipe()) id: string): Promise<TenantResetPreviewDto> {
+    return this.resetService.preview(id);
+  }
+
+  /**
+   * Vacía los datos de prueba (inquilinos, contratos, reservas, facturas,
+   * cobros, ventas, gastos…) y conserva locales, trasteros, contactos y la
+   * configuración. Hay que escribir el identificador del tenant.
+   */
+  @RequireSuperadmin()
+  @Post(':id/reset-operational-data')
+  @HttpCode(HttpStatus.OK)
+  async resetOperationalData(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: TenantResetDto,
+    @Req() req: Request,
+  ): Promise<TenantResetResultDto> {
+    const meta = extractMeta(req);
+    return this.resetService.reset({
+      tenantId: id,
+      superAdminId: admin.sub,
+      input,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
   }
 
   @RequireSuperadmin()

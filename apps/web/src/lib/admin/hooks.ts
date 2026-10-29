@@ -171,6 +171,9 @@ import type {
   TransitionTicketInput,
   RedsysSettingsDto as PlatformRedsysSettingsDto,
   UpdateRedsysSettingsInput as UpdatePlatformRedsysSettingsInput,
+  TenantResetInput,
+  TenantResetPreviewDto,
+  TenantResetResultDto,
 } from '@storageos/shared';
 
 // ============================================================================
@@ -2654,6 +2657,29 @@ export function useTenantDataExport(tenantId: string) {
       adminApiFetch<TenantDataExportDto>(`/admin/tenants/${tenantId}/data-export`, {
         method: 'POST',
       }),
+  });
+}
+
+/** Lo que borraría «Vaciar los datos de prueba» (solo se pide con el diálogo abierto). */
+export function useTenantResetPreview(tenantId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', tenantId, 'reset-preview'] as const,
+    queryFn: () => adminApiFetch<TenantResetPreviewDto>(`/admin/tenants/${tenantId}/reset-preview`),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+/** Vacía los datos de prueba del tenant (inquilinos, contratos, facturas…). */
+export function useResetTenantData(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: TenantResetInput) =>
+      adminApiFetch<TenantResetResultDto>(`/admin/tenants/${tenantId}/reset-operational-data`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] }),
   });
 }
 

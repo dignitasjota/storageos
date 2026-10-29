@@ -24,6 +24,7 @@ import { FeatureOverridesCard } from './feature-overrides-card';
 import { OnboardingCard } from './onboarding-card';
 import { PlatformInvoicesCard } from './platform-invoices-card';
 import { RequestApprovalDialog } from './request-approval-dialog';
+import { ResetDataDialog } from './reset-data-dialog';
 import { SaasPaymentsCard } from './saas-payments-card';
 import { TenantAccountCard } from './tenant-account-card';
 import { TenantAddonsCard } from './tenant-addons-card';
@@ -126,7 +127,14 @@ export default function AdminTenantDetailPage() {
   const [approvalOpen, setApprovalOpen] = useState(false);
 
   const [dialog, setDialog] = useState<
-    'suspend' | 'reactivate' | 'extendTrial' | 'endTrial' | 'impersonate' | 'anonymize' | null
+    | 'suspend'
+    | 'reactivate'
+    | 'extendTrial'
+    | 'endTrial'
+    | 'impersonate'
+    | 'anonymize'
+    | 'reset'
+    | null
   >(null);
   const [usersOpen, setUsersOpen] = useState(false);
   const [invoicingOpen, setInvoicingOpen] = useState(false);
@@ -247,6 +255,12 @@ export default function AdminTenantDetailPage() {
                   }
                 >
                   {dataExport.isPending ? 'Exportando datos…' : 'Exportar datos (Excel)'}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => setDialog('reset')}
+                >
+                  Vaciar los datos de prueba
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -498,6 +512,12 @@ export default function AdminTenantDetailPage() {
       <ImpersonateDialog
         open={dialog === 'impersonate'}
         tenantId={t.id}
+        onClose={() => setDialog(null)}
+      />
+      <ResetDataDialog
+        open={dialog === 'reset'}
+        tenantId={t.id}
+        tenantSlug={t.slug}
         onClose={() => setDialog(null)}
       />
       <AnonymizeDialog
