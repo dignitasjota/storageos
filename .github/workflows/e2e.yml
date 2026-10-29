@@ -13,7 +13,8 @@ concurrency:
 jobs:
   playwright:
     name: Smoke E2E (Playwright)
-    runs-on: ubuntu-latest
+    # Fijado: Playwright aún no soporta Ubuntu 26.04 (ubuntu-latest desde 2026-10-29).
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     services:

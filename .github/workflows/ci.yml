@@ -31,7 +31,7 @@ env:
 jobs:
   lint-typecheck-build:
     name: Lint, typecheck & build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -83,7 +83,7 @@ jobs:
 
   test-database:
     name: Tests database (Vitest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     services:
@@ -146,7 +146,7 @@ jobs:
 
   test-api-e2e:
     name: Tests API e2e (Jest + Supertest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Las 4 tandas tardan ~38 min: con 40 se cortaba sin que fallara ninguna prueba.
     timeout-minutes: 60
 
