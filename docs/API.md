@@ -1281,6 +1281,8 @@ Ver tambien la subseccion **Fase 9A** mas abajo para 2FA, refresh cookie y recov
 | POST   | `/admin/support/tickets/:id/transition` | AdminGuard  | State machine                                                                                                                                    |
 | POST   | `/admin/support/tickets/:id/assign`     | AdminGuard  | Asigna a super admin                                                                                                                             |
 
+> **2026-10-29** — Negocio del panel admin: `GET /admin/metrics` añade `payingTenants` y `trialsEndedThisMonth {ended, converted, toFree, churned}`; el MRR solo cuenta suscripciones activas de tenants vivos y las bajas son cancelados o suspendidos por `canceledAt` (anonimizados incluidos). `GET /admin/finance` pasa a netos: `collectedTotal`, `refundedTotal`, `disputedTotal`, `bySource {stripe, sepa, redsys, manual}` y `monthly[]` con esas cuatro series (se quitan `stripeTotal`/`manualTotal`); `invoicedTotal` sin las facturas sustituidas. `GET /admin/metrics/payment-retries` añade `bySource` (Stripe, adeudos SEPA devueltos, Redsys automático). `GET /admin/usage` → `ai.ownKeyCalls` (no entran en `costUsd`). `GET /admin/tenants/adoption` → `monthlyPaid`, `recommendedPlanPrice` y límites con los extras de capacidad.
+
 > **2026-09-26** — `GET /admin/today` añade `failedWebhooks` (tenants con entregas de webhook `failed` en los últimos 7 días, con nº de fallos y último error). Las agregaciones pesadas del admin (`/admin/metrics`, `/admin/metrics/retention`, `/admin/metrics/ltv`, `/admin/tenants/health`, `/admin/tenants/adoption`) se cachean 60 s en memoria por proceso.
 
 ### Endpoints — SaaS billing (tenant paga el SaaS)

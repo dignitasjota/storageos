@@ -850,3 +850,7 @@ Arreglos (#857): accesos adicionales y pases nocturnos solo con un trastero en u
 Mejoras (PR B): cambio de trastero eligiendo uno libre de su local con la diferencia de precio y la fecha; personas autorizadas y pases de visita de un uso para hoy (máx. 3 al día); ver el contrato firmado; «Tu local» con fotos, mapa, cómo llegar, WhatsApp, horario y su trastero en el plano; facturas del año en un ZIP (resumen CSV + PDF); cambiar el email de acceso con confirmación; borrar un documento propio; preferencias de comunicación (ofertas y WhatsApp) y desactivar los avisos en el móvil; cambiar la fecha de una baja ya pedida; pagar varias facturas en un solo cobro con tarjeta o Bizum.
 
 Pendiente (menor): que el equipo vea en la ficha del inquilino quién tiene pases de visita activos; plano también en el móvil con zoom.
+
+### «Negocio» del panel admin: revisión y mejoras (2026-10-29, PR A + PR B)
+
+Arreglos (PR A): el MRR ya no cuenta a los tenants suspendidos a mano y lleva los extras también en los snapshots; ingresos netos de reembolsos y contracargos; una sola definición de baja (cancelados o suspendidos, también anonimizados) en el KPI, la serie, «por razón», cohortes y LTV; facturado sin las sustituidas; coste de IA sin las claves propias; adopción con lo que paga cada tenant (plan + extras) y sus límites ampliados; recuperación de cobros con SEPA y Redsys; Finanzas por forma de cobro; cohortes vacías sin porcentaje; conversión de pruebas del mes (fecha de salida de la prueba guardada por un disparador).

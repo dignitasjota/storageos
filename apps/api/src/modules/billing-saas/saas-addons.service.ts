@@ -10,6 +10,7 @@ import {
 import { resolvePlanFeatures, type TenantFeature, TenantFeatures } from '@storageos/shared';
 import StripeSDK from 'stripe';
 
+import { PAYING_SUBSCRIPTION_WHERE } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
@@ -309,7 +310,8 @@ export class SaasAddonsService {
   }
 
   /**
-   * MRR de add-ons contando SOLO los tenants con suscripción `active` — la
+   * MRR de add-ons contando SOLO los tenants que pagan (suscripción `active` y
+   * tenant vivo: suspender a mano no toca la suscripción) — la
    * definición única del MRR de add-ons. La usan `admin-metrics` y
    * `admin-finance` para que las dos páginas muestren el mismo número (antes
    * finanzas sumaba TODOS los add-ons, incluidos los de tenants no activos).
@@ -318,7 +320,7 @@ export class SaasAddonsService {
     const byTenant = await this.addonsMonthlyByTenant();
     if (byTenant.size === 0) return 0;
     const active = await this.admin.tenantSubscription.findMany({
-      where: { status: 'active', tenantId: { in: [...byTenant.keys()] } },
+      where: { ...PAYING_SUBSCRIPTION_WHERE, tenantId: { in: [...byTenant.keys()] } },
       select: { tenantId: true },
     });
     let sum = 0;

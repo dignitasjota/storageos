@@ -1,9 +1,14 @@
 import { Injectable } from '@nestjs/common';
 
+import { financeSource, netPaid } from '../../common/saas-metrics';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import type { AdminFinanceMonthDto, AdminFinanceOverviewDto } from '@storageos/shared';
+import type {
+  AdminFinanceMonthDto,
+  AdminFinanceOverviewDto,
+  AdminFinanceSource,
+} from '@storageos/shared';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const monthKey = (d: Date): string =>
@@ -11,7 +16,8 @@ const monthKey = (d: Date): string =>
 
 /**
  * Dashboard financiero del SaaS (cross-tenant): ingresos reales cobrados por
- * fuente (Stripe automático vs pagos manuales — cash/transferencia/PayPal/otros),
+ * forma de cobro (Stripe, remesas SEPA, Redsys y lo apuntado a mano), netos de
+ * reembolsos y contracargos perdidos,
  * serie mensual y reconciliación con lo facturado. Todo de
  * `tenant_subscription_payments` (status `paid`) + `platform_invoices`.
  */
@@ -30,14 +36,25 @@ export class AdminFinanceService {
 
     const [payments, invoiceAgg, addonsMrr] = await Promise.all([
       this.admin.tenantSubscriptionPayment.findMany({
-        where: { status: 'paid', paidAt: { gte: from } },
-        select: { paidAt: true, amount: true, provider: true },
+        where: {
+          status: { in: ['paid', 'partially_refunded', 'refunded'] },
+          paidAt: { gte: from },
+        },
+        select: {
+          paidAt: true,
+          amount: true,
+          refundedAmount: true,
+          disputedAt: true,
+          provider: true,
+        },
       }),
+      // Facturado neto: una factura sustituida (`rectified`) ya cuenta en su
+      // sustitutiva; los abonos (importes negativos) restan solos.
       this.admin.platformInvoice.aggregate({
-        where: { issuedAt: { gte: from } },
+        where: { issuedAt: { gte: from }, status: { not: 'rectified' } },
         _sum: { total: true },
       }),
-      // Mismo criterio que admin-metrics: solo tenants con suscripción activa.
+      // Mismo criterio que admin-metrics: solo tenants que pagan.
       this.addons.addonsMrrForActiveTenants(),
     ]);
 
@@ -48,25 +65,27 @@ export class AdminFinanceService {
         monthKey(new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + i, 1))),
       );
     }
-    const monthMap = new Map<string, { stripe: number; manual: number }>(
-      monthList.map((m) => [m, { stripe: 0, manual: 0 }]),
-    );
+    const emptySources = (): Record<AdminFinanceSource, number> => ({
+      stripe: 0,
+      sepa: 0,
+      redsys: 0,
+      manual: 0,
+    });
+    const monthMap = new Map(monthList.map((m) => [m, emptySources()]));
 
     const byProviderMap = new Map<string, { total: number; count: number }>();
-    let stripeTotal = 0;
-    let manualTotal = 0;
+    const bySource = emptySources();
+    let refundedTotal = 0;
+    let disputedTotal = 0;
     for (const p of payments) {
       if (!p.paidAt) continue;
-      const amount = Number(p.amount);
-      const isStripe = p.provider === 'stripe';
-      if (isStripe) stripeTotal += amount;
-      else manualTotal += amount;
-
+      const amount = netPaid(p);
+      refundedTotal += Number(p.refundedAmount);
+      if (p.disputedAt) disputedTotal += amount;
+      const source = financeSource(p.provider);
+      bySource[source] += amount;
       const bucket = monthMap.get(monthKey(p.paidAt));
-      if (bucket) {
-        if (isStripe) bucket.stripe += amount;
-        else bucket.manual += amount;
-      }
+      if (bucket) bucket[source] += amount;
       const slice = byProviderMap.get(p.provider) ?? { total: 0, count: 0 };
       slice.total += amount;
       slice.count += 1;
@@ -74,20 +93,29 @@ export class AdminFinanceService {
     }
 
     const monthly: AdminFinanceMonthDto[] = monthList.map((m) => {
-      const b = monthMap.get(m) ?? { stripe: 0, manual: 0 };
+      const b = monthMap.get(m) ?? emptySources();
       return {
         month: m,
         stripe: round2(b.stripe),
+        sepa: round2(b.sepa),
+        redsys: round2(b.redsys),
         manual: round2(b.manual),
-        total: round2(b.stripe + b.manual),
+        total: round2(b.stripe + b.sepa + b.redsys + b.manual),
       };
     });
+    const collected = bySource.stripe + bySource.sepa + bySource.redsys + bySource.manual;
 
     return {
       currency: 'EUR',
-      collectedTotal: round2(stripeTotal + manualTotal),
-      stripeTotal: round2(stripeTotal),
-      manualTotal: round2(manualTotal),
+      collectedTotal: round2(collected),
+      refundedTotal: round2(refundedTotal),
+      disputedTotal: round2(disputedTotal),
+      bySource: {
+        stripe: round2(bySource.stripe),
+        sepa: round2(bySource.sepa),
+        redsys: round2(bySource.redsys),
+        manual: round2(bySource.manual),
+      },
       addonsMrr,
       invoicedTotal: round2(Number(invoiceAgg._sum.total ?? 0)),
       byProvider: [...byProviderMap.entries()]

@@ -63,7 +63,7 @@ describe('Dashboard financiero SaaS (e2e)', () => {
       .get('/admin/finance?months=12')
       .set({ Authorization: `Bearer ${adminToken}` });
     expect(res.status).toBe(200);
-    expect(res.body.manualTotal).toBeGreaterThanOrEqual(49);
+    expect(res.body.bySource.manual).toBeGreaterThanOrEqual(49);
     expect(res.body.monthly).toHaveLength(12);
     const manualSlice = res.body.byProvider.find(
       (p: { provider: string }) => p.provider === 'bank_transfer',

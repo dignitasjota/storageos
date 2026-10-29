@@ -118,7 +118,7 @@ export default function AdminUsagePage() {
               tone={alerts > 0 ? 'warn' : undefined}
             />
             <Kpi
-              label={`Coste estimado de IA (${data.days} días)`}
+              label={`Coste estimado de IA (${data.days} días, sin las claves propias)`}
               value={usd(data.totals.aiCostUsd)}
               hint={`$${data.aiPricing.inputPerMTokUsd} / $${data.aiPricing.outputPerMTokUsd} por millón de tokens`}
             />
@@ -247,12 +247,22 @@ function UsageRow({ r }: { r: AdminTenantUsageRowDto }) {
       </div>
       <div className="text-xs">
         <span className="text-muted-foreground md:hidden">IA: </span>
-        {r.ai.calls === 0 ? (
+        {r.ai.calls === 0 && r.ai.ownKeyCalls === 0 ? (
           <span className="text-muted-foreground">Sin uso de IA</span>
         ) : (
           <>
-            {num(r.ai.calls)} llamadas · {num(r.ai.inputTokens + r.ai.outputTokens)} tokens ·{' '}
-            {usd(r.ai.costUsd)}
+            {r.ai.calls > 0 && (
+              <>
+                {num(r.ai.calls)} llamadas · {num(r.ai.inputTokens + r.ai.outputTokens)} tokens ·{' '}
+                {usd(r.ai.costUsd)}
+              </>
+            )}
+            {r.ai.ownKeyCalls > 0 && (
+              <span className="text-muted-foreground">
+                {r.ai.calls > 0 ? ' · ' : ''}
+                {num(r.ai.ownKeyCalls)} con su propia clave
+              </span>
+            )}
           </>
         )}
       </div>

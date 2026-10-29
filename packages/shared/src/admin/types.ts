@@ -243,6 +243,10 @@ export interface AdminTenantAdoptionDto {
   planName: string | null;
   features: AdminTenantAdoptionFeatureDto[];
   usage: AdminTenantAdoptionUsageDto;
+  /** Lo que paga al mes: plan + extras activos. */
+  monthlyPaid: number;
+  /** Precio mensual del plan recomendado (null si no es candidato). */
+  recommendedPlanPrice: number | null;
   /** Usa alguna feature que su plan no incluye (downgrade/legacy). */
   usesFeatureOutsidePlan: boolean;
   /** Topa o supera algún límite del plan. */
@@ -447,7 +451,8 @@ export interface AdminRetentionCohortDto {
   size: number;
   /**
    * Retención % por offset de mes desde el alta: índice 0 = M0 (=100), 1 = M1…
-   * `null` para offsets que aún no han ocurrido (mes futuro para esa cohorte).
+   * `null` para offsets que aún no han ocurrido (mes futuro para esa cohorte)
+   * y para los meses de una cohorte sin altas.
    */
   retention: (number | null)[];
 }
@@ -489,9 +494,23 @@ export interface AdminMetricsDto {
     currency: string;
   };
   signupsThisMonth: number;
+  /** Bajas del mes (cancelados o suspendidos, también los anonimizados). */
   cancellationsThisMonth: number;
   churnRatePercent: number;
+  /** MRR / tenants que pagan (suscripción activa y tenant activo o en prueba). */
   averageRevenuePerTenant: number;
+  /** Tenants que pagan ahora (los que suman al MRR). */
+  payingTenants: number;
+  /** Pruebas que terminaron este mes y en qué acabaron. */
+  trialsEndedThisMonth: {
+    ended: number;
+    /** Pagan un plan. */
+    converted: number;
+    /** Pasaron al plan Free. */
+    toFree: number;
+    /** Cancelados o suspendidos. */
+    churned: number;
+  };
   /** Trials que expiran en los próximos 7 días (alerta). */
   trialsExpiringSoon: number;
   /** Tickets de soporte sin cerrar (open/in_progress/waiting_user). */
@@ -1296,21 +1315,31 @@ export interface AdminFinanceProviderSliceDto {
   total: number;
   count: number;
 }
+/** Forma de cobro agrupada para las gráficas de Finanzas. */
+export type AdminFinanceSource = 'stripe' | 'sepa' | 'redsys' | 'manual';
 export interface AdminFinanceMonthDto {
   month: string;
   stripe: number;
+  sepa: number;
+  redsys: number;
+  /** Efectivo, transferencia, PayPal y otros apuntados a mano. */
   manual: number;
+  /** Neto del mes (cobrado − devuelto). */
   total: number;
 }
 export interface AdminFinanceOverviewDto {
   currency: string;
-  /** Cobrado total en el periodo (Stripe + manual). */
+  /** Cobrado neto en el periodo (cobrado − reembolsado y contracargos perdidos). */
   collectedTotal: number;
-  stripeTotal: number;
-  manualTotal: number;
+  /** Devuelto de los cobros del periodo (reembolsos y contracargos perdidos). */
+  refundedTotal: number;
+  /** Importe de cobros con un contracargo abierto (aún no devuelto). */
+  disputedTotal: number;
+  /** Neto por forma de cobro. */
+  bySource: Record<AdminFinanceSource, number>;
   /** MRR actual de los add-ons (todos los tenants). */
   addonsMrr: number;
-  /** Facturado (platform_invoices) en el periodo, para reconciliar. */
+  /** Facturado neto (sin las sustituidas; los abonos restan), para reconciliar. */
   invoicedTotal: number;
   byProvider: AdminFinanceProviderSliceDto[];
   monthly: AdminFinanceMonthDto[];
@@ -1468,6 +1497,8 @@ export interface AdminPaymentRetryAnalysisDto {
   /** Importe recuperado (facturas que fallaron y luego se cobraron). */
   amountRecovered: number;
   currency: string;
+  /** Desglose por forma de cobro (Stripe, adeudos SEPA devueltos, Redsys automático). */
+  bySource: { source: 'stripe' | 'sepa' | 'redsys'; totalFailed: number; recovered: number }[];
 }
 
 /** Cupón de descuento de plataforma (TrasterOS -> tenant). */
@@ -1636,8 +1667,10 @@ export interface AdminTenantUsageRowDto {
     calls: number;
     inputTokens: number;
     outputTokens: number;
-    /** Coste estimado en USD con el precio configurado. */
+    /** Coste estimado en USD con el precio configurado (solo con la IA de la plataforma). */
     costUsd: number;
+    /** Llamadas con la clave de IA propia del tenant (no nos cuestan). */
+    ownKeyCalls: number;
   };
   storage: {
     bytes: number;

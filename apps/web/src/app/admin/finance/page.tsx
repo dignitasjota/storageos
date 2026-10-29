@@ -24,7 +24,17 @@ const PROVIDER_LABELS: Record<string, string> = {
   paypal: 'PayPal',
   other: 'Otro',
   manual: 'Manual',
+  sepa: 'Remesa SEPA',
+  redsys: 'Redsys (tarjeta o Bizum)',
 };
+
+/** Series del gráfico mensual: paleta categórica en orden fijo (1-4). */
+const SOURCES = [
+  { key: 'stripe', label: 'Stripe', color: '#2a78d6' },
+  { key: 'sepa', label: 'Remesa SEPA', color: '#eb6834' },
+  { key: 'redsys', label: 'Redsys', color: '#1baf7a' },
+  { key: 'manual', label: 'A mano', color: '#eda100' },
+] as const;
 
 export default function AdminFinancePage() {
   const finance = useAdminFinance(12);
@@ -52,29 +62,35 @@ export default function AdminFinancePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Finanzas</h1>
         <p className="text-sm text-muted-foreground">
-          Ingresos reales del SaaS por fuente (últimos 12 meses) y reconciliación con lo facturado.
+          Ingresos reales del SaaS por forma de cobro (últimos 12 meses), descontado lo devuelto, y
+          reconciliación con lo facturado.
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Kpi label="Cobrado (12 m)" value={eur(d.collectedTotal)} />
-        <Kpi label="Por Stripe" value={eur(d.stripeTotal)} />
-        <Kpi label="Manual" value={eur(d.manualTotal)} />
+        <Kpi label="Cobrado neto (12 m)" value={eur(d.collectedTotal)} />
+        <Kpi label="Devuelto (12 m)" value={eur(d.refundedTotal)} />
+        <Kpi label="En contracargo" value={eur(d.disputedTotal)} />
         <Kpi label="MRR add-ons" value={eur(d.addonsMrr)} />
-        <Kpi label="Facturado (12 m)" value={eur(d.invoicedTotal)} />
+        <Kpi label="Facturado neto (12 m)" value={eur(d.invoicedTotal)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {SOURCES.map((src) => (
+          <Kpi key={src.key} label={src.label} value={eur(d.bySource[src.key])} />
+        ))}
       </div>
 
       {!reconciled && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
-          ⚠ El cobrado ({eur(d.collectedTotal)}) y el facturado ({eur(d.invoicedTotal)}) no cuadran.
-          Puede ser normal (pagos sin factura emitida, o facturas de periodos distintos), pero
-          revísalo.
+          ⚠ El cobrado neto ({eur(d.collectedTotal)}) y el facturado neto ({eur(d.invoicedTotal)})
+          no cuadran. Puede ser normal (pagos sin factura emitida, o facturas de periodos
+          distintos), pero revísalo.
         </div>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Ingresos mensuales por fuente</CardTitle>
+          <CardTitle className="text-base">Ingresos netos por mes y forma de cobro</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-72 w-full">
@@ -89,8 +105,17 @@ export default function AdminFinancePage() {
                 <YAxis fontSize={11} />
                 <Tooltip formatter={(v) => eur(Number(v) || 0)} />
                 <Legend />
-                <Bar dataKey="stripe" name="Stripe" stackId="a" fill="#6366f1" />
-                <Bar dataKey="manual" name="Manual" stackId="a" fill="#10b981" />
+                {SOURCES.map((src) => (
+                  <Bar
+                    key={src.key}
+                    dataKey={src.key}
+                    name={src.label}
+                    stackId="a"
+                    fill={src.color}
+                    stroke="hsl(var(--background))"
+                    strokeWidth={1}
+                  />
+                ))}
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -99,7 +124,7 @@ export default function AdminFinancePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Cobrado por método de pago</CardTitle>
+          <CardTitle className="text-base">Cobrado neto por método de pago</CardTitle>
         </CardHeader>
         <CardContent>
           {d.byProvider.length === 0 ? (

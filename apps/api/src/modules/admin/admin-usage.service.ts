@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { OWN_KEY_AI_FEATURES } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Env } from '../../config/env.schema';
@@ -47,7 +48,7 @@ export class AdminUsageService {
         _count: { _all: true },
       }),
       this.admin.aiUsageEvent.groupBy({
-        by: ['tenantId'],
+        by: ['tenantId', 'feature'],
         where: { createdAt: { gte: since } },
         _count: { _all: true },
         _sum: { inputTokens: true, outputTokens: true },
@@ -64,14 +65,27 @@ export class AdminUsageService {
       email.set(r.tenantId, e);
     }
     const complaints = new Map(complaintRows.map((r) => [r.tenantId ?? '', r._count._all]));
-    const ai = new Map(aiRows.map((r) => [r.tenantId, r]));
+    // Las llamadas con la clave propia del tenant no nos cuestan: se cuentan
+    // aparte y no entran en el coste.
+    const ai = new Map<string, { calls: number; input: number; output: number; own: number }>();
+    for (const r of aiRows) {
+      const a = ai.get(r.tenantId) ?? { calls: 0, input: 0, output: 0, own: 0 };
+      if (OWN_KEY_AI_FEATURES.includes(r.feature)) {
+        a.own += r._count._all;
+      } else {
+        a.calls += r._count._all;
+        a.input += r._sum.inputTokens ?? 0;
+        a.output += r._sum.outputTokens ?? 0;
+      }
+      ai.set(r.tenantId, a);
+    }
     const storage = new Map(storageRows.map((r) => [r.tenantId, r]));
 
     const rows: AdminTenantUsageRowDto[] = tenants.map((t) => {
       const e = email.get(t.id) ?? { sent: 0, bounced: 0, failed: 0 };
       const a = ai.get(t.id);
-      const inputTokens = a?._sum.inputTokens ?? 0;
-      const outputTokens = a?._sum.outputTokens ?? 0;
+      const inputTokens = a?.input ?? 0;
+      const outputTokens = a?.output ?? 0;
       const s = storage.get(t.id);
       const attempted = e.sent + e.bounced;
       return {
@@ -84,10 +98,11 @@ export class AdminUsageService {
           bounceRate: attempted > 0 ? Math.round((e.bounced / attempted) * 1000) / 10 : null,
         },
         ai: {
-          calls: a?._count._all ?? 0,
+          calls: a?.calls ?? 0,
           inputTokens,
           outputTokens,
           costUsd: this.cost(inputTokens, outputTokens),
+          ownKeyCalls: a?.own ?? 0,
         },
         storage: {
           bytes: s ? Number(s.bytes) : 0,

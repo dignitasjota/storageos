@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { PAYING_SUBSCRIPTION_WHERE } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type {
@@ -60,21 +61,41 @@ export class MrrSnapshotService {
 
   /**
    * Asegura el snapshot de un mes a partir del **estado actual** de las
-   * suscripciones (1 fila por tenant con suscripción `active`, MRR =
-   * priceMonthly del plan). Idempotente (upsert por tenant+mes).
+   * suscripciones: 1 fila por tenant que paga (suscripción `active` y tenant
+   * vivo), con MRR = cuota del plan + extras activos (igual que la tarjeta MRR de
+   * Métricas). En el mes en curso, quien ha dejado de pagar sale del snapshot.
+   * Idempotente (upsert por tenant+mes).
    */
   async captureMonth(monthStart: Date): Promise<void> {
     const month = startOfMonthUtc(monthStart);
-    const subs = await this.admin.tenantSubscription.findMany({
-      where: { status: 'active', tenant: { deletedAt: null, billingExempt: false } },
-      select: { tenantId: true, plan: { select: { slug: true, priceMonthly: true } } },
-    });
+    const [subs, addons] = await Promise.all([
+      this.admin.tenantSubscription.findMany({
+        where: PAYING_SUBSCRIPTION_WHERE,
+        select: { tenantId: true, plan: { select: { slug: true, priceMonthly: true } } },
+      }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: { suspendedAt: null },
+        select: { tenantId: true, priceMonthly: true, quantity: true },
+      }),
+    ]);
+    const addonsByTenant = new Map<string, number>();
+    for (const a of addons) {
+      addonsByTenant.set(
+        a.tenantId,
+        (addonsByTenant.get(a.tenantId) ?? 0) + Number(a.priceMonthly) * a.quantity,
+      );
+    }
     for (const s of subs) {
-      const mrr = Number(s.plan.priceMonthly);
+      const mrr = round2(Number(s.plan.priceMonthly) + (addonsByTenant.get(s.tenantId) ?? 0));
       await this.admin.mrrSnapshot.upsert({
         where: { tenantId_month: { tenantId: s.tenantId, month } },
         create: { tenantId: s.tenantId, month, planSlug: s.plan.slug, status: 'active', mrr },
         update: { planSlug: s.plan.slug, status: 'active', mrr },
+      });
+    }
+    if (month.getTime() === startOfMonthUtc(new Date()).getTime()) {
+      await this.admin.mrrSnapshot.deleteMany({
+        where: { month, tenantId: { notIn: subs.map((s) => s.tenantId) } },
       });
     }
   }
@@ -132,7 +153,8 @@ export class MrrSnapshotService {
       let m = startOfMonthUtc(p.periodStart);
       const endMonth = startOfMonthUtc(end);
       while (m <= endMonth) {
-        if (m >= from && m <= startOfMonthUtc(now)) {
+        // El mes en curso sale del estado real (captureMonth), no de los pagos.
+        if (m >= from && m < startOfMonthUtc(now)) {
           const k = `${p.tenantId}:${monthKey(m)}`;
           if (!seen.has(k)) {
             seen.add(k);
