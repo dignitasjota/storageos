@@ -6,6 +6,7 @@ import { BillingModule } from '../billing/billing.module';
 import { CommunicationsModule } from '../communications/communications.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { CouponsModule } from '../coupons/coupons.module';
+import { LandingModule } from '../landing/landing.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 
 import { BookingExpiryCron } from './booking-expiry.cron';
@@ -28,6 +29,7 @@ import { SignaturesService } from './signatures.service';
     BillingModule,
     ReferralsModule,
     CommunicationsModule,
+    LandingModule,
     JwtModule.register({}),
   ],
   controllers: [MoveInPublicController, ContractSignaturesController],

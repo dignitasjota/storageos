@@ -7,6 +7,7 @@ import { PrismaAdminService } from '../src/modules/database/prisma-admin.service
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -73,7 +74,13 @@ describe('Reservas antes de la apertura: extras (e2e)', () => {
       .expect(201);
     await http()
       .post(`/public/move-in/sign/${res.body.signingToken}`)
-      .send({ signerName: 'Ana Sanz', method: 'typed', typedSignature: 'Ana Sanz', accept: true })
+      .send({
+        signerName: 'Ana Sanz',
+        method: 'typed',
+        typedSignature: 'Ana Sanz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, res.body.signingToken),
+      })
       .expect(201);
     return res.body.contractId as string;
   }

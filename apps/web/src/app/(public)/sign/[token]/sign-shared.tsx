@@ -58,6 +58,8 @@ export function SignPageBody({
   // El nombre del inquilino ya viene en la vista precargada en el servidor.
   const [signerName, setSignerName] = useState(initialView?.customerName ?? '');
   const [accept, setAccept] = useState(false);
+  // Condiciones generales de contratación: casilla obligatoria antes de pagar.
+  const [acceptGeneral, setAcceptGeneral] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SignResultDto | null>(null);
   const [pending, setPending] = useState<PortalInvoiceDto[]>([]);
@@ -91,6 +93,18 @@ export function SignPageBody({
   async function openPayment() {
     setOpening(true);
     try {
+      // Contrato firmado antes de que existiera la casilla: se aceptan ahora.
+      if (view && !view.generalTerms.accepted) {
+        const accepted = await apiFetch<ContractSignViewDto['generalTerms']>(
+          `/public/move-in/sign/${token}/general-terms`,
+          {
+            method: 'POST',
+            requiresAuth: false,
+            json: { generalTermsHash: view.generalTerms.hash },
+          },
+        );
+        setView({ ...view, generalTerms: accepted });
+      }
       const res = await apiFetch<{ portalToken: string }>(`/public/move-in/sign/${token}/payment`, {
         method: 'POST',
         requiresAuth: false,
@@ -98,7 +112,13 @@ export function SignPageBody({
       setPayToken(res.portalToken);
       await loadPending(res.portalToken);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : t('paymentStartError'));
+      if (err instanceof ApiError && err.body.code === 'general_terms_changed') {
+        toast.error(t('generalTermsChanged'));
+        setAcceptGeneral(false);
+        await reloadView();
+      } else {
+        toast.error(err instanceof ApiError ? err.body.message : t('paymentStartError'));
+      }
     } finally {
       setOpening(false);
     }
@@ -131,6 +151,8 @@ export function SignPageBody({
           ...(method === 'drawn' ? { signatureImage: drawn } : { typedSignature: typed }),
           // Lo que ha leído: si el contrato cambió entretanto, no se firma.
           ...(view?.termsHash ? { termsHash: view.termsHash } : {}),
+          // Las condiciones generales que ha aceptado con la casilla.
+          ...(view ? { generalTermsHash: view.generalTerms.hash } : {}),
         },
       });
       trackEvent('sign_completed');
@@ -140,6 +162,10 @@ export function SignPageBody({
       if (err instanceof ApiError && err.body.code === 'terms_changed') {
         toast.error(t('termsChanged'));
         setAccept(false);
+        await reloadView();
+      } else if (err instanceof ApiError && err.body.code === 'general_terms_changed') {
+        toast.error(t('generalTermsChanged'));
+        setAcceptGeneral(false);
         await reloadView();
       } else {
         toast.error(err instanceof ApiError ? err.body.message : t('submitError'));
@@ -191,15 +217,24 @@ export function SignPageBody({
             {pending.length > 0 && portalToken ? (
               <BookingPayment portalToken={portalToken} invoice={pending[0]!} locale={locale} />
             ) : !result && view.paymentPending ? (
-              <Button
-                onClick={() => void openPayment()}
-                disabled={opening}
-                className={brandColor ? 'w-full text-white' : 'w-full'}
-                style={brandColor ? { backgroundColor: brandColor } : undefined}
-              >
-                {opening && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                {t('payPendingButton')}
-              </Button>
+              <>
+                {!view.generalTerms.accepted && (
+                  <GeneralTermsCheck
+                    checked={acceptGeneral}
+                    onChange={setAcceptGeneral}
+                    url={view.generalTerms.url}
+                  />
+                )}
+                <Button
+                  onClick={() => void openPayment()}
+                  disabled={opening || (!view.generalTerms.accepted && !acceptGeneral)}
+                  className={brandColor ? 'w-full text-white' : 'w-full'}
+                  style={brandColor ? { backgroundColor: brandColor } : undefined}
+                >
+                  {opening && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                  {t('payPendingButton')}
+                </Button>
+              </>
             ) : (
               <p className="text-muted-foreground">{t('emailNotice')}</p>
             )}
@@ -219,6 +254,7 @@ export function SignPageBody({
 
   const canSubmit =
     accept &&
+    acceptGeneral &&
     signerName.trim().length >= 2 &&
     (method === 'drawn' ? !!drawn : typed.trim().length >= 2);
 
@@ -306,6 +342,11 @@ export function SignPageBody({
             <Checkbox checked={accept} onCheckedChange={(v) => setAccept(v === true)} />
             <span>{t('acceptTerms')}</span>
           </label>
+          <GeneralTermsCheck
+            checked={acceptGeneral}
+            onChange={setAcceptGeneral}
+            url={view.generalTerms.url}
+          />
 
           <Button
             onClick={submit}
@@ -319,6 +360,37 @@ export function SignPageBody({
         </CardContent>
       </Card>
     </ContentShell>
+  );
+}
+
+/** Casilla obligatoria de las Condiciones Generales de Contratación (con enlace). */
+function GeneralTermsCheck({
+  checked,
+  onChange,
+  url,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  url: string;
+}) {
+  const t = useTranslations('publicWeb.sign');
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(v) => onChange(v === true)}
+        aria-label={t('acceptGeneralTermsLabel')}
+      />
+      <span>
+        {t.rich('acceptGeneralTerms', {
+          link: (chunks) => (
+            <a href={url} target="_blank" rel="noreferrer" className="font-medium underline">
+              {chunks}
+            </a>
+          ),
+        })}
+      </span>
+    </label>
   );
 }
 

@@ -6,6 +6,7 @@ import { PrismaAdminService } from '../src/modules/database/prisma-admin.service
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -69,7 +70,13 @@ describe('Primer pago con el mes siguiente (e2e)', () => {
       .expect(201);
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
-      .send({ signerName: 'Eva Ruiz', method: 'typed', typedSignature: 'Eva Ruiz', accept: true })
+      .send({
+        signerName: 'Eva Ruiz',
+        method: 'typed',
+        typedSignature: 'Eva Ruiz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, booking.body.signingToken),
+      })
       .expect(201);
     return { quoteTotal: quote.body.totalToPay, contractId: booking.body.contractId };
   }

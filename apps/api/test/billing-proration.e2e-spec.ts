@@ -5,6 +5,7 @@ import { BillingJobsService } from '../src/modules/billing/billing-jobs.service'
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -63,7 +64,13 @@ describe('Facturación: prorrateo del 1er mes + sin doble cobro (e2e)', () => {
 
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
-      .send({ signerName: 'Ana Ruiz', method: 'typed', typedSignature: 'Ana Ruiz', accept: true })
+      .send({
+        signerName: 'Ana Ruiz',
+        method: 'typed',
+        typedSignature: 'Ana Ruiz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, booking.body.signingToken),
+      })
       .expect(201);
 
     // 1ª factura: alquiler prorrateado (17 €) y periodo [2026-03-15, 2026-03-31].

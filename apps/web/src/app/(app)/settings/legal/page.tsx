@@ -12,6 +12,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { TermsVersionsCard } from './versions-card';
+
 import { MarkdownView } from '@/components/public/markdown-view';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,8 +60,9 @@ export default function WebLegalPage() {
           ))}
         </TabsList>
         {TENANT_LEGAL_DOCS.map((d) => (
-          <TabsContent key={d} value={d} className="mt-4">
+          <TabsContent key={d} value={d} className="mt-4 space-y-4">
             <LegalEditor doc={d} data={data} />
+            {d === 'condiciones-contratacion' && <TermsVersionsCard />}
           </TabsContent>
         ))}
       </Tabs>

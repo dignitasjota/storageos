@@ -34,6 +34,47 @@ export interface ContractSignViewDto {
   paymentPending: boolean;
   /** Reserva antes de la apertura del local (null si no lo es). */
   preOpening: ContractPreOpeningDto | null;
+  /** Condiciones Generales de Contratación que debe aceptar antes de pagar. */
+  generalTerms: GeneralTermsToAcceptDto;
+}
+
+/** Condiciones generales que el inquilino acepta con una casilla. */
+export interface GeneralTermsToAcceptDto {
+  title: string;
+  /** Página pública de las condiciones (su web). */
+  url: string;
+  /** SHA-256 del texto vigente: se devuelve al aceptar. */
+  hash: string;
+  /** Ya las aceptó para este contrato. */
+  accepted: boolean;
+}
+
+/** Aceptación de una versión de las condiciones (ficha del contrato). */
+export interface LegalDocAcceptanceDto {
+  id: string;
+  versionId: string;
+  version: number;
+  title: string;
+  contentHash: string;
+  channel: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  acceptedAt: string;
+}
+
+/** Una versión aceptada de un texto legal, con su texto completo. */
+export interface LegalDocVersionDto {
+  id: string;
+  doc: string;
+  version: number;
+  title: string;
+  content: string;
+  contentHash: string;
+  createdAt: string;
+  /** Cuántas veces se ha aceptado. */
+  acceptances: number;
+  /** Es el texto que se publica ahora. */
+  current: boolean;
 }
 
 /** Token de portal para pagar la 1ª factura de un contrato ya firmado. */
@@ -87,6 +128,8 @@ export interface ContractSigningRecordDto {
   signingLinkExpiresAt: string | null;
   /** Reserva online: el trastero queda retenido hasta esta fecha si no se paga. */
   holdUntil: string | null;
+  /** Condiciones generales aceptadas para este contrato (más reciente primero). */
+  generalTerms: LegalDocAcceptanceDto[];
 }
 
 /** Resultado de solicitar la firma (staff): enlace para compartir. */

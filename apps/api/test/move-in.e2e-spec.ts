@@ -3,6 +3,7 @@ import request from 'supertest';
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -63,12 +64,15 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     expect(view.body.termsText).toContain(view.body.contractNumber);
 
     // Firma pública.
-    const signed = await request(app.getHttpServer()).post(`/public/move-in/sign/${token}`).send({
-      signerName: 'Ana García',
-      method: 'typed',
-      typedSignature: 'Ana García',
-      accept: true,
-    });
+    const signed = await request(app.getHttpServer())
+      .post(`/public/move-in/sign/${token}`)
+      .send({
+        signerName: 'Ana García',
+        method: 'typed',
+        typedSignature: 'Ana García',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, token),
+      });
     expect(signed.status).toBe(201);
     expect(signed.body.status).toBe('active');
 
@@ -191,6 +195,7 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
         method: 'typed',
         typedSignature: 'Bea López',
         accept: true,
+        generalTermsHash: await generalTermsHash(app, booking.body.signingToken),
       });
     expect(signed.status).toBe(201);
     expect(signed.body.status).toBe('active');
@@ -278,6 +283,7 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
       method: 'drawn',
       signatureImage: 'data:image/png;base64,iVBORw0KGgo=',
       accept: true,
+      generalTermsHash: view.body.generalTerms.hash,
     };
     const stale = await request(app.getHttpServer())
       .post(`/public/move-in/sign/${token}`)

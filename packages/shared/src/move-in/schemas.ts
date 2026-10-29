@@ -22,12 +22,27 @@ export const PublicSignSubmitSchema = z
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .optional(),
+    /**
+     * Huella de las Condiciones Generales de Contratación que aceptó (casilla
+     * obligatoria antes de pagar). Sin ella → 400 `general_terms_required`; si
+     * cambiaron entretanto → 409 `general_terms_changed`.
+     */
+    generalTermsHash: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
   })
   .refine((v) => (v.method === 'drawn' ? !!v.signatureImage : !!v.typedSignature?.trim()), {
     message: 'Falta la firma',
     path: ['method'],
   });
 export type PublicSignSubmitInput = z.infer<typeof PublicSignSubmitSchema>;
+
+/** Acepta las condiciones generales antes de pagar (contrato ya firmado). */
+export const AcceptGeneralTermsSchema = z.object({
+  generalTermsHash: z.string().regex(/^[0-9a-f]{64}$/),
+});
+export type AcceptGeneralTermsInput = z.infer<typeof AcceptGeneralTermsSchema>;
 
 /** Alta self-service desde la web pública (move-in). */
 export const PublicBookingSchema = z.object({

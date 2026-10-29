@@ -5,6 +5,7 @@ import { SignaturesService } from '../src/modules/move-in/signatures.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -27,7 +28,13 @@ describe('Portal: self-service de contratación de trastero (e2e)', () => {
   async function signPortalBooking(signingToken: string) {
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${signingToken}`)
-      .send({ signerName: 'Leo Paz', method: 'typed', typedSignature: 'Leo Paz', accept: true })
+      .send({
+        signerName: 'Leo Paz',
+        method: 'typed',
+        typedSignature: 'Leo Paz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, signingToken),
+      })
       .expect(201);
   }
 

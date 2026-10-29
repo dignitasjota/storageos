@@ -9,6 +9,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -71,7 +72,13 @@ describe('Cupones: casos límite (e2e)', () => {
     expect(booked.status).toBe(201);
     const signed = await http()
       .post(`/public/move-in/sign/${booked.body.signingToken}`)
-      .send({ signerName: 'Ana Ruiz', method: 'typed', typedSignature: 'Ana Ruiz', accept: true });
+      .send({
+        signerName: 'Ana Ruiz',
+        method: 'typed',
+        typedSignature: 'Ana Ruiz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, booked.body.signingToken),
+      });
     expect(signed.status).toBe(201);
 
     const contractId = booked.body.contractId as string;

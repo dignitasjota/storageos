@@ -259,6 +259,14 @@ export const SignContractSchema = z
     method: z.enum(['drawn', 'typed']).optional(),
     signatureImage: z.string().max(2_000_000).optional(),
     typedSignature: optionalText(160),
+    /**
+     * Firma asistida: huella de las condiciones generales que el inquilino
+     * acepta en el local (obligatoria si firma él).
+     */
+    generalTermsHash: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
   })
   // El cuerpo es opcional: firmar sin firma manuscrita envía body vacío.
   .default({});

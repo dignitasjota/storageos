@@ -75,6 +75,27 @@ export class WebLegalService {
     };
   }
 
+  /** Texto que se publica ahora de un documento (propio o generado). */
+  async effectiveDoc(
+    tenantId: string,
+    doc: TenantLegalDoc,
+  ): Promise<{ title: string; markdown: string; url: string }> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: TENANT_SELECT,
+    });
+    if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
+    const custom = parseWebLegal(tenant.webLegal)[TENANT_LEGAL_FIELD[doc]];
+    const markdown = custom ?? buildTenantLegalDoc(doc, await this.context(tenant));
+    const domain = this.customDomain(tenant);
+    const base = this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/$/, '');
+    return {
+      title: TENANT_LEGAL_TITLES[doc],
+      markdown,
+      url: domain ? `https://${domain}/${doc}` : `${base}/s/${tenant.slug}/${doc}`,
+    };
+  }
+
   async getSettings(tenantId: string): Promise<WebLegalSettingsDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },

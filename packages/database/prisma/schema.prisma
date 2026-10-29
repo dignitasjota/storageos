@@ -644,6 +644,8 @@ model Tenant {
   customerOffers          CustomerOffer[]
   customerMessageReads CustomerMessageRead[]
   platformMessages     TenantPlatformMessage[]
+  legalDocVersions        LegalDocVersion[]
+  legalDocAcceptances     LegalDocAcceptance[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -1350,6 +1352,7 @@ model Customer {
 
   offers                 CustomerOffer[]
   messageReads         CustomerMessageRead[]
+  legalDocAcceptances LegalDocAcceptance[]
   @@index([tenantId])
   @@index([tenantId, deletedAt])
   @@index([tenantId, documentNumber])
@@ -1509,6 +1512,7 @@ model Contract {
   communications Communication[]
   whatsappConversations WhatsappConversation[]
   couponRedemptions CouponRedemption[]
+  legalDocAcceptances LegalDocAcceptance[]
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
   @@index([tenantId, status])
@@ -6519,3 +6523,52 @@ model BusinessReminderNotice {
   @@unique([reminderId, dueDate, kind], map: "business_reminder_notices_unique")
   @@map("business_reminder_notices")
 }
+
+/// Versión de un texto legal de la web del tenant que alguien ha aceptado
+/// (Condiciones Generales de Contratación). Inmutable; RLS.
+model LegalDocVersion {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  /// `condiciones-contratacion`.
+  doc         String
+  /// 1, 2, 3… por tenant y documento.
+  version     Int
+  title       String
+  /// Texto en Markdown tal y como se aceptó.
+  content     String
+  /// SHA-256 del texto.
+  contentHash String   @map("content_hash")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  acceptances LegalDocAcceptance[]
+
+  @@unique([tenantId, doc, version], map: "legal_doc_versions_tenant_doc_version_key")
+  @@unique([tenantId, doc, contentHash], map: "legal_doc_versions_tenant_doc_hash_key")
+  @@map("legal_doc_versions")
+}
+
+/// Aceptación de una versión por un inquilino (al firmar o antes de pagar). RLS.
+model LegalDocAcceptance {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  versionId  String   @map("version_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  contractId String?  @map("contract_id") @db.Uuid
+  /// `remote` (enlace de firma) | `in_person` (en el local).
+  channel    String
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  acceptedAt DateTime @default(now()) @map("accepted_at") @db.Timestamptz(6)
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  version  LegalDocVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  customer Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  contract Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@index([contractId])
+  @@index([customerId])
+  @@index([versionId])
+  @@map("legal_doc_acceptances")
+}
+

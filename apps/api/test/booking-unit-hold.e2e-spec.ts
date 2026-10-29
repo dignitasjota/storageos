@@ -6,6 +6,7 @@ import { SignaturesService } from '../src/modules/move-in/signatures.service';
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -96,7 +97,13 @@ describe('Booking: hold de la unidad (e2e)', () => {
     // Al firmar el primero → la unidad pasa a `occupied`.
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
-      .send({ signerName: 'Ana Ruiz', method: 'typed', typedSignature: 'Ana Ruiz', accept: true })
+      .send({
+        signerName: 'Ana Ruiz',
+        method: 'typed',
+        typedSignature: 'Ana Ruiz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, booking.body.signingToken),
+      })
       .expect(201);
     const unitAfter = await adminClient.unit.findUnique({ where: { id: unitIds[0] } });
     expect(unitAfter!.status).toBe('occupied');

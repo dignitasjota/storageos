@@ -996,7 +996,6 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `contracts.end_date_before_ending` (migración `20261122100000_portal_review`): fecha de fin que tenía el contrato antes de pedir la baja; se devuelve al cancelarla.
 - Migración `20261123100000_portal_improvements`: `unit_change_requests.target_unit_id` (FK SET NULL a `units`, el trastero libre que elige el inquilino) y `desired_date`; `customers.whatsapp_opt_out_at` (no quiere avisos por WhatsApp: el outbox los deja `skipped`); `redsys_orders.extra_invoice_ids UUID[]` (otras facturas del mismo inquilino pagadas en la misma orden, «Pagar todo»).
 
-
 ### Vencimientos y avisos (2026-10-29, migración `20261124100000_business_reminders`)
 
 - `business_reminders` (RLS): título, `category`, `due_date` (DATE), `recurrence` + `interval_months`, `notify_days_before` INT[] (por defecto 30/7/1/0), `notify_email`/`notify_in_app`/`notify_push`, `recipient_mode` (`managers`|`users`) + `recipient_user_ids` UUID[], `extra_emails` TEXT[], `overdue_reminders` + `overdue_max_days` (7), `amount`, `vendor`, `link`, `notes`, `facility_id` (SET NULL; null = toda la empresa), `status` (`active`|`paused`|`done`), `snoozed_until` (DATE), `template_key` (`fiscal_303:4-20`, `business_domain`…) y `created_by_user_id` (SET NULL).
@@ -1010,3 +1009,8 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `platform_business_goals` (global, REVOKE, un registro): `mrr_target`, `signups_target_monthly`, `trial_conversion_target_pct`, `target_date`, `updated_at`.
 - `tenant_health_snapshots` (global, REVOKE): `tenant_id` (FK CASCADE), `month` (DATE, primer día), `score`, `level`; único `(tenant_id, month)`. Se reescribe la del mes en curso al calcular la salud de todos los tenants.
 - `platform_alert_settings` += `business_alerts_enabled`, `alert_mrr_drop_pct`, `alert_churn_pct`, `alert_ai_cost_usd_week`, `alert_big_tenant_mrr`.
+
+### Condiciones generales aceptadas (2026-10-29)
+
+- `legal_doc_versions` (RLS): `tenant_id`, `doc` (`condiciones-contratacion`), `version` (1, 2…), `title`, `content` (Markdown tal cual se aceptó), `content_hash` (SHA-256); únicos `(tenant_id, doc, version)` y `(tenant_id, doc, content_hash)`. Inmutable.
+- `legal_doc_acceptances` (RLS): `version_id` (FK RESTRICT), `customer_id` (CASCADE), `contract_id` (SET NULL), `channel` (`remote` | `in_person`), `ip_address`, `user_agent`, `accepted_at`.

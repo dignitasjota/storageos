@@ -6,6 +6,7 @@ import { BookingRecoveryService } from '../src/modules/move-in/booking-recovery.
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -150,7 +151,13 @@ describe('Recuperación de reservas abandonadas (e2e)', () => {
     const { contractId, signingToken } = await book(owner.slug, owner.accessToken, email);
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${signingToken}`)
-      .send({ signerName: 'Eva Sanz', method: 'typed', typedSignature: 'Eva Sanz', accept: true })
+      .send({
+        signerName: 'Eva Sanz',
+        method: 'typed',
+        typedSignature: 'Eva Sanz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, signingToken),
+      })
       .expect((r) => expect([200, 201]).toContain(r.status));
     await backdate(contractId);
 

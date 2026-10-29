@@ -32,6 +32,7 @@ import { ContractStatusBadge } from '@/components/contract-status-badge';
 import { SignaturePad } from '@/components/move-in/signature-pad';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -66,6 +67,7 @@ import {
   useRenewContract,
   useRequestEndContract,
   useRequestSignature,
+  useContractGeneralTerms,
   useSignContract,
 } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
@@ -128,6 +130,8 @@ export default function ContractDetailPage() {
   const [signOpen, setSignOpen] = useState(false);
   const [signName, setSignName] = useState('');
   const [signDrawn, setSignDrawn] = useState<string | null>(null);
+  const [signGeneralTerms, setSignGeneralTerms] = useState(false);
+  const generalTerms = useContractGeneralTerms(id, signOpen);
   const [editOpen, setEditOpen] = useState(false);
 
   if (contract.isLoading || !contract.data) {
@@ -768,6 +772,29 @@ export default function ContractDetailPage() {
               />
             </div>
             <SignaturePad onChange={setSignDrawn} />
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={signGeneralTerms}
+                onCheckedChange={(v) => setSignGeneralTerms(v === true)}
+                aria-label="El inquilino acepta las condiciones generales de contratación"
+              />
+              <span>
+                El inquilino ha leído y acepta las{' '}
+                {generalTerms.data ? (
+                  <a
+                    href={generalTerms.data.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium underline"
+                  >
+                    Condiciones Generales de Contratación
+                  </a>
+                ) : (
+                  'Condiciones Generales de Contratación'
+                )}
+                .
+              </span>
+            </label>
           </div>
           <DialogFooter className="flex-wrap gap-2">
             <Button
@@ -781,7 +808,7 @@ export default function ContractDetailPage() {
               Firmar sin manuscrita
             </Button>
             <Button
-              disabled={!signDrawn}
+              disabled={!signDrawn || !signGeneralTerms || !generalTerms.data}
               onClick={() =>
                 handle(
                   () =>
@@ -791,6 +818,7 @@ export default function ContractDetailPage() {
                         method: 'drawn',
                         signerName: signName || undefined,
                         signatureImage: signDrawn ?? undefined,
+                        generalTermsHash: generalTerms.data?.hash,
                       },
                     }),
                   'Contrato firmado.',
@@ -798,6 +826,7 @@ export default function ContractDetailPage() {
                   setSignOpen(false);
                   setSignDrawn(null);
                   setSignName('');
+                  setSignGeneralTerms(false);
                 })
               }
             >

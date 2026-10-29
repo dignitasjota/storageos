@@ -9,6 +9,7 @@ import { PrismaAdminService } from '../src/modules/database/prisma-admin.service
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -97,7 +98,13 @@ describe('Reservas antes de la apertura (e2e)', () => {
     expect(view.body.termsText).toContain('arras penitenciales');
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${token}`)
-      .send({ signerName: 'Ana Sanz', method: 'typed', typedSignature: 'Ana Sanz', accept: true })
+      .send({
+        signerName: 'Ana Sanz',
+        method: 'typed',
+        typedSignature: 'Ana Sanz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, token),
+      })
       .expect(201);
     const contractId = booking.body.contractId as string;
     const invoice = await admin.invoice.findFirstOrThrow({
@@ -328,7 +335,13 @@ describe('Reservas antes de la apertura (e2e)', () => {
     expect(d.startDate.toISOString().slice(0, 10)).toBe(today());
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${draft.body.signingToken}`)
-      .send({ signerName: 'Luis Gil', method: 'typed', typedSignature: 'Luis Gil', accept: true })
+      .send({
+        signerName: 'Luis Gil',
+        method: 'typed',
+        typedSignature: 'Luis Gil',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, draft.body.signingToken),
+      })
       .expect(201);
     const first = await admin.invoice.findFirstOrThrow({
       where: { contractId: draft.body.contractId, kind: 'invoice' },

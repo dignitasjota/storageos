@@ -5,6 +5,7 @@ import { PrismaAdminService } from '../src/modules/database/prisma-admin.service
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -112,7 +113,13 @@ describe('Cupones en la reserva online, la firma y el portal (e2e)', () => {
     });
     await http()
       .post(`/public/move-in/sign/${token}`)
-      .send({ signerName: 'Ana Ruiz', method: 'typed', typedSignature: 'Ana Ruiz', accept: true })
+      .send({
+        signerName: 'Ana Ruiz',
+        method: 'typed',
+        typedSignature: 'Ana Ruiz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, token),
+      })
       .expect(201);
     const invoices = await http().get('/invoices').set(a);
     const inv = (invoices.body as { total: number; periodEnd: string; kind?: string }[]).find(
@@ -170,7 +177,13 @@ describe('Cupones en la reserva online, la firma y el portal (e2e)', () => {
     expect(booked.status).toBe(201);
     await http()
       .post(`/public/move-in/sign/${booked.body.signingToken}`)
-      .send({ signerName: 'Leo Paz', method: 'typed', typedSignature: 'Leo Paz', accept: true })
+      .send({
+        signerName: 'Leo Paz',
+        method: 'typed',
+        typedSignature: 'Leo Paz',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, booked.body.signingToken),
+      })
       .expect(201);
     const invoice = await app
       .get(PrismaAdminService)
