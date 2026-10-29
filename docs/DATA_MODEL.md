@@ -1004,3 +1004,9 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `business_reminder_notices` (RLS): avisos enviados, único por (`reminder_id`, `due_date`, `kind`); `kind` = `d<días>`, `overdue:<fecha>` o `snooze:<fecha>`.
 - `tenants.reminders_weekly_digest` (false), `reminders_digest_last_date`, `reminders_ics_token_hash` (único, sha256 del token del calendario) y `reminders_ics_token_encrypted` (AES-GCM, AAD = tenant, para volver a enseñar el enlace).
 - Planes: la migración añade `business_reminders` a `subscription_plans.tenant_features` de `starter`, `pro` y `administrador`.
+
+### Negocio del panel admin (2026-10-29)
+
+- `platform_business_goals` (global, REVOKE, un registro): `mrr_target`, `signups_target_monthly`, `trial_conversion_target_pct`, `target_date`, `updated_at`.
+- `tenant_health_snapshots` (global, REVOKE): `tenant_id` (FK CASCADE), `month` (DATE, primer día), `score`, `level`; único `(tenant_id, month)`. Se reescribe la del mes en curso al calcular la salud de todos los tenants.
+- `platform_alert_settings` += `business_alerts_enabled`, `alert_mrr_drop_pct`, `alert_churn_pct`, `alert_ai_cost_usd_week`, `alert_big_tenant_mrr`.

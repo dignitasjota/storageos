@@ -20,6 +20,8 @@ import { AdminApprovalsService } from './admin-approvals.service';
 import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { AdminBillingOpsController } from './admin-billing-ops.controller';
 import { AdminBillingOpsService } from './admin-billing-ops.service';
+import { AdminBusinessController } from './admin-business.controller';
+import { AdminBusinessService } from './admin-business.service';
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
 import { AdminEmailLogController } from './admin-email-log.controller';
@@ -123,6 +125,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     StripeConnectModule,
   ],
   controllers: [
+    AdminBusinessController,
     AdminPushController,
     AdminTenantsOverviewController,
     AdminBillingOpsController,
@@ -162,6 +165,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminGuard,
     AdminTenantsOverviewService,
     AdminBillingOpsService,
+    AdminBusinessService,
     AdminQuoteService,
     AdminActivityService,
     AdminOpportunitiesService,

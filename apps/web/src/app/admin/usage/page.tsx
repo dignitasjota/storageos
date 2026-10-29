@@ -221,7 +221,10 @@ function UsageRow({ r }: { r: AdminTenantUsageRowDto }) {
         alert ? 'border-amber-300 dark:border-amber-800' : ''
       }`}
     >
-      <Link href={`/admin/tenants/${r.tenantId}`} className="min-w-0 font-medium hover:underline">
+      <Link
+        href={`/admin/tenants/${r.tenantId}?tab=business`}
+        className="min-w-0 font-medium hover:underline"
+      >
         {r.tenantName}
         <span className="ml-1 text-xs font-normal text-muted-foreground">/{r.tenantSlug}</span>
       </Link>

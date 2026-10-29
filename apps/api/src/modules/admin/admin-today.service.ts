@@ -20,6 +20,7 @@ import {
 
 import { AdminActivityService } from './admin-activity.service';
 import { AdminApprovalsService } from './admin-approvals.service';
+import { AdminBusinessService } from './admin-business.service';
 import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
@@ -69,6 +70,7 @@ export class AdminTodayService {
     private readonly ops: AdminOpsHealthService,
     private readonly featureExpiry: FeatureExpiryService,
     private readonly activityService: AdminActivityService,
+    private readonly business: AdminBusinessService,
     @InjectQueue(QUEUE_BILLING) billingQueue: Queue,
     @InjectQueue(QUEUE_DUNNING) dunningQueue: Queue,
     @InjectQueue(QUEUE_PAYMENTS) paymentsQueue: Queue,
@@ -131,6 +133,12 @@ export class AdminTodayService {
       this.activityService.kpis(now),
       this.activityService.activity(new Date(now.getTime() - 48 * 3_600_000), now),
     ]);
+    // Progreso de los objetivos del negocio (solo si hay alguno puesto).
+    const goals = await this.business.getGoals().catch(() => null);
+    const businessGoals =
+      goals && (goals.progress.mrr || goals.progress.signups || goals.progress.trialConversion)
+        ? goals
+        : null;
     const overdueCrons = crons.filter((c) => c.overdue);
     // Solo los que tocan hoy o ya pasaron (antes salían todos los pendientes,
     // también los de dentro de semanas, como «vencidos» y urgentes).
@@ -172,6 +180,7 @@ export class AdminTodayService {
       expiringOverrides,
       kpis,
       activity,
+      businessGoals,
       urgentCount,
     };
   }

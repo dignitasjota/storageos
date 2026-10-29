@@ -1,6 +1,7 @@
 'use client';
 
 import { Download, Loader2 } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -15,13 +16,18 @@ import {
   YAxis,
 } from 'recharts';
 
+import { BusinessAlertsCard } from './business-alerts-card';
 import { ChurnByReasonCard } from './churn-by-reason-card';
+import { GoalsCard } from './goals-card';
 import { LtvCard } from './ltv-card';
+import { MonthlyReportCard } from './monthly-report-card';
 import { MrrForecastCard } from './mrr-forecast-card';
 import { MrrMovementsCard } from './mrr-movements-card';
 import { PaymentRetriesCard } from './payment-retries-card';
 import { RetentionCohortsCard } from './retention-cohorts-card';
+import { TrialFunnelCard } from './trial-funnel-card';
 
+import { Delta, PeriodSelect } from '@/components/admin/period-select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminMetrics } from '@/lib/admin/hooks';
@@ -45,7 +51,8 @@ const eurShort = (n: number) =>
   n >= 1000 ? `${Math.round(n / 100) / 10}k €` : `${Math.round(n)} €`;
 
 export default function AdminMetricsPage() {
-  const metrics = useAdminMetrics();
+  const [months, setMonths] = useState(12);
+  const metrics = useAdminMetrics(months);
 
   if (metrics.isLoading) {
     return (
@@ -107,10 +114,51 @@ export default function AdminMetricsPage() {
             Vista global de la plataforma. Se actualiza cada minuto.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={exportCsv}>
-          <Download className="mr-1 size-4" /> Exportar CSV
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <PeriodSelect value={months} onChange={setMonths} />
+          <Button variant="outline" size="sm" onClick={exportCsv}>
+            <Download className="mr-1 size-4" /> Exportar CSV
+          </Button>
+        </div>
       </div>
+
+      {/* Objetivos y avisos */}
+      <section className="grid gap-4 lg:grid-cols-2">
+        <GoalsCard />
+        <BusinessAlertsCard />
+      </section>
+
+      {/* El periodo elegido frente a los mismos meses justo antes */}
+      <section>
+        <h2 className="mb-2 text-sm font-medium text-muted-foreground">
+          Últimos {months} meses frente a los {months} anteriores
+        </h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <MetricCard
+            label="Altas"
+            value={m.period.current.signups}
+            hint={<Delta current={m.period.current.signups} previous={m.period.previous.signups} />}
+          />
+          <MetricCard
+            label="Bajas"
+            value={m.period.current.cancellations}
+            hint={
+              <Delta
+                current={m.period.current.cancellations}
+                previous={m.period.previous.cancellations}
+                invert
+              />
+            }
+          />
+          <MetricCard
+            label="Cobrado neto"
+            value={eur(m.period.current.collected)}
+            hint={
+              <Delta current={m.period.current.collected} previous={m.period.previous.collected} />
+            }
+          />
+        </div>
+      </section>
 
       {/* Tenants por estado */}
       <section>
@@ -197,7 +245,9 @@ export default function AdminMetricsPage() {
 
       {/* Series mensuales (barras) */}
       <section>
-        <h2 className="mb-2 text-sm font-medium text-muted-foreground">Evolución (12 meses)</h2>
+        <h2 className="mb-2 text-sm font-medium text-muted-foreground">
+          Evolución ({months} meses)
+        </h2>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Card>
             <CardHeader className="pb-2">
@@ -299,7 +349,10 @@ export default function AdminMetricsPage() {
 
       {/* MRR movements + previsión */}
       <section>
-        <MrrMovementsCard />
+        <TrialFunnelCard months={months} />
+      </section>
+      <section>
+        <MrrMovementsCard months={months} />
       </section>
       <section>
         <MrrForecastCard />
@@ -307,18 +360,19 @@ export default function AdminMetricsPage() {
 
       {/* Cohortes de retención + churn por razón */}
       <section className="grid gap-4 lg:grid-cols-2">
-        <RetentionCohortsCard />
-        <ChurnByReasonCard />
+        <RetentionCohortsCard months={months} />
+        <ChurnByReasonCard months={months} />
       </section>
 
       {/* Recuperación de cobros (retry analysis) */}
       <section className="grid gap-4 lg:grid-cols-2">
-        <PaymentRetriesCard />
+        <PaymentRetriesCard months={months} />
+        <MonthlyReportCard />
       </section>
 
       {/* LTV + cohortes de ingresos */}
       <section>
-        <LtvCard />
+        <LtvCard months={months} />
       </section>
 
       {/* Totales de plataforma */}
@@ -411,7 +465,7 @@ function MetricCard({
 }: {
   label: string;
   value: number | string;
-  hint?: string;
+  hint?: ReactNode;
   accent?: 'amber';
 }) {
   return (

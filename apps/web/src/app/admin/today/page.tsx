@@ -23,11 +23,13 @@ import { ApprovalsSection } from './approvals-section';
 import type {
   AdminActivityItemDto,
   AdminAddonChargeDueDto,
+  AdminBusinessGoalsDto,
   AdminTodayKpisDto,
   SaasPaymentProviderValue,
 } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { GoalBar } from '@/components/admin/goal-bar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -120,6 +122,7 @@ export default function AdminTodayPage() {
       </div>
 
       {data && <TodayKpis kpis={data.kpis} />}
+      {data?.businessGoals && <TodayGoals goals={data.businessGoals} />}
 
       {nothing && (
         <Card>
@@ -580,6 +583,41 @@ function TenantRow({ id, name, detail }: { id: string; name: string; detail: str
 }
 
 /** Cifras de arriba de «Hoy». */
+/** Progreso de los objetivos del negocio (si hay alguno puesto). */
+function TodayGoals({ goals }: { goals: AdminBusinessGoalsDto }) {
+  const fmtEur = (n: number) =>
+    n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+        <CardTitle className="text-sm">Objetivos</CardTitle>
+        <Link href="/admin/metrics" className="text-xs text-muted-foreground hover:underline">
+          Ver en Métricas
+        </Link>
+      </CardHeader>
+      <CardContent className="grid gap-4 sm:grid-cols-3">
+        {goals.progress.mrr && (
+          <GoalBar label="MRR" progress={goals.progress.mrr} format={fmtEur} />
+        )}
+        {goals.progress.signups && (
+          <GoalBar
+            label="Altas este mes"
+            progress={goals.progress.signups}
+            format={(n) => String(Math.round(n))}
+          />
+        )}
+        {goals.progress.trialConversion && (
+          <GoalBar
+            label="Conversión de pruebas"
+            progress={goals.progress.trialConversion}
+            format={(n) => `${Math.round(n)} %`}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function TodayKpis({ kpis }: { kpis: AdminTodayKpisDto }) {
   const items: { label: string; value: string; href: string; warn?: boolean }[] = [
     { label: 'MRR (activos)', value: eur(kpis.mrr), href: '/admin/metrics' },

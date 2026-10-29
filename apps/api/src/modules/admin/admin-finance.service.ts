@@ -34,7 +34,8 @@ export class AdminFinanceService {
     // Primer día (UTC) del mes N-1 hacia atrás.
     const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
 
-    const [payments, invoiceAgg, addonsMrr] = await Promise.all([
+    const fromPrev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - months, 1));
+    const [payments, invoiceAgg, addonsMrr, prevPayments, prevInvoices] = await Promise.all([
       this.admin.tenantSubscriptionPayment.findMany({
         where: {
           status: { in: ['paid', 'partially_refunded', 'refunded'] },
@@ -56,6 +57,17 @@ export class AdminFinanceService {
       }),
       // Mismo criterio que admin-metrics: solo tenants que pagan.
       this.addons.addonsMrrForActiveTenants(),
+      this.admin.tenantSubscriptionPayment.findMany({
+        where: {
+          status: { in: ['paid', 'partially_refunded', 'refunded'] },
+          paidAt: { gte: fromPrev, lt: from },
+        },
+        select: { amount: true, refundedAmount: true },
+      }),
+      this.admin.platformInvoice.aggregate({
+        where: { issuedAt: { gte: fromPrev, lt: from }, status: { not: 'rectified' } },
+        _sum: { total: true },
+      }),
     ]);
 
     // Lista de meses del periodo (para que la serie no tenga huecos).
@@ -122,6 +134,11 @@ export class AdminFinanceService {
         .map(([provider, v]) => ({ provider, total: round2(v.total), count: v.count }))
         .sort((a, b) => b.total - a.total),
       monthly,
+      previous: {
+        collectedTotal: round2(prevPayments.reduce((sum, p) => sum + netPaid(p), 0)),
+        refundedTotal: round2(prevPayments.reduce((sum, p) => sum + Number(p.refundedAmount), 0)),
+        invoicedTotal: round2(Number(prevInvoices._sum.total ?? 0)),
+      },
     };
   }
 }

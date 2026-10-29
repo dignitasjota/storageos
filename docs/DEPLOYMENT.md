@@ -1515,3 +1515,11 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Tras redesplegar cambian algunas cifras del panel admin, a propósito: el MRR deja fuera a los tenants suspendidos, los ingresos son netos de reembolsos, las bajas cuentan suspendidos y anonimizados, y el coste de IA no incluye las claves propias de los tenants.
 - El snapshot de MRR del mes en curso se recalcula en la tarea diaria `mrr.daily-snapshot` (03:00): hasta entonces los movimientos de este mes pueden no llevar los extras.
 - Sin variables nuevas.
+
+## 57. «Negocio» del panel admin: funcionalidades (2026-10-29)
+
+- Migración `20261126100000_admin_business_features`: tablas globales `platform_business_goals` y `tenant_health_snapshots` (con `REVOKE` al rol de la app) y umbrales de los avisos de negocio en `platform_alert_settings`. Se aplica sola.
+- Los avisos de negocio vienen activados con umbrales por defecto (caída del MRR 10 %, churn 5 %, tenant grande desde 100 €/mes, IA 20 $ en 7 días) y solo salen si el resumen semanal (correo o Telegram/Slack) está activado. Se cambian en Métricas → «Avisos de negocio».
+- La tendencia de la salud necesita la foto del mes anterior: hasta el mes que viene no hay tendencia.
+- El informe mensual en PDF usa Chromium como el resto de PDF del API.
+- Sin variables nuevas.

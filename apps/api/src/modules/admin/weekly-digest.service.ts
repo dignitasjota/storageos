@@ -3,13 +3,14 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PlatformEmailSettingsService } from '../email/platform-email-settings.service';
 import { EMAIL_PROVIDER, type EmailProvider } from '../email/providers/email-provider';
 
+import { AdminBusinessService } from './admin-business.service';
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminTenantsService } from './admin-tenants.service';
 import { ChatAlertsService } from './chat-alerts.service';
 import { MrrSnapshotService } from './mrr-snapshot.service';
 import { PlatformAlertsService } from './platform-alerts.service';
 
-import type { AdminWeeklyDigestResultDto } from '@storageos/shared';
+import type { AdminBusinessAlertDto, AdminWeeklyDigestResultDto } from '@storageos/shared';
 
 /** Escapa texto interpolado en el HTML del email (nombres/slugs de tenant). */
 function escapeHtml(value: string): string {
@@ -47,6 +48,7 @@ export class WeeklyDigestService {
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
     private readonly platformEmail: PlatformEmailSettingsService,
     private readonly chat: ChatAlertsService,
+    private readonly business: AdminBusinessService,
   ) {}
 
   /**
@@ -62,16 +64,17 @@ export class WeeklyDigestService {
       return { sent: false, reason: 'disabled_or_no_email' };
     }
 
-    const [overview, movements, atRisk] = await Promise.all([
+    const [overview, movements, atRisk, business] = await Promise.all([
       this.metrics.getOverview(),
       this.mrr.getMovements(1),
       this.tenants.getAtRisk(),
+      this.business.businessAlerts().catch(() => null),
     ]);
 
     // Último mes de movimientos (variación de MRR); null si aún calentando.
     const lastMovement =
       movements.months.length > 0 ? movements.months[movements.months.length - 1]! : null;
-    const { html, text } = this.render(overview, lastMovement, atRisk);
+    const { html, text } = this.render(overview, lastMovement, atRisk, business?.alerts ?? []);
 
     if (emailOn && settings.alertEmail) {
       await this.email.send({
@@ -97,6 +100,7 @@ export class WeeklyDigestService {
       nrr: number | null;
     } | null,
     atRisk: Awaited<ReturnType<AdminTenantsService['getAtRisk']>>,
+    alerts: AdminBusinessAlertDto[],
   ): { html: string; text: string } {
     const netNew = lastMovement ? lastMovement.net : 0;
     const churn = lastMovement ? lastMovement.churn : 0;
@@ -122,6 +126,11 @@ export class WeeklyDigestService {
 
     // --- Texto plano ---
     const textLines: string[] = ['Resumen semanal de KPIs — TrasterOS', ''];
+    if (alerts.length > 0) {
+      textLines.push('Avisos:');
+      for (const a of alerts) textLines.push(`⚠ ${a.title}. ${a.detail}`);
+      textLines.push('');
+    }
     for (const [label, value] of kpis) textLines.push(`- ${label}: ${value}`);
     if (risk.length > 0) {
       textLines.push('', 'Tenants a vigilar:');
@@ -144,9 +153,16 @@ export class WeeklyDigestService {
         .join('');
       riskHtml = `<h3 style="margin:20px 0 8px">Tenants a vigilar</h3><ul>${items}</ul>`;
     }
+    const alertsHtml =
+      alerts.length > 0
+        ? `<div style="margin:0 0 16px;padding:10px 12px;border:1px solid #f3c27a;background:#fff8ec;border-radius:8px"><strong>Avisos</strong><ul style="margin:6px 0 0;padding-left:18px">${alerts
+            .map((a) => `<li><strong>${escapeHtml(a.title)}</strong>. ${escapeHtml(a.detail)}</li>`)
+            .join('')}</ul></div>`
+        : '';
     const html = `<div style="font-family:system-ui,-apple-system,sans-serif;color:#111">
 <h2 style="margin:0 0 4px">Resumen semanal de KPIs</h2>
 <p style="margin:0 0 16px;color:#777">TrasterOS · plataforma</p>
+${alertsHtml}
 <table style="border-collapse:collapse;min-width:320px">${rows}</table>
 ${riskHtml}
 </div>`;

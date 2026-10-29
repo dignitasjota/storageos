@@ -27,6 +27,7 @@ import { RequestApprovalDialog } from './request-approval-dialog';
 import { SaasPaymentsCard } from './saas-payments-card';
 import { TenantAccountCard } from './tenant-account-card';
 import { TenantAddonsCard } from './tenant-addons-card';
+import { TenantBusinessCard } from './tenant-business-card';
 import { TenantConfigCard } from './tenant-config-card';
 import { TenantCustomersDialog } from './tenant-customers-dialog';
 import { TenantEditDialog } from './tenant-edit-dialog';
@@ -270,6 +271,7 @@ export default function AdminTenantDetailPage() {
       <Tabs defaultValue={initialTab} className="w-full">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="business">Negocio</TabsTrigger>
           <TabsTrigger value="timeline">Historial</TabsTrigger>
           <TabsTrigger value="config">Configuración</TabsTrigger>
           <TabsTrigger value="payments">Pagos</TabsTrigger>
@@ -412,6 +414,10 @@ export default function AdminTenantDetailPage() {
             <WhatsappAiCard tenantId={id} />
             <TenantNotesCard tenantId={id} />
           </div>
+        </TabsContent>
+
+        <TabsContent value="business" className="mt-4">
+          <TenantBusinessCard tenantId={id} />
         </TabsContent>
 
         <TabsContent value="timeline" className="mt-4">

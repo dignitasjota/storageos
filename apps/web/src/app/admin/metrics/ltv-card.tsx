@@ -18,8 +18,8 @@ function cellStyle(value: number, max: number): { className: string } {
   return { className: 'bg-green-200 text-green-950' };
 }
 
-export function LtvCard() {
-  const q = useAdminLtv();
+export function LtvCard({ months = 12 }: { months?: number }) {
+  const q = useAdminLtv(months);
 
   return (
     <Card>

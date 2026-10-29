@@ -26,8 +26,9 @@ export class AdminMetricsController {
   ) {}
 
   @Get()
-  async overview(): Promise<AdminMetricsDto> {
-    return this.metrics.getOverview();
+  async overview(@Query('months') months?: string): Promise<AdminMetricsDto> {
+    const n = months ? Number(months) : 12;
+    return this.metrics.getOverview(Number.isFinite(n) ? n : 12);
   }
 
   /** Desglose mensual del cambio de MRR (new/expansion/contraction/churn/...). */

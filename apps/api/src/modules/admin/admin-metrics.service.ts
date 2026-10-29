@@ -78,8 +78,10 @@ export class AdminMetricsService {
   private readonly retentionCache = new TtlCache<AdminRetentionDto>();
   private readonly ltvCache = new TtlCache<AdminLtvDto>();
 
-  getOverview(): Promise<AdminMetricsDto> {
-    return this.overviewCache.get('overview', () => this.computeOverview());
+  /** `months` = tamaño de las series y del periodo que se compara (1-24). */
+  getOverview(months = 12): Promise<AdminMetricsDto> {
+    const span = Math.min(Math.max(Math.trunc(months) || 12, 1), 24);
+    return this.overviewCache.get(`overview:${span}`, () => this.computeOverview(span));
   }
 
   getRetention(months: number): Promise<AdminRetentionDto> {
@@ -90,15 +92,16 @@ export class AdminMetricsService {
     return this.ltvCache.get(String(months), () => this.computeLtv(months));
   }
 
-  private async computeOverview(): Promise<AdminMetricsDto> {
+  private async computeOverview(span: number): Promise<AdminMetricsDto> {
     const now = new Date();
     const monthStart = startOfMonthUtc(now);
 
-    // Ventana de 12 meses (UTC) para las series mensuales.
+    // Ventana de `span` meses (UTC) para las series mensuales, y la misma
+    // ventana justo antes para comparar.
     const baseY = now.getUTCFullYear();
     const baseM = now.getUTCMonth();
-    const months = Array.from({ length: 12 }, (_, idx) => {
-      const d = new Date(Date.UTC(baseY, baseM - (11 - idx), 1));
+    const months = Array.from({ length: span }, (_, idx) => {
+      const d = new Date(Date.UTC(baseY, baseM - (span - 1 - idx), 1));
       const year = d.getUTCFullYear();
       const month = d.getUTCMonth() + 1;
       return {
@@ -106,7 +109,8 @@ export class AdminMetricsService {
         label: `${MONTHS_ES[month - 1]} ${String(year % 100).padStart(2, '0')}`,
       };
     });
-    const from12 = new Date(Date.UTC(baseY, baseM - 11, 1));
+    const from12 = new Date(Date.UTC(baseY, baseM - (span - 1), 1));
+    const fromPrev = new Date(Date.UTC(baseY, baseM - (2 * span - 1), 1));
     const trialSoon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     const [
@@ -167,11 +171,11 @@ export class AdminMetricsService {
       this.admin.contract.count(),
       this.admin.user.count(),
       this.admin.tenant.findMany({
-        where: { billingExempt: false, createdAt: { gte: from12 } },
+        where: { billingExempt: false, createdAt: { gte: fromPrev } },
         select: { createdAt: true },
       }),
       this.admin.tenant.findMany({
-        where: churnedBetweenWhere(from12),
+        where: churnedBetweenWhere(fromPrev),
         select: { canceledAt: true, updatedAt: true },
       }),
       // Ingresos netos: lo cobrado menos lo devuelto (reembolsos y contracargos
@@ -179,7 +183,7 @@ export class AdminMetricsService {
       this.admin.tenantSubscriptionPayment.findMany({
         where: {
           status: { in: ['paid', 'partially_refunded', 'refunded'] },
-          paidAt: { gte: from12 },
+          paidAt: { gte: fromPrev },
         },
         select: { paidAt: true, amount: true, refundedAmount: true },
       }),
@@ -268,6 +272,25 @@ export class AdminMetricsService {
       revenueByKey.set(k, (revenueByKey.get(k) ?? 0) + netPaid(r));
     }
 
+    // Totales del periodo y del anterior (las filas empiezan en `fromPrev`).
+    const totals = (from: Date, to: Date | null) => ({
+      signups: signupRows.filter((r) => r.createdAt >= from && (!to || r.createdAt < to)).length,
+      cancellations: cancelRows.filter((r) => {
+        const d = churnDate(r);
+        return d >= from && (!to || d < to);
+      }).length,
+      collected: round2(
+        revenueRows
+          .filter((r) => r.paidAt && r.paidAt >= from && (!to || r.paidAt < to))
+          .reduce((sum, r) => sum + netPaid(r), 0),
+      ),
+    });
+    const period = {
+      months: span,
+      current: totals(from12, null),
+      previous: totals(fromPrev, from12),
+    };
+
     const churnRatePercent =
       totalAtMonthStart > 0 ? (cancellationsThisMonth / totalAtMonthStart) * 100 : 0;
 
@@ -293,6 +316,7 @@ export class AdminMetricsService {
         label: m.label,
         collected: round2(revenueByKey.get(m.key) ?? 0),
       })),
+      period,
     };
   }
 

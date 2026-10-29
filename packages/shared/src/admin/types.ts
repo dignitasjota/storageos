@@ -1,3 +1,4 @@
+import type { AdminBusinessGoalsDto, AdminPeriodComparisonDto } from './business';
 import type { TenantFeature } from '../features';
 import type { MessageAttachmentDto } from '../messages';
 import type {
@@ -210,6 +211,8 @@ export interface AdminTenantHealthDto {
   factors: AdminTenantHealthFactorDto[];
   /** Última actividad detectada (último login del equipo). */
   lastActivityAt: string | null;
+  /** Diferencia con el score del mes pasado (null si no hay foto de ese mes). */
+  trend: number | null;
 }
 
 /** Estado de una feature premium para un tenant (incluida en plan vs usada). */
@@ -529,6 +532,8 @@ export interface AdminMetricsDto {
   monthlyGrowth: AdminMetricsGrowthMonthDto[];
   /** Ingresos SaaS cobrados por mes (pagos de suscripción), últimos 12 meses. */
   monthlySaasRevenue: AdminMetricsRevenueMonthDto[];
+  /** Totales del periodo elegido frente a los mismos meses justo antes. */
+  period: AdminPeriodComparisonDto;
 }
 
 /** Página de tickets del panel admin (paginación por cursor). */
@@ -1169,6 +1174,8 @@ export interface AdminOpenTicketDto {
 
 export interface AdminTodayDto {
   date: string;
+  /** Progreso de los objetivos del negocio (null si no hay ninguno). */
+  businessGoals: AdminBusinessGoalsDto | null;
   addonCharges: AdminAddonChargeDueDto[];
   /** Renovaciones de pago manual que vencen en <=7 dias (Stripe renueva solo). */
   manualRenewalsDue: AdminManualRenewalDueDto[];
@@ -1343,6 +1350,8 @@ export interface AdminFinanceOverviewDto {
   invoicedTotal: number;
   byProvider: AdminFinanceProviderSliceDto[];
   monthly: AdminFinanceMonthDto[];
+  /** Los mismos meses justo antes, para comparar. */
+  previous: { collectedTotal: number; refundedTotal: number; invoicedTotal: number };
 }
 
 /** Analítica global de un add-on del catálogo (cross-tenant). */

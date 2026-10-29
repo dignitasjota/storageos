@@ -491,6 +491,7 @@ model Tenant {
   subscription            TenantSubscription?
   subscriptionPayments    TenantSubscriptionPayment[]
   mrrSnapshots            MrrSnapshot[]
+  healthSnapshots         TenantHealthSnapshot[]
   tenantInteractions      TenantInteraction[]
   tenantLifecycleEmails   TenantLifecycleEmail[]
   customerFollowups       CustomerFollowup[]
@@ -847,6 +848,34 @@ model SubscriptionPlan {
 /// calcular los MRR movements (new/expansion/contraction/churn/reactivation)
 /// comparando meses consecutivos. Lo escribe un cron mensual + captura
 /// on-demand del mes en curso + backfill desde el historial de pagos.
+/// Objetivos del negocio del super admin (un solo registro, global, REVOKE).
+model PlatformBusinessGoals {
+  id                       String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  mrrTarget                Decimal?  @map("mrr_target") @db.Decimal(12, 2)
+  signupsTargetMonthly     Int?      @map("signups_target_monthly")
+  trialConversionTargetPct Int?      @map("trial_conversion_target_pct")
+  targetDate               DateTime? @map("target_date") @db.Date
+  updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_business_goals")
+}
+
+/// Foto mensual del score de salud de cada tenant (para la tendencia). Global, REVOKE.
+model TenantHealthSnapshot {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  month     DateTime @db.Date
+  score     Int
+  level     String
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, month])
+  @@index([month])
+  @@map("tenant_health_snapshots")
+}
+
 model MrrSnapshot {
   id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
@@ -5234,6 +5263,13 @@ model PlatformAlertSettings {
   /// Avisos comerciales al momento (cada hora, lo nuevo desde el último aviso).
   chatCommercialEnabled     Boolean   @default(false) @map("chat_commercial_enabled")
   chatCommercialLastAt      DateTime? @map("chat_commercial_last_at") @db.Timestamptz(6)
+  /// Avisos de negocio (caída de MRR, churn, tenant grande en riesgo, gasto de IA)
+  /// en el resumen semanal y por chat, con sus umbrales.
+  businessAlertsEnabled     Boolean   @default(true) @map("business_alerts_enabled")
+  alertMrrDropPct           Int       @default(10) @map("alert_mrr_drop_pct")
+  alertChurnPct             Int       @default(5) @map("alert_churn_pct")
+  alertAiCostUsdWeek        Decimal   @default(20) @map("alert_ai_cost_usd_week") @db.Decimal(10, 2)
+  alertBigTenantMrr         Decimal   @default(100) @map("alert_big_tenant_mrr") @db.Decimal(10, 2)
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
