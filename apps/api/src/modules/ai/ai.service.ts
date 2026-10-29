@@ -1,5 +1,7 @@
 import {
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -20,6 +22,7 @@ import {
   type AiProvider,
   type AiToolResultBlock,
 } from './ai-provider';
+import { AiQuotaService } from './ai-quota.service';
 import { type AiToolContext, AiToolsService } from './ai-tools.service';
 import {
   applySuggestedActionsRanking,
@@ -33,6 +36,7 @@ import type {
   AiConversationDto,
   AiMessageDto,
   AiPendingActionDto,
+  AiUsageDto,
   ChatInput,
   ChatResultDto,
   Permission,
@@ -134,7 +138,17 @@ export class AiService {
     private readonly actions: AiActionsService,
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
     private readonly admin: PrismaAdminService,
+    private readonly quota: AiQuotaService,
   ) {}
+
+  usage(tenantId: string, userId: string): Promise<AiUsageDto> {
+    return this.quota.usage(tenantId, userId);
+  }
+
+  /** 429 si el tenant o el usuario han gastado sus consultas. */
+  assertQuota(tenantId: string, userId: string | null): Promise<void> {
+    return this.quota.assert(tenantId, userId);
+  }
 
   /**
    * Guarda los tokens de una llamada al modelo (para el panel del super admin).
@@ -145,6 +159,7 @@ export class AiService {
     userId: string | null,
     feature: string,
     completion: AiCompletion,
+    countsAsQuery = true,
   ): void {
     if (!completion.usage) return;
     void this.admin.aiUsageEvent
@@ -156,6 +171,7 @@ export class AiService {
           model: this.provider.modelName,
           inputTokens: completion.usage.inputTokens,
           outputTokens: completion.usage.outputTokens,
+          countsAsQuery,
         },
       })
       .catch((err: unknown) => {
@@ -177,6 +193,7 @@ export class AiService {
     user: string;
   }): Promise<string> {
     this.assertAvailable();
+    await this.quota.assert(args.tenantId, args.userId);
     const completion = await this.provider.createMessage({
       system: args.system,
       messages: [{ role: 'user', content: args.user }],
@@ -202,6 +219,7 @@ export class AiService {
 
   async chat(args: ChatArgs): Promise<ChatResultDto> {
     this.assertAvailable();
+    await this.quota.assert(args.tenantId, args.userId);
     return this.runChat(args);
   }
 
@@ -264,7 +282,8 @@ export class AiService {
       const completion = hooks
         ? await this.provider.streamMessage(request, hooks.onText)
         : await this.provider.createMessage(request);
-      this.recordUsage(tenantId, userId, 'chat', completion);
+      // Solo la primera vuelta es la consulta; las de herramientas no cuentan.
+      this.recordUsage(tenantId, userId, 'chat', completion, i === 0);
       messages.push({ role: 'assistant', content: completion.content });
 
       const toolUses = completion.content.filter((b) => b.type === 'tool_use');
@@ -326,6 +345,7 @@ export class AiService {
   async suggestReply(args: {
     tenantId: string;
     customerId: string;
+    userId?: string | null;
   }): Promise<{ suggestion: string }> {
     if (!this.provider.available) {
       throw new ServiceUnavailableException({
@@ -333,6 +353,7 @@ export class AiService {
         message: 'El asistente IA no está configurado en este entorno',
       });
     }
+    await this.quota.assert(args.tenantId, args.userId ?? null);
     const { tenantId, customerId } = args;
     const ctx = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findFirst({
@@ -401,7 +422,7 @@ Redacta la respuesta al inquilino:`;
       messages: [{ role: 'user', content: contextText }],
       tools: [],
     });
-    this.recordUsage(args.tenantId, null, 'suggest_reply', completion);
+    this.recordUsage(args.tenantId, args.userId ?? null, 'suggest_reply', completion);
     const suggestion = completion.content
       .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
       .map((b) => b.text)
@@ -420,6 +441,7 @@ Redacta la respuesta al inquilino:`;
   async suggestAdCampaign(args: {
     tenantId: string;
     input: SuggestAdCampaignInput;
+    userId?: string | null;
   }): Promise<AdCampaignDraftDto> {
     if (!this.provider.available) {
       throw new ServiceUnavailableException({
@@ -427,6 +449,7 @@ Redacta la respuesta al inquilino:`;
         message: 'El asistente IA no está configurado en este entorno',
       });
     }
+    await this.quota.assert(args.tenantId, args.userId ?? null);
     const { tenantId, input } = args;
     const ctx = await this.prisma.withTenant(async (tx) => {
       const [tenant, facilities, unitTypes, grouped, promotion] = await Promise.all([
@@ -503,7 +526,7 @@ Redacta el borrador de campaña:`;
       messages: [{ role: 'user', content: contextText }],
       tools: [],
     });
-    this.recordUsage(args.tenantId, null, 'ad_campaign', completion);
+    this.recordUsage(args.tenantId, args.userId ?? null, 'ad_campaign', completion);
     const draft = completion.content
       .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
       .map((b) => b.text)
@@ -528,6 +551,8 @@ Redacta el borrador de campaña:`;
   ): Promise<SuggestedActionDto[] | null> {
     if (actions.length < 2) return null;
     if (!(await this.isAiEnabled(tenantId))) return null;
+    // Lo que la IA hace sola no gasta consultas, pero tampoco sigue si no quedan.
+    if (!(await this.quota.hasRoom(tenantId))) return null;
     let timer: NodeJS.Timeout | undefined;
     try {
       const completion = await Promise.race([
@@ -541,7 +566,7 @@ Redacta el borrador de campaña:`;
         }),
       ]);
       if (!completion) return null;
-      this.recordUsage(tenantId, null, 'suggested_actions', completion);
+      this.recordUsage(tenantId, null, 'suggested_actions', completion, false);
       const text = completion.content
         .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
         .map((b) => b.text)
@@ -603,6 +628,15 @@ Redacta el borrador de campaña:`;
         code: 'feature_not_in_plan',
         message: 'El asistente no está activo',
       });
+    }
+    if (!(await this.quota.hasRoom(tenantId))) {
+      throw new HttpException(
+        {
+          code: 'ai_monthly_limit_reached',
+          message: 'El asistente no está disponible ahora. Escríbenos en «Mensajes».',
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
     const ctx = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findFirst({

@@ -6,6 +6,7 @@ import type {
   AiConversationDetailDto,
   AiConversationDto,
   AiPendingActionDto,
+  AiUsageDto,
   ChatInput,
   ChatResultDto,
   SuggestReplyResultDto,
@@ -14,6 +15,16 @@ import type {
 export const aiConversationsKey = ['ai', 'conversations'] as const;
 const listKey = aiConversationsKey;
 const detailKey = (id: string) => ['ai', 'conversations', id] as const;
+
+export const aiUsageKey = ['ai', 'usage'] as const;
+
+/** Consultas del asistente usadas este mes (y las tuyas hoy). */
+export function useAiUsage() {
+  return useQuery({
+    queryKey: aiUsageKey,
+    queryFn: () => apiFetch<AiUsageDto>('/ai/usage'),
+  });
+}
 
 export function useAiConversations() {
   return useQuery({

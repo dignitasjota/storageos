@@ -1,5 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 
 import {
   type AiCompletion,
@@ -9,14 +8,14 @@ import {
   type AiToolDef,
 } from './ai-provider';
 
-import type { Env } from '../../config/env.schema';
+/** Modelo por defecto si ni el panel ni `AI_MODEL` dicen otro. */
+export const DEFAULT_AI_MODEL = 'claude-sonnet-4-6';
 
 /**
  * Provider de IA real contra la Messages API de Anthropic (vía `fetch`, sin SDK
- * para no añadir dependencia). Activo con `AI_PROVIDER=anthropic` +
- * `ANTHROPIC_API_KEY`.
+ * para no añadir dependencia). La clave y el modelo los decide
+ * `PlatformAiSettingsService` (panel admin o variables de entorno).
  */
-@Injectable()
 export class AnthropicAiProvider extends AiProvider {
   private readonly logger = new Logger(AnthropicAiProvider.name);
   private readonly apiKey: string;
@@ -26,10 +25,10 @@ export class AnthropicAiProvider extends AiProvider {
     return this.model;
   }
 
-  constructor(config: ConfigService<Env, true>) {
+  constructor(apiKey: string, model: string) {
     super();
-    this.apiKey = config.get('ANTHROPIC_API_KEY', { infer: true }) ?? '';
-    this.model = config.get('AI_MODEL', { infer: true }) ?? 'claude-sonnet-4-6';
+    this.apiKey = apiKey;
+    this.model = model || DEFAULT_AI_MODEL;
   }
 
   get available(): boolean {

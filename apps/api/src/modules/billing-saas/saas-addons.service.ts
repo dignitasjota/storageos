@@ -203,6 +203,7 @@ export class SaasAddonsService {
         grantsUnits: input.grantsUnits ?? null,
         grantsFacilities: input.grantsFacilities ?? null,
         grantsUsers: input.grantsUsers ?? null,
+        grantsAiQueries: input.grantsAiQueries ?? null,
         isActive: input.isActive,
       },
     });
@@ -243,6 +244,7 @@ export class SaasAddonsService {
         grantsUnits: input.grantsUnits ?? null,
         grantsFacilities: input.grantsFacilities ?? null,
         grantsUsers: input.grantsUsers ?? null,
+        grantsAiQueries: input.grantsAiQueries ?? null,
         isActive: input.isActive,
       },
     });
@@ -1018,6 +1020,7 @@ export class SaasAddonsService {
     grantsUnits: number | null;
     grantsFacilities: number | null;
     grantsUsers: number | null;
+    grantsAiQueries: number | null;
     stripePriceId: string | null;
     isActive: boolean;
   }): SaasAddonDto {
@@ -1031,6 +1034,7 @@ export class SaasAddonsService {
       grantsUnits: r.grantsUnits,
       grantsFacilities: r.grantsFacilities,
       grantsUsers: r.grantsUsers,
+      grantsAiQueries: r.grantsAiQueries,
       isActive: r.isActive,
       stripePriceId: r.stripePriceId,
     };

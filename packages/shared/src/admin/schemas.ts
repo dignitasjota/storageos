@@ -692,6 +692,7 @@ export const UpsertSaasAddonSchema = z.object({
   grantsUnits: z.number().int().min(0).max(100000).optional().nullable(),
   grantsFacilities: z.number().int().min(0).max(1000).optional().nullable(),
   grantsUsers: z.number().int().min(0).max(1000).optional().nullable(),
+  grantsAiQueries: z.number().int().min(0).max(100000).optional().nullable(),
   isActive: z.boolean().default(true),
 });
 export type UpsertSaasAddonInput = z.infer<typeof UpsertSaasAddonSchema>;

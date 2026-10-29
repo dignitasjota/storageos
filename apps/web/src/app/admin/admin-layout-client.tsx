@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Bot,
   Calculator,
   Activity,
   AlertTriangle,
@@ -158,6 +159,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
       { href: '/admin/website', label: 'Web de TrasterOS', icon: Globe },
       { href: '/admin/legal', label: 'Páginas legales', icon: FileText },
       { href: '/admin/email', label: 'Correo saliente', icon: Mail },
+      { href: '/admin/ai', label: 'Asistente IA', icon: Bot },
       { href: '/admin/whatsapp-ai', label: 'IA de WhatsApp', icon: MessageCircle },
       { href: '/admin/platform-alerts', label: 'Alertas al admin', icon: BellRing },
     ],

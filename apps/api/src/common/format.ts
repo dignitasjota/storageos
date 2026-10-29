@@ -112,3 +112,27 @@ export function zonedNextDayStart(day: string, timeZone = 'Europe/Madrid'): Date
   if (Number.isNaN(next.getTime())) return new Date(NaN);
   return zonedDayStart(next.toISOString().slice(0, 10), timeZone);
 }
+
+/** Mes en curso (AAAA-MM) y su comienzo (medianoche del día 1 en hora de Madrid). */
+export function currentMonth(now = new Date()): { key: string; start: Date } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(now);
+  const y = Number(parts.find((p) => p.type === 'year')?.value);
+  const m = Number(parts.find((p) => p.type === 'month')?.value);
+  // Diferencia de Madrid con UTC ese día (1 h en invierno, 2 en verano).
+  const guess = new Date(Date.UTC(y, m - 1, 1));
+  const madridHour = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Madrid',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).format(guess),
+  );
+  return {
+    key: `${y}-${String(m).padStart(2, '0')}`,
+    start: new Date(guess.getTime() - madridHour * 3_600_000),
+  };
+}

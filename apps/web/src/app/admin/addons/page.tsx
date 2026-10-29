@@ -139,6 +139,7 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
   const [grantsUnits, setGrantsUnits] = useState(String(addon?.grantsUnits ?? ''));
   const [grantsFacilities, setGrantsFacilities] = useState(String(addon?.grantsFacilities ?? ''));
   const [grantsUsers, setGrantsUsers] = useState(String(addon?.grantsUsers ?? ''));
+  const [grantsAiQueries, setGrantsAiQueries] = useState(String(addon?.grantsAiQueries ?? ''));
   const [isActive, setIsActive] = useState(addon?.isActive ?? true);
 
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s) || 0);
@@ -154,6 +155,7 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
         grantsUnits: toNum(grantsUnits),
         grantsFacilities: toNum(grantsFacilities),
         grantsUsers: toNum(grantsUsers),
+        grantsAiQueries: toNum(grantsAiQueries),
         isActive,
       });
       toast.success('Add-on guardado.');
@@ -215,7 +217,7 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
             <p className="text-xs text-muted-foreground">
               Amplía los límites del plan. Déjalo vacío si el add-on no aporta capacidad.
             </p>
-            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-4">
               <div className="space-y-1">
                 <Label className="text-xs">Trasteros</Label>
                 <Input
@@ -240,6 +242,15 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
                   type="number"
                   value={grantsUsers}
                   onChange={(e) => setGrantsUsers(e.target.value)}
+                  placeholder="—"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Consultas de IA al mes</Label>
+                <Input
+                  type="number"
+                  value={grantsAiQueries}
+                  onChange={(e) => setGrantsAiQueries(e.target.value)}
                   placeholder="—"
                 />
               </div>

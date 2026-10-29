@@ -16,6 +16,7 @@ import {
   type AiConversationDetailDto,
   type AiConversationDto,
   type AiPendingActionDto,
+  type AiUsageDto,
   ChatSchema,
   type ChatResultDto,
   permissionsForRole,
@@ -67,6 +68,8 @@ export class AiController {
     @Res() res: Response,
   ): Promise<void> {
     this.ai.assertAvailable();
+    // Antes de abrir el stream, para que el límite responda con su 429.
+    await this.ai.assertQuota(user.tenantId, user.sub);
     res.status(HttpStatus.OK);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -97,6 +100,12 @@ export class AiController {
     } finally {
       res.end();
     }
+  }
+
+  /** Consultas del asistente usadas este mes (y las del usuario hoy). */
+  @Get('usage')
+  usage(@CurrentUser() user: AuthenticatedUser): Promise<AiUsageDto> {
+    return this.ai.usage(user.tenantId, user.sub);
   }
 
   /** Confirma una acción propuesta por el asistente: se ejecuta con tus permisos actuales. */
@@ -137,7 +146,11 @@ export class AiController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: SuggestReplyDto,
   ): Promise<SuggestReplyResultDto> {
-    return this.ai.suggestReply({ tenantId: user.tenantId, customerId: body.customerId });
+    return this.ai.suggestReply({
+      tenantId: user.tenantId,
+      customerId: body.customerId,
+      userId: user.sub,
+    });
   }
 
   @Get('conversations')
