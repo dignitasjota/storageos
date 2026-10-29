@@ -1,5 +1,6 @@
 import { XCircle } from 'lucide-react';
 
+import { PortalReturnLink } from '@/components/public/portal-return-link';
 import { TenantMiniChrome } from '@/components/public/tenant-mini-chrome';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchTenantBrand } from '@/lib/tenant-brand';
@@ -23,6 +24,15 @@ export default async function RedsysKoPage({
             El pago no se ha podido procesar o se ha cancelado. No se ha realizado ningún cargo.
             Vuelve a intentarlo desde tu área de clientes o contacta con{' '}
             {brand ? brand.tenantName : 'el local'}.
+            {brand && (
+              <PortalReturnLink
+                tenantSlug={brand.tenantSlug}
+                className="mt-5 inline-flex h-10 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-white"
+                style={{ backgroundColor: brand.brandColor ?? '#2563EB' }}
+              >
+                Volver a intentarlo
+              </PortalReturnLink>
+            )}
           </CardContent>
         </Card>
       </div>
