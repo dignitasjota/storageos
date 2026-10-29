@@ -186,13 +186,25 @@ describe('Asistente de WhatsApp (e2e)', () => {
     replies = await assistantReplies(tenantId, 3);
     expect(replies).toHaveLength(3);
     expect(replies[2]!.body).not.toContain('[[HUMANO]]');
-    const conversation = await prismaAdmin.whatsappConversation.findFirstOrThrow({
+    // La pausa se guarda justo después de la respuesta: se espera a ella.
+    let conversation = await prismaAdmin.whatsappConversation.findFirstOrThrow({
       where: { tenantId },
     });
+    for (let i = 0; i < 40 && conversation.assistantEnabled; i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+      conversation = await prismaAdmin.whatsappConversation.findFirstOrThrow({
+        where: { tenantId },
+      });
+    }
     expect(conversation.assistantEnabled).toBe(false);
-    expect(
-      await prismaAdmin.notification.findFirst({ where: { tenantId, type: 'whatsapp.handoff' } }),
-    ).toBeTruthy();
+    let handoff = null;
+    for (let i = 0; i < 40 && !handoff; i += 1) {
+      handoff = await prismaAdmin.notification.findFirst({
+        where: { tenantId, type: 'whatsapp.handoff' },
+      });
+      if (!handoff) await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(handoff).toBeTruthy();
     await inbound('¿Hola?');
     await settle();
     expect(await assistantReplies(tenantId, 3)).toHaveLength(3);
