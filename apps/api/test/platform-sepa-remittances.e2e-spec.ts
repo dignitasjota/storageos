@@ -443,4 +443,35 @@ describe('Platform SEPA — remesas (e2e)', () => {
     expect(res.status).toBe(400);
     expect(['invalid_collection_date', 'sepa_not_configured']).toContain(res.body.code);
   });
+  it('una cuenta exenta o anonimizada en modo SEPA no entra en la remesa', async () => {
+    await request(app.getHttpServer())
+      .put('/admin/platform-sepa/settings')
+      .set(adminAuth())
+      .send({
+        creditorName: 'TrasterOS SL',
+        ...PLATFORM_CREDITOR_ADDRESS,
+        creditorId: 'ES98ZZZ12345678',
+        creditorIban: 'ES9121000418450200051332',
+        creditorBic: 'BBVAESMMXXX',
+        enabled: true,
+      })
+      .expect(200);
+    const exempt = await setupSepaTenant('sepa-rem-exempt');
+    await adminClient.tenant.update({
+      where: { id: exempt.owner.tenantId },
+      data: { billingExempt: true },
+    });
+    const gone = await setupSepaTenant('sepa-rem-anon');
+    await adminClient.tenant.update({
+      where: { id: gone.owner.tenantId },
+      data: { status: 'cancelled', deletedAt: new Date() },
+    });
+    const preview = await request(app.getHttpServer())
+      .post('/admin/platform-sepa/remittances/preview')
+      .set(adminAuth())
+      .expect(200);
+    const ids = (preview.body.eligible as { tenantId: string }[]).map((e) => e.tenantId);
+    expect(ids).not.toContain(exempt.owner.tenantId);
+    expect(ids).not.toContain(gone.owner.tenantId);
+  });
 });

@@ -145,6 +145,9 @@ export class PlatformSepaRemittanceService {
         billingMode: 'sepa',
         status: { in: ['active', 'past_due'] },
         currentPeriodEnd: { lte: graceDate },
+        // Una cuenta exenta no paga y una anonimizada ya no es cliente: no se
+        // les domicilia aunque sigan en modo SEPA.
+        tenant: { deletedAt: null, billingExempt: false, status: { not: 'cancelled' } },
       },
       include: { tenant: { select: { id: true, slug: true, name: true } } },
     });

@@ -44,6 +44,8 @@ describe('Dunning del SaaS (e2e)', () => {
         where: { tenantId },
         data: { status: 'past_due', currentPeriodEnd: overdue, manualExtensionDays: 0 },
       });
+      // El escalado solo actúa sobre tenants operando (no en prueba).
+      await prisma.tenant.update({ where: { id: tenantId }, data: { status: 'active' } });
     } finally {
       await prisma.$disconnect();
     }

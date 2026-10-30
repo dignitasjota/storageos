@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
+import { addMonthsUtc, periodsOwed, subscriptionDueDate } from '../billing-saas/platform-due';
 import {
   amountToCharge,
   platformPricing,
@@ -78,7 +79,13 @@ export class AdminBillingOpsService {
 
   // ------------------------------------------------------------- cargos
 
+  /**
+   * Ciclo de cobro. La remesa SEPA y el cobro automático de Redsys cobran
+   * siempre la cuota mensual, aunque el último periodo pagado fuera de un año
+   * (p. ej. un pago a mano de 12 meses antes de domiciliar).
+   */
   private cycleOf(sub: SubRow): 'monthly' | 'yearly' {
+    if (sub.billingMode === 'sepa' || sub.billingMode === 'redsys') return 'monthly';
     const len = sub.currentPeriodEnd.getTime() - sub.currentPeriodStart.getTime();
     return len > 200 * DAY ? 'yearly' : 'monthly';
   }
@@ -159,7 +166,9 @@ export class AdminBillingOpsService {
       }),
     ]);
     for (const s of late) {
-      const since = s.currentPeriodEnd;
+      // Mismo «desde» que el escalado de impagos (con Stripe, el inicio del
+      // periodo cuyo cobro falló).
+      const since = subscriptionDueDate(s);
       const days = Math.max(0, Math.floor((now.getTime() - since.getTime()) / DAY));
       const steps: AdminDunningStepDto[] = [];
       if (settings?.enabled) {
@@ -173,7 +182,8 @@ export class AdminBillingOpsService {
             (e) =>
               e.tenantId === s.tenantId &&
               e.step === step &&
-              e.periodEnd.getTime() === since.getTime(),
+              // El escalado guarda cada paso con el fin del periodo.
+              e.periodEnd.getTime() === s.currentPeriodEnd.getTime(),
           );
           steps.push({
             step,
@@ -185,12 +195,22 @@ export class AdminBillingOpsService {
       }
       const items = sepaItems.filter((i) => i.tenantId === s.tenantId);
       // Un plan gratuito sin extras no debe nada.
-      const amount = this.planCharge(s, pricing).total;
-      if (amount <= 0) continue;
+      const periodAmount = this.planCharge(s, pricing).total;
+      if (periodAmount <= 0) continue;
+      // Debe una cuota por cada periodo vencido (un pago tardío extiende desde
+      // la fecha debida, así que paga uno a uno).
+      const periods = periodsOwed(
+        since,
+        now,
+        this.cycleOf(s) === 'yearly' ? 12 : 1,
+        s.billingMode === 'stripe' && !!s.stripeSubscriptionId,
+      );
       result.set(s.tenantId, {
         since: since.toISOString(),
         days,
-        amount,
+        amount: round2(periodAmount * periods),
+        periods,
+        periodAmount,
         steps,
         sepaBounced: items[0]?.itemStatus === 'bounced',
         sepaInProgress: items.some((i) => i.itemStatus === 'pending'),
@@ -394,7 +414,10 @@ export class AdminBillingOpsService {
       });
     }
     items.sort((a, b) => b.days - a.days || b.amount - a.amount);
-    return { total: round2(items.reduce((s, i) => s + i.amount, 0)), items };
+    // Lo que ya va en una remesa SEPA está en el banco: se lista, pero no
+    // cuenta como pendiente (se cobrará al confirmar la remesa).
+    const pending = items.filter((i) => !i.overdue?.sepaInProgress);
+    return { total: round2(pending.reduce((s, i) => s + i.amount, 0)), items };
   }
 
   // ------------------------------------------------------------- calendario
@@ -545,9 +568,12 @@ export class AdminBillingOpsService {
     };
     /** Repite un cargo cada `stepMonths` desde `first` hasta el horizonte. */
     const repeat = (first: Date, stepMonths: number, fn: (d: Date) => void) => {
-      for (let i = 0, d = new Date(first); d <= to && i < 24; i++) {
+      // Siempre desde la primera fecha: un 31 de enero sigue el 28 de febrero y
+      // el 31 de marzo (antes saltaba al 3 de marzo y se comía febrero).
+      for (let i = 0; i < 24; i++) {
+        const d = addMonthsUtc(first, i * stepMonths);
+        if (d > to) break;
         fn(d);
-        d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + stepMonths, d.getUTCDate()));
       }
     };
 
@@ -582,7 +608,10 @@ export class AdminBillingOpsService {
     return {
       pricesIncludeVat: pricing.includeVat,
       buckets,
-      overdue: { total: receivables.total, count: receivables.items.length },
+      overdue: {
+        total: receivables.total,
+        count: receivables.items.filter((i) => !i.overdue?.sepaInProgress).length,
+      },
       inSepaRemittance: {
         total: round2(sepaPending.reduce((sum, i) => sum + i.amount / 100, 0)),
         count: sepaPending.length,

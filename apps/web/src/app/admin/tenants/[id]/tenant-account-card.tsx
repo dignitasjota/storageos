@@ -68,6 +68,11 @@ export function TenantAccountCard({ tenantId }: { tenantId: string }) {
                   Debe {eur(a.overdue.amount)} desde el {day(a.overdue.since)} ({a.overdue.days}{' '}
                   {a.overdue.days === 1 ? 'día' : 'días'})
                 </p>
+                {a.overdue.periods > 1 && (
+                  <p className="text-xs">
+                    {a.overdue.periods} cuotas de {eur(a.overdue.periodAmount)} sin pagar.
+                  </p>
+                )}
                 {a.overdue.sepaInProgress && (
                   <p className="text-xs">
                     Hay un adeudo SEPA en el banco: no se le recuerda ni suspende mientras tanto.

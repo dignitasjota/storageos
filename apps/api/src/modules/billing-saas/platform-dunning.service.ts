@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 
+import { subscriptionDueDate } from './platform-due';
+
 import type { Env } from '../../config/env.schema';
 import type {
   DunningRunResultDto,
@@ -12,26 +14,8 @@ import type {
 } from '@storageos/shared';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Desde cuándo debe el tenant. En pago manual y SEPA, el fin del periodo
- * pagado. En Stripe, el periodo ya avanzó al del cobro que falló: se debe
- * desde su inicio (más el crédito de pagos manuales). Antes se contaba desde
- * el fin de ese periodo nuevo y el escalado llegaba con un mes de retraso,
- * cuando Stripe ya había agotado sus reintentos.
- */
-function dueDateOf(sub: {
-  billingMode: string;
-  stripeSubscriptionId: string | null;
-  currentPeriodStart: Date;
-  currentPeriodEnd: Date;
-  manualExtensionDays: number;
-}): Date {
-  if (sub.billingMode === 'stripe' && sub.stripeSubscriptionId) {
-    return new Date(sub.currentPeriodStart.getTime() + sub.manualExtensionDays * DAY_MS);
-  }
-  return sub.currentPeriodEnd;
-}
+/** Un cobro automático de Redsys sin respuesta se da por en curso este tiempo. */
+const REDSYS_IN_FLIGHT_MS = 48 * 60 * 60 * 1000;
 
 /**
  * Dunning del SaaS: cobra a los tenants morosos de la suscripción. Detecta las
@@ -107,10 +91,8 @@ export class PlatformDunningService {
     if (lapsed.length === 0) return 0;
     // Domiciliación SEPA con el adeudo ya en una remesa: el cobro está en el
     // banco (se confirma al liquidarse), no es un impago.
-    const inRemittance = await this.tenantsWithPendingSepa(
-      lapsed.filter((s) => s.billingMode === 'sepa').map((s) => s.tenantId),
-    );
-    const due = lapsed.filter((s) => !inRemittance.has(s.tenantId));
+    const inFlight = await this.tenantsWithChargeInFlight(lapsed, now);
+    const due = lapsed.filter((s) => !inFlight.has(s.tenantId));
     if (due.length === 0) return 0;
     await this.admin.tenantSubscription.updateMany({
       where: { id: { in: due.map((s) => s.id) } },
@@ -118,6 +100,32 @@ export class PlatformDunningService {
     });
     this.logger.log(`Enforcement manual: ${due.length} suscripciones a past_due por impago`);
     return due.length;
+  }
+
+  /**
+   * Tenants con un cobro de la cuota en marcha: un adeudo SEPA en una remesa
+   * viva, o un cobro automático de Redsys cuya respuesta aún no ha llegado
+   * (lo aplica el aviso del banco). Mientras tanto no es un impago.
+   */
+  private async tenantsWithChargeInFlight(
+    subs: { tenantId: string; billingMode: string }[],
+    now: Date,
+  ): Promise<Set<string>> {
+    const sepa = await this.tenantsWithPendingSepa(
+      subs.filter((s) => s.billingMode === 'sepa').map((s) => s.tenantId),
+    );
+    const redsysIds = subs.filter((s) => s.billingMode === 'redsys').map((s) => s.tenantId);
+    if (redsysIds.length === 0) return sepa;
+    const charging = await this.admin.platformRedsysOrder.findMany({
+      where: {
+        tenantId: { in: redsysIds },
+        status: 'charging',
+        createdAt: { gte: new Date(now.getTime() - REDSYS_IN_FLIGHT_MS) },
+      },
+      select: { tenantId: true },
+    });
+    for (const c of charging) sepa.add(c.tenantId);
+    return sepa;
   }
 
   /** Tenants con un adeudo SEPA de plataforma pendiente en una remesa viva. */
@@ -140,24 +148,30 @@ export class PlatformDunningService {
     const result: DunningRunResultDto = { evaluated: 0, reminders: 0, suspended: 0 };
     if (!settings.enabled) return result;
 
+    // Solo tenants operando con un plan de pago: no se escala a quien está de
+    // baja, borrado, suspendido a mano (su motivo y fecha de baja se respetan),
+    // en prueba (su primer cobro de Stripe lo sigue reintentando Stripe) ni a
+    // quien se pasó a un plan gratis.
     const subs = await this.admin.tenantSubscription.findMany({
-      where: { status: 'past_due', tenant: { billingExempt: false } },
+      where: {
+        status: 'past_due',
+        plan: { priceMonthly: { gt: 0 } },
+        tenant: { billingExempt: false, deletedAt: null, status: 'active' },
+      },
       include: { plan: { select: { name: true } }, tenant: true },
     });
-    // Domiciliación SEPA con el adeudo ya en una remesa: el cobro está en el
-    // banco; no se recuerda ni se suspende mientras se resuelve.
-    const inRemittance = await this.tenantsWithPendingSepa(
-      subs.filter((s) => s.billingMode === 'sepa').map((s) => s.tenantId),
-    );
+    // Con el cobro en marcha (adeudo en el banco o cobro de Redsys sin
+    // respuesta) no se recuerda ni se suspende mientras se resuelve.
+    const inFlight = await this.tenantsWithChargeInFlight(subs, now);
 
     for (const sub of subs) {
-      if (inRemittance.has(sub.tenantId)) continue;
+      if (inFlight.has(sub.tenantId)) continue;
       // `currentPeriodEnd` YA incluye el crédito manual acumulado (lo suman tanto
       // `recordManualPayment` como `syncSubscriptionFromStripe`); NO se vuelve a
       // sumar aquí o el dunning tardaría el doble en actuar sobre morosos con
       // histórico de pagos manuales.
       const periodEnd = sub.currentPeriodEnd;
-      const daysOverdue = Math.floor((now.getTime() - dueDateOf(sub).getTime()) / DAY_MS);
+      const daysOverdue = Math.floor((now.getTime() - subscriptionDueDate(sub).getTime()) / DAY_MS);
       if (daysOverdue < 0) continue;
       result.evaluated += 1;
 
@@ -179,9 +193,10 @@ export class PlatformDunningService {
         }
 
         if (s.suspend) {
-          await this.suspend(sub.tenantId);
-          result.suspended += 1;
-          await this.notify(sub, daysOverdue, true).catch(() => undefined);
+          if (await this.suspend(sub.tenantId)) {
+            result.suspended += 1;
+            await this.notify(sub, daysOverdue, true).catch(() => undefined);
+          }
         } else {
           result.reminders += 1;
           await this.notify(sub, daysOverdue, false).catch(() => undefined);
@@ -196,23 +211,59 @@ export class PlatformDunningService {
     return result;
   }
 
-  private async suspend(tenantId: string): Promise<void> {
+  private async suspend(tenantId: string): Promise<boolean> {
     // La suspensión es a nivel de tenant (el enum `SubscriptionStatus` no tiene
     // 'suspended'); la suscripción se queda en `past_due`. Baja por impago → se
     // registra el motivo para el reporte de churn por razón.
-    await this.admin.tenant.update({
-      where: { id: tenantId },
+    // Solo si sigue activo: no pisa una suspensión o una baja hechas a mano
+    // entre la lectura y este paso.
+    const { count } = await this.admin.tenant.updateMany({
+      where: { id: tenantId, status: 'active', deletedAt: null },
       data: { status: 'suspended', churnReason: 'nonpayment', canceledAt: new Date() },
     });
+    return count === 1;
+  }
+
+  /**
+   * Destinatarios de los avisos: el email de facturación y los propietarios
+   * con el email verificado (el de facturación puede estar vacío o ser de
+   * una gestoría que no lo lee).
+   */
+  private async recipients(tenantId: string, billingEmail: string | null): Promise<string[]> {
+    const owners = await this.admin.user.findMany({
+      where: { tenantId, role: 'owner', isActive: true, emailVerifiedAt: { not: null } },
+      select: { email: true },
+    });
+    const all = [billingEmail, ...owners.map((o) => o.email)]
+      .filter((e): e is string => !!e)
+      .map((e) => e.toLowerCase());
+    return [...new Set(all)];
   }
 
   private async notify(
-    sub: { tenant: { name: string; billingEmail: string | null }; plan: { name: string } | null },
+    sub: {
+      tenantId: string;
+      tenant: { name: string; billingEmail: string | null };
+      plan: { name: string } | null;
+    },
     daysOverdue: number,
     suspended: boolean,
   ): Promise<void> {
-    const to = sub.tenant.billingEmail;
-    if (!to) return;
+    const to = await this.recipients(sub.tenantId, sub.tenant.billingEmail);
+    if (to.length === 0) {
+      // Sin nadie a quien avisar: que no quede en silencio.
+      await this.admin.superAdminNotification
+        .create({
+          data: {
+            type: 'platform_dunning.no_recipient',
+            title: `Sin email para avisar del impago de ${sub.tenant.name}`,
+            body: 'No tiene email de facturación ni propietarios con el email verificado: el aviso de impago no ha salido.',
+            link: `/admin/tenants/${sub.tenantId}?tab=payments`,
+          },
+        })
+        .catch(() => undefined);
+      return;
+    }
     const subject = suspended
       ? 'Tu cuenta de TrasterOS ha sido suspendida por impago'
       : 'Recordatorio de pago de tu suscripción TrasterOS';
@@ -222,12 +273,14 @@ export class PlatformDunningService {
       ? `<p>Hola,</p><p>Tu suscripción a TrasterOS lleva ${daysOverdue} días impagada y hemos <strong>suspendido</strong> tu cuenta. Regulariza el pago para reactivarla.</p>`
       : `<p>Hola,</p><p>Tu suscripción a TrasterOS (${sub.plan?.name ?? 'plan'}) tiene un pago pendiente desde hace ${daysOverdue} días. Por favor, regulariza el pago para evitar la suspensión del servicio.</p>`;
     const body = `${intro}${cta}`;
-    await this.email.sendRendered({
-      to,
-      kind: 'payment_pending',
-      subject,
-      html: body,
-      text: `${intro.replace(/<[^>]+>/g, '')}\n\nRegulariza tu pago: ${link}`,
-    });
+    for (const email of to) {
+      await this.email.sendRendered({
+        to: email,
+        kind: 'payment_pending',
+        subject,
+        html: body,
+        text: `${intro.replace(/<[^>]+>/g, '')}\n\nRegulariza tu pago: ${link}`,
+      });
+    }
   }
 }

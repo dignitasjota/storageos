@@ -12,6 +12,7 @@ import {
 } from '@storageos/shared';
 import StripeSDK from 'stripe';
 
+import { todayInTimezone, zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { loadPuppeteer } from '../../common/puppeteer';
 import { assertTaxIdFree } from '../../common/tax-id-unique';
@@ -272,9 +273,10 @@ export class PlatformInvoicesService {
 
   /** Todas las facturas SaaS (cross-tenant) por fecha de emisión, para el export contable. */
   async listAll(from?: string, to?: string): Promise<PlatformInvoiceDto[]> {
-    const issuedAt: { gte?: Date; lte?: Date } = {};
-    if (from) issuedAt.gte = new Date(`${from}T00:00:00.000Z`);
-    if (to) issuedAt.lte = new Date(`${to}T23:59:59.999Z`);
+    // Días de España: una factura emitida el 1 a las 00:30 es de ese día.
+    const issuedAt: { gte?: Date; lt?: Date } = {};
+    if (from) issuedAt.gte = zonedDayStart(from);
+    if (to) issuedAt.lt = zonedNextDayStart(to);
     const rows = await this.admin.platformInvoice.findMany({
       where: Object.keys(issuedAt).length ? { issuedAt } : {},
       orderBy: { issuedAt: 'asc' },
@@ -289,8 +291,8 @@ export class PlatformInvoicesService {
    * UTF-8 (Excel es-ES). Devuelve solo la cabecera si el año no tiene facturas.
    */
   async exportCsvForYear(year: number): Promise<string> {
-    const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
-    const end = new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0));
+    const start = zonedDayStart(`${year}-01-01`);
+    const end = zonedDayStart(`${year + 1}-01-01`);
     const rows = await this.admin.platformInvoice.findMany({
       where: { issuedAt: { gte: start, lt: end } },
       orderBy: [{ issuedAt: 'asc' }, { number: 'asc' }],
@@ -311,7 +313,7 @@ export class PlatformInvoicesService {
       lines.push(
         [
           csvCell(r.fullNumber),
-          csvCell(r.issuedAt.toISOString().slice(0, 10)),
+          csvCell(todayInTimezone('Europe/Madrid', r.issuedAt).toISOString().slice(0, 10)),
           csvCell(concepto),
           csvCell(r.tenantName),
           Number(r.baseAmount).toFixed(2),
@@ -362,7 +364,7 @@ export class PlatformInvoicesService {
     // La serie va por el AÑO DE EMISIÓN de la factura (ahora), no por la fecha
     // del pago: un pago manual con `paidAt` retroactivo no debe numerarse en la
     // serie de un año anterior (rompería la secuencia y la coherencia fiscal).
-    const series = String(new Date().getUTCFullYear());
+    const series = String(todayInTimezone('Europe/Madrid').getUTCFullYear());
     const tenant = payment.tenant;
     // Destinatario: razón social y domicilio fiscal del tenant (si los tiene).
     const recipientName = tenant.billingLegalName?.trim() || tenant.name;
@@ -1037,7 +1039,7 @@ export class PlatformInvoicesService {
     }
 
     // Serie propia de rectificativas por año de emisión.
-    const year = String(new Date().getUTCFullYear());
+    const year = String(todayInTimezone('Europe/Madrid').getUTCFullYear());
     const series = `R${year}`;
     const created = await this.admin.$transaction(async (tx) => {
       // Serializa la numeración de la serie (dos rectificativas a la vez).
