@@ -58,6 +58,14 @@ describe('resolveCustomDomainRoute', () => {
     expect(RESERVED_FACILITY_SLUGS.has('promo')).toBe(true);
   });
 
+  it('los enlaces cortos de los carteles (/g/…) los sirve la plataforma, también con web externa', () => {
+    expect(resolveCustomDomainRoute('/g/abc123', SLUG)).toEqual({ action: 'next' });
+    expect(resolveCustomDomainRoute('/g/abc123', SLUG, { externalSite: true })).toEqual({
+      action: 'next',
+    });
+    expect(RESERVED_FACILITY_SLUGS.has('g')).toBe(true);
+  });
+
   it('alias /reservar → reescribe al booking del tenant', () => {
     expect(resolveCustomDomainRoute('/reservar', SLUG)).toEqual({
       action: 'rewrite',

@@ -23,7 +23,18 @@ export type CustomDomainRoute =
   | { action: 'redirectToPlatform'; path: string };
 
 /** Prefijos que se sirven tal cual en un dominio propio (públicos del inquilino). */
-const PASS_PREFIXES = ['/portal', '/sign', '/pay', '/review', '/s', '/book', '/_next', '/api'];
+// `/g` = enlaces cortos de los carteles: los sirve la plataforma también con web externa.
+const PASS_PREFIXES = [
+  '/portal',
+  '/sign',
+  '/pay',
+  '/review',
+  '/s',
+  '/book',
+  '/g',
+  '/_next',
+  '/api',
+];
 
 /** Rutas de panel/auth/admin: se redirigen al dominio de la plataforma. */
 const PLATFORM_PREFIXES = [

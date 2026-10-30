@@ -186,6 +186,35 @@ describe('Canales de marketing (e2e)', () => {
     await request(app.getHttpServer()).get('/public/marketing/go/no-existe-123').expect(404);
   });
 
+  it('enlace corto con dominio propio: sale con el dominio y solo vale desde ese negocio', async () => {
+    const owner = await registerVerifiedUser(app, 'mkt-domain');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const domain = `${owner.slug}.example.com`;
+    await admin.tenant.update({
+      where: { slug: owner.slug },
+      data: { customDomain: domain, customDomainVerifiedAt: new Date() },
+    });
+
+    const channel = await request(app.getHttpServer())
+      .post('/marketing/channels')
+      .set(auth)
+      .send({ type: 'physical', name: 'Cartel mercado' });
+    const shortCode = channel.body.shortCode as string;
+    expect(channel.body.shortUrl).toBe(`https://${domain}/g/${shortCode}`);
+
+    const own = await request(app.getHttpServer())
+      .get(`/public/marketing/go/${shortCode}`)
+      .query({ tenant: owner.slug });
+    expect(own.status).toBe(200);
+    expect(own.body.targetUrl).toContain(`https://${domain}/reservar`);
+
+    // Desde el dominio de otro negocio no vale.
+    await request(app.getHttpServer())
+      .get(`/public/marketing/go/${shortCode}`)
+      .query({ tenant: 'otro-negocio' })
+      .expect(404);
+  });
+
   it('avisos de renovación: un canal que renueva en 7 días aparece en «Hoy» y genera notificación', async () => {
     const owner = await registerVerifiedUser(app, 'mkt-renew');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
