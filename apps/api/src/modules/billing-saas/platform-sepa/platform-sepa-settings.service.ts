@@ -37,6 +37,7 @@ export class PlatformSepaSettingsService {
         creditorCity: row?.creditorCity ?? null,
         creditorCountry: row?.creditorCountry ?? 'ES',
         prenoticeDays: row?.prenoticeDays ?? 5,
+        autoPrepare: row?.autoPrepare ?? false,
       };
     }
     const iban = this.crypto.decryptString(row.creditorIbanEncrypted, CREDITOR_AAD);
@@ -52,6 +53,7 @@ export class PlatformSepaSettingsService {
       creditorCity: row.creditorCity,
       creditorCountry: row.creditorCountry,
       prenoticeDays: row.prenoticeDays,
+      autoPrepare: row.autoPrepare,
     };
   }
 
@@ -101,6 +103,7 @@ export class PlatformSepaSettingsService {
       ...(input.creditorCity !== undefined ? { creditorCity: input.creditorCity || null } : {}),
       ...(input.creditorCountry ? { creditorCountry: input.creditorCountry } : {}),
       ...(input.prenoticeDays ? { prenoticeDays: input.prenoticeDays } : {}),
+      ...(input.autoPrepare !== undefined ? { autoPrepare: input.autoPrepare } : {}),
     };
     if (existing) {
       await this.admin.platformSepaSettings.update({ where: { id: existing.id }, data });

@@ -157,7 +157,7 @@ export function PlatformInvoicesCard({ tenantId }: { tenantId: string }) {
   );
 }
 
-function RectifyDialog({
+export function RectifyDialog({
   tenantId,
   invoice,
   onClose,

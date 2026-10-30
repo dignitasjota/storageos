@@ -124,7 +124,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
     children: [
       { href: '/admin/receivables', label: 'Cobros pendientes', icon: AlertTriangle },
       { href: '/admin/billing-calendar', label: 'Calendario de cobros', icon: CalendarClock },
-      { href: '/admin/platform-billing', label: 'Facturas emitidas', icon: FileText },
+      { href: '/admin/platform-invoices', label: 'Facturas emitidas', icon: FileText },
       { href: '/admin/platform-dunning', label: 'Recordatorios de impago', icon: BellRing },
       { href: '/admin/platform-sepa', label: 'Cuenta SEPA (BBVA)', icon: Landmark },
       { href: '/admin/platform-sepa/remittances', label: 'Remesas SEPA', icon: Landmark },

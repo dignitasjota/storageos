@@ -10,8 +10,10 @@ export interface TenantRedsysPaymentOptionsDto {
   available: boolean;
   cardEnabled: boolean;
   bizumEnabled: boolean;
-  /** Importe del periodo siguiente (IVA incluido). */
+  /** Importe de un mes (IVA incluido; con el cobro automático, también los extras). */
   amount: number;
+  /** Meses vencidos sin pagar (1 si está al día): puede pagarlos de una vez. */
+  monthsOwed: number;
   currency: string;
   /** Fin del periodo pagado: el pago lo extiende un mes desde aquí. */
   currentPeriodEnd: string | null;

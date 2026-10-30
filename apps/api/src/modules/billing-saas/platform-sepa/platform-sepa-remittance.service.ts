@@ -16,6 +16,7 @@ import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { EmailService } from '../../email/email.service';
 import { buildPain008, type Pain008Transaction } from '../../sepa/sepa-pain008';
 import { BillingSaasService } from '../billing-saas.service';
+import { PlatformDunningService } from '../platform-dunning.service';
 import { amountToCharge, platformPricing } from '../platform-pricing';
 import { SaasAddonsService } from '../saas-addons.service';
 
@@ -90,6 +91,8 @@ export function platformEndToEndId(slug: string, periodCovered: Date, retries: n
  */
 /** Una confirmación cortada a medias se puede reanudar pasado este tiempo. */
 const RESUME_AFTER_MS = 5 * 60_000;
+/** Días tras la fecha de cobro con la remesa sin confirmar antes de avisar. */
+const STALE_AFTER_DAYS = 3;
 
 @Injectable()
 export class PlatformSepaRemittanceService {
@@ -101,6 +104,7 @@ export class PlatformSepaRemittanceService {
     private readonly saasAddons: SaasAddonsService,
     private readonly billingSaas: BillingSaasService,
     private readonly email: EmailService,
+    private readonly dunning: PlatformDunningService,
   ) {}
 
   /**
@@ -251,7 +255,8 @@ export class PlatformSepaRemittanceService {
   }
 
   async createRemittance(args: {
-    superAdminId: string;
+    /** null = preparada sola por la plataforma. */
+    superAdminId: string | null;
     input: CreatePlatformSepaRemittanceInput;
   }): Promise<PlatformSepaRemittanceDto> {
     const settings = await this.admin.platformSepaSettings.findFirst();
@@ -495,17 +500,85 @@ export class PlatformSepaRemittanceService {
   }
 
   async listRemittances(): Promise<PlatformSepaRemittanceDto[]> {
-    const [rows, settings, pending] = await Promise.all([
+    const [rows, settings, counts] = await Promise.all([
       this.admin.platformSepaRemittance.findMany({ orderBy: { createdAt: 'desc' } }),
       this.admin.platformSepaSettings.findFirst(),
       this.admin.platformSepaRemittanceItem.groupBy({
-        by: ['remittanceId'],
-        where: { itemStatus: 'pending' },
+        by: ['remittanceId', 'itemStatus'],
         _count: { _all: true },
       }),
     ]);
-    const pendingBy = new Map(pending.map((p) => [p.remittanceId, p._count._all]));
-    return rows.map((r) => this.toDto(r, settings?.updatedAt, pendingBy.get(r.id) ?? 0));
+    const countOf = (id: string, status: string) =>
+      counts.find((c) => c.remittanceId === id && c.itemStatus === status)?._count._all ?? 0;
+    return rows.map((r) =>
+      this.toDto(r, settings?.updatedAt, countOf(r.id, 'pending'), {
+        collected: countOf(r.id, 'collected'),
+        bounced: countOf(r.id, 'bounced'),
+      }),
+    );
+  }
+
+  /**
+   * Prepara la remesa sola (si el super admin lo activó): con la primera fecha
+   * de cobro que respeta el preaviso, envía los preavisos a los tenants y deja
+   * la remesa sin confirmar para que el super admin la suba al banco. También
+   * avisa una vez de las remesas que llevan días sin confirmar.
+   */
+  async autoPrepare(now = new Date()): Promise<{ prepared: string | null; stale: number }> {
+    const settings = await this.admin.platformSepaSettings.findFirst();
+    let prepared: string | null = null;
+    if (settings?.enabled && settings.autoPrepare && settings.creditorIbanEncrypted) {
+      const { candidates } = await this.eligible();
+      if (candidates.length > 0) {
+        const { earliest } = await this.prenotice(candidates.map((c) => c.mandate));
+        try {
+          const r = await this.createRemittance({
+            superAdminId: null,
+            input: {
+              name: `Remesa automática ${formatDateLong(new Date(`${earliest}T12:00:00Z`))}`,
+              collectionDate: earliest,
+            },
+          });
+          prepared = r.id;
+          await this.admin.superAdminNotification.create({
+            data: {
+              type: 'platform_sepa.remittance_prepared',
+              title: `Remesa SEPA preparada: ${r.itemCount} adeudos (${r.total.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })})`,
+              body: `Cobro el ${earliest}. Descarga el fichero, súbelo al banco y confírmala cuando se cobre. Los tenants ya tienen el preaviso.`,
+              link: `/admin/platform-sepa/remittances?id=${r.id}`,
+            },
+          });
+        } catch (err) {
+          this.logger.warn(
+            `[platform-sepa] no se pudo preparar la remesa automática: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      }
+    }
+    // Remesas generadas hace días sin confirmar: el cobro puede no haberse presentado.
+    const stale = await this.admin.platformSepaRemittance.findMany({
+      where: {
+        status: 'generated',
+        staleNotifiedAt: null,
+        collectionDate: { lt: toDateOnly(new Date(now.getTime() - STALE_AFTER_DAYS * DAY_MS)) },
+      },
+    });
+    for (const r of stale) {
+      const { count } = await this.admin.platformSepaRemittance.updateMany({
+        where: { id: r.id, staleNotifiedAt: null },
+        data: { staleNotifiedAt: now },
+      });
+      if (count === 0) continue;
+      await this.admin.superAdminNotification.create({
+        data: {
+          type: 'platform_sepa.remittance_unconfirmed',
+          title: `La remesa «${r.name}» sigue sin confirmar`,
+          body: `Su fecha de cobro era el ${r.collectionDate.toISOString().slice(0, 10)}. Si el banco la cobró, confírmala; si no se presentó, cancélala para volver a domiciliar esas cuotas.`,
+          link: `/admin/platform-sepa/remittances?id=${r.id}`,
+        },
+      });
+    }
+    return { prepared, stale: stale.length };
   }
 
   async getRemittance(id: string): Promise<PlatformSepaRemittanceDto> {
@@ -518,8 +591,12 @@ export class PlatformSepaRemittanceService {
         orderBy: { id: 'asc' },
       }),
     ]);
+    const count = (st: string) => items.filter((i) => i.itemStatus === st).length;
     return {
-      ...this.toDto(r, settings?.updatedAt, items.filter((i) => i.itemStatus === 'pending').length),
+      ...this.toDto(r, settings?.updatedAt, count('pending'), {
+        collected: count('collected'),
+        bounced: count('bounced'),
+      }),
       items: items.map((i) => ({
         id: i.id,
         tenantId: i.tenantId,
@@ -739,6 +816,8 @@ export class PlatformSepaRemittanceService {
           ),
         );
     }
+    // Se avisa al tenant de que su banco devolvió el adeudo y de cómo pagar.
+    await this.dunning.remindNow(item.tenantId).catch(() => undefined);
   }
 
   private async findOrThrow(id: string) {
@@ -756,6 +835,7 @@ export class PlatformSepaRemittanceService {
     r: Prisma.PlatformSepaRemittanceGetPayload<object>,
     creditorUpdatedAt?: Date,
     pendingCount = 0,
+    counts: { collected: number; bounced: number } = { collected: 0, bounced: 0 },
   ): PlatformSepaRemittanceDto {
     return {
       id: r.id,
@@ -770,6 +850,9 @@ export class PlatformSepaRemittanceService {
       creditorMayBeStale:
         r.status === 'generated' && !!creditorUpdatedAt && creditorUpdatedAt > r.createdAt,
       pendingCount,
+      collectedCount: counts.collected,
+      bouncedCount: counts.bounced,
+      automatic: r.createdBySuperAdminId === null,
     };
   }
 }

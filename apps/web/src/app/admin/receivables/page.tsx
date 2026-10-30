@@ -1,12 +1,14 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
+import { CheckCircle2, Circle, Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { AdminReceivableDto } from '@storageos/shared';
 
+import { AddManualPaymentDialog } from '@/app/admin/tenants/[id]/saas-payments-card';
 import { AdminError } from '@/components/admin/admin-error';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
@@ -19,14 +21,23 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   useAdminReceivables,
   useChangePlan,
   useChargeAddon,
+  useRemindReceivable,
   useSuspendTenant,
 } from '@/lib/admin/hooks';
 import { tenantStatusLabel } from '@/lib/admin/labels';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
+import { downloadCsv } from '@/lib/csv';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
@@ -50,8 +61,27 @@ const PROVIDERS = [
  */
 export default function ReceivablesPage() {
   const data = useAdminReceivables();
+  const [method, setMethod] = useState('all');
+  const [kind, setKind] = useState('all');
+  const [state, setState] = useState('all');
+  const all = data.data?.items;
+  const items = useMemo(
+    () =>
+      (all ?? []).filter(
+        (i) =>
+          (method === 'all' || i.method === method) &&
+          (kind === 'all' || i.kind === kind) &&
+          (state === 'all' ||
+            (state === 'suspended'
+              ? i.tenantStatus === 'suspended'
+              : state === 'in_bank'
+                ? !!i.overdue?.sepaInProgress
+                : i.tenantStatus !== 'suspended' && !i.overdue?.sepaInProgress)),
+      ),
+    [all, method, kind, state],
+  );
   if (data.isError) return <AdminError onRetry={() => void data.refetch()} />;
-  const items = data.data?.items ?? [];
+  const filtered = method !== 'all' || kind !== 'all' || state !== 'all';
   // Lo que ya va en una remesa SEPA está en el banco: no cuenta como pendiente.
   const owed = items.filter((i) => !i.overdue?.sepaInProgress);
   const old = owed.filter((i) => i.days > 15).length;
@@ -66,9 +96,84 @@ export default function ReceivablesPage() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Kpi label="Pendiente de cobro" value={eur(data.data?.total ?? 0)} />
+        <Kpi
+          label="Pendiente de cobro"
+          value={eur(
+            filtered ? owed.reduce((sum, i) => sum + i.amount, 0) : (data.data?.total ?? 0),
+          )}
+        />
         <Kpi label="Cobros pendientes" value={String(owed.length)} />
         <Kpi label="Con más de 15 días" value={String(old)} warn={old > 0} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Filter
+          value={method}
+          onChange={setMethod}
+          options={[
+            ['all', 'Todas las formas de cobro'],
+            ['manual', 'Manual'],
+            ['sepa', 'SEPA'],
+            ['redsys', 'Tarjeta (Redsys)'],
+            ['stripe', 'Stripe'],
+          ]}
+        />
+        <Filter
+          value={kind}
+          onChange={setKind}
+          options={[
+            ['all', 'Cuotas y extras'],
+            ['subscription', 'Solo cuotas'],
+            ['addon', 'Solo extras'],
+          ]}
+        />
+        <Filter
+          value={state}
+          onChange={setState}
+          options={[
+            ['all', 'Cualquier estado'],
+            ['owed', 'Pendientes'],
+            ['in_bank', 'En una remesa SEPA'],
+            ['suspended', 'Suspendidos'],
+          ]}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          disabled={items.length === 0}
+          onClick={() =>
+            downloadCsv('cobros-pendientes.csv', [
+              [
+                'Tenant',
+                'Concepto',
+                'Forma de cobro',
+                'Importe',
+                'Cuotas',
+                'Desde',
+                'Días',
+                'Estado',
+              ],
+              ...items.map((i) => [
+                i.tenantName,
+                i.concept,
+                METHOD[i.method] ?? i.method,
+                i.amount,
+                i.overdue?.periods ?? 1,
+                day(i.since),
+                i.days,
+                i.overdue?.sepaInProgress
+                  ? 'En remesa SEPA'
+                  : i.tenantStatus === 'suspended'
+                    ? 'Suspendido'
+                    : 'Pendiente',
+              ]),
+            ])
+          }
+        >
+          <Download className="mr-2 size-4" />
+          CSV
+        </Button>
       </div>
 
       {data.isLoading ? (
@@ -78,7 +183,7 @@ export default function ReceivablesPage() {
       ) : items.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            Nadie debe nada. 🎉
+            {filtered ? 'Nada con estos filtros.' : 'Nadie debe nada. 🎉'}
           </CardContent>
         </Card>
       ) : (
@@ -99,6 +204,8 @@ function ReceivableRow({ item: i }: { item: AdminReceivableDto }) {
   const charge = useChargeAddon();
   const suspend = useSuspendTenant();
   const changePlan = useChangePlan();
+  const remind = useRemindReceivable();
+  const [payOpen, setPayOpen] = useState(false);
 
   async function run(p: Promise<unknown>, ok: string) {
     try {
@@ -223,8 +330,29 @@ function ReceivableRow({ item: i }: { item: AdminReceivableDto }) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button size="sm" asChild>
-              <Link href={`/admin/tenants/${i.tenantId}?tab=payments`}>Registrar pago</Link>
+            <Button size="sm" disabled={!canEdit} onClick={() => setPayOpen(true)}>
+              Registrar pago
+            </Button>
+          )}
+          {i.kind === 'subscription' && !i.overdue?.sepaInProgress && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!canEdit || remind.isPending}
+              onClick={async () => {
+                try {
+                  const r = await remind.mutateAsync(i.tenantId);
+                  toast.success(
+                    r.recipients > 0
+                      ? `Recordatorio enviado a ${r.recipients} ${r.recipients === 1 ? 'dirección' : 'direcciones'}.`
+                      : 'No tiene a quién enviarlo: falta un email de facturación o un propietario verificado.',
+                  );
+                } catch (err) {
+                  toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+                }
+              }}
+            >
+              Enviar recordatorio
             </Button>
           )}
           {i.kind === 'subscription' && i.tenantStatus !== 'suspended' && (
@@ -244,7 +372,44 @@ function ReceivableRow({ item: i }: { item: AdminReceivableDto }) {
           )}
         </div>
       </CardContent>
+      {i.kind === 'subscription' && (
+        <AddManualPaymentDialog
+          tenantId={i.tenantId}
+          open={payOpen}
+          onClose={() => {
+            setPayOpen(false);
+            void qc.invalidateQueries({ queryKey: ['admin', 'billing'] });
+          }}
+          defaultAmount={i.amount}
+          {...(i.overdue ? { periodAmount: i.overdue.periodAmount } : {})}
+        />
+      )}
     </Card>
+  );
+}
+
+function Filter({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: [string, string][];
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="h-9 w-auto min-w-[10rem]">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(([v, l]) => (
+          <SelectItem key={v} value={v}>
+            {l}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 

@@ -30,6 +30,8 @@ export class PlatformDunningCron {
       // 1) Enforcement de impagos manuales → past_due (banner al tenant desde el
       //    primer día). Se ejecuta SIEMPRE, aunque el dunning escalado esté off.
       await this.dunning.markLapsedManualPastDue();
+      // Avisos al super admin: impagos nuevos y cuentas exentas aún domiciliadas.
+      await this.dunning.notifyBillingAlerts();
       // 2) Escalado del dunning del plan (recordatorios + suspensión), si está activado.
       await this.dunning.run();
       // 3) Auto-suspensión de add-ons manuales impagados (gateada por el dunning).

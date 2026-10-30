@@ -20,6 +20,10 @@ const METHOD: Record<string, string> = {
 };
 const STATE: Record<AdminCalendarChargeDto['state'], { label: string; className: string }> = {
   scheduled: { label: 'Previsto', className: 'bg-muted text-foreground' },
+  retry: {
+    label: 'Reintento',
+    className: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+  },
   paid: {
     label: 'Cobrado',
     className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
@@ -52,15 +56,17 @@ function weekStart(iso: string): string {
 export default function BillingCalendarPage() {
   const [days, setDays] = useState<(typeof RANGES)[number]>(60);
   const cal = useAdminBillingCalendar(days, 14);
+  const [method, setMethod] = useState<string | null>(null);
 
   const weeks = useMemo(() => {
     const groups = new Map<string, AdminCalendarChargeDto[]>();
     for (const c of cal.data?.charges ?? []) {
+      if (method && c.method !== method) continue;
       const k = weekStart(c.date);
       groups.set(k, [...(groups.get(k) ?? []), c]);
     }
     return [...groups.entries()];
-  }, [cal.data]);
+  }, [cal.data, method]);
 
   if (cal.isError) return <AdminError onRetry={() => void cal.refetch()} />;
   const by = cal.data?.scheduledByMethod;
@@ -91,11 +97,21 @@ export default function BillingCalendarPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <Kpi label={`Previsto ${days} días`} value={eur(scheduledTotal)} />
-        <Kpi label="Por Stripe" value={eur(by?.stripe ?? 0)} />
-        <Kpi label="Por SEPA" value={eur(by?.sepa ?? 0)} />
-        <Kpi label="Tarjeta (Redsys)" value={eur(by?.redsys ?? 0)} />
-        <Kpi label="Manual" value={eur(by?.manual ?? 0)} />
+        <Kpi
+          label={`Previsto ${days} días`}
+          value={eur(scheduledTotal)}
+          active={method === null}
+          onClick={() => setMethod(null)}
+        />
+        {(['stripe', 'sepa', 'redsys', 'manual'] as const).map((m) => (
+          <Kpi
+            key={m}
+            label={m === 'redsys' ? 'Tarjeta (Redsys)' : `Por ${METHOD[m]}`}
+            value={eur(by?.[m] ?? 0)}
+            active={method === m}
+            onClick={() => setMethod(method === m ? null : m)}
+          />
+        ))}
       </div>
 
       {cal.isLoading ? (
@@ -105,7 +121,9 @@ export default function BillingCalendarPage() {
       ) : weeks.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            No hay cobros en este periodo.
+            {method
+              ? 'No hay cobros de esta forma en el periodo.'
+              : 'No hay cobros en este periodo.'}
           </CardContent>
         </Card>
       ) : (
@@ -152,6 +170,7 @@ export default function BillingCalendarPage() {
                       </Badge>
                       <span className={`rounded px-1.5 py-0.5 text-xs ${STATE[c.state].className}`}>
                         {STATE[c.state].label}
+                        {c.attempt ? ` ${c.attempt}/3` : ''}
                       </span>
                       <span className="w-20 shrink-0 text-right tabular-nums">{eur(c.amount)}</span>
                     </li>
@@ -166,15 +185,27 @@ export default function BillingCalendarPage() {
   );
 }
 
-function Kpi({ label, value }: { label: string; value: string }) {
+function Kpi({
+  label,
+  value,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
-    <Card>
-      <CardHeader className="pb-1">
-        <CardTitle className="text-xs font-normal text-muted-foreground">{label}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-xl font-semibold">{value}</p>
-      </CardContent>
-    </Card>
+    <button type="button" onClick={onClick} aria-pressed={active} className="text-left">
+      <Card className={active ? 'border-primary ring-1 ring-primary' : 'hover:bg-accent/50'}>
+        <CardHeader className="pb-1">
+          <CardTitle className="text-xs font-normal text-muted-foreground">{label}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xl font-semibold">{value}</p>
+        </CardContent>
+      </Card>
+    </button>
   );
 }

@@ -6,6 +6,10 @@ import {
   platformPricing,
   type PlatformPricing,
 } from '../billing-saas/platform-pricing';
+import {
+  AUTO_CHARGE_MAX_ATTEMPTS,
+  AUTO_CHARGE_RETRY_DAYS,
+} from '../billing-saas/platform-redsys/platform-redsys.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Prisma } from '@storageos/database';
@@ -69,8 +73,8 @@ function asMethod(mode: string | null | undefined): AdminChargeMethod {
  * endpoints de siempre.
  *
  * Qué entra en cada cargo: con Stripe, la suscripción cobra el plan y los
- * extras puestos en Stripe; con SEPA, la remesa lleva el plan y los extras que
- * no van por Stripe; con pago manual, el plan va solo y cada extra tiene su
+ * extras puestos en Stripe; con SEPA o tarjeta de Redsys, el cargo lleva el plan
+ * y los extras que no van por Stripe; con pago manual, el plan va solo y cada extra tiene su
  * propia fecha.
  */
 @Injectable()
@@ -106,7 +110,7 @@ export class AdminBillingOpsService {
       const withPlan =
         method === 'stripe'
           ? a.billingMode === 'stripe'
-          : method === 'sepa' && a.billingMode !== 'stripe';
+          : (method === 'sepa' || method === 'redsys') && a.billingMode !== 'stripe';
       if (!withPlan) continue;
       lines.push({
         label: a.quantity > 1 ? `${a.addon.name} × ${a.quantity}` : a.addon.name,
@@ -123,7 +127,7 @@ export class AdminBillingOpsService {
 
   /** Extras que se cobran aparte (pago manual), con su propia fecha. */
   private separateAddonCharges(sub: SubRow, pricing: PlatformPricing): AdminScheduledChargeDto[] {
-    if (sub.billingMode === 'sepa') return [];
+    if (sub.billingMode === 'sepa' || sub.billingMode === 'redsys') return [];
     return sub.tenant.subscriptionAddons
       .filter((a) => !a.suspendedAt && a.billingMode !== 'stripe' && a.nextChargeAt)
       .map((a) => {
@@ -389,7 +393,9 @@ export class AdminBillingOpsService {
         tenant: {
           deletedAt: null,
           billingExempt: false,
-          NOT: { subscription: { billingMode: 'sepa' } },
+          // Con la cuota domiciliada o cobrada sola con tarjeta, los extras van
+          // en el mismo cargo.
+          NOT: { subscription: { billingMode: { in: ['sepa', 'redsys'] } } },
         },
       },
       include: {
@@ -501,6 +507,43 @@ export class AdminBillingOpsService {
         concept: p.description ?? (p.planName ? `Cuota ${p.planName}` : 'Pago'),
         amount: Number(p.amount),
         state: p.status === 'paid' ? 'paid' : 'failed',
+      });
+    }
+    // Cobros con la tarjeta guardada rechazados: el siguiente reintento (cada
+    // 2 días, hasta 3 intentos por periodo).
+    const retrySubs = await this.admin.tenantSubscription.findMany({
+      where: {
+        billingMode: 'redsys',
+        status: { in: ['active', 'past_due'] },
+        currentPeriodEnd: { lte: now },
+        tenant: { deletedAt: null, billingExempt: false, platformRedsysCard: { isNot: null } },
+      },
+      include: SUB_INCLUDE,
+    });
+    for (const s of retrySubs) {
+      const attempts = await this.admin.platformRedsysOrder.findMany({
+        where: {
+          tenantId: s.tenantId,
+          kind: 'auto',
+          createdAt: { gte: new Date(s.currentPeriodEnd.getTime() - DAY) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true, createdAt: true },
+      });
+      if (attempts.length === 0 || attempts.length >= AUTO_CHARGE_MAX_ATTEMPTS) continue;
+      if (attempts.some((a) => a.status === 'charging' || a.status === 'paid')) continue;
+      const next = new Date(attempts[0]!.createdAt.getTime() + AUTO_CHARGE_RETRY_DAYS * DAY);
+      if (next > to) continue;
+      const c = this.planCharge(s, pricing);
+      charges.push({
+        date: (next < now ? now : next).toISOString(),
+        tenantId: s.tenantId,
+        tenantName: s.tenant.name,
+        method: 'redsys',
+        concept: `Reintento del cobro con tarjeta: ${c.lines.map((l) => l.label).join(' + ')}`,
+        amount: c.total,
+        state: 'retry',
+        attempt: attempts.length + 1,
       });
     }
     for (const b of bounces) {

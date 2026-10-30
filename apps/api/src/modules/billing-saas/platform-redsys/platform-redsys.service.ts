@@ -16,6 +16,7 @@ import {
   verifyNotification,
 } from '../../payments/redsys/redsys-signature';
 import { BillingSaasService } from '../billing-saas.service';
+import { periodsOwed } from '../platform-due';
 import { amountToCharge, platformPricing } from '../platform-pricing';
 import { SaasAddonsService } from '../saas-addons.service';
 
@@ -32,8 +33,8 @@ import type {
 const SECRET_AAD = 'platform-redsys-settings';
 
 /** Intentos del cobro automático por periodo, y días entre uno y otro. */
-const AUTO_CHARGE_MAX_ATTEMPTS = 3;
-const AUTO_CHARGE_RETRY_DAYS = 2;
+export const AUTO_CHARGE_MAX_ATTEMPTS = 3;
+export const AUTO_CHARGE_RETRY_DAYS = 2;
 const DAY_MS = 86_400_000;
 const REST_TIMEOUT_MS = 20_000;
 
@@ -148,6 +149,7 @@ export class PlatformRedsysService {
       bizumEnabled: false,
       amount: 0,
       currency: 'EUR',
+      monthsOwed: 1,
       currentPeriodEnd: sub?.currentPeriodEnd.toISOString() ?? null,
       pastDue: sub?.status === 'past_due',
       planName: sub?.plan.name ?? null,
@@ -170,8 +172,11 @@ export class PlatformRedsysService {
     if (sub.billingMode !== 'manual' && sub.billingMode !== 'redsys') {
       return { ...base, reason: 'not_manual' };
     }
-    const amount = await this.amountDue(tenantId);
+    const amount = await this.amountDue(tenantId, sub.billingMode);
     if (amount <= 0) return { ...base, reason: 'free_plan' };
+    const now = new Date();
+    const monthsOwed =
+      sub.currentPeriodEnd < now ? periodsOwed(sub.currentPeriodEnd, now, 1, false) : 1;
     return {
       ...base,
       available: true,
@@ -180,6 +185,7 @@ export class PlatformRedsysService {
       cardOnFileAvailable: cfg.cardOnFileEnabled,
       autoCharge: sub.billingMode === 'redsys' && !!card,
       amount,
+      monthsOwed,
       reason: null,
     };
   }
@@ -191,7 +197,12 @@ export class PlatformRedsysService {
    */
   async createRedirect(
     tenantId: string,
-    opts: { payMethod?: RedsysPayMethod | undefined; saveCard?: boolean | undefined },
+    opts: {
+      payMethod?: RedsysPayMethod | undefined;
+      saveCard?: boolean | undefined;
+      /** Meses que paga de una vez (por defecto, uno). */
+      months?: number | undefined;
+    },
   ): Promise<RedsysRedirectDto> {
     const cfg = await this.resolved();
     const options = await this.paymentOptions(tenantId);
@@ -210,7 +221,8 @@ export class PlatformRedsysService {
         message: 'El pago con Bizum no está activo',
       });
     }
-    const amountCents = toCents(options.amount);
+    const months = Math.min(12, Math.max(1, Math.floor(opts.months ?? 1)));
+    const amountCents = toCents(options.amount) * months;
     const payMethod = opts.payMethod ?? null;
     // Guardar la tarjeta para cobrar sola cada mes (solo tarjeta, si el banco lo permite).
     const saveCard = !!opts.saveCard && cfg.cardOnFileEnabled && payMethod !== 'bizum';
@@ -224,7 +236,8 @@ export class PlatformRedsysService {
         existing &&
         existing.amountCents === amountCents &&
         existing.payMethod === payMethod &&
-        existing.saveCard === saveCard
+        existing.saveCard === saveCard &&
+        existing.months === months
       ) {
         return existing;
       }
@@ -241,6 +254,7 @@ export class PlatformRedsysService {
           amountCents,
           payMethod,
           saveCard,
+          months,
           status: 'pending',
         },
       });
@@ -258,7 +272,9 @@ export class PlatformRedsysService {
       DS_MERCHANT_MERCHANTURL: `${apiBase}/webhooks/redsys/platform`,
       DS_MERCHANT_URLOK: `${webBase}/settings/saas-billing?redsys=ok`,
       DS_MERCHANT_URLKO: `${webBase}/settings/saas-billing?redsys=ko`,
-      DS_MERCHANT_PRODUCTDESCRIPTION: `Suscripción TrasterOS · ${options.planName ?? ''}`
+      DS_MERCHANT_PRODUCTDESCRIPTION: `Suscripción TrasterOS · ${options.planName ?? ''}${
+        orderRow.months > 1 ? ` · ${orderRow.months} meses` : ''
+      }`
         .trim()
         .slice(0, 125),
       // 'z' = Bizum, 'C' = tarjeta; sin el campo el TPV ofrece lo que tenga activo.
@@ -347,6 +363,7 @@ export class PlatformRedsysService {
     amountCents: number;
     payMethod: string | null;
     kind: string;
+    months: number;
   }): Promise<void> {
     const order = orderRow.order;
     const how =
@@ -359,9 +376,9 @@ export class PlatformRedsysService {
         provider: 'redsys',
         amount: orderRow.amountCents / 100,
         currency: 'EUR',
-        durationMonths: 1,
+        durationMonths: orderRow.months,
         extendsPeriod: true,
-        description: `${how} · pedido ${order}`,
+        description: `${how}${orderRow.months > 1 ? ` · ${orderRow.months} meses` : ''} · pedido ${order}`,
       });
       await this.admin.platformRedsysOrder.update({
         where: { order },
@@ -486,7 +503,7 @@ export class PlatformRedsysService {
   ): Promise<'paid' | 'failed' | 'unknown'> {
     const card = await this.admin.platformRedsysCard.findUnique({ where: { tenantId } });
     if (!card) return 'failed';
-    const amountCents = toCents(await this.amountDue(tenantId));
+    const amountCents = toCents(await this.amountDue(tenantId, 'redsys'));
     if (amountCents <= 0) return 'failed';
     const identifier = this.crypto.decryptString(card.identifierEncrypted, tenantId);
     const order = generateRedsysOrder();
@@ -619,9 +636,20 @@ export class PlatformRedsysService {
     return { approved: Number.isFinite(code) && code >= 0 && code <= 99, dsResponse };
   }
 
-  /** Cuota mensual del plan (con IVA si los precios son +IVA). */
-  private async amountDue(tenantId: string): Promise<number> {
+  /**
+   * Cuota de un mes (con IVA si los precios son +IVA). Con el cobro automático
+   * con tarjeta (modo `redsys`) se cobran también los extras que no van por
+   * Stripe, como en la remesa SEPA; pagando a mano, solo el plan (cada extra
+   * tiene su propio cobro).
+   */
+  private async amountDue(tenantId: string, billingMode: string): Promise<number> {
     const summary = await this.addons.billingSummary(tenantId);
-    return amountToCharge(summary.planMonthly, await platformPricing(this.admin));
+    const addons =
+      billingMode === 'redsys'
+        ? summary.addons
+            .filter((a) => !a.suspended && a.billingMode !== 'stripe')
+            .reduce((sum, a) => sum + a.lineTotal, 0)
+        : 0;
+    return amountToCharge(summary.planMonthly + addons, await platformPricing(this.admin));
   }
 }

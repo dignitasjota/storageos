@@ -170,6 +170,9 @@ export interface AdminAtRiskTenantDto {
   since: string | null;
   /** Texto legible del motivo. */
   detail: string;
+  /** Impagos: lo que debe (una cuota por periodo vencido). */
+  owedAmount?: number;
+  owedPeriods?: number;
 }
 
 /** Tenants en riesgo agrupados por motivo. */

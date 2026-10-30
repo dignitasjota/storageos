@@ -2005,8 +2005,27 @@ export function useRectifyPlatformInvoice(tenantId: string) {
         method: 'POST',
         json: input,
       }),
-    onSuccess: () =>
-      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId, 'platform-invoices'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId, 'platform-invoices'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform-invoices'] });
+    },
+  });
+}
+
+/** Todas las facturas de suscripción emitidas en un rango (días de España). */
+export function useAdminPlatformInvoices(from: string, to: string) {
+  return useQuery({
+    queryKey: ['admin', 'platform-invoices', from, to] as const,
+    queryFn: () =>
+      adminApiFetch<PlatformInvoiceDto[]>(`/admin/platform-invoices?from=${from}&to=${to}`),
+  });
+}
+
+/** Reenvía la factura por correo al tenant. */
+export function useResendPlatformInvoice() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/platform-invoices/${id}/resend`, { method: 'POST' }),
   });
 }
 
@@ -2379,6 +2398,16 @@ export function useChargeAddon() {
       void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'billing'] });
     },
+  });
+}
+
+/** «Enviar recordatorio ahora»: el aviso de impago, sin contar como paso del escalado. */
+export function useRemindReceivable() {
+  return useMutation({
+    mutationFn: (tenantId: string) =>
+      adminApiFetch<{ recipients: number }>(`/admin/billing/receivables/${tenantId}/remind`, {
+        method: 'POST',
+      }),
   });
 }
 

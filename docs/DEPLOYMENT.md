@@ -1612,3 +1612,13 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Cobros pendientes y la ficha del tenant enseñan la deuda real (una cuota por cada periodo vencido) y, con Stripe, los días desde el cobro que falló. Lo que ya va en una remesa SEPA se lista pero no suma como pendiente.
 - Un cobro automático de Redsys sin respuesta (hasta 48 h) no pasa la cuota a «pago pendiente».
 - La numeración de las facturas de suscripción y la exportación por año van por el año de España (antes, de 00:00 a 01:00 del 1 de enero, en el año anterior).
+
+## 71. Cobros del panel admin: mejoras (2026-10-30)
+
+- **Migración** `20261207100000_admin_billing_features` (se aplica sola). Sin variables nuevas. Redesplegar api, worker y web.
+- Los avisos de impago a los tenants dicen cuánto deben (todas las cuotas vencidas) y cómo pagar según su forma de cobro. En Cobros pendientes hay «Registrar pago» en un diálogo, «Enviar recordatorio», filtros y CSV.
+- El tenant con la cuota pendiente puede pagar varios meses de una vez con tarjeta o Bizum. **Cambio**: con el cobro automático con tarjeta (Redsys), cada cargo lleva también los extras de pago a mano (como la remesa SEPA) y esos extras dejan de salir en «Hoy» para cobrarlos aparte.
+- Página nueva **Cobros → Facturas emitidas** (`/admin/platform-invoices`): buscar, PDF, reenviar, rectificar y totales por mes. Los datos del emisor y la exportación siguen en `/admin/platform-billing` (enlazada desde la página).
+- **Remesa SEPA automática** (opcional, en Cuenta SEPA): cada mañana a las 07:30 se prepara con la primera fecha que respeta el preaviso y se envía el preaviso a los tenants. Queda sin confirmar: hay que descargar el fichero, subirlo al banco y confirmarla. Si a los 3 días de la fecha de cobro sigue sin confirmar, aviso al super admin.
+- Avisos nuevos al super admin: tenant con la cuota pendiente (uno por impago) y cuenta exenta o anonimizada que sigue en SEPA o con tarjeta guardada (cada 30 días). Al marcar un adeudo como devuelto, el tenant recibe un correo con cómo pagar.
+- El calendario de cobros filtra por forma de cobro (pulsando las tarjetas) y enseña los reintentos de los cobros con tarjeta rechazados.

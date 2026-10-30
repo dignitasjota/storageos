@@ -28,6 +28,7 @@ import {
 } from './platform-redsys/platform-redsys.controller';
 import { PlatformRedsysCron } from './platform-redsys/platform-redsys.cron';
 import { PlatformRedsysService } from './platform-redsys/platform-redsys.service';
+import { PlatformSepaAutoCron } from './platform-sepa/platform-sepa-auto.cron';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
 import {
   PlatformSepaRemittanceController,
@@ -98,6 +99,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformCouponsService,
     PlatformDunningService,
     PlatformDunningCron,
+    PlatformSepaAutoCron,
     PlatformSepaSettingsService,
     PlatformSepaMandateService,
     SepaMandatePdfService,

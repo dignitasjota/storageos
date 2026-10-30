@@ -56,6 +56,8 @@ export const UpdatePlatformSepaSettingsSchema = z.object({
     .optional(),
   /** Preaviso de cada cargo pactado en el mandato (5 días por defecto). */
   prenoticeDays: z.number().int().min(1).max(30).optional(),
+  /** Preparar la remesa sola antes del vencimiento (queda sin confirmar). */
+  autoPrepare: z.boolean().optional(),
 });
 export type UpdatePlatformSepaSettingsInput = z.infer<typeof UpdatePlatformSepaSettingsSchema>;
 
@@ -71,6 +73,7 @@ export interface PlatformSepaSettingsDto {
   creditorCity: string | null;
   creditorCountry: string;
   prenoticeDays: number;
+  autoPrepare: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +187,11 @@ export interface PlatformSepaRemittanceDto {
   creditorMayBeStale?: boolean;
   /** Items sin resolver (con la remesa confirmada: confirmación cortada a medias). */
   pendingCount: number;
+  /** Adeudos cobrados y devueltos por el banco. */
+  collectedCount: number;
+  bouncedCount: number;
+  /** La preparó la plataforma sola (sin un super admin). */
+  automatic: boolean;
   items?: PlatformSepaRemittanceItemDto[];
 }
 

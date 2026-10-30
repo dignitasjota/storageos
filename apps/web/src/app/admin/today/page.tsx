@@ -169,7 +169,13 @@ export default function AdminTodayPage() {
           {/* Pagos fallidos */}
           {data && data.pastDue.length > 0 && (
             <SimpleCard
-              title={`Pagos fallidos (${data.pastDue.length})`}
+              title={`Pagos pendientes (${data.pastDue.length})${
+                data.pastDue.some((t) => t.owedAmount)
+                  ? ` · ${data.pastDue
+                      .reduce((sum, t) => sum + (t.owedAmount ?? 0), 0)
+                      .toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}`
+                  : ''
+              }`}
               icon={<AlertTriangle className="size-4 text-red-500" />}
             >
               {data.pastDue.map((t) => (
