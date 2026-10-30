@@ -165,8 +165,9 @@ export class LandingController {
     @Param('slug') slug: string,
     @Param('promoSlug') promoSlug: string,
     @Query('preview') preview?: string,
+    @Query('via') via?: string,
   ): Promise<PublicPromoPageDto> {
-    return this.landing.getPromo(slug, promoSlug, preview || undefined);
+    return this.landing.getPromo(slug, promoSlug, preview || undefined, via === 'short');
   }
 
   /** Formulario de la landing → contacto con origen `landing` y su campaña. */

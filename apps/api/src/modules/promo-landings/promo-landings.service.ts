@@ -10,6 +10,7 @@ import {
   promoCampaign,
   promoDatesIssue,
   promoLandingIsLive,
+  promoShortPathReserved,
   type CreatePromoLandingInput,
   type PromoLandingDto,
   type PromoLandingPreviewDto,
@@ -88,6 +89,7 @@ export class PromoLandingsService {
 
   async create(tenantId: string, input: CreatePromoLandingInput): Promise<PromoLandingDto> {
     await this.assertRefs(tenantId, input);
+    if (input.shortPath) await this.assertShortPathFree(tenantId, input.slug);
     try {
       const row = await this.prisma.withTenant(
         (tx) =>
@@ -105,6 +107,7 @@ export class PromoLandingsService {
               facilityIds: input.facilityIds,
               unitTypeIds: input.unitTypeIds,
               showCountdown: input.showCountdown,
+              shortPath: input.shortPath,
               content: input.content as Prisma.InputJsonValue,
               seoTitle: input.seoTitle,
               seoDescription: input.seoDescription,
@@ -137,6 +140,10 @@ export class PromoLandingsService {
       facilityIds: input.facilityIds ?? [],
       unitTypeIds: input.unitTypeIds ?? [],
     });
+    const shortPath = input.shortPath ?? current.shortPath;
+    if (shortPath && (input.shortPath || (input.slug && input.slug !== current.slug))) {
+      await this.assertShortPathFree(tenantId, input.slug ?? current.slug);
+    }
 
     const data: Prisma.PromoLandingUpdateInput = {};
     const text = (v: string | null | undefined) => (v ? v : null);
@@ -155,6 +162,7 @@ export class PromoLandingsService {
     if (input.facilityIds !== undefined) data.facilityIds = input.facilityIds;
     if (input.unitTypeIds !== undefined) data.unitTypeIds = input.unitTypeIds;
     if (input.showCountdown !== undefined) data.showCountdown = input.showCountdown;
+    if (input.shortPath !== undefined) data.shortPath = input.shortPath;
     if (input.seoTitle !== undefined) data.seoTitle = text(input.seoTitle);
     if (input.seoDescription !== undefined) data.seoDescription = text(input.seoDescription);
     if (input.indexable !== undefined) data.indexable = input.indexable;
@@ -380,6 +388,31 @@ export class PromoLandingsService {
     return err;
   }
 
+  /**
+   * La dirección corta `/<nombre>` no puede coincidir con una página fija de la
+   * web, una página de ciudad ni un local del negocio (el local ganaría).
+   */
+  private async assertShortPathFree(tenantId: string, slug: string): Promise<void> {
+    const facility = promoShortPathReserved(slug)
+      ? null
+      : await this.prisma.withTenant(
+          (tx) =>
+            tx.facility.findFirst({
+              where: { tenantId, publicSlug: slug, deletedAt: null },
+              select: { id: true },
+            }),
+          tenantId,
+        );
+    if (promoShortPathReserved(slug) || facility) {
+      throw new ConflictException({
+        code: 'promo_short_path_taken',
+        message: facility
+          ? 'Esa dirección corta es la de uno de tus locales. Cambia el nombre de la landing.'
+          : 'Esa dirección corta está reservada para otra página de la web. Cambia el nombre de la landing.',
+      });
+    }
+  }
+
   /** El cupón, los locales y los tamaños deben ser del tenant. */
   private async assertRefs(
     tenantId: string,
@@ -445,6 +478,7 @@ export class PromoLandingsService {
       facilityIds: r.facilityIds,
       unitTypeIds: r.unitTypeIds,
       showCountdown: r.showCountdown,
+      shortPath: r.shortPath,
       content: parsePromoLandingContent(r.content),
       seoTitle: r.seoTitle,
       seoDescription: r.seoDescription,

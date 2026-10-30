@@ -28,6 +28,7 @@ const CHANNEL_INCLUDE = {
     select: {
       name: true,
       slug: true,
+      shortPath: true,
       tenant: { select: { slug: true, customDomain: true, customDomainVerifiedAt: true } },
     },
   },
@@ -43,17 +44,19 @@ function promoLandingUrl(
   slug: string,
   source: string,
   type: MarketingChannelType,
+  shortPath = false,
 ): string {
-  const base =
-    tenant.customDomain && tenant.customDomainVerifiedAt
-      ? `https://${tenant.customDomain}`
-      : `${(process.env.WEB_BASE_URL || WEB_BASE_URL_FALLBACK).replace(/\/$/, '')}/s/${tenant.slug}`;
+  const ownDomain = !!(tenant.customDomain && tenant.customDomainVerifiedAt);
+  const base = ownDomain
+    ? `https://${tenant.customDomain}`
+    : `${(process.env.WEB_BASE_URL || WEB_BASE_URL_FALLBACK).replace(/\/$/, '')}/s/${tenant.slug}`;
   const utm = new URLSearchParams({
     utm_source: source,
     utm_medium: promoUtmMedium(type),
     utm_campaign: promoCampaign(slug),
   });
-  return `${base}/promo/${slug}?${utm.toString()}`;
+  // Con dominio propio y dirección corta, el enlace usa `/<nombre>`.
+  return `${base}${ownDomain && shortPath ? '' : '/promo'}/${slug}?${utm.toString()}`;
 }
 
 /** La landing debe ser del tenant (la transacción ya va con su RLS). */
@@ -207,7 +210,7 @@ export class MarketingChannelsService {
         type: true,
         utmSourceMatch: true,
         tenant: { select: { slug: true, customDomain: true, customDomainVerifiedAt: true } },
-        promoLanding: { select: { slug: true } },
+        promoLanding: { select: { slug: true, shortPath: true } },
       },
     });
     if (!channel || channel.deletedAt || channel.status !== 'active') {
@@ -229,6 +232,7 @@ export class MarketingChannelsService {
           channel.promoLanding.slug,
           channel.utmSourceMatch ?? 'web',
           channel.type as MarketingChannelType,
+          channel.promoLanding.shortPath,
         ),
       };
     }
@@ -392,6 +396,7 @@ export class MarketingChannelsService {
             r.promoLanding.slug,
             r.utmSourceMatch ?? 'web',
             r.type as MarketingChannelType,
+            r.promoLanding.shortPath,
           )
         : null,
       type: r.type as MarketingChannelType,

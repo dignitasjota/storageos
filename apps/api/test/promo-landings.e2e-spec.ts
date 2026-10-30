@@ -453,4 +453,76 @@ describe('Landings de promoción (e2e)', () => {
       .expect(200);
     expect((await lead(good)).status).toBe(404);
   });
+
+  it('dirección corta: no choca con locales ni páginas fijas y solo se sirve si está activada', async () => {
+    const owner = await registerVerifiedUser(app, 'promo-short');
+    const a = auth(owner.accessToken);
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    const fac = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+      pricePerUnit: 40,
+    });
+    const facility = await http().get(`/facilities/${fac.facilityId}`).set(a);
+    const facilitySlug = facility.body.publicSlug as string;
+
+    // Choca con un local o con una página fija → 409.
+    const clashFacility = await http()
+      .post('/promo-landings')
+      .set(a)
+      .send({ name: 'X', slug: facilitySlug, headline: 'X', shortPath: true });
+    expect(clashFacility.status).toBe(409);
+    expect(clashFacility.body.code).toBe('promo_short_path_taken');
+    const clashFixed = await http()
+      .post('/promo-landings')
+      .set(a)
+      .send({ name: 'X', slug: 'precios', headline: 'X', shortPath: true });
+    expect(clashFixed.status).toBe(409);
+
+    const created = await http().post('/promo-landings').set(a).send({
+      name: 'Abre',
+      slug: 'abre-ya',
+      headline: 'Abrimos',
+      shortPath: true,
+      isActive: true,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.shortPath).toBe(true);
+    const short = await http()
+      .get(`/public/landing/${owner.slug}/promo/abre-ya`)
+      .query({ via: 'short' });
+    expect(short.status).toBe(200);
+    expect(short.body.promo.shortPath).toBe(true);
+
+    // Una landing sin dirección corta no responde por ella.
+    await http()
+      .post('/promo-landings')
+      .set(a)
+      .send({ name: 'Larga', slug: 'larga', headline: 'Larga', isActive: true })
+      .expect(201);
+    const notShort = await http()
+      .get(`/public/landing/${owner.slug}/promo/larga`)
+      .query({ via: 'short' });
+    expect(notShort.status).toBe(404);
+    expect(notShort.body.code).toBe('promo_not_found');
+
+    // Apagada: existe pero ya no se sirve (la web lleva a la portada).
+    await http()
+      .patch(`/promo-landings/${created.body.id}`)
+      .set(a)
+      .send({ isActive: false })
+      .expect(200);
+    const off = await http()
+      .get(`/public/landing/${owner.slug}/promo/abre-ya`)
+      .query({ via: 'short' });
+    expect(off.status).toBe(404);
+    expect(off.body.code).toBe('promo_not_available');
+
+    // Un local nuevo con el mismo nombre no le quita la dirección.
+    const newFac = await http()
+      .post('/facilities')
+      .set(a)
+      .send({ name: 'Abre ya', publicSlug: 'abre-ya', timezone: 'Europe/Madrid' });
+    expect(newFac.status).toBe(201);
+    expect(newFac.body.publicSlug).not.toBe('abre-ya');
+  });
 });

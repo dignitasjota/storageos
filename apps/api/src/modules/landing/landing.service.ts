@@ -85,6 +85,7 @@ export class LandingService {
     slug: string,
     promoSlug: string,
     previewToken?: string,
+    viaShortPath = false,
   ): Promise<PublicPromoPageDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { slug },
@@ -97,6 +98,11 @@ export class LandingService {
       where: { tenantId_slug: { tenantId: tenant.id, slug: promoSlug.toLowerCase() } },
       include: { coupon: true },
     });
+    // Por la dirección corta (`/<nombre>`) solo valen las landings que la tienen
+    // activada; el resto de direcciones de un segmento son otras páginas.
+    if (viaShortPath && !promo?.shortPath) {
+      throw new NotFoundException({ code: 'promo_not_found', message: 'No encontrado' });
+    }
     // Un enlace de vista previa abre también los borradores (y fuera de fechas).
     const preview =
       !!promo &&
@@ -135,6 +141,7 @@ export class LandingService {
           : null,
         endsAt: promo.endsAt?.toISOString() ?? null,
         showCountdown: promo.showCountdown,
+        shortPath: promo.shortPath,
         content,
         preview,
         seoTitle: promo.seoTitle,
@@ -889,6 +896,7 @@ export class LandingService {
         where: { indexable: true, isActive: true },
         select: {
           slug: true,
+          shortPath: true,
           isActive: true,
           startsAt: true,
           endsAt: true,
@@ -925,11 +933,17 @@ export class LandingService {
       blogByTenant.set(p.tenant.slug, list);
     }
     const promosByTenant = new Map<string, string[]>();
+    const shortPromosByTenant = new Map<string, string[]>();
     for (const p of promos) {
       if (!promoLandingIsLive(p) || !(await hasPremium(p.tenantId))) continue;
       const list = promosByTenant.get(p.tenant.slug) ?? [];
       list.push(p.slug);
       promosByTenant.set(p.tenant.slug, list);
+      if (p.shortPath) {
+        const short = shortPromosByTenant.get(p.tenant.slug) ?? [];
+        short.push(p.slug);
+        shortPromosByTenant.set(p.tenant.slug, short);
+      }
     }
 
     // Páginas de zona con texto propio: solo con «SEO local» (como en la web).
@@ -963,6 +977,7 @@ export class LandingService {
           blogPostSlugs: posts.map((p) => p.slug),
           blogPosts: posts,
           promoSlugs: promosByTenant.get(t.slug) ?? [],
+          promoShortSlugs: shortPromosByTenant.get(t.slug) ?? [],
           customDomain: t.customDomainVerifiedAt ? t.customDomain : null,
         };
       }),

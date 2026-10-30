@@ -63,7 +63,7 @@ export default function PromoLandingsPage() {
     (typeof window !== 'undefined' ? window.location.origin : '');
   const urlOf = (p: PromoLandingDto) =>
     domain
-      ? `https://${domain}/promo/${p.slug}`
+      ? `https://${domain}${p.shortPath ? '' : '/promo'}/${p.slug}`
       : `${site}/s/${me.data?.tenant.slug ?? ''}/promo/${p.slug}`;
 
   async function run(fn: () => Promise<unknown>, ok: string) {

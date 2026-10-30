@@ -3,6 +3,8 @@
 -- sueltos anteriores (oferta, texto, ventajas, condiciones, botón y secciones)
 -- se pasan a él y dejan de usarse (se conservan para no perder datos).
 ALTER TABLE "promo_landings" ADD COLUMN "content" JSONB NOT NULL DEFAULT '{}';
+-- Dirección corta en el dominio propio (`/<nombre>` además de `/promo/<nombre>`).
+ALTER TABLE "promo_landings" ADD COLUMN "short_path" BOOLEAN NOT NULL DEFAULT false;
 
 UPDATE "promo_landings" SET "content" = jsonb_strip_nulls(jsonb_build_object(
   'hero', jsonb_build_object(

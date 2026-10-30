@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { RESERVED_FACILITY_SLUGS } from '../routing/custom-domain';
+
 import { PromoLandingContentSchema, type PromoLandingContent } from './content';
 
 import type { PublicLandingDto } from '../landing/types';
@@ -48,6 +50,8 @@ const promoFields = {
   facilityIds: z.array(z.string().uuid()).max(100),
   unitTypeIds: z.array(z.string().uuid()).max(100),
   showCountdown: z.boolean(),
+  /** Con dominio propio, también en `/<nombre>` (sin `/promo/`). */
+  shortPath: z.boolean(),
   /** Textos y bloques de la landing (sin enviar al crear: los de por defecto). */
   content: PromoLandingContentSchema,
   seoTitle: optionalText(70),
@@ -71,6 +75,7 @@ export const CreatePromoLandingSchema = z
     facilityIds: promoFields.facilityIds.default([]),
     unitTypeIds: promoFields.unitTypeIds.default([]),
     showCountdown: promoFields.showCountdown.default(false),
+    shortPath: promoFields.shortPath.default(false),
     content: promoFields.content.default({}),
     indexable: promoFields.indexable.default(false),
   })
@@ -92,6 +97,7 @@ export const UpdatePromoLandingSchema = z.object({
   facilityIds: promoFields.facilityIds.optional(),
   unitTypeIds: promoFields.unitTypeIds.optional(),
   showCountdown: promoFields.showCountdown.optional(),
+  shortPath: promoFields.shortPath.optional(),
   /** El contenido completo (sustituye al guardado). */
   content: promoFields.content.optional(),
   seoTitle: editText(70),
@@ -135,6 +141,7 @@ export interface PromoLandingDto {
   facilityIds: string[];
   unitTypeIds: string[];
   showCountdown: boolean;
+  shortPath: boolean;
   content: PromoLandingContent;
   seoTitle: string | null;
   seoDescription: string | null;
@@ -162,6 +169,7 @@ export interface PublicPromoLandingDto {
   heroImageUrl: string | null;
   endsAt: string | null;
   showCountdown: boolean;
+  shortPath: boolean;
   content: PromoLandingContent;
   /** Abierta con un enlace de vista previa (borrador o fuera de fechas): no indexar ni contar. */
   preview: boolean;
@@ -251,6 +259,15 @@ export interface PromoLandingStatsDto {
   /** Usos del cupón de la landing en esas reservas. */
   couponUses: number;
   bySource: PromoLandingStatsRowDto[];
+}
+
+/**
+ * ¿Puede la landing usar la dirección corta `/<nombre>`? No si coincide con una
+ * página fija de la web (reservar, precios, blog, textos legales…) ni con las
+ * páginas de ciudad o zona (`trasteros-en-…`). Los locales se comprueban aparte.
+ */
+export function promoShortPathReserved(slug: string): boolean {
+  return RESERVED_FACILITY_SLUGS.has(slug) || slug.startsWith('trasteros-en-');
 }
 
 export * from './content';

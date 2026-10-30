@@ -228,6 +228,11 @@ export class FacilitiesService {
             ...(excludeId ? { id: { not: excludeId } } : {}),
           },
           select: { id: true },
+        })) != null ||
+        // Una landing con dirección corta ya usa `/<candidate>`.
+        (await tx.promoLanding.findFirst({
+          where: { tenantId, slug: candidate, shortPath: true },
+          select: { id: true },
         })) != null;
       if (!clash) return candidate;
       n += 1;

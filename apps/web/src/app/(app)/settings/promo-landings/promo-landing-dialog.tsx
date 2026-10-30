@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
+import { useTenantBranding } from '@/lib/branding/hooks';
 import { useCoupons } from '@/lib/coupons/hooks';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
 import { compressImage } from '@/lib/images/compress';
@@ -79,6 +80,7 @@ interface Form {
   facilityIds: string[];
   unitTypeIds: string[];
   showCountdown: boolean;
+  shortPath: boolean;
   content: PromoLandingContent;
   seoTitle: string;
   seoDescription: string;
@@ -98,6 +100,7 @@ function toForm(p?: PromoLandingDto): Form {
     facilityIds: p?.facilityIds ?? [],
     unitTypeIds: p?.unitTypeIds ?? [],
     showCountdown: p?.showCountdown ?? false,
+    shortPath: p?.shortPath ?? false,
     content: p?.content ?? defaultPromoLandingContent(),
     seoTitle: p?.seoTitle ?? '',
     seoDescription: p?.seoDescription ?? '',
@@ -121,6 +124,11 @@ export function PromoLandingDialog({
   const facilities = useFacilities();
   const unitTypes = useUnitTypes();
   const whatsapp = useWhatsappSettings();
+  const branding = useTenantBranding();
+  const domain =
+    branding.data?.customDomain && branding.data.customDomainVerifiedAt
+      ? branding.data.customDomain
+      : null;
   const whatsappAvailable = !!(whatsapp.data?.enabled && whatsapp.data.webButtonEnabled);
   const [current, setCurrent] = useState<PromoLandingDto | undefined>(landing);
   const [form, setForm] = useState<Form>(toForm(landing));
@@ -159,6 +167,7 @@ export function PromoLandingDialog({
       facilityIds: form.facilityIds,
       unitTypeIds: form.unitTypeIds,
       showCountdown: form.showCountdown,
+      shortPath: form.shortPath,
       content: cleanPromoContent(form.content),
       seoTitle: form.seoTitle.trim() || null,
       seoDescription: form.seoDescription.trim() || null,
@@ -259,6 +268,30 @@ export function PromoLandingDialog({
                   Solo minúsculas, números y guiones (sin espacios).
                 </p>
               )}
+            </div>
+            <div className="sm:col-span-2">
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  className="mt-0.5"
+                  checked={form.shortPath}
+                  disabled={!domain}
+                  onCheckedChange={(v) => set('shortPath', v === true)}
+                />
+                <span>
+                  Dirección corta
+                  {domain && form.slug ? (
+                    <span className="font-mono text-muted-foreground">
+                      {' '}
+                      ({domain}/{form.slug})
+                    </span>
+                  ) : null}
+                  <span className="block text-xs text-muted-foreground">
+                    {domain
+                      ? 'Además de /promo/…, responde sin «promo». No puede coincidir con un local, una ciudad ni una página fija de la web.'
+                      : 'Solo con dominio propio (Configuración → Dominio propio).'}
+                  </span>
+                </span>
+              </label>
             </div>
             <label className="flex items-center gap-2 text-sm sm:col-span-2">
               <Checkbox
