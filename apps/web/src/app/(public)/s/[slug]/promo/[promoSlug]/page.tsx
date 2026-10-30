@@ -17,14 +17,28 @@ import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
 const API_URL = SERVER_API_URL;
 
-type Params = { params: Promise<{ slug: string; promoSlug: string }> };
+type Params = {
+  params: Promise<{ slug: string; promoSlug: string }>;
+  searchParams: Promise<{ preview?: string | string[] }>;
+};
 
-/** Landing en vigor, o null (no existe, apagada o caducada). Caché corta: activarla se nota enseguida. */
-async function getPromo(slug: string, promoSlug: string): Promise<PublicPromoPageDto | null> {
+/**
+ * Landing en vigor, o null (no existe, apagada o caducada). Caché corta:
+ * activarla se nota enseguida. Con un enlace de vista previa se ve también en
+ * borrador (sin caché).
+ */
+async function getPromo(
+  slug: string,
+  promoSlug: string,
+  preview?: string,
+): Promise<PublicPromoPageDto | null> {
   try {
+    const qs = preview ? `?preview=${encodeURIComponent(preview)}` : '';
     const res = await fetch(
-      `${API_URL}/public/landing/${encodeURIComponent(slug)}/promo/${encodeURIComponent(promoSlug)}`,
-      { headers: internalApiHeaders(), next: { revalidate: 30 } },
+      `${API_URL}/public/landing/${encodeURIComponent(slug)}/promo/${encodeURIComponent(promoSlug)}${qs}`,
+      preview
+        ? { headers: internalApiHeaders(), cache: 'no-store' }
+        : { headers: internalApiHeaders(), next: { revalidate: 30 } },
     );
     if (!res.ok) return null;
     return (await res.json()) as PublicPromoPageDto;
@@ -40,20 +54,33 @@ function promoUrl(data: PublicPromoPageDto, slug: string): string {
   return `${base}/promo/${data.promo.slug}`;
 }
 
-export async function generateMetadata({ params }: Params): Promise<Metadata> {
+function previewOf(sp: { preview?: string | string[] }): string | undefined {
+  const v = Array.isArray(sp.preview) ? sp.preview[0] : sp.preview;
+  return v ? v.slice(0, 300) : undefined;
+}
+
+export async function generateMetadata({ params, searchParams }: Params): Promise<Metadata> {
   const { slug, promoSlug } = await params;
-  const data = await getPromo(slug, promoSlug);
+  const data = await getPromo(slug, promoSlug, previewOf(await searchParams));
   if (!data) return { robots: { index: false, follow: false } };
   const { promo, site } = data;
   const title = promo.seoTitle ?? `${promo.headline} · ${site.tenantName}`;
   const description =
-    promo.seoDescription ?? promo.subheadline ?? promo.offerText ?? site.tenantName;
+    promo.seoDescription ||
+    promo.subheadline ||
+    (promo.content.offer.enabled
+      ? promo.content.offer.highlight || promo.content.offer.title
+      : '') ||
+    site.tenantName;
   const url = promoUrl(data, slug);
   return {
     title: { absolute: title },
     description,
     alternates: { canonical: url },
-    robots: promo.indexable ? { index: true, follow: true } : { index: false, follow: true },
+    robots:
+      promo.indexable && !promo.preview
+        ? { index: true, follow: true }
+        : { index: false, follow: !promo.preview },
     openGraph: {
       title,
       description,
@@ -71,9 +98,9 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * Landing de promoción (`/promo/<nombre>` en el dominio propio, o
  * `/s/<slug>/promo/<nombre>`). Apagada, caducada o inexistente → la web normal.
  */
-export default async function PromoPage({ params }: Params) {
+export default async function PromoPage({ params, searchParams }: Params) {
   const { slug, promoSlug } = await params;
-  const data = await getPromo(slug, promoSlug);
+  const data = await getPromo(slug, promoSlug, previewOf(await searchParams));
   if (!data) {
     const onCustomDomain = (await headers()).get('x-storageos-tenant-slug') === slug;
     redirect(onCustomDomain ? '/' : `/s/${slug}`);

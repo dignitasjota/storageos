@@ -6,6 +6,7 @@ import type {
   BlogCoverUploadResponseDto,
   CreatePromoLandingInput,
   PromoLandingDto,
+  PromoLandingPreviewDto,
   PromoLandingStatsDto,
   UpdatePromoLandingInput,
 } from '@storageos/shared';
@@ -95,4 +96,9 @@ export function usePromoLandingStats(id: string | null, days: number) {
     queryFn: () => apiFetch<PromoLandingStatsDto>(`/promo-landings/${id}/stats?days=${days}`),
     enabled: id != null,
   });
+}
+
+/** Enlace de vista previa (también de un borrador), válido 30 minutos. */
+export function previewPromoLanding(id: string): Promise<PromoLandingPreviewDto> {
+  return apiFetch<PromoLandingPreviewDto>(`/promo-landings/${id}/preview`, { method: 'POST' });
 }

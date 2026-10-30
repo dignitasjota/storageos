@@ -15,6 +15,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import {
   isTenantLegalDoc,
+  PromoLeadSchema,
   PromoVisitSchema,
   PublicContactSchema,
   type PublicLegalDocDto,
@@ -43,6 +44,7 @@ import type { Request, Response } from 'express';
 
 class PublicContactDto extends createZodDto(PublicContactSchema) {}
 class PromoVisitDto extends createZodDto(PromoVisitSchema) {}
+class PromoLeadDto extends createZodDto(PromoLeadSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -162,8 +164,22 @@ export class LandingController {
   promo(
     @Param('slug') slug: string,
     @Param('promoSlug') promoSlug: string,
+    @Query('preview') preview?: string,
   ): Promise<PublicPromoPageDto> {
-    return this.landing.getPromo(slug, promoSlug);
+    return this.landing.getPromo(slug, promoSlug, preview || undefined);
+  }
+
+  /** Formulario de la landing → contacto con origen `landing` y su campaña. */
+  @Post(':slug/promo/:promoSlug/lead')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  promoLead(
+    @Param('slug') slug: string,
+    @Param('promoSlug') promoSlug: string,
+    @Body() body: PromoLeadDto,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    return this.landing.submitPromoLead(slug, promoSlug, body, extractMeta(req));
   }
 
   /** Visita a una landing de promoción (para saber de dónde vienen). */

@@ -1,9 +1,16 @@
 'use client';
 
-import { PROMO_SLUG_RE, type PromoLandingDto } from '@storageos/shared';
-import { ImagePlus, Loader2, Trash2 } from 'lucide-react';
+import {
+  PROMO_SLUG_RE,
+  defaultPromoLandingContent,
+  type PromoLandingContent,
+  type PromoLandingDto,
+} from '@storageos/shared';
+import { Eye, ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+
+import { cleanPromoContent, PromoContentEditor } from './promo-content-editor';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -22,12 +29,14 @@ import { useCoupons } from '@/lib/coupons/hooks';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
 import { compressImage } from '@/lib/images/compress';
 import {
+  previewPromoLanding,
   removePromoLandingImage,
   uploadPromoLandingImage,
   useCreatePromoLanding,
   useInvalidatePromoLandings,
   useUpdatePromoLanding,
 } from '@/lib/promo-landings/hooks';
+import { useWhatsappSettings } from '@/lib/whatsapp/hooks';
 
 const selectClass =
   'h-9 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm';
@@ -66,18 +75,11 @@ interface Form {
   endsAt: string;
   headline: string;
   subheadline: string;
-  offerText: string;
-  body: string;
-  benefits: string;
-  conditions: string;
-  ctaLabel: string;
   couponId: string;
   facilityIds: string[];
   unitTypeIds: string[];
   showCountdown: boolean;
-  showTestimonials: boolean;
-  showFaq: boolean;
-  showContact: boolean;
+  content: PromoLandingContent;
   seoTitle: string;
   seoDescription: string;
   indexable: boolean;
@@ -92,18 +94,11 @@ function toForm(p?: PromoLandingDto): Form {
     endsAt: toDateInput(p?.endsAt ?? null),
     headline: p?.headline ?? '',
     subheadline: p?.subheadline ?? '',
-    offerText: p?.offerText ?? '',
-    body: p?.body ?? '',
-    benefits: (p?.benefits ?? []).join('\n'),
-    conditions: p?.conditions ?? '',
-    ctaLabel: p?.ctaLabel ?? '',
     couponId: p?.couponId ?? '',
     facilityIds: p?.facilityIds ?? [],
     unitTypeIds: p?.unitTypeIds ?? [],
     showCountdown: p?.showCountdown ?? false,
-    showTestimonials: p?.showTestimonials ?? true,
-    showFaq: p?.showFaq ?? true,
-    showContact: p?.showContact ?? true,
+    content: p?.content ?? defaultPromoLandingContent(),
     seoTitle: p?.seoTitle ?? '',
     seoDescription: p?.seoDescription ?? '',
     indexable: p?.indexable ?? false,
@@ -125,6 +120,8 @@ export function PromoLandingDialog({
   const coupons = useCoupons();
   const facilities = useFacilities();
   const unitTypes = useUnitTypes();
+  const whatsapp = useWhatsappSettings();
+  const whatsappAvailable = !!(whatsapp.data?.enabled && whatsapp.data.webButtonEnabled);
   const [current, setCurrent] = useState<PromoLandingDto | undefined>(landing);
   const [form, setForm] = useState<Form>(toForm(landing));
   const [slugTouched, setSlugTouched] = useState(!!landing);
@@ -137,6 +134,8 @@ export function PromoLandingDialog({
     setSlugTouched(!!landing);
   }, [open, landing]);
 
+  const setContent = (fn: (c: PromoLandingContent) => PromoLandingContent) =>
+    setForm((f) => ({ ...f, content: fn(f.content) }));
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
   const toggleIn = (k: 'facilityIds' | 'unitTypeIds', id: string) =>
     setForm((f) => ({
@@ -156,22 +155,11 @@ export function PromoLandingDialog({
       endsAt: fromDateInput(form.endsAt, true),
       headline: form.headline.trim(),
       subheadline: form.subheadline.trim() || null,
-      offerText: form.offerText.trim() || null,
-      body: form.body.trim() || null,
-      benefits: form.benefits
-        .split('\n')
-        .map((b) => b.trim())
-        .filter(Boolean)
-        .slice(0, 8),
-      conditions: form.conditions.trim() || null,
-      ctaLabel: form.ctaLabel.trim() || null,
       couponId: form.couponId || null,
       facilityIds: form.facilityIds,
       unitTypeIds: form.unitTypeIds,
       showCountdown: form.showCountdown,
-      showTestimonials: form.showTestimonials,
-      showFaq: form.showFaq,
-      showContact: form.showContact,
+      content: cleanPromoContent(form.content),
       seoTitle: form.seoTitle.trim() || null,
       seoDescription: form.seoDescription.trim() || null,
       indexable: form.indexable,
@@ -187,6 +175,16 @@ export function PromoLandingDialog({
         setCurrent(saved);
         toast.success('Landing creada. Ya puedes subir la foto.');
       }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function onPreview() {
+    if (!current) return;
+    try {
+      const { url } = await previewPromoLanding(current.id);
+      window.open(url, '_blank', 'noopener');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -217,11 +215,14 @@ export function PromoLandingDialog({
   }
 
   const busy = create.isPending || update.isPending;
+  const landingSizes = (unitTypes.data ?? [])
+    .filter((ut) => form.unitTypeIds.length === 0 || form.unitTypeIds.includes(ut.id))
+    .map((ut) => ({ id: ut.id, name: ut.name }));
   const activeCoupons = (coupons.data ?? []).filter((c) => c.isActive || c.id === form.couponId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{current ? 'Editar landing' : 'Nueva landing de promoción'}</DialogTitle>
         </DialogHeader>
@@ -290,16 +291,7 @@ export function PromoLandingDialog({
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold">Contenido</h3>
-            <div>
-              <Label htmlFor="pl-offer">Oferta destacada</Label>
-              <Input
-                id="pl-offer"
-                value={form.offerText}
-                placeholder="1 mes gratis"
-                onChange={(e) => set('offerText', e.target.value)}
-              />
-            </div>
+            <h3 className="text-sm font-semibold">Portada</h3>
             <div>
               <Label htmlFor="pl-headline">Titular</Label>
               <Input
@@ -310,47 +302,13 @@ export function PromoLandingDialog({
               />
             </div>
             <div>
-              <Label htmlFor="pl-sub">Subtítulo</Label>
-              <Input
+              <Label htmlFor="pl-sub">Texto bajo el titular</Label>
+              <Textarea
                 id="pl-sub"
+                rows={2}
+                maxLength={400}
                 value={form.subheadline}
                 onChange={(e) => set('subheadline', e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="pl-benefits">Ventajas (una por línea, hasta 8)</Label>
-              <Textarea
-                id="pl-benefits"
-                rows={4}
-                value={form.benefits}
-                onChange={(e) => set('benefits', e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="pl-body">Texto</Label>
-              <Textarea
-                id="pl-body"
-                rows={4}
-                value={form.body}
-                onChange={(e) => set('body', e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="pl-conditions">Condiciones de la promoción</Label>
-              <Textarea
-                id="pl-conditions"
-                rows={4}
-                value={form.conditions}
-                onChange={(e) => set('conditions', e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="pl-cta">Texto del botón (opcional)</Label>
-              <Input
-                id="pl-cta"
-                value={form.ctaLabel}
-                placeholder="Reservar ahora"
-                onChange={(e) => set('ctaLabel', e.target.value)}
               />
             </div>
             <div>
@@ -447,21 +405,27 @@ export function PromoLandingDialog({
             </div>
           </section>
 
-          <section className="space-y-2">
-            <h3 className="text-sm font-semibold">Secciones</h3>
-            {(
-              [
-                ['showCountdown', 'Cuenta atrás hasta la fecha de fin'],
-                ['showTestimonials', 'Opiniones de clientes'],
-                ['showFaq', 'Preguntas frecuentes'],
-                ['showContact', 'Formulario de contacto'],
-              ] as const
-            ).map(([k, label]) => (
-              <label key={k} className="flex items-center gap-2 text-sm">
-                <Checkbox checked={form[k]} onCheckedChange={(v) => set(k, v === true)} />
-                {label}
-              </label>
-            ))}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold">Bloques de la landing</h3>
+            <p className="text-xs text-muted-foreground">
+              Muestra, oculta y ordena cada bloque. Los colores, la letra y la forma de los botones
+              salen de la plantilla de tu web.
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={form.showCountdown}
+                onCheckedChange={(v) => set('showCountdown', v === true)}
+              />
+              Cuenta atrás hasta la fecha de fin (en la portada)
+            </label>
+            <PromoContentEditor
+              key={current?.id ?? 'new'}
+              content={form.content}
+              setContent={setContent}
+              sizes={landingSizes}
+              whatsappAvailable={whatsappAvailable}
+              hasCoupon={!!form.couponId}
+            />
           </section>
 
           <section className="space-y-3">
@@ -495,13 +459,23 @@ export function PromoLandingDialog({
           </section>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {current && !landing ? 'Cerrar' : 'Cancelar'}
-          </Button>
-          <Button onClick={() => void save()} disabled={!canSave || busy}>
-            {busy ? 'Guardando…' : 'Guardar'}
-          </Button>
+        <DialogFooter className="gap-2 sm:justify-between">
+          {current ? (
+            <Button variant="ghost" onClick={() => void onPreview()}>
+              <Eye className="mr-1 h-4 w-4" />
+              Vista previa
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              {current && !landing ? 'Cerrar' : 'Cancelar'}
+            </Button>
+            <Button onClick={() => void save()} disabled={!canSave || busy}>
+              {busy ? 'Guardando…' : 'Guardar'}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

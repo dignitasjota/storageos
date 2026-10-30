@@ -11,6 +11,19 @@ export interface PromoTheme {
   dark: boolean;
 }
 
+/** Tono suave del color de acento (fondos de iconos, avisos). `accent` es `#rrggbb`. */
+export function softAccent(theme: PromoTheme, alpha = 0.12): string {
+  const a = Math.round(alpha * 255)
+    .toString(16)
+    .padStart(2, '0');
+  return /^#[0-9a-f]{6}$/i.test(theme.accent) ? `${theme.accent}${a}` : 'rgba(0,0,0,0.06)';
+}
+
+/** Fondo de la banda oscura del bloque de la promoción. */
+export function bandColor(theme: PromoTheme): string {
+  return theme.dark ? '#000000' : '#0f172a';
+}
+
 export function themeFor(template: string, brandColor: string | null): PromoTheme {
   const base: PromoTheme = {
     accent: brandColor ?? '#2563EB',

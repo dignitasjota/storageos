@@ -4,20 +4,29 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
+  parsePromoLandingContent,
   promoCampaign,
   promoDatesIssue,
   promoLandingIsLive,
   type CreatePromoLandingInput,
   type PromoLandingDto,
+  type PromoLandingPreviewDto,
   type PromoLandingStatsDto,
   type PromoLandingStatsRowDto,
   type UpdatePromoLandingInput,
 } from '@storageos/shared';
 
+import {
+  PROMO_PREVIEW_TTL_MS,
+  buildPromoPreviewToken,
+  promoPreviewKey,
+} from '../../common/marketing/promo-preview-token';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
+import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
 
 type Row = Prisma.PromoLandingGetPayload<{ include: { coupon: { select: { code: true } } } }>;
@@ -34,7 +43,31 @@ export class PromoLandingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * Enlace de vista previa (borradores incluidos) en la dirección de la
+   * plataforma. Firmado y válido 30 minutos; la página no se indexa ni cuenta visitas.
+   */
+  async previewLink(tenantId: string, id: string): Promise<PromoLandingPreviewDto> {
+    const landing = await this.findOrThrow(tenantId, id);
+    const tenant = await this.prisma.withTenant(
+      (tx) => tx.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }),
+      tenantId,
+    );
+    const expires = Date.now() + PROMO_PREVIEW_TTL_MS;
+    const token = buildPromoPreviewToken(
+      promoPreviewKey(this.config.get('MASTER_ENCRYPTION_KEY', { infer: true })),
+      landing.id,
+      expires,
+    );
+    const base = this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    return {
+      url: `${base}/s/${tenant!.slug}/promo/${landing.slug}?preview=${encodeURIComponent(token)}`,
+      expiresAt: new Date(expires).toISOString(),
+    };
+  }
 
   async list(tenantId: string): Promise<PromoLandingDto[]> {
     const rows = await this.prisma.withTenant(
@@ -68,18 +101,11 @@ export class PromoLandingsService {
               endsAt: input.endsAt ? new Date(input.endsAt) : null,
               headline: input.headline,
               subheadline: input.subheadline,
-              offerText: input.offerText,
-              body: input.body,
-              benefits: input.benefits,
-              conditions: input.conditions,
-              ctaLabel: input.ctaLabel,
               couponId: input.couponId,
               facilityIds: input.facilityIds,
               unitTypeIds: input.unitTypeIds,
               showCountdown: input.showCountdown,
-              showTestimonials: input.showTestimonials,
-              showFaq: input.showFaq,
-              showContact: input.showContact,
+              content: input.content as Prisma.InputJsonValue,
               seoTitle: input.seoTitle,
               seoDescription: input.seoDescription,
               indexable: input.indexable,
@@ -122,20 +148,13 @@ export class PromoLandingsService {
     if (input.endsAt !== undefined) data.endsAt = input.endsAt ? new Date(input.endsAt) : null;
     if (input.headline !== undefined) data.headline = input.headline;
     if (input.subheadline !== undefined) data.subheadline = text(input.subheadline);
-    if (input.offerText !== undefined) data.offerText = text(input.offerText);
-    if (input.body !== undefined) data.body = text(input.body);
-    if (input.benefits !== undefined) data.benefits = input.benefits;
-    if (input.conditions !== undefined) data.conditions = text(input.conditions);
-    if (input.ctaLabel !== undefined) data.ctaLabel = text(input.ctaLabel);
+    if (input.content !== undefined) data.content = input.content as Prisma.InputJsonValue;
     if (input.couponId !== undefined) {
       data.coupon = input.couponId ? { connect: { id: input.couponId } } : { disconnect: true };
     }
     if (input.facilityIds !== undefined) data.facilityIds = input.facilityIds;
     if (input.unitTypeIds !== undefined) data.unitTypeIds = input.unitTypeIds;
     if (input.showCountdown !== undefined) data.showCountdown = input.showCountdown;
-    if (input.showTestimonials !== undefined) data.showTestimonials = input.showTestimonials;
-    if (input.showFaq !== undefined) data.showFaq = input.showFaq;
-    if (input.showContact !== undefined) data.showContact = input.showContact;
     if (input.seoTitle !== undefined) data.seoTitle = text(input.seoTitle);
     if (input.seoDescription !== undefined) data.seoDescription = text(input.seoDescription);
     if (input.indexable !== undefined) data.indexable = input.indexable;
@@ -158,9 +177,15 @@ export class PromoLandingsService {
       for (let n = 2; await tx.promoLanding.findFirst({ where: { tenantId, slug } }); n++) {
         slug = `${src.slug}-copia-${n}`.slice(0, 60);
       }
-      const { id: _id, createdAt: _c, updatedAt: _u, coupon: _coupon, ...rest } = src;
+      const { id: _id, createdAt: _c, updatedAt: _u, coupon: _coupon, content, ...rest } = src;
       return tx.promoLanding.create({
-        data: { ...rest, name: `${src.name} (copia)`.slice(0, 120), slug, isActive: false },
+        data: {
+          ...rest,
+          content: content as Prisma.InputJsonValue,
+          name: `${src.name} (copia)`.slice(0, 120),
+          slug,
+          isActive: false,
+        },
         include: INCLUDE,
       });
     }, tenantId);
@@ -175,11 +200,20 @@ export class PromoLandingsService {
   async stats(tenantId: string, id: string, days: number): Promise<PromoLandingStatsDto> {
     const landing = await this.findOrThrow(tenantId, id);
     const since = days > 0 ? new Date(Date.now() - days * 86_400_000) : null;
-    const { visits, leads } = await this.prisma.withTenant(
+    const { visits, leads, requests } = await this.prisma.withTenant(
       async (tx) => ({
         visits: await tx.promoLandingVisit.findMany({
           where: { promoLandingId: id, ...(since ? { createdAt: { gte: since } } : {}) },
           select: { visitorId: true, source: true },
+        }),
+        requests: await tx.lead.findMany({
+          where: {
+            source: 'landing',
+            utmCampaign: promoCampaign(landing.slug),
+            deletedAt: null,
+            ...(since ? { createdAt: { gte: since } } : {}),
+          },
+          select: { utmSource: true },
         }),
         leads: await tx.lead.findMany({
           where: {
@@ -236,6 +270,7 @@ export class PromoLandingsService {
           source: key,
           visits: 0,
           visitors: 0,
+          requests: 0,
           bookings: 0,
           signed: 0,
           paid: 0,
@@ -251,6 +286,7 @@ export class PromoLandingsService {
       r.visits += 1;
       r.ids.add(v.visitorId);
     }
+    for (const l of requests) row(l.utmSource?.toLowerCase() ?? null).requests += 1;
     const seen = new Set<string>();
     for (const l of leads) {
       const cid = l.convertedContractId!;
@@ -269,15 +305,16 @@ export class PromoLandingsService {
         visitors: ids.size,
         revenue: Math.round(r.revenue * 100) / 100,
       }))
-      .sort((a, b) => b.visits - a.visits || b.bookings - a.bookings);
+      .sort((a, b) => b.visits - a.visits || b.requests - a.requests || b.bookings - a.bookings);
     const visitors = new Set(visits.map((v) => v.visitorId)).size;
-    const sum = (k: 'bookings' | 'signed' | 'paid' | 'revenue') =>
+    const sum = (k: 'requests' | 'bookings' | 'signed' | 'paid' | 'revenue') =>
       bySource.reduce((acc, r) => acc + r[k], 0);
     const paid = sum('paid');
     return {
       days,
       visits: visits.length,
       visitors,
+      requests: sum('requests'),
       bookings: sum('bookings'),
       signed: sum('signed'),
       paid,
@@ -402,20 +439,13 @@ export class PromoLandingsService {
       live: promoLandingIsLive(r),
       headline: r.headline,
       subheadline: r.subheadline,
-      offerText: r.offerText,
-      body: r.body,
-      benefits: r.benefits,
-      conditions: r.conditions,
-      ctaLabel: r.ctaLabel,
       heroImageUrl: r.heroImageKey ? this.files.buildPublicUrl('public', r.heroImageKey) : null,
       couponId: r.couponId,
       couponCode: r.coupon?.code ?? null,
       facilityIds: r.facilityIds,
       unitTypeIds: r.unitTypeIds,
       showCountdown: r.showCountdown,
-      showTestimonials: r.showTestimonials,
-      showFaq: r.showFaq,
-      showContact: r.showContact,
+      content: parsePromoLandingContent(r.content),
       seoTitle: r.seoTitle,
       seoDescription: r.seoDescription,
       indexable: r.indexable,

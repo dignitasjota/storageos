@@ -400,6 +400,78 @@ export class LeadsService {
    * el asistente (sin usuario); si ya existe con el mismo email o teléfono,
    * se suma a él.
    */
+  /**
+   * Formulario de una landing de promoción: crea el contacto (origen `landing`)
+   * con el tamaño y el local que pide y la campaña de la landing. Un contacto
+   * abierto con el mismo teléfono o email se completa en vez de duplicarse.
+   */
+  async createFromPromoLanding(args: {
+    tenantId: string;
+    landingName: string;
+    name: string;
+    phone: string;
+    email: string | null;
+    unitTypeId: string | null;
+    facilityId: string | null;
+    acceptsMarketing: boolean;
+    utmSource: string | null;
+    utmMedium: string | null;
+    utmCampaign: string;
+    meta: RequestMeta;
+  }): Promise<{ id: string }> {
+    const message = `Solicitud desde la landing «${args.landingName}».`;
+    const repeated = await this.mergeRepeatContact(args.tenantId, {
+      email: args.email,
+      phone: args.phone,
+      message,
+      channel: 'landing',
+      marketingConsent: args.acceptsMarketing,
+    });
+    if (repeated) return { id: repeated.id };
+    const [firstName, ...rest] = args.name.trim().split(/\s+/).filter(Boolean);
+    const created = await this.prisma.withTenant(
+      (tx) =>
+        tx.lead.create({
+          data: {
+            tenantId: args.tenantId,
+            source: 'landing',
+            utmSource: args.utmSource,
+            utmMedium: args.utmMedium,
+            utmCampaign: args.utmCampaign,
+            firstName: firstName ?? null,
+            lastName: rest.length > 0 ? rest.join(' ') : null,
+            email: args.email,
+            phone: args.phone,
+            message,
+            preferredUnitTypeId: args.unitTypeId,
+            preferredFacilityId: args.facilityId,
+            marketingConsentAt: args.acceptsMarketing ? new Date() : null,
+            metadata: {
+              origin: 'promo_landing',
+              userAgent: args.meta.userAgent ?? null,
+              ipAddress: args.meta.ipAddress ?? null,
+            } satisfies Prisma.InputJsonValue,
+          },
+          include: {
+            preferredFacility: { select: { name: true } },
+            preferredUnitType: { select: { name: true } },
+            assignedTo: { select: { fullName: true } },
+          },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      action: 'lead.promo_landing_received',
+      entityType: 'Lead',
+      entityId: created.id,
+      ...(args.meta.ipAddress ? { ipAddress: args.meta.ipAddress } : {}),
+      ...(args.meta.userAgent ? { userAgent: args.meta.userAgent } : {}),
+    });
+    this.emitLeadCreated(args.tenantId, created);
+    return { id: created.id };
+  }
+
   async createFromWebChat(args: {
     tenantId: string;
     name: string | null;

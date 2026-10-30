@@ -16,6 +16,7 @@ import {
   type BlogCoverUploadResponseDto,
   CreatePromoLandingSchema,
   type PromoLandingDto,
+  type PromoLandingPreviewDto,
   type PromoLandingStatsDto,
   RequestBlogCoverUploadSchema,
   SetPromoLandingImageSchema,
@@ -90,6 +91,17 @@ export class PromoLandingsController {
     @Body() body: UpdatePromoLandingDto,
   ): Promise<PromoLandingDto> {
     return this.promos.update(user.tenantId, id, body);
+  }
+
+  /** Enlace de vista previa (también de un borrador), válido 30 minutos. */
+  @RequirePermission('settings:read')
+  @Post(':id/preview')
+  @HttpCode(HttpStatus.OK)
+  preview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PromoLandingPreviewDto> {
+    return this.promos.previewLink(user.tenantId, id);
   }
 
   @RequirePermission('settings:manage')
