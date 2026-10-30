@@ -64,7 +64,7 @@ export default function BillingCalendarPage() {
 
   if (cal.isError) return <AdminError onRetry={() => void cal.refetch()} />;
   const by = cal.data?.scheduledByMethod;
-  const scheduledTotal = by ? by.stripe + by.sepa + (by.redsys ?? 0) + by.manual : 0;
+  const scheduledTotal = by ? by.stripe + by.sepa + by.redsys + by.manual : 0;
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -90,10 +90,11 @@ export default function BillingCalendarPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Kpi label={`Previsto ${days} días`} value={eur(scheduledTotal)} />
         <Kpi label="Por Stripe" value={eur(by?.stripe ?? 0)} />
         <Kpi label="Por SEPA" value={eur(by?.sepa ?? 0)} />
+        <Kpi label="Tarjeta (Redsys)" value={eur(by?.redsys ?? 0)} />
         <Kpi label="Manual" value={eur(by?.manual ?? 0)} />
       </div>
 

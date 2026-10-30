@@ -32,7 +32,12 @@ export interface AdminDunningStepDto {
 export interface AdminOverdueDto {
   since: string;
   days: number;
+  /** Lo que debe: la cuota por cada periodo vencido sin pagar. */
   amount: number;
+  /** Cuotas vencidas sin pagar (1 si solo debe la última). */
+  periods: number;
+  /** Importe de una cuota. */
+  periodAmount: number;
   /** Pasos del escalado automático (vacío si está apagado). */
   steps: AdminDunningStepDto[];
   /** El último adeudo SEPA se devolvió. */

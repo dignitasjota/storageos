@@ -52,7 +52,9 @@ export default function ReceivablesPage() {
   const data = useAdminReceivables();
   if (data.isError) return <AdminError onRetry={() => void data.refetch()} />;
   const items = data.data?.items ?? [];
-  const old = items.filter((i) => i.days > 15).length;
+  // Lo que ya va en una remesa SEPA está en el banco: no cuenta como pendiente.
+  const owed = items.filter((i) => !i.overdue?.sepaInProgress);
+  const old = owed.filter((i) => i.days > 15).length;
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -65,7 +67,7 @@ export default function ReceivablesPage() {
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Kpi label="Pendiente de cobro" value={eur(data.data?.total ?? 0)} />
-        <Kpi label="Cobros pendientes" value={String(items.length)} />
+        <Kpi label="Cobros pendientes" value={String(owed.length)} />
         <Kpi label="Con más de 15 días" value={String(old)} warn={old > 0} />
       </div>
 
@@ -163,6 +165,12 @@ function ReceivableRow({ item: i }: { item: AdminReceivableDto }) {
           </div>
           <p className="text-sm">
             {i.concept} · <span className="font-semibold">{eur(i.amount)}</span>
+            {i.overdue && i.overdue.periods > 1 && (
+              <span className="text-muted-foreground">
+                {' '}
+                ({i.overdue.periods} cuotas de {eur(i.overdue.periodAmount)})
+              </span>
+            )}
           </p>
           <p className={`text-xs ${i.days > 15 ? 'text-destructive' : 'text-muted-foreground'}`}>
             Desde el {day(i.since)} ({i.days} {i.days === 1 ? 'día' : 'días'})

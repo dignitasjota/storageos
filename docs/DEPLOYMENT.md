@@ -1603,3 +1603,12 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Las páginas de las landings ya no se guardan en caché: apagar o caducar una landing se nota al momento (antes seguía visible hasta el siguiente despliegue, porque Next solo cachea las respuestas 200).
 - **Enlaces cortos de los carteles**: con dominio propio verificado salen como `tu-dominio/g/<código>` (los QR ya impresos con `trasteros.pro/g/…` siguen funcionando). En Marketing → Canales hay un botón «QR» por canal con descarga en PNG.
 - El formulario de la landing crea contactos con origen «Landing de promoción» (5 envíos por minuto e IP). La vista previa usa `MASTER_ENCRYPTION_KEY` y `WEB_BASE_URL` (ya configuradas).
+
+## 70. Cobros del panel admin: revisión (2026-10-30)
+
+- **Sin migración ni variables nuevas.** Redesplegar api, worker y web.
+- El escalado de impagos solo actúa sobre tenants activos con un plan de pago: ya no suspende a quien se pasó a Free, a quien está suspendido o de baja a mano (respeta su motivo y fecha de baja) ni a uno en prueba. Los avisos van también a los propietarios con el email verificado; si no hay nadie, aviso al super admin (`platform_dunning.no_recipient`).
+- La remesa SEPA de la plataforma no incluye cuentas exentas ni anonimizadas aunque sigan en modo SEPA.
+- Cobros pendientes y la ficha del tenant enseñan la deuda real (una cuota por cada periodo vencido) y, con Stripe, los días desde el cobro que falló. Lo que ya va en una remesa SEPA se lista pero no suma como pendiente.
+- Un cobro automático de Redsys sin respuesta (hasta 48 h) no pasa la cuota a «pago pendiente».
+- La numeración de las facturas de suscripción y la exportación por año van por el año de España (antes, de 00:00 a 01:00 del 1 de enero, en el año anterior).

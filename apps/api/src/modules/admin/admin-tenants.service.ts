@@ -2137,11 +2137,14 @@ export class AdminTenantsService {
         billingCycle: 'current',
       });
     }
+    // A un plan gratis la cuota deja de deberse: sin esto seguía «pago
+    // pendiente» y el escalado de impagos lo acababa suspendiendo.
+    const clearsDebt = Number(plan.priceMonthly) <= 0 && subscription.status === 'past_due';
     await this.admin.tenantSubscription.update({
       where: { tenantId },
       data: {
         planId: plan.id,
-        ...(subscription.status === 'trial' ? { status: 'active' as const } : {}),
+        ...(subscription.status === 'trial' || clearsDebt ? { status: 'active' as const } : {}),
       },
     });
     if (tenant.status === 'trial') {
@@ -2155,6 +2158,7 @@ export class AdminTenantsService {
       previousPlan: previousSlug,
       newPlan: plan.slug,
       ...(endsTrial ? { endedTrial: true } : {}),
+      ...(clearsDebt ? { clearedDebt: true } : {}),
       ...(chargedByStripe ? { stripeUpdated: true } : {}),
     };
     await this.audit.write({
