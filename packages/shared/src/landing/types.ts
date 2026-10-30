@@ -80,6 +80,10 @@ export interface PublicLandingDto {
   webContent: WebContent | null;
   /** Títulos y descripciones para Google (vacío = generados). `null` sin `web_premium`. */
   webSeo: WebSeo | null;
+  /** Foto de la entrada para la portada (Web Premium), o null. */
+  webHeroImageUrl: string | null;
+  /** Foto del interior para el fondo difuminado de la portada (Web Premium), o null. */
+  webHeroBackgroundUrl: string | null;
   /** Texto propio de las páginas de zona (`/trasteros-en-<zona>`). Vacío sin `web_premium`. */
   areaPages: PublicAreaPageContentDto[];
   /** Enlaces a las páginas de zona para el pie de la web. */

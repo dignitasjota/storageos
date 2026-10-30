@@ -422,6 +422,9 @@ model Tenant {
   /// Logo subido al bucket público (`<tenant>/logo/…`); si existe, `portalLogoUrl` es su URL.
   portalLogoKey                String?               @map("portal_logo_key")
   webFaviconKey                String?               @map("web_favicon_key")
+  /// Web Premium: fotos de la portada (entrada del local y fondo difuminado). null = la de siempre.
+  webHeroImageKey              String?               @map("web_hero_image_key")
+  webHeroBackgroundKey         String?               @map("web_hero_background_key")
   /// Web «Premium» (feature `web_premium`): plantilla de diseño de la web pública
   /// (`/s/<slug>`) + claim del hero + sección «quiénes somos». Sin la feature se
   /// usa la plantilla `default` y estos textos se ignoran.

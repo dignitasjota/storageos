@@ -749,6 +749,10 @@
       "googleReviewsShort": "Our Google profile",
       "heroCardKicker": "Personal access",
       "heroCardText": "Get in with your code or your phone",
+      "heroCardOpen": "Open now",
+      "heroCardClosed": "Closed now",
+      "heroCardFrom": "From {price}/month",
+      "heroCardFromVat": "VAT included",
       "promoTag": "Offer",
       "promoCta": "See units",
       "nav": {

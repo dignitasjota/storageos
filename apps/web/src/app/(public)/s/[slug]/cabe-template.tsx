@@ -35,7 +35,7 @@ import {
 import { grossPrice } from './price-format';
 import { goToSection, goToTop } from './site-sections';
 import { StorageCalculator } from './storage-calculator';
-import { cities, formatPrice, PreOpeningBadge, useHeadlineFallback } from './templates';
+import { cities, formatPrice, isOpenNow, PreOpeningBadge, useHeadlineFallback } from './templates';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
@@ -54,6 +54,22 @@ function sizeOf(areaM2: number | null): 'S' | 'M' | 'L' | null {
   if (areaM2 < 3) return 'S';
   if (areaM2 <= 7) return 'M';
   return 'L';
+}
+
+/**
+ * Datos reales para la tarjeta de la portada: si el primer local con horario
+ * está abierto ahora y el precio más bajo con IVA (de lo disponible o, si todo
+ * está agotado, de lo que haya).
+ */
+function heroCardFacts(data: PublicLandingDto): { open: boolean | null; fromPrice: number | null } {
+  const withHours = data.facilities.find(
+    (f) => !f.preOpening && Object.values(f.openingHours ?? {}).some(Boolean),
+  );
+  const open = withHours ? isOpenNow(withHours.openingHours, withHours.timezone) : null;
+  const types = data.facilities.flatMap((f) => f.unitTypes);
+  const pool = types.some((u) => u.available > 0) ? types.filter((u) => u.available > 0) : types;
+  const prices = pool.map((u) => grossPrice(u)).filter((p) => p > 0);
+  return { open, fromPrice: prices.length > 0 ? Math.min(...prices) : null };
 }
 
 function whatsAppHref(phone: string, message: string): string | null {
@@ -102,7 +118,13 @@ export function CabeTemplate({
   const blogHref = data.hasBlog
     ? buildBlogHref(data.tenantSlug, locale, data.customDomain)
     : undefined;
-  const heroImage = data.facilities.flatMap((f) => f.imageUrls)[0] ?? null;
+  // Portada: la foto de la entrada subida en Ajustes → Web o, sin ella, la
+  // primera foto de un local. El fondo difuminado solo si se sube.
+  const heroImage = data.webHeroImageUrl ?? data.facilities.flatMap((f) => f.imageUrls)[0] ?? null;
+  const heroBackground = data.webHeroBackgroundUrl;
+  // Con la foto de la entrada subida, la tarjeta enseña datos reales (abierto
+  // ahora y precio desde); sin ella, el texto de siempre.
+  const heroFacts = data.webHeroImageUrl ? heroCardFacts(data) : null;
   const phone = data.facilities.find((f) => f.contactPhone)?.contactPhone ?? null;
   const email = data.facilities.find((f) => f.contactEmail)?.contactEmail ?? null;
   const whatsapp = phone
@@ -222,7 +244,21 @@ export function CabeTemplate({
         <>
           {/* Portada */}
           <section className="relative overflow-hidden border-b border-slate-200 bg-white pb-16 pt-10 dark:border-border dark:bg-card lg:pb-24 lg:pt-16">
-            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            {heroBackground && (
+              <div aria-hidden className="pointer-events-none absolute inset-0">
+                <Image
+                  src={heroBackground}
+                  alt=""
+                  fill
+                  priority
+                  sizes="100vw"
+                  className="scale-110 object-cover blur-[4px]"
+                />
+                {/* Velo para leer el texto: casi opaco a la izquierda y más claro a la derecha. */}
+                <div className="absolute inset-0 bg-white/80 dark:bg-card/85 lg:bg-gradient-to-r lg:from-white/90 lg:via-white/70 lg:to-white/20 lg:dark:from-card/95 lg:dark:via-card/85 lg:dark:to-card/50" />
+              </div>
+            )}
+            <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="grid items-center gap-12 lg:grid-cols-12">
                 <div className="space-y-6 text-center lg:col-span-7 lg:text-left">
                   <div
@@ -242,7 +278,7 @@ export function CabeTemplate({
                     {badges.slice(0, 3).map((b, i) => (
                       <div
                         key={b.title}
-                        className={`rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-border dark:bg-muted ${i === 2 ? 'col-span-2 sm:col-span-1' : ''}`}
+                        className={`rounded-xl border border-slate-200 p-3 dark:border-border ${heroBackground ? 'bg-white/80 backdrop-blur-sm dark:bg-muted/80' : 'bg-slate-50 dark:bg-muted'} ${i === 2 ? 'col-span-2 sm:col-span-1' : ''}`}
                       >
                         <p className="text-xs font-black">{b.title}</p>
                         {b.text && (
@@ -313,20 +349,58 @@ export function CabeTemplate({
                       </div>
                     )}
                     <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-md backdrop-blur-md dark:border-border dark:bg-background/95">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-muted-foreground">
-                            {t('heroCardKicker')}
-                          </p>
-                          <p className="text-sm font-extrabold">{t('heroCardText')}</p>
+                      {heroFacts ? (
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            {heroFacts.open !== null && (
+                              <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-muted-foreground">
+                                <span
+                                  className={`h-2 w-2 rounded-full ${heroFacts.open ? 'bg-emerald-500' : 'bg-slate-400'}`}
+                                />
+                                {heroFacts.open ? t('heroCardOpen') : t('heroCardClosed')}
+                              </p>
+                            )}
+                            {heroFacts.fromPrice !== null ? (
+                              <p className="text-sm font-extrabold">
+                                {t('heroCardFrom', {
+                                  price: formatPrice(heroFacts.fromPrice, locale),
+                                })}{' '}
+                                <span className="text-[11px] font-semibold text-slate-500 dark:text-muted-foreground">
+                                  · {t('heroCardFromVat')}
+                                </span>
+                              </p>
+                            ) : (
+                              <p className="text-sm font-extrabold">{t('heroCardText')}</p>
+                            )}
+                          </div>
+                          <Link
+                            href={bookHref}
+                            onClick={() =>
+                              trackEvent('cta_reservar_click', { location: 'hero_card_cabe' })
+                            }
+                            aria-label={t('rentOnline')}
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white transition hover:brightness-95"
+                            style={{ backgroundColor: brand }}
+                          >
+                            <ArrowRight className="h-5 w-5" />
+                          </Link>
                         </div>
-                        <div
-                          className="flex h-10 w-10 items-center justify-center rounded-xl text-white"
-                          style={{ backgroundColor: brand }}
-                        >
-                          <Smartphone className="h-5 w-5" />
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-muted-foreground">
+                              {t('heroCardKicker')}
+                            </p>
+                            <p className="text-sm font-extrabold">{t('heroCardText')}</p>
+                          </div>
+                          <div
+                            className="flex h-10 w-10 items-center justify-center rounded-xl text-white"
+                            style={{ backgroundColor: brand }}
+                          >
+                            <Smartphone className="h-5 w-5" />
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>
