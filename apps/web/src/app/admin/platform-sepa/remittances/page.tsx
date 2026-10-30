@@ -11,7 +11,7 @@ import {
   Undo2,
   XCircle,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import type {
@@ -78,6 +78,11 @@ export default function PlatformSepaRemittancesPage() {
   const confirmMut = useConfirmPlatformSepaRemittance();
   const cancelMut = useCancelPlatformSepaRemittance();
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Los avisos al super admin enlazan a una remesa concreta (`?id=`).
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('id');
+    if (id) setDetailId(id);
+  }, []);
 
   async function handleCancel(id: string) {
     const ok = await confirm({
@@ -131,7 +136,27 @@ export default function PlatformSepaRemittancesPage() {
       ),
     },
     { accessorKey: 'collectionDate', header: 'Fecha de cobro' },
-    { accessorKey: 'itemCount', header: 'Tenants' },
+    {
+      accessorKey: 'itemCount',
+      header: 'Adeudos',
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
+          <div className="text-sm">
+            {r.itemCount}
+            {r.status === 'confirmed' && (
+              <p className="text-xs text-muted-foreground">
+                {r.collectedCount} cobrados
+                {r.bouncedCount > 0 && (
+                  <span className="text-destructive"> · {r.bouncedCount} devueltos</span>
+                )}
+              </p>
+            )}
+            {r.automatic && <p className="text-xs text-muted-foreground">Automática</p>}
+          </div>
+        );
+      },
+    },
     { accessorKey: 'total', header: 'Total', cell: ({ row }) => eur(row.original.total) },
     {
       accessorKey: 'status',

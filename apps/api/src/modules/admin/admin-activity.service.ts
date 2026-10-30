@@ -313,7 +313,9 @@ export class AdminActivityService {
             tenant: {
               deletedAt: null,
               billingExempt: false,
-              NOT: { subscription: { billingMode: 'sepa' } },
+              // Con la cuota domiciliada o cobrada sola con tarjeta, los extras van
+              // en el mismo cargo.
+              NOT: { subscription: { billingMode: { in: ['sepa', 'redsys'] } } },
             },
           },
           select: { priceMonthly: true, quantity: true },

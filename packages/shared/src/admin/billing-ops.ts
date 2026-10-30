@@ -115,8 +115,10 @@ export interface AdminCalendarChargeDto {
   method: AdminChargeMethod;
   concept: string;
   amount: number;
-  /** Futuro: previsto. Pasado: cobrado, fallido o devuelto. */
-  state: 'scheduled' | 'paid' | 'failed' | 'bounced';
+  /** Futuro: previsto o reintento de un cobro con tarjeta rechazado. Pasado: cobrado, fallido o devuelto. */
+  state: 'scheduled' | 'retry' | 'paid' | 'failed' | 'bounced';
+  /** Reintentos: número del intento (de 3). */
+  attempt?: number;
 }
 
 export interface AdminBillingCalendarDto {

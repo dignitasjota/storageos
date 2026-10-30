@@ -17,6 +17,8 @@ import { liveOverrideWhere } from '../../common/tenant-features';
 import { anonymizeWhatsappConversations } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
+import { periodsOwed, subscriptionDueDate } from '../billing-saas/platform-due';
+import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 
@@ -269,7 +271,13 @@ export class AdminTenantsService {
           subscription: { status: 'past_due' },
           ...notSnoozed,
         },
-        include: planInclude,
+        include: {
+          subscription: { include: { plan: { select: { name: true, priceMonthly: true } } } },
+          subscriptionAddons: {
+            where: { suspendedAt: null },
+            select: { priceMonthly: true, quantity: true, billingMode: true },
+          },
+        },
         orderBy: { name: 'asc' },
       }),
       this.admin.tenant.findMany({
@@ -324,9 +332,37 @@ export class AdminTenantsService {
     const trialExpiring = trials.map((t) =>
       toDto(t, 'trial_expiring', t.trialEndsAt, 'El trial expira pronto'),
     );
-    const pastDueList = pastDue.map((t) =>
-      toDto(t, 'past_due', null, 'Pago de la suscripción fallido'),
-    );
+    // Lo que debe de verdad: una cuota por periodo vencido (con los extras que
+    // van en el mismo cargo, como en Cobros pendientes).
+    const pricing = pastDue.length ? await platformPricing(this.admin) : null;
+    const pastDueList = pastDue.map((t) => {
+      const sub = t.subscription;
+      if (!sub || !pricing) return toDto(t, 'past_due', null, 'Pago de la suscripción fallido');
+      const withPlan = sub.billingMode === 'sepa' || sub.billingMode === 'redsys';
+      const addons = withPlan
+        ? t.subscriptionAddons
+            .filter((a) => a.billingMode !== 'stripe')
+            .reduce((sum, a) => sum + Number(a.priceMonthly) * a.quantity, 0)
+        : 0;
+      const perPeriod = amountToCharge(Number(sub.plan.priceMonthly) + addons, pricing);
+      const since = subscriptionDueDate(sub);
+      const periods = periodsOwed(
+        since,
+        now,
+        1,
+        sub.billingMode === 'stripe' && !!sub.stripeSubscriptionId,
+      );
+      const owed = Math.round(perPeriod * periods * 100) / 100;
+      const dto = toDto(
+        t,
+        'past_due',
+        since,
+        `Debe ${owed.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}${
+          periods > 1 ? ` (${periods} cuotas)` : ''
+        }`,
+      );
+      return { ...dto, owedAmount: owed, owedPeriods: periods };
+    });
     const inactive = activeTenants
       .filter((t) => {
         const last = lastLoginByTenant.get(t.id) ?? null;

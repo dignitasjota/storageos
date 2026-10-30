@@ -25,6 +25,7 @@ export default function PlatformSepaPage() {
   const [creditorPostalCode, setCreditorPostalCode] = useState('');
   const [creditorCity, setCreditorCity] = useState('');
   const [prenoticeDays, setPrenoticeDays] = useState(5);
+  const [autoPrepare, setAutoPrepare] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const s = settings.data;
@@ -36,6 +37,7 @@ export default function PlatformSepaPage() {
     setCreditorPostalCode(s.creditorPostalCode ?? '');
     setCreditorCity(s.creditorCity ?? '');
     setPrenoticeDays(s.prenoticeDays);
+    setAutoPrepare(s.autoPrepare);
     setLoaded(true);
   }
 
@@ -61,6 +63,7 @@ export default function PlatformSepaPage() {
         creditorPostalCode: creditorPostalCode.trim(),
         creditorCity: creditorCity.trim(),
         prenoticeDays,
+        autoPrepare,
       });
       toast.success('Configuración SEPA de la plataforma guardada.');
     } catch (err) {
@@ -174,6 +177,22 @@ export default function PlatformSepaPage() {
                 firmaron.
               </p>
             </div>
+            <label className="flex items-start gap-2 text-sm sm:col-span-2">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={autoPrepare}
+                onChange={(e) => setAutoPrepare(e.target.checked)}
+              />
+              <span>
+                Preparar la remesa automáticamente
+                <span className="block text-xs text-muted-foreground">
+                  Cada mañana, si hay cuotas que domiciliar, se genera la remesa con la primera
+                  fecha que respeta el preaviso y se envía el preaviso a los tenants. Queda sin
+                  confirmar: te llega un aviso para descargar el fichero y subirlo al banco.
+                </span>
+              </span>
+            </label>
           </div>
           <div className="flex gap-2">
             <Button onClick={() => save(s.enabled)} disabled={update.isPending || !canEdit}>

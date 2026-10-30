@@ -276,14 +276,20 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
   );
 }
 
-function AddManualPaymentDialog({
+export function AddManualPaymentDialog({
   tenantId,
   open,
   onClose,
+  defaultAmount,
+  periodAmount,
 }: {
   tenantId: string;
   open: boolean;
   onClose: () => void;
+  /** Importe propuesto (p. ej. lo que debe, desde Cobros pendientes). */
+  defaultAmount?: number;
+  /** Lo que cuesta un mes con lo que va en el cargo (para proponer la duración). */
+  periodAmount?: number;
 }) {
   const add = useAddManualSaasPayment(tenantId);
   const { planPriceMonthly, effectiveMonthly, planCurrency, periodEnd, hasStripe } =
@@ -308,11 +314,15 @@ function AddManualPaymentDialog({
     if (!extendsTouched) setExtendsPeriod(!hasStripe);
   }, [hasStripe, extendsTouched]);
 
+  useEffect(() => {
+    if (open && defaultAmount && defaultAmount > 0) setAmount(String(defaultAmount));
+  }, [open, defaultAmount]);
+
   // Propone la duración (importe ÷ precio del PLAN) mientras el admin no la haya
   // editado. Se usa el precio del plan —no el efectivo con add-ons— porque los
   // add-ons manuales se cobran por separado desde la bandeja «Hoy» (cada uno con
   // su propio vencimiento), así que este pago cubre solo la suscripción.
-  const monthlyRef = planPriceMonthly ?? effectiveMonthly;
+  const monthlyRef = periodAmount ?? planPriceMonthly ?? effectiveMonthly;
   const suggested = useMemo(() => {
     if (!monthlyRef || amountNum <= 0) return null;
     return Math.max(1, Math.round(amountNum / monthlyRef));

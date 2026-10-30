@@ -219,10 +219,16 @@ export function fetchSaasRedsysRedirect(
   payMethod?: RedsysPayMethod,
   /** Guardar la tarjeta y cobrar sola cada mes (pago por referencia). */
   saveCard?: boolean,
+  /** Meses que paga de una vez (si debe varios). */
+  months?: number,
 ): Promise<RedsysRedirectDto> {
   return apiFetch<RedsysRedirectDto>('/settings/saas-billing/redsys/redirect', {
     method: 'POST',
-    json: { ...(payMethod ? { payMethod } : {}), ...(saveCard ? { saveCard: true } : {}) },
+    json: {
+      ...(payMethod ? { payMethod } : {}),
+      ...(saveCard ? { saveCard: true } : {}),
+      ...(months && months > 1 ? { months } : {}),
+    },
   });
 }
 

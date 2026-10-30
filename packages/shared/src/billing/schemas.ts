@@ -174,6 +174,8 @@ export const RedsysRedirectRequestSchema = z.object({
   saveCard: z.boolean().optional(),
   /** «Pagar todo» desde el portal: otras facturas del mismo inquilino en la misma orden. */
   extraInvoiceIds: z.array(z.string().uuid()).max(50).optional(),
+  /** Pago de la suscripción: meses que paga de una vez (si debe varios). */
+  months: z.number().int().min(1).max(12).optional(),
 });
 export type RedsysRedirectRequestInput = z.infer<typeof RedsysRedirectRequestSchema>;
 

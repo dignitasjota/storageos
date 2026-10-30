@@ -39,6 +39,8 @@ export function RedsysPaySection() {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<RedsysPayMethod | null>(null);
   const [saveCard, setSaveCard] = useState(true);
+  // Si debe varios meses, por defecto los paga todos de una vez.
+  const [months, setMonths] = useState<number | null>(null);
 
   // Vuelta del TPV: Redsys avisa al servidor por su cuenta; puede tardar unos segundos.
   useEffect(() => {
@@ -64,13 +66,15 @@ export function RedsysPaySection() {
     setBusy(method);
     try {
       const keepCard = method === 'card' && o!.cardOnFileAvailable && saveCard;
-      submitRedsysForm(await fetchSaasRedsysRedirect(method, keepCard));
+      submitRedsysForm(await fetchSaasRedsysRedirect(method, keepCard, payMonths));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo abrir el pago');
       setBusy(null);
     }
   }
 
+  const owed = Math.min(12, Math.max(1, o.monthsOwed));
+  const payMonths = Math.min(12, months ?? owed);
   const card = o.savedCard;
   const cardName = card
     ? `${card.brand ? (BRANDS[card.brand] ?? card.brand) : 'Tarjeta'}${card.last4 ? ` ···· ${card.last4}` : ''}`
@@ -120,6 +124,30 @@ export function RedsysPaySection() {
             {o.currentPeriodEnd ? ` desde el ${formatDate(o.currentPeriodEnd)}` : ''}.
           </p>
         )}
+
+        {owed > 1 || payMonths > 1 ? (
+          <div className="space-y-1">
+            {owed > 1 ? (
+              <p className="text-destructive">
+                Debes {owed} meses ({formatEur(o.amount * owed)}).
+              </p>
+            ) : null}
+            <label className="flex flex-wrap items-center gap-2">
+              Pagar
+              <select
+                className="h-9 rounded-md border bg-background px-2 text-base sm:text-sm"
+                value={payMonths}
+                onChange={(e) => setMonths(Number(e.target.value))}
+              >
+                {Array.from({ length: Math.max(owed, 3) }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n === 1 ? '1 mes' : `${n} meses`} · {formatEur(o.amount * n)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
 
         {o.cardOnFileAvailable ? (
           <label className="flex items-start gap-2">

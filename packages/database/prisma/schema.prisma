@@ -5622,6 +5622,8 @@ model PlatformSepaSettings {
   creditorCity          String?  @map("creditor_city")
   creditorCountry       String   @default("ES") @map("creditor_country")
   prenoticeDays         Int      @default(5) @map("prenotice_days")
+  /// Preparar la remesa sola antes del vencimiento (sin confirmar).
+  autoPrepare           Boolean  @default(false) @map("auto_prepare")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5662,6 +5664,8 @@ model PlatformRedsysOrder {
   saveCard    Boolean   @default(false) @map("save_card")
   /// `redirect` (paga el tenant en el TPV) | `auto` (cobro con la tarjeta guardada).
   kind        String    @default("redirect")
+  /// Meses de la suscripción que paga esta orden.
+  months      Int       @default(1)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
 
@@ -5757,6 +5761,8 @@ model PlatformSepaRemittance {
   createdBySuperAdminId String?   @map("created_by_super_admin_id") @db.Uuid
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   confirmedAt           DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  /// Aviso al super admin de que lleva días sin confirmar (una vez).
+  staleNotifiedAt       DateTime? @map("stale_notified_at") @db.Timestamptz(6)
 
   items PlatformSepaRemittanceItem[]
 

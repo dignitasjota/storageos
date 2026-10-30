@@ -1,10 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { formatDateLong } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 
-import { subscriptionDueDate } from './platform-due';
+import { periodsOwed, subscriptionDueDate } from './platform-due';
+import { dunningMessage } from './platform-dunning-message';
+import { amountToCharge, platformPricing } from './platform-pricing';
 
 import type { Env } from '../../config/env.schema';
 import type {
@@ -13,6 +16,12 @@ import type {
   UpdatePlatformDunningSettingsInput,
 } from '@storageos/shared';
 
+const MODE_LABEL: Record<string, string> = {
+  stripe: 'Stripe',
+  sepa: 'domiciliación SEPA',
+  redsys: 'cobro con tarjeta',
+  manual: 'pago a mano',
+};
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Un cobro automático de Redsys sin respuesta se da por en curso este tiempo. */
 const REDSYS_IN_FLIGHT_MS = 48 * 60 * 60 * 1000;
@@ -100,6 +109,72 @@ export class PlatformDunningService {
     });
     this.logger.log(`Enforcement manual: ${due.length} suscripciones a past_due por impago`);
     return due.length;
+  }
+
+  /**
+   * Avisos al super admin (una vez por impago o cada 30 días):
+   * - un tenant pasa a «pago pendiente» (por cualquier forma de cobro);
+   * - una cuenta exenta o anonimizada sigue domiciliada o con la tarjeta
+   *   guardada (no se le cobra, pero conviene pasarla a pago a mano).
+   */
+  async notifyBillingAlerts(now = new Date()): Promise<{ pastDue: number; misconfigured: number }> {
+    const [pastDue, misconfigured] = await Promise.all([
+      this.admin.tenantSubscription.findMany({
+        where: {
+          status: 'past_due',
+          plan: { priceMonthly: { gt: 0 } },
+          tenant: { deletedAt: null, billingExempt: false },
+        },
+        include: { tenant: { select: { name: true } } },
+      }),
+      this.admin.tenantSubscription.findMany({
+        where: {
+          billingMode: { in: ['sepa', 'redsys'] },
+          OR: [{ tenant: { billingExempt: true } }, { tenant: { deletedAt: { not: null } } }],
+        },
+        include: { tenant: { select: { name: true, billingExempt: true, deletedAt: true } } },
+      }),
+    ]);
+    let pastDueSent = 0;
+    for (const sub of pastDue) {
+      const since = subscriptionDueDate(sub);
+      const link = `/admin/tenants/${sub.tenantId}?tab=payments`;
+      const already = await this.admin.superAdminNotification.findFirst({
+        where: { type: 'platform_billing.past_due', link, createdAt: { gte: since } },
+        select: { id: true },
+      });
+      if (already) continue;
+      await this.admin.superAdminNotification.create({
+        data: {
+          type: 'platform_billing.past_due',
+          title: `${sub.tenant.name} tiene la cuota pendiente de pago`,
+          body: `Desde el ${formatDateLong(since)} (${MODE_LABEL[sub.billingMode] ?? sub.billingMode}).`,
+          link,
+        },
+      });
+      pastDueSent += 1;
+    }
+    let miscSent = 0;
+    const monthAgo = new Date(now.getTime() - 30 * DAY_MS);
+    for (const sub of misconfigured) {
+      const link = `/admin/tenants/${sub.tenantId}?tab=payments`;
+      const already = await this.admin.superAdminNotification.findFirst({
+        where: { type: 'platform_billing.mode_mismatch', link, createdAt: { gte: monthAgo } },
+        select: { id: true },
+      });
+      if (already) continue;
+      const why = sub.tenant.deletedAt ? 'está anonimizada' : 'está exenta de pago';
+      await this.admin.superAdminNotification.create({
+        data: {
+          type: 'platform_billing.mode_mismatch',
+          title: `${sub.tenant.name} ${why} pero sigue en ${MODE_LABEL[sub.billingMode]}`,
+          body: 'No se le cobra nada, pero conviene pasarla a pago a mano para que no aparezca en los cobros.',
+          link,
+        },
+      });
+      miscSent += 1;
+    }
+    return { pastDue: pastDueSent, misconfigured: miscSent };
   }
 
   /**
@@ -195,11 +270,11 @@ export class PlatformDunningService {
         if (s.suspend) {
           if (await this.suspend(sub.tenantId)) {
             result.suspended += 1;
-            await this.notify(sub, daysOverdue, true).catch(() => undefined);
+            await this.notify(sub.tenantId, true, now).catch(() => 0);
           }
         } else {
           result.reminders += 1;
-          await this.notify(sub, daysOverdue, false).catch(() => undefined);
+          await this.notify(sub.tenantId, false, now).catch(() => 0);
         }
       }
     }
@@ -240,16 +315,30 @@ export class PlatformDunningService {
     return [...new Set(all)];
   }
 
-  private async notify(
-    sub: {
-      tenantId: string;
-      tenant: { name: string; billingEmail: string | null };
-      plan: { name: string } | null;
-    },
-    daysOverdue: number,
-    suspended: boolean,
-  ): Promise<void> {
-    const to = await this.recipients(sub.tenantId, sub.tenant.billingEmail);
+  /**
+   * Aviso de impago con lo que debe de verdad (cada cuota vencida, plan más
+   * los extras que van en el mismo cargo) y cómo pagarlo según su forma de
+   * cobro. Devuelve a cuántas direcciones salió.
+   */
+  private async notify(tenantId: string, suspended: boolean, now = new Date()): Promise<number> {
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      include: {
+        plan: { select: { name: true, priceMonthly: true } },
+        tenant: {
+          select: {
+            name: true,
+            billingEmail: true,
+            subscriptionAddons: {
+              where: { suspendedAt: null },
+              select: { priceMonthly: true, quantity: true, billingMode: true },
+            },
+          },
+        },
+      },
+    });
+    if (!sub) return 0;
+    const to = await this.recipients(tenantId, sub.tenant.billingEmail);
     if (to.length === 0) {
       // Sin nadie a quien avisar: que no quede en silencio.
       await this.admin.superAdminNotification
@@ -258,29 +347,79 @@ export class PlatformDunningService {
             type: 'platform_dunning.no_recipient',
             title: `Sin email para avisar del impago de ${sub.tenant.name}`,
             body: 'No tiene email de facturación ni propietarios con el email verificado: el aviso de impago no ha salido.',
-            link: `/admin/tenants/${sub.tenantId}?tab=payments`,
+            link: `/admin/tenants/${tenantId}?tab=payments`,
           },
         })
         .catch(() => undefined);
-      return;
+      return 0;
     }
-    const subject = suspended
-      ? 'Tu cuenta de TrasterOS ha sido suspendida por impago'
-      : 'Recordatorio de pago de tu suscripción TrasterOS';
-    const link = `${this.webBaseUrl}/settings/saas-billing`;
-    const cta = `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none">Regularizar el pago</a></p>`;
-    const intro = suspended
-      ? `<p>Hola,</p><p>Tu suscripción a TrasterOS lleva ${daysOverdue} días impagada y hemos <strong>suspendido</strong> tu cuenta. Regulariza el pago para reactivarla.</p>`
-      : `<p>Hola,</p><p>Tu suscripción a TrasterOS (${sub.plan?.name ?? 'plan'}) tiene un pago pendiente desde hace ${daysOverdue} días. Por favor, regulariza el pago para evitar la suspensión del servicio.</p>`;
-    const body = `${intro}${cta}`;
+    const withPlan = sub.billingMode === 'sepa' || sub.billingMode === 'redsys';
+    const addons = withPlan
+      ? sub.tenant.subscriptionAddons
+          .filter((a) => a.billingMode !== 'stripe')
+          .reduce((sum, a) => sum + Number(a.priceMonthly) * a.quantity, 0)
+      : 0;
+    const perPeriod = amountToCharge(
+      Number(sub.plan.priceMonthly) + addons,
+      await platformPricing(this.admin),
+    );
+    const since = subscriptionDueDate(sub);
+    const periods = periodsOwed(
+      since,
+      now,
+      1,
+      sub.billingMode === 'stripe' && !!sub.stripeSubscriptionId,
+    );
+    const [lastSepa, card] = await Promise.all([
+      sub.billingMode === 'sepa'
+        ? this.admin.platformSepaRemittanceItem.findFirst({
+            where: { tenantId },
+            orderBy: { periodCovered: 'desc' },
+            select: { itemStatus: true },
+          })
+        : null,
+      sub.billingMode === 'redsys'
+        ? this.admin.platformRedsysCard.findUnique({
+            where: { tenantId },
+            select: { lastError: true },
+          })
+        : null,
+    ]);
+    const message = dunningMessage({
+      tenantName: sub.tenant.name,
+      planName: sub.plan.name,
+      amount: Math.round(perPeriod * periods * 100) / 100,
+      periods,
+      since,
+      daysOverdue: Math.max(0, Math.floor((now.getTime() - since.getTime()) / DAY_MS)),
+      billingMode: sub.billingMode,
+      sepaBounced: lastSepa?.itemStatus === 'bounced',
+      cardError: card?.lastError ?? null,
+      suspended,
+      link: `${this.webBaseUrl}/settings/saas-billing`,
+    });
     for (const email of to) {
-      await this.email.sendRendered({
-        to: email,
-        kind: 'payment_pending',
-        subject,
-        html: body,
-        text: `${intro.replace(/<[^>]+>/g, '')}\n\nRegulariza tu pago: ${link}`,
+      await this.email.sendRendered({ to: email, kind: 'payment_pending', ...message });
+    }
+    return to.length;
+  }
+
+  /**
+   * «Enviar recordatorio ahora» desde Cobros pendientes: el mismo aviso del
+   * escalado, sin contar como paso (no adelanta la suspensión).
+   */
+  async remindNow(tenantId: string): Promise<{ recipients: number }> {
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: { status: true, tenant: { select: { status: true, billingExempt: true } } },
+    });
+    if (!sub || sub.tenant.billingExempt || sub.status !== 'past_due') {
+      throw new BadRequestException({
+        code: 'nothing_overdue',
+        message: 'Este tenant no tiene la cuota pendiente de pago.',
       });
     }
+    const recipients = await this.notify(tenantId, sub.tenant.status === 'suspended');
+    return { recipients };
   }
 }

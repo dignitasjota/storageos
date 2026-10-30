@@ -104,6 +104,7 @@ export class BillingSaasController {
     return this.redsys.createRedirect(user.tenantId, {
       payMethod: body.payMethod,
       saveCard: body.saveCard,
+      months: body.months,
     });
   }
 
