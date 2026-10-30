@@ -17,10 +17,11 @@ import {
   MousePointerClick,
   Pencil,
   Plus,
+  QrCode,
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -59,6 +60,7 @@ import {
   useUpdateMarketingChannel,
 } from '@/lib/marketing/hooks';
 import { usePromotions } from '@/lib/promotions/hooks';
+import { downloadQrPng } from '@/lib/qr-download';
 
 const NONE = '__none__';
 const AD_PLATFORM_TYPES = new Set(['google_ads', 'meta_ads']);
@@ -357,21 +359,22 @@ export default function MarketingChannelsPage() {
                       </td>
                       <td className="p-2 text-muted-foreground">{c.renewsOn ?? '—'}</td>
                       <td className="p-2 text-right tabular-nums">
-                        {c.shortUrl ? (
-                          <button
-                            type="button"
-                            onClick={() => setShowLink(c)}
-                            className="inline-flex items-center gap-1 hover:text-foreground"
-                            title="Ver enlace corto / QR"
-                          >
-                            <MousePointerClick className="size-3.5" /> {c.clickCount}
-                          </button>
-                        ) : (
-                          c.clickCount
-                        )}
+                        <span className="inline-flex items-center gap-1">
+                          <MousePointerClick className="size-3.5" /> {c.clickCount}
+                        </span>
                       </td>
                       <td className="p-2">
                         <div className="flex justify-end gap-1">
+                          {c.shortUrl && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 px-2"
+                              onClick={() => setShowLink(c)}
+                            >
+                              <QrCode className="size-4" /> QR
+                            </Button>
+                          )}
                           {canManage && (
                             <>
                               <Button
@@ -431,9 +434,29 @@ export default function MarketingChannelsPage() {
               </p>
               {showLink.shortUrl && (
                 <>
-                  <div className="flex justify-center rounded-md border bg-white p-4">
-                    <QRCodeSVG value={showLink.shortUrl} size={160} />
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="rounded-md border bg-white p-4">
+                      <QRCodeCanvas
+                        id={`channel-qr-${showLink.id}`}
+                        value={showLink.shortUrl}
+                        size={200}
+                        marginSize={1}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => downloadQrPng(`channel-qr-${showLink.id}`, showLink.name)}
+                    >
+                      <Download className="mr-1 size-4" /> Descargar PNG
+                    </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    {showLink.promoLandingName
+                      ? `Lleva a la landing «${showLink.promoLandingName}».`
+                      : 'Lleva a la reserva online. Para que lleve a una landing de promoción, crea el enlace desde «Enlaces y QR» de esa landing.'}
+                  </p>
                   <div className="flex items-center gap-2">
                     <Input readOnly value={showLink.shortUrl} className="font-mono text-xs" />
                     <Button

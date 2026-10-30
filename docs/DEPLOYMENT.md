@@ -1601,4 +1601,5 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - Conviene que cada tenant con landings las revise en Configuración → Web pública → Landings de promoción: el antiguo «texto» pasa al bloque de la promoción y las condiciones a una lista.
 - **Dirección corta** (opcional, por landing y solo con dominio propio): `tu-dominio/<nombre>` además de `/promo/<nombre>`. No hace falta tocar NPM: la sirve la misma web.
 - Las páginas de las landings ya no se guardan en caché: apagar o caducar una landing se nota al momento (antes seguía visible hasta el siguiente despliegue, porque Next solo cachea las respuestas 200).
+- **Enlaces cortos de los carteles**: con dominio propio verificado salen como `tu-dominio/g/<código>` (los QR ya impresos con `trasteros.pro/g/…` siguen funcionando). En Marketing → Canales hay un botón «QR» por canal con descarga en PNG.
 - El formulario de la landing crea contactos con origen «Landing de promoción» (5 envíos por minuto e IP). La vista previa usa `MASTER_ENCRYPTION_KEY` y `WEB_BASE_URL` (ya configuradas).

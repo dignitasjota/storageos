@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useCreateMarketingChannel, useMarketingChannels } from '@/lib/marketing/hooks';
+import { downloadQrPng } from '@/lib/qr-download';
 
 const selectClass =
   'h-9 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm';
@@ -46,15 +47,6 @@ const ORIGINS: { label: string; type: MarketingChannelType; hint: string }[] = [
 
 function copy(text: string) {
   void navigator.clipboard.writeText(text).then(() => toast.success('Enlace copiado.'));
-}
-
-function downloadQr(canvasId: string, name: string) {
-  const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null;
-  if (!canvas) return;
-  const a = document.createElement('a');
-  a.href = canvas.toDataURL('image/png');
-  a.download = `qr-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`;
-  a.click();
 }
 
 /**
@@ -208,7 +200,7 @@ export function PromoLinksDialog({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => downloadQr(`qr-${c.id}`, c.name)}
+                      onClick={() => downloadQrPng(`qr-${c.id}`, c.name)}
                     >
                       <Download className="mr-1 h-4 w-4" />
                       Descargar PNG

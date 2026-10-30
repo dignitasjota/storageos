@@ -1,4 +1,4 @@
-import { Controller, Get, Param, VERSION_NEUTRAL } from '@nestjs/common';
+import { Controller, Get, Param, VERSION_NEUTRAL, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -19,7 +19,10 @@ export class MarketingPublicController {
 
   @Get('go/:shortCode')
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
-  resolve(@Param('shortCode') shortCode: string): Promise<MarketingShortLinkResolveDto> {
-    return this.channels.resolveShortLink(shortCode);
+  resolve(
+    @Param('shortCode') shortCode: string,
+    @Query('tenant') tenant?: string,
+  ): Promise<MarketingShortLinkResolveDto> {
+    return this.channels.resolveShortLink(shortCode, tenant || undefined);
   }
 }

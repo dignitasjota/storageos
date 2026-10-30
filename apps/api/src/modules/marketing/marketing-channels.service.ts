@@ -32,6 +32,7 @@ const CHANNEL_INCLUDE = {
       tenant: { select: { slug: true, customDomain: true, customDomainVerifiedAt: true } },
     },
   },
+  tenant: { select: { customDomain: true, customDomainVerifiedAt: true } },
 } satisfies Prisma.MarketingChannelInclude;
 
 type ChannelRow = Prisma.MarketingChannelGetPayload<{ include: typeof CHANNEL_INCLUDE }>;
@@ -200,7 +201,11 @@ export class MarketingChannelsService {
    * si está verificado, si no la plataforma) con `utm_source`/`utm_medium` ya
    * puestos para que la reserva atribuya el lead a este canal.
    */
-  async resolveShortLink(shortCode: string): Promise<MarketingShortLinkResolveDto> {
+  async resolveShortLink(
+    shortCode: string,
+    /** Si llega desde un dominio propio: el enlace tiene que ser de ese negocio. */
+    tenantSlug?: string,
+  ): Promise<MarketingShortLinkResolveDto> {
     const channel = await this.admin.marketingChannel.findUnique({
       where: { shortCode },
       select: {
@@ -213,7 +218,12 @@ export class MarketingChannelsService {
         promoLanding: { select: { slug: true, shortPath: true } },
       },
     });
-    if (!channel || channel.deletedAt || channel.status !== 'active') {
+    if (
+      !channel ||
+      channel.deletedAt ||
+      channel.status !== 'active' ||
+      (tenantSlug && channel.tenant.slug !== tenantSlug)
+    ) {
       throw new NotFoundException({
         code: 'short_link_not_found',
         message: 'Enlace no encontrado',
@@ -381,7 +391,12 @@ export class MarketingChannelsService {
   }
 
   private toDto(r: ChannelRow): MarketingChannelDto {
-    const base = process.env.WEB_BASE_URL || WEB_BASE_URL_FALLBACK;
+    // Con dominio propio verificado, el enlace corto va con él (queda mejor en
+    // un cartel): `guardalobox.es/g/<código>` en vez de `trasteros.pro/g/…`.
+    const base =
+      r.tenant.customDomain && r.tenant.customDomainVerifiedAt
+        ? `https://${r.tenant.customDomain}`
+        : process.env.WEB_BASE_URL || WEB_BASE_URL_FALLBACK;
     return {
       id: r.id,
       facilityId: r.facilityId,
