@@ -39,6 +39,34 @@ interface TenantBrand {
   webHeaderBranded?: boolean;
 }
 
+/**
+ * Logo de la cabecera igual que en la portada de cada plantilla (las que
+ * traen su propia cabecera lo pintan más grande; Cabe lo pone en blanco sobre
+ * la cabecera de color), para que landings, locales y blog no lo cambien.
+ */
+function headerLogo(template: string, branded: boolean) {
+  switch (template) {
+    case 'cabe':
+      return {
+        width: 264,
+        height: 96,
+        className: `h-16 w-auto object-contain sm:h-24 ${branded ? 'brightness-0 invert' : ''}`,
+        wide: true,
+      };
+    case 'trstrom':
+      return {
+        width: 120,
+        height: 48,
+        className: 'h-10 w-auto object-contain sm:h-12',
+        wide: true,
+      };
+    case 'onepagemovil':
+      return { width: 130, height: 30, className: 'h-8 w-auto object-contain', wide: false };
+    default:
+      return { width: 120, height: 28, className: 'h-7 w-auto object-contain', wide: false };
+  }
+}
+
 /** Sección de trasteros y precios de la portada de cada plantilla. */
 const PRICES_ANCHOR: Record<string, string> = {
   onepage: 'espacios',
@@ -102,6 +130,7 @@ export async function TenantWebChrome({
   const brand = theme.accent;
   const darkHeader = theme.dark;
   const branded = !!data.webHeaderBranded;
+  const logo = headerLogo(template, branded);
   const darkFooter = DARK_FOOTER.has(template);
   const home = landingHref(data.tenantSlug, locale, data.customDomain);
   const pricesHref = `${home}#${PRICES_ANCHOR[template] ?? 'precios'}`;
@@ -133,16 +162,18 @@ export async function TenantWebChrome({
         }
         style={branded ? { backgroundColor: brand } : undefined}
       >
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
-          <Link href={home} className="flex items-center gap-2 font-semibold">
+        <div
+          className={`mx-auto flex items-center justify-between gap-3 whitespace-nowrap px-4 py-3 ${logo.wide ? 'max-w-7xl' : 'max-w-5xl'}`}
+        >
+          <Link href={home} className="flex min-w-0 shrink items-center gap-2 font-semibold">
             {data.logoUrl ? (
               <Image
                 unoptimized
                 src={data.logoUrl}
                 alt={data.tenantName}
-                width={120}
-                height={28}
-                className="h-7 w-auto object-contain"
+                width={logo.width}
+                height={logo.height}
+                className={logo.className}
               />
             ) : (
               <span className={theme.upper ? 'uppercase tracking-wide' : ''}>
