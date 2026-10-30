@@ -881,7 +881,24 @@
       "faqTitle": "Frequently asked questions",
       "contactTitle": "Any questions? We'll call you",
       "m2": "{value} m²",
-      "where": "Where we are"
+      "where": "Where we are",
+      "previewBanner": "Preview: this landing page is not public yet. Visits are not counted and the form is not sent.",
+      "form": {
+        "name": "Name",
+        "phone": "Phone",
+        "email": "Email (optional)",
+        "size": "Size you need",
+        "sizeUnknown": "Not sure yet",
+        "privacyBefore": "I have read and accept the",
+        "privacyLink": "privacy policy",
+        "marketing": "I want to receive offers and news (optional).",
+        "sending": "Sending…",
+        "error": "We could not send your request. Check your details and try again.",
+        "tooMany": "Too many requests. Please try again in a minute.",
+        "previewDisabled": "The form is not sent in preview.",
+        "submit": "Request information",
+        "sent": "We have received your request. We will contact you soon."
+      }
     },
     "legal": {
       "navLabel": "Legal information",

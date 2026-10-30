@@ -68,9 +68,10 @@ export function PromoStatsDialog({
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
               {[
                 ['Visitas', s.visits.toLocaleString('es-ES'), `${s.visitors} visitantes`],
+                ['Solicitudes', String(s.requests), 'formulario de la landing'],
                 ['Reservas', String(s.bookings), `${s.signed} firmadas`],
                 [
                   'Pagadas',
@@ -105,6 +106,7 @@ export function PromoStatsDialog({
                       <th className="py-2 pr-3 font-medium">Origen</th>
                       <th className="py-2 pr-3 text-right font-medium">Visitas</th>
                       <th className="py-2 pr-3 text-right font-medium">Visitantes</th>
+                      <th className="py-2 pr-3 text-right font-medium">Solicitudes</th>
                       <th className="py-2 pr-3 text-right font-medium">Reservas</th>
                       <th className="py-2 pr-3 text-right font-medium">Pagadas</th>
                       <th className="py-2 text-right font-medium">Ingresos</th>
@@ -116,6 +118,7 @@ export function PromoStatsDialog({
                         <td className="py-2 pr-3 font-mono text-xs">{r.source}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{r.visits}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{r.visitors}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{r.requests}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{r.bookings}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{r.paid}</td>
                         <td className="py-2 text-right tabular-nums">{eur(r.revenue)}</td>

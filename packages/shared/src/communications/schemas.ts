@@ -33,6 +33,7 @@ export const LEAD_SOURCE_SUGGESTIONS: { value: string; label: string }[] = [
   { value: 'cartel', label: 'Cartel / publicidad exterior' },
   { value: 'widget', label: 'Web (formulario)' },
   { value: 'web_chat', label: 'Chat de la web' },
+  { value: 'landing', label: 'Landing de promoción' },
   { value: 'import', label: 'Importado' },
   { value: 'manual', label: 'Alta manual' },
   { value: 'other', label: 'Otro' },

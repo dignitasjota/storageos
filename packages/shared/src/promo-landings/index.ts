@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+import { RESERVED_FACILITY_SLUGS } from '../routing/custom-domain';
+
+import { PromoLandingContentSchema, type PromoLandingContent } from './content';
+
 import type { PublicLandingDto } from '../landing/types';
 import type { MarketingChannelType } from '../marketing';
 
@@ -38,20 +42,18 @@ const promoFields = {
   isActive: z.boolean(),
   startsAt: isoDate,
   endsAt: isoDate,
+  /** Titular de la portada. */
   headline: z.string().trim().min(1).max(140),
-  subheadline: optionalText(300),
-  offerText: optionalText(80),
-  body: optionalText(4000),
-  benefits: z.array(z.string().trim().min(1).max(120)).max(8),
-  conditions: optionalText(4000),
-  ctaLabel: optionalText(40),
+  /** Texto de la portada, debajo del titular. */
+  subheadline: optionalText(400),
   couponId: z.string().uuid().nullable(),
   facilityIds: z.array(z.string().uuid()).max(100),
   unitTypeIds: z.array(z.string().uuid()).max(100),
   showCountdown: z.boolean(),
-  showTestimonials: z.boolean(),
-  showFaq: z.boolean(),
-  showContact: z.boolean(),
+  /** Con dominio propio, también en `/<nombre>` (sin `/promo/`). */
+  shortPath: z.boolean(),
+  /** Textos y bloques de la landing (sin enviar al crear: los de por defecto). */
+  content: PromoLandingContentSchema,
   seoTitle: optionalText(70),
   seoDescription: optionalText(200),
   indexable: z.boolean(),
@@ -69,14 +71,12 @@ export const CreatePromoLandingSchema = z
     isActive: promoFields.isActive.default(false),
     startsAt: promoFields.startsAt.default(null),
     endsAt: promoFields.endsAt.default(null),
-    benefits: promoFields.benefits.default([]),
     couponId: promoFields.couponId.default(null),
     facilityIds: promoFields.facilityIds.default([]),
     unitTypeIds: promoFields.unitTypeIds.default([]),
     showCountdown: promoFields.showCountdown.default(false),
-    showTestimonials: promoFields.showTestimonials.default(true),
-    showFaq: promoFields.showFaq.default(true),
-    showContact: promoFields.showContact.default(true),
+    shortPath: promoFields.shortPath.default(false),
+    content: promoFields.content.default({}),
     indexable: promoFields.indexable.default(false),
   })
   .superRefine((v, ctx) => {
@@ -92,19 +92,14 @@ export const UpdatePromoLandingSchema = z.object({
   startsAt: promoFields.startsAt.optional(),
   endsAt: promoFields.endsAt.optional(),
   headline: promoFields.headline.optional(),
-  subheadline: editText(300),
-  offerText: editText(80),
-  body: editText(4000),
-  benefits: promoFields.benefits.optional(),
-  conditions: editText(4000),
-  ctaLabel: editText(40),
+  subheadline: editText(400),
   couponId: promoFields.couponId.optional(),
   facilityIds: promoFields.facilityIds.optional(),
   unitTypeIds: promoFields.unitTypeIds.optional(),
   showCountdown: promoFields.showCountdown.optional(),
-  showTestimonials: promoFields.showTestimonials.optional(),
-  showFaq: promoFields.showFaq.optional(),
-  showContact: promoFields.showContact.optional(),
+  shortPath: promoFields.shortPath.optional(),
+  /** El contenido completo (sustituye al guardado). */
+  content: promoFields.content.optional(),
   seoTitle: editText(70),
   seoDescription: editText(200),
   indexable: promoFields.indexable.optional(),
@@ -117,6 +112,12 @@ export function promoDatesIssue(v: {
   endsAt: string | null;
 }): string | null {
   return datesIssue(v);
+}
+
+/** Enlace de vista previa (borradores incluidos), firmado y de corta duración. */
+export interface PromoLandingPreviewDto {
+  url: string;
+  expiresAt: string;
 }
 
 export const SetPromoLandingImageSchema = z.object({
@@ -134,20 +135,14 @@ export interface PromoLandingDto {
   live: boolean;
   headline: string;
   subheadline: string | null;
-  offerText: string | null;
-  body: string | null;
-  benefits: string[];
-  conditions: string | null;
-  ctaLabel: string | null;
   heroImageUrl: string | null;
   couponId: string | null;
   couponCode: string | null;
   facilityIds: string[];
   unitTypeIds: string[];
   showCountdown: boolean;
-  showTestimonials: boolean;
-  showFaq: boolean;
-  showContact: boolean;
+  shortPath: boolean;
+  content: PromoLandingContent;
   seoTitle: string | null;
   seoDescription: string | null;
   indexable: boolean;
@@ -171,17 +166,13 @@ export interface PublicPromoLandingDto {
   slug: string;
   headline: string;
   subheadline: string | null;
-  offerText: string | null;
-  body: string | null;
-  benefits: string[];
-  conditions: string | null;
-  ctaLabel: string | null;
   heroImageUrl: string | null;
   endsAt: string | null;
   showCountdown: boolean;
-  showTestimonials: boolean;
-  showFaq: boolean;
-  showContact: boolean;
+  shortPath: boolean;
+  content: PromoLandingContent;
+  /** Abierta con un enlace de vista previa (borrador o fuera de fechas): no indexar ni contar. */
+  preview: boolean;
   seoTitle: string | null;
   seoDescription: string | null;
   indexable: boolean;
@@ -242,6 +233,8 @@ export interface PromoLandingStatsRowDto {
   source: string;
   visits: number;
   visitors: number;
+  /** Solicitudes de información del formulario de la landing. */
+  requests: number;
   /** Reservas online hechas desde la landing (contratos creados). */
   bookings: number;
   signed: number;
@@ -256,6 +249,7 @@ export interface PromoLandingStatsDto {
   days: number;
   visits: number;
   visitors: number;
+  requests: number;
   bookings: number;
   signed: number;
   paid: number;
@@ -266,3 +260,14 @@ export interface PromoLandingStatsDto {
   couponUses: number;
   bySource: PromoLandingStatsRowDto[];
 }
+
+/**
+ * ¿Puede la landing usar la dirección corta `/<nombre>`? No si coincide con una
+ * página fija de la web (reservar, precios, blog, textos legales…) ni con las
+ * páginas de ciudad o zona (`trasteros-en-…`). Los locales se comprueban aparte.
+ */
+export function promoShortPathReserved(slug: string): boolean {
+  return RESERVED_FACILITY_SLUGS.has(slug) || slug.startsWith('trasteros-en-');
+}
+
+export * from './content';

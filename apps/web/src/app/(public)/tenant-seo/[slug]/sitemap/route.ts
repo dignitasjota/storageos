@@ -46,7 +46,9 @@ export async function GET(
       alternates: withEn(`/trasteros-en-${encodeURIComponent(c)}`),
     })),
     ...(entry.promoSlugs ?? []).map((p) => ({
-      loc: `${base}/promo/${encodeURIComponent(p)}`,
+      loc: (entry.promoShortSlugs ?? []).includes(p)
+        ? `${base}/${encodeURIComponent(p)}`
+        : `${base}/promo/${encodeURIComponent(p)}`,
       lastmod,
       priority: 0.7,
     })),

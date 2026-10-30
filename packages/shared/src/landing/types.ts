@@ -245,6 +245,8 @@ export interface PublicSitemapEntryDto {
   blogPosts: { slug: string; updatedAt: string }[];
   /** Landings de promoción en vigor marcadas como indexables (`/promo/<slug>`). */
   promoSlugs: string[];
+  /** De esas, las que usan la dirección corta `/<slug>` en el dominio propio. */
+  promoShortSlugs: string[];
   /** Ciudades con página propia (`/trasteros-en-<ciudad>`). */
   citySlugs: string[];
   /**

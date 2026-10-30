@@ -1,5 +1,5 @@
 import { cityFromPageSlug } from '@storageos/shared';
-import { notFound, permanentRedirect } from 'next/navigation';
+import { notFound, permanentRedirect, redirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
 import { buildCityMetadata, CityPageBody } from '../city/city-shared';
@@ -13,6 +13,7 @@ import {
 import { siteUrl } from '../landing-shared';
 import { faqPageLd, localBusinessFields } from '../local-business-ld';
 import { priceRangeString } from '../price-format';
+import { buildPromoMetadata, lookupPromo, PromoPageView } from '../promo/promo-page';
 import { themeFor } from '../promo/promo-theme';
 import { TenantWebChrome } from '../tenant-web-chrome';
 import { WebChatWidget } from '../web-chat-widget';
@@ -131,16 +132,35 @@ function languageAlternates(
   };
 }
 
+/**
+ * Landing de promoción con dirección corta: solo en el dominio propio (la
+ * cabecera del middleware lo confirma) y en español. Un local o una página de
+ * ciudad con el mismo nombre ganan, porque se buscan antes.
+ */
+async function shortPathPromo(
+  slug: string,
+  segment: string,
+  locale: PublicWebLocale,
+  onCustomDomain: boolean,
+) {
+  if (locale !== 'es' || !onCustomDomain) return null;
+  return lookupPromo(slug, segment, { viaShortPath: true });
+}
+
 export async function buildFacilityMetadata(
   slug: string,
   facilitySlug: string,
   locale: PublicWebLocale,
+  /** Visto desde el dominio propio (la página lo sabe por la cabecera del middleware). */
+  onCustomDomain = false,
 ): Promise<Metadata> {
   const data = await getFacility(slug, facilitySlug);
   if (!data) {
     // `trasteros-en-<ciudad>`: página de la ciudad (si el negocio la tiene).
     const city = await buildCityMetadata(slug, facilitySlug, locale);
     if (city) return city;
+    const promo = await shortPathPromo(slug, facilitySlug, locale, onCustomDomain);
+    if (promo && 'page' in promo) return buildPromoMetadata(promo.page, slug);
     return {
       title: locale === 'en' ? 'Not found' : 'No encontrado',
       robots: { index: false },
@@ -202,16 +222,23 @@ export async function FacilityPageBody({
   slug,
   facilitySlug,
   locale,
+  onCustomDomain = false,
 }: {
   slug: string;
   facilitySlug: string;
   locale: PublicWebLocale;
+  /** Visto desde el dominio propio: habilita la dirección corta de las landings. */
+  onCustomDomain?: boolean;
 }) {
   const raw = await getFacility(slug, facilitySlug);
   if (!raw) {
     if (cityFromPageSlug(facilitySlug)) {
       return <CityPageBody slug={slug} pageSlug={facilitySlug} locale={locale} />;
     }
+    // Dirección corta de una landing de promoción (`/<nombre>` en el dominio propio).
+    const promo = await shortPathPromo(slug, facilitySlug, locale, onCustomDomain);
+    if (promo && 'page' in promo) return <PromoPageView data={promo.page} />;
+    if (promo) redirect('/');
     notFound();
   }
   // Único local de su ciudad: la página de la ciudad muestra esta ficha.

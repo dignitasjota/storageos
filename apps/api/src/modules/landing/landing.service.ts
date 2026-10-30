@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   SUSPENSION_WEB_OFFLINE_DAYS,
   suspensionDays,
@@ -9,6 +10,8 @@ import {
   couponSummary,
   effectiveFeaturesFromList,
   promoLandingIsLive,
+  parsePromoLandingContent,
+  promoCampaign,
   isValidCustomDomain,
   isWebTemplate,
   parseWebContent,
@@ -19,6 +22,10 @@ import {
   waMeNumber,
 } from '@storageos/shared';
 
+import {
+  promoPreviewKey,
+  verifyPromoPreviewToken,
+} from '../../common/marketing/promo-preview-token';
 import { tenantHasFeature, liveOverrideWhere } from '../../common/tenant-features';
 import { toAreaContent } from '../area-pages/area-page.mapper';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -26,12 +33,14 @@ import { FilesService } from '../files/files.service';
 import { LeadsService } from '../leads/leads.service';
 import { promotionUnitId } from '../promotions/promotions.service';
 
+import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   PublicAreaPageContentDto,
   LeadDto,
   OpeningHours,
   PublicContactInput,
+  PromoLeadInput,
   PromoVisitInput,
   PublicFaqDto,
   PublicTestimonialDto,
@@ -64,6 +73,7 @@ export class LandingService {
     private readonly admin: PrismaAdminService,
     private readonly files: FilesService,
     private readonly leads: LeadsService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /**
@@ -71,7 +81,12 @@ export class LandingService {
    * los datos de la web (marca, plantilla, locales y precios). Apagada,
    * caducada o inexistente → 404 (la web lleva a la portada).
    */
-  async getPromo(slug: string, promoSlug: string): Promise<PublicPromoPageDto> {
+  async getPromo(
+    slug: string,
+    promoSlug: string,
+    previewToken?: string,
+    viaShortPath = false,
+  ): Promise<PublicPromoPageDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { slug },
       select: { id: true, deletedAt: true },
@@ -83,7 +98,20 @@ export class LandingService {
       where: { tenantId_slug: { tenantId: tenant.id, slug: promoSlug.toLowerCase() } },
       include: { coupon: true },
     });
-    if (!promo || !promoLandingIsLive(promo)) {
+    // Por la dirección corta (`/<nombre>`) solo valen las landings que la tienen
+    // activada; el resto de direcciones de un segmento son otras páginas.
+    if (viaShortPath && !promo?.shortPath) {
+      throw new NotFoundException({ code: 'promo_not_found', message: 'No encontrado' });
+    }
+    // Un enlace de vista previa abre también los borradores (y fuera de fechas).
+    const preview =
+      !!promo &&
+      !!previewToken &&
+      verifyPromoPreviewToken(
+        promoPreviewKey(this.config.get('MASTER_ENCRYPTION_KEY', { infer: true })),
+        previewToken,
+      ) === promo.id;
+    if (!promo || (!preview && !promoLandingIsLive(promo))) {
       throw new NotFoundException({ code: 'promo_not_available', message: 'No encontrado' });
     }
     const now = new Date();
@@ -95,25 +123,27 @@ export class LandingService {
       (!c.validUntil || c.validUntil > now) &&
       (c.maxUses === null || c.usedCount < c.maxUses);
     const site = await this.getBySlug(slug);
+    // Si el cupón de la landing ya no se puede usar (caducado, agotado o
+    // apagado), no se anuncia la oferta: se quitan sus dos bloques.
+    const content = parsePromoLandingContent(promo.content);
+    if (promo.couponId && !couponUsable) {
+      content.offer.enabled = false;
+      content.promotion.enabled = false;
+    }
     return {
       site,
       promo: {
         slug: promo.slug,
         headline: promo.headline,
         subheadline: promo.subheadline,
-        offerText: promo.offerText,
-        body: promo.body,
-        benefits: promo.benefits,
-        conditions: promo.conditions,
-        ctaLabel: promo.ctaLabel,
         heroImageUrl: promo.heroImageKey
           ? this.files.buildPublicUrl('public', promo.heroImageKey)
           : null,
         endsAt: promo.endsAt?.toISOString() ?? null,
         showCountdown: promo.showCountdown,
-        showTestimonials: promo.showTestimonials,
-        showFaq: promo.showFaq,
-        showContact: promo.showContact,
+        shortPath: promo.shortPath,
+        content,
+        preview,
         seoTitle: promo.seoTitle,
         seoDescription: promo.seoDescription,
         indexable: promo.indexable,
@@ -133,6 +163,101 @@ export class LandingService {
         unitTypeIds: promo.unitTypeIds,
       },
     };
+  }
+
+  /**
+   * Formulario de una landing en vigor → contacto con origen `landing`, el
+   * tamaño que pide y la campaña de la landing. Solo admite tamaños de la
+   * landing (los de sus locales si no acota tamaños) y nunca de otro tenant.
+   */
+  async submitPromoLead(
+    slug: string,
+    promoSlug: string,
+    input: PromoLeadInput,
+    meta: RequestMeta,
+  ): Promise<{ ok: true }> {
+    if (input.hp) {
+      throw new BadRequestException({ code: 'invalid_payload', message: 'Solicitud no válida' });
+    }
+    const tenant = await this.admin.tenant.findUnique({
+      where: { slug },
+      select: { id: true, deletedAt: true, status: true },
+    });
+    if (
+      !tenant ||
+      tenant.deletedAt ||
+      tenant.status === 'suspended' ||
+      !(await this.hasWebPremium(tenant.id))
+    ) {
+      throw new NotFoundException({ code: 'promo_not_available', message: 'No encontrado' });
+    }
+    const promo = await this.admin.promoLanding.findUnique({
+      where: { tenantId_slug: { tenantId: tenant.id, slug: promoSlug.toLowerCase() } },
+    });
+    if (!promo || !promoLandingIsLive(promo)) {
+      throw new NotFoundException({ code: 'promo_not_available', message: 'No encontrado' });
+    }
+    if (!parsePromoLandingContent(promo.content).contact.enabled) {
+      throw new NotFoundException({ code: 'contact_disabled', message: 'No disponible' });
+    }
+
+    // Locales de la landing (todos los activos si no acota) y tamaños de esos locales.
+    const facilities = await this.admin.facility.findMany({
+      where: {
+        tenantId: tenant.id,
+        deletedAt: null,
+        isActive: true,
+        ...(promo.facilityIds.length > 0 ? { id: { in: promo.facilityIds } } : {}),
+      },
+      select: { id: true },
+    });
+    const facilityIds = facilities.map((f) => f.id);
+    let unitTypeId: string | null = input.unitTypeId || null;
+    let facilityId: string | null = facilityIds.length === 1 ? facilityIds[0]! : null;
+    if (unitTypeId) {
+      const allowed =
+        (promo.unitTypeIds.length === 0 || promo.unitTypeIds.includes(unitTypeId)) &&
+        (await this.admin.unit.findFirst({
+          where: {
+            tenantId: tenant.id,
+            unitTypeId,
+            facilityId: { in: facilityIds },
+          },
+          select: { facilityId: true },
+        }));
+      if (!allowed) {
+        throw new BadRequestException({
+          code: 'invalid_unit_type',
+          message: 'Ese tamaño no está en esta promoción',
+        });
+      }
+      if (!facilityId) {
+        const where = await this.admin.unit.findMany({
+          where: { tenantId: tenant.id, unitTypeId, facilityId: { in: facilityIds } },
+          select: { facilityId: true },
+          distinct: ['facilityId'],
+        });
+        if (where.length === 1) facilityId = where[0]!.facilityId;
+      }
+    } else {
+      unitTypeId = null;
+    }
+    const lower = (v: string | undefined) => (v ? v.toLowerCase() : null);
+    await this.leads.createFromPromoLanding({
+      tenantId: tenant.id,
+      landingName: promo.name,
+      name: input.name,
+      phone: input.phone.replace(/\s+/g, ''),
+      email: input.email || null,
+      unitTypeId,
+      facilityId,
+      acceptsMarketing: input.acceptsMarketing ?? false,
+      utmSource: lower(input.utmSource) ?? 'web',
+      utmMedium: lower(input.utmMedium) ?? 'landing',
+      utmCampaign: promoCampaign(promo.slug),
+      meta,
+    });
+    return { ok: true };
   }
 
   /**
@@ -771,6 +896,7 @@ export class LandingService {
         where: { indexable: true, isActive: true },
         select: {
           slug: true,
+          shortPath: true,
           isActive: true,
           startsAt: true,
           endsAt: true,
@@ -807,11 +933,17 @@ export class LandingService {
       blogByTenant.set(p.tenant.slug, list);
     }
     const promosByTenant = new Map<string, string[]>();
+    const shortPromosByTenant = new Map<string, string[]>();
     for (const p of promos) {
       if (!promoLandingIsLive(p) || !(await hasPremium(p.tenantId))) continue;
       const list = promosByTenant.get(p.tenant.slug) ?? [];
       list.push(p.slug);
       promosByTenant.set(p.tenant.slug, list);
+      if (p.shortPath) {
+        const short = shortPromosByTenant.get(p.tenant.slug) ?? [];
+        short.push(p.slug);
+        shortPromosByTenant.set(p.tenant.slug, short);
+      }
     }
 
     // Páginas de zona con texto propio: solo con «SEO local» (como en la web).
@@ -845,6 +977,7 @@ export class LandingService {
           blogPostSlugs: posts.map((p) => p.slug),
           blogPosts: posts,
           promoSlugs: promosByTenant.get(t.slug) ?? [],
+          promoShortSlugs: shortPromosByTenant.get(t.slug) ?? [],
           customDomain: t.customDomainVerifiedAt ? t.customDomain : null,
         };
       }),

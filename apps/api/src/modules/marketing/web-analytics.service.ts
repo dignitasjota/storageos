@@ -144,7 +144,7 @@ export class WebAnalyticsService {
           leads: await tx.lead.findMany({
             where: {
               deletedAt: null,
-              OR: [{ utmSource: { not: null } }, { source: { in: ['web', 'widget'] } }],
+              OR: [{ utmSource: { not: null } }, { source: { in: ['web', 'widget', 'landing'] } }],
               AND: [
                 {
                   OR: [

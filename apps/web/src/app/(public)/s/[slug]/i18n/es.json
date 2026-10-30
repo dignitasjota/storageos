@@ -881,7 +881,24 @@
       "faqTitle": "Preguntas frecuentes",
       "contactTitle": "¿Tienes dudas? Te llamamos",
       "m2": "{value} m²",
-      "where": "Dónde estamos"
+      "where": "Dónde estamos",
+      "previewBanner": "Vista previa: esta landing aún no es pública. No se cuentan visitas ni se envía el formulario.",
+      "form": {
+        "name": "Nombre",
+        "phone": "Teléfono",
+        "email": "Email (opcional)",
+        "size": "Tamaño que necesitas",
+        "sizeUnknown": "No lo tengo claro",
+        "privacyBefore": "He leído y acepto la",
+        "privacyLink": "política de privacidad",
+        "marketing": "Quiero recibir ofertas y novedades (opcional).",
+        "sending": "Enviando…",
+        "error": "No hemos podido enviar tu solicitud. Revisa los datos e inténtalo de nuevo.",
+        "tooMany": "Has enviado demasiadas solicitudes. Inténtalo dentro de un minuto.",
+        "previewDisabled": "En la vista previa el formulario no se envía.",
+        "submit": "Solicitar información",
+        "sent": "Hemos recibido tu solicitud. Te contactaremos pronto."
+      }
     },
     "legal": {
       "navLabel": "Información legal",

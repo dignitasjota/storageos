@@ -54,9 +54,14 @@ describe('Landings de promoción (e2e)', () => {
         name: 'Verano',
         slug: 'verano',
         headline: 'Un mes gratis este verano',
-        offerText: '1 mes gratis',
-        benefits: ['Sin permanencia', 'Acceso con el móvil'],
-        conditions: 'Pagando 3 meses por adelantado.',
+        content: {
+          offer: { enabled: true, title: '1 mes gratis' },
+          benefits: {
+            enabled: true,
+            items: [{ title: 'Sin permanencia' }, { title: 'Acceso con el móvil' }],
+          },
+          conditions: { enabled: true, items: ['Pagando 3 meses por adelantado.'] },
+        },
         couponId: coupon.body.id,
         facilityIds: [fac.facilityId],
       });
@@ -77,22 +82,45 @@ describe('Landings de promoción (e2e)', () => {
     expect(pub.status).toBe(200);
     expect(pub.body.promo).toMatchObject({
       headline: 'Un mes gratis este verano',
-      benefits: ['Sin permanencia', 'Acceso con el móvil'],
+      preview: false,
       coupon: { code: 'VERANO', minMonths: 3, summary: '1 mes gratis desde 3 meses' },
       facilityIds: [fac.facilityId],
     });
+    expect(pub.body.promo.content.benefits.items.map((b: { title: string }) => b.title)).toEqual([
+      'Sin permanencia',
+      'Acceso con el móvil',
+    ]);
+    // Lo no enviado sale con los valores por defecto (bloques y botones).
+    expect(pub.body.promo.content.hero.primaryCta).toEqual({
+      label: 'Reservar ahora',
+      action: 'book',
+    });
     expect(pub.body.site.tenantSlug).toBe(owner.slug);
     expect(pub.body.site.facilities[0].unitTypes.length).toBeGreaterThan(0);
+
+    expect(pub.body.promo.content.offer.enabled).toBe(true);
+
+    // Con el cupón apagado no se anuncia la oferta.
+    await http().patch(`/coupons/${coupon.body.id}`).set(a).send({ isActive: false }).expect(200);
+    const off = await http().get(`/public/landing/${owner.slug}/promo/verano`);
+    expect(off.body.promo.coupon).toBeNull();
+    expect(off.body.promo.content.offer.enabled).toBe(false);
+    await http().patch(`/coupons/${coupon.body.id}`).set(a).send({ isActive: true }).expect(200);
 
     // Editar un texto no borra el resto.
     const edited = await http()
       .patch(`/promo-landings/${id}`)
       .set(a)
       .send({ subheadline: 'Solo julio' });
-    expect(edited.body).toMatchObject({
-      subheadline: 'Solo julio',
-      conditions: 'Pagando 3 meses por adelantado.',
-    });
+    expect(edited.body.subheadline).toBe('Solo julio');
+    expect(edited.body.content.conditions.items).toEqual(['Pagando 3 meses por adelantado.']);
+
+    // Un botón con una acción que no existe (p. ej. una dirección) se rechaza.
+    const badCta = await http()
+      .patch(`/promo-landings/${id}`)
+      .set(a)
+      .send({ content: { hero: { primaryCta: { label: 'Ir', action: 'https://evil.test' } } } });
+    expect(badCta.status).toBe(400);
 
     // Caducada: tampoco.
     await http()
@@ -311,12 +339,190 @@ describe('Landings de promoción (e2e)', () => {
         source: 'flyer',
         visits: 2,
         visitors: 2,
+        requests: 0,
         bookings: 1,
         signed: 1,
         paid: 1,
         revenue: Number(inv.total),
       },
-      { source: 'instagram', visits: 1, visitors: 1, bookings: 0, signed: 0, paid: 0, revenue: 0 },
+      {
+        source: 'instagram',
+        visits: 1,
+        visitors: 1,
+        requests: 0,
+        bookings: 0,
+        signed: 0,
+        paid: 0,
+        revenue: 0,
+      },
     ]);
+  });
+
+  it('formulario de la landing, vista previa del borrador y aislamiento', async () => {
+    const owner = await registerVerifiedUser(app, 'promo-lead');
+    const a = auth(owner.accessToken);
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    const fac = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+      pricePerUnit: 40,
+    });
+    const created = await http()
+      .post('/promo-landings')
+      .set(a)
+      .send({
+        name: 'Apertura',
+        slug: 'apertura',
+        headline: 'Abrimos',
+        facilityIds: [fac.facilityId],
+      });
+    expect(created.status).toBe(201);
+    const id = created.body.id as string;
+    const lead = (body: Record<string, unknown>) =>
+      http().post(`/public/landing/${owner.slug}/promo/apertura/lead`).send(body);
+    const good = {
+      name: 'Luis Pérez',
+      phone: '600 123 456',
+      unitTypeId: fac.unitTypeId,
+      acceptPrivacy: true,
+      utmSource: 'Instagram',
+    };
+
+    // Borrador: no se sirve ni admite solicitudes; con el enlace de vista previa sí se ve.
+    expect((await http().get(`/public/landing/${owner.slug}/promo/apertura`)).status).toBe(404);
+    expect((await lead(good)).status).toBe(404);
+    const prev = await http().post(`/promo-landings/${id}/preview`).set(a);
+    expect(prev.status).toBe(200);
+    const token = new URL(prev.body.url as string).searchParams.get('preview')!;
+    const seen = await http()
+      .get(`/public/landing/${owner.slug}/promo/apertura`)
+      .query({ preview: token });
+    expect(seen.status).toBe(200);
+    expect(seen.body.promo.preview).toBe(true);
+    expect(
+      (
+        await http()
+          .get(`/public/landing/${owner.slug}/promo/apertura`)
+          .query({ preview: `${token}x` })
+      ).status,
+    ).toBe(404);
+
+    await http().patch(`/promo-landings/${id}`).set(a).send({ isActive: true }).expect(200);
+
+    // Sin privacidad o con la trampa llena se rechaza.
+    expect((await lead({ ...good, acceptPrivacy: false })).status).toBe(400);
+    expect((await lead({ ...good, hp: 'bot' })).status).toBe(400);
+    // Un tamaño de otro negocio no vale.
+    const other = await registerVerifiedUser(app, 'promo-lead-b');
+    const otherFac = await createFacilityWithUnits(app, other.accessToken, {
+      unitsCount: 1,
+      pricePerUnit: 40,
+    });
+    const foreign = await lead({ ...good, unitTypeId: otherFac.unitTypeId });
+    expect(foreign.status).toBe(400);
+    expect(foreign.body.code).toBe('invalid_unit_type');
+
+    expect((await lead(good)).status).toBe(200);
+    const admin = app.get(PrismaAdminService);
+    const tenant = await admin.tenant.findUniqueOrThrow({ where: { slug: owner.slug } });
+    const leads = await admin.lead.findMany({ where: { tenantId: tenant.id, source: 'landing' } });
+    expect(leads).toHaveLength(1);
+    expect(leads[0]).toMatchObject({
+      firstName: 'Luis',
+      lastName: 'Pérez',
+      phone: '600123456',
+      utmSource: 'instagram',
+      utmCampaign: 'promo-apertura',
+      preferredUnitTypeId: fac.unitTypeId,
+      preferredFacilityId: fac.facilityId,
+    });
+    // La misma persona otra vez completa su contacto en vez de duplicarlo.
+    expect((await lead(good)).status).toBe(200);
+    expect(await admin.lead.count({ where: { tenantId: tenant.id, source: 'landing' } })).toBe(1);
+
+    const stats = await http().get(`/promo-landings/${id}/stats`).set(a);
+    expect(stats.body.requests).toBe(1);
+    expect(stats.body.bySource).toEqual([
+      expect.objectContaining({ source: 'instagram', requests: 1 }),
+    ]);
+
+    // Con el formulario apagado no se admiten solicitudes.
+    await http()
+      .patch(`/promo-landings/${id}`)
+      .set(a)
+      .send({ content: { contact: { enabled: false } } })
+      .expect(200);
+    expect((await lead(good)).status).toBe(404);
+  });
+
+  it('dirección corta: no choca con locales ni páginas fijas y solo se sirve si está activada', async () => {
+    const owner = await registerVerifiedUser(app, 'promo-short');
+    const a = auth(owner.accessToken);
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    const fac = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+      pricePerUnit: 40,
+    });
+    const facility = await http().get(`/facilities/${fac.facilityId}`).set(a);
+    const facilitySlug = facility.body.publicSlug as string;
+
+    // Choca con un local o con una página fija → 409.
+    const clashFacility = await http()
+      .post('/promo-landings')
+      .set(a)
+      .send({ name: 'X', slug: facilitySlug, headline: 'X', shortPath: true });
+    expect(clashFacility.status).toBe(409);
+    expect(clashFacility.body.code).toBe('promo_short_path_taken');
+    const clashFixed = await http()
+      .post('/promo-landings')
+      .set(a)
+      .send({ name: 'X', slug: 'precios', headline: 'X', shortPath: true });
+    expect(clashFixed.status).toBe(409);
+
+    const created = await http().post('/promo-landings').set(a).send({
+      name: 'Abre',
+      slug: 'abre-ya',
+      headline: 'Abrimos',
+      shortPath: true,
+      isActive: true,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.shortPath).toBe(true);
+    const short = await http()
+      .get(`/public/landing/${owner.slug}/promo/abre-ya`)
+      .query({ via: 'short' });
+    expect(short.status).toBe(200);
+    expect(short.body.promo.shortPath).toBe(true);
+
+    // Una landing sin dirección corta no responde por ella.
+    await http()
+      .post('/promo-landings')
+      .set(a)
+      .send({ name: 'Larga', slug: 'larga', headline: 'Larga', isActive: true })
+      .expect(201);
+    const notShort = await http()
+      .get(`/public/landing/${owner.slug}/promo/larga`)
+      .query({ via: 'short' });
+    expect(notShort.status).toBe(404);
+    expect(notShort.body.code).toBe('promo_not_found');
+
+    // Apagada: existe pero ya no se sirve (la web lleva a la portada).
+    await http()
+      .patch(`/promo-landings/${created.body.id}`)
+      .set(a)
+      .send({ isActive: false })
+      .expect(200);
+    const off = await http()
+      .get(`/public/landing/${owner.slug}/promo/abre-ya`)
+      .query({ via: 'short' });
+    expect(off.status).toBe(404);
+    expect(off.body.code).toBe('promo_not_available');
+
+    // Un local nuevo con el mismo nombre no le quita la dirección.
+    const newFac = await http()
+      .post('/facilities')
+      .set(a)
+      .send({ name: 'Abre ya', publicSlug: 'abre-ya', timezone: 'Europe/Madrid' });
+    expect(newFac.status).toBe(201);
+    expect(newFac.body.publicSlug).not.toBe('abre-ya');
   });
 });

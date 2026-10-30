@@ -1594,3 +1594,11 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 
 - **Migración** `20261205100000_web_hero_images` (se aplica sola): `tenants.web_hero_image_key` y `tenants.web_hero_background_key`. Sin variables nuevas. Redesplegar api y web.
 - Las fotos se suben al bucket público (`<tenant>/web-hero/…`), como el logo y el favicon. Sin fotos, la portada se ve como antes.
+
+## 69. Landings de promoción: nueva estructura (2026-10-30)
+
+- **Migración** `20261206100000_promo_landing_content` (se aplica sola): `promo_landings.content` (jsonb) y paso a él de los textos de las landings existentes (oferta, ventajas, texto, condiciones —una por línea—, botón y secciones). Las columnas antiguas se conservan pero ya no se usan. Sin variables nuevas. Redesplegar api y web.
+- Conviene que cada tenant con landings las revise en Configuración → Web pública → Landings de promoción: el antiguo «texto» pasa al bloque de la promoción y las condiciones a una lista.
+- **Dirección corta** (opcional, por landing y solo con dominio propio): `tu-dominio/<nombre>` además de `/promo/<nombre>`. No hace falta tocar NPM: la sirve la misma web.
+- Las páginas de las landings ya no se guardan en caché: apagar o caducar una landing se nota al momento (antes seguía visible hasta el siguiente despliegue, porque Next solo cachea las respuestas 200).
+- El formulario de la landing crea contactos con origen «Landing de promoción» (5 envíos por minuto e IP). La vista previa usa `MASTER_ENCRYPTION_KEY` y `WEB_BASE_URL` (ya configuradas).

@@ -4818,6 +4818,11 @@ model PromoLanding {
   showTestimonials Boolean   @default(true) @map("show_testimonials")
   showFaq          Boolean   @default(true) @map("show_faq")
   showContact      Boolean   @default(true) @map("show_contact")
+  /// Textos y bloques de la landing (PromoLandingContent en shared). Sustituye a
+  /// offer_text, body, benefits, conditions, cta_label y show_* (sin uso desde 2026-10-30).
+  content          Json      @default("{}")
+  /// Con dominio propio, también responde en `/<slug>` (sin `/promo/`).
+  shortPath        Boolean   @default(false) @map("short_path")
   seoTitle         String?   @map("seo_title")
   seoDescription   String?   @map("seo_description")
   indexable        Boolean   @default(false)
