@@ -79,9 +79,13 @@ export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
   ],
 };
 
-/** Features efectivas de un plan. Slug desconocido → todas (default seguro). */
+/**
+ * Features del mapa en código de un plan sembrado. Un slug que no está en el
+ * mapa (un plan creado desde el panel) no tiene ninguna: sus funciones son las
+ * que se marquen en el plan.
+ */
 export function featuresForPlan(slug: string): TenantFeature[] {
-  return PLAN_FEATURES[slug] ?? [...TenantFeatures];
+  return [...(PLAN_FEATURES[slug] ?? [])];
 }
 
 /** Filtra un valor arbitrario (jsonb/array de BD) a `TenantFeature[]` válidos. */
@@ -92,9 +96,10 @@ export function normalizePlanFeatures(value: unknown): TenantFeature[] {
 }
 
 /**
- * Features de un plan leídas de la BD (`tenantFeatures`), con **fallback** al
- * mapa en código (`featuresForPlan(slug)`) si la lista está vacía/ausente — así
- * un plan aún sin poblar sigue funcionando y nunca se rompe el gating.
+ * Features de un plan leídas de la BD (`tenantFeatures`). Si la lista está
+ * vacía, se usa el mapa en código solo para los planes sembrados (free,
+ * starter, pro, administrador); un plan creado desde el panel sin funciones
+ * marcadas no tiene ninguna premium.
  */
 export function resolvePlanFeatures(plan: {
   slug: string;

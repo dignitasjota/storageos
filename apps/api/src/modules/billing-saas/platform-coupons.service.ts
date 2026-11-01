@@ -78,7 +78,17 @@ export class PlatformCouponsService {
   }
 
   async update(id: string, input: UpdatePlatformCouponInput): Promise<PlatformCouponDto> {
-    await this.findOrThrow(id);
+    const current = await this.findOrThrow(id);
+    // Al cambiar solo el tipo o solo el valor, la combinación final también
+    // tiene que ser válida (un % nunca por encima del 100).
+    const type = input.discountType ?? current.discountType;
+    const value = input.discountValue ?? Number(current.discountValue);
+    if (type === 'percentage' && value > 100) {
+      throw new BadRequestException({
+        code: 'coupon_percentage_too_high',
+        message: 'Un descuento porcentual no puede superar el 100 %.',
+      });
+    }
     const row = await this.admin.platformCoupon.update({
       where: { id },
       data: {
@@ -94,11 +104,12 @@ export class PlatformCouponsService {
     return toDto(row);
   }
 
-  private async findOrThrow(id: string): Promise<void> {
+  private async findOrThrow(id: string) {
     const row = await this.admin.platformCoupon.findUnique({ where: { id } });
     if (!row) {
       throw new NotFoundException({ code: 'coupon_not_found', message: 'Cupón no encontrado.' });
     }
+    return row;
   }
 
   /**
@@ -130,7 +141,7 @@ export class PlatformCouponsService {
     const value = Number(coupon.discountValue);
     const discount =
       coupon.discountType === 'percentage'
-        ? round2((amount * value) / 100)
+        ? round2((amount * Math.min(value, 100)) / 100)
         : Math.min(round2(value), round2(amount));
     return { couponId: coupon.id, discount: round2(discount) };
   }

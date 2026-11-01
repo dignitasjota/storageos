@@ -60,6 +60,16 @@ describe('Analítica global de add-ons (e2e)', () => {
       .send({ addonId: created.body.id, quantity: 1 })
       .expect(201);
 
+    // En prueba aún no paga: cuenta como contratado, pero no suma MRR.
+    const trial = await request(app.getHttpServer()).get('/admin/addons/analytics').set(bearer);
+    const inTrial = trial.body.find((r: { slug: string }) => r.slug === 'e2e-aa');
+    expect(inTrial.tenantsActive).toBe(1);
+    expect(inTrial.monthlyRevenue).toBe(0);
+
+    await admin.tenantSubscription.update({
+      where: { tenantId: tenant!.id },
+      data: { status: 'active' },
+    });
     const res = await request(app.getHttpServer()).get('/admin/addons/analytics').set(bearer);
     expect(res.status).toBe(200);
     const mine = res.body.find((r: { slug: string }) => r.slug === 'e2e-aa');

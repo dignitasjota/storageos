@@ -68,13 +68,14 @@ describe('Admin platform coupons + batch trial extension (e2e)', () => {
     expect(created.body.code).toBe(code.toUpperCase());
     expect(created.body.usedCount).toBe(0);
 
-    // Registra un pago manual de 100 con el cupón → descuento 10
+    // Registra el precio de lista (100) con el cupón → se cobra el neto (90)
     const payment = await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
       .set('Authorization', `Bearer ${token}`)
       .send({ provider: 'bank_transfer', amount: 100, durationMonths: 1, couponCode: code });
     expect(payment.status).toBe(201);
     expect(payment.body.discount).toBe(10);
+    expect(payment.body.amount).toBe(90);
 
     // El uso del cupón subió a 1
     const list = await request(app.getHttpServer())
@@ -104,6 +105,7 @@ describe('Admin platform coupons + batch trial extension (e2e)', () => {
       .send({ provider: 'cash', amount: 40, durationMonths: 1, couponCode: code });
     expect(first.status).toBe(201);
     expect(first.body.discount).toBe(5);
+    expect(first.body.amount).toBe(35);
 
     // Segundo uso (otro tenant, distinto importe para no chocar con la dedup): 400
     const owner2 = await registerVerifiedUser(app, 'coupon-once2');

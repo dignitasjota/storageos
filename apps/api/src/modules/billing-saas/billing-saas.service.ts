@@ -1191,12 +1191,17 @@ export class BillingSaasService {
     // doble-submit que devuelve el pago existente). `incrementUsage` es
     // atómico por sí solo (UPDATE condicional) → no necesita ir dentro del
     // lock de más abajo.
+    // Con cupón, `args.amount` es el PRECIO DE LISTA: se cobra y factura el
+    // neto (lista − descuento). Sin cupón, `args.amount` es lo cobrado y
+    // `args.discount` solo es informativo.
     let couponId: string | null = null;
     let discount = args.discount ?? null;
+    let amount = args.amount;
     if (args.couponCode) {
       const res = await this.coupons.validateAndComputeDiscount(args.couponCode, args.amount);
       couponId = res.couponId;
       discount = res.discount;
+      amount = Math.max(0, Math.round((args.amount - res.discount) * 100) / 100);
     }
 
     const now = new Date();
@@ -1234,7 +1239,7 @@ export class BillingSaasService {
         where: {
           tenantId: args.tenantId,
           provider: args.provider,
-          amount: args.amount,
+          amount,
           // Dos extras del mismo precio cobrados seguidos son pagos distintos.
           description: args.description ?? null,
           status: 'paid',
@@ -1254,7 +1259,7 @@ export class BillingSaasService {
             provider: args.provider,
             externalId: null,
             status: 'paid',
-            amount: args.amount,
+            amount,
             discount,
             currency: args.currency,
             planSlug: sub.plan.slug,
@@ -1292,7 +1297,7 @@ export class BillingSaasService {
           provider: args.provider,
           externalId: null,
           status: 'paid',
-          amount: args.amount,
+          amount,
           discount,
           currency: args.currency,
           planSlug: sub.plan.slug,

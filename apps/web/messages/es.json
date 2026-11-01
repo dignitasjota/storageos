@@ -228,6 +228,7 @@
       "trialNote": "Prueba 30 días gratis. Sin tarjeta ni permanencia. Te migramos tus datos.",
       "plans": [
         {
+          "slug": "free",
           "name": "Free",
           "price": "0€",
           "tagline": "Para empezar y probar",
@@ -240,6 +241,7 @@
           ]
         },
         {
+          "slug": "starter",
           "name": "Starter",
           "price": "79€",
           "yearly": 790,
@@ -255,6 +257,7 @@
           ]
         },
         {
+          "slug": "pro",
           "name": "Pro",
           "price": "149€",
           "yearly": 1490,
@@ -269,6 +272,7 @@
           ]
         },
         {
+          "slug": "administrador",
           "name": "Administrador",
           "price": "349€",
           "yearly": 3490,
@@ -282,7 +286,8 @@
             "Libro de IVA, 303 y 347 por propietario"
           ]
         }
-      ]
+      ],
+      "ivaIncludedNote": "IVA incluido"
     },
     "faq": {
       "title": "Preguntas frecuentes",

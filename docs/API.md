@@ -1316,6 +1316,8 @@ Ver tambien la subseccion **Fase 9A** mas abajo para 2FA, refresh cookie y recov
 | PATCH  | `/subscription-plans/admin/:id`   | AdminGuard | —     | Actualiza plan                                      |
 | DELETE | `/subscription-plans/admin/:id`   | AdminGuard | —     | Archiva plan                                        |
 
+Planes: 400 `slug_taken` (slug repetido), `plan_slug_locked` (renombrar un plan sembrado) y `plan_required` (desactivar `free` o `starter`). Cupones de plataforma: un porcentaje por encima de 100 → 400 (`coupon_percentage_too_high` al editar). En `POST /admin/tenants/:id/saas-payments/manual` con `couponCode`, `amount` es el precio de lista y el pago se registra por el neto. Asignar o probar un extra desactivado (que el tenant no tenía) → 400 `addon_not_available`. `POST /admin/quote` anual con un plan sin precio anual cobra 12 cuotas.
+
 ### Codigos `code` (Fase 8)
 
 | `code`                            | Cuando                                                                |

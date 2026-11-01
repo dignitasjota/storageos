@@ -10,6 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchFounderOffer } from '@/lib/founder-offer';
 import { safeJsonLd } from '@/lib/json-ld';
+import {
+  catalogIncludesVat,
+  fetchPublicPlans,
+  mergeLandingPlans,
+  type LandingPlanCopy,
+} from '@/lib/platform-plans';
 import { fetchPlatformWebsite } from '@/lib/platform-website';
 
 const SITE_URL = (
@@ -111,24 +117,14 @@ export default function LandingPage() {
     cta: string;
   }[];
   const faqItems = t.raw('faq.items') as { q: string; a: string }[];
-  const plans = t.raw('pricing.plans') as {
-    name: string;
-    price: string;
-    yearly?: number;
-    tagline: string;
-    cta: string;
-    highlight?: boolean;
-    features: string[];
-  }[];
+  const plans = t.raw('pricing.plans') as LandingPlanCopy[];
 
   return (
     <>
       <PlatformJsonLd
         features={FEATURES.map((f) => t(`features.${f.key}.title`))}
         faq={faqItems}
-        prices={plans.map((p) =>
-          Number.parseFloat(p.price.replace(/[^\d.,]/g, '').replace(',', '.')),
-        )}
+        plans={plans}
       />
 
       {/* Hero */}
@@ -355,48 +351,16 @@ export default function LandingPage() {
         {/* Oferta fundador (panel admin → Web de TrasterOS; oculta si está desactivada) */}
         <FounderOffer />
 
-        <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {plans.map((plan) => (
-            <Card
-              key={plan.name}
-              className={plan.highlight ? 'relative border-primary shadow-lg' : 'border-border/60'}
-            >
-              {plan.highlight && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-xs font-medium text-primary-foreground">
-                  {t('pricing.mostPopular')}
-                </span>
-              )}
-              <CardHeader>
-                <CardTitle className="text-lg">{plan.name}</CardTitle>
-                <p className="text-sm text-muted-foreground">{plan.tagline}</p>
-                <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-3xl font-semibold tracking-tight">{plan.price}</span>
-                  {plan.price !== '0€' && (
-                    <span className="text-sm text-muted-foreground">{t('pricing.perMonth')}</span>
-                  )}
-                </div>
-                {plan.yearly && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('pricing.yearlyLabel', { yearly: plan.yearly })} · {t('pricing.ivaNote')}
-                  </p>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ul className="space-y-2">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2 text-sm">
-                      <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Button asChild className="w-full" variant={plan.highlight ? 'default' : 'outline'}>
-                  <Link href="/register">{plan.cta}</Link>
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <PricingCards
+          plans={plans}
+          labels={{
+            mostPopular: t('pricing.mostPopular'),
+            perMonth: t('pricing.perMonth'),
+            ivaNote: t('pricing.ivaNote'),
+            ivaIncludedNote: t('pricing.ivaIncludedNote'),
+          }}
+          yearlyLabel={(yearly) => t('pricing.yearlyLabel', { yearly })}
+        />
         <p className="mt-6 text-center text-sm text-muted-foreground">{t('pricing.trialNote')}</p>
       </section>
 
@@ -438,6 +402,68 @@ export default function LandingPage() {
 }
 
 /** Formulario de contacto (panel admin → Web de TrasterOS). */
+/**
+ * Tarjetas de precios: textos de la portada con el precio y la anualidad del
+ * catálogo (panel admin → Planes). Un plan desactivado no se muestra.
+ */
+async function PricingCards({
+  plans,
+  labels,
+  yearlyLabel,
+}: {
+  plans: LandingPlanCopy[];
+  labels: { mostPopular: string; perMonth: string; ivaNote: string; ivaIncludedNote: string };
+  yearlyLabel: (yearly: number) => string;
+}) {
+  const catalog = await fetchPublicPlans();
+  const merged = mergeLandingPlans(plans, catalog);
+  const ivaNote = catalogIncludesVat(catalog) ? labels.ivaIncludedNote : labels.ivaNote;
+  return (
+    <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {merged.map((plan) => (
+        <Card
+          key={plan.name}
+          className={plan.highlight ? 'relative border-primary shadow-lg' : 'border-border/60'}
+        >
+          {plan.highlight && (
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-xs font-medium text-primary-foreground">
+              {labels.mostPopular}
+            </span>
+          )}
+          <CardHeader>
+            <CardTitle className="text-lg">{plan.name}</CardTitle>
+            <p className="text-sm text-muted-foreground">{plan.tagline}</p>
+            <div className="mt-2 flex items-baseline gap-1">
+              <span className="text-3xl font-semibold tracking-tight">{plan.price}</span>
+              {plan.priceValue > 0 && (
+                <span className="text-sm text-muted-foreground">{labels.perMonth}</span>
+              )}
+            </div>
+            {plan.yearly && (
+              <p className="text-xs text-muted-foreground">
+                {yearlyLabel(plan.yearly)} · {ivaNote}
+              </p>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <ul className="space-y-2">
+              {plan.features.map((f) => (
+                <li key={f} className="flex items-start gap-2 text-sm">
+                  <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+            <Button asChild className="w-full" variant={plan.highlight ? 'default' : 'outline'}>
+              <Link href="/register">{plan.cta}</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 async function ContactSection() {
   const { contactForm } = await fetchPlatformWebsite();
   if (!contactForm) return null;
@@ -483,13 +509,17 @@ async function FounderOffer() {
 async function PlatformJsonLd({
   features,
   faq,
-  prices,
+  plans,
 }: {
   features: string[];
   faq: { q: string; a: string }[];
-  prices: number[];
+  plans: LandingPlanCopy[];
 }) {
-  const { seo, footer } = await fetchPlatformWebsite();
+  const [{ seo, footer }, catalog] = await Promise.all([
+    fetchPlatformWebsite(),
+    fetchPublicPlans(),
+  ]);
+  const prices = mergeLandingPlans(plans, catalog).map((p) => p.priceValue);
   const orgName = seo.organizationName || 'TrasterOS';
   const sameAs = Object.values(footer.social).filter((u) => u);
   const valid = prices.filter((p) => Number.isFinite(p));

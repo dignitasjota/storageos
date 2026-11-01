@@ -43,10 +43,14 @@ export class AdminQuoteService {
     }
     const yearly = input.cycle === 'yearly';
     const months = yearly ? 12 : 1;
+    // Un plan sin precio anual (0) se cobra al año como 12 cuotas mensuales.
+    const monthlyPrice = Number(plan.priceMonthly);
+    const hasYearlyPrice = Number(plan.priceYearly) > 0;
+    const planYearly = hasYearlyPrice ? Number(plan.priceYearly) : monthlyPrice * 12;
     const lines: { label: string; amount: number }[] = [
       {
-        label: `Plan ${plan.name}${yearly ? ' (anual)' : ''}`,
-        amount: round2(Number(yearly ? plan.priceYearly : plan.priceMonthly)),
+        label: `Plan ${plan.name}${yearly ? (hasYearlyPrice ? ' (anual)' : ' (12 meses)') : ''}`,
+        amount: round2(yearly ? planYearly : monthlyPrice),
       },
     ];
     for (const a of input.addons) {
@@ -95,9 +99,7 @@ export class AdminQuoteService {
       taxRate: pricing.taxRate,
       monthlyEquivalent: round2(total / months),
       // Los extras no tienen precio anual: el ahorro es solo el del plan.
-      yearlySaving: yearly
-        ? Math.max(0, round2(Number(plan.priceMonthly) * 12 - Number(plan.priceYearly)))
-        : null,
+      yearlySaving: yearly ? Math.max(0, round2(monthlyPrice * 12 - planYearly)) : null,
     };
   }
 

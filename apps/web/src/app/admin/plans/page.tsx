@@ -120,7 +120,8 @@ export default function PlansPage() {
       stripePriceId: form.stripePriceId.trim() || null,
       stripePriceIdYearly: form.stripePriceIdYearly.trim() || null,
       currency: 'EUR',
-      features: {},
+      // Conserva lo que ya tuviera el plan (no se edita aquí).
+      features: editing?.features ?? {},
       tenantFeatures: form.tenantFeatures,
       maxUnits: form.maxUnits ? Number(form.maxUnits) : null,
       maxFacilities: form.maxFacilities ? Number(form.maxFacilities) : null,
@@ -355,8 +356,8 @@ export default function PlansPage() {
                 })}
               </div>
               <p className="text-xs text-muted-foreground">
-                Los tenants con este plan verán estos módulos. Si no marcas ninguno, se usa el mapa
-                por defecto del código para ese slug.
+                Los tenants con este plan verán estos módulos. Un plan sin ninguna marcada no
+                incluye funciones premium.
               </p>
             </div>
             <label className="col-span-2 flex items-center gap-2 text-sm">

@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { normalizePlanFeatures } from '@storageos/shared';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { PLAN_FEATURES, normalizePlanFeatures } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -18,6 +18,15 @@ import type { SubscriptionPlanDto, UpsertSubscriptionPlanFormInput } from '@stor
  *   - los endpoints admin (panel super admin) tampoco operan dentro de un
  *     tenant.
  */
+/**
+ * Planes de los que depende el código: el registro y «Ampliar prueba» usan
+ * `starter` y el fin de la prueba o un plan gratis usa `free`. No se pueden
+ * desactivar ni renombrar.
+ */
+const REQUIRED_PLAN_SLUGS = new Set(['free', 'starter']);
+/** Planes sembrados: su slug es la clave del mapa de funciones del código. */
+const SEEDED_PLAN_SLUGS = new Set(Object.keys(PLAN_FEATURES));
+
 @Injectable()
 export class SubscriptionPlansService {
   constructor(private readonly admin: PrismaAdminService) {}
@@ -49,6 +58,8 @@ export class SubscriptionPlansService {
   }
 
   async create(input: UpsertSubscriptionPlanFormInput): Promise<SubscriptionPlanDto> {
+    const clash = await this.admin.subscriptionPlan.findUnique({ where: { slug: input.slug } });
+    if (clash) throw new BadRequestException({ code: 'slug_taken', message: 'Ese slug ya existe' });
     const row = await this.admin.subscriptionPlan.create({
       data: {
         slug: input.slug,
@@ -80,6 +91,19 @@ export class SubscriptionPlansService {
     if (!existing) {
       throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
     }
+    if (input.slug !== undefined && input.slug !== existing.slug) {
+      if (SEEDED_PLAN_SLUGS.has(existing.slug)) {
+        throw new BadRequestException({
+          code: 'plan_slug_locked',
+          message: 'El identificador de este plan lo usa la aplicación: no se puede cambiar.',
+        });
+      }
+      const clash = await this.admin.subscriptionPlan.findUnique({ where: { slug: input.slug } });
+      if (clash) {
+        throw new BadRequestException({ code: 'slug_taken', message: 'Ese slug ya existe' });
+      }
+    }
+    if (input.isActive === false) this.assertCanDeactivate(existing.slug);
     const row = await this.admin.subscriptionPlan.update({
       where: { id: planId },
       data: {
@@ -111,10 +135,23 @@ export class SubscriptionPlansService {
     if (!existing) {
       throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
     }
+    this.assertCanDeactivate(existing.slug);
     await this.admin.subscriptionPlan.update({
       where: { id: planId },
       data: { isActive: false },
     });
+  }
+
+  private assertCanDeactivate(slug: string): void {
+    if (REQUIRED_PLAN_SLUGS.has(slug)) {
+      throw new BadRequestException({
+        code: 'plan_required',
+        message:
+          slug === 'free'
+            ? 'El plan Free es al que pasan las pruebas que terminan: no se puede desactivar.'
+            : 'Las cuentas nuevas empiezan la prueba con este plan: no se puede desactivar.',
+      });
+    }
   }
 
   private toDto(row: {

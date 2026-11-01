@@ -157,8 +157,16 @@ export class SaasAddonsService {
   async catalogAnalytics(): Promise<AdminAddonAnalyticsDto[]> {
     const [catalog, assignments] = await Promise.all([
       this.admin.subscriptionAddon.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
+      // Solo tenants vivos y no exentos (una cuenta borrada o exenta no cuenta).
       this.admin.tenantSubscriptionAddon.findMany({
-        select: { addonId: true, priceMonthly: true, quantity: true, suspendedAt: true },
+        where: { tenant: { deletedAt: null, billingExempt: false } },
+        select: {
+          addonId: true,
+          priceMonthly: true,
+          quantity: true,
+          suspendedAt: true,
+          tenant: { select: { status: true, subscription: { select: { status: true } } } },
+        },
       }),
     ]);
     const stats = new Map<string, { active: number; suspended: number; revenue: number }>();
@@ -168,7 +176,11 @@ export class SaasAddonsService {
         e.suspended += 1;
       } else {
         e.active += 1;
-        e.revenue += num(a.priceMonthly) * a.quantity;
+        // El MRR solo de quien paga: misma definición que Métricas y Finanzas.
+        const paying =
+          (a.tenant.status === 'active' || a.tenant.status === 'trial') &&
+          a.tenant.subscription?.status === 'active';
+        if (paying) e.revenue += num(a.priceMonthly) * a.quantity;
       }
       stats.set(a.addonId, e);
     }
@@ -395,6 +407,12 @@ export class SaasAddonsService {
     days: number,
   ): Promise<{ feature: string; expiresAt: string }> {
     const addon = await this.findAddon(addonId);
+    if (!addon.isActive) {
+      throw new BadRequestException({
+        code: 'addon_not_available',
+        message: 'Este extra está desactivado en el catálogo.',
+      });
+    }
     if (!addon.feature || !(TenantFeatures as readonly string[]).includes(addon.feature)) {
       throw new BadRequestException({
         code: 'addon_without_feature',
@@ -656,6 +674,14 @@ export class SaasAddonsService {
         suspendedAt: true,
       },
     });
+    // Un extra retirado del catálogo no se contrata de nuevo (sí se puede
+    // cambiar la cantidad o el precio de quien ya lo tiene).
+    if (!existing && !addon.isActive) {
+      throw new BadRequestException({
+        code: 'addon_not_available',
+        message: 'Este extra está desactivado en el catálogo.',
+      });
+    }
     // Upsert: reasignar actualiza cantidad/precio (unique por tenant+addon).
     await this.admin.tenantSubscriptionAddon.upsert({
       where: { tenantId_addonId: { tenantId, addonId: input.addonId } },
