@@ -10,9 +10,11 @@ import { FilesModule } from '../files/files.module';
 import { PaymentsModule } from '../payments/payments.module';
 
 import { AccountantExportService } from './accountant-export.service';
+import { AdminCatalogController } from './admin-catalog.controller';
 import { BillingSaasController } from './billing-saas.controller';
 import { BillingSaasService } from './billing-saas.service';
 import { BillingStatusController } from './billing-status.controller';
+import { CatalogPriceHistoryService } from './catalog-price-history.service';
 import { PlatformCouponsController } from './platform-coupons.controller';
 import { PlatformCouponsService } from './platform-coupons.service';
 import { PlatformDunningController } from './platform-dunning.controller';
@@ -75,6 +77,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     FilesModule,
   ],
   controllers: [
+    AdminCatalogController,
     BillingSaasController,
     BillingStatusController,
     SubscriptionPlansController,
@@ -89,6 +92,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformRedsysWebhookController,
   ],
   providers: [
+    CatalogPriceHistoryService,
     BillingSaasService,
     SubscriptionPlansService,
     SaasAddonsService,

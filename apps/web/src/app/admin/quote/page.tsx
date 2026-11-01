@@ -1,12 +1,18 @@
 'use client';
 
-import { resolvePlanFeatures, type AdminQuoteDto, type TenantFeature } from '@storageos/shared';
+import {
+  resolvePlanFeatures,
+  type AdminQuoteDto,
+  type QuoteOfferStatus,
+  type TenantFeature,
+} from '@storageos/shared';
 import { Loader2, Minus, Plus, Send } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,7 +31,9 @@ import {
   useAdminSubscriptionPlans,
   useAdminTenant,
   useAdminTenants,
+  useQuoteOffers,
   useSendAdminQuote,
+  useSetQuoteOfferStatus,
   useTenantBillingSummary,
 } from '@/lib/admin/hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
@@ -404,6 +412,115 @@ function QuoteSimulator() {
           </Card>
         </div>
       </div>
+      <QuoteOffersCard tenantId={tenant?.id ?? null} />
     </div>
+  );
+}
+
+const OFFER_STATUS: Record<QuoteOfferStatus, string> = {
+  sent: 'Enviada',
+  accepted: 'Aceptada',
+  rejected: 'Rechazada',
+};
+
+/** Propuestas enviadas: estado, conversión y marcar aceptada o rechazada. */
+function QuoteOffersCard({ tenantId }: { tenantId: string | null }) {
+  const offers = useQuoteOffers(tenantId ?? undefined);
+  const setStatus = useSetQuoteOfferStatus();
+  const canEdit = useIsSuperadmin();
+  const data = offers.data;
+  if (!data || (data.items.length === 0 && data.stats.sent === 0)) return null;
+
+  async function mark(id: string, status: QuoteOfferStatus) {
+    try {
+      await setStatus.mutateAsync({ id, status });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          Propuestas enviadas{tenantId ? ' a este tenant' : ''}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Últimos 90 días: {data.stats.sent} enviadas · {data.stats.accepted} aceptadas ·{' '}
+          {data.stats.rejected} rechazadas
+          {data.stats.conversionPct != null && ` · conversión ${data.stats.conversionPct} %`}. Se
+          aceptan solas cuando el tenant contrata el plan o paga con él.
+        </p>
+      </CardHeader>
+      <CardContent className="divide-y p-0">
+        {data.items.slice(0, 50).map((o) => (
+          <div
+            key={o.id}
+            className="flex flex-col gap-2 px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="min-w-0">
+              <Link href={`/admin/tenants/${o.tenantId}`} className="font-medium hover:underline">
+                {o.tenantName}
+              </Link>
+              <span className="ml-2 text-muted-foreground">
+                {o.planName} · {o.cycle === 'yearly' ? 'anual' : 'mensual'}
+                {o.couponCode ? ` · ${o.couponCode}` : ''} · {eur(o.total)}
+              </span>
+              <p className="text-xs text-muted-foreground">
+                {new Date(o.createdAt).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' })}
+                {o.superAdminName ? ` · ${o.superAdminName}` : ''}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge
+                variant="outline"
+                className={
+                  o.status === 'accepted'
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : o.status === 'rejected'
+                      ? 'text-muted-foreground'
+                      : ''
+                }
+              >
+                {OFFER_STATUS[o.status]}
+              </Badge>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => {
+                  void navigator.clipboard.writeText(o.acceptUrl);
+                  toast.success('Enlace copiado.');
+                }}
+              >
+                Copiar enlace
+              </Button>
+              {canEdit && o.status === 'sent' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  disabled={setStatus.isPending}
+                  onClick={() => void mark(o.id, 'rejected')}
+                >
+                  Rechazada
+                </Button>
+              )}
+              {canEdit && o.status !== 'sent' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  disabled={setStatus.isPending}
+                  onClick={() => void mark(o.id, 'sent')}
+                >
+                  Deshacer
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }

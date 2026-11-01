@@ -2217,6 +2217,13 @@ export class AdminTenantsService {
       userAgent: args.userAgent ?? null,
       changes,
     });
+    // Una propuesta de cuota con este plan queda aceptada.
+    await this.admin.platformQuoteOffer
+      .updateMany({
+        where: { tenantId, planId: plan.id, status: 'sent' },
+        data: { status: 'accepted', resolvedAt: new Date() },
+      })
+      .catch(() => undefined);
     return this.detail(tenantId);
   }
 

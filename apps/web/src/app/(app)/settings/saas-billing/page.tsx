@@ -3,7 +3,7 @@
 import { FEATURE_LABELS } from '@storageos/shared';
 import { Check, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { BillingDetailsSection } from './billing-details-section';
@@ -13,6 +13,7 @@ import { SepaMandateSection } from './sepa-mandate-section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { formatDate } from '@/lib/format';
 import {
@@ -64,6 +65,21 @@ export default function SaasBillingPage() {
   const selfAddons = useSelfAddons();
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [coupon, setCoupon] = useState('');
+  const [offeredPlanId, setOfferedPlanId] = useState<string | null>(null);
+  // Enlace de una propuesta (`?offer=&plan=&cycle=&coupon=`): deja elegidos el
+  // plan, la periodicidad y el cupón.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (!q.get('offer') && !q.get('plan')) return;
+    const c = q.get('cycle');
+    if (c === 'yearly' || c === 'monthly') setCycle(c);
+    const code = q.get('coupon');
+    if (code) setCoupon(code.toUpperCase());
+    const plan = q.get('plan');
+    if (plan) setOfferedPlanId(plan);
+  }, []);
+  const couponCode = coupon.trim() || undefined;
 
   if (subscription.isLoading) {
     return (
@@ -106,6 +122,7 @@ export default function SaasBillingPage() {
       const session = await checkout.mutateAsync({
         planId,
         billingCycle: cycle,
+        ...(couponCode ? { couponCode } : {}),
         successUrl: `${originUrl()}/settings/saas-billing?status=success`,
         cancelUrl: `${originUrl()}/settings/saas-billing?status=cancel`,
       });
@@ -132,7 +149,11 @@ export default function SaasBillingPage() {
   async function onChangePlan(planId: string) {
     setPendingPlanId(planId);
     try {
-      await changePlan.mutateAsync({ planId, billingCycle: cycle });
+      await changePlan.mutateAsync({
+        planId,
+        billingCycle: cycle,
+        ...(couponCode ? { couponCode } : {}),
+      });
       toast.success('Plan cambiado. Stripe ajustará la diferencia en tu próxima factura.');
       // Extras que el plan nuevo ya incluye: se siguen cobrando hasta que se cancelen.
       const included = new Set<string>(
@@ -253,6 +274,23 @@ export default function SaasBillingPage() {
           de tarjeta), configúralo más abajo en «Domiciliación SEPA».
         </p>
 
+        {(canSubscribe || hasStripeSub) && !exempt && (
+          <div className="flex max-w-sm flex-col gap-1">
+            <label htmlFor="saas-coupon" className="text-sm font-medium">
+              Cupón de descuento
+            </label>
+            <Input
+              id="saas-coupon"
+              value={coupon}
+              onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+              placeholder="Si tienes uno"
+            />
+            <p className="text-xs text-muted-foreground">
+              Se aplica al suscribirte o al cambiar de plan.
+            </p>
+          </div>
+        )}
+
         {plans.isLoading ? (
           <div className="flex h-32 items-center justify-center">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -264,12 +302,23 @@ export default function SaasBillingPage() {
               .map((p) => {
                 const pending = pendingPlanId === p.id;
                 const isCurrent = sub.plan.id === p.id;
+                const offered = offeredPlanId === p.id && !isCurrent;
                 return (
-                  <Card key={p.id} className={isCurrent ? 'border-primary' : undefined}>
+                  <Card
+                    key={p.id}
+                    className={
+                      isCurrent
+                        ? 'border-primary'
+                        : offered
+                          ? 'border-primary ring-2 ring-primary/30'
+                          : undefined
+                    }
+                  >
                     <CardHeader>
                       <div className="flex items-center justify-between gap-2">
                         <CardTitle className="text-base">{p.name}</CardTitle>
                         {isCurrent && <Badge>Tu plan</Badge>}
+                        {offered && <Badge variant="outline">Tu propuesta</Badge>}
                       </div>
                       {p.description && (
                         <p className="text-xs text-muted-foreground">{p.description}</p>

@@ -9,10 +9,15 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { UpsertSubscriptionPlanSchema, type SubscriptionPlanDto } from '@storageos/shared';
+import {
+  UpsertSubscriptionPlanSchema,
+  type PlanPricePreviewDto,
+  type SubscriptionPlanDto,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -70,6 +75,18 @@ export class SubscriptionPlansController {
     return this.service.listAll();
   }
 
+  /** Tenants y MRR que cambiarían con un precio mensual nuevo. */
+  @Public()
+  @UseGuards(AdminGuard)
+  @Get('admin/:id/price-preview')
+  pricePreview(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('priceMonthly') priceMonthly: string,
+  ): Promise<PlanPricePreviewDto> {
+    const price = Number(priceMonthly);
+    return this.service.pricePreview(id, Number.isFinite(price) && price >= 0 ? price : 0);
+  }
+
   @Public()
   @UseGuards(AdminGuard)
   @RequireSuperadmin()
@@ -80,7 +97,7 @@ export class SubscriptionPlansController {
     @Body() input: UpsertSubscriptionPlanDto,
     @Req() req: Request,
   ): Promise<SubscriptionPlanDto> {
-    const created = await this.service.create(input);
+    const created = await this.service.create(input, admin.sub);
     await this.audit.record({
       superAdminId: admin.sub,
       action: 'admin.plan.created',
@@ -108,6 +125,7 @@ export class SubscriptionPlansController {
     const updated = await this.service.update(
       id,
       input as Parameters<typeof this.service.update>[1],
+      admin.sub,
     );
     await this.audit.record({
       superAdminId: admin.sub,

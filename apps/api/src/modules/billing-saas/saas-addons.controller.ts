@@ -79,7 +79,7 @@ export class SaasAddonsController {
     @Body() body: UpsertSaasAddonDto,
     @Req() req: Request,
   ): Promise<SaasAddonDto> {
-    const created = await this.service.createAddon(body);
+    const created = await this.service.createAddon(body, admin.sub);
     await this.audit.record({
       superAdminId: admin.sub,
       action: 'admin.saas_addon.created',
@@ -99,7 +99,7 @@ export class SaasAddonsController {
     @Body() body: UpsertSaasAddonDto,
     @Req() req: Request,
   ): Promise<SaasAddonDto> {
-    const updated = await this.service.updateAddon(id, body);
+    const updated = await this.service.updateAddon(id, body, admin.sub);
     await this.audit.record({
       superAdminId: admin.sub,
       action: 'admin.saas_addon.updated',

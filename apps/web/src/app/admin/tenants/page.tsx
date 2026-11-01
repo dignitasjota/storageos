@@ -253,6 +253,11 @@ export default function AdminTenantsPage() {
   const canEdit = useIsSuperadmin();
   const [newOpen, setNewOpen] = useState(false);
   const [filters, setFilters] = useState<Filters>(EMPTY);
+  // `?plan=<slug>` (desde Planes) abre la lista filtrada por ese plan.
+  useEffect(() => {
+    const plan = new URLSearchParams(window.location.search).get('plan');
+    if (plan) setFilters((f) => ({ ...f, plan }));
+  }, []);
   // Por defecto, los de peor salud primero (los que piden atención).
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'health', dir: 1 });
   const [columns, setColumns] = useState<ColumnKey[]>(DEFAULT_COLUMNS);

@@ -69,7 +69,7 @@ export function useCreatePortalSession() {
 export function useChangePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { planId: string; billingCycle?: BillingCycle }) =>
+    mutationFn: (input: { planId: string; billingCycle?: BillingCycle; couponCode?: string }) =>
       apiFetch<TenantSubscriptionDto>('/settings/saas-billing/change-plan', {
         method: 'POST',
         json: input,

@@ -15,6 +15,7 @@ import {
 
 import { ForecastCard } from './forecast-card';
 
+import { ApplicationFeeReport } from '@/components/admin/application-fee-report';
 import { Delta, PeriodSelect } from '@/components/admin/period-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminFinance } from '@/lib/admin/hooks';
@@ -99,6 +100,8 @@ export default function AdminFinancePage() {
           <Kpi key={src.key} label={src.label} value={eur(d.bySource[src.key])} />
         ))}
       </div>
+
+      <ApplicationFeeReport months={months} />
 
       <Card>
         <CardHeader>

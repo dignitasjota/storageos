@@ -7,7 +7,14 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { resolvePlanFeatures, type TenantFeature, TenantFeatures } from '@storageos/shared';
+import { Prisma } from '@storageos/database';
+import {
+  addonUnitPrice,
+  parseAddonPriceTiers,
+  resolvePlanFeatures,
+  type TenantFeature,
+  TenantFeatures,
+} from '@storageos/shared';
 import StripeSDK from 'stripe';
 
 import { PAYING_SUBSCRIPTION_WHERE } from '../../common/saas-metrics';
@@ -16,9 +23,9 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
+import { CatalogPriceHistoryService } from './catalog-price-history.service';
 import { amountToCharge, platformPricing } from './platform-pricing';
 
-import type { Prisma } from '@storageos/database';
 import type {
   AddonBillingMode,
   AdminAddonAnalyticsDto,
@@ -44,6 +51,15 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  * (plan + add-ons) alimenta las métricas y el importe sugerido del pago manual.
  * Asignar un add-on con `feature` activa el override de esa feature del tenant.
  */
+/** Tramos de precio para guardar (null = precio único). */
+function tiersValue(
+  tiers: { minQuantity: number; unitPrice: number }[] | null | undefined,
+): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  return tiers && tiers.length > 0
+    ? (parseAddonPriceTiers(tiers) as unknown as Prisma.InputJsonValue)
+    : Prisma.DbNull;
+}
+
 @Injectable()
 export class SaasAddonsService {
   private readonly logger = new Logger(SaasAddonsService.name);
@@ -53,6 +69,7 @@ export class SaasAddonsService {
     private readonly admin: PrismaAdminService,
     private readonly limits: PlanLimitsService,
     private readonly stripeGateway: StripeGateway,
+    private readonly priceHistory: CatalogPriceHistoryService,
   ) {
     this.stripe = stripeGateway.getClient();
   }
@@ -143,10 +160,16 @@ export class SaasAddonsService {
   // ---- catálogo ----
 
   async listCatalog(): Promise<SaasAddonDto[]> {
-    const rows = await this.admin.subscriptionAddon.findMany({
-      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-    });
-    return rows.map((r) => this.toCatalogDto(r));
+    const [rows, counts] = await Promise.all([
+      this.admin.subscriptionAddon.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
+      this.admin.tenantSubscriptionAddon.groupBy({
+        by: ['addonId'],
+        where: { tenant: { deletedAt: null } },
+        _count: { _all: true },
+      }),
+    ]);
+    const by = new Map(counts.map((c) => [c.addonId, c._count._all]));
+    return rows.map((r) => ({ ...this.toCatalogDto(r), tenantCount: by.get(r.id) ?? 0 }));
   }
 
   /**
@@ -200,7 +223,10 @@ export class SaasAddonsService {
     });
   }
 
-  async createAddon(input: UpsertSaasAddonInput): Promise<SaasAddonDto> {
+  async createAddon(
+    input: UpsertSaasAddonInput,
+    superAdminId: string | null = null,
+  ): Promise<SaasAddonDto> {
     this.validateFeature(input.feature);
     const exists = await this.admin.subscriptionAddon.findUnique({ where: { slug: input.slug } });
     if (exists) {
@@ -217,13 +243,26 @@ export class SaasAddonsService {
         grantsFacilities: input.grantsFacilities ?? null,
         grantsUsers: input.grantsUsers ?? null,
         grantsAiQueries: input.grantsAiQueries ?? null,
+        priceTiers: tiersValue(input.priceTiers),
         isActive: input.isActive,
       },
+    });
+    await this.priceHistory.record({
+      kind: 'addon',
+      itemId: created.id,
+      itemName: created.name,
+      oldMonthly: null,
+      newMonthly: num(created.priceMonthly),
+      superAdminId,
     });
     return this.toCatalogDto(created);
   }
 
-  async updateAddon(id: string, input: UpsertSaasAddonInput): Promise<SaasAddonDto> {
+  async updateAddon(
+    id: string,
+    input: UpsertSaasAddonInput,
+    superAdminId: string | null = null,
+  ): Promise<SaasAddonDto> {
     this.validateFeature(input.feature);
     const current = await this.findAddon(id);
     // Cambiar la `feature` de un add-on YA asignado dejaría overrides
@@ -258,8 +297,17 @@ export class SaasAddonsService {
         grantsFacilities: input.grantsFacilities ?? null,
         grantsUsers: input.grantsUsers ?? null,
         grantsAiQueries: input.grantsAiQueries ?? null,
+        ...(input.priceTiers !== undefined ? { priceTiers: tiersValue(input.priceTiers) } : {}),
         isActive: input.isActive,
       },
+    });
+    await this.priceHistory.record({
+      kind: 'addon',
+      itemId: id,
+      itemName: updated.name,
+      oldMonthly: num(current.priceMonthly),
+      newMonthly: num(updated.priceMonthly),
+      superAdminId,
     });
     // Si cambió el precio y ya está mapeado a Stripe, crea un Price nuevo (Prices
     // inmutables) para futuras activaciones en modo Stripe. Best-effort.
@@ -664,7 +712,14 @@ export class SaasAddonsService {
 
   async assign(tenantId: string, input: AssignAddonInput): Promise<TenantBillingSummaryDto> {
     const addon = await this.findAddon(input.addonId);
-    const price = input.priceMonthly ?? num(addon.priceMonthly);
+    // Sin precio negociado, el del tramo que alcanza la cantidad (congelado).
+    const price =
+      input.priceMonthly ??
+      addonUnitPrice(
+        num(addon.priceMonthly),
+        parseAddonPriceTiers(addon.priceTiers),
+        input.quantity,
+      );
     const existing = await this.admin.tenantSubscriptionAddon.findUnique({
       where: { tenantId_addonId: { tenantId, addonId: input.addonId } },
       select: {
@@ -1065,6 +1120,7 @@ export class SaasAddonsService {
     grantsUsers: number | null;
     grantsAiQueries: number | null;
     stripePriceId: string | null;
+    priceTiers?: Prisma.JsonValue;
     isActive: boolean;
   }): SaasAddonDto {
     return {
@@ -1080,6 +1136,8 @@ export class SaasAddonsService {
       grantsAiQueries: r.grantsAiQueries,
       isActive: r.isActive,
       stripePriceId: r.stripePriceId,
+      priceTiers: parseAddonPriceTiers(r.priceTiers ?? null),
+      tenantCount: 0,
     };
   }
 

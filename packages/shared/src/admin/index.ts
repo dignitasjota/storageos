@@ -1,3 +1,4 @@
+export * from './catalog';
 export * from './schemas';
 export * from './types';
 export * from './default-addons';

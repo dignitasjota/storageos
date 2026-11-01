@@ -49,7 +49,7 @@ export class StripeConnectService {
     const [tenant, account, feePct, redsysEnabled] = await Promise.all([
       this.admin.tenant.findUnique({ where: { id: tenantId }, select: { cardProvider: true } }),
       this.admin.tenantStripeAccount.findUnique({ where: { tenantId } }),
-      this.platformSettings.applicationFeePct(),
+      this.platformSettings.applicationFeePctFor(tenantId),
       this.redsysEnabled(tenantId),
     ]);
     const cardProvider = parseProvider(tenant?.cardProvider ?? null);
@@ -97,7 +97,7 @@ export class StripeConnectService {
       return {
         mode: 'connect',
         accountId: account.stripeAccountId,
-        applicationFeePct: await this.platformSettings.applicationFeePct(),
+        applicationFeePct: await this.platformSettings.applicationFeePctFor(tenantId),
       };
     }
     if (this.config.get('TENANT_CARD_PAYMENTS_ENABLED', { infer: true }) === true) {

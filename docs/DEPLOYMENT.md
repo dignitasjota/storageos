@@ -1631,3 +1631,13 @@ Sin migración ni variables nuevas.
 - **Pago manual con cupón**: el importe que se teclea es el precio de lista; se registra y factura el neto (precio − descuento del cupón).
 - Los planes `free` y `starter` no se pueden desactivar y los sembrados (`free`, `starter`, `pro`, `administrador`) no se pueden renombrar.
 - La portada de trasteros.pro toma los precios y la anualidad del catálogo (un plan desactivado deja de verse) y la nota de IVA según «Precios con IVA incluido» de Facturación SaaS. Los textos y las funciones de cada tarjeta siguen en `messages/es.json`.
+
+## 73. Catálogo y precios del panel admin: mejoras (2026-11-01)
+
+Migración `20261208100000_admin_catalog_features` (se aplica sola). Sin variables nuevas.
+
+- **Cupones en Stripe**: con Stripe configurado, cada cupón activo se crea también en Stripe y se puede usar al suscribirse o cambiar de plan con tarjeta (campo «Cupón de descuento» en Suscripción). Los cupones que ya existían no están en Stripe: edítalos y guárdalos una vez para crearlos (badge «Solo a mano» → «Stripe ✓»). En Stripe un cupón no se edita: al cambiar lo que descuenta se sustituye por uno nuevo.
+- Un plan con tenants no se desactiva (409 `plan_in_use`): pásalos antes a otro. Los planes ocultos no salen en la web ni en el autoservicio.
+- Los precios por tramos de un extra se aplican al asignarlo a mano y en el simulador; el cobro por Stripe sigue con el precio mensual.
+- El correo de una propuesta de cuota lleva un enlace a Suscripción con el plan, la periodicidad y el cupón ya elegidos. La propuesta se marca aceptada sola al contratar ese plan, cambiar a él o registrar un pago.
+- Comisión por tenant y comisiones cobradas por mes en «Comisión por cobros con tarjeta» y en Finanzas.

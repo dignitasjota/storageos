@@ -1,12 +1,25 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PLAN_FEATURES, normalizePlanFeatures } from '@storageos/shared';
 
+import { PAYING_SUBSCRIPTION_WHERE } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { CatalogPriceHistoryService } from './catalog-price-history.service';
 import { platformPricing } from './platform-pricing';
 
 import type { Prisma } from '@storageos/database';
-import type { SubscriptionPlanDto, UpsertSubscriptionPlanFormInput } from '@storageos/shared';
+import type {
+  PlanPricePreviewDto,
+  SubscriptionPlanDto,
+  UpsertSubscriptionPlanFormInput,
+} from '@storageos/shared';
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * Servicio CRUD de planes de suscripcion SaaS.
@@ -29,24 +42,83 @@ const SEEDED_PLAN_SLUGS = new Set(Object.keys(PLAN_FEATURES));
 
 @Injectable()
 export class SubscriptionPlansService {
-  constructor(private readonly admin: PrismaAdminService) {}
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly priceHistory: CatalogPriceHistoryService,
+  ) {}
 
-  /** Lista solo planes activos. Util para landing/pricing publica. */
+  /** Planes activos y públicos: la web y el autoservicio del tenant. */
   async list(): Promise<SubscriptionPlanDto[]> {
     const rows = await this.admin.subscriptionPlan.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isPublic: true },
       orderBy: [{ priceMonthly: 'asc' }],
     });
     const { includeVat } = await platformPricing(this.admin);
     return rows.map((r) => ({ ...this.toDto(r), pricesIncludeVat: includeVat }));
   }
 
-  /** Lista TODOS los planes (incluye inactivos). Solo admin. */
+  /** Lista TODOS los planes (incluye inactivos y ocultos) con sus tenants y MRR. Solo admin. */
   async listAll(): Promise<SubscriptionPlanDto[]> {
-    const rows = await this.admin.subscriptionPlan.findMany({
-      orderBy: [{ priceMonthly: 'asc' }],
+    const [rows, all, paying] = await Promise.all([
+      this.admin.subscriptionPlan.findMany({ orderBy: [{ priceMonthly: 'asc' }] }),
+      this.admin.tenantSubscription.groupBy({
+        by: ['planId'],
+        where: { tenant: { deletedAt: null } },
+        _count: { _all: true },
+      }),
+      this.admin.tenantSubscription.groupBy({
+        by: ['planId'],
+        where: PAYING_SUBSCRIPTION_WHERE,
+        _count: { _all: true },
+      }),
+    ]);
+    const { includeVat } = await platformPricing(this.admin);
+    const allBy = new Map(all.map((g) => [g.planId, g._count._all]));
+    const payingBy = new Map(paying.map((g) => [g.planId, g._count._all]));
+    return rows.map((r) => {
+      const payingTenants = payingBy.get(r.id) ?? 0;
+      return {
+        ...this.toDto(r),
+        pricesIncludeVat: includeVat,
+        tenantCount: allBy.get(r.id) ?? 0,
+        payingTenants,
+        mrr: round2(payingTenants * Number(r.priceMonthly)),
+      };
     });
-    return rows.map((r) => this.toDto(r));
+  }
+
+  /**
+   * Qué pasaría al cambiar el precio de un plan: tenants afectados y MRR. Los
+   * que pagan por Stripe siguen con su Price hasta que se cambie en Stripe.
+   */
+  async pricePreview(planId: string, newPriceMonthly: number): Promise<PlanPricePreviewDto> {
+    const plan = await this.admin.subscriptionPlan.findUnique({ where: { id: planId } });
+    if (!plan) {
+      throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
+    }
+    const [tenants, payingSubs] = await Promise.all([
+      this.admin.tenantSubscription.count({ where: { planId, tenant: { deletedAt: null } } }),
+      this.admin.tenantSubscription.findMany({
+        where: { ...PAYING_SUBSCRIPTION_WHERE, planId },
+        select: { stripeSubscriptionId: true },
+      }),
+    ]);
+    const payingTenants = payingSubs.length;
+    const stripeTenants = payingSubs.filter((s) => s.stripeSubscriptionId).length;
+    const currentMrr = round2(payingTenants * Number(plan.priceMonthly));
+    // Los de Stripe siguen pagando el precio antiguo: solo cambia el resto.
+    const newMrr = round2(
+      stripeTenants * Number(plan.priceMonthly) + (payingTenants - stripeTenants) * newPriceMonthly,
+    );
+    return {
+      planId,
+      tenants,
+      payingTenants,
+      stripeTenants,
+      currentMrr,
+      newMrr,
+      delta: round2(newMrr - currentMrr),
+    };
   }
 
   async getById(planId: string): Promise<SubscriptionPlanDto> {
@@ -57,7 +129,10 @@ export class SubscriptionPlansService {
     return this.toDto(row);
   }
 
-  async create(input: UpsertSubscriptionPlanFormInput): Promise<SubscriptionPlanDto> {
+  async create(
+    input: UpsertSubscriptionPlanFormInput,
+    superAdminId: string | null = null,
+  ): Promise<SubscriptionPlanDto> {
     const clash = await this.admin.subscriptionPlan.findUnique({ where: { slug: input.slug } });
     if (clash) throw new BadRequestException({ code: 'slug_taken', message: 'Ese slug ya existe' });
     const row = await this.admin.subscriptionPlan.create({
@@ -76,7 +151,18 @@ export class SubscriptionPlansService {
         ...(input.maxFacilities !== undefined ? { maxFacilities: input.maxFacilities } : {}),
         ...(input.maxUsers !== undefined ? { maxUsers: input.maxUsers } : {}),
         isActive: input.isActive ?? true,
+        isPublic: input.isPublic ?? true,
       },
+    });
+    await this.priceHistory.record({
+      kind: 'plan',
+      itemId: row.id,
+      itemName: row.name,
+      oldMonthly: null,
+      newMonthly: Number(row.priceMonthly),
+      oldYearly: null,
+      newYearly: Number(row.priceYearly),
+      superAdminId,
     });
     return this.toDto(row);
   }
@@ -86,6 +172,7 @@ export class SubscriptionPlansService {
     input: {
       [K in keyof UpsertSubscriptionPlanFormInput]?: UpsertSubscriptionPlanFormInput[K];
     },
+    superAdminId: string | null = null,
   ): Promise<SubscriptionPlanDto> {
     const existing = await this.admin.subscriptionPlan.findUnique({ where: { id: planId } });
     if (!existing) {
@@ -103,7 +190,7 @@ export class SubscriptionPlansService {
         throw new BadRequestException({ code: 'slug_taken', message: 'Ese slug ya existe' });
       }
     }
-    if (input.isActive === false) this.assertCanDeactivate(existing.slug);
+    if (input.isActive === false && existing.isActive) await this.assertCanDeactivate(existing);
     const row = await this.admin.subscriptionPlan.update({
       where: { id: planId },
       data: {
@@ -123,7 +210,18 @@ export class SubscriptionPlansService {
         ...(input.maxFacilities !== undefined ? { maxFacilities: input.maxFacilities } : {}),
         ...(input.maxUsers !== undefined ? { maxUsers: input.maxUsers } : {}),
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...(input.isPublic !== undefined ? { isPublic: input.isPublic } : {}),
       },
+    });
+    await this.priceHistory.record({
+      kind: 'plan',
+      itemId: row.id,
+      itemName: row.name,
+      oldMonthly: Number(existing.priceMonthly),
+      newMonthly: Number(row.priceMonthly),
+      oldYearly: Number(existing.priceYearly),
+      newYearly: Number(row.priceYearly),
+      superAdminId,
     });
     return this.toDto(row);
   }
@@ -135,23 +233,39 @@ export class SubscriptionPlansService {
     if (!existing) {
       throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
     }
-    this.assertCanDeactivate(existing.slug);
+    await this.assertCanDeactivate(existing);
     await this.admin.subscriptionPlan.update({
       where: { id: planId },
       data: { isActive: false },
     });
   }
 
-  private assertCanDeactivate(slug: string): void {
-    if (REQUIRED_PLAN_SLUGS.has(slug)) {
-      throw new BadRequestException({
-        code: 'plan_required',
-        message:
-          slug === 'free'
-            ? 'El plan Free es al que pasan las pruebas que terminan: no se puede desactivar.'
-            : 'Las cuentas nuevas empiezan la prueba con este plan: no se puede desactivar.',
+  /**
+   * Un plan con tenants no se desactiva: dejarían de poder renovar o cambiar
+   * desde su panel. Hay que pasarlos antes a otro plan.
+   */
+  private async assertCanDeactivate(plan: { id: string; slug: string }): Promise<void> {
+    const slug = plan.slug;
+    if (!REQUIRED_PLAN_SLUGS.has(slug)) {
+      const inUse = await this.admin.tenantSubscription.count({
+        where: { planId: plan.id, tenant: { deletedAt: null, status: { not: 'cancelled' } } },
       });
+      if (inUse > 0) {
+        throw new ConflictException({
+          code: 'plan_in_use',
+          message: `Hay ${inUse} ${inUse === 1 ? 'tenant' : 'tenants'} en este plan: pásalos antes a otro.`,
+          details: { tenants: inUse },
+        });
+      }
+      return;
     }
+    throw new BadRequestException({
+      code: 'plan_required',
+      message:
+        slug === 'free'
+          ? 'El plan Free es al que pasan las pruebas que terminan: no se puede desactivar.'
+          : 'Las cuentas nuevas empiezan la prueba con este plan: no se puede desactivar.',
+    });
   }
 
   private toDto(row: {
@@ -170,6 +284,7 @@ export class SubscriptionPlansService {
     maxFacilities?: number | null;
     maxUsers?: number | null;
     isActive: boolean;
+    isPublic?: boolean;
   }): SubscriptionPlanDto {
     return {
       id: row.id,
@@ -187,6 +302,7 @@ export class SubscriptionPlansService {
       maxFacilities: row.maxFacilities ?? null,
       maxUsers: row.maxUsers ?? null,
       isActive: row.isActive,
+      isPublic: row.isPublic ?? true,
     };
   }
 }

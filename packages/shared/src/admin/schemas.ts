@@ -4,6 +4,8 @@ import { isValidTimeZone } from '../auth/schemas';
 import { TenantFeatures } from '../features';
 import { MessageAttachmentSchema } from '../messages';
 
+import { AddonPriceTiersSchema } from './catalog';
+
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
 export const SuperAdminRoleEnum = z.enum(['superadmin', 'support']);
@@ -314,6 +316,8 @@ export const CreateCheckoutSessionSchema = z.object({
   billingCycle: BillingCycleEnum.default('monthly'),
   successUrl: z.string().url(),
   cancelUrl: z.string().url(),
+  /** Cupón de plataforma (tiene que existir en Stripe). */
+  couponCode: z.string().trim().min(2).max(60).optional(),
 });
 export type CreateCheckoutSessionInput = z.infer<typeof CreateCheckoutSessionSchema>;
 
@@ -326,6 +330,7 @@ export type CreatePortalSessionInput = z.infer<typeof CreatePortalSessionSchema>
 export const SelfChangePlanSchema = z.object({
   planId: z.string().uuid(),
   billingCycle: BillingCycleEnum.default('monthly'),
+  couponCode: z.string().trim().min(2).max(60).optional(),
 });
 export type SelfChangePlanInput = z.infer<typeof SelfChangePlanSchema>;
 
@@ -407,6 +412,14 @@ export const CreatePlatformCouponSchema = z
     /** Usos máximos. Sin valor = ilimitado. */
     maxUses: z.number().int().positive().max(1_000_000).nullable().optional(),
     isActive: z.boolean().default(true),
+    /** Solo para estos planes (vacío = todos). */
+    planIds: z.array(z.string().uuid()).max(50).default([]),
+    /** Solo las primeras N cuotas de cada tenant. */
+    durationMonths: z.number().int().min(1).max(120).nullable().optional(),
+    /** Un solo uso por tenant. */
+    oncePerTenant: z.boolean().default(false),
+    /** Se puede usar a partir de (ISO). */
+    validFrom: z.string().datetime().nullable().optional(),
   })
   .refine((v) => v.discountType !== 'percentage' || v.discountValue <= 100, {
     message: 'Un descuento porcentual no puede superar el 100 %',
@@ -421,6 +434,10 @@ export const UpdatePlatformCouponSchema = z
     validUntil: z.string().datetime().nullable(),
     maxUses: z.number().int().positive().max(1_000_000).nullable(),
     isActive: z.boolean(),
+    planIds: z.array(z.string().uuid()).max(50),
+    durationMonths: z.number().int().min(1).max(120).nullable(),
+    oncePerTenant: z.boolean(),
+    validFrom: z.string().datetime().nullable(),
   })
   .partial()
   .refine(
@@ -514,6 +531,8 @@ export const UpsertSubscriptionPlanSchema = z.object({
   maxFacilities: z.number().int().nonnegative().nullable().optional(),
   maxUsers: z.number().int().nonnegative().nullable().optional(),
   isActive: z.boolean().default(true),
+  /** false = oculto: no sale en la web ni en el autoservicio. */
+  isPublic: z.boolean().default(true),
 });
 export type UpsertSubscriptionPlanFormInput = z.infer<typeof UpsertSubscriptionPlanSchema>;
 
@@ -762,6 +781,8 @@ export const UpsertSaasAddonSchema = z.object({
   grantsFacilities: z.number().int().min(0).max(1000).optional().nullable(),
   grantsUsers: z.number().int().min(0).max(1000).optional().nullable(),
   grantsAiQueries: z.number().int().min(0).max(100000).optional().nullable(),
+  /** Precio por tramos de cantidad; vacío o null = precio único. */
+  priceTiers: AddonPriceTiersSchema.nullable().optional(),
   isActive: z.boolean().default(true),
 });
 export type UpsertSaasAddonInput = z.infer<typeof UpsertSaasAddonSchema>;
