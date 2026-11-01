@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import type { PlatformCouponDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -149,6 +150,7 @@ function CouponDialog({
 }) {
   const create = useCreateCoupon();
   const update = useUpdateCoupon();
+  const confirm = useConfirm();
   const isEdit = coupon !== null;
 
   // `open` fuerza el remount del contenido → el estado interno se inicializa
@@ -163,6 +165,17 @@ function CouponDialog({
             pending={create.isPending || update.isPending}
             onSubmit={async (values) => {
               try {
+                if (
+                  isEdit &&
+                  coupon?.isActive &&
+                  !values.isActive &&
+                  !(await confirm({
+                    title: `¿Desactivar el cupón ${coupon.code}?`,
+                    description: 'Dejará de aceptarse en los cobros y en el simulador.',
+                    destructive: true,
+                  }))
+                )
+                  return;
                 if (isEdit && coupon) {
                   await update.mutateAsync({
                     id: coupon.id,

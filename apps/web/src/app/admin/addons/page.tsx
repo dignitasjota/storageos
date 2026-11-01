@@ -5,6 +5,7 @@ import { Loader2, Pencil, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -53,7 +54,9 @@ export default function AdminAddonsPage() {
 
       <AddonAnalyticsSection />
 
-      {addons.isLoading ? (
+      {addons.isError ? (
+        <AdminError onRetry={() => void addons.refetch()} />
+      ) : addons.isLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>

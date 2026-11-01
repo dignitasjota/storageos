@@ -1622,3 +1622,12 @@ Migración `20261111100000_invoice_numbering_year` (se aplica sola al desplegar 
 - **Remesa SEPA automática** (opcional, en Cuenta SEPA): cada mañana a las 07:30 se prepara con la primera fecha que respeta el preaviso y se envía el preaviso a los tenants. Queda sin confirmar: hay que descargar el fichero, subirlo al banco y confirmarla. Si a los 3 días de la fecha de cobro sigue sin confirmar, aviso al super admin.
 - Avisos nuevos al super admin: tenant con la cuota pendiente (uno por impago) y cuenta exenta o anonimizada que sigue en SEPA o con tarjeta guardada (cada 30 días). Al marcar un adeudo como devuelto, el tenant recibe un correo con cómo pagar.
 - El calendario de cobros filtra por forma de cobro (pulsando las tarjetas) y enseña los reintentos de los cobros con tarjeta rechazados.
+
+## 72. Catálogo y precios del panel admin: arreglos (2026-11-01)
+
+Sin migración ni variables nuevas.
+
+- **Cambio de comportamiento**: un plan creado desde `/admin/plans` sin funciones marcadas ya no tiene funciones premium (antes recibía todas, también las que solo se venden como extra). Si existe un plan así en producción, revisarlo y marcar sus funciones antes de desplegar.
+- **Pago manual con cupón**: el importe que se teclea es el precio de lista; se registra y factura el neto (precio − descuento del cupón).
+- Los planes `free` y `starter` no se pueden desactivar y los sembrados (`free`, `starter`, `pro`, `administrador`) no se pueden renombrar.
+- La portada de trasteros.pro toma los precios y la anualidad del catálogo (un plan desactivado deja de verse) y la nota de IVA según «Precios con IVA incluido» de Facturación SaaS. Los textos y las funciones de cada tarjeta siguen en `messages/es.json`.

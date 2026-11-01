@@ -1,12 +1,11 @@
 'use client';
 
+import { resolvePlanFeatures, type AdminQuoteDto, type TenantFeature } from '@storageos/shared';
 import { Loader2, Minus, Plus, Send } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-
-import type { AdminQuoteDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -121,6 +120,9 @@ function QuoteSimulator() {
   const search = useAdminTenants(debounced.length >= 2 ? { search: debounced } : {});
   const found = debounced.length >= 2 ? (search.data?.pages[0]?.items ?? []).slice(0, 6) : [];
   const addons = (catalog.data ?? []).filter((a) => a.isActive);
+  const selectedPlan = (plans.data ?? []).find((p) => p.id === planId);
+  const planFeatures = selectedPlan ? resolvePlanFeatures(selectedPlan) : [];
+  const vatMode = plans.data?.[0]?.pricesIncludeVat === false ? '+ IVA' : 'IVA incl.';
 
   async function doSend() {
     if (!tenant) return;
@@ -167,7 +169,8 @@ function QuoteSimulator() {
                   <SelectContent>
                     {(plans.data ?? []).map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.name} · {eur(p.priceMonthly)}/mes · {eur(p.priceYearly)}/año
+                        {p.name} · {eur(p.priceMonthly)}/mes
+                        {p.priceYearly > 0 ? ` · ${eur(p.priceYearly)}/año` : ''} · {vatMode}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -202,6 +205,7 @@ function QuoteSimulator() {
                 <ul className="divide-y rounded-md border">
                   {addons.map((a) => {
                     const n = qty[a.id] ?? 0;
+                    const inPlan = !!a.feature && planFeatures.includes(a.feature as TenantFeature);
                     const set = (v: number) =>
                       setQty((q) => ({ ...q, [a.id]: Math.max(0, Math.min(50, v)) }));
                     return (
@@ -214,6 +218,11 @@ function QuoteSimulator() {
                           <span className="text-xs text-muted-foreground">
                             {eur(a.priceMonthly)}/mes
                           </span>
+                          {inPlan && (
+                            <span className="block text-xs text-amber-700 dark:text-amber-400">
+                              Ya lo incluye el plan elegido: no hace falta añadirlo.
+                            </span>
+                          )}
                         </span>
                         <span className="flex items-center gap-1">
                           <Button
@@ -232,6 +241,7 @@ function QuoteSimulator() {
                             size="icon"
                             className="size-7"
                             onClick={() => set(n + 1)}
+                            disabled={inPlan && n === 0}
                             aria-label={`Añadir ${a.name}`}
                           >
                             <Plus className="size-3.5" />

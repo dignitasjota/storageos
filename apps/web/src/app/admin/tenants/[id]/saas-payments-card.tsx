@@ -422,7 +422,9 @@ export function AddManualPaymentDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Importe ({planCurrency})</Label>
+              <Label className="text-xs text-muted-foreground">
+                {couponCode.trim() ? 'Precio de lista' : 'Importe'} ({planCurrency})
+              </Label>
               <Input
                 type="number"
                 min={0}
@@ -432,7 +434,7 @@ export function AddManualPaymentDialog({
                 placeholder="29.00"
               />
             </div>
-            <div className="space-y-1.5">
+            <div className={`space-y-1.5 ${couponCode.trim() ? 'hidden' : ''}`}>
               <Label className="text-xs text-muted-foreground">Descuento (opcional)</Label>
               <Input
                 type="number"
@@ -481,7 +483,8 @@ export function AddManualPaymentDialog({
                 placeholder="BLACKFRIDAY"
               />
               <p className="text-xs text-muted-foreground">
-                Si es válido, el descuento se calcula en el servidor y se registra en el pago.
+                Con cupón, pon el precio de lista: se registra y factura el precio menos el
+                descuento del cupón.
               </p>
             </div>
           </div>

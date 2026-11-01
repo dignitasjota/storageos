@@ -396,17 +396,22 @@ export type CreateManualSaasPaymentInput = z.infer<typeof CreateManualSaasPaymen
 export const PlatformCouponDiscountTypeEnum = z.enum(['percentage', 'fixed']);
 export type PlatformCouponDiscountTypeValue = z.infer<typeof PlatformCouponDiscountTypeEnum>;
 
-export const CreatePlatformCouponSchema = z.object({
-  code: z.string().trim().min(2).max(60).toUpperCase(),
-  discountType: PlatformCouponDiscountTypeEnum,
-  /** % (percentage) o importe fijo en la divisa del pago (fixed). */
-  discountValue: z.number().positive().max(1_000_000),
-  /** Caduca en (ISO). Sin valor = no caduca. */
-  validUntil: z.string().datetime().nullable().optional(),
-  /** Usos máximos. Sin valor = ilimitado. */
-  maxUses: z.number().int().positive().max(1_000_000).nullable().optional(),
-  isActive: z.boolean().default(true),
-});
+export const CreatePlatformCouponSchema = z
+  .object({
+    code: z.string().trim().min(2).max(60).toUpperCase(),
+    discountType: PlatformCouponDiscountTypeEnum,
+    /** % (percentage) o importe fijo en la divisa del pago (fixed). */
+    discountValue: z.number().positive().max(1_000_000),
+    /** Caduca en (ISO). Sin valor = no caduca. */
+    validUntil: z.string().datetime().nullable().optional(),
+    /** Usos máximos. Sin valor = ilimitado. */
+    maxUses: z.number().int().positive().max(1_000_000).nullable().optional(),
+    isActive: z.boolean().default(true),
+  })
+  .refine((v) => v.discountType !== 'percentage' || v.discountValue <= 100, {
+    message: 'Un descuento porcentual no puede superar el 100 %',
+    path: ['discountValue'],
+  });
 export type CreatePlatformCouponInput = z.infer<typeof CreatePlatformCouponSchema>;
 
 export const UpdatePlatformCouponSchema = z
@@ -417,7 +422,11 @@ export const UpdatePlatformCouponSchema = z
     maxUses: z.number().int().positive().max(1_000_000).nullable(),
     isActive: z.boolean(),
   })
-  .partial();
+  .partial()
+  .refine(
+    (v) => v.discountType !== 'percentage' || v.discountValue == null || v.discountValue <= 100,
+    { message: 'Un descuento porcentual no puede superar el 100 %', path: ['discountValue'] },
+  );
 export type UpdatePlatformCouponInput = z.infer<typeof UpdatePlatformCouponSchema>;
 
 /** Extensión de trial a VARIOS tenants a la vez. */
@@ -1236,7 +1245,7 @@ export const AdminQuoteSchema = z.object({
     )
     .max(30)
     .default([]),
-  couponCode: z.string().trim().max(40).optional(),
+  couponCode: z.string().trim().max(60).optional(),
 });
 export type AdminQuoteInput = z.infer<typeof AdminQuoteSchema>;
 

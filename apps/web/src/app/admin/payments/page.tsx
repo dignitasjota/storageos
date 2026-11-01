@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -15,13 +15,11 @@ export default function AdminPaymentsPage() {
   const settings = useAdminPaymentSettings();
   const update = useUpdateAdminPaymentSettings();
   const [fee, setFee] = useState('');
-  const [loaded, setLoaded] = useState(false);
-
   const s = settings.data;
-  if (s && !loaded) {
-    setFee(String(s.applicationFeePct));
-    setLoaded(true);
-  }
+  const loadedFee = s?.applicationFeePct;
+  useEffect(() => {
+    if (loadedFee !== undefined) setFee(String(loadedFee));
+  }, [loadedFee]);
 
   async function save() {
     const value = Number(fee.replace(',', '.'));
@@ -40,7 +38,7 @@ export default function AdminPaymentsPage() {
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Cobros de los tenants</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Comisión por cobros con tarjeta</h1>
         <p className="text-sm text-muted-foreground">
           Los tenants pueden conectar su propia cuenta de Stripe para cobrar con tarjeta a sus
           inquilinos. El dinero va a su cuenta; la plataforma se queda una comisión por cobro. Esta
