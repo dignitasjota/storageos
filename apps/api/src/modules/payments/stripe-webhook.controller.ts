@@ -225,6 +225,7 @@ export class StripeWebhookController {
           currentPeriodEnd: periodEnd,
           cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
           planIdHint: sub.metadata?.planId ?? null,
+          couponIdHint: sub.metadata?.couponId ?? null,
         });
         break;
       }

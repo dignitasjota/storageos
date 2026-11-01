@@ -354,7 +354,13 @@ export class TenantLifecycleEmailsService {
   /** Propuesta de cuota (plan + extras) con su desglose y el enlace para contratar. */
   async sendQuoteOffer(
     tenantId: string,
-    args: { tenantName: string; quote: AdminQuoteDto; message: string | null },
+    args: {
+      tenantName: string;
+      quote: AdminQuoteDto;
+      message: string | null;
+      /** Enlace a Suscripción con el plan, el ciclo y el cupón ya elegidos. */
+      acceptUrl?: string | null;
+    },
   ): Promise<number> {
     const recipients = await this.recipientsFor(tenantId);
     if (recipients.length === 0) return 0;
@@ -374,7 +380,7 @@ export class TenantLifecycleEmailsService {
       `Total: ${money(q.total)} ${period}${q.cycle === 'yearly' ? ` (${money(q.monthlyEquivalent)} al mes)` : ''}`,
       ...(q.yearlySaving ? [`Ahorras ${money(q.yearlySaving)} frente a pagar mes a mes.`] : []),
       '',
-      `Contratar: ${this.billingUrl}`,
+      `Aceptar la propuesta: ${args.acceptUrl ?? this.billingUrl}`,
       '',
       'Si tienes dudas, responde a este correo.',
       '',

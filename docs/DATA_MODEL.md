@@ -893,6 +893,7 @@ Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la g
 
 ### Cobro con tarjeta (`20261024100000` – `20261024140000`)
 
+- **Catálogo y precios (migración `20261208100000_admin_catalog_features`)**: `subscription_plans.is_public` (false = plan oculto, no sale en la web ni en el autoservicio; lo asigna el super admin); `subscription_addons.price_tiers` (jsonb `[{minQuantity, unitPrice}]`, precio por tramos de cantidad; se congela al asignar); `platform_coupons` gana `stripe_coupon_id` (espejo en Stripe), `plan_ids` (solo esos planes), `duration_months` (primeras N cuotas), `once_per_tenant` y `valid_from`; tablas globales con REVOKE `catalog_price_history` (cambios de precio de planes y extras, con quién), `platform_coupon_redemptions` (cada uso: tenant, `manual`|`stripe`, pago y descuento) y `platform_quote_offers` (propuestas del simulador: plan, ciclo, extras, cupón, total y estado `sent`|`accepted`|`rejected`); `tenants.application_fee_pct` (comisión propia por cobros con tarjeta; null = la general).
 - **`platform_payment_settings`** (global, un registro, REVOKE): `application_fee_pct` (comisión de la plataforma sobre los cobros con tarjeta por Stripe Connect, 2 % por defecto).
 - **`tenant_stripe_accounts`** (RLS, una por tenant): `stripe_account_id` (único), `charges_enabled`, `payouts_enabled`, `details_submitted`, `requirements_due`, `disabled_reason`.
 - `tenants.card_provider` (`redsys`|`stripe`, null = Redsys si está activo).

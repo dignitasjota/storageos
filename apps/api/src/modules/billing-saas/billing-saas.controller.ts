@@ -149,6 +149,7 @@ export class BillingSaasController {
       billingCycle: input.billingCycle,
       successUrl: input.successUrl,
       cancelUrl: input.cancelUrl,
+      couponCode: input.couponCode ?? null,
       meta: extractMeta(req),
     });
   }
@@ -181,6 +182,7 @@ export class BillingSaasController {
       userId: user.sub,
       planId: input.planId,
       billingCycle: input.billingCycle,
+      couponCode: input.couponCode ?? null,
       meta: extractMeta(req),
     });
   }

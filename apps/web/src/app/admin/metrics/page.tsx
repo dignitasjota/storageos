@@ -24,6 +24,7 @@ import { MonthlyReportCard } from './monthly-report-card';
 import { MrrForecastCard } from './mrr-forecast-card';
 import { MrrMovementsCard } from './mrr-movements-card';
 import { PaymentRetriesCard } from './payment-retries-card';
+import { QuoteOffersCard } from './quote-offers-card';
 import { RetentionCohortsCard } from './retention-cohorts-card';
 import { TrialFunnelCard } from './trial-funnel-card';
 
@@ -350,6 +351,7 @@ export default function AdminMetricsPage() {
       {/* MRR movements + previsión */}
       <section>
         <TrialFunnelCard months={months} />
+        <QuoteOffersCard />
       </section>
       <section>
         <MrrMovementsCard months={months} />

@@ -607,6 +607,12 @@ export interface SubscriptionPlanDto {
   maxFacilities: number | null;
   maxUsers: number | null;
   isActive: boolean;
+  /** false = oculto: no sale en la web ni en el autoservicio. */
+  isPublic: boolean;
+  /** Solo en la lista del admin: tenants en el plan, los que pagan y su MRR. */
+  tenantCount?: number;
+  payingTenants?: number;
+  mrr?: number;
 }
 
 /**
@@ -1079,6 +1085,10 @@ export interface SaasAddonDto {
   isActive: boolean;
   /** Price recurrente de Stripe mapeado (null = aún sin sincronizar). */
   stripePriceId: string | null;
+  /** Precio por tramos de cantidad (vacío = precio único). */
+  priceTiers: { minQuantity: number; unitPrice: number }[];
+  /** Tenants que lo tienen contratado (activo o suspendido). */
+  tenantCount: number;
 }
 
 /** Un add-on contratado por un tenant. */
@@ -1551,6 +1561,14 @@ export interface PlatformCouponDto {
   maxUses: number | null;
   usedCount: number;
   isActive: boolean;
+  /** Solo para estos planes (vacío = todos). */
+  planIds: string[];
+  /** Solo las primeras N cuotas de cada tenant (null = sin límite). */
+  durationMonths: number | null;
+  oncePerTenant: boolean;
+  validFrom: string | null;
+  /** Se puede usar al pagar con tarjeta (existe en Stripe). */
+  stripeReady: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -2018,6 +2036,8 @@ export interface AdminQuoteDto {
   monthlyEquivalent: number;
   /** En anual: lo que se ahorra frente a pagar 12 meses. */
   yearlySaving: number | null;
+  /** Extras elegidos cuya función ya incluye el plan. */
+  includedAddonIds: string[];
 }
 
 /** Mensaje de TrasterOS al tenant (lo ve en Soporte → Mensajes de TrasterOS). */

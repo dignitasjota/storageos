@@ -1,11 +1,13 @@
 'use client';
 
 import { FEATURE_LABELS, TenantFeatures, type SaasAddonDto } from '@storageos/shared';
-import { Loader2, Pencil, Plus } from 'lucide-react';
+import { History, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { PriceHistoryList } from '@/components/admin/price-history-list';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -26,7 +28,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAddonAnalytics, useAdminAddons, useUpsertAddon } from '@/lib/admin/hooks';
+import {
+  useAddonAnalytics,
+  useAdminAddons,
+  useCatalogPriceHistory,
+  useUpsertAddon,
+} from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
@@ -36,6 +43,8 @@ export default function AdminAddonsPage() {
   const addons = useAdminAddons();
   const [editing, setEditing] = useState<SaasAddonDto | null>(null);
   const [creating, setCreating] = useState(false);
+  const [historyOf, setHistoryOf] = useState<SaasAddonDto | null>(null);
+  const history = useCatalogPriceHistory('addon', historyOf?.id ?? null);
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -96,9 +105,29 @@ export default function AdminAddonsPage() {
                   {a.description && (
                     <p className="text-xs text-muted-foreground">{a.description}</p>
                   )}
+                  {a.priceTiers.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Por tramos:{' '}
+                      {a.priceTiers
+                        .map((t) => `desde ${t.minQuantity}, ${eur(t.unitPrice)} c/u`)
+                        .join(' · ')}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    {a.tenantCount} {a.tenantCount === 1 ? 'tenant' : 'tenants'}
+                  </span>
                   <span className="font-semibold">{eur(a.priceMonthly)}/mes</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Historial de precios de ${a.name}`}
+                    title="Historial de precios"
+                    onClick={() => setHistoryOf(a)}
+                  >
+                    <History className="size-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -119,6 +148,15 @@ export default function AdminAddonsPage() {
         </div>
       )}
 
+      <Dialog open={!!historyOf} onOpenChange={(o) => !o && setHistoryOf(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Historial de precios · {historyOf?.name}</DialogTitle>
+          </DialogHeader>
+          <PriceHistoryList loading={history.isLoading} rows={history.data ?? []} />
+        </DialogContent>
+      </Dialog>
+
       {(creating || editing) && (
         <AddonDialog
           addon={editing}
@@ -134,6 +172,13 @@ export default function AdminAddonsPage() {
 
 function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: () => void }) {
   const upsert = useUpsertAddon(addon?.id);
+  const ask = useConfirm();
+  const [tiers, setTiers] = useState<{ minQuantity: string; unitPrice: string }[]>(
+    (addon?.priceTiers ?? []).map((t) => ({
+      minQuantity: String(t.minQuantity),
+      unitPrice: String(t.unitPrice),
+    })),
+  );
   const [slug, setSlug] = useState(addon?.slug ?? '');
   const [name, setName] = useState(addon?.name ?? '');
   const [description, setDescription] = useState(addon?.description ?? '');
@@ -148,8 +193,24 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s) || 0);
 
   async function save() {
+    // Desactivar uno que tienen tenants: lo conservan, pero nadie más lo contrata.
+    if (addon?.isActive && !isActive && addon.tenantCount > 0) {
+      const ok = await ask({
+        title: `¿Desactivar «${addon.name}»?`,
+        description: `Lo tienen ${addon.tenantCount} ${
+          addon.tenantCount === 1 ? 'tenant' : 'tenants'
+        }: lo conservan y se les sigue cobrando, pero no se podrá contratar de nuevo.`,
+        confirmLabel: 'Desactivar',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    const priceTiers = tiers
+      .filter((t) => t.minQuantity.trim() !== '' && t.unitPrice.trim() !== '')
+      .map((t) => ({ minQuantity: Number(t.minQuantity), unitPrice: Number(t.unitPrice) }));
     try {
       await upsert.mutateAsync({
+        priceTiers,
         slug: slug.trim(),
         name: name.trim(),
         description: description.trim(),
@@ -214,6 +275,55 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-xs font-medium">Precio por cantidad (opcional)</p>
+            <p className="text-xs text-muted-foreground">
+              A partir de cierta cantidad, otro precio por unidad. Se aplica al asignarlo a mano y
+              en el simulador; en Stripe se cobra el precio mensual.
+            </p>
+            {tiers.map((t, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  className="h-8"
+                  placeholder="Desde (uds.)"
+                  value={t.minQuantity}
+                  onChange={(e) =>
+                    setTiers((list) =>
+                      list.map((x, j) => (j === i ? { ...x, minQuantity: e.target.value } : x)),
+                    )
+                  }
+                />
+                <Input
+                  type="number"
+                  className="h-8"
+                  placeholder="€ por unidad"
+                  value={t.unitPrice}
+                  onChange={(e) =>
+                    setTiers((list) =>
+                      list.map((x, j) => (j === i ? { ...x, unitPrice: e.target.value } : x)),
+                    )
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Quitar tramo"
+                  onClick={() => setTiers((list) => list.filter((_, j) => j !== i))}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={tiers.length >= 10}
+              onClick={() => setTiers((list) => [...list, { minQuantity: '', unitPrice: '' }])}
+            >
+              <Plus className="mr-1 size-4" /> Añadir tramo
+            </Button>
           </div>
           <div className="space-y-1 rounded-md border p-3">
             <p className="text-xs font-medium">Capacidad que aporta (por unidad)</p>

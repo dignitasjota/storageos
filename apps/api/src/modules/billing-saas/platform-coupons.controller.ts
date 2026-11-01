@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -14,6 +15,7 @@ import {
 import {
   CreatePlatformCouponSchema,
   type PlatformCouponDto,
+  type PlatformCouponRedemptionsDto,
   UpdatePlatformCouponSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -98,5 +100,30 @@ export class PlatformCouponsController {
       changes: { ...input },
     });
     return coupon;
+  }
+
+  @Get(':id/redemptions')
+  redemptions(@Param('id', new ParseUUIDPipe()) id: string): Promise<PlatformCouponRedemptionsDto> {
+    return this.coupons.redemptions(id);
+  }
+
+  /** Borra un cupón que no se ha usado nunca. */
+  @RequireSuperadmin()
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.coupons.remove(id);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.coupon.deleted',
+      targetType: 'platform_coupon',
+      targetId: id,
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
   }
 }

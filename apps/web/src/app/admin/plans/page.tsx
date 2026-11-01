@@ -2,16 +2,19 @@
 
 import {
   FEATURE_LABELS,
+  resolvePlanFeatures,
   TenantFeatures,
   UpsertSubscriptionPlanSchema,
   type SubscriptionPlanDto,
   type TenantFeature,
   type UpsertSubscriptionPlanFormInput,
 } from '@storageos/shared';
-import { Ban, Loader2, Pencil } from 'lucide-react';
+import { Ban, Check, History, Loader2, Pencil } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { PriceHistoryList } from '@/components/admin/price-history-list';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,8 +39,10 @@ import {
 } from '@/components/ui/table';
 import {
   useAdminAllPlans,
+  useCatalogPriceHistory,
   useCreatePlan,
   useDeactivatePlan,
+  usePlanPricePreview,
   useUpdatePlan,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
@@ -55,7 +60,10 @@ type FormState = {
   maxUsers: string;
   tenantFeatures: TenantFeature[];
   isActive: boolean;
+  isPublic: boolean;
 };
+
+const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 const emptyForm: FormState = {
   slug: '',
@@ -70,6 +78,7 @@ const emptyForm: FormState = {
   maxUsers: '',
   tenantFeatures: [],
   isActive: true,
+  isPublic: true,
 };
 
 function toForm(p: SubscriptionPlanDto): FormState {
@@ -86,6 +95,7 @@ function toForm(p: SubscriptionPlanDto): FormState {
     maxUsers: p.maxUsers?.toString() ?? '',
     tenantFeatures: p.tenantFeatures,
     isActive: p.isActive,
+    isPublic: p.isPublic,
   };
 }
 
@@ -98,6 +108,12 @@ export default function PlansPage() {
   const [editing, setEditing] = useState<SubscriptionPlanDto | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [historyOf, setHistoryOf] = useState<SubscriptionPlanDto | null>(null);
+  const priceChanged = !!editing && form.priceMonthly !== editing.priceMonthly;
+  const preview = usePlanPricePreview(
+    priceChanged ? (editing?.id ?? null) : null,
+    priceChanged ? form.priceMonthly : null,
+  );
 
   function openCreate() {
     setForm(emptyForm);
@@ -127,6 +143,7 @@ export default function PlansPage() {
       maxFacilities: form.maxFacilities ? Number(form.maxFacilities) : null,
       maxUsers: form.maxUsers ? Number(form.maxUsers) : null,
       isActive: form.isActive,
+      isPublic: form.isPublic,
     });
     if (!parsed.success) {
       toast.error('Revisa los datos (slug en minúsculas, precios válidos).');
@@ -190,6 +207,8 @@ export default function PlansPage() {
                   <TableHead>€/mes</TableHead>
                   <TableHead>€/año</TableHead>
                   <TableHead>Límites (loc/tra/usr)</TableHead>
+                  <TableHead>Tenants</TableHead>
+                  <TableHead>MRR</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead />
                 </TableRow>
@@ -205,6 +224,20 @@ export default function PlansPage() {
                       {p.maxFacilities ?? '∞'} / {p.maxUnits ?? '∞'} / {p.maxUsers ?? '∞'}
                     </TableCell>
                     <TableCell>
+                      {p.tenantCount ? (
+                        <Link
+                          href={`/admin/tenants?plan=${encodeURIComponent(p.slug)}`}
+                          className="hover:underline"
+                          title={`${p.payingTenants ?? 0} pagan`}
+                        >
+                          {p.tenantCount}
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular-nums">{eur(p.mrr ?? 0)}</TableCell>
+                    <TableCell className="space-x-1">
                       {p.isActive ? (
                         <Badge variant="outline" className="text-emerald-600">
                           activo
@@ -212,8 +245,13 @@ export default function PlansPage() {
                       ) : (
                         <Badge variant="secondary">inactivo</Badge>
                       )}
+                      {!p.isPublic && (
+                        <Badge variant="outline" title="No sale en la web ni en el autoservicio">
+                          oculto
+                        </Badge>
+                      )}
                     </TableCell>
-                    <TableCell className="space-x-2 text-right">
+                    <TableCell className="space-x-2 whitespace-nowrap text-right">
                       <Button
                         variant="outline"
                         size="icon"
@@ -223,12 +261,26 @@ export default function PlansPage() {
                       >
                         <Pencil className="size-4" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Historial de precios"
+                        title="Historial de precios"
+                        onClick={() => setHistoryOf(p)}
+                      >
+                        <History className="size-4" />
+                      </Button>
                       {p.isActive && (
                         <Button
                           variant="ghost"
                           size="icon"
                           aria-label="Desactivar"
-                          title="Desactivar"
+                          title={
+                            p.tenantCount
+                              ? `Tiene ${p.tenantCount} tenants: pásalos antes a otro plan`
+                              : 'Desactivar'
+                          }
+                          disabled={!!p.tenantCount}
                           onClick={() => onDeactivate(p)}
                         >
                           <Ban className="size-4" />
@@ -242,6 +294,10 @@ export default function PlansPage() {
           )}
         </CardContent>
       </Card>
+
+      <FeatureMatrix plans={(data ?? []).filter((p) => p.isActive)} />
+
+      <PriceHistoryDialog plan={historyOf} onClose={() => setHistoryOf(null)} />
 
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -284,6 +340,23 @@ export default function PlansPage() {
                 }
               />
             </div>
+            {priceChanged && preview.data && (
+              <div className="col-span-2 rounded-md border bg-muted/40 p-2 text-xs">
+                {preview.data.payingTenants === 0 ? (
+                  'Ningún tenant paga este plan ahora: el cambio no afecta al MRR.'
+                ) : (
+                  <>
+                    {preview.data.payingTenants}{' '}
+                    {preview.data.payingTenants === 1 ? 'tenant paga' : 'tenants pagan'} este plan.
+                    MRR {eur(preview.data.currentMrr)} → {eur(preview.data.newMrr)} (
+                    {preview.data.delta >= 0 ? '+' : ''}
+                    {eur(preview.data.delta)}).
+                    {preview.data.stripeTenants > 0 &&
+                      ` ${preview.data.stripeTenants} pagan por Stripe: siguen con el precio antiguo hasta que cambies el Price en Stripe.`}
+                  </>
+                )}
+              </div>
+            )}
             <div className="space-y-1">
               <Label>Precio anual (€)</Label>
               <Input
@@ -368,6 +441,20 @@ export default function PlansPage() {
               />
               Activo
             </label>
+            <label className="col-span-2 flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={form.isPublic}
+                onChange={(e) => setForm((f) => ({ ...f, isPublic: e.target.checked }))}
+              />
+              <span>
+                Visible en la web y en el autoservicio
+                <span className="block text-xs text-muted-foreground">
+                  Sin marcar, el plan queda oculto: solo lo asignas tú (planes negociados).
+                </span>
+              </span>
+            </label>
           </div>
           <DialogFooter>
             <Button onClick={onSubmit} disabled={create.isPending || update.isPending}>
@@ -377,5 +464,73 @@ export default function PlansPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Qué funciones premium incluye cada plan activo. */
+function FeatureMatrix({ plans }: { plans: SubscriptionPlanDto[] }) {
+  if (plans.length === 0) return null;
+  const byPlan = new Map(plans.map((p) => [p.id, new Set(resolvePlanFeatures(p))]));
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Funciones por plan</CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-left text-xs text-muted-foreground">
+            <tr>
+              <th className="py-1 pr-3 font-normal">Función</th>
+              {plans.map((p) => (
+                <th key={p.id} className="px-2 py-1 text-center font-normal">
+                  {p.name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {TenantFeatures.map((f) => (
+              <tr key={f} className="border-t">
+                <td className="py-1 pr-3">{FEATURE_LABELS[f]}</td>
+                {plans.map((p) => (
+                  <td key={p.id} className="px-2 py-1 text-center">
+                    {byPlan.get(p.id)?.has(f) ? (
+                      <Check className="mx-auto size-4 text-emerald-600" aria-label="Incluida" />
+                    ) : (
+                      <span className="text-muted-foreground" aria-label="No incluida">
+                        —
+                      </span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Las que no marca ningún plan solo se venden como extra.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PriceHistoryDialog({
+  plan,
+  onClose,
+}: {
+  plan: SubscriptionPlanDto | null;
+  onClose: () => void;
+}) {
+  const history = useCatalogPriceHistory('plan', plan?.id ?? null);
+  return (
+    <Dialog open={!!plan} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Historial de precios · {plan?.name}</DialogTitle>
+        </DialogHeader>
+        <PriceHistoryList loading={history.isLoading} rows={history.data ?? []} withYearly />
+      </DialogContent>
+    </Dialog>
   );
 }

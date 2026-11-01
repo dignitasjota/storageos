@@ -246,6 +246,52 @@ export class BillingSaasService {
     }
   }
 
+  /**
+   * Comprueba un cupón para pagar por Stripe (Checkout o cambio de plan): tiene
+   * que valer para el tenant y el plan y existir en Stripe.
+   */
+  private async stripeCouponFor(
+    code: string,
+    tenantId: string,
+    plan: { id: string; priceMonthly: unknown; priceYearly: unknown },
+    yearly: boolean,
+  ): Promise<{ couponId: string; stripeCouponId: string; discount: number }> {
+    const amount = yearly ? Number(plan.priceYearly) : Number(plan.priceMonthly);
+    const res = await this.coupons.validateAndComputeDiscount(code, amount, {
+      tenantId,
+      planId: plan.id,
+    });
+    if (!res.stripeCouponId) {
+      throw new BadRequestException({
+        code: 'coupon_not_in_stripe',
+        message: 'Este cupón no se puede usar al pagar con tarjeta. Contacta con soporte.',
+      });
+    }
+    return { couponId: res.couponId, stripeCouponId: res.stripeCouponId, discount: res.discount };
+  }
+
+  /**
+   * Las propuestas de cuota enviadas con el plan que ya tiene el tenant quedan
+   * aceptadas (al contratarlo, cambiar a él o pagarlo). Best-effort.
+   */
+  async acceptQuoteOffers(tenantId: string): Promise<void> {
+    try {
+      const sub = await this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        select: { planId: true },
+      });
+      if (!sub) return;
+      await this.admin.platformQuoteOffer.updateMany({
+        where: { tenantId, planId: sub.planId, status: 'sent' },
+        data: { status: 'accepted', resolvedAt: new Date() },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `No se pudieron cerrar las propuestas del tenant ${tenantId}: ${String(err)}`,
+      );
+    }
+  }
+
   async createCheckoutSession(args: {
     tenantId: string;
     userId: string;
@@ -253,6 +299,7 @@ export class BillingSaasService {
     billingCycle?: BillingCycle;
     successUrl: string;
     cancelUrl: string;
+    couponCode?: string | null;
     meta: RequestMeta;
   }): Promise<BillingSessionResponseDto> {
     await this.assertNotExempt(args.tenantId);
@@ -263,7 +310,7 @@ export class BillingSaasService {
       this.admin.subscriptionPlan.findUnique({ where: { id: args.planId } }),
       this.admin.tenantSubscription.findUnique({
         where: { tenantId: args.tenantId },
-        select: { stripeSubscriptionId: true, status: true, billingMode: true },
+        select: { stripeSubscriptionId: true, status: true, billingMode: true, planId: true },
       }),
     ]);
     if (!tenant) {
@@ -310,6 +357,10 @@ export class BillingSaasService {
     if (!plan.isActive) {
       throw new BadRequestException({ code: 'plan_inactive', message: 'El plan no esta activo' });
     }
+    // Un plan oculto solo lo contrata quien ya lo tiene asignado.
+    if (!plan.isPublic && plan.id !== currentSub?.planId) {
+      throw new BadRequestException({ code: 'plan_not_available', message: 'Plan no disponible' });
+    }
     const yearly = args.billingCycle === 'yearly';
     const priceId = yearly ? plan.stripePriceIdYearly : plan.stripePriceId;
     if (!priceId) {
@@ -320,6 +371,10 @@ export class BillingSaasService {
           : 'El plan no tiene un Stripe price configurado',
       });
     }
+
+    const coupon = args.couponCode
+      ? await this.stripeCouponFor(args.couponCode, args.tenantId, plan, yearly)
+      : null;
 
     // Obtener o crear el Stripe Customer.
     const stripeCustomerId = await this.getOrCreateStripeCustomer({
@@ -344,6 +399,7 @@ export class BillingSaasService {
         payment_method_types: ['card'],
         customer: stripeCustomerId,
         line_items: [{ price: priceId, quantity: 1 }],
+        ...(coupon ? { discounts: [{ coupon: coupon.stripeCouponId }] } : {}),
         success_url: args.successUrl,
         cancel_url: args.cancelUrl,
         client_reference_id: args.tenantId,
@@ -354,6 +410,7 @@ export class BillingSaasService {
             planId: plan.id,
             planSlug: plan.slug,
             billingCycle: yearly ? 'yearly' : 'monthly',
+            ...(coupon ? { couponId: coupon.couponId } : {}),
           },
         },
         metadata: {
@@ -461,6 +518,7 @@ export class BillingSaasService {
     userId: string;
     planId: string;
     billingCycle?: BillingCycle;
+    couponCode?: string | null;
     meta: RequestMeta;
   }): Promise<TenantSubscriptionDto> {
     await this.assertNotExempt(args.tenantId);
@@ -471,7 +529,7 @@ export class BillingSaasService {
     if (!sub) {
       throw new NotFoundException({ code: 'no_subscription', message: 'Sin suscripción' });
     }
-    if (!plan || !plan.isActive) {
+    if (!plan || !plan.isActive || !plan.isPublic) {
       throw new BadRequestException({ code: 'plan_not_available', message: 'Plan no disponible' });
     }
     if (plan.id === sub.planId) {
@@ -483,6 +541,14 @@ export class BillingSaasService {
         message: 'Tu suscripción es de pago manual. Contacta con soporte para cambiar de plan.',
       });
     }
+    const coupon = args.couponCode
+      ? await this.stripeCouponFor(
+          args.couponCode,
+          args.tenantId,
+          plan,
+          args.billingCycle === 'yearly',
+        )
+      : null;
     await this.swapStripePlan({
       tenantId: args.tenantId,
       stripeSubscriptionId: sub.stripeSubscriptionId,
@@ -491,6 +557,24 @@ export class BillingSaasService {
       billingCycle: args.billingCycle ?? 'monthly',
     });
     const previousPlanId = sub.planId;
+    if (coupon) {
+      try {
+        await this.stripe.subscriptions.update(sub.stripeSubscriptionId, {
+          discounts: [{ coupon: coupon.stripeCouponId }],
+        });
+        await this.coupons.incrementUsage(coupon.couponId).catch(() => undefined);
+        await this.coupons.recordRedemption({
+          couponId: coupon.couponId,
+          tenantId: args.tenantId,
+          source: 'stripe',
+          discount: coupon.discount,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `No se pudo aplicar el cupón al cambiar de plan (tenant ${args.tenantId}): ${String(err)}`,
+        );
+      }
+    }
 
     // El webhook `subscription.updated` no trae el planId → lo fijamos aquí.
     await this.admin.tenantSubscription.update({
@@ -507,6 +591,7 @@ export class BillingSaasService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    await this.acceptQuoteOffers(args.tenantId);
 
     return this.getCurrentSubscription(args.tenantId);
   }
@@ -637,6 +722,7 @@ export class BillingSaasService {
     currentPeriodEnd: number;
     cancelAtPeriodEnd: boolean;
     planIdHint?: string | null;
+    couponIdHint?: string | null;
   }): Promise<void> {
     // Resolver tenantId.
     const tenantId = await this.resolveTenantId({
@@ -723,6 +809,20 @@ export class BillingSaasService {
         ...(applyPlanHint && args.planIdHint ? { planId: args.planIdHint } : {}),
       },
     });
+
+    // Suscripción nueva del Checkout: anota el cupón que llevaba y da por
+    // aceptada la propuesta de cuota de ese plan.
+    if (applyPlanHint) {
+      if (args.couponIdHint) {
+        await this.coupons.incrementUsage(args.couponIdHint).catch(() => undefined);
+        await this.coupons.recordRedemption({
+          couponId: args.couponIdHint,
+          tenantId,
+          source: 'stripe',
+        });
+      }
+      await this.acceptQuoteOffers(tenantId);
+    }
 
     // Si Stripe reporta la suscripción activa (el tenant se suscribió y pagó),
     // el tenant pasa a `active`: sale del dunning (`suspended`) Y del periodo de
@@ -1124,6 +1224,7 @@ export class BillingSaasService {
       maxFacilities: null,
       maxUsers: null,
       isActive: row.plan.isActive,
+      isPublic: true,
     };
     return {
       id: row.id,
@@ -1198,7 +1299,14 @@ export class BillingSaasService {
     let discount = args.discount ?? null;
     let amount = args.amount;
     if (args.couponCode) {
-      const res = await this.coupons.validateAndComputeDiscount(args.couponCode, args.amount);
+      const current = await this.admin.tenantSubscription.findUnique({
+        where: { tenantId: args.tenantId },
+        select: { planId: true },
+      });
+      const res = await this.coupons.validateAndComputeDiscount(args.couponCode, args.amount, {
+        tenantId: args.tenantId,
+        planId: current?.planId ?? null,
+      });
       couponId = res.couponId;
       discount = res.discount;
       amount = Math.max(0, Math.round((args.amount - res.discount) * 100) / 100);
@@ -1333,7 +1441,18 @@ export class BillingSaasService {
 
     // Consumimos el cupón (uso atómico) solo si NO fue un dedup (un doble-submit
     // que devuelve el pago existente no debe volver a gastar el cupón).
-    if (couponId && !couponAlreadyRecent) await this.coupons.incrementUsage(couponId);
+    if (couponId && !couponAlreadyRecent) {
+      await this.coupons.incrementUsage(couponId);
+      await this.coupons.recordRedemption({
+        couponId,
+        tenantId: args.tenantId,
+        source: 'manual',
+        paymentId: payment.id,
+        discount,
+      });
+    }
+    // Una propuesta de cuota con este plan queda aceptada al pagarla.
+    if (extendsPeriod && !couponAlreadyRecent) await this.acceptQuoteOffers(args.tenantId);
 
     // Factura del SaaS (best-effort; solo si la facturación está activada).
     await this.platformInvoices.issueForPaymentBestEffort(payment.id);

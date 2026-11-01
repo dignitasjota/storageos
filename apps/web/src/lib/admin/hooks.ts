@@ -4,6 +4,14 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  ApplicationFeeReportDto,
+  CatalogPriceChangeDto,
+  PlanPricePreviewDto,
+  PlatformCouponRedemptionsDto,
+  PlatformQuoteOfferDto,
+  PlatformQuoteOffersDto,
+  QuoteOfferStatus,
+  TenantApplicationFeeDto,
   MessageAttachmentUploadDto,
   AdminSearchResultDto,
   AdminTenantOverviewDto,
@@ -766,11 +774,17 @@ export async function downloadPlatformSepaRemittanceXml(id: string): Promise<voi
   URL.revokeObjectURL(url);
 }
 
-/** Catálogo de planes (endpoint público) para el selector de cambio de plan. */
+/**
+ * Planes activos para los selectores del admin (cambio de plan, simulador,
+ * alta): incluye los ocultos, que solo asigna el super admin.
+ */
 export function useAdminSubscriptionPlans() {
   return useQuery({
-    queryKey: ['admin', 'subscription-plans'],
-    queryFn: () => adminApiFetch<SubscriptionPlanDto[]>('/subscription-plans'),
+    queryKey: ['admin', 'subscription-plans', 'active'],
+    queryFn: async () =>
+      (await adminApiFetch<SubscriptionPlanDto[]>('/subscription-plans/admin')).filter(
+        (p) => p.isActive,
+      ),
   });
 }
 
@@ -1255,7 +1269,10 @@ export function useUpsertAddon(id?: string) {
         method: id ? 'PATCH' : 'POST',
         json: input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'addons'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'addons'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'price-history'] });
+    },
   });
 }
 
@@ -1860,7 +1877,10 @@ export function useCreatePlan() {
   return useMutation({
     mutationFn: (input: UpsertSubscriptionPlanFormInput) =>
       adminApiFetch<SubscriptionPlanDto>('/subscription-plans', { method: 'POST', json: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'price-history'] });
+    },
   });
 }
 
@@ -1872,7 +1892,10 @@ export function useUpdatePlan() {
         method: 'PATCH',
         json: args.input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'price-history'] });
+    },
   });
 }
 
@@ -1881,7 +1904,10 @@ export function useDeactivatePlan() {
   return useMutation({
     mutationFn: (id: string) =>
       adminApiFetch<void>(`/subscription-plans/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'price-history'] });
+    },
   });
 }
 
@@ -2819,14 +2845,105 @@ export function useSendAdminQuote() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ tenantId, input }: { tenantId: string; input: SendAdminQuoteInput }) =>
-      adminApiFetch<{ recipients: number; quote: AdminQuoteDto }>(
+      adminApiFetch<{ recipients: number; quote: AdminQuoteDto; offerId: string }>(
         `/admin/tenants/${tenantId}/quote-offers`,
         { method: 'POST', json: input },
       ),
     onSuccess: (_d, v) => {
       void qc.invalidateQueries({ queryKey: ['admin', 'tenants', v.tenantId] });
       void qc.invalidateQueries({ queryKey: ['admin', 'followups'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'quote-offers'] });
     },
+  });
+}
+
+// --- Catálogo: propuestas, histórico de precios, usos de cupones, comisión ---
+
+export function useQuoteOffers(tenantId?: string) {
+  return useQuery({
+    queryKey: ['admin', 'quote-offers', tenantId ?? 'all'] as const,
+    queryFn: () =>
+      adminApiFetch<PlatformQuoteOffersDto>(
+        `/admin/quote-offers${tenantId ? `?tenantId=${tenantId}` : ''}`,
+      ),
+  });
+}
+
+export function useSetQuoteOfferStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: QuoteOfferStatus }) =>
+      adminApiFetch<PlatformQuoteOfferDto>(`/admin/quote-offers/${id}`, {
+        method: 'PATCH',
+        json: { status },
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'quote-offers'] }),
+  });
+}
+
+export function useCatalogPriceHistory(kind: 'plan' | 'addon', itemId: string | null) {
+  return useQuery({
+    queryKey: ['admin', 'price-history', kind, itemId] as const,
+    enabled: !!itemId,
+    queryFn: () =>
+      adminApiFetch<CatalogPriceChangeDto[]>(
+        `/admin/catalog/price-history?kind=${kind}&itemId=${itemId}`,
+      ),
+  });
+}
+
+export function usePlanPricePreview(planId: string | null, priceMonthly: number | null) {
+  return useQuery({
+    queryKey: ['admin', 'plan-price-preview', planId, priceMonthly] as const,
+    enabled: !!planId && priceMonthly != null && Number.isFinite(priceMonthly),
+    queryFn: () =>
+      adminApiFetch<PlanPricePreviewDto>(
+        `/subscription-plans/admin/${planId}/price-preview?priceMonthly=${priceMonthly}`,
+      ),
+  });
+}
+
+export function useCouponRedemptions(couponId: string | null) {
+  return useQuery({
+    queryKey: ['admin', 'coupons', couponId, 'redemptions'] as const,
+    enabled: !!couponId,
+    queryFn: () =>
+      adminApiFetch<PlatformCouponRedemptionsDto>(`/admin/coupons/${couponId}/redemptions`),
+  });
+}
+
+export function useDeleteCoupon() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => adminApiFetch<void>(`/admin/coupons/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'coupons'] }),
+  });
+}
+
+export function useTenantApplicationFees() {
+  return useQuery({
+    queryKey: ['admin', 'payment-settings', 'tenants'] as const,
+    queryFn: () => adminApiFetch<TenantApplicationFeeDto[]>('/admin/payment-settings/tenants'),
+  });
+}
+
+export function useSetTenantApplicationFee() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tenantId, pct }: { tenantId: string; pct: number | null }) =>
+      adminApiFetch<TenantApplicationFeeDto[]>(`/admin/payment-settings/tenants/${tenantId}`, {
+        method: 'PUT',
+        json: { applicationFeePct: pct },
+      }),
+    onSuccess: (data) => qc.setQueryData(['admin', 'payment-settings', 'tenants'], data),
+  });
+}
+
+export function useApplicationFeeReport(months = 12) {
+  return useQuery({
+    queryKey: ['admin', 'payment-settings', 'fee-report', months] as const,
+    queryFn: () =>
+      adminApiFetch<ApplicationFeeReportDto>(`/admin/payment-settings/fee-report?months=${months}`),
   });
 }
 
