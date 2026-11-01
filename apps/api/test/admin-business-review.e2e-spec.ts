@@ -206,7 +206,8 @@ describe('Negocio del super admin: revisión (e2e)', () => {
     ).body;
     const redsysBefore = before.bySource.find((s: { source: string }) => s.source === 'redsys');
 
-    const failedAt = new Date(Date.now() - 2 * 86_400_000);
+    // Dentro del mes en curso aunque sea día 1 (la ventana empieza el día 1 del mes).
+    const failedAt = new Date(Date.now() - 3 * 3_600_000);
     await db.platformRedsysOrder.createMany({
       data: [
         {
