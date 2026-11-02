@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { buildCityMetadata, CityPageBody } from '../city/city-shared';
 import {
   cityPageHref,
+  facilityHref,
   getPublicWebMessages,
   intlLocaleFor,
   landingHref,
@@ -15,7 +16,7 @@ import { faqPageLd, localBusinessFields } from '../local-business-ld';
 import { priceRangeString } from '../price-format';
 import { buildPromoMetadata, lookupPromo, PromoPageView } from '../promo/promo-page';
 import { themeFor } from '../promo/promo-theme';
-import { TenantWebChrome } from '../tenant-web-chrome';
+import { TenantSiteChrome } from '../tenant-site-chrome';
 import { WebChatWidget } from '../web-chat-widget';
 import { WhatsappFloatButton } from '../whatsapp-float-button';
 
@@ -251,15 +252,16 @@ export async function FacilityPageBody({
 
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-      <TenantWebChrome
-        data={data}
+      <TenantSiteChrome
+        slug={slug}
+        fallback={data}
         locale={locale}
-        facilitySlug={facilitySlug}
-        hasBlog={data.hasBlog}
+        hideReserve={false}
         googleAnalyticsId={data.googleAnalyticsId}
+        languageHrefBuilder={(l) => facilityHref(slug, facilitySlug, l, data.customDomain)}
       >
         <FacilityBody data={data} slug={slug} facilitySlug={facilitySlug} locale={locale} />
-      </TenantWebChrome>
+      </TenantSiteChrome>
       <WhatsappFloatButton number={data.whatsappNumber} facilityName={data.facility.name} />
       <WebChatWidget
         slug={data.tenantSlug}

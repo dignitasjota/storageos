@@ -1646,5 +1646,5 @@ Migración `20261208100000_admin_catalog_features` (se aplica sola). Sin variabl
 
 Migración `20261209100000_blog_seo_tools` (se aplica sola). Sin variables nuevas.
 
-- El listado y las entradas del blog llevan la cabecera y el pie de la portada de su plantilla (antes un marco común con el logo más pequeño).
+- El listado y las entradas del blog, las fichas de local, las páginas de ciudad y zona, los textos legales y las landings de promoción llevan la cabecera y el pie de la portada de su plantilla (antes un marco común con el logo más pequeño). Si la portada no se puede cargar, se usa el marco común.
 - Las portadas que ya estaban subidas conservan su nombre aleatorio: para que Google vea un nombre con sentido, vuelve a subirlas con «Nombre del archivo» relleno.

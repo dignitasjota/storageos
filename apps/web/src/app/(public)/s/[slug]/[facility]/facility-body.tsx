@@ -84,17 +84,6 @@ export function FacilityBody({
     <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
 
-      {data.logoUrl && (
-        <Image
-          unoptimized
-          src={data.logoUrl}
-          alt={data.tenantName}
-          width={170}
-          height={48}
-          className="mb-6 h-12 w-auto object-contain"
-        />
-      )}
-
       <nav className="mb-4 text-sm text-muted-foreground">
         <Link
           href={landingHref(data.tenantSlug, locale, data.customDomain)}

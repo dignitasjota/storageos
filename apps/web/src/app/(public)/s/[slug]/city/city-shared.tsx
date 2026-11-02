@@ -22,7 +22,7 @@ import { getLanding, siteUrl } from '../landing-shared';
 import { faqPageLd, localBusinessFields } from '../local-business-ld';
 import { formatPrice, grossPrice } from '../price-format';
 import { themeFor } from '../promo/promo-theme';
-import { TenantWebChrome } from '../tenant-web-chrome';
+import { TenantSiteChrome } from '../tenant-site-chrome';
 import { WebChatWidget } from '../web-chat-widget';
 import { WhatsappFloatButton } from '../whatsapp-float-button';
 
@@ -180,10 +180,11 @@ export async function CityPageBody({
     };
     return (
       <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-        <TenantWebChrome
-          data={facilityData}
+        <TenantSiteChrome
+          slug={slug}
+          fallback={facilityData}
           locale={locale}
-          hasBlog={sole.hasBlog}
+          hideReserve={false}
           googleAnalyticsId={sole.googleAnalyticsId}
           languageHrefBuilder={(l) => cityPageHref(slug, page.slug, l, data.customDomain)}
         >
@@ -194,7 +195,7 @@ export async function CityPageBody({
             locale={locale}
             asCityPage={{ path: areaPagePath(page.slug), faqs }}
           />
-        </TenantWebChrome>
+        </TenantSiteChrome>
         <WhatsappFloatButton number={sole.whatsappNumber} facilityName={sole.facility.name} />
         <WebChatWidget
           slug={sole.tenantSlug}
@@ -249,10 +250,11 @@ export async function CityPageBody({
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
-      <TenantWebChrome
-        data={site}
+      <TenantSiteChrome
+        slug={slug}
+        fallback={site}
         locale={locale}
-        hasBlog={data.hasBlog}
+        hideReserve={false}
         googleAnalyticsId={data.googleAnalyticsId}
         languageHrefBuilder={(l) => cityPageHref(slug, page.slug, l, data.customDomain)}
       >
@@ -266,7 +268,7 @@ export async function CityPageBody({
           fromPrice={min != null ? formatPrice(min, locale) : null}
           locale={locale}
         />
-      </TenantWebChrome>
+      </TenantSiteChrome>
       <WhatsappFloatButton number={data.whatsappNumber} />
       <WebChatWidget
         slug={data.tenantSlug}
