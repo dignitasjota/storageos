@@ -1046,10 +1046,14 @@ export interface PlatformFounderOfferDto {
   setupText: string;
 }
 
+/** Banner que ve el tenant (el de más prioridad que le toca). */
 export interface PlatformBannerDto {
+  id: string;
   message: string;
   level: 'info' | 'warning' | 'critical';
   enabled: boolean;
+  linkUrl: string | null;
+  linkLabel: string | null;
   /** Deja de verse sola a esta hora (null = hasta que se apague). */
   endsAt: string | null;
   /** El usuario puede cerrarlo (los críticos no se cierran). */
@@ -1694,6 +1698,9 @@ export interface PlatformEmailLogDto {
   provider: string | null;
   errorMessage: string | null;
   deliveredAt: string | null;
+  /** Se guardó el HTML (se puede ver y reenviar). */
+  hasHtml: boolean;
+  announcementId: string | null;
   createdAt: string;
 }
 
@@ -2060,8 +2067,9 @@ export interface TenantPlatformMessageDto {
   kind: 'direct' | 'announcement' | 'retention';
   subject: string;
   body: string;
-  /** Ticket donde responderlo (solo el correo directo). */
+  /** Ticket donde responderlo (correo directo que espera respuesta). */
   ticketId: string | null;
+  attachments: { name: string; mimeType: string; size: number }[];
   /** Cuándo lo abrió el tenant (null = sin leer). */
   readAt: string | null;
   createdAt: string;

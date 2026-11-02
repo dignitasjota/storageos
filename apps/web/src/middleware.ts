@@ -32,6 +32,7 @@ const NOINDEX_PREFIXES = [
   '/pay',
   '/review',
   '/unsubscribe',
+  '/nps',
   '/sign',
   '/sepa-mandate',
   '/g/',

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadGatewayException,
@@ -7,15 +9,22 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
-import { renderAdminEmail } from '@storageos/shared';
+import {
+  type AnnouncementSegment,
+  fillAdminMessageVariables,
+  MESSAGE_ATTACHMENT_MAX_BYTES,
+  renderAdminEmail,
+} from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { buildUnsubscribeToken, unsubscribeKey } from '../../common/marketing/unsubscribe-token';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
+import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
+import { AdminSegmentService, type SegmentRecipient } from './admin-segment.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { SuperAdminAuditService } from './super-admin-audit.service';
@@ -43,6 +52,15 @@ interface QueuedEmail {
   html: string;
   text: string;
   headers?: Record<string, string>;
+  announcementId?: string;
+}
+
+/** Fichero adjunto a un mensaje de TrasterOS (bucket privado `uploads`). */
+interface StoredFile {
+  key: string;
+  name: string;
+  mimeType: string;
+  size: number;
 }
 
 /**
@@ -65,6 +83,8 @@ export class AdminCommsService {
     private readonly followups: AdminTenantFollowupsService,
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
     private readonly notifications: NotificationsService,
+    private readonly segments: AdminSegmentService,
+    private readonly files: FilesService,
     config: ConfigService<Env, true>,
   ) {
     this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
@@ -93,35 +113,43 @@ export class AdminCommsService {
 
   /** Emails de destino de un tenant: owners verificados activos o billingEmail. */
   private async recipientsFor(tenantId: string): Promise<string[]> {
-    const owners = await this.admin.user.findMany({
-      where: { tenantId, role: 'owner', isActive: true, emailVerifiedAt: { not: null } },
-      select: { email: true },
+    return (await this.namedRecipientsFor(tenantId)).map((r) => r.email);
+  }
+
+  private async namedRecipientsFor(tenantId: string): Promise<SegmentRecipient[]> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, name: true, billingEmail: true },
     });
-    const emails = new Set(owners.map((o) => o.email.toLowerCase()));
-    if (emails.size === 0) {
-      const tenant = await this.admin.tenant.findUnique({
-        where: { id: tenantId },
-        select: { billingEmail: true },
-      });
-      if (tenant?.billingEmail) emails.add(tenant.billingEmail.toLowerCase());
-    }
-    return [...emails];
+    if (!tenant) return [];
+    return this.segments.recipientsFor([tenant], false);
   }
 
   private async sendTo(
-    recipients: string[],
+    recipients: string[] | SegmentRecipient[],
     subject: string,
     body: string,
   ): Promise<{ sent: number; failed: number }> {
-    const { html, text } = renderAdminEmail(body);
     let sent = 0;
     let failed = 0;
-    for (const to of recipients) {
+    for (const r of recipients) {
+      const to = typeof r === 'string' ? r : r.email;
+      const filled =
+        typeof r === 'string'
+          ? { subject, body }
+          : {
+              subject: fillAdminMessageVariables(subject, {
+                empresa: r.tenantName,
+                nombre: r.fullName,
+              }),
+              body: fillAdminMessageVariables(body, { empresa: r.tenantName, nombre: r.fullName }),
+            };
+      const { html, text } = renderAdminEmail(filled.body);
       try {
         const result = await this.email.sendRendered({
           to,
           kind: 'admin_message',
-          subject,
+          subject: filled.subject,
           html,
           text,
         });
@@ -165,9 +193,10 @@ export class AdminCommsService {
   /** Tras enviarlo: queda en «Mensajes de TrasterOS» y avisa en el panel. */
   private async recordDirectMessage(
     tenantId: string,
-    ticketId: string,
+    ticketId: string | null,
     input: { subject: string; body: string },
     superAdminId: string,
+    attachments: StoredFile[] = [],
   ): Promise<void> {
     await this.admin.tenantPlatformMessage.create({
       data: {
@@ -177,6 +206,7 @@ export class AdminCommsService {
         body: input.body,
         ticketId,
         superAdminId,
+        attachments: attachments as unknown as Prisma.InputJsonValue,
       },
     });
     await this.notifications
@@ -184,16 +214,67 @@ export class AdminCommsService {
         type: 'platform.message',
         title: `Mensaje de TrasterOS: ${input.subject}`,
         body: input.body.slice(0, 140),
-        link: `/support/${ticketId}`,
+        link: ticketId ? `/support/${ticketId}` : '/support?tab=trasteros',
       })
       .catch(() => undefined);
+  }
+
+  /** Subida de un adjunto del correo directo (bucket privado). */
+  async requestDirectFileUpload(
+    tenantId: string,
+    input: { fileName: string; mimeType: string; size: number },
+  ): Promise<{ uploadUrl: string; key: string; requiredHeaders: Record<string, string> }> {
+    const safe = input.fileName.replace(/[^\w.\- ]/g, '_').slice(0, 120) || 'adjunto';
+    const key = `${tenantId}/platform-messages/${randomUUID()}/${safe}`;
+    const { uploadUrl } = await this.files.getPresignedPutUrl({
+      bucket: 'uploads',
+      key,
+      contentType: input.mimeType,
+    });
+    return { uploadUrl, key, requiredHeaders: { 'Content-Type': input.mimeType } };
+  }
+
+  private async checkFiles(tenantId: string, files: StoredFile[]): Promise<StoredFile[]> {
+    const prefix = `${tenantId}/platform-messages/`;
+    for (const f of files) {
+      if (!f.key.startsWith(prefix) || f.key.includes('..')) {
+        throw new BadRequestException({ code: 'invalid_attachment', message: 'Adjunto no válido' });
+      }
+      await this.files.assertObjectMimeType(
+        'uploads',
+        f.key,
+        [f.mimeType],
+        MESSAGE_ATTACHMENT_MAX_BYTES,
+      );
+    }
+    return files.map((f) => ({ ...f, name: f.name.replace(/[\r\n"]/g, ' ').slice(0, 200) }));
+  }
+
+  /** URL firmada (10 min) de un adjunto de un mensaje de TrasterOS del tenant. */
+  async platformMessageFileUrl(
+    tenantId: string,
+    messageId: string,
+    index: number,
+  ): Promise<string> {
+    const row = await this.admin.tenantPlatformMessage.findFirst({
+      where: { id: messageId, tenantId },
+      select: { attachments: true },
+    });
+    const file = (row?.attachments as unknown as StoredFile[] | undefined)?.[index];
+    if (!file) {
+      throw new NotFoundException({
+        code: 'attachment_not_found',
+        message: 'Adjunto no encontrado',
+      });
+    }
+    return this.files.getPresignedGetUrl('uploads', file.key, 600, file.name);
   }
 
   /** Anuncio o correo de retención: queda en el panel de cada tenant y le avisa. */
   private async recordBroadcast(
     tenantIds: string[],
     input: { subject: string; body: string },
-    superAdminId: string,
+    superAdminId: string | null,
     kind: 'announcement' | 'retention' = 'announcement',
   ): Promise<void> {
     if (tenantIds.length === 0) return;
@@ -237,6 +318,11 @@ export class AdminCommsService {
         subject: r.subject,
         body: r.body,
         ticketId: r.ticketId,
+        attachments: ((r.attachments as unknown as StoredFile[] | null) ?? []).map((f) => ({
+          name: f.name,
+          mimeType: f.mimeType,
+          size: f.size,
+        })),
         readAt: r.readAt?.toISOString() ?? null,
         createdAt: r.createdAt.toISOString(),
       })),
@@ -272,6 +358,7 @@ export class AdminCommsService {
           html: e.html,
           text: e.text,
           ...(e.headers ? { headers: e.headers } : {}),
+          ...(e.announcementId ? { announcementId: e.announcementId } : {}),
         },
       })),
     );
@@ -289,39 +376,57 @@ export class AdminCommsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
     }
-    const recipients = await this.recipientsFor(tenantId);
+    const recipients = await this.namedRecipientsFor(tenantId);
     if (recipients.length === 0) {
       throw new BadRequestException({
         code: 'no_recipients',
         message: 'El tenant no tiene destinatarios (owner verificado o email de facturación).',
       });
     }
+    const files = await this.checkFiles(tenantId, input.attachments ?? []);
+    // El texto guardado lleva las variables con los datos del tenant.
+    const tenantName = recipients[0]?.tenantName ?? '';
+    const stored = {
+      subject: fillAdminMessageVariables(input.subject, { empresa: tenantName }),
+      body: fillAdminMessageVariables(input.body, { empresa: tenantName }),
+    };
     // El ticket hace falta antes de enviar (el correo lleva su enlace). Si el
     // correo no sale a nadie, se borra: el tenant no debe ver un mensaje que no
-    // le ha llegado.
-    const ticketId = await this.openDirectTicket(tenantId, input, meta.superAdminId);
-    const replyUrl = `${this.webBaseUrl}/support/${ticketId}`;
+    // le ha llegado. Un aviso sin respuesta necesaria no abre ticket.
+    const replyExpected = input.replyExpected !== false;
+    const ticketId = replyExpected
+      ? await this.openDirectTicket(tenantId, stored, meta.superAdminId)
+      : null;
+    const footer = ticketId
+      ? `Puedes responder desde tu panel: ${this.webBaseUrl}/support/${ticketId}`
+      : `Lo tienes también en tu panel, en Soporte → Mensajes de TrasterOS: ${this.webBaseUrl}/support?tab=trasteros`;
+    const filesNote =
+      files.length > 0
+        ? `\n\nAdjuntos (descárgalos en tu panel, en Soporte → Mensajes de TrasterOS): ${files.map((f) => f.name).join(', ')}`
+        : '';
     const { sent, failed } = await this.sendTo(
       recipients,
       input.subject,
-      `${input.body}\n\n—\nPuedes responder desde tu panel: ${replyUrl}`,
+      `${input.body}${filesNote}\n\n—\n${footer}`,
     );
     if (sent === 0) {
-      await this.admin.supportTicket.delete({ where: { id: ticketId } }).catch(() => undefined);
+      if (ticketId) {
+        await this.admin.supportTicket.delete({ where: { id: ticketId } }).catch(() => undefined);
+      }
       throw new BadGatewayException({
         code: 'email_send_failed',
         message:
           'No se ha podido enviar el correo a ninguno de sus destinatarios. No se ha guardado nada; revisa «Correos enviados».',
       });
     }
-    await this.recordDirectMessage(tenantId, ticketId, input, meta.superAdminId);
+    await this.recordDirectMessage(tenantId, ticketId, stored, meta.superAdminId, files);
     await this.superAdminAudit.record({
       superAdminId: meta.superAdminId,
       action: 'admin.tenant.email_sent',
       targetType: 'tenant',
       targetId: tenantId,
       targetTenantId: tenantId,
-      changes: { subject: input.subject, sent, failed },
+      changes: { subject: input.subject, sent, failed, replyExpected, attachments: files.length },
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });
@@ -339,90 +444,117 @@ export class AdminCommsService {
     return { recipients: sent, failed };
   }
 
+  /** Anuncio inmediato (Anuncios y acción masiva de Tenants): queda en el historial. */
   async broadcast(input: AdminBroadcastInput, meta: ActionMeta): Promise<AdminBroadcastResultDto> {
-    const where: Prisma.TenantWhereInput = { deletedAt: null };
-    const selected = input.tenantIds ?? [];
-    const selection = selected.length > 0;
-    if (selection) {
-      // Selección concreta desde la lista: también suspendidos, nunca los dados de baja.
-      where.id = { in: selected };
-      where.status = { not: 'cancelled' };
-    } else {
-      if (input.audience === 'active') where.status = 'active';
-      else if (input.audience === 'trial') where.status = 'trial';
-      else where.status = { in: ['active', 'trial'] };
-      // Segmentación por etiqueta: AND con el público (mismo filtro que la lista).
-      if (input.tag) where.tags = { has: input.tag };
-    }
-
-    // Destinatarios de TODOS los tenants en 2 consultas (no 2·N).
-    const tenants = await this.admin.tenant.findMany({
-      where,
-      select: { id: true, billingEmail: true },
-    });
-    const owners = await this.admin.user.findMany({
-      where: {
-        tenantId: { in: tenants.map((t) => t.id) },
-        role: 'owner',
-        isActive: true,
-        emailVerifiedAt: { not: null },
+    const segment: AnnouncementSegment = {
+      audience: input.audience,
+      ...(input.tenantIds?.length ? { tenantIds: input.tenantIds } : {}),
+      ...(input.tag && !input.tenantIds?.length ? { tag: input.tag } : {}),
+    };
+    const row = await this.admin.platformAnnouncement.create({
+      data: {
+        subject: input.subject,
+        body: input.body,
+        segment: segment as unknown as Prisma.InputJsonValue,
+        commercial: input.commercial,
+        status: 'sending',
+        createdById: meta.superAdminId,
       },
-      select: { id: true, tenantId: true, email: true, platformNewsOptOutAt: true },
+      select: { id: true },
     });
-    const ownersByTenant = new Map<string, typeof owners>();
-    for (const o of owners) {
-      const list = ownersByTenant.get(o.tenantId) ?? [];
-      list.push(o);
-      ownersByTenant.set(o.tenantId, list);
-    }
+    return this.deliverAnnouncement(row.id, meta);
+  }
+
+  /**
+   * Envía un anuncio del historial: resuelve su público, encola un correo por
+   * destinatario (con sus variables y, si es comercial, su enlace de baja), lo
+   * deja en el panel de cada tenant y guarda los recuentos.
+   */
+  async deliverAnnouncement(
+    announcementId: string,
+    meta: ActionMeta,
+    onlyRecipients?: Set<string>,
+  ): Promise<AdminBroadcastResultDto> {
+    // Un programado sin autor (borrado) sale sin autor.
+    const actor = meta.superAdminId || null;
+    const ann = await this.admin.platformAnnouncement.findUniqueOrThrow({
+      where: { id: announcementId },
+    });
+    const segment = ann.segment as unknown as AnnouncementSegment;
+    const selected = segment.tenantIds ?? [];
+    const tenants = await this.segments.tenantsFor(segment);
+    const recipients = await this.segments.recipientsFor(tenants, ann.commercial);
 
     const footer = `¿Dudas? Escríbenos desde Soporte en tu panel: ${this.webBaseUrl}/support`;
-    const body = `${input.body}\n\n—\n${footer}`;
-    const plain = renderAdminEmail(body);
     const emails: QueuedEmail[] = [];
-    const reachedIds: string[] = [];
+    const reached = new Set<string>();
     let optedOut = 0;
-    for (const t of tenants) {
-      const tenantOwners = ownersByTenant.get(t.id) ?? [];
-      const seen = new Set<string>();
-      const before = emails.length;
-      if (input.commercial) {
-        // Comercial: solo a usuarios (cada uno con su enlace de baja).
-        for (const o of tenantOwners) {
-          const email = o.email.toLowerCase();
-          if (seen.has(email)) continue;
-          seen.add(email);
-          if (o.platformNewsOptOutAt) {
-            optedOut += 1;
-            continue;
-          }
-          const unsub = this.unsubscribeFooter(o.id);
-          const rendered = renderAdminEmail(body, unsub);
-          emails.push({ to: email, subject: input.subject, ...rendered, headers: unsub.headers });
-        }
-      } else {
-        for (const o of tenantOwners) seen.add(o.email.toLowerCase());
-        if (seen.size === 0 && t.billingEmail) seen.add(t.billingEmail.toLowerCase());
-        for (const to of seen) emails.push({ to, subject: input.subject, ...plain });
+    for (const r of recipients) {
+      if (onlyRecipients && !onlyRecipients.has(r.email)) continue;
+      if (r.optedOut) {
+        optedOut += 1;
+        continue;
       }
-      if (emails.length > before) reachedIds.push(t.id);
+      const vars = { empresa: r.tenantName, nombre: r.fullName };
+      const subject = fillAdminMessageVariables(ann.subject, vars);
+      const body = `${fillAdminMessageVariables(ann.body, vars)}\n\n—\n${footer}`;
+      if (ann.commercial && r.userId) {
+        const unsub = this.unsubscribeFooter(r.userId);
+        emails.push({
+          to: r.email,
+          subject,
+          ...renderAdminEmail(body, unsub),
+          headers: unsub.headers,
+          announcementId,
+        });
+      } else {
+        emails.push({ to: r.email, subject, ...renderAdminEmail(body), announcementId });
+      }
+      reached.add(r.tenantId);
     }
     await this.enqueueRendered(emails);
-    await this.recordBroadcast(reachedIds, input, meta.superAdminId);
+    // Un reenvío no vuelve a dejarlo en el panel del tenant.
+    if (!onlyRecipients) {
+      const names = new Map(tenants.map((t) => [t.id, t.name]));
+      for (const tenantId of reached) {
+        const empresa = names.get(tenantId) ?? '';
+        await this.recordBroadcast(
+          [tenantId],
+          {
+            subject: fillAdminMessageVariables(ann.subject, { empresa }),
+            body: fillAdminMessageVariables(ann.body, { empresa }),
+          },
+          actor,
+        );
+      }
+    }
+    const skipped = (selected.length > 0 ? selected.length : tenants.length) - reached.size;
+    await this.admin.platformAnnouncement.update({
+      where: { id: announcementId },
+      data: onlyRecipients
+        ? { recipientsCount: { increment: emails.length } }
+        : {
+            status: 'sent',
+            sentAt: new Date(),
+            tenantsCount: reached.size,
+            recipientsCount: emails.length,
+            optedOutCount: optedOut,
+          },
+    });
 
     await this.superAdminAudit.record({
-      superAdminId: meta.superAdminId,
-      action: 'admin.broadcast_sent',
+      superAdminId: actor,
+      action: onlyRecipients ? 'admin.broadcast_resent' : 'admin.broadcast_sent',
       targetType: 'platform',
-      targetId: null,
+      targetId: announcementId,
       targetTenantId: null,
       changes: {
-        audience: selection ? 'selection' : input.audience,
-        ...(selection ? { selected: selected.length } : {}),
-        tag: selection ? null : (input.tag ?? null),
-        commercial: input.commercial,
-        subject: input.subject,
-        tenants: reachedIds.length,
+        audience: selected.length > 0 ? 'selection' : segment.audience,
+        ...(selected.length > 0 ? { selected: selected.length } : {}),
+        segment: segment as unknown as Prisma.InputJsonValue,
+        commercial: ann.commercial,
+        subject: ann.subject,
+        tenants: reached.size,
         recipients: emails.length,
         optedOut,
       },
@@ -430,14 +562,7 @@ export class AdminCommsService {
       userAgent: meta.userAgent ?? null,
     });
 
-    return {
-      tenants: reachedIds.length,
-      recipients: emails.length,
-      failed: 0,
-      // Elegidos que no reciben nada: sin destinatario, de baja o dados de baja del servicio.
-      skipped: (selection ? selected.length : tenants.length) - reachedIds.length,
-      optedOut,
-    };
+    return { tenants: reached.size, recipients: emails.length, failed: 0, skipped, optedOut };
   }
 
   /**

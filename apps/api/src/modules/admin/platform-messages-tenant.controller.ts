@@ -4,6 +4,9 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseIntPipe,
+  ParseUUIDPipe,
   Post,
   Query,
 } from '@nestjs/common';
@@ -36,6 +39,16 @@ export class PlatformMessagesTenantController {
       throw new BadRequestException({ code: 'invalid_cursor', message: 'Cursor no válido' });
     }
     return this.comms.listForTenant(user.tenantId, cursor);
+  }
+
+  /** URL firmada (10 min) para descargar un adjunto. */
+  @Get(':id/attachments/:index')
+  async attachment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('index', ParseIntPipe) index: number,
+  ): Promise<{ url: string }> {
+    return { url: await this.comms.platformMessageFileUrl(user.tenantId, id, index) };
   }
 
   /** Marca como leídos todos los mensajes del tenant. */

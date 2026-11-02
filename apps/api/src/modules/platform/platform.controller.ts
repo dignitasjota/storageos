@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -15,7 +16,7 @@ import {
 import {
   LegalSlugEnum,
   UpdateLegalDocumentSchema,
-  UpdatePlatformBannerSchema,
+  UpsertPlatformBannerSchema,
   UpdatePlatformFounderOfferSchema,
   RequestPlatformLogoUploadSchema,
   SetPlatformLogoSchema,
@@ -23,6 +24,7 @@ import {
   UpdatePlatformSeoSchema,
   type LegalDocumentDto,
   type LegalSlug,
+  type AdminPlatformBannerDto,
   type PlatformBannerDto,
   type PlatformFounderOfferDto,
   type PlatformLogoUploadDto,
@@ -31,6 +33,10 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import {
+  type AuthenticatedUser,
+  CurrentUser,
+} from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminAudit } from '../admin/admin-audit.decorator';
 import { AdminGuard } from '../admin/admin.guard';
@@ -40,7 +46,7 @@ import { PlatformService } from './platform.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-class UpdateBannerDto extends createZodDto(UpdatePlatformBannerSchema) {}
+class UpsertBannerDto extends createZodDto(UpsertPlatformBannerSchema) {}
 class UpdateLegalDto extends createZodDto(UpdateLegalDocumentSchema) {}
 class UpdateFounderOfferDto extends createZodDto(UpdatePlatformFounderOfferSchema) {}
 class RequestLogoUploadDto extends createZodDto(RequestPlatformLogoUploadSchema) {}
@@ -62,8 +68,8 @@ export class PlatformBannerPublicController {
   constructor(private readonly service: PlatformService) {}
 
   @Get()
-  get(): Promise<PlatformBannerDto | null> {
-    return this.service.getPublicBanner();
+  get(@CurrentUser() user: AuthenticatedUser): Promise<PlatformBannerDto | null> {
+    return this.service.getPublicBanner(user.tenantId);
   }
 }
 
@@ -110,16 +116,34 @@ export class PlatformWebsitePublicController {
 export class PlatformAdminController {
   constructor(private readonly service: PlatformService) {}
 
-  @Get('banner')
-  getBanner(): Promise<PlatformBannerDto> {
-    return this.service.getBanner();
+  @Get('banners')
+  listBanners(): Promise<AdminPlatformBannerDto[]> {
+    return this.service.listBanners();
+  }
+
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform.banner_created')
+  @Post('banners')
+  createBanner(@Body() body: UpsertBannerDto): Promise<AdminPlatformBannerDto> {
+    return this.service.createBanner(body);
   }
 
   @RequireSuperadmin()
   @AdminAudit('admin.platform.banner_updated')
-  @Put('banner')
-  updateBanner(@Body() body: UpdateBannerDto): Promise<PlatformBannerDto> {
-    return this.service.updateBanner(body);
+  @Put('banners/:id')
+  updateBanner(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UpsertBannerDto,
+  ): Promise<AdminPlatformBannerDto> {
+    return this.service.updateBanner(id, body);
+  }
+
+  @RequireSuperadmin()
+  @AdminAudit('admin.platform.banner_deleted')
+  @Delete('banners/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteBanner(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
+    await this.service.deleteBanner(id);
   }
 
   @Get('founder-offer')

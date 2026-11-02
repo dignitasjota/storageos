@@ -41,19 +41,23 @@ describe('Banner global + notificaciones admin (e2e)', () => {
     // Sin activar → el tenant no ve banner (null → body vacío).
     const off = await request(app.getHttpServer()).get('/platform-banner').set(tenantAuth);
     expect(off.status).toBe(200);
-    expect(off.body?.enabled ?? false).toBe(false);
+    expect(off.body?.message).not.toBe('Mantenimiento el domingo');
 
     // El admin activa un banner.
-    await request(app.getHttpServer())
-      .put('/admin/platform/banner')
+    const created = await request(app.getHttpServer())
+      .post('/admin/platform/banners')
       .set(adminAuth)
-      .send({ message: 'Mantenimiento el domingo', level: 'warning', enabled: true })
-      .expect(200);
+      .send({ message: 'Mantenimiento el domingo', level: 'warning', enabled: true, priority: 100 })
+      .expect(201);
 
     const on = await request(app.getHttpServer()).get('/platform-banner').set(tenantAuth);
     expect(on.body.message).toBe('Mantenimiento el domingo');
     expect(on.body.level).toBe('warning');
     expect(on.body.enabled).toBe(true);
+    await request(app.getHttpServer())
+      .delete(`/admin/platform/banners/${created.body.id}`)
+      .set(adminAuth)
+      .expect(204);
   });
 
   it('un ticket nuevo genera una notificación en el feed del admin', async () => {

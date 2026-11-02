@@ -1045,3 +1045,8 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `support_tickets.opened_by_admin`: el ticket lo abrió el super admin al escribir al tenant (no cuenta en los tiempos de respuesta).
 - `platform_banner.ends_at` (deja de verse) y `dismissible` (cada usuario lo puede cerrar; nunca el crítico).
 - `users.platform_news_opt_out_at`: baja de los anuncios comerciales de TrasterOS.
+- `platform_announcements` (global): anuncios con su segmento, estado (draft/scheduled/sending/sent/cancelled), fecha programada y recuentos. `platform_email_logs.announcement_id` y `body_html`.
+- `platform_banners` (global, sustituye a `platform_banner`): mensaje, nivel, fechas de inicio y fin, enlace, planes, estados, prioridad.
+- `platform_email_templates` (global): texto propio de los correos automáticos (sin fila = el de serie).
+- `platform_nps_surveys` y `platform_nps_responses` (globales): encuestas a los propietarios y sus respuestas (una por usuario).
+- `product_updates.image_key` y `highlighted`; `tenant_platform_messages.attachments` (jsonb).

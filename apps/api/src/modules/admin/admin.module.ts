@@ -45,6 +45,7 @@ import { AdminPushController } from './admin-push.controller';
 import { AdminQueuesController } from './admin-queues.controller';
 import { AdminQuoteController } from './admin-quote.controller';
 import { AdminQuoteService } from './admin-quote.service';
+import { AdminSegmentService } from './admin-segment.service';
 import { AdminSuperAdminsController } from './admin-super-admins.controller';
 import { AdminSupportService } from './admin-support.service';
 import { AdminSystemController } from './admin-system.controller';
@@ -76,7 +77,13 @@ import { MrrModule } from './mrr.module';
 import { PlatformAlertsController } from './platform-alerts.controller';
 import { PlatformAlertsCron } from './platform-alerts.cron';
 import { PlatformAlertsService } from './platform-alerts.service';
+import { PlatformAnnouncementsController } from './platform-announcements.controller';
+import { PlatformAnnouncementsService } from './platform-announcements.service';
+import { PlatformEmailTemplatesController } from './platform-email-templates.controller';
+import { PlatformEmailTemplatesService } from './platform-email-templates.service';
 import { PlatformMessagesTenantController } from './platform-messages-tenant.controller';
+import { PlatformNpsAdminController, PlatformNpsPublicController } from './platform-nps.controller';
+import { PlatformNpsService } from './platform-nps.service';
 import { SecurityAlertsController } from './security-alerts.controller';
 import { SecurityEventsController } from './security-events.controller';
 import { SuperAdminAuditController } from './super-admin-audit.controller';
@@ -144,6 +151,10 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminOpportunitiesController,
     AdminPaymentSettingsController,
     AdminCommsController,
+    PlatformAnnouncementsController,
+    PlatformEmailTemplatesController,
+    PlatformNpsAdminController,
+    PlatformNpsPublicController,
     SuperAdminAuthController,
     AdminTenantsController,
     AdminMetricsController,
@@ -220,6 +231,10 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AeatCertExpiryService,
     AeatCertExpiryCron,
     SupportAutoCloseCron,
+    AdminSegmentService,
+    PlatformAnnouncementsService,
+    PlatformEmailTemplatesService,
+    PlatformNpsService,
   ],
   exports: [SuperAdminService, SuperAdminAuditService],
 })

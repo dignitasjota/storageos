@@ -7,6 +7,7 @@ import { AppLockGate } from '@/components/app-lock/app-lock-gate';
 import { ConfirmProvider } from '@/components/confirm-provider';
 import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
+import { HighlightedUpdateDialog } from '@/components/layout/highlighted-update-dialog';
 import { ImpersonationBanner } from '@/components/layout/impersonation-banner';
 import { PaymentAlertBanner } from '@/components/layout/payment-alert-banner';
 import { PlatformBanner } from '@/components/layout/platform-banner';
@@ -45,6 +46,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <ImpersonationBanner />
                 <AppHeader />
                 <PlatformBanner />
+                <HighlightedUpdateDialog />
                 <PaymentAlertBanner />
                 <TrialBanner />
                 <div className="flex-1">{children}</div>

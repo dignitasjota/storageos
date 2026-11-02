@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Injectable } from '@nestjs/common';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
 import {
   DEFAULT_LEGAL_DOCUMENTS,
@@ -23,7 +23,8 @@ import type {
   PlatformWebsiteDto,
   SuperAdminNotificationDto,
   UpdateLegalDocumentInput,
-  UpdatePlatformBannerInput,
+  UpsertPlatformBannerInput,
+  AdminPlatformBannerDto,
   UpdatePlatformFooterInput,
   UpdatePlatformFounderOfferInput,
   UpdatePlatformSeoInput,
@@ -154,35 +155,73 @@ export class PlatformService {
     return this.getWebsite();
   }
 
-  // ---- banner global ----
+  // ---- banners ----
 
-  async getBanner(): Promise<PlatformBannerDto> {
-    let row = await this.admin.platformBanner.findFirst();
-    row ??= await this.admin.platformBanner.create({ data: {} });
-    return toBannerDto(row);
+  async listBanners(now = new Date()): Promise<AdminPlatformBannerDto[]> {
+    const rows = await this.admin.platformBanner.findMany({
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+    });
+    return rows.map((r) => toAdminBannerDto(r, now));
   }
 
-  /** Banner que ve el tenant: activo, con mensaje y sin pasar su fecha de fin. */
-  async getPublicBanner(now = new Date()): Promise<PlatformBannerDto | null> {
-    const row = await this.admin.platformBanner.findFirst();
-    if (!row?.enabled || !row.message.trim()) return null;
-    if (row.endsAt && row.endsAt <= now) return null;
-    return toBannerDto(row);
+  async createBanner(input: UpsertPlatformBannerInput): Promise<AdminPlatformBannerDto> {
+    const row = await this.admin.platformBanner.create({ data: bannerData(input) });
+    return toAdminBannerDto(row, new Date());
   }
 
-  async updateBanner(input: UpdatePlatformBannerInput): Promise<PlatformBannerDto> {
-    const existing = await this.admin.platformBanner.findFirst();
-    const data = {
-      message: input.message,
-      level: input.level,
-      enabled: input.enabled,
-      endsAt: input.endsAt ? new Date(input.endsAt) : null,
-      dismissible: input.dismissible,
-    };
-    const row = existing
-      ? await this.admin.platformBanner.update({ where: { id: existing.id }, data })
-      : await this.admin.platformBanner.create({ data });
-    return toBannerDto(row);
+  async updateBanner(
+    id: string,
+    input: UpsertPlatformBannerInput,
+  ): Promise<AdminPlatformBannerDto> {
+    await this.bannerOrThrow(id);
+    const row = await this.admin.platformBanner.update({ where: { id }, data: bannerData(input) });
+    return toAdminBannerDto(row, new Date());
+  }
+
+  async deleteBanner(id: string): Promise<void> {
+    await this.bannerOrThrow(id);
+    await this.admin.platformBanner.delete({ where: { id } });
+  }
+
+  private async bannerOrThrow(id: string): Promise<void> {
+    const exists = await this.admin.platformBanner.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!exists) {
+      throw new NotFoundException({ code: 'banner_not_found', message: 'Banner no encontrado' });
+    }
+  }
+
+  /**
+   * Banner que ve un tenant: el de más prioridad activo, dentro de sus fechas y
+   * cuyo público (plan, estado) incluye al tenant.
+   */
+  async getPublicBanner(tenantId: string, now = new Date()): Promise<PlatformBannerDto | null> {
+    const [rows, tenant] = await Promise.all([
+      this.admin.platformBanner.findMany({
+        where: {
+          enabled: true,
+          AND: [
+            { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+            { OR: [{ endsAt: null }, { endsAt: { gt: now } }] },
+          ],
+        },
+        orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+      }),
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { status: true, subscription: { select: { plan: { select: { slug: true } } } } },
+      }),
+    ]);
+    const plan = tenant?.subscription?.plan.slug ?? null;
+    const status = tenant?.status ?? null;
+    const row = rows.find(
+      (r) =>
+        (r.plans.length === 0 || (plan != null && r.plans.includes(plan))) &&
+        (r.statuses.length === 0 || (status != null && r.statuses.includes(status))),
+    );
+    return row ? toBannerDto(row) : null;
   }
 
   // ---- oferta fundador de la web de TrasterOS ----
@@ -332,22 +371,71 @@ export class PlatformService {
   }
 }
 
-function toBannerDto(row: {
+type BannerRow = {
+  id: string;
   message: string;
   level: string;
   enabled: boolean;
+  startsAt: Date | null;
   endsAt: Date | null;
   dismissible: boolean;
+  linkUrl: string | null;
+  linkLabel: string | null;
+  plans: string[];
+  statuses: string[];
+  priority: number;
   updatedAt: Date;
-}): PlatformBannerDto {
+};
+
+function bannerData(input: UpsertPlatformBannerInput) {
+  return {
+    message: input.message,
+    level: input.level,
+    enabled: input.enabled,
+    startsAt: input.startsAt ? new Date(input.startsAt) : null,
+    endsAt: input.endsAt ? new Date(input.endsAt) : null,
+    dismissible: input.dismissible,
+    linkUrl: input.linkUrl,
+    linkLabel: input.linkUrl ? (input.linkLabel ?? null) : null,
+    plans: input.plans,
+    statuses: input.statuses,
+    priority: input.priority,
+  };
+}
+
+function toBannerDto(row: BannerRow): PlatformBannerDto {
   const level = row.level as PlatformBannerDto['level'];
   return {
+    id: row.id,
     message: row.message,
     level,
     enabled: row.enabled,
+    linkUrl: row.linkUrl,
+    linkLabel: row.linkLabel,
     endsAt: row.endsAt?.toISOString() ?? null,
     // Un aviso crítico no se puede cerrar.
     dismissible: row.dismissible && level !== 'critical',
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toAdminBannerDto(row: BannerRow, now: Date): AdminPlatformBannerDto {
+  const level = row.level as AdminPlatformBannerDto['level'];
+  return {
+    id: row.id,
+    message: row.message,
+    level,
+    enabled: row.enabled,
+    startsAt: row.startsAt?.toISOString() ?? null,
+    endsAt: row.endsAt?.toISOString() ?? null,
+    dismissible: row.dismissible && level !== 'critical',
+    linkUrl: row.linkUrl,
+    linkLabel: row.linkLabel,
+    plans: row.plans,
+    statuses: row.statuses,
+    priority: row.priority,
+    live:
+      row.enabled && (!row.startsAt || row.startsAt <= now) && (!row.endsAt || row.endsAt > now),
     updatedAt: row.updatedAt.toISOString(),
   };
 }

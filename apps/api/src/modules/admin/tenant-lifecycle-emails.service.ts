@@ -12,6 +12,8 @@ import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
+import { PlatformEmailTemplatesService } from './platform-email-templates.service';
+
 import type { Env } from '../../config/env.schema';
 import type { AdminQuoteDto, TenantLifecycleRunResultDto } from '@storageos/shared';
 
@@ -64,6 +66,7 @@ export class TenantLifecycleEmailsService {
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
     config: ConfigService<Env, true>,
     private readonly audit: AuditService,
+    private readonly templates: PlatformEmailTemplatesService,
   ) {
     this.billingUrl = `${config.get('WEB_BASE_URL', { infer: true })}/settings/saas-billing`;
   }
@@ -160,9 +163,11 @@ export class TenantLifecycleEmailsService {
         .catch(() => undefined);
       if (sendEmail && !paid) {
         const limits = await this.freePlanLimitsNote(t.id, 'ended').catch(() => []);
-        await this.dispatch(t.id, 'trial_ended', this.trialEndedTemplate(t.name, limits)).catch(
-          () => false,
-        );
+        await this.dispatch(
+          t.id,
+          'trial_ended',
+          await this.trialEndedTemplate(t.name, limits),
+        ).catch(() => false);
       }
     }
     if (ended > 0) this.logger.log(`tenant-lifecycle: ${ended} pruebas vencidas pasan a Free`);
@@ -513,7 +518,8 @@ export class TenantLifecycleEmailsService {
     });
     let count = 0;
     for (const t of tenants) {
-      if (await this.dispatch(t.id, 'welcome', this.welcomeTemplate(t.name, t.slug))) count += 1;
+      if (await this.dispatch(t.id, 'welcome', await this.welcomeTemplate(t.name, t.slug)))
+        count += 1;
     }
     return count;
   }
@@ -539,7 +545,7 @@ export class TenantLifecycleEmailsService {
       });
       for (const t of tenants) {
         const limits = await this.freePlanLimitsNote(t.id, 'ending').catch(() => []);
-        const tmpl = this.trialTemplate(t.name, milestone.days, limits);
+        const tmpl = await this.trialTemplate(t.name, milestone.days, limits);
         if (await this.dispatch(t.id, milestone.type, tmpl)) count += 1;
       }
     }
@@ -559,7 +565,7 @@ export class TenantLifecycleEmailsService {
     });
     let count = 0;
     for (const t of tenants) {
-      if (await this.dispatch(t.id, 'past_due', this.pastDueTemplate(t.name))) count += 1;
+      if (await this.dispatch(t.id, 'past_due', await this.pastDueTemplate(t.name))) count += 1;
     }
     return count;
   }
@@ -650,90 +656,41 @@ export class TenantLifecycleEmailsService {
     ];
   }
 
-  private welcomeTemplate(tenantName: string, slug: string): EmailTemplate {
+  // Textos editables desde el panel admin (Comunicación → Correos automáticos).
+
+  private welcomeTemplate(tenantName: string, slug: string): Promise<EmailTemplate> {
     const base = this.billingUrl.replace('/settings/saas-billing', '');
-    const body = [
-      `¡Bienvenido a TrasterOS, ${tenantName}!`,
-      '',
-      'Gracias por darte de alta. Para entrar al panel te pediremos el identificador',
-      `de tu empresa: ${slug}`,
-      '',
-      'En el Resumen del panel tienes los primeros pasos para empezar a operar:',
-      'tu local, los tipos de trastero con sus precios, los trasteros (o impórtalos',
-      'desde un Excel), los datos de tu empresa y cómo te pagan tus inquilinos.',
-      '',
-      `Empezar: ${base}/dashboard`,
-      '',
-      `Tu web pública ya está activa: ${base}/s/${slug}`,
-      '',
-      'Si necesitas ayuda, responde a este correo o abre un ticket de soporte desde el panel.',
-      '',
-      'Un saludo,',
-      'El equipo de TrasterOS',
-    ].join('\n');
-    return { subject: '¡Bienvenido a TrasterOS!', ...renderEmail(body) };
+    return this.templates.render('welcome', {
+      empresa: tenantName,
+      identificador: slug,
+      enlace_panel: `${base}/dashboard`,
+      enlace_web: `${base}/s/${slug}`,
+    });
   }
 
-  private trialTemplate(tenantName: string, days: number, limits: string[] = []): EmailTemplate {
-    const daysLabel = days === 1 ? '1 día' : `${days} días`;
-    const body = [
-      `Hola, ${tenantName}:`,
-      '',
-      `Tu periodo de prueba termina en ${daysLabel}. Para no perder el acceso a tu cuenta`,
-      'ni a tus datos, suscríbete a un plan antes de que finalice:',
-      '',
-      this.billingUrl,
-      '',
-      'Elige el plan que mejor se ajuste a tu operativa; puedes cambiarlo en cualquier momento.',
-      ...(limits.length > 0 ? ['', ...limits] : []),
-      '',
-      '¿Dudas sobre qué plan te conviene? Responde a este correo y te ayudamos.',
-      '',
-      'Un saludo,',
-      'El equipo de TrasterOS',
-    ].join('\n');
-    return {
-      subject: `Tu prueba de TrasterOS termina en ${daysLabel}`,
-      ...renderEmail(body),
-    };
+  private trialTemplate(
+    tenantName: string,
+    days: number,
+    limits: string[] = [],
+  ): Promise<EmailTemplate> {
+    return this.templates.render('trial_ending', {
+      empresa: tenantName,
+      dias: days === 1 ? '1 día' : `${days} días`,
+      enlace_pago: this.billingUrl,
+      limites: limits.join('\n'),
+    });
   }
 
-  private trialEndedTemplate(tenantName: string, limits: string[] = []): EmailTemplate {
-    const body = [
-      `Hola, ${tenantName}:`,
-      '',
-      'Tu periodo de prueba de TrasterOS ha terminado y tu cuenta ha pasado al plan gratuito.',
-      'Tus datos siguen ahí y puedes seguir entrando, pero las funciones de pago quedan',
-      'desactivadas hasta que contrates un plan:',
-      ...(limits.length > 0 ? ['', ...limits] : []),
-      '',
-      this.billingUrl,
-      '',
-      '¿Necesitas más tiempo para probar? Responde a este correo y lo vemos.',
-      '',
-      'Un saludo,',
-      'El equipo de TrasterOS',
-    ].join('\n');
-    return { subject: 'Tu prueba de TrasterOS ha terminado', ...renderEmail(body) };
+  private trialEndedTemplate(tenantName: string, limits: string[] = []): Promise<EmailTemplate> {
+    return this.templates.render('trial_ended', {
+      empresa: tenantName,
+      enlace_pago: this.billingUrl,
+      limites: limits.join('\n'),
+    });
   }
 
-  private pastDueTemplate(tenantName: string): EmailTemplate {
-    const body = [
-      `Hola, ${tenantName}:`,
-      '',
-      'No hemos podido cobrar la cuota de tu suscripción a TrasterOS. Para mantener tu cuenta',
-      'activa y evitar la suspensión del servicio, por favor regulariza el pago:',
-      '',
-      this.billingUrl,
-      '',
-      'Desde ahí puedes actualizar tu método de pago o completar el pago pendiente.',
-      '',
-      'Si crees que se trata de un error o necesitas ayuda, responde a este correo.',
-      '',
-      'Un saludo,',
-      'El equipo de TrasterOS',
-    ].join('\n');
-    return { subject: 'No hemos podido cobrar tu suscripción a TrasterOS', ...renderEmail(body) };
+  private pastDueTemplate(tenantName: string): Promise<EmailTemplate> {
+    return this.templates.render('past_due', { empresa: tenantName, enlace_pago: this.billingUrl });
   }
 }
 

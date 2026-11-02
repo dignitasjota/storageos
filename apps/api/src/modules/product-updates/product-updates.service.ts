@@ -1,8 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { tenantFeatures } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 
 import type {
   AdminProductUpdateDto,
@@ -20,6 +23,8 @@ type Row = {
   feature: string | null;
   link: string | null;
   publishedAt: Date | null;
+  imageKey: string | null;
+  highlighted: boolean;
   createdAt: Date;
   updatedAt: Date;
   createdBy?: { fullName: string } | null;
@@ -38,7 +43,28 @@ export class ProductUpdatesService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly prisma: PrismaService,
+    private readonly files: FilesService,
   ) {}
+
+  private static readonly IMAGE_PREFIX = 'platform/updates/';
+
+  /** Subida de la captura (bucket público). */
+  async requestImageUpload(
+    mimeType: string,
+  ): Promise<{ uploadUrl: string; key: string; requiredHeaders: Record<string, string> }> {
+    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+    const key = `${ProductUpdatesService.IMAGE_PREFIX}${randomUUID()}.${ext}`;
+    const { uploadUrl } = await this.files.getPresignedPutUrl({
+      bucket: 'public',
+      key,
+      contentType: mimeType,
+    });
+    return { uploadUrl, key, requiredHeaders: { 'Content-Type': mimeType } };
+  }
+
+  private imageUrl(key: string | null): string | null {
+    return key ? this.files.buildPublicUrl('public', key) : null;
+  }
 
   // --- Super admin ---
 
@@ -47,41 +73,77 @@ export class ProductUpdatesService {
       orderBy: [{ publishedAt: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
       include: { createdBy: { select: { fullName: true } } },
     });
-    return rows.map((r) => this.toAdminDto(r));
+    const seen = await Promise.all(rows.map((r) => this.seenBy(r.publishedAt)));
+    return rows.map((r, i) => this.toAdminDto(r, seen[i] ?? 0));
+  }
+
+  /** Usuarios activos que abrieron «Novedades» desde que se publicó. */
+  private async seenBy(publishedAt: Date | null): Promise<number> {
+    if (!publishedAt || publishedAt > new Date()) return 0;
+    return this.admin.user.count({
+      where: { isActive: true, productUpdatesSeenAt: { gte: publishedAt } },
+    });
+  }
+
+  private async checkImage(key: string | null | undefined): Promise<void> {
+    if (!key) return;
+    if (!key.startsWith(ProductUpdatesService.IMAGE_PREFIX) || key.includes('..')) {
+      throw new BadRequestException({ code: 'invalid_image_key', message: 'Imagen no válida' });
+    }
+    await this.files.assertObjectMimeType(
+      'public',
+      key,
+      ['image/png', 'image/jpeg', 'image/webp'],
+      5 * 1024 * 1024,
+    );
   }
 
   async create(
     input: UpsertProductUpdateInput,
     superAdminId: string,
   ): Promise<AdminProductUpdateDto> {
+    await this.checkImage(input.imageKey);
+    const at = input.publishAt ? new Date(input.publishAt) : new Date();
     const row = await this.admin.productUpdate.create({
       data: {
         ...this.fields(input),
-        ...(input.published ? { publishedAt: new Date(), firstPublishedAt: new Date() } : {}),
+        ...(input.imageKey !== undefined ? { imageKey: input.imageKey } : {}),
+        ...(input.published ? { publishedAt: at, firstPublishedAt: at } : {}),
         createdById: superAdminId,
       },
       include: { createdBy: { select: { fullName: true } } },
     });
-    return this.toAdminDto(row);
+    return this.toAdminDto(row, 0);
   }
 
   async update(id: string, input: UpsertProductUpdateInput): Promise<AdminProductUpdateDto> {
     const current = await this.admin.productUpdate.findUnique({ where: { id } });
     if (!current) throw new NotFoundException({ code: 'product_update_not_found' });
+    await this.checkImage(input.imageKey);
     // Publicar conserva la fecha de la primera publicación: corregir una errata
-    // o despublicar y volver a publicar no la saca como nueva.
-    const firstPublishedAt = current.firstPublishedAt ?? current.publishedAt;
-    const publishedAt = input.published ? (firstPublishedAt ?? new Date()) : null;
+    // o despublicar y volver a publicar no la saca como nueva. Mientras una
+    // programada no ha salido, su fecha se puede cambiar.
+    const now = new Date();
+    const first = current.firstPublishedAt ?? current.publishedAt;
+    const wentLive = first != null && first <= now;
+    const publishedAt = !input.published
+      ? null
+      : wentLive
+        ? first
+        : input.publishAt
+          ? new Date(input.publishAt)
+          : now;
     const row = await this.admin.productUpdate.update({
       where: { id },
       data: {
         ...this.fields(input),
+        ...(input.imageKey !== undefined ? { imageKey: input.imageKey } : {}),
         publishedAt,
-        ...(input.published && !firstPublishedAt ? { firstPublishedAt: publishedAt } : {}),
+        ...(input.published && !wentLive ? { firstPublishedAt: publishedAt } : {}),
       },
       include: { createdBy: { select: { fullName: true } } },
     });
-    return this.toAdminDto(row);
+    return this.toAdminDto(row, await this.seenBy(row.publishedAt));
   }
 
   async remove(id: string): Promise<void> {
@@ -110,6 +172,8 @@ export class ProductUpdatesService {
       featureIncluded: r.feature ? features.includes(r.feature as TenantFeature) : null,
       link: r.link,
       publishedAt: r.publishedAt!.toISOString(),
+      highlighted: r.highlighted,
+      imageUrl: this.imageUrl(r.imageKey),
       unread: !seenAt || r.publishedAt! > seenAt,
     }));
   }
@@ -154,10 +218,11 @@ export class ProductUpdatesService {
       category: input.category,
       feature: input.feature ?? null,
       link: input.link ?? null,
+      highlighted: input.highlighted,
     };
   }
 
-  private toAdminDto(r: Row): AdminProductUpdateDto {
+  private toAdminDto(r: Row, seenBy: number): AdminProductUpdateDto {
     return {
       id: r.id,
       title: r.title,
@@ -166,6 +231,10 @@ export class ProductUpdatesService {
       feature: (r.feature as TenantFeature | null) ?? null,
       link: r.link,
       publishedAt: r.publishedAt?.toISOString() ?? null,
+      scheduled: r.publishedAt != null && r.publishedAt > new Date(),
+      highlighted: r.highlighted,
+      imageUrl: this.imageUrl(r.imageKey),
+      seenBy,
       authorName: r.createdBy?.fullName ?? null,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),

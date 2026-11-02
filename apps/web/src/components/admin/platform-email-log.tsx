@@ -7,12 +7,15 @@ import {
   type PlatformEmailLogDto,
   type PlatformEmailLogStatus,
 } from '@storageos/shared';
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, Eye, Loader2, RotateCw } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -21,7 +24,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { adminApiFetchBlob } from '@/lib/admin/api';
+import { useEmailBody, useResendEmail } from '@/lib/admin/comms-hooks';
 import { useAdminEmailLog } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
+import { ApiError } from '@/lib/auth/api';
 
 const STATUS: Record<PlatformEmailLogStatus, { label: string; className: string }> = {
   sent: {
@@ -57,7 +64,8 @@ export function PlatformEmailLog({ tenantId }: { tenantId?: string }) {
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState('all');
   const [status, setStatus] = useState('all');
-  // `?kind=` y `?status=` en la dirección (p. ej. desde un anuncio recién enviado).
+  const [announcementId, setAnnouncementId] = useState<string | null>(null);
+  // `?kind=`, `?status=` y `?announcementId=` en la dirección (p. ej. desde un anuncio recién enviado).
   useEffect(() => {
     if (tenantId) return;
     const qs = new URLSearchParams(window.location.search);
@@ -65,6 +73,8 @@ export function PlatformEmailLog({ tenantId }: { tenantId?: string }) {
     const st = qs.get('status');
     if (k && (PLATFORM_EMAIL_KINDS as readonly string[]).includes(k)) setKind(k);
     if (st && st in STATUS) setStatus(st);
+    const a = qs.get('announcementId');
+    if (a && /^[0-9a-f-]{36}$/i.test(a)) setAnnouncementId(a);
   }, [tenantId]);
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput.trim()), 300);
@@ -76,6 +86,7 @@ export function PlatformEmailLog({ tenantId }: { tenantId?: string }) {
     ...(search ? { search } : {}),
     ...(kind !== 'all' ? { kind } : {}),
     ...(status !== 'all' ? { status } : {}),
+    ...(announcementId ? { announcementId } : {}),
   });
   const rows = useMemo(() => log.data?.pages.flatMap((p) => p.items) ?? [], [log.data]);
 
@@ -116,7 +127,40 @@ export function PlatformEmailLog({ tenantId }: { tenantId?: string }) {
             ))}
           </SelectContent>
         </Select>
+        <Button
+          variant="outline"
+          onClick={() => {
+            const qs = new URLSearchParams();
+            if (tenantId) qs.set('tenantId', tenantId);
+            if (search) qs.set('search', search);
+            if (kind !== 'all') qs.set('kind', kind);
+            if (status !== 'all') qs.set('status', status);
+            if (announcementId) qs.set('announcementId', announcementId);
+            void adminApiFetchBlob(`/admin/email-log/export?${qs}`).then((blob) => {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'correos-enviados.csv';
+              a.click();
+              URL.revokeObjectURL(url);
+            });
+          }}
+        >
+          <Download className="mr-1.5 size-4" /> CSV
+        </Button>
       </div>
+      {announcementId && (
+        <p className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          Solo los correos de un anuncio.
+          <button
+            type="button"
+            className="text-primary hover:underline"
+            onClick={() => setAnnouncementId(null)}
+          >
+            Ver todos
+          </button>
+        </p>
+      )}
 
       {log.isLoading ? (
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -149,6 +193,10 @@ export function PlatformEmailLog({ tenantId }: { tenantId?: string }) {
 
 function EmailRow({ row, showTenant }: { row: PlatformEmailLogDto; showTenant: boolean }) {
   const [open, setOpen] = useState(false);
+  const [viewing, setViewing] = useState(false);
+  const resend = useResendEmail();
+  const canEdit = useIsSuperadmin();
+  const confirm = useConfirm();
   const st = STATUS[row.status];
   return (
     <li className="p-3 text-sm">
@@ -192,6 +240,38 @@ function EmailRow({ row, showTenant }: { row: PlatformEmailLogDto; showTenant: b
               : ''}
           </p>
           {row.errorMessage && <p className="text-destructive">{row.errorMessage}</p>}
+          {row.hasHtml && (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => setViewing(true)}>
+                <Eye className="mr-1 size-3.5" /> Ver el correo
+              </Button>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={resend.isPending}
+                  onClick={async () => {
+                    if (!(await confirm({ title: `¿Reenviar este correo a ${row.recipient}?` })))
+                      return;
+                    try {
+                      const r = await resend.mutateAsync(row.id);
+                      if (r.suppressed) toast.error(r.suppressed);
+                      else toast.success('Correo reenviado.');
+                    } catch (err) {
+                      toast.error(
+                        err instanceof ApiError ? err.body.message : 'No se pudo reenviar.',
+                      );
+                    }
+                  }}
+                >
+                  <RotateCw className="mr-1 size-3.5" /> Reenviar
+                </Button>
+              )}
+            </div>
+          )}
+          {viewing && (
+            <EmailBodyDialog id={row.id} subject={row.subject} onClose={() => setViewing(false)} />
+          )}
           {row.bodyText ? (
             <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-sans">
               {row.bodyText}
@@ -204,5 +284,38 @@ function EmailRow({ row, showTenant }: { row: PlatformEmailLogDto; showTenant: b
         </div>
       )}
     </li>
+  );
+}
+
+function EmailBodyDialog({
+  id,
+  subject,
+  onClose,
+}: {
+  id: string;
+  subject: string;
+  onClose: () => void;
+}) {
+  const body = useEmailBody(id);
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="truncate">{subject}</DialogTitle>
+        </DialogHeader>
+        {body.isLoading ? (
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        ) : body.data?.html ? (
+          <iframe
+            title="Correo enviado"
+            sandbox=""
+            srcDoc={body.data.html}
+            className="h-[520px] w-full rounded-md border bg-white"
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">No se guardó el HTML de este correo.</p>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

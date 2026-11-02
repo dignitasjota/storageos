@@ -5,10 +5,11 @@ import { apiFetch } from '../auth/api';
 import type { ProductUpdateDto } from '@storageos/shared';
 
 /** «Novedades» de la plataforma (vista del tenant). */
-export function useProductUpdates() {
+export function useProductUpdates(enabled = true) {
   return useQuery({
     queryKey: ['product-updates'] as const,
     queryFn: () => apiFetch<ProductUpdateDto[]>('/product-updates'),
+    enabled,
   });
 }
 

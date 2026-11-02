@@ -73,6 +73,10 @@ export default function ProductUpdatesPage() {
               <CardTitle className="text-lg">{u.title}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {u.imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={u.imageUrl} alt="" className="w-full max-w-2xl rounded-md border" />
+              )}
               <MarkdownView content={u.body} />
               <div className="flex flex-wrap items-center gap-3">
                 {u.link && (
