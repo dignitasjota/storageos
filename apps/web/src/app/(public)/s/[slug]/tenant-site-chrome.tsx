@@ -14,7 +14,7 @@ type Brand = ComponentProps<typeof TenantWebChrome>['data'];
 
 /**
  * La misma cabecera y el mismo pie que la portada del tenant, para las páginas
- * de su web que no son la portada (reserva y firma). Las plantillas con marco
+ * de su web que no son la portada (reserva, firma y blog). Las plantillas con marco
  * propio (Onepage, Escaparate, Corporativa, OnePageMovil, Trstrom y Cabe) lo
  * pintan alrededor del contenido; el resto usa `TenantWebChrome` con la
  * plantilla y el color de la cabecera de la portada. Si la portada no se puede
@@ -26,6 +26,7 @@ export async function TenantSiteChrome({
   locale,
   googleAnalyticsId,
   languageHrefBuilder,
+  hideReserve = true,
   children,
 }: {
   slug: string;
@@ -33,6 +34,8 @@ export async function TenantSiteChrome({
   locale: PublicWebLocale;
   googleAnalyticsId?: string | null;
   languageHrefBuilder?: (locale: PublicWebLocale) => string;
+  /** Sin «Reservar» en el marco genérico (en la propia reserva y en la firma). */
+  hideReserve?: boolean;
   children: ReactNode;
 }) {
   const landing = await getLanding(slug).catch(() => null);
@@ -64,7 +67,7 @@ export async function TenantSiteChrome({
   }
   return (
     <TenantWebChrome
-      hideReserve
+      hideReserve={hideReserve}
       locale={locale}
       data={landing ?? fallback}
       hasBlog={landing?.hasBlog}

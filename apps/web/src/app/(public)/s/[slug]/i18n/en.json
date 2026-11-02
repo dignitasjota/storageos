@@ -501,7 +501,8 @@
       "readMore": "Read more",
       "backToBlog": "Back to blog",
       "publishedOn": "Published on {date}",
-      "relatedFacilitiesTitle": "Our locations"
+      "relatedFacilitiesTitle": "Our locations",
+      "relatedPostsTitle": "You may also like"
     },
     "funnel": {
       "stepOf": "Step {current} of {total}",

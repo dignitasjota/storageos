@@ -4786,9 +4786,13 @@ model BlogPost {
   contentMarkdown String    @map("content_markdown")
   /// Key de objeto MinIO (bucket público) de la imagen de portada.
   coverImageKey   String?   @map("cover_image_key")
+  /// Texto alternativo de la portada (si no, el título).
+  coverImageAlt   String?   @map("cover_image_alt")
   /// Overrides opcionales de `<title>`/meta description; si no, se derivan del título/excerpt.
   seoTitle        String?   @map("seo_title")
   seoDescription  String?   @map("seo_description")
+  /// Entradas relacionadas elegidas a mano (hasta 3), en orden.
+  relatedPostIds  String[]  @default([]) @map("related_post_ids") @db.Uuid
   isPublished     Boolean   @default(false) @map("is_published")
   publishedAt     DateTime? @map("published_at") @db.Timestamptz(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -35,6 +35,7 @@ import { promotionUnitId } from '../promotions/promotions.service';
 
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
+import type { Prisma } from '@storageos/database';
 import type {
   PublicAreaPageContentDto,
   LeadDto,
@@ -60,6 +61,16 @@ import type {
   PublicTenantBrandDto,
   ResolveDomainDto,
 } from '@storageos/shared';
+
+/** Lo que se lee de una entrada del blog para listarla. */
+const BLOG_SUMMARY_SELECT = {
+  slug: true,
+  title: true,
+  excerpt: true,
+  coverImageKey: true,
+  coverImageAlt: true,
+  publishedAt: true,
+} satisfies Prisma.BlogPostSelect;
 
 /**
  * Datos públicos para la landing por tenant (`/s/[slug]`). Sin auth ni RLS:
@@ -395,13 +406,7 @@ export class LandingService {
       hasWebPremium
         ? this.admin.blogPost.findMany({
             where: { tenantId: tenant.id, isPublished: true },
-            select: {
-              slug: true,
-              title: true,
-              excerpt: true,
-              coverImageKey: true,
-              publishedAt: true,
-            },
+            select: BLOG_SUMMARY_SELECT,
             orderBy: { publishedAt: 'desc' },
             take: 4,
           })
@@ -446,15 +451,7 @@ export class LandingService {
       contactEnabled: sections.contact,
       activePromotion,
       hasBlog: latestPosts.length > 0,
-      latestBlogPosts: latestPosts.map((r) => ({
-        slug: r.slug,
-        title: r.title,
-        excerpt: r.excerpt,
-        coverImageUrl: r.coverImageKey
-          ? this.files.buildPublicUrl('public', r.coverImageKey)
-          : null,
-        publishedAt: r.publishedAt!.toISOString(),
-      })),
+      latestBlogPosts: latestPosts.map((r) => this.blogSummary(r)),
       facilities: facilities.map((f) => ({
         id: f.id,
         publicSlug: f.publicSlug,
@@ -1082,13 +1079,7 @@ export class LandingService {
     const [rows, facilities] = await Promise.all([
       this.admin.blogPost.findMany({
         where: { tenantId: tenant.id, isPublished: true },
-        select: {
-          slug: true,
-          title: true,
-          excerpt: true,
-          coverImageKey: true,
-          publishedAt: true,
-        },
+        select: BLOG_SUMMARY_SELECT,
         orderBy: { publishedAt: 'desc' },
         take: 100,
       }),
@@ -1104,16 +1095,7 @@ export class LandingService {
       webHeaderBranded: tenant.webHeaderBranded,
       googleAnalyticsId: tenant.googleAnalyticsId,
       facilities,
-      posts: rows.map((r) => ({
-        slug: r.slug,
-        title: r.title,
-        excerpt: r.excerpt,
-        coverImageUrl: r.coverImageKey
-          ? this.files.buildPublicUrl('public', r.coverImageKey)
-          : null,
-        // `isPublished:true` siempre trae `publishedAt` (se fija al publicar).
-        publishedAt: r.publishedAt!.toISOString(),
-      })),
+      posts: rows.map((r) => this.blogSummary(r)),
     };
   }
 
@@ -1129,6 +1111,7 @@ export class LandingService {
     if (!row) {
       throw new NotFoundException({ code: 'blog_post_not_found', message: 'No encontrado' });
     }
+    const related = await this.relatedBlogPosts(tenant.id, row.id, row.relatedPostIds);
     return {
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
@@ -1147,11 +1130,51 @@ export class LandingService {
         coverImageUrl: row.coverImageKey
           ? this.files.buildPublicUrl('public', row.coverImageKey)
           : null,
+        coverImageAlt: row.coverImageAlt || row.title,
         seoTitle: row.seoTitle,
         seoDescription: row.seoDescription,
         publishedAt: row.publishedAt!.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
       },
+      related,
     };
+  }
+
+  private blogSummary(r: Prisma.BlogPostGetPayload<{ select: typeof BLOG_SUMMARY_SELECT }>) {
+    return {
+      slug: r.slug,
+      title: r.title,
+      excerpt: r.excerpt,
+      coverImageUrl: r.coverImageKey ? this.files.buildPublicUrl('public', r.coverImageKey) : null,
+      coverImageAlt: r.coverImageAlt || r.title,
+      // `isPublished:true` siempre trae `publishedAt` (se fija al publicar).
+      publishedAt: r.publishedAt!.toISOString(),
+    };
+  }
+
+  /**
+   * «Te puede interesar»: las elegidas a mano que sigan publicadas, en su
+   * orden; sin ninguna, las 3 últimas publicadas (sin la propia).
+   */
+  private async relatedBlogPosts(tenantId: string, postId: string, chosen: string[]) {
+    if (chosen.length > 0) {
+      const rows = await this.admin.blogPost.findMany({
+        where: { tenantId, id: { in: chosen, not: postId }, isPublished: true },
+        select: { ...BLOG_SUMMARY_SELECT, id: true },
+      });
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      const ordered = chosen.flatMap((id) => {
+        const r = byId.get(id);
+        return r ? [r] : [];
+      });
+      if (ordered.length > 0) return ordered.map((r) => this.blogSummary(r));
+    }
+    const latest = await this.admin.blogPost.findMany({
+      where: { tenantId, isPublished: true, id: { not: postId } },
+      select: BLOG_SUMMARY_SELECT,
+      orderBy: { publishedAt: 'desc' },
+      take: 3,
+    });
+    return latest.map((r) => this.blogSummary(r));
   }
 }

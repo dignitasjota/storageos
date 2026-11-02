@@ -868,3 +868,7 @@ Pendiente (menor): avisar cuando un tenant baja de nivel de salud de un mes a ot
 ### Condiciones generales de contratación en la web del tenant (2026-10-29)
 
 Cuarto texto legal, editable como los demás, con un texto por defecto rellenado con los datos de cada negocio y enlazado en el pie y en la reserva online. Casilla obligatoria antes de pagar (firma online y en el local) y versión exacta aceptada guardada por contrato, visible en la ficha y con el historial de versiones en Configuración.
+
+### Blog del tenant: herramientas de SEO (2026-11-02) ✅
+
+Texto alternativo y nombre de fichero de la portada; enlaces a secciones de la web (`web:…`, válidos en trasteros.pro y en el dominio propio) y a webs externas; botones de llamada a la acción y widgets (calculadora, tamaños y precios, locales) dentro del post; «Te puede interesar» con hasta 3 entradas elegidas o las últimas; blog con la cabecera y el pie de la portada; «Nueva entrada» ya no sale con los datos de la última abierta. **Pendiente**: el resto de subpáginas (fichas de local, ciudades, textos legales, landings) siguen con el marco común.

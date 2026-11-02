@@ -1035,3 +1035,7 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `tenants.web_chat_enabled` (por defecto sí), `web_chat_instructions`, `web_chat_monthly_limit` (null = el general), `web_chat_limit_notified`, `web_chat_key_notified` (aviso mensual de que falta la clave propia).
 - `platform_ai_settings.web_monthly_limit` (300), `web_visitor_daily_limit` (15), `web_model` (null = `claude-haiku-5-5`).
 - `ai_usage_events.feature = 'web_chat'`: respuestas del chat de la web; cuentan para su propio límite, no para el del panel.
+
+### Blog: herramientas de SEO (2026-11-02, migración `20261209100000_blog_seo_tools`)
+
+- `blog_posts.cover_image_alt` (texto alternativo de la portada; null = el título) y `related_post_ids` (UUID[], hasta 3, en orden; las que ya no existan o no estén publicadas no salen).
