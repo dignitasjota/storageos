@@ -9,7 +9,7 @@ import {
   type SupportTicketPriorityValue,
   type SupportTicketStatusValue,
 } from '@storageos/shared';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Paperclip, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -44,7 +44,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { ApiError } from '@/lib/auth/api';
+import { ApiError, apiFetch } from '@/lib/auth/api';
 import {
   presignTicketAttachment,
   useCreateSupportTicket,
@@ -223,6 +223,30 @@ function PlatformMessages() {
                   // Markdown sencillo ya escapado (mismo formato que el correo).
                   dangerouslySetInnerHTML={{ __html: adminMessageHtml(m.body) }}
                 />
+                {m.attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {m.attachments.map((f, i) => (
+                      <Button
+                        key={`${m.id}-${i}`}
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            const r = await apiFetch<{ url: string }>(
+                              `/support/platform-messages/${m.id}/attachments/${i}`,
+                            );
+                            window.open(r.url, '_blank', 'noopener');
+                          } catch {
+                            toast.error('No se pudo descargar el adjunto.');
+                          }
+                        }}
+                      >
+                        <Paperclip className="mr-1.5 size-3.5" />
+                        {f.name}
+                      </Button>
+                    ))}
+                  </div>
+                )}
                 {m.ticketId ? (
                   <Button asChild size="sm" variant="outline">
                     <Link href={`/support/${m.ticketId}`}>Responder</Link>

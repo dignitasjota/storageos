@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  RequestPlatformLogoUploadSchema,
   UpsertProductUpdateSchema,
   type AdminProductUpdateDto,
   type ProductUpdateDto,
@@ -32,6 +33,7 @@ import { ProductUpdatesService } from './product-updates.service';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 
 class UpsertProductUpdateDto extends createZodDto(UpsertProductUpdateSchema) {}
+class ImageUploadDto extends createZodDto(RequestPlatformLogoUploadSchema) {}
 
 /** Novedades vistas por cualquier usuario del tenant (sin permiso especial). */
 @Controller('product-updates')
@@ -65,6 +67,13 @@ export class AdminProductUpdatesController {
   @Get()
   list(): Promise<AdminProductUpdateDto[]> {
     return this.service.adminList();
+  }
+
+  /** Subida de la captura de una novedad (PNG, JPG o WebP, bucket público). */
+  @Post('image-upload-url')
+  @RequireSuperadmin()
+  imageUpload(@Body() body: ImageUploadDto) {
+    return this.service.requestImageUpload(body.mimeType);
   }
 
   @Post()

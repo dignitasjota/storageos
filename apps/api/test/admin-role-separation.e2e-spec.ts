@@ -168,7 +168,7 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
       ['post', '/admin/platform-dunning/run'],
       ['put', '/admin/platform-billing/settings'],
       ['post', '/admin/platform-invoices/issue'],
-      ['put', '/admin/platform/banner'],
+      ['post', '/admin/platform/banners'],
       ['put', '/admin/platform/legal/terms'],
       ['put', '/admin/platform-alerts'],
       ['post', '/admin/queues/email/clean-failed'],
@@ -191,15 +191,16 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
 
     // El superadmin sí; y el cambio queda en el registro (sin valores, solo campos).
     const since = new Date();
-    await request(app.getHttpServer())
-      .put('/admin/platform/banner')
+    const banner = await request(app.getHttpServer())
+      .post('/admin/platform/banners')
       .set('Authorization', `Bearer ${superToken}`)
       .send({ message: 'Prueba', level: 'info', enabled: false })
-      .expect(200);
+      .expect(201);
+    await adminClient.platformBanner.delete({ where: { id: banner.body.id } });
     let row = null;
     for (let i = 0; i < 20 && !row; i++) {
       row = await adminClient.superAdminAuditLog.findFirst({
-        where: { action: 'admin.platform.banner_updated', occurredAt: { gte: since } },
+        where: { action: 'admin.platform.banner_created', occurredAt: { gte: since } },
         include: { superAdmin: { select: { email: true } } },
       });
       if (!row) await new Promise((r) => setTimeout(r, 100));

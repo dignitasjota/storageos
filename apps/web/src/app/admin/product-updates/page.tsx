@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { useConfirm } from '@/components/confirm-provider';
+import { DateTimeSelect } from '@/components/date-time-select';
 import { MarkdownView } from '@/components/public/markdown-view';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,12 +37,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { adminApiFetch } from '@/lib/admin/api';
 import {
   useAdminProductUpdates,
   useDeleteProductUpdate,
   useSaveProductUpdate,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { formatDateTime } from '@/lib/format';
 
 const NO_FEATURE = '__none__';
 
@@ -51,9 +54,23 @@ interface FormState {
   category: ProductUpdateCategory;
   feature: TenantFeature | null;
   link: string;
+  highlighted: boolean;
+  publishAt: string | null;
+  imageKey: string | null;
+  imageUrl: string | null;
 }
 
-const EMPTY: FormState = { title: '', body: '', category: 'new', feature: null, link: '' };
+const EMPTY: FormState = {
+  title: '',
+  body: '',
+  category: 'new',
+  feature: null,
+  link: '',
+  highlighted: false,
+  publishAt: null,
+  imageKey: null,
+  imageUrl: null,
+};
 
 /** «Novedades» que ven todos los tenants en su panel. */
 export default function AdminProductUpdatesPage() {
@@ -114,18 +131,22 @@ export default function AdminProductUpdatesPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{u.title}</span>
-                    {u.publishedAt ? (
+                    {u.scheduled && u.publishedAt ? (
+                      <Badge variant="outline">Se publica el {formatDateTime(u.publishedAt)}</Badge>
+                    ) : u.publishedAt ? (
                       <Badge variant="secondary">
                         Publicada el {new Date(u.publishedAt).toLocaleDateString('es-ES')}
                       </Badge>
                     ) : (
                       <Badge variant="outline">Borrador</Badge>
                     )}
+                    {u.highlighted && <Badge>Destacada</Badge>}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {PRODUCT_UPDATE_CATEGORY_LABELS[u.category]}
                     {u.feature ? ` · ${FEATURE_LABELS[u.feature]}` : ''}
                     {u.authorName ? ` · ${u.authorName}` : ''}
+                    {u.publishedAt && !u.scheduled ? ` · la han visto ${u.seenBy} usuario(s)` : ''}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-1">
@@ -180,10 +201,48 @@ function ProductUpdateDialog({
           category: initial.category,
           feature: initial.feature,
           link: initial.link ?? '',
+          highlighted: initial.highlighted,
+          publishAt: initial.scheduled ? initial.publishedAt : null,
+          imageKey: null,
+          imageUrl: initial.imageUrl,
         }
       : EMPTY,
   );
   const [preview, setPreview] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  // undefined = no tocar la captura; null = quitarla.
+  const [imageKey, setImageKey] = useState<string | null | undefined>(undefined);
+
+  async function onImage(file: File | undefined) {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      toast.error('La captura debe ser PNG, JPG o WebP.');
+      return;
+    }
+    setUploading(true);
+    try {
+      const up = await adminApiFetch<{
+        uploadUrl: string;
+        key: string;
+        requiredHeaders: Record<string, string>;
+      }>('/admin/product-updates/image-upload-url', {
+        method: 'POST',
+        json: { mimeType: file.type, sizeBytes: file.size },
+      });
+      const put = await fetch(up.uploadUrl, {
+        method: 'PUT',
+        headers: up.requiredHeaders,
+        body: file,
+      });
+      if (!put.ok) throw new Error('upload');
+      setImageKey(up.key);
+      setForm((f) => ({ ...f, imageUrl: URL.createObjectURL(file) }));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo subir la captura.');
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function submit(published: boolean) {
     try {
@@ -196,9 +255,18 @@ function ProductUpdateDialog({
           feature: form.feature,
           link: form.link.trim() || null,
           published,
+          highlighted: form.highlighted,
+          publishAt: form.publishAt,
+          ...(imageKey !== undefined ? { imageKey } : {}),
         },
       });
-      toast.success(published ? 'Novedad publicada.' : 'Guardada como borrador.');
+      toast.success(
+        !published
+          ? 'Guardada como borrador.'
+          : form.publishAt && new Date(form.publishAt) > new Date()
+            ? `Se publicará el ${formatDateTime(form.publishAt)}.`
+            : 'Novedad publicada.',
+      );
       onClose();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
@@ -285,6 +353,10 @@ function ProductUpdateDialog({
               <div className="min-h-40 space-y-2 rounded-md border p-3">
                 <p className="font-medium">{form.title || 'Sin título'}</p>
                 <MarkdownView content={form.body || '_Sin texto_'} />
+                {form.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={form.imageUrl} alt="" className="w-full rounded-md border" />
+                )}
                 {form.feature && (
                   <p className="rounded-md bg-muted px-3 py-2 text-xs">
                     Así lo ve un tenant sin la función: {FEATURE_LABELS[form.feature]} no está en tu
@@ -310,6 +382,65 @@ function ProductUpdateDialog({
               Los tenants que no la tengan verán un enlace a los planes y extras.
             </p>
           )}
+          <div className="space-y-1.5">
+            <Label>Captura (opcional)</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="w-60"
+                disabled={uploading}
+                onChange={(e) => void onImage(e.target.files?.[0])}
+              />
+              {form.imageUrl && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setImageKey(null);
+                    setForm((f) => ({ ...f, imageUrl: null }));
+                  }}
+                >
+                  Quitar
+                </Button>
+              )}
+            </div>
+            {form.imageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={form.imageUrl} alt="" className="max-h-40 rounded-md border" />
+            )}
+          </div>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={form.highlighted}
+              onChange={(e) => setForm({ ...form, highlighted: e.target.checked })}
+            />
+            <span>Destacada: se enseña en un aviso al entrar al panel (una vez por usuario).</span>
+          </label>
+          {!initial?.publishedAt || initial.scheduled ? (
+            <div className="space-y-1.5">
+              <Label>Publicar más adelante (opcional)</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <DateTimeSelect
+                  value={form.publishAt}
+                  onChange={(publishAt) => setForm({ ...form, publishAt })}
+                />
+                {form.publishAt && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setForm({ ...form, publishAt: null })}
+                  >
+                    Publicar al guardar
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
         <DialogFooter className="gap-2">
           <Button
@@ -319,8 +450,15 @@ function ProductUpdateDialog({
           >
             {initial?.publishedAt ? 'Despublicar' : 'Guardar borrador'}
           </Button>
-          <Button disabled={!valid || save.isPending} onClick={() => void submit(true)}>
-            {initial?.publishedAt ? 'Guardar' : 'Publicar'}
+          <Button
+            disabled={!valid || save.isPending || uploading}
+            onClick={() => void submit(true)}
+          >
+            {initial?.publishedAt && !initial.scheduled
+              ? 'Guardar'
+              : form.publishAt
+                ? 'Programar'
+                : 'Publicar'}
           </Button>
         </DialogFooter>
       </DialogContent>

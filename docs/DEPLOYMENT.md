@@ -1660,3 +1660,13 @@ Migración `20261210100000_admin_comms_review` (se aplica sola). Sin variables n
 - El correo a los tenants seleccionados ya no llega a los dados de baja.
 - El banner tiene fecha de fin, se puede cerrar (salvo el crítico) y se ve en un minuto, no en cinco.
 - Revisar en «Novedades» las ya publicadas: la fecha de publicación es ahora la de la primera vez.
+
+## 76. Comunicación del panel admin: mejoras (2026-11-02)
+
+Migración `20261211100000_admin_comms_features` (se aplica sola). Sin variables nuevas.
+
+- **El banner pasa a ser una lista** (`platform_banners`): la migración copia el que hubiera (si tenía texto) y borra la tabla antigua. Revisa en «Banners y avisos» que sigue como querías.
+- **Anuncios con historial**: se pueden guardar como borrador, programar (la tarea `admin.announcements-scheduled` del API los envía cada 5 minutos), duplicar y reenviar a quien no los recibió. Los correos de cada anuncio quedan enlazados en «Correos enviados».
+- «Correos enviados» guarda también el HTML de los correos (no el de los de acceso a la cuenta), así que se pueden ver y reenviar; los anteriores a esta versión no.
+- **Correos automáticos** (bienvenida, fin de la prueba, impago): sus textos se editan en Comunicación → Correos automáticos. Sin cambios, sale el texto de serie (el mismo que antes, sin «responde a este correo»).
+- **Encuestas NPS** a los propietarios: Comunicación → Encuestas NPS. El enlace del correo lleva a `/nps/<token>` (sin sesión, no indexable).

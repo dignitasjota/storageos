@@ -19,6 +19,7 @@ export interface EmailSendJobData {
   text: string;
   /** Cabeceras extra (p. ej. `List-Unsubscribe` de un anuncio comercial). */
   headers?: Record<string, string>;
+  announcementId?: string;
 }
 
 /**
@@ -39,7 +40,7 @@ export class EmailSendProcessor extends WorkerHost {
       this.logger.warn(`Job desconocido en ${QUEUE_EMAIL}: ${job.name}`);
       return;
     }
-    const { to, category, kind, subject, html, text, headers } = job.data;
+    const { to, category, kind, subject, html, text, headers, announcementId } = job.data;
     await this.email.sendRendered({
       to,
       ...(category ? { category } : {}),
@@ -48,6 +49,7 @@ export class EmailSendProcessor extends WorkerHost {
       html,
       text,
       ...(headers ? { headers } : {}),
+      ...(announcementId ? { announcementId } : {}),
     });
   }
 }

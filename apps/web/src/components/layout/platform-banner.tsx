@@ -73,7 +73,23 @@ function BannerBar({ banner, onDismiss }: { banner: PlatformBannerDto; onDismiss
     >
       <Icon className="size-4 shrink-0" aria-hidden />
       <span className="sr-only">{LABELS[banner.level] ?? LABELS.info}:</span>
-      <p className="flex-1 text-center">{banner.message}</p>
+      <p className="flex-1 text-center">
+        {banner.message}
+        {banner.linkUrl && (
+          <>
+            {' '}
+            <a
+              href={banner.linkUrl}
+              {...(banner.linkUrl.startsWith('http')
+                ? { target: '_blank', rel: 'noopener noreferrer' }
+                : {})}
+              className="font-medium underline underline-offset-2"
+            >
+              {banner.linkLabel || 'Ver más'}
+            </a>
+          </>
+        )}
+      </p>
       {banner.dismissible && (
         <button
           type="button"

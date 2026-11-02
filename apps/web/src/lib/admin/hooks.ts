@@ -79,7 +79,6 @@ import type {
   PlatformSepaRemittanceDto,
   PlatformSepaRemittancePreviewDto,
   CreatePlatformSepaRemittanceInput,
-  PlatformBannerDto,
   PlatformFounderOfferDto,
   PlatformLogoUploadDto,
   PlatformWebsiteDto,
@@ -88,7 +87,6 @@ import type {
   LegalDocumentDto,
   LegalSlug,
   UpdateLegalDocumentInput,
-  UpdatePlatformBannerInput,
   UpdatePlatformFounderOfferInput,
   SuperAdminNotificationDto,
   AddTicketMessageInput,
@@ -361,6 +359,7 @@ export interface PlatformEmailLogFilters {
   tenantId?: string;
   kind?: string;
   status?: string;
+  announcementId?: string;
 }
 
 /** Historial de los correos de la plataforma, paginado por cursor. */
@@ -373,6 +372,7 @@ export function useAdminEmailLog(filters: PlatformEmailLogFilters) {
       if (filters.tenantId) qs.set('tenantId', filters.tenantId);
       if (filters.kind) qs.set('kind', filters.kind);
       if (filters.status) qs.set('status', filters.status);
+      if (filters.announcementId) qs.set('announcementId', filters.announcementId);
       if (pageParam) qs.set('cursor', pageParam);
       return adminApiFetch<PlatformEmailLogPageDto>(`/admin/email-log?${qs}`);
     },
@@ -2110,23 +2110,7 @@ export function useRunDunning() {
   });
 }
 
-// --- Banner global + notificaciones del super admin ---
-export function useAdminPlatformBanner() {
-  return useQuery({
-    queryKey: ['admin', 'platform', 'banner'] as const,
-    queryFn: () => adminApiFetch<PlatformBannerDto>('/admin/platform/banner'),
-  });
-}
-
-export function useUpdatePlatformBanner() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: UpdatePlatformBannerInput) =>
-      adminApiFetch<PlatformBannerDto>('/admin/platform/banner', { method: 'PUT', json: input }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'banner'] }),
-  });
-}
-
+// --- Notificaciones del super admin ---
 // --- Logo de la web de TrasterOS ---
 export function useAdminPlatformWebsite() {
   return useQuery({

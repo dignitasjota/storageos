@@ -8,3 +8,4 @@ export * from './platform-redsys';
 export * from './business';
 export * from './tenant-reset';
 export * from './email-format';
+export * from './comms';

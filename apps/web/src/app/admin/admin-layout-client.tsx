@@ -20,6 +20,7 @@ import {
   HeartPulse,
   Hourglass,
   Inbox,
+  MailCheck,
   CreditCard,
   Landmark,
   Layers,
@@ -148,8 +149,10 @@ const ADMIN_NAV: AdminNavGroup[] = [
     children: [
       { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
       { href: '/admin/product-updates', label: 'Novedades', icon: Sparkles },
-      { href: '/admin/platform-banner', label: 'Banner y avisos', icon: BellRing },
+      { href: '/admin/platform-banner', label: 'Banners y avisos', icon: BellRing },
       { href: '/admin/email-log', label: 'Correos enviados', icon: Inbox },
+      { href: '/admin/email-templates', label: 'Correos automáticos', icon: MailCheck },
+      { href: '/admin/nps', label: 'Encuestas NPS', icon: Gauge },
     ],
   },
   {

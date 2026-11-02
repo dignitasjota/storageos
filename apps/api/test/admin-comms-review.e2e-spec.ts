@@ -58,7 +58,7 @@ describe('Comunicación del panel admin: arreglos (e2e)', () => {
       // best-effort
     }
     await app.close();
-    await db.platformBanner.updateMany({ data: { enabled: false, endsAt: null } });
+    await db.platformBanner.deleteMany({ where: { message: 'Parada técnica' } });
     await db.superAdmin.deleteMany({ where: { email: ADMIN_EMAIL } });
     await db.$disconnect();
     await cleanupTestTenants();
@@ -201,26 +201,33 @@ describe('Comunicación del panel admin: arreglos (e2e)', () => {
     const tenantAuth = { Authorization: `Bearer ${owner.accessToken}` };
 
     const saved = await request(app.getHttpServer())
-      .put('/admin/platform/banner')
+      .post('/admin/platform/banners')
       .set(auth())
-      .send({ message: 'Parada técnica', level: 'critical', enabled: true, dismissible: true });
-    expect(saved.status).toBe(200);
+      .send({
+        message: 'Parada técnica',
+        level: 'critical',
+        enabled: true,
+        dismissible: true,
+        priority: 100,
+      });
+    expect(saved.status).toBe(201);
     expect(saved.body.dismissible).toBe(false);
     const visible = await request(app.getHttpServer()).get('/platform-banner').set(tenantAuth);
     expect(visible.body.message).toBe('Parada técnica');
 
     await request(app.getHttpServer())
-      .put('/admin/platform/banner')
+      .put(`/admin/platform/banners/${saved.body.id}`)
       .set(auth())
       .send({
         message: 'Parada técnica',
         level: 'info',
         enabled: true,
+        priority: 100,
         endsAt: new Date(Date.now() - 60_000).toISOString(),
       })
       .expect(200);
     const gone = await request(app.getHttpServer()).get('/platform-banner').set(tenantAuth);
-    expect(gone.body?.message).toBeUndefined();
+    expect(gone.body?.message).not.toBe('Parada técnica');
 
     // Despublicar y volver a publicar conserva la fecha de la primera publicación.
     const created = await request(app.getHttpServer())

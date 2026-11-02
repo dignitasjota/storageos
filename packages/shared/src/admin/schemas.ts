@@ -108,7 +108,7 @@ export const SnoozeRiskSchema = z.object({
 export type SnoozeRiskInput = z.infer<typeof SnoozeRiskSchema>;
 
 /** Vista guardada de una lista del panel admin (por super admin). */
-export const AdminSavedViewPageEnum = z.enum(['tenants']);
+export const AdminSavedViewPageEnum = z.enum(['tenants', 'announcements']);
 export const CreateAdminSavedViewSchema = z.object({
   page: AdminSavedViewPageEnum,
   name: z.string().trim().min(1).max(80),
@@ -168,6 +168,27 @@ export type ImpersonateInput = z.infer<typeof ImpersonateSchema>;
 export const AdminEmailTenantSchema = z.object({
   subject: z.string().trim().min(3).max(200),
   body: z.string().trim().min(1).max(10_000),
+  /**
+   * false = aviso sin respuesta necesaria: no abre ticket, solo queda en
+   * «Mensajes de TrasterOS».
+   */
+  replyExpected: z.boolean().default(true),
+  /** Adjuntos ya subidos (`POST /admin/tenants/:id/email/upload-url`). */
+  attachments: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(500),
+        name: z.string().trim().min(1).max(200),
+        mimeType: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']),
+        size: z
+          .number()
+          .int()
+          .min(1)
+          .max(10 * 1024 * 1024),
+      }),
+    )
+    .max(5)
+    .default([]),
 });
 export type AdminEmailTenantInput = z.infer<typeof AdminEmailTenantSchema>;
 
@@ -685,17 +706,6 @@ export const UpdatePlatformDunningSettingsSchema = z
 export type UpdatePlatformDunningSettingsInput = z.infer<
   typeof UpdatePlatformDunningSettingsSchema
 >;
-
-/** Banner global mostrado a todos los tenants. */
-export const UpdatePlatformBannerSchema = z.object({
-  message: z.string().trim().max(500).default(''),
-  level: z.enum(['info', 'warning', 'critical']).default('info'),
-  enabled: z.boolean().default(false),
-  /** Hora a la que deja de verse (ISO); null = hasta que se apague. */
-  endsAt: z.string().datetime({ offset: true }).nullable().default(null),
-  dismissible: z.boolean().default(true),
-});
-export type UpdatePlatformBannerInput = z.infer<typeof UpdatePlatformBannerSchema>;
 
 /** Oferta fundador de la web de TrasterOS (sección de precios). */
 export const UpdatePlatformFounderOfferSchema = z.object({

@@ -30,4 +30,14 @@ describe('formato de los correos del admin', () => {
     expect(mail.html).toContain('TrasterOS');
     expect(mail.text).toBe('Hola\n\n—\nPie');
   });
+
+  it('pinta el botón y descarta el que no es http', () => {
+    const html = adminMessageHtml(
+      'Hola\n\n[[boton: Ver planes | https://trasteros.pro/planes]]\n\n[[boton: X | javascript:1]]',
+    );
+    expect(html).toContain('href="https://trasteros.pro/planes"');
+    expect(html).toContain('>Ver planes</a>');
+    expect(html).not.toContain('href="javascript');
+    expect(adminMessageText('[[boton: Ver | https://x.es]]')).toBe('Ver: https://x.es');
+  });
 });

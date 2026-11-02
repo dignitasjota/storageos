@@ -64,6 +64,8 @@ export interface SendMailRenderedArgs {
   headers?: Record<string, string>;
   /** «Responder a» de este envío (p. ej. quien rellenó un formulario de contacto). */
   replyTo?: EmailAddress;
+  /** Anuncio del panel admin al que pertenece (historial de correos). */
+  announcementId?: string;
 }
 
 /**
@@ -113,8 +115,10 @@ export class EmailService {
       to: args.to,
       subject: args.subject,
       text: args.text,
+      html: args.html,
       kind: args.kind,
       category: args.category,
+      announcementId: args.announcementId,
     };
     try {
       const result = await this.deliver(args);

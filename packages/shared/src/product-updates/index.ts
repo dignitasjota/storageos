@@ -25,8 +25,14 @@ export const UpsertProductUpdateSchema = z.object({
     .regex(/^\/(?!\/)[A-Za-z0-9/_?=&.#-]*$/, 'Debe ser una ruta del panel, p. ej. /settings/web')
     .nullable()
     .optional(),
-  /** true = publicar ahora; false = dejar en borrador. */
+  /** true = publicar (ahora o en `publishAt`); false = dejar en borrador. */
   published: z.boolean().default(false),
+  /** Publicar más adelante (ISO). Sin ella, ahora. */
+  publishAt: z.string().datetime({ offset: true }).nullable().optional(),
+  /** Se enseña en un aviso al entrar al panel. */
+  highlighted: z.boolean().default(false),
+  /** Captura ya subida (`POST /admin/product-updates/image-upload-url`); null la quita. */
+  imageKey: z.string().max(500).nullable().optional(),
 });
 export type UpsertProductUpdateInput = z.infer<typeof UpsertProductUpdateSchema>;
 
@@ -39,6 +45,12 @@ export interface AdminProductUpdateDto {
   feature: TenantFeature | null;
   link: string | null;
   publishedAt: string | null;
+  /** Publicada con fecha futura: aún no la ve nadie. */
+  scheduled: boolean;
+  highlighted: boolean;
+  imageUrl: string | null;
+  /** Usuarios de los tenants que han abierto «Novedades» desde que se publicó. */
+  seenBy: number;
   authorName: string | null;
   createdAt: string;
   updatedAt: string;
@@ -55,6 +67,8 @@ export interface ProductUpdateDto {
   featureIncluded: boolean | null;
   link: string | null;
   publishedAt: string;
+  highlighted: boolean;
+  imageUrl: string | null;
   /** Publicada después de la última vez que el usuario abrió «Novedades». */
   unread: boolean;
 }

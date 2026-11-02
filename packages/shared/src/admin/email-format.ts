@@ -69,6 +69,16 @@ export function adminMessageHtml(markdown: string): string {
   };
   for (const raw of markdown.replace(/\r\n/g, '\n').split('\n')) {
     const line = escapeHtml(raw.trimEnd());
+    const button = /^\[\[\s*boton\s*:\s*([^|\]]+?)\s*\|\s*(\S+?)\s*\]\]$/i.exec(raw.trim());
+    const buttonUrl = button ? safeUrl(button[2] ?? '') : null;
+    if (button && buttonUrl) {
+      flushParagraph();
+      flushList();
+      blocks.push(
+        `<p style="margin:6px 0 18px"><a href="${escapeHtml(buttonUrl)}" style="display:inline-block;background:#2563EB;color:#ffffff;text-decoration:none;font-weight:600;padding:10px 18px;border-radius:8px">${escapeHtml(button[1] ?? '')}</a></p>`,
+      );
+      continue;
+    }
     const item = /^\s*[-*]\s+(.+)$/.exec(line);
     const heading = /^#{1,3}\s+(.+)$/.exec(line);
     if (item) {
@@ -97,6 +107,7 @@ export function adminMessageHtml(markdown: string): string {
 export function adminMessageText(markdown: string): string {
   return markdown
     .replace(/\r\n/g, '\n')
+    .replace(/^\s*\[\[\s*boton\s*:\s*([^|\]]+?)\s*\|\s*(\S+?)\s*\]\]\s*$/gim, '$1: $2')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '$1 ($2)')
     .replace(/^#{1,3}\s+/gm, '')
