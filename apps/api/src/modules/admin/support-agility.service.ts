@@ -64,11 +64,16 @@ export class SupportAgilityService {
     const since = new Date(now.getTime() - period * DAY_MS);
     const [opened, awaiting] = await Promise.all([
       this.admin.supportTicket.findMany({
-        where: { createdAt: { gte: since } },
+        // Los mensajes que abre el admin no son consultas: no cuentan.
+        where: { createdAt: { gte: since }, openedByAdmin: false },
         select: { createdAt: true, firstResponseAt: true },
       }),
       this.admin.supportTicket.findMany({
-        where: { firstResponseAt: null, status: { notIn: ['resolved', 'closed'] } },
+        where: {
+          firstResponseAt: null,
+          openedByAdmin: false,
+          status: { notIn: ['resolved', 'closed'] },
+        },
         select: { createdAt: true },
         orderBy: { createdAt: 'asc' },
       }),

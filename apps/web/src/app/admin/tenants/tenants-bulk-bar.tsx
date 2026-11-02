@@ -33,11 +33,16 @@ const splitTags = (v: string) =>
 export function TenantsBulkBar({
   selected,
   trialCount,
+  suspendedCount = 0,
+  cancelledCount = 0,
   onClear,
 }: {
   selected: string[];
   /** Cuántos de los seleccionados están en prueba. */
   trialCount: number;
+  /** Cuántos están suspendidos (sí reciben el correo) o dados de baja (no lo reciben). */
+  suspendedCount?: number;
+  cancelledCount?: number;
   onClear: () => void;
 }) {
   const canEdit = useIsSuperadmin();
@@ -47,6 +52,7 @@ export function TenantsBulkBar({
   const [days, setDays] = useState(14);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [commercial, setCommercial] = useState(false);
   const tags = useBulkTags();
   const extend = useExtendTrialsBatch();
   const broadcast = useAdminBroadcast();
@@ -88,8 +94,11 @@ export function TenantsBulkBar({
         tenantIds: selected,
         subject: subject.trim(),
         body: body.trim(),
+        commercial,
       });
-      toast.success(`Correo encolado a ${r.recipients} destinatario(s) de ${r.tenants} tenant(s).`);
+      toast.success(
+        `Correo encolado a ${r.recipients} destinatario(s) de ${r.tenants} tenant(s).${r.skipped ? ` ${r.skipped} no lo reciben.` : ''} Lo que llega o rebota se ve en «Correos enviados».`,
+      );
       setOpen(null);
       setSubject('');
       setBody('');
@@ -205,6 +214,12 @@ export function TenantsBulkBar({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {(suspendedCount > 0 || cancelledCount > 0) && (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                {suspendedCount > 0 && `${suspendedCount} suspendido(s) también lo recibirán. `}
+                {cancelledCount > 0 && `${cancelledCount} dado(s) de baja no lo recibirán.`}
+              </p>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="bulk-subject">Asunto</Label>
               <Input
@@ -221,7 +236,22 @@ export function TenantsBulkBar({
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                Admite **negrita**, listas con «- » y enlaces [texto](https://…).
+              </p>
             </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={commercial}
+                onChange={(e) => setCommercial(e.target.checked)}
+              />
+              <span>
+                Comunicación comercial (novedades u ofertas): lleva enlace de baja y no llega a
+                quien se dio de baja.
+              </span>
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(null)}>

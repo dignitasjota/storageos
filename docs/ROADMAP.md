@@ -872,3 +872,7 @@ Cuarto texto legal, editable como los demás, con un texto por defecto rellenado
 ### Blog del tenant: herramientas de SEO (2026-11-02) ✅
 
 Texto alternativo y nombre de fichero de la portada; enlaces a secciones de la web (`web:…`, válidos en trasteros.pro y en el dominio propio) y a webs externas; botones de llamada a la acción y widgets (calculadora, tamaños y precios, locales) dentro del post; «Te puede interesar» con hasta 3 entradas elegidas o las últimas; blog con la cabecera y el pie de la portada; «Nueva entrada» ya no sale con los datos de la última abierta. Después, también las fichas de local, las páginas de ciudad y zona, los textos legales y las landings de promoción llevan la cabecera y el pie de la portada (`TenantSiteChrome`), y la ficha del local ya no repite el logo.
+
+### Comunicación del panel admin: revisión (2026-11-02)
+
+PR A (arreglos) ✅: los correos del admin no falsean el soporte y se cierran solos sin respuesta, nada se guarda si no llega, formato y marca de TrasterOS, anuncios comerciales con baja, sin dados de baja en la selección, banner con fin y cerrable, novedades con su fecha, filtros validados y «Mensajes de TrasterOS» con leídos y paginados. PR B (mejoras, siguiente): historial y programación de anuncios, editor con vista previa y variables, segmentos, novedades programadas con captura y lectores, varios banners por público, reenviar y estadísticas en «Correos enviados», mensajes sin respuesta y con adjuntos, textos editables de los correos automáticos y encuesta NPS a los tenants.

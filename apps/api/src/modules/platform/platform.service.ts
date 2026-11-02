@@ -159,31 +159,30 @@ export class PlatformService {
   async getBanner(): Promise<PlatformBannerDto> {
     let row = await this.admin.platformBanner.findFirst();
     row ??= await this.admin.platformBanner.create({ data: {} });
-    return {
-      message: row.message,
-      level: row.level as PlatformBannerDto['level'],
-      enabled: row.enabled,
-    };
+    return toBannerDto(row);
   }
 
-  /** Banner que ve el tenant: solo si está activo y tiene mensaje. */
-  async getPublicBanner(): Promise<PlatformBannerDto | null> {
+  /** Banner que ve el tenant: activo, con mensaje y sin pasar su fecha de fin. */
+  async getPublicBanner(now = new Date()): Promise<PlatformBannerDto | null> {
     const row = await this.admin.platformBanner.findFirst();
     if (!row?.enabled || !row.message.trim()) return null;
-    return { message: row.message, level: row.level as PlatformBannerDto['level'], enabled: true };
+    if (row.endsAt && row.endsAt <= now) return null;
+    return toBannerDto(row);
   }
 
   async updateBanner(input: UpdatePlatformBannerInput): Promise<PlatformBannerDto> {
     const existing = await this.admin.platformBanner.findFirst();
-    const data = { message: input.message, level: input.level, enabled: input.enabled };
+    const data = {
+      message: input.message,
+      level: input.level,
+      enabled: input.enabled,
+      endsAt: input.endsAt ? new Date(input.endsAt) : null,
+      dismissible: input.dismissible,
+    };
     const row = existing
       ? await this.admin.platformBanner.update({ where: { id: existing.id }, data })
       : await this.admin.platformBanner.create({ data });
-    return {
-      message: row.message,
-      level: row.level as PlatformBannerDto['level'],
-      enabled: row.enabled,
-    };
+    return toBannerDto(row);
   }
 
   // ---- oferta fundador de la web de TrasterOS ----
@@ -331,6 +330,26 @@ export class PlatformService {
       updatedAt: row.updatedAt.toISOString(),
     };
   }
+}
+
+function toBannerDto(row: {
+  message: string;
+  level: string;
+  enabled: boolean;
+  endsAt: Date | null;
+  dismissible: boolean;
+  updatedAt: Date;
+}): PlatformBannerDto {
+  const level = row.level as PlatformBannerDto['level'];
+  return {
+    message: row.message,
+    level,
+    enabled: row.enabled,
+    endsAt: row.endsAt?.toISOString() ?? null,
+    // Un aviso crítico no se puede cerrar.
+    dismissible: row.dismissible && level !== 'critical',
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
 function toFounderOfferDto(row: {

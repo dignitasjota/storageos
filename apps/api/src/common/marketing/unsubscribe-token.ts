@@ -2,13 +2,14 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * Token del enlace de baja de las comunicaciones comerciales. No se guarda en
- * BD: identifica al destinatario (cliente `c` o lead `l`) y va firmado con
+ * BD: identifica al destinatario (cliente `c`, lead `l` o usuario del equipo
+ * `u`, para los anuncios comerciales de TrasterOS) y va firmado con
  * HMAC, así que no se puede fabricar para otra persona. No caduca (un enlace de
  * baja debe seguir funcionando en un correo antiguo).
  *
- * Formato: `<c|l>.<id>.<firma base64url>`.
+ * Formato: `<c|l|u>.<id>.<firma base64url>`.
  */
-export type UnsubscribeKind = 'c' | 'l';
+export type UnsubscribeKind = 'c' | 'l' | 'u';
 
 /** Clave propia derivada de la maestra (no reutiliza la de cifrado tal cual). */
 export function unsubscribeKey(masterKey: string): Buffer {
@@ -28,7 +29,7 @@ export function parseUnsubscribeToken(
   token: string,
 ): { kind: UnsubscribeKind; id: string } | null {
   const [kind, id, sig, ...rest] = token.split('.');
-  if (rest.length > 0 || (kind !== 'c' && kind !== 'l') || !id || !sig) return null;
+  if (rest.length > 0 || (kind !== 'c' && kind !== 'l' && kind !== 'u') || !id || !sig) return null;
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const expected = Buffer.from(sign(key, kind, id));
   const given = Buffer.from(sig);

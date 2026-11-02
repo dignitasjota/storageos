@@ -282,8 +282,18 @@ function ProductUpdateDialog({
               </Button>
             </div>
             {preview ? (
-              <div className="min-h-40 rounded-md border p-3">
+              <div className="min-h-40 space-y-2 rounded-md border p-3">
+                <p className="font-medium">{form.title || 'Sin título'}</p>
                 <MarkdownView content={form.body || '_Sin texto_'} />
+                {form.feature && (
+                  <p className="rounded-md bg-muted px-3 py-2 text-xs">
+                    Así lo ve un tenant sin la función: {FEATURE_LABELS[form.feature]} no está en tu
+                    plan. <span className="text-primary">Ver planes y extras</span>
+                  </p>
+                )}
+                {form.link.trim() && (
+                  <p className="text-xs text-primary">Botón «Ver» → {form.link.trim()}</p>
+                )}
               </div>
             ) : (
               <Textarea

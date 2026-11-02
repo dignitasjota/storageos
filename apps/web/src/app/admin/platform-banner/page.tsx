@@ -6,6 +6,8 @@ import { toast } from 'sonner';
 
 import type { PlatformBannerDto } from '@storageos/shared';
 
+import { DateTimeSelect } from '@/components/date-time-select';
+import { PlatformBannerPreview } from '@/components/layout/platform-banner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -34,7 +36,13 @@ export default function PlatformBannerPage() {
   async function onSave() {
     if (!form) return;
     try {
-      await update.mutateAsync(form);
+      await update.mutateAsync({
+        message: form.message,
+        level: form.level,
+        enabled: form.enabled,
+        endsAt: form.endsAt,
+        dismissible: form.dismissible,
+      });
       toast.success('Banner guardado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -87,11 +95,52 @@ export default function PlatformBannerPage() {
                   />
                   Activado
                 </label>
-                <Button
-                  className="ml-auto"
-                  onClick={onSave}
-                  disabled={update.isPending || !canEdit}
-                >
+              </div>
+              <div className="space-y-1">
+                <Label>Deja de verse (opcional)</Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <DateTimeSelect
+                    value={form.endsAt}
+                    onChange={(endsAt) => setForm({ ...form, endsAt })}
+                  />
+                  {form.endsAt && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setForm({ ...form, endsAt: null })}
+                    >
+                      Sin fecha de fin
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  A esa hora desaparece solo, aunque siga activado.
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.dismissible}
+                  disabled={form.level === 'critical'}
+                  onChange={(e) => setForm({ ...form, dismissible: e.target.checked })}
+                />
+                Cada usuario puede cerrarlo
+                {form.level === 'critical' && (
+                  <span className="text-xs text-muted-foreground">
+                    (los críticos no se pueden cerrar)
+                  </span>
+                )}
+              </label>
+              {form.message.trim() && (
+                <div className="space-y-1">
+                  <Label>Vista previa</Label>
+                  <div className="overflow-hidden rounded-md border">
+                    <PlatformBannerPreview banner={form} />
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-end">
+                <Button onClick={onSave} disabled={update.isPending || !canEdit}>
                   Guardar
                 </Button>
               </div>

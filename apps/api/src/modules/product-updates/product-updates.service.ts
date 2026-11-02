@@ -57,7 +57,7 @@ export class ProductUpdatesService {
     const row = await this.admin.productUpdate.create({
       data: {
         ...this.fields(input),
-        publishedAt: input.published ? new Date() : null,
+        ...(input.published ? { publishedAt: new Date(), firstPublishedAt: new Date() } : {}),
         createdById: superAdminId,
       },
       include: { createdBy: { select: { fullName: true } } },
@@ -68,12 +68,17 @@ export class ProductUpdatesService {
   async update(id: string, input: UpsertProductUpdateInput): Promise<AdminProductUpdateDto> {
     const current = await this.admin.productUpdate.findUnique({ where: { id } });
     if (!current) throw new NotFoundException({ code: 'product_update_not_found' });
-    // Publicar conserva la fecha original si ya estaba publicada (no vuelve a
-    // salir como nueva al corregir una errata).
-    const publishedAt = input.published ? (current.publishedAt ?? new Date()) : null;
+    // Publicar conserva la fecha de la primera publicación: corregir una errata
+    // o despublicar y volver a publicar no la saca como nueva.
+    const firstPublishedAt = current.firstPublishedAt ?? current.publishedAt;
+    const publishedAt = input.published ? (firstPublishedAt ?? new Date()) : null;
     const row = await this.admin.productUpdate.update({
       where: { id },
-      data: { ...this.fields(input), publishedAt },
+      data: {
+        ...this.fields(input),
+        publishedAt,
+        ...(input.published && !firstPublishedAt ? { firstPublishedAt: publishedAt } : {}),
+      },
       include: { createdBy: { select: { fullName: true } } },
     });
     return this.toAdminDto(row);

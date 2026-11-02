@@ -1,9 +1,16 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
+import { renderAdminEmail } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
+import { buildUnsubscribeToken, unsubscribeKey } from '../../common/marketing/unsubscribe-token';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -16,6 +23,7 @@ import { SuperAdminAuditService } from './super-admin-audit.service';
 import type { Env } from '../../config/env.schema';
 import type {
   TenantPlatformMessageDto,
+  TenantPlatformMessagesPageDto,
   AdminBroadcastInput,
   AdminBroadcastResultDto,
   AdminEmailTenantInput,
@@ -29,14 +37,12 @@ interface ActionMeta {
   userAgent?: string | null | undefined;
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function renderEmail(body: string): { html: string; text: string } {
-  const safe = escapeHtml(body).replace(/\n/g, '<br>');
-  const html = `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:14px;color:#111;line-height:1.6">${safe}</div>`;
-  return { html, text: body };
+interface QueuedEmail {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  headers?: Record<string, string>;
 }
 
 /**
@@ -48,6 +54,8 @@ function renderEmail(body: string): { html: string; text: string } {
 @Injectable()
 export class AdminCommsService {
   private readonly webBaseUrl: string;
+  private readonly apiBaseUrl: string;
+  private readonly unsubscribeKey: Buffer;
 
   constructor(
     private readonly admin: PrismaAdminService,
@@ -59,7 +67,28 @@ export class AdminCommsService {
     private readonly notifications: NotificationsService,
     config: ConfigService<Env, true>,
   ) {
-    this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true });
+    this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    this.apiBaseUrl = config.get('API_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    this.unsubscribeKey = unsubscribeKey(config.get('MASTER_ENCRYPTION_KEY', { infer: true }));
+  }
+
+  /** Pie de un anuncio comercial con el enlace de baja del usuario. */
+  private unsubscribeFooter(userId: string): {
+    footerHtml: string;
+    footerText: string;
+    headers: Record<string, string>;
+  } {
+    const token = encodeURIComponent(buildUnsubscribeToken(this.unsubscribeKey, 'u', userId));
+    const url = `${this.webBaseUrl}/unsubscribe/${token}`;
+    const why = 'Recibes este correo porque usas TrasterOS.';
+    return {
+      footerHtml: `${why} <a href="${url}" style="color:#64748b">Darme de baja de las novedades y ofertas</a><br>`,
+      footerText: `${why}\nDarme de baja de las novedades y ofertas: ${url}`,
+      headers: {
+        'List-Unsubscribe': `<${this.apiBaseUrl}/v1/public/unsubscribe/${token}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    };
   }
 
   /** Emails de destino de un tenant: owners verificados activos o billingEmail. */
@@ -84,13 +113,21 @@ export class AdminCommsService {
     subject: string,
     body: string,
   ): Promise<{ sent: number; failed: number }> {
-    const { html, text } = renderEmail(body);
+    const { html, text } = renderAdminEmail(body);
     let sent = 0;
     let failed = 0;
     for (const to of recipients) {
       try {
-        await this.email.sendRendered({ to, kind: 'admin_message', subject, html, text });
-        sent += 1;
+        const result = await this.email.sendRendered({
+          to,
+          kind: 'admin_message',
+          subject,
+          html,
+          text,
+        });
+        // Dirección bloqueada (rebote permanente): no ha salido.
+        if (result.suppressed) failed += 1;
+        else sent += 1;
       } catch {
         failed += 1;
       }
@@ -100,15 +137,14 @@ export class AdminCommsService {
 
   /**
    * Correo directo: abre un ticket «esperando tu respuesta» con el mensaje del
-   * admin (para responderlo desde el panel), lo guarda en «Mensajes de
-   * TrasterOS» y avisa en el panel. Devuelve el id del ticket.
+   * admin (para responderlo desde el panel). Marcado como abierto por el admin:
+   * no cuenta en los tiempos de respuesta del soporte.
    */
-  private async recordDirectMessage(
+  private async openDirectTicket(
     tenantId: string,
     input: { subject: string; body: string },
     superAdminId: string,
   ): Promise<string> {
-    const now = new Date();
     const ticket = await this.admin.supportTicket.create({
       data: {
         tenantId,
@@ -116,20 +152,30 @@ export class AdminCommsService {
         priority: 'normal',
         category: 'trasteros',
         status: 'waiting_user',
-        firstResponseAt: now,
+        openedByAdmin: true,
         messages: {
           create: { authorAdminId: superAdminId, body: input.body, isInternal: false },
         },
       },
       select: { id: true },
     });
+    return ticket.id;
+  }
+
+  /** Tras enviarlo: queda en «Mensajes de TrasterOS» y avisa en el panel. */
+  private async recordDirectMessage(
+    tenantId: string,
+    ticketId: string,
+    input: { subject: string; body: string },
+    superAdminId: string,
+  ): Promise<void> {
     await this.admin.tenantPlatformMessage.create({
       data: {
         tenantId,
         kind: 'direct',
         subject: input.subject,
         body: input.body,
-        ticketId: ticket.id,
+        ticketId,
         superAdminId,
       },
     });
@@ -138,10 +184,9 @@ export class AdminCommsService {
         type: 'platform.message',
         title: `Mensaje de TrasterOS: ${input.subject}`,
         body: input.body.slice(0, 140),
-        link: `/support/${ticket.id}`,
+        link: `/support/${ticketId}`,
       })
       .catch(() => undefined);
-    return ticket.id;
   }
 
   /** Anuncio o correo de retención: queda en el panel de cada tenant y le avisa. */
@@ -172,31 +217,62 @@ export class AdminCommsService {
     });
   }
 
-  /** Mensajes de TrasterOS al tenant (cara tenant, Soporte). */
-  async listForTenant(tenantId: string): Promise<TenantPlatformMessageDto[]> {
-    const rows = await this.admin.tenantPlatformMessage.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
+  /** Mensajes de TrasterOS al tenant (cara tenant, Soporte), de 30 en 30. */
+  async listForTenant(tenantId: string, cursor?: string): Promise<TenantPlatformMessagesPageDto> {
+    const take = 30;
+    const [rows, unread] = await Promise.all([
+      this.admin.tenantPlatformMessage.findMany({
+        where: { tenantId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: take + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      }),
+      this.admin.tenantPlatformMessage.count({ where: { tenantId, readAt: null } }),
+    ]);
+    const page = rows.slice(0, take);
+    return {
+      items: page.map((r) => ({
+        id: r.id,
+        kind: r.kind as TenantPlatformMessageDto['kind'],
+        subject: r.subject,
+        body: r.body,
+        ticketId: r.ticketId,
+        readAt: r.readAt?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+      })),
+      nextCursor: rows.length > take ? (page[page.length - 1]?.id ?? null) : null,
+      unread,
+    };
+  }
+
+  /** El tenant abre la pestaña: todo queda leído. */
+  async markReadForTenant(tenantId: string): Promise<void> {
+    await this.admin.tenantPlatformMessage.updateMany({
+      where: { tenantId, readAt: null },
+      data: { readAt: new Date() },
     });
-    return rows.map((r) => ({
-      id: r.id,
-      kind: r.kind as TenantPlatformMessageDto['kind'],
-      subject: r.subject,
-      body: r.body,
-      ticketId: r.ticketId,
-      createdAt: r.createdAt.toISOString(),
-    }));
   }
 
   /** Encola un email por destinatario en la cola BullMQ `email`. */
   private async enqueue(recipients: string[], subject: string, body: string): Promise<void> {
     if (recipients.length === 0) return;
-    const { html, text } = renderEmail(body);
+    const { html, text } = renderAdminEmail(body);
+    await this.enqueueRendered(recipients.map((to) => ({ to, subject, html, text })));
+  }
+
+  private async enqueueRendered(emails: QueuedEmail[]): Promise<void> {
+    if (emails.length === 0) return;
     await this.emailQueue.addBulk(
-      recipients.map((to) => ({
+      emails.map((e) => ({
         name: JOB_EMAIL_SEND,
-        data: { to, kind: 'admin_message', subject, html, text },
+        data: {
+          to: e.to,
+          kind: 'admin_message',
+          subject: e.subject,
+          html: e.html,
+          text: e.text,
+          ...(e.headers ? { headers: e.headers } : {}),
+        },
       })),
     );
   }
@@ -220,15 +296,25 @@ export class AdminCommsService {
         message: 'El tenant no tiene destinatarios (owner verificado o email de facturación).',
       });
     }
-    // El mensaje queda en su panel como ticket (para responderlo desde allí) y
-    // en «Mensajes de TrasterOS».
-    const ticketId = await this.recordDirectMessage(tenantId, input, meta.superAdminId);
+    // El ticket hace falta antes de enviar (el correo lleva su enlace). Si el
+    // correo no sale a nadie, se borra: el tenant no debe ver un mensaje que no
+    // le ha llegado.
+    const ticketId = await this.openDirectTicket(tenantId, input, meta.superAdminId);
     const replyUrl = `${this.webBaseUrl}/support/${ticketId}`;
     const { sent, failed } = await this.sendTo(
       recipients,
       input.subject,
       `${input.body}\n\n—\nPuedes responder desde tu panel: ${replyUrl}`,
     );
+    if (sent === 0) {
+      await this.admin.supportTicket.delete({ where: { id: ticketId } }).catch(() => undefined);
+      throw new BadGatewayException({
+        code: 'email_send_failed',
+        message:
+          'No se ha podido enviar el correo a ninguno de sus destinatarios. No se ha guardado nada; revisa «Correos enviados».',
+      });
+    }
+    await this.recordDirectMessage(tenantId, ticketId, input, meta.superAdminId);
     await this.superAdminAudit.record({
       superAdminId: meta.superAdminId,
       action: 'admin.tenant.email_sent',
@@ -255,9 +341,12 @@ export class AdminCommsService {
 
   async broadcast(input: AdminBroadcastInput, meta: ActionMeta): Promise<AdminBroadcastResultDto> {
     const where: Prisma.TenantWhereInput = { deletedAt: null };
-    if (input.tenantIds?.length) {
-      // Selección concreta desde la lista de tenants.
-      where.id = { in: input.tenantIds };
+    const selected = input.tenantIds ?? [];
+    const selection = selected.length > 0;
+    if (selection) {
+      // Selección concreta desde la lista: también suspendidos, nunca los dados de baja.
+      where.id = { in: selected };
+      where.status = { not: 'cancelled' };
     } else {
       if (input.audience === 'active') where.status = 'active';
       else if (input.audience === 'trial') where.status = 'trial';
@@ -266,8 +355,7 @@ export class AdminCommsService {
       if (input.tag) where.tags = { has: input.tag };
     }
 
-    // Resolvemos los destinatarios de TODOS los tenants en 2 queries (no 2·N):
-    // los tenants del público + sus owners verificados activos en bloque.
+    // Destinatarios de TODOS los tenants en 2 consultas (no 2·N).
     const tenants = await this.admin.tenant.findMany({
       where,
       select: { id: true, billingEmail: true },
@@ -279,33 +367,47 @@ export class AdminCommsService {
         isActive: true,
         emailVerifiedAt: { not: null },
       },
-      select: { tenantId: true, email: true },
+      select: { id: true, tenantId: true, email: true, platformNewsOptOutAt: true },
     });
-    const ownersByTenant = new Map<string, Set<string>>();
+    const ownersByTenant = new Map<string, typeof owners>();
     for (const o of owners) {
-      const set = ownersByTenant.get(o.tenantId) ?? new Set<string>();
-      set.add(o.email.toLowerCase());
-      ownersByTenant.set(o.tenantId, set);
+      const list = ownersByTenant.get(o.tenantId) ?? [];
+      list.push(o);
+      ownersByTenant.set(o.tenantId, list);
     }
 
-    let reached = 0;
-    const allRecipients: string[] = [];
+    const footer = `¿Dudas? Escríbenos desde Soporte en tu panel: ${this.webBaseUrl}/support`;
+    const body = `${input.body}\n\n—\n${footer}`;
+    const plain = renderAdminEmail(body);
+    const emails: QueuedEmail[] = [];
+    const reachedIds: string[] = [];
+    let optedOut = 0;
     for (const t of tenants) {
-      const set = ownersByTenant.get(t.id);
-      const tos =
-        set && set.size > 0 ? [...set] : t.billingEmail ? [t.billingEmail.toLowerCase()] : [];
-      if (tos.length === 0) continue;
-      reached += 1;
-      allRecipients.push(...tos);
+      const tenantOwners = ownersByTenant.get(t.id) ?? [];
+      const seen = new Set<string>();
+      const before = emails.length;
+      if (input.commercial) {
+        // Comercial: solo a usuarios (cada uno con su enlace de baja).
+        for (const o of tenantOwners) {
+          const email = o.email.toLowerCase();
+          if (seen.has(email)) continue;
+          seen.add(email);
+          if (o.platformNewsOptOutAt) {
+            optedOut += 1;
+            continue;
+          }
+          const unsub = this.unsubscribeFooter(o.id);
+          const rendered = renderAdminEmail(body, unsub);
+          emails.push({ to: email, subject: input.subject, ...rendered, headers: unsub.headers });
+        }
+      } else {
+        for (const o of tenantOwners) seen.add(o.email.toLowerCase());
+        if (seen.size === 0 && t.billingEmail) seen.add(t.billingEmail.toLowerCase());
+        for (const to of seen) emails.push({ to, subject: input.subject, ...plain });
+      }
+      if (emails.length > before) reachedIds.push(t.id);
     }
-    await this.enqueue(
-      allRecipients,
-      input.subject,
-      `${input.body}\n\n—\n¿Dudas? Escríbenos desde Soporte en tu panel: ${this.webBaseUrl}/support`,
-    );
-    const reachedIds = tenants
-      .filter((t) => (ownersByTenant.get(t.id)?.size ?? 0) > 0 || t.billingEmail)
-      .map((t) => t.id);
+    await this.enqueueRendered(emails);
     await this.recordBroadcast(reachedIds, input, meta.superAdminId);
 
     await this.superAdminAudit.record({
@@ -315,17 +417,27 @@ export class AdminCommsService {
       targetId: null,
       targetTenantId: null,
       changes: {
-        audience: input.audience,
-        tag: input.tag ?? null,
+        audience: selection ? 'selection' : input.audience,
+        ...(selection ? { selected: selected.length } : {}),
+        tag: selection ? null : (input.tag ?? null),
+        commercial: input.commercial,
         subject: input.subject,
-        tenants: reached,
-        recipients: allRecipients.length,
+        tenants: reachedIds.length,
+        recipients: emails.length,
+        optedOut,
       },
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });
 
-    return { tenants: reached, recipients: allRecipients.length, failed: 0 };
+    return {
+      tenants: reachedIds.length,
+      recipients: emails.length,
+      failed: 0,
+      // Elegidos que no reciben nada: sin destinatario, de baja o dados de baja del servicio.
+      skipped: (selection ? selected.length : tenants.length) - reachedIds.length,
+      optedOut,
+    };
   }
 
   /**
@@ -381,7 +493,7 @@ export class AdminCommsService {
       'Somos el equipo de TrasterOS. Queremos asegurarnos de que le estás sacando el máximo partido a la plataforma.',
       'Si hay algo que podamos mejorar, una duda que resolver o quieres que valoremos un descuento para que te siga saliendo a cuenta, estamos a tu disposición.',
       '',
-      `Responde a este correo o escríbenos desde tu panel: ${this.webBaseUrl}/support`,
+      `Escríbenos desde Soporte en tu panel: ${this.webBaseUrl}/support`,
       '',
       'Un saludo,',
       'El equipo de TrasterOS',

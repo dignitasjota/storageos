@@ -722,7 +722,7 @@ recordManualPayment` (provider `'sepa'`, mismo candado/dedup/extensión de
   **una tabla global nueva debe incluir su propio `REVOKE` (o RLS) en la
   migración.**
 - `customer_message_reads` (RLS, PK `customer_id`+`user_id`, `last_read_at`): hasta cuándo ha leído cada usuario del equipo la conversación con un inquilino (bandeja «Mensajes» y badges por usuario). Sin fila, cuenta desde el alta del usuario. `customer_messages.read_at` sigue siendo el leído del equipo (avisos sin repetir) y el del inquilino en el portal.
-- `tenant_platform_messages` (RLS): mensajes de TrasterOS al tenant (`kind` direct/announcement/retention, asunto, cuerpo, `ticket_id` del correo directo, `super_admin_id`). Los lee el tenant en Soporte.
+- `tenant_platform_messages` (RLS): mensajes de TrasterOS al tenant (`kind` direct/announcement/retention, asunto, cuerpo, `ticket_id` del correo directo, `super_admin_id`, `read_at`). Los lee el tenant en Soporte.
 - Adjuntos de mensajes: `support_ticket_messages` y `customer_messages` ganan `attachment_key`, `attachment_mime`, `attachment_name` (imagen o PDF en `uploads`).
 - Mandato SEPA firmado: `sepa_settings.creditor_address/_postal_code/_city/_country`; `sepa_mandates.signature_status` (`pending` | `signed` | `external`, los que ya existían quedan `external`), `signing_token_hash/_expires_at`, datos del deudor (`debtor_*`), firma (`signer_name`, `signature_method`, `signature_image`, `typed_signature`) y constancia (`document_text`, `document_hash`, `signed_ip`, `signed_user_agent`, `signed_at_ts`).
 - Mandato SEPA de la plataforma firmado: `platform_sepa_settings.creditor_address/_postal_code/_city/_country` y `prenotice_days` (5); `platform_sepa_mandates.signature_status` (`signed` | `external`, los existentes `external`), datos del deudor, firma (`signer_name`, `signer_user_id`, `signature_*`, `typed_signature`) y constancia (`document_text`, `document_hash`, `signed_ip`, `signed_user_agent`, `signed_at_ts`); `platform_sepa_remittance_items.prenotice_sent_at/_recipients`.
@@ -839,7 +839,7 @@ Variable de entorno booleana (default `true`).
 - `tenant_aeat_credentials.expiry_notified_days`: último hito avisado de caducidad (30/15/7/0).
 - **`ai_usage_events`** (global): tokens de entrada/salida por llamada al modelo (`feature`, `model`, `user_id`).
 - **`tenant_storage_usage`** (global): bytes y ficheros por tenant (`by_bucket` jsonb), medido a diario.
-- **`product_updates`** (global): título, cuerpo Markdown, `category` new/improvement/fix, `feature` de pago opcional, `link` interno, `published_at` (null = borrador). `users.product_updates_seen_at`.
+- **`product_updates`** (global): título, cuerpo Markdown, `category` new/improvement/fix, `feature` de pago opcional, `link` interno, `published_at` (null = borrador), `first_published_at` (la fecha que se conserva al volver a publicar). `users.product_updates_seen_at`.
 - `support_tickets.first_response_at` + **`support_canned_responses`** (global).
 
 ### Facturación, cobros y migración (`20261011100000` – `20261011180000`, `20261011280000`)
@@ -1039,3 +1039,9 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 ### Blog: herramientas de SEO (2026-11-02, migración `20261209100000_blog_seo_tools`)
 
 - `blog_posts.cover_image_alt` (texto alternativo de la portada; null = el título) y `related_post_ids` (UUID[], hasta 3, en orden; las que ya no existan o no estén publicadas no salen).
+
+### Comunicación del panel admin (2026-11-02)
+
+- `support_tickets.opened_by_admin`: el ticket lo abrió el super admin al escribir al tenant (no cuenta en los tiempos de respuesta).
+- `platform_banner.ends_at` (deja de verse) y `dismissible` (cada usuario lo puede cerrar; nunca el crítico).
+- `users.platform_news_opt_out_at`: baja de los anuncios comerciales de TrasterOS.

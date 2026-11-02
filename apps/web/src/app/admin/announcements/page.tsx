@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -35,6 +36,7 @@ export default function AdminAnnouncementsPage() {
   const [tag, setTag] = useState<string | undefined>();
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [commercial, setCommercial] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -50,10 +52,17 @@ export default function AdminAnnouncementsPage() {
         audience,
         subject: subject.trim(),
         body: body.trim(),
+        commercial,
         ...(tag ? { tag } : {}),
       });
       toast.success(
-        `Anuncio enviado: ${res.recipients} email(s) a ${res.tenants} tenant(s)${res.failed ? `, ${res.failed} fallido(s)` : ''}.`,
+        `Anuncio encolado: ${res.recipients} correo(s) a ${res.tenants} tenant(s)${res.optedOut ? ` (${res.optedOut} de baja no lo reciben)` : ''}. Se envían en segundo plano.`,
+        {
+          action: {
+            label: 'Ver envíos',
+            onClick: () => window.location.assign('/admin/email-log?kind=admin_message'),
+          },
+        },
       );
       setSubject('');
       setBody('');
@@ -134,7 +143,28 @@ export default function AdminAnnouncementsPage() {
                 maxLength={10000}
                 placeholder="Escribe el anuncio…"
               />
+              <p className="text-xs text-muted-foreground">
+                Admite **negrita**, listas con «- », títulos con «## » y enlaces [texto](https://…).
+                Lo que llega o rebota se ve en{' '}
+                <Link href="/admin/email-log" className="text-primary hover:underline">
+                  Correos enviados
+                </Link>
+                .
+              </p>
             </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={commercial}
+                onChange={(e) => setCommercial(e.target.checked)}
+              />
+              <span>
+                Comunicación comercial (novedades u ofertas): lleva enlace de baja y no llega a
+                quien se dio de baja. Los avisos de servicio (mantenimiento, cambios de condiciones)
+                no la llevan.
+              </span>
+            </label>
             <div className="flex justify-end">
               <Button type="submit" disabled={broadcast.isPending}>
                 {broadcast.isPending ? 'Enviando…' : 'Enviar anuncio'}
