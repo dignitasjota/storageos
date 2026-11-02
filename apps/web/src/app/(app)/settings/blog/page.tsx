@@ -25,9 +25,13 @@ export default function BlogSettingsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<BlogPostDto | undefined>(undefined);
+  // Cada «Nueva entrada» monta el diálogo de cero (si no, conservaba los datos
+  // de la última entrada abierta).
+  const [newCount, setNewCount] = useState(0);
 
   function openCreate() {
     setEditing(undefined);
+    setNewCount((n) => n + 1);
     setDialogOpen(true);
   }
 
@@ -102,7 +106,12 @@ export default function BlogSettingsPage() {
         </CardContent>
       </Card>
 
-      <BlogPostDialog open={dialogOpen} onOpenChange={setDialogOpen} post={editing} />
+      <BlogPostDialog
+        key={editing ? editing.id : `new-${newCount}`}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        post={editing}
+      />
     </div>
   );
 }

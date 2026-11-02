@@ -98,6 +98,7 @@ export class BlogController {
       id,
       mimeType: input.mimeType,
       sizeBytes: input.sizeBytes,
+      ...(input.fileName ? { fileName: input.fileName } : {}),
     });
     return { uploadUrl, key, expiresIn, requiredHeaders: { 'Content-Type': input.mimeType } };
   }

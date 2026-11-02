@@ -501,7 +501,8 @@
       "readMore": "Leer más",
       "backToBlog": "Volver al blog",
       "publishedOn": "Publicado el {date}",
-      "relatedFacilitiesTitle": "Nuestros locales"
+      "relatedFacilitiesTitle": "Nuestros locales",
+      "relatedPostsTitle": "Te puede interesar"
     },
     "funnel": {
       "stepOf": "Paso {current} de {total}",

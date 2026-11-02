@@ -488,9 +488,20 @@ export class FilesService implements OnModuleInit {
   }
 
   /** Genera una key única para la portada de una entrada de blog (landing pública). */
-  buildBlogCoverImageKey(tenantId: string, postId: string, mimeType: string): string {
+  /**
+   * Key de la portada de un post. Con `fileName` (ya limpio), el fichero se
+   * llama así y el código aleatorio va en la carpeta: Google ve el nombre.
+   */
+  buildBlogCoverImageKey(
+    tenantId: string,
+    postId: string,
+    mimeType: string,
+    fileName?: string,
+  ): string {
     const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp';
-    return `${tenantId}/blog/${postId}/${randomUUID()}.${ext}`;
+    return fileName
+      ? `${tenantId}/blog/${postId}/${randomUUID().slice(0, 8)}/${fileName}.${ext}`
+      : `${tenantId}/blog/${postId}/${randomUUID()}.${ext}`;
   }
 
   /** Key de la foto principal de una landing de promoción (bucket público). */

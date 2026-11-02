@@ -1,12 +1,28 @@
 'use client';
 
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 
-/** Renderiza Markdown con estilos legibles (sin plugin `typography`). */
-export function MarkdownView({ content }: { content: string }) {
+/**
+ * Renderiza Markdown con estilos legibles (sin plugin `typography`). Con
+ * `resolveHref`, los enlaces `web:…` del blog pasan a la dirección real de la
+ * web del tenant (el resto de esquemas peligrosos los quita react-markdown).
+ */
+export function MarkdownView({
+  content,
+  resolveHref,
+  siteOrigin,
+}: {
+  content: string;
+  resolveHref?: (href: string) => string;
+  /** Origen de la propia web (dominio propio): sus enlaces no abren otra pestaña. */
+  siteOrigin?: string | null;
+}) {
   return (
     <div className="space-y-4 text-sm leading-relaxed text-foreground/80">
       <ReactMarkdown
+        urlTransform={(url) =>
+          url.startsWith('web:') ? (resolveHref ? resolveHref(url) : '#') : defaultUrlTransform(url)
+        }
         components={{
           h1: ({ children }) => (
             <h1 className="mt-8 text-2xl font-semibold tracking-tight text-foreground first:mt-0">
@@ -32,7 +48,7 @@ export function MarkdownView({ content }: { content: string }) {
             <a
               href={href}
               className="underline hover:text-foreground"
-              {...(href?.startsWith('http')
+              {...(href?.startsWith('http') && !(siteOrigin && href.startsWith(siteOrigin))
                 ? { target: '_blank', rel: 'noopener noreferrer' }
                 : {})}
             >

@@ -13,6 +13,7 @@ import {
   landingHref,
 } from './i18n/messages';
 import { themeFor } from './promo/promo-theme';
+import { PRICES_ANCHOR } from './site-links';
 
 import type { PublicWebLocale } from './i18n/messages';
 import type { ReactNode } from 'react';
@@ -66,16 +67,6 @@ function headerLogo(template: string, branded: boolean) {
       return { width: 120, height: 28, className: 'h-7 w-auto object-contain', wide: false };
   }
 }
-
-/** Sección de trasteros y precios de la portada de cada plantilla. */
-const PRICES_ANCHOR: Record<string, string> = {
-  onepage: 'espacios',
-  escaparate: 'centros',
-  corporate: 'centros',
-  onepagemovil: 'trasteros',
-  trstrom: 'trasteros',
-  cabe: 'trasteros',
-};
 
 /** Plantillas con el pie oscuro (y la cabecera, en industrial). */
 const DARK_FOOTER = new Set(['industrial', 'cabe', 'trstrom', 'onepagemovil']);

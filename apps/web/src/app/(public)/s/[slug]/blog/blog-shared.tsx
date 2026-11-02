@@ -8,7 +8,8 @@ import {
   intlLocaleFor,
   type PublicWebLocale,
 } from '../i18n/messages';
-import { TenantWebChrome } from '../tenant-web-chrome';
+import { getLanding } from '../landing-shared';
+import { TenantSiteChrome } from '../tenant-site-chrome';
 
 import { BlogListBody, BlogPostBody } from './blog-body';
 
@@ -161,7 +162,7 @@ export async function buildBlogPostMetadata(
       type: 'article',
       siteName: data.tenantName,
       locale: locale === 'en' ? 'en_GB' : 'es_ES',
-      ...(p.coverImageUrl ? { images: [{ url: p.coverImageUrl }] } : {}),
+      ...(p.coverImageUrl ? { images: [{ url: p.coverImageUrl, alt: p.coverImageAlt }] } : {}),
       publishedTime: p.publishedAt,
       modifiedTime: p.updatedAt,
     },
@@ -183,17 +184,19 @@ export async function BlogListPageBody({
   const data = await getBlogList(slug);
   if (!data) notFound();
   const messages = await getPublicWebMessages(locale);
+  // La misma cabecera y el mismo pie que la portada.
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-      <TenantWebChrome
-        data={data}
+      <TenantSiteChrome
+        slug={slug}
+        fallback={data}
         locale={locale}
-        hasBlog
+        hideReserve={false}
         googleAnalyticsId={data.googleAnalyticsId}
         languageHrefBuilder={(l) => blogHref(slug, l, data.customDomain)}
       >
         <BlogListBody data={data} slug={slug} locale={locale} />
-      </TenantWebChrome>
+      </TenantSiteChrome>
     </NextIntlClientProvider>
   );
 }
@@ -207,20 +210,26 @@ export async function BlogPostPageBody({
   postSlug: string;
   locale: PublicWebLocale;
 }) {
-  const data = await getBlogPost(slug, postSlug);
+  const [data, landing] = await Promise.all([
+    getBlogPost(slug, postSlug),
+    getLanding(slug).catch(() => null),
+  ]);
   if (!data) notFound();
   const messages = await getPublicWebMessages(locale);
+  // La misma cabecera y el mismo pie que la portada; los datos de la portada
+  // también alimentan los widgets del post.
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-      <TenantWebChrome
-        data={data}
+      <TenantSiteChrome
+        slug={slug}
+        fallback={data}
         locale={locale}
-        hasBlog
+        hideReserve={false}
         googleAnalyticsId={data.googleAnalyticsId}
         languageHrefBuilder={(l) => blogPostHref(slug, postSlug, l, data.customDomain)}
       >
-        <BlogPostBody data={data} slug={slug} locale={locale} />
-      </TenantWebChrome>
+        <BlogPostBody data={data} slug={slug} locale={locale} landing={landing} />
+      </TenantSiteChrome>
     </NextIntlClientProvider>
   );
 }

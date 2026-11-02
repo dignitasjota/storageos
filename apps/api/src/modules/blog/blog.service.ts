@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { blogImageFileName } from '@storageos/shared';
 
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -24,6 +25,8 @@ function slugify(s: string): string {
  */
 @Injectable()
 export class BlogService {
+  private readonly logger = new Logger(BlogService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
@@ -76,6 +79,8 @@ export class BlogService {
           contentMarkdown: input.contentMarkdown,
           seoTitle: input.seoTitle?.trim() || null,
           seoDescription: input.seoDescription?.trim() || null,
+          coverImageAlt: input.coverImageAlt?.trim() || null,
+          relatedPostIds: await this.checkRelated(tx, tenantId, input.relatedPostIds),
           isPublished,
           publishedAt: isPublished ? new Date() : null,
         },
@@ -99,6 +104,12 @@ export class BlogService {
       if (input.seoDescription !== undefined) {
         data.seoDescription = input.seoDescription?.trim() || null;
       }
+      if (input.coverImageAlt !== undefined) {
+        data.coverImageAlt = input.coverImageAlt?.trim() || null;
+      }
+      if (input.relatedPostIds !== undefined) {
+        data.relatedPostIds = await this.checkRelated(tx, tenantId, input.relatedPostIds, id);
+      }
       if (input.isPublished !== undefined) {
         data.isPublished = input.isPublished;
         // Publicar por primera vez fija la fecha; despublicar la conserva (si
@@ -108,6 +119,31 @@ export class BlogService {
       return tx.blogPost.update({ where: { id }, data });
     }, tenantId);
     return this.toDto(updated);
+  }
+
+  /** Entradas relacionadas: del tenant, sin repetir y sin la propia. */
+  private async checkRelated(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    ids: string[] | undefined,
+    selfId?: string,
+  ): Promise<string[]> {
+    const unique = [...new Set(ids ?? [])];
+    if (unique.length === 0) return [];
+    if (selfId && unique.includes(selfId)) {
+      throw new BadRequestException({
+        code: 'related_post_self',
+        message: 'Una entrada no puede ser relacionada de sí misma',
+      });
+    }
+    const found = await tx.blogPost.count({ where: { tenantId, id: { in: unique } } });
+    if (found !== unique.length) {
+      throw new BadRequestException({
+        code: 'related_post_not_found',
+        message: 'Alguna entrada relacionada no existe',
+      });
+    }
+    return unique;
   }
 
   async remove(tenantId: string, id: string): Promise<void> {
@@ -120,9 +156,16 @@ export class BlogService {
     id: string;
     mimeType: string;
     sizeBytes: number;
+    fileName?: string;
   }): Promise<{ uploadUrl: string; key: string; expiresIn: number }> {
     await this.findOrThrow(args.tenantId, args.id);
-    const key = this.files.buildBlogCoverImageKey(args.tenantId, args.id, args.mimeType);
+    const fileName = args.fileName ? blogImageFileName(args.fileName) : '';
+    const key = this.files.buildBlogCoverImageKey(
+      args.tenantId,
+      args.id,
+      args.mimeType,
+      fileName || undefined,
+    );
     const { uploadUrl, expiresIn } = await this.files.getPresignedPutUrl({
       bucket: 'public',
       key,
@@ -134,7 +177,7 @@ export class BlogService {
 
   /** Confirma (o quita, con `null`) la portada por su key. */
   async setCover(tenantId: string, id: string, coverImageKey: string | null): Promise<BlogPostDto> {
-    await this.findOrThrow(tenantId, id);
+    const existing = await this.findOrThrow(tenantId, id);
     if (coverImageKey) {
       const prefix = `${tenantId}/blog/${id}/`;
       if (!coverImageKey.startsWith(prefix)) {
@@ -154,6 +197,12 @@ export class BlogService {
       (tx) => tx.blogPost.update({ where: { id }, data: { coverImageKey } }),
       tenantId,
     );
+    // La portada anterior ya no la usa nadie.
+    if (existing.coverImageKey && existing.coverImageKey !== coverImageKey) {
+      await this.files
+        .deleteObjects('public', [existing.coverImageKey])
+        .catch((err) => this.logger.warn(`blog cover cleanup failed: ${String(err)}`));
+    }
     return this.toDto(updated);
   }
 
@@ -181,6 +230,8 @@ export class BlogService {
       coverImageUrl: row.coverImageKey
         ? this.files.buildPublicUrl('public', row.coverImageKey)
         : null,
+      coverImageAlt: row.coverImageAlt,
+      relatedPostIds: row.relatedPostIds,
       seoTitle: row.seoTitle,
       seoDescription: row.seoDescription,
       isPublished: row.isPublished,

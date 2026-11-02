@@ -1,5 +1,6 @@
 'use client';
 
+import { splitBlogContent } from '@storageos/shared';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -13,13 +14,16 @@ import {
 } from '../i18n/messages';
 import { siteUrl } from '../landing-shared';
 
+import { BlogContent } from './blog-content';
+
 import type {
   PublicBlogFacilityLinkDto,
   PublicBlogListDto,
   PublicBlogPostDto,
+  PublicBlogPostSummaryDto,
+  PublicLandingDto,
 } from '@storageos/shared';
 
-import { MarkdownView } from '@/components/public/markdown-view';
 import { safeJsonLd } from '@/lib/json-ld';
 
 /** `BlogPosting` + `BreadcrumbList` de la entrada. */
@@ -37,7 +41,15 @@ function buildBlogPostJsonLd(data: PublicBlogPostDto, slug: string, locale: Publ
         '@id': `${pageUrl}#post`,
         mainEntityOfPage: pageUrl,
         headline: data.post.title,
-        ...(data.post.coverImageUrl ? { image: [data.post.coverImageUrl] } : {}),
+        ...(data.post.coverImageUrl
+          ? {
+              image: {
+                '@type': 'ImageObject',
+                url: data.post.coverImageUrl,
+                caption: data.post.coverImageAlt,
+              },
+            }
+          : {}),
         datePublished: data.post.publishedAt,
         dateModified: data.post.updatedAt,
         author: { '@id': orgId },
@@ -101,6 +113,56 @@ function RelatedFacilities({
   );
 }
 
+/** «Te puede interesar»: las entradas relacionadas al final del post. */
+function RelatedPosts({
+  posts,
+  slug,
+  locale,
+  customDomain,
+}: {
+  posts: PublicBlogPostSummaryDto[];
+  slug: string;
+  locale: PublicWebLocale;
+  customDomain: string | null;
+}) {
+  const t = useTranslations('publicWeb.blog');
+  if (posts.length === 0) return null;
+  return (
+    <section className="mt-12 border-t pt-8">
+      <h2 className="text-lg font-semibold tracking-tight">{t('relatedPostsTitle')}</h2>
+      <ul className="mt-4 grid gap-4 sm:grid-cols-3">
+        {posts.map((post) => (
+          <li key={post.slug}>
+            <Link
+              href={blogPostHref(slug, post.slug, locale, customDomain)}
+              className="group block overflow-hidden rounded-md border hover:border-primary"
+            >
+              {post.coverImageUrl ? (
+                <div className="relative aspect-video w-full">
+                  <Image
+                    src={post.coverImageUrl}
+                    alt={post.coverImageAlt}
+                    fill
+                    loading="lazy"
+                    sizes="(min-width: 640px) 240px, 100vw"
+                    className="object-cover"
+                  />
+                </div>
+              ) : null}
+              <div className="p-3">
+                <p className="font-medium group-hover:underline">{post.title}</p>
+                {post.excerpt && (
+                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{post.excerpt}</p>
+                )}
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function BlogListBody({
   data,
   slug,
@@ -131,7 +193,7 @@ export function BlogListBody({
                   <div className="relative aspect-video w-full overflow-hidden rounded-md border sm:aspect-square">
                     <Image
                       src={post.coverImageUrl}
-                      alt=""
+                      alt={post.coverImageAlt}
                       fill
                       loading="lazy"
                       sizes="160px"
@@ -177,14 +239,20 @@ export function BlogPostBody({
   data,
   slug,
   locale,
+  landing,
 }: {
   data: PublicBlogPostDto;
   slug: string;
   locale: PublicWebLocale;
+  /** Datos de la portada para los widgets del post (calculadora, tamaños, locales). */
+  landing: PublicLandingDto | null;
 }) {
   const t = useTranslations('publicWeb.blog');
   const p = data.post;
   const jsonLd = buildBlogPostJsonLd(data, slug, locale);
+  const hasLocalesWidget = splitBlogContent(p.contentMarkdown).some(
+    (b) => b.type === 'widget' && b.widget === 'locales',
+  );
 
   return (
     <article className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
@@ -208,20 +276,46 @@ export function BlogPostBody({
 
       {p.coverImageUrl && (
         <div className="relative mt-6 aspect-video w-full overflow-hidden rounded-md border">
-          <Image src={p.coverImageUrl} alt="" fill sizes="768px" className="object-cover" />
+          <Image
+            src={p.coverImageUrl}
+            alt={p.coverImageAlt}
+            fill
+            sizes="768px"
+            className="object-cover"
+          />
         </div>
       )}
 
       <div className="mt-8">
-        <MarkdownView content={p.contentMarkdown} />
+        <BlogContent
+          markdown={p.contentMarkdown}
+          ctx={{
+            tenantSlug: slug,
+            locale,
+            customDomain: data.customDomain,
+            webTemplate: data.webTemplate,
+          }}
+          brandColor={data.brandColor}
+          landing={landing}
+        />
       </div>
 
-      <RelatedFacilities
-        facilities={data.facilities}
+      <RelatedPosts
+        posts={data.related}
         slug={slug}
         locale={locale}
         customDomain={data.customDomain}
       />
+
+      {/* Si el post ya lleva el widget de locales, no se repite al final. */}
+      {!hasLocalesWidget && (
+        <RelatedFacilities
+          facilities={data.facilities}
+          slug={slug}
+          locale={locale}
+          customDomain={data.customDomain}
+        />
+      )}
     </article>
   );
 }

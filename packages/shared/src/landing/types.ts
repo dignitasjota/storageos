@@ -172,6 +172,8 @@ export interface PublicBlogPostSummaryDto {
   title: string;
   excerpt: string | null;
   coverImageUrl: string | null;
+  /** Texto alternativo de la portada (si no, el título). */
+  coverImageAlt: string;
   publishedAt: string;
 }
 
@@ -212,6 +214,8 @@ export interface PublicBlogPostContentDto {
   excerpt: string | null;
   contentMarkdown: string;
   coverImageUrl: string | null;
+  /** Texto alternativo de la portada (si no, el título). */
+  coverImageAlt: string;
   seoTitle: string | null;
   seoDescription: string | null;
   publishedAt: string;
@@ -231,6 +235,8 @@ export interface PublicBlogPostDto {
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
   post: PublicBlogPostContentDto;
+  /** «Te puede interesar»: las elegidas a mano o, sin ninguna, las últimas. */
+  related: PublicBlogPostSummaryDto[];
   facilities: PublicBlogFacilityLinkDto[];
 }
 

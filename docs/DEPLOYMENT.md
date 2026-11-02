@@ -1641,3 +1641,10 @@ Migración `20261208100000_admin_catalog_features` (se aplica sola). Sin variabl
 - Los precios por tramos de un extra se aplican al asignarlo a mano y en el simulador; el cobro por Stripe sigue con el precio mensual.
 - El correo de una propuesta de cuota lleva un enlace a Suscripción con el plan, la periodicidad y el cupón ya elegidos. La propuesta se marca aceptada sola al contratar ese plan, cambiar a él o registrar un pago.
 - Comisión por tenant y comisiones cobradas por mes en «Comisión por cobros con tarjeta» y en Finanzas.
+
+## 74. Blog del tenant: herramientas de SEO (2026-11-02)
+
+Migración `20261209100000_blog_seo_tools` (se aplica sola). Sin variables nuevas.
+
+- El listado y las entradas del blog llevan la cabecera y el pie de la portada de su plantilla (antes un marco común con el logo más pequeño).
+- Las portadas que ya estaban subidas conservan su nombre aleatorio: para que Google vea un nombre con sentido, vuelve a subirlas con «Nombre del archivo» relleno.

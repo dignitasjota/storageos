@@ -13,6 +13,10 @@ export interface BlogPostDto {
   contentMarkdown: string;
   /** URL pública de la imagen de portada, o null. */
   coverImageUrl: string | null;
+  /** Texto alternativo de la portada (null = se usa el título). */
+  coverImageAlt: string | null;
+  /** Entradas relacionadas elegidas a mano, en orden (hasta 3). */
+  relatedPostIds: string[];
   /** Override del `<title>` de la página; si no, se deriva de `title`. */
   seoTitle: string | null;
   /** Override de la meta description; si no, se deriva de `excerpt`. */
@@ -33,6 +37,9 @@ export const CreateBlogPostSchema = z.object({
   contentMarkdown: z.string().trim().min(1, 'Obligatorio').max(50_000),
   seoTitle: optionalText(160),
   seoDescription: optionalText(300),
+  coverImageAlt: optionalText(200),
+  /** Hasta 3 entradas relacionadas; sin ninguna, la web enseña las últimas. */
+  relatedPostIds: z.array(z.string().uuid()).max(3, 'Máximo 3 entradas').optional(),
   isPublished: z.boolean().optional(),
 });
 export type CreateBlogPostInput = z.infer<typeof CreateBlogPostSchema>;
@@ -51,6 +58,8 @@ export const RequestBlogCoverUploadSchema = z.object({
     .int()
     .positive()
     .max(5 * 1024 * 1024, 'Máximo 5 MB'),
+  /** Nombre del fichero que verá Google (se limpia; sin él, uno aleatorio). */
+  fileName: z.string().trim().max(120).optional(),
 });
 export type RequestBlogCoverUploadInput = z.infer<typeof RequestBlogCoverUploadSchema>;
 
@@ -67,3 +76,5 @@ export const SetBlogPostCoverSchema = z.object({
   coverImageKey: z.string().min(1).max(300).nullable(),
 });
 export type SetBlogPostCoverInput = z.infer<typeof SetBlogPostCoverSchema>;
+
+export * from './content';

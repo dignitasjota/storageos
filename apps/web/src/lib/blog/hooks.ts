@@ -74,19 +74,44 @@ export function useSetBlogPostCover() {
 }
 
 /** Sube la portada de un post a MinIO vía URL firmada y confirma la key. */
-export async function uploadBlogCover(id: string, file: File): Promise<BlogPostDto> {
-  const presign = await apiFetch<BlogCoverUploadResponseDto>(`/blog-posts/${id}/cover/upload-url`, {
-    method: 'POST',
-    json: { mimeType: file.type, sizeBytes: file.size },
-  });
-  const put = await fetch(presign.uploadUrl, {
-    method: 'PUT',
-    headers: presign.requiredHeaders,
-    body: file,
-  });
-  if (!put.ok) throw new Error('No se pudo subir la imagen');
-  return apiFetch<BlogPostDto>(`/blog-posts/${id}/cover`, {
-    method: 'PUT',
-    json: { coverImageKey: presign.key },
+/** Sube la portada (con el nombre de fichero que verá Google) y la confirma. */
+export function useUploadBlogCover() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      file,
+      fileName,
+    }: {
+      id: string;
+      file: File;
+      fileName?: string;
+    }): Promise<BlogPostDto> => {
+      const presign = await apiFetch<BlogCoverUploadResponseDto>(
+        `/blog-posts/${id}/cover/upload-url`,
+        {
+          method: 'POST',
+          json: {
+            mimeType: file.type,
+            sizeBytes: file.size,
+            ...(fileName ? { fileName } : {}),
+          },
+        },
+      );
+      const put = await fetch(presign.uploadUrl, {
+        method: 'PUT',
+        headers: presign.requiredHeaders,
+        body: file,
+      });
+      if (!put.ok) throw new Error('No se pudo subir la imagen');
+      return apiFetch<BlogPostDto>(`/blog-posts/${id}/cover`, {
+        method: 'PUT',
+        json: { coverImageKey: presign.key },
+      });
+    },
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: blogKey });
+      void qc.invalidateQueries({ queryKey: blogDetailKey(data.id) });
+    },
   });
 }
