@@ -628,6 +628,8 @@ export default function AdminTenantsPage() {
       <TenantsBulkBar
         selected={[...selected]}
         trialCount={rows.filter((t) => selected.has(t.id) && t.status === 'trial').length}
+        suspendedCount={rows.filter((t) => selected.has(t.id) && t.status === 'suspended').length}
+        cancelledCount={rows.filter((t) => selected.has(t.id) && t.status === 'cancelled').length}
         onClear={() => setSelected(new Set())}
       />
 

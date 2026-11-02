@@ -1648,3 +1648,15 @@ Migración `20261209100000_blog_seo_tools` (se aplica sola). Sin variables nueva
 
 - El listado y las entradas del blog, las fichas de local, las páginas de ciudad y zona, los textos legales y las landings de promoción llevan la cabecera y el pie de la portada de su plantilla (antes un marco común con el logo más pequeño). Si la portada no se puede cargar, se usa el marco común.
 - Las portadas que ya estaban subidas conservan su nombre aleatorio: para que Google vea un nombre con sentido, vuelve a subirlas con «Nombre del archivo» relleno.
+
+## 75. Comunicación del panel admin: arreglos (2026-11-02)
+
+Migración `20261210100000_admin_comms_review` (se aplica sola). Sin variables nuevas.
+
+- Los correos que el super admin envía a un tenant ya no cuentan en los tiempos de respuesta del soporte ni como «esperando tu respuesta» mientras el tenant no conteste; los que siguen sin respuesta a los 14 días se cierran solos (tarea `support.admin-messages-autoclose`, 05:20, en el API). La migración marca como «abiertos por el admin» los que ya había.
+- Si un correo directo no llega a ningún destinatario, no se guarda nada (antes el tenant veía el mensaje y el ticket).
+- Los anuncios y correos del admin salen con la cabecera y el pie de TrasterOS y admiten formato sencillo (negrita, listas, títulos y enlaces).
+- Casilla «Comunicación comercial» en los anuncios: llevan enlace de baja y no llegan a quien se dio de baja (`users.platform_news_opt_out_at`). Los avisos de servicio no la llevan.
+- El correo a los tenants seleccionados ya no llega a los dados de baja.
+- El banner tiene fecha de fin, se puede cerrar (salvo el crítico) y se ve en un minuto, no en cinco.
+- Revisar en «Novedades» las ya publicadas: la fecha de publicación es ahora la de la primera vez.

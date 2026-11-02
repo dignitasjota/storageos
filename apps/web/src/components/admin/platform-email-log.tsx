@@ -57,6 +57,15 @@ export function PlatformEmailLog({ tenantId }: { tenantId?: string }) {
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState('all');
   const [status, setStatus] = useState('all');
+  // `?kind=` y `?status=` en la dirección (p. ej. desde un anuncio recién enviado).
+  useEffect(() => {
+    if (tenantId) return;
+    const qs = new URLSearchParams(window.location.search);
+    const k = qs.get('kind');
+    const st = qs.get('status');
+    if (k && (PLATFORM_EMAIL_KINDS as readonly string[]).includes(k)) setKind(k);
+    if (st && st in STATUS) setStatus(st);
+  }, [tenantId]);
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput.trim()), 300);
     return () => clearTimeout(t);

@@ -17,6 +17,7 @@ import {
   attachmentDto,
   requestAttachmentUpload,
 } from '../../common/message-attachments';
+import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
@@ -136,7 +137,9 @@ export class SupportTicketsService {
 
   /** Nº de tickets esperando respuesta del tenant (el admin ya contestó) — badge del menú. */
   async countWaitingForTenant(tenantId: string): Promise<number> {
-    return this.admin.supportTicket.count({ where: { tenantId, status: 'waiting_user' } });
+    return this.admin.supportTicket.count({
+      where: { tenantId, status: 'waiting_user', NOT: UNANSWERED_ADMIN_MESSAGE },
+    });
   }
 
   async listForTenant(tenantId: string): Promise<SupportTicketDto[]> {

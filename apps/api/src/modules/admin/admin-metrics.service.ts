@@ -9,6 +9,7 @@ import {
   isLiveTenantStatus,
   netPaid,
 } from '../../common/saas-metrics';
+import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -163,7 +164,10 @@ export class AdminMetricsService {
         },
       }),
       this.admin.supportTicket.count({
-        where: { status: { in: ['open', 'in_progress', 'waiting_user'] } },
+        where: {
+          status: { in: ['open', 'in_progress', 'waiting_user'] },
+          NOT: UNANSWERED_ADMIN_MESSAGE,
+        },
       }),
       this.admin.facility.count({ where: { deletedAt: null } }),
       this.admin.unit.count(),

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
@@ -7,7 +7,7 @@ import type {
   CreateSupportTicketInput,
   SupportTicketDto,
   MessageAttachmentUploadDto,
-  TenantPlatformMessageDto,
+  TenantPlatformMessagesPageDto,
 } from '@storageos/shared';
 
 /**
@@ -69,9 +69,24 @@ export function useAddTicketMessage() {
 
 /** Mensajes de TrasterOS al tenant (correo directo, anuncios, retención). */
 export function usePlatformMessages() {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['support', 'platform-messages'] as const,
-    queryFn: () => apiFetch<TenantPlatformMessageDto[]>('/support/platform-messages'),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      apiFetch<TenantPlatformMessagesPageDto>(
+        `/support/platform-messages${pageParam ? `?cursor=${pageParam}` : ''}`,
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+/** Al abrir la pestaña, todos los mensajes de TrasterOS quedan leídos. */
+export function useMarkPlatformMessagesRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<void>('/support/platform-messages/read', { method: 'POST', json: {} }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['support', 'platform-messages'] }),
   });
 }
 

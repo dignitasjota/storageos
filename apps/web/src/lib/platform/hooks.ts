@@ -12,6 +12,10 @@ export function usePlatformBanner() {
     // a pelo) y React Query no admite `undefined` como dato.
     queryFn: async () =>
       (await apiFetch<PlatformBannerDto | null | undefined>('/platform-banner')) ?? null,
-    staleTime: 5 * 60_000,
+    // Un aviso urgente debe verse pronto: se mira cada minuto y al volver a la pestaña.
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }

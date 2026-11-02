@@ -38,7 +38,12 @@ export class UnsubscribeService {
     const target = await this.resolve(token);
     if (!target.unsubscribed) {
       const now = new Date();
-      if (target.kind === 'c') {
+      if (target.kind === 'u') {
+        await this.admin.user.update({
+          where: { id: target.id },
+          data: { platformNewsOptOutAt: now },
+        });
+      } else if (target.kind === 'c') {
         await this.admin.customer.update({
           where: { id: target.id },
           data: { marketingOptOutAt: now },
@@ -55,8 +60,12 @@ export class UnsubscribeService {
             tenantId: target.tenantId,
             userId: null,
             action:
-              target.kind === 'c' ? 'customer.marketing_opted_out' : 'lead.marketing_opted_out',
-            entityType: target.kind === 'c' ? 'Customer' : 'Lead',
+              target.kind === 'u'
+                ? 'user.platform_news_opted_out'
+                : target.kind === 'c'
+                  ? 'customer.marketing_opted_out'
+                  : 'lead.marketing_opted_out',
+            entityType: target.kind === 'u' ? 'User' : target.kind === 'c' ? 'Customer' : 'Lead',
             entityId: target.id,
             changes: { channel: 'unsubscribe_link' },
           },
@@ -68,7 +77,7 @@ export class UnsubscribeService {
   }
 
   private async resolve(token: string): Promise<{
-    kind: 'c' | 'l';
+    kind: 'c' | 'l' | 'u';
     id: string;
     tenantId: string;
     tenantName: string;
@@ -84,6 +93,22 @@ export class UnsubscribeService {
       message: 'El enlace de baja no es válido',
     });
     if (!parsed) throw notFound;
+    if (parsed.kind === 'u') {
+      // Usuario del equipo de un tenant: baja de los anuncios comerciales de TrasterOS.
+      const u = await this.admin.user.findFirst({
+        where: { id: parsed.id },
+        select: { tenantId: true, email: true, platformNewsOptOutAt: true },
+      });
+      if (!u?.email) throw notFound;
+      return {
+        kind: 'u',
+        id: parsed.id,
+        tenantId: u.tenantId,
+        tenantName: 'TrasterOS',
+        email: u.email,
+        unsubscribed: !!u.platformNewsOptOutAt,
+      };
+    }
     if (parsed.kind === 'c') {
       const c = await this.admin.customer.findFirst({
         where: { id: parsed.id },

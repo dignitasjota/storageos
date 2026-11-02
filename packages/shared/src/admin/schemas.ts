@@ -197,6 +197,12 @@ export const AdminBroadcastSchema = z.object({
    * `audience` y `tag`: se envía a esos, estén en el estado que estén.
    */
   tenantIds: z.array(z.string().uuid()).min(1).max(500).optional(),
+  /**
+   * Comunicación comercial (novedades, ofertas): lleva enlace de baja y no llega
+   * a quien se dio de baja. Los avisos de servicio (mantenimiento, cambios de
+   * condiciones) no la marcan.
+   */
+  commercial: z.boolean().default(false),
 });
 export type AdminBroadcastInput = z.infer<typeof AdminBroadcastSchema>;
 
@@ -685,6 +691,9 @@ export const UpdatePlatformBannerSchema = z.object({
   message: z.string().trim().max(500).default(''),
   level: z.enum(['info', 'warning', 'critical']).default('info'),
   enabled: z.boolean().default(false),
+  /** Hora a la que deja de verse (ISO); null = hasta que se apague. */
+  endsAt: z.string().datetime({ offset: true }).nullable().default(null),
+  dismissible: z.boolean().default(true),
 });
 export type UpdatePlatformBannerInput = z.infer<typeof UpdatePlatformBannerSchema>;
 

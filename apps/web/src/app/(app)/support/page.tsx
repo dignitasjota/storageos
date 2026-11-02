@@ -2,6 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
+  adminMessageHtml,
   CreateSupportTicketSchema,
   type CreateSupportTicketInput,
   SupportTicketPriorityEnum,
@@ -10,7 +11,7 @@ import {
 } from '@storageos/shared';
 import { Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -47,6 +48,7 @@ import { ApiError } from '@/lib/auth/api';
 import {
   presignTicketAttachment,
   useCreateSupportTicket,
+  useMarkPlatformMessagesRead,
   usePlatformMessages,
   useSupportTickets,
 } from '@/lib/support/hooks';
@@ -72,8 +74,18 @@ const PRIORITY_LABELS: Record<SupportTicketPriorityValue, string> = {
 export default function SupportPage() {
   const tickets = useSupportTickets();
   const platform = usePlatformMessages();
+  const markRead = useMarkPlatformMessagesRead();
+  const unread = platform.data?.pages[0]?.unread ?? 0;
   const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState('tickets');
+  // Abrir la pestaña marca como leídos los mensajes (una vez por visita).
+  const markedRef = useRef(false);
+  useEffect(() => {
+    if (tab === 'trasteros' && unread > 0 && !markedRef.current) {
+      markedRef.current = true;
+      markRead.mutate();
+    }
+  }, [tab, unread, markRead]);
   // Los avisos de un anuncio abren esta pestaña (`?tab=trasteros`).
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('tab') === 'trasteros') {
@@ -101,9 +113,9 @@ export default function SupportPage() {
           <TabsTrigger value="tickets">Tus tickets</TabsTrigger>
           <TabsTrigger value="trasteros">
             Mensajes de TrasterOS
-            {(platform.data ?? []).length > 0 && (
-              <span className="ml-1.5 text-xs text-muted-foreground">
-                {(platform.data ?? []).length}
+            {unread > 0 && (
+              <span className="ml-1.5 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                {unread}
               </span>
             )}
           </TabsTrigger>
@@ -173,7 +185,7 @@ function PlatformMessages() {
       </div>
     );
   }
-  const items = platform.data ?? [];
+  const items = platform.data?.pages.flatMap((p) => p.items) ?? [];
   if (items.length === 0) {
     return (
       <div className="rounded-md border bg-card px-4 py-12 text-center text-sm text-muted-foreground">
@@ -193,6 +205,9 @@ function PlatformMessages() {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
+                  {!m.readAt && (
+                    <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="Nuevo" />
+                  )}
                   <span className="truncate font-medium">{m.subject}</span>
                   <Badge variant="outline">{KIND_LABELS[m.kind] ?? m.kind}</Badge>
                 </div>
@@ -203,7 +218,11 @@ function PlatformMessages() {
             </button>
             {open === m.id && (
               <div className="mt-3 space-y-3">
-                <p className="whitespace-pre-wrap text-sm">{m.body}</p>
+                <div
+                  className="text-sm"
+                  // Markdown sencillo ya escapado (mismo formato que el correo).
+                  dangerouslySetInnerHTML={{ __html: adminMessageHtml(m.body) }}
+                />
                 {m.ticketId ? (
                   <Button asChild size="sm" variant="outline">
                     <Link href={`/support/${m.ticketId}`}>Responder</Link>
@@ -218,6 +237,18 @@ function PlatformMessages() {
           </li>
         ))}
       </ul>
+      {platform.hasNextPage && (
+        <div className="flex justify-center border-t p-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void platform.fetchNextPage()}
+            disabled={platform.isFetchingNextPage}
+          >
+            {platform.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

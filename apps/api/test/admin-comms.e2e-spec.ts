@@ -101,7 +101,9 @@ describe('Admin comms (email + broadcast) (e2e)', () => {
       .get('/support/platform-messages')
       .set(tenantAuth)
       .expect(200);
-    const directMsg = inbox.body.find((m: { subject: string }) => m.subject === 'Aviso importante');
+    const directMsg = inbox.body.items.find(
+      (m: { subject: string }) => m.subject === 'Aviso importante',
+    );
     expect(directMsg).toMatchObject({ kind: 'direct', body: 'Hola, esto es una prueba.' });
     expect(directMsg.ticketId).toBeTruthy();
     const ticket = await request(app.getHttpServer())
@@ -138,7 +140,7 @@ describe('Admin comms (email + broadcast) (e2e)', () => {
       .set(tenantAuth)
       .expect(200);
     expect(
-      afterBroadcast.body.some(
+      afterBroadcast.body.items.some(
         (m: { kind: string; subject: string }) =>
           m.kind === 'announcement' && m.subject === 'Mantenimiento programado',
       ),

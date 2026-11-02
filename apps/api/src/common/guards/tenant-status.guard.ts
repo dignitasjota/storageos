@@ -17,7 +17,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * como leídos. Todo lo demás queda en solo lectura.
  */
 const SUSPENDED_WRITABLE_PATHS =
-  /^\/(?:v\d+\/)?(?:settings\/saas-billing(?:\/|$)|support\/tickets(?:\/|$)|me(?:\/|$)|auth\/|notifications(?:\/|$)|product-updates\/seen)/;
+  /^\/(?:v\d+\/)?(?:settings\/saas-billing(?:\/|$)|support\/(?:tickets|platform-messages)(?:\/|$)|me(?:\/|$)|auth\/|notifications(?:\/|$)|product-updates\/seen)/;
 
 type TenantState = 'alive' | 'suspended' | 'gone';
 

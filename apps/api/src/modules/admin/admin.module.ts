@@ -87,6 +87,7 @@ import { SuperAdminTwoFactorService } from './super-admin-two-factor.service';
 import { SuperAdminService } from './super-admin.service';
 import { SupportAgilityController } from './support-agility.controller';
 import { SupportAgilityService } from './support-agility.service';
+import { SupportAutoCloseCron } from './support-autoclose.cron';
 import { SupportTicketsAdminController } from './support-tickets-admin.controller';
 import { SupportTicketsTenantController } from './support-tickets-tenant.controller';
 import { SupportTicketsService } from './support-tickets.service';
@@ -218,6 +219,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminTenantResetService,
     AeatCertExpiryService,
     AeatCertExpiryCron,
+    SupportAutoCloseCron,
   ],
   exports: [SuperAdminService, SuperAdminAuditService],
 })

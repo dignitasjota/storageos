@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { NON_CASH_PAYMENT_METHODS, type AdminTenantSummaryDto } from '@storageos/shared';
 
+import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -83,7 +84,11 @@ export class AdminTenantSummaryService {
       this.admin.unit.count({ where: { tenantId } }),
       this.admin.unit.count({ where: { tenantId, status: 'occupied' } }),
       this.admin.supportTicket.count({
-        where: { tenantId, status: { in: ['open', 'in_progress', 'waiting_user'] } },
+        where: {
+          tenantId,
+          status: { in: ['open', 'in_progress', 'waiting_user'] },
+          NOT: UNANSWERED_ADMIN_MESSAGE,
+        },
       }),
       this.admin.tenantInteraction.findFirst({
         where: { tenantId },

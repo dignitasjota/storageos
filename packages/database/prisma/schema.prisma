@@ -792,6 +792,8 @@ model User {
   authorizedPersonsCreated CustomerAuthorizedPerson[] @relation("AuthorizedPersonCreatedBy")
   createdBusinessReminders   BusinessReminder[]           @relation("BusinessReminderCreatedBy")
   completedBusinessReminders BusinessReminderCompletion[] @relation("BusinessReminderCompletedBy")
+  /// Baja de los anuncios comerciales de TrasterOS.
+  platformNewsOptOutAt DateTime? @map("platform_news_opt_out_at") @db.Timestamptz(6)
 }
 
 /// Permisos por local: a qué facilities está restringido un usuario. Sin filas
@@ -4145,6 +4147,8 @@ model SupportTicket {
   closedAt        DateTime?             @map("closed_at") @db.Timestamptz(6)
   /// Primera respuesta del equipo (no cuenta las notas internas).
   firstResponseAt DateTime?             @map("first_response_at") @db.Timestamptz(6)
+  /// Lo abrió el super admin al escribir al tenant (no cuenta en los tiempos de respuesta).
+  openedByAdmin   Boolean               @default(false) @map("opened_by_admin")
   resolvedAt      DateTime?             @map("resolved_at") @db.Timestamptz(6)
   createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -4699,6 +4703,7 @@ model TenantPlatformMessage {
   body         String
   ticketId     String?  @map("ticket_id") @db.Uuid
   superAdminId String?  @map("super_admin_id") @db.Uuid
+  readAt       DateTime? @map("read_at") @db.Timestamptz(6)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -5943,6 +5948,8 @@ model PlatformBanner {
   message   String   @default("")
   level     String   @default("info")
   enabled   Boolean  @default(false)
+  endsAt      DateTime? @map("ends_at") @db.Timestamptz(6)
+  dismissible Boolean   @default(true)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_banner")
@@ -5991,6 +5998,8 @@ model ProductUpdate {
   link        String?
   /// null = borrador.
   publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  /// Primera publicación: volver a publicar la conserva.
+  firstPublishedAt DateTime? @map("first_published_at") @db.Timestamptz(6)
   createdById String?   @map("created_by_id") @db.Uuid
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

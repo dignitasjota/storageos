@@ -152,9 +152,17 @@ export interface RetentionPlaybookResultDto {
 export interface AdminBroadcastResultDto {
   /** Nº de tenants alcanzados (con al menos un destinatario). */
   tenants: number;
-  /** Nº total de emails enviados con éxito. */
+  /**
+   * Nº de correos encolados. Se envían en segundo plano: lo que llega o rebota
+   * se ve en «Correos enviados».
+   */
   recipients: number;
+  /** Siempre 0: los fallos se ven en «Correos enviados» (se mantiene por compatibilidad). */
   failed: number;
+  /** Tenants elegidos que no reciben el anuncio (de baja, sin destinatario). */
+  skipped: number;
+  /** Destinatarios que se dieron de baja de los anuncios comerciales. */
+  optedOut: number;
 }
 
 /** Un tenant marcado "en riesgo" (retención) en el panel super admin. */
@@ -1042,6 +1050,12 @@ export interface PlatformBannerDto {
   message: string;
   level: 'info' | 'warning' | 'critical';
   enabled: boolean;
+  /** Deja de verse sola a esta hora (null = hasta que se apague). */
+  endsAt: string | null;
+  /** El usuario puede cerrarlo (los críticos no se cierran). */
+  dismissible: boolean;
+  /** Cambia al guardar: un banner nuevo vuelve a verse aunque se cerrara el anterior. */
+  updatedAt: string;
 }
 
 export interface SuperAdminNotificationDto {
@@ -2048,7 +2062,15 @@ export interface TenantPlatformMessageDto {
   body: string;
   /** Ticket donde responderlo (solo el correo directo). */
   ticketId: string | null;
+  /** Cuándo lo abrió el tenant (null = sin leer). */
+  readAt: string | null;
   createdAt: string;
+}
+
+export interface TenantPlatformMessagesPageDto {
+  items: TenantPlatformMessageDto[];
+  nextCursor: string | null;
+  unread: number;
 }
 
 /** Vista guardada de una lista del panel admin. */
