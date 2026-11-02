@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
 import { getPublicWebMessages, intlLocaleFor, legalHref } from './i18n/messages';
-import { TenantWebChrome } from './tenant-web-chrome';
+import { TenantSiteChrome } from './tenant-site-chrome';
 
 import type { PublicLegalDocDto, TenantLegalDoc } from '@storageos/shared';
 import type { Metadata } from 'next';
@@ -42,12 +42,18 @@ export async function LegalPageBody({ slug, doc }: { slug: string; doc: TenantLe
   const messages = await getPublicWebMessages('es');
   return (
     <NextIntlClientProvider locale={intlLocaleFor('es')} messages={messages}>
-      <TenantWebChrome data={data} locale="es" googleAnalyticsId={data.googleAnalyticsId}>
+      <TenantSiteChrome
+        slug={slug}
+        fallback={data}
+        locale="es"
+        hideReserve={false}
+        googleAnalyticsId={data.googleAnalyticsId}
+      >
         <article className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
           <h1 className="mb-8 text-3xl font-bold tracking-tight">{data.title}</h1>
           <MarkdownView content={data.markdown} />
         </article>
-      </TenantWebChrome>
+      </TenantSiteChrome>
     </NextIntlClientProvider>
   );
 }

@@ -2,7 +2,7 @@ import { NextIntlClientProvider } from 'next-intl';
 
 import { getPublicWebMessages, intlLocaleFor } from '../i18n/messages';
 import { siteUrl } from '../landing-shared';
-import { TenantWebChrome } from '../tenant-web-chrome';
+import { TenantSiteChrome } from '../tenant-site-chrome';
 import { WebChatWidget } from '../web-chat-widget';
 import { WhatsappFloatButton } from '../whatsapp-float-button';
 
@@ -99,18 +99,19 @@ export async function PromoPageView({ data }: { data: PublicPromoPageDto }) {
   const messages = await getPublicWebMessages(locale);
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-      <TenantWebChrome
-        // La cabecera con el mismo color que la landing (el de la plantilla si no hay marca).
-        data={{
+      <TenantSiteChrome
+        slug={data.site.tenantSlug}
+        // Sin la portada, el marco común con el color de la landing.
+        fallback={{
           ...data.site,
           brandColor: themeFor(data.site.webTemplate, data.site.brandColor).accent,
         }}
         locale={locale}
-        hasBlog={data.site.hasBlog}
+        hideReserve={false}
         googleAnalyticsId={data.site.googleAnalyticsId}
       >
         <PromoBody data={data} locale={locale} />
-      </TenantWebChrome>
+      </TenantSiteChrome>
       <WhatsappFloatButton number={data.site.whatsappNumber} />
       <WebChatWidget
         slug={data.site.tenantSlug}
