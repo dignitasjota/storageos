@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import {
   useAdminWhatsappAi,
@@ -42,6 +43,8 @@ export default function AdminWhatsappAiPage() {
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [limit, setLimit] = useState('300');
+  const [message, setMessage] = useState('');
+  const [reply, setReply] = useState<string | null>(null);
 
   const loaded = useRef(false);
   useEffect(() => {
@@ -73,11 +76,13 @@ export default function AdminWhatsappAiPage() {
     }
   }
 
-  async function runTest() {
+  async function runTest(withMessage = false) {
     try {
-      const r = await test.mutateAsync();
-      if (r.ok) toast.success(`Funciona. Respuesta: «${r.sample ?? ''}»`);
-      else toast.error(r.error ?? 'No funciona.');
+      setReply(null);
+      const r = await test.mutateAsync(withMessage ? message.trim() : undefined);
+      if (!r.ok) toast.error(r.error ?? 'No funciona.');
+      else if (withMessage) setReply(r.sample ?? '');
+      else toast.success(`Funciona. Respuesta: «${r.sample ?? ''}»`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo probar.');
     }
@@ -102,6 +107,35 @@ export default function AdminWhatsappAiPage() {
           cambia en su ficha.
         </p>
       </div>
+
+      {settings.data && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Quién la usa</CardTitle>
+            <CardDescription>
+              Tenants con número de WhatsApp activo y respuestas de este mes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Stat label="Con número activo" value={settings.data.usage.tenantsWithNumber} />
+              <Stat label="Con el asistente activo" value={settings.data.usage.assistantEnabled} />
+              <Stat
+                label="Con la IA de TrasterOS / con su clave"
+                value={`${settings.data.usage.onPlatformKey} / ${settings.data.usage.onOwnKey}`}
+              />
+              <Stat
+                label="Respuestas con la IA de TrasterOS"
+                value={settings.data.usage.platformRepliesThisMonth}
+              />
+              <Stat
+                label="Respuestas con claves de los tenants"
+                value={settings.data.usage.ownRepliesThisMonth}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -198,13 +232,53 @@ export default function AdminWhatsappAiPage() {
               {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
               Guardar
             </Button>
-            <Button variant="outline" onClick={runTest} disabled={test.isPending || !canEdit}>
+            <Button
+              variant="outline"
+              onClick={() => void runTest()}
+              disabled={test.isPending || !canEdit}
+            >
               {test.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
               Probar
             </Button>
           </div>
+          <div className="space-y-2 border-t pt-4">
+            <Label htmlFor="wa-ai-msg">Probar como si escribiera un cliente</Label>
+            <Textarea
+              id="wa-ai-msg"
+              rows={2}
+              value={message}
+              maxLength={1000}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Hola, ¿cuánto cuesta un trastero de 4 m²?"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={test.isPending || !canEdit || !message.trim()}
+              onClick={() => void runTest(true)}
+            >
+              Enviar
+            </Button>
+            {reply !== null && (
+              <p className="max-w-md whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-emerald-50 p-3 text-sm text-emerald-950 dark:bg-emerald-950 dark:text-emerald-100">
+                {reply}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Con un negocio de ejemplo (no con los datos de ningún tenant); no se guarda.
+            </p>
+          </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-lg font-semibold">{value}</p>
     </div>
   );
 }

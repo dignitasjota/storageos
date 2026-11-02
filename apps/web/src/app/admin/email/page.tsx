@@ -31,6 +31,7 @@ import {
 import {
   usePlatformDomainStatus,
   useRefreshEmailDomains,
+  useEmailUsage,
   usePlatformSenders,
   useUpdatePlatformSenders,
   useAdminEmailSettings,
@@ -151,6 +152,11 @@ export default function AdminEmailPage() {
               )}
             </div>
           ))}
+          {platformDomain.data
+            ?.filter((d) => d.brevo !== 'authenticated' && d.brevoRecords.length > 0)
+            .map((d) => (
+              <DnsRecords key={d.domain} domain={d.domain} records={d.brevoRecords} />
+            ))}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
             <p className="text-sm">
               Orden de envío ahora mismo:{' '}
@@ -169,6 +175,8 @@ export default function AdminEmailPage() {
           </div>
         </CardContent>
       </Card>
+
+      <EmailUsageCard />
 
       <PlatformSendersCard />
 
@@ -411,6 +419,122 @@ function UnusedBrevoDomainsCard() {
               </li>
             ))}
           </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Registros que pide Brevo para autenticar un dominio de la plataforma. */
+function DnsRecords({
+  domain,
+  records,
+}: {
+  domain: string;
+  records: { label: string; type: string; host: string; value: string; ok: boolean }[];
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-amber-200 p-3 dark:border-amber-900">
+      <p className="text-sm font-medium">Registros DNS de {domain} para Brevo</p>
+      <p className="text-xs text-muted-foreground">
+        Añádelos en el panel DNS del dominio y pulsa «Comprobar ahora».
+      </p>
+      <ul className="space-y-2">
+        {records.map((r) => (
+          <li key={`${r.type}-${r.host}`} className="space-y-0.5 text-xs">
+            <p className="flex items-center gap-1 font-medium">
+              {r.ok ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+              ) : (
+                <XCircle className="h-3.5 w-3.5 text-amber-600" />
+              )}
+              {r.label} · {r.type} · <span className="font-mono">{r.host}</span>
+            </p>
+            <div className="flex items-center gap-1">
+              <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-1">
+                {r.value}
+              </code>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 shrink-0 text-xs"
+                onClick={() => {
+                  void navigator.clipboard.writeText(r.value);
+                  toast.success('Copiado.');
+                }}
+              >
+                Copiar
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Correos de las últimas 24 horas por proveedor y créditos de Brevo. */
+function EmailUsageCard() {
+  const usage = useEmailUsage();
+  const u = usage.data;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Envíos de las últimas 24 horas</CardTitle>
+        <CardDescription>
+          Correos de la plataforma y de los tenants a sus inquilinos, por proveedor.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!u ? (
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        ) : (
+          <>
+            {u.viaFallback > 0 && (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                {u.viaFallback} correo(s) salieron por el respaldo: el proveedor principal (
+                {PROVIDER_LABELS[u.primary] ?? u.primary}) ha fallado.
+              </p>
+            )}
+            {u.providers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Ningún correo en las últimas 24 horas.
+              </p>
+            ) : (
+              <ul className="divide-y rounded-lg border text-sm">
+                {u.providers.map((p) => (
+                  <li key={p.provider} className="flex flex-wrap justify-between gap-2 px-3 py-2">
+                    <span className="font-medium">
+                      {PROVIDER_LABELS[p.provider] ?? p.provider}
+                      {p.provider === u.primary && (
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">
+                          (principal)
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {p.sent} enviados
+                      {p.failed > 0 && (
+                        <span className="text-destructive"> · {p.failed} fallidos</span>
+                      )}
+                      {p.bounced > 0 && (
+                        <span className="text-destructive"> · {p.bounced} rebotes</span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {u.brevoCreditsLeft !== null && (
+              <p className="text-sm">
+                Brevo: quedan <strong>{u.brevoCreditsLeft}</strong> envíos
+                {u.brevoPlan ? ` (plan ${u.brevoPlan})` : ''}.
+                {u.brevoCreditsLeft < 100 && (
+                  <span className="text-destructive"> Quedan pocos: amplía el plan de Brevo.</span>
+                )}
+              </p>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

@@ -1,5 +1,6 @@
 import {
   DEFAULT_PLATFORM_FOOTER,
+  DEFAULT_PLATFORM_HOME_TEXTS,
   DEFAULT_PLATFORM_SEO,
   type PlatformWebsiteDto,
 } from '@storageos/shared';
@@ -19,6 +20,7 @@ const FALLBACK: PlatformWebsiteDto = {
   contactForm: null,
   footer: DEFAULT_PLATFORM_FOOTER,
   seo: { ...DEFAULT_PLATFORM_SEO, ogImageUrl: null },
+  home: DEFAULT_PLATFORM_HOME_TEXTS,
 };
 
 /**
@@ -40,6 +42,7 @@ export async function fetchPlatformWebsite(): Promise<PlatformWebsiteDto> {
         contactForm: data.contactForm ?? null,
         footer: data.footer ?? FALLBACK.footer,
         seo: { ...FALLBACK.seo, ...(data.seo ?? {}) },
+        home: { ...FALLBACK.home, ...(data.home ?? {}) },
       };
     }
   } catch {

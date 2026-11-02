@@ -17,6 +17,7 @@ import {
   UpdateAdminTenantWhatsappAiSchema,
   UpdatePlatformWhatsappAiSchema,
   type WhatsappAiTestResultDto,
+  TestWhatsappAiSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -82,8 +83,11 @@ export class WhatsappAiAdminController {
   @RequireSuperadmin()
   @Post('whatsapp-ai/test')
   @HttpCode(HttpStatus.OK)
-  test(): Promise<WhatsappAiTestResultDto> {
-    return this.assistant.testPlatform();
+  test(@Body() body: unknown): Promise<WhatsappAiTestResultDto> {
+    const parsed = TestWhatsappAiSchema.safeParse(body ?? {});
+    return this.assistant.testPlatform(
+      parsed.success ? parsed.data.message || undefined : undefined,
+    );
   }
 
   @Get('tenants/:id/whatsapp-ai')

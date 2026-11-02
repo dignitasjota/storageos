@@ -12,9 +12,12 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
+  ReplyContactMessageSchema,
+  UpdateContactMessageSchema,
   SubmitPlatformContactSchema,
   UpdatePlatformContactSettingsSchema,
   type PlatformContactMessageDto,
@@ -32,10 +35,12 @@ import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
 import { PlatformContactService } from './platform-contact.service';
 
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 class SubmitContactDto extends createZodDto(SubmitPlatformContactSchema) {}
 class UpdateContactSettingsDto extends createZodDto(UpdatePlatformContactSettingsSchema) {}
+class ReplyDto extends createZodDto(ReplyContactMessageSchema) {}
+class UpdateMessageDto extends createZodDto(UpdateContactMessageSchema) {}
 class HandledDto extends createZodDto(z.object({ handled: z.boolean() })) {}
 
 /** Envío del formulario de contacto de la web de TrasterOS. */
@@ -86,6 +91,41 @@ export class PlatformContactAdminController {
       ...(search?.trim() ? { search: search.trim() } : {}),
       ...(handled === 'true' || handled === 'false' ? { handled: handled === 'true' } : {}),
     });
+  }
+
+  /** CSV (Excel) de los mensajes, con el mismo filtro que la bandeja. */
+  @Get('messages/export.csv')
+  async exportCsv(
+    @Res() res: Response,
+    @Query('search') search?: string,
+    @Query('handled') handled?: string,
+  ): Promise<void> {
+    const csv = await this.service.exportCsv({
+      ...(search?.trim() ? { search: search.trim() } : {}),
+      ...(handled === 'true' || handled === 'false' ? { handled: handled === 'true' } : {}),
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="contactos-web.csv"');
+    res.send(csv);
+  }
+
+  @AdminAudit('admin.platform.contact_message_updated')
+  @Put('messages/:id')
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UpdateMessageDto,
+  ): Promise<PlatformContactMessageDto> {
+    return this.service.update(id, body);
+  }
+
+  @AdminAudit('admin.platform.contact_message_replied')
+  @Post('messages/:id/reply')
+  @HttpCode(HttpStatus.OK)
+  reply(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ReplyDto,
+  ): Promise<PlatformContactMessageDto> {
+    return this.service.reply(id, body);
   }
 
   /** Borra un mensaje (datos de un visitante; RGPD). */

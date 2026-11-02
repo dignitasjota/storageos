@@ -1050,3 +1050,13 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `platform_email_templates` (global): texto propio de los correos automáticos (sin fila = el de serie).
 - `platform_nps_surveys` y `platform_nps_responses` (globales): encuestas a los propietarios y sus respuestas (una por usuario).
 - `product_updates.image_key` y `highlighted`; `tenant_platform_messages.attachments` (jsonb).
+
+### Plataforma del panel admin: mejoras (2026-11-03)
+
+- `platform_contact_messages` += `note`, `assigned_to_id` (FK super_admins SET NULL), `replied_at`, `reply_subject`, `reply_body`.
+- `platform_website.home` (jsonb): textos propios de la portada.
+- `platform_legal_versions` (global, REVOKE): cada versión guardada de un texto legal, con autor y si se pidió aceptarla.
+- `platform_legal_acceptances` (global, REVOKE): tenant, usuario, versión, IP y fecha; único por tenant y versión.
+- `platform_ai_settings` += `monthly_cost_alert_usd`, `plan_limits` (jsonb slug → consultas).
+- `platform_alert_settings` += `daily_hour`, `chat_contact_enabled`.
+- `platform_alert_logs` (global, REVOKE): avisos al administrador enviados (canal, tipo, resultado, resumen).

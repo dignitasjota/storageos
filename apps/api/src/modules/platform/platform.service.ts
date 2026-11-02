@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import {
   DEFAULT_LEGAL_DOCUMENTS,
+  DEFAULT_PLATFORM_HOME_TEXTS,
+  LEGAL_PLACEHOLDERS,
+  PlatformHomeTextsSchema,
   DEFAULT_PLATFORM_FOOTER,
   DEFAULT_PLATFORM_SEO,
   PLATFORM_LOGO_MAX_BYTES,
@@ -18,7 +22,12 @@ import { FilesService } from '../files/files.service';
 
 import type {
   LegalDocumentDto,
+  LegalFillDataDto,
   LegalSlug,
+  LegalVersionDto,
+  PendingLegalVersionDto,
+  PlatformHomeTextsInput,
+  SaveLegalDocumentInput,
   PlatformBannerDto,
   PlatformFounderOfferDto,
   PlatformLogoUploadDto,
@@ -38,6 +47,7 @@ export class PlatformService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly files: FilesService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // ---- web de TrasterOS: logo ----
@@ -66,7 +76,27 @@ export class PlatformService {
         ...PlatformService.parseSeo(row?.seo),
         ogImageUrl: row?.ogImageKey ? this.files.buildPublicUrl('public', row.ogImageKey) : null,
       },
+      home: PlatformService.parseHome(row?.home),
     };
+  }
+
+  private static parseHome(raw: unknown): PlatformHomeTextsInput {
+    if (raw == null) return DEFAULT_PLATFORM_HOME_TEXTS;
+    const parsed = PlatformHomeTextsSchema.safeParse(raw);
+    return parsed.success ? parsed.data : DEFAULT_PLATFORM_HOME_TEXTS;
+  }
+
+  /** Textos propios de la portada (vacío = el de serie). */
+  async updateHome(input: PlatformHomeTextsInput): Promise<PlatformWebsiteDto> {
+    const clean = (v: string | null) => (v?.trim() ? v.trim() : null);
+    const home: PlatformHomeTextsInput = {
+      heroTitle: clean(input.heroTitle),
+      heroSubtitle: clean(input.heroSubtitle),
+      heroNote: clean(input.heroNote),
+      faq: input.faq?.length ? input.faq : null,
+    };
+    await this.upsertWebsite({ home: home as unknown as Prisma.InputJsonValue });
+    return this.getWebsite();
   }
 
   private static parseSeo(raw: unknown): UpdatePlatformSeoInput {
@@ -374,18 +404,175 @@ export class PlatformService {
     return { slug, title: def.title, content: def.content, updatedAt: null };
   }
 
-  async updateLegal(slug: LegalSlug, input: UpdateLegalDocumentInput): Promise<LegalDocumentDto> {
-    const row = await this.admin.platformLegalDocument.upsert({
-      where: { slug },
-      create: { slug, title: input.title, content: input.content },
-      update: { title: input.title, content: input.content },
-    });
+  /**
+   * Guarda el texto y una versión nueva. Con `notifyTenants` se pide a los
+   * tenants que la acepten (aviso por correo y en su panel).
+   */
+  async updateLegal(
+    slug: LegalSlug,
+    input: SaveLegalDocumentInput | UpdateLegalDocumentInput,
+    superAdminId: string | null = null,
+  ): Promise<LegalDocumentDto> {
+    const notifyTenants = 'notifyTenants' in input && input.notifyTenants === true;
+    const [row, version] = await this.admin.$transaction([
+      this.admin.platformLegalDocument.upsert({
+        where: { slug },
+        create: { slug, title: input.title, content: input.content },
+        update: { title: input.title, content: input.content },
+      }),
+      this.admin.platformLegalVersion.create({
+        data: {
+          slug,
+          title: input.title,
+          content: input.content,
+          createdById: superAdminId,
+          notifyTenants,
+        },
+      }),
+    ]);
+    if (notifyTenants) {
+      this.events.emit(PLATFORM_LEGAL_PUBLISHED, {
+        versionId: version.id,
+        slug,
+        title: input.title,
+      } satisfies PlatformLegalPublishedEvent);
+    }
     return {
       slug,
       title: row.title,
       content: row.content,
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+
+  async listLegalVersions(slug: LegalSlug): Promise<LegalVersionDto[]> {
+    const rows = await this.admin.platformLegalVersion.findMany({
+      where: { slug },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        createdBy: { select: { fullName: true } },
+        _count: { select: { acceptances: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      slug,
+      title: r.title,
+      authorName: r.createdBy?.fullName ?? null,
+      notifyTenants: r.notifyTenants,
+      acceptedCount: r._count.acceptances,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+
+  async getLegalVersion(slug: LegalSlug, id: string): Promise<LegalVersionDto> {
+    const r = await this.admin.platformLegalVersion.findFirst({
+      where: { id, slug },
+      include: {
+        createdBy: { select: { fullName: true } },
+        _count: { select: { acceptances: true } },
+      },
+    });
+    if (!r) {
+      throw new NotFoundException({ code: 'version_not_found', message: 'Versión no encontrada' });
+    }
+    return {
+      id: r.id,
+      slug,
+      title: r.title,
+      content: r.content,
+      authorName: r.createdBy?.fullName ?? null,
+      notifyTenants: r.notifyTenants,
+      acceptedCount: r._count.acceptances,
+      createdAt: r.createdAt.toISOString(),
+    };
+  }
+
+  /** Datos fiscales de Facturación SaaS para rellenar los huecos de los textos. */
+  async legalFillData(): Promise<LegalFillDataDto> {
+    const b = await this.admin.platformBillingSettings.findFirst();
+    const fields: Record<string, string | null | undefined> = {
+      taxId: b?.taxId,
+      address: [b?.address, b?.postalCode, b?.city].filter(Boolean).join(', ') || null,
+      city: b?.city,
+      email: b?.email,
+    };
+    const values: Record<string, string> = {};
+    const missing: string[] = [];
+    for (const p of LEGAL_PLACEHOLDERS) {
+      const v = fields[p.field]?.trim();
+      if (v) values[p.key] = v;
+      else missing.push(p.label);
+    }
+    if (b?.legalName?.trim()) values['**TrasterOS**'] = `**${b.legalName.trim()}**`;
+    return { values, missing };
+  }
+
+  /**
+   * Versiones que el tenant tiene pendientes de aceptar: la última de cada
+   * documento que se pidió aceptar, publicada después de darse de alta.
+   */
+  async pendingLegalForTenant(tenantId: string): Promise<PendingLegalVersionDto[]> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { createdAt: true },
+    });
+    if (!tenant) return [];
+    const versions = await this.admin.platformLegalVersion.findMany({
+      where: { notifyTenants: true, createdAt: { gt: tenant.createdAt } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        createdAt: true,
+        acceptances: { where: { tenantId }, select: { id: true } },
+      },
+    });
+    const latest = new Map<string, (typeof versions)[number]>();
+    for (const v of versions) if (!latest.has(v.slug)) latest.set(v.slug, v);
+    return [...latest.values()]
+      .filter((v) => v.acceptances.length === 0)
+      .map((v) => ({
+        id: v.id,
+        slug: v.slug as LegalSlug,
+        title: v.title,
+        createdAt: v.createdAt.toISOString(),
+      }));
+  }
+
+  /** El propietario acepta una versión (queda con la fecha, el usuario y la IP). */
+  async acceptLegal(args: {
+    tenantId: string;
+    userId: string;
+    role: string;
+    versionId: string;
+    ipAddress: string | null;
+  }): Promise<void> {
+    if (args.role !== 'owner') {
+      throw new ForbiddenException({
+        code: 'owner_required',
+        message: 'Solo el propietario de la cuenta puede aceptar las condiciones',
+      });
+    }
+    const version = await this.admin.platformLegalVersion.findFirst({
+      where: { id: args.versionId, notifyTenants: true },
+      select: { id: true },
+    });
+    if (!version) {
+      throw new NotFoundException({ code: 'version_not_found', message: 'Versión no encontrada' });
+    }
+    await this.admin.platformLegalAcceptance.upsert({
+      where: { tenantId_versionId: { tenantId: args.tenantId, versionId: version.id } },
+      create: {
+        tenantId: args.tenantId,
+        userId: args.userId,
+        versionId: version.id,
+        ipAddress: args.ipAddress,
+      },
+      update: {},
+    });
   }
 }
 
@@ -472,4 +659,12 @@ function toFounderOfferDto(row: {
     setupStrike: row.setupStrike,
     setupText: row.setupText,
   };
+}
+
+export const PLATFORM_LEGAL_PUBLISHED = 'platform.legal_published';
+
+export interface PlatformLegalPublishedEvent {
+  versionId: string;
+  slug: LegalSlug;
+  title: string;
 }

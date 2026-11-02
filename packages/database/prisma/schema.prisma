@@ -689,6 +689,7 @@ model Tenant {
   storageUsage        TenantStorageUsage?
   featureInterestEvents FeatureInterestEvent[]
   customerAuthorizedPersons CustomerAuthorizedPerson[]
+  platformLegalAcceptances  PlatformLegalAcceptance[]
 }
 
 /// Staff interno del tenant.
@@ -735,6 +736,7 @@ model User {
   auditLogs                AuditLog[]
   sessions                 Session[]
   emailVerificationTokens  EmailVerificationToken[]
+  platformLegalAcceptances PlatformLegalAcceptance[]
   passwordResetTokens      PasswordResetToken[]
   invitationsSent          Invitation[]              @relation("InvitationInviter")
   recoveryCodes            RecoveryCode[]
@@ -4082,6 +4084,8 @@ model SuperAdmin {
   pushSubscriptions SuperAdminPushSubscription[]
   platformAnnouncements PlatformAnnouncement[] @relation("PlatformAnnouncementAuthor")
   platformNpsSurveys    PlatformNpsSurvey[]    @relation("PlatformNpsSurveyAuthor")
+  contactMessagesAssigned PlatformContactMessage[] @relation("ContactMessageAssignee")
+  legalVersions           PlatformLegalVersion[]   @relation("LegalVersionAuthor")
 }
 
 /// Dispositivos del super admin con avisos push (panel admin instalado). Global, sin RLS.
@@ -5405,6 +5409,10 @@ model PlatformAlertSettings {
   alertChurnPct             Int       @default(5) @map("alert_churn_pct")
   alertAiCostUsdWeek        Decimal   @default(20) @map("alert_ai_cost_usd_week") @db.Decimal(10, 2)
   alertBigTenantMrr         Decimal   @default(100) @map("alert_big_tenant_mrr") @db.Decimal(10, 2)
+  /// Hora (España) del aviso diario por email.
+  dailyHour                 Int       @default(7) @map("daily_hour")
+  /// Aviso por chat de cada mensaje del formulario de contacto.
+  chatContactEnabled        Boolean   @default(true) @map("chat_contact_enabled")
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -6062,6 +6070,57 @@ model PlatformLegalDocument {
   @@map("platform_legal_documents")
 }
 
+/// Cada versión guardada de una página legal (la vigente es la más reciente).
+model PlatformLegalVersion {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  slug          String
+  title         String
+  content       String
+  createdById   String?  @map("created_by_id") @db.Uuid
+  /// Se pidió a los tenants que la acepten.
+  notifyTenants Boolean  @default(false) @map("notify_tenants")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  createdBy   SuperAdmin?               @relation("LegalVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  acceptances PlatformLegalAcceptance[]
+
+  @@index([slug, createdAt(sort: Desc)], map: "platform_legal_versions_slug_idx")
+  @@map("platform_legal_versions")
+}
+
+/// Aceptación de una versión legal por un tenant.
+model PlatformLegalAcceptance {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  versionId  String   @map("version_id") @db.Uuid
+  ipAddress  String?  @map("ip_address")
+  acceptedAt DateTime @default(now()) @map("accepted_at") @db.Timestamptz(6)
+
+  tenant  Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user    User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  version PlatformLegalVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, versionId], map: "platform_legal_acceptances_unique")
+  @@map("platform_legal_acceptances")
+}
+
+/// Historial de avisos al administrador (email y chat).
+model PlatformAlertLog {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// email | telegram | slack
+  channel   String
+  /// daily | weekly | commercial | contact | test
+  kind      String
+  ok        Boolean
+  error     String?
+  summary   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)], map: "platform_alert_logs_created_idx")
+  @@map("platform_alert_logs")
+}
+
 /// Dedupe de ejecuciones de crons entre réplicas: cada cron reclama su
 /// ejecución diaria insertando (name, run_on); la PK garantiza un solo ganador.
 /// Global (sin tenant, sin RLS).
@@ -6474,6 +6533,8 @@ model PlatformWebsite {
   seo                 Json?
   /// Imagen para redes (bucket público, `platform/og/…`); null = la generada con la marca.
   ogImageKey          String?  @map("og_image_key")
+  /// Textos de la portada (titular, subtítulo, nota y preguntas); null = los de serie.
+  home                Json?
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_website")
@@ -6492,7 +6553,15 @@ model PlatformContactMessage {
   ipAddress String?   @map("ip_address")
   emailSent Boolean   @default(false) @map("email_sent")
   handledAt DateTime? @map("handled_at") @db.Timestamptz(6)
+  /// Nota interna del equipo.
+  note         String?
+  assignedToId String?   @map("assigned_to_id") @db.Uuid
+  repliedAt    DateTime? @map("replied_at") @db.Timestamptz(6)
+  replySubject String?   @map("reply_subject")
+  replyBody    String?   @map("reply_body")
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  assignedTo SuperAdmin? @relation("ContactMessageAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
 
   @@index([createdAt(sort: Desc)], map: "platform_contact_messages_created_idx")
   @@map("platform_contact_messages")
@@ -6639,6 +6708,10 @@ model PlatformAiSettings {
   webMonthlyLimit      Int     @default(300) @map("web_monthly_limit")
   webVisitorDailyLimit Int     @default(15) @map("web_visitor_daily_limit")
   webModel             String? @map("web_model")
+  /// Aviso cuando el gasto estimado del mes supera esta cifra (USD); null = sin aviso.
+  monthlyCostAlertUsd  Decimal? @map("monthly_cost_alert_usd") @db.Decimal(10, 2)
+  /// Consultas al mes por plan: { "<slug>": n }; el general para los que no estén.
+  planLimits           Json?    @map("plan_limits")
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_ai_settings")

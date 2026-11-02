@@ -2522,3 +2522,13 @@ Función `business_reminders` (planes Starter, Pro y Administrador; sin ella 403
 - `PUT /admin/platform/website/logo` y `…/og-image` comprueban que los bytes son PNG, JPG o WebP de hasta 1 MB (400 `invalid_file_content`/`file_too_large`) y borran del bucket la imagen anterior.
 - `PUT /admin/platform/legal/:slug`: el contenido no puede tener menos de 20 caracteres.
 - Tipo de correo de la plataforma nuevo `admin_alert` («Alertas y resumen al administrador», remitente de «Avisos al equipo»).
+
+### Plataforma del panel admin: mejoras (2026-11-03)
+
+- Contacto de la web: `PUT /admin/platform/contact/messages/:id {note?, assignedToId?}` (400 `invalid_assignee`), `POST …/messages/:id/reply {subject, body}` (correo con el remitente «Contacto web», marca atendido; 400 `email_suppressed`), `GET …/messages/export.csv?search=&handled=`. Los DTO llevan `note`, `assignedToId/Name`, `repliedAt`, `replySubject`, `replyBody`. Cada mensaje nuevo avisa por Telegram/Slack (`platform_alert_settings.chat_contact_enabled`).
+- Portada: `PUT /admin/platform/website/home {heroTitle, heroSubtitle, heroNote, faq}` (superadmin); `PlatformWebsiteDto.home` (null = texto de serie).
+- Legales: `PUT /admin/platform/legal/:slug` acepta `notifyTenants` y guarda una versión; `GET /admin/platform/legal/:slug/versions[/:id]`; `GET /admin/platform/legal-fill` (huecos que se pueden rellenar con los datos de Facturación SaaS y los que faltan). Tenant: `GET /platform-legal-pending` y `POST /platform-legal-pending/:versionId/accept` (solo propietario, 403 `owner_required`).
+- Correo saliente: `GET /admin/email-settings/usage` (últimas 24 h por proveedor, respaldo y créditos de Brevo); `PlatformDomainStatusDto.brevoRecords`.
+- Asistente IA: `GET /admin/ai-settings/usage` (uso, coste, previsión y los que más gastan); `PUT /admin/ai-settings` acepta `monthlyCostAlertUsd` y `planLimits`; `POST /admin/ai-settings/test {prompt?}` devuelve `answer`.
+- IA de WhatsApp: `PlatformWhatsappAiDto.usage`; `POST /admin/whatsapp-ai/test {message?}` (conversación simulada).
+- Alertas: `alertEmail` admite varios separados por comas; `dailyHour`, `chatContactEnabled`; `GET /admin/platform-alerts/log` (últimos 100 avisos por email y chat).

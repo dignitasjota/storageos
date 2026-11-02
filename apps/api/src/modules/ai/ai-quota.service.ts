@@ -103,6 +103,7 @@ export class AiQuotaService {
         aiOwnApiKeyEncrypted: true,
         aiOwnModel: true,
         webChatMonthlyLimit: true,
+        subscription: { select: { plan: { select: { slug: true } } } },
       },
     });
     return {
@@ -112,6 +113,7 @@ export class AiQuotaService {
       mode: (tenant?.aiMode === 'own' ? 'own' : 'platform') as AiKeyMode,
       ownKeyEncrypted: tenant?.aiOwnApiKeyEncrypted ?? null,
       ownModel: tenant?.aiOwnModel ?? null,
+      planSlug: tenant?.subscription?.plan.slug ?? null,
     };
   }
 
@@ -164,7 +166,9 @@ export class AiQuotaService {
         where: { tenantId, ...WEB_QUERY, createdAt: { gte: month.start } },
       }),
     ]);
-    const { monthlyQueryLimit, dailyUserLimit } = this.settings.limits;
+    const { dailyUserLimit } = this.settings.limits;
+    const monthlyQueryLimit =
+      this.settings.planLimit(tenant.planSlug) ?? this.settings.limits.monthlyQueryLimit;
     const customLimit = tenant.aiMonthlyLimit != null;
     const [y, m] = month.key.split('-').map(Number) as [number, number];
     const next = new Date(Date.UTC(y, m, 1));
@@ -339,7 +343,9 @@ export class AiQuotaService {
       return { id: row.id, ownKey: own };
     }
     const extra = tenant.aiMonthlyLimit != null ? 0 : await this.extraQueries(tenantId);
-    const { monthlyQueryLimit, dailyUserLimit, portalDailyLimit } = this.settings.limits;
+    const { dailyUserLimit, portalDailyLimit } = this.settings.limits;
+    const monthlyQueryLimit =
+      this.settings.planLimit(tenant.planSlug) ?? this.settings.limits.monthlyQueryLimit;
     const limit = tenant.aiMonthlyLimit ?? monthlyQueryLimit + extra;
     const dailyLimit = portal ? portalDailyLimit : dailyUserLimit;
     const dayStart = zonedDayStart(todayIn(tenant.timezone), tenant.timezone);

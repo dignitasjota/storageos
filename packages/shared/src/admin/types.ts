@@ -1,4 +1,5 @@
 import type { AdminBusinessGoalsDto, AdminPeriodComparisonDto } from './business';
+import type { EmailDnsRecordDto } from '../email-domains';
 import type { TenantFeature } from '../features';
 import type { MessageAttachmentDto } from '../messages';
 import type {
@@ -14,6 +15,7 @@ import type {
   TenantInteractionTypeValue,
   UpdatePlatformFooterInput,
   UpdatePlatformSeoInput,
+  PlatformHomeTextsInput,
 } from './schemas';
 
 export interface SuperAdminDto {
@@ -843,6 +845,40 @@ export interface PlatformAlertSettingsDto {
   sendActivation: boolean;
   /** Resumen semanal de KPIs por email al super admin (lunes 08:00). */
   weeklyDigestEnabled: boolean;
+  /** Hora (España) del aviso diario. */
+  dailyHour: number;
+  /** Avisar por chat de cada mensaje del formulario de contacto. */
+  chatContactEnabled: boolean;
+}
+
+/** Un aviso enviado al administrador (email o chat). */
+export interface PlatformAlertLogDto {
+  id: string;
+  channel: 'email' | 'telegram' | 'slack';
+  kind: string;
+  ok: boolean;
+  error: string | null;
+  summary: string;
+  createdAt: string;
+}
+
+/** Consumo de correo de las últimas 24 horas por proveedor. */
+export interface EmailProviderUsageDto {
+  provider: string;
+  sent: number;
+  failed: number;
+  bounced: number;
+}
+
+export interface EmailUsageDto {
+  /** Proveedor principal configurado. */
+  primary: string;
+  providers: EmailProviderUsageDto[];
+  /** Correos que salieron por un proveedor distinto del principal (respaldo). */
+  viaFallback: number;
+  /** Créditos que le quedan a la cuenta de Brevo (null si no se sabe). */
+  brevoCreditsLeft: number | null;
+  brevoPlan: string | null;
 }
 
 /** Resultado de evaluar las alertas ahora. */
@@ -1006,6 +1042,8 @@ export interface PlatformWebsiteDto {
   footer: UpdatePlatformFooterInput;
   /** SEO de la web (guardado o por defecto) + imagen para redes subida. */
   seo: PlatformSeoDto;
+  /** Textos propios de la portada; null en cada campo = el texto de serie. */
+  home: PlatformHomeTextsInput;
 }
 
 export interface PlatformSeoDto extends UpdatePlatformSeoInput {
@@ -1029,6 +1067,12 @@ export interface PlatformContactMessageDto {
   message: string;
   emailSent: boolean;
   handledAt: string | null;
+  note: string | null;
+  assignedToId: string | null;
+  assignedToName: string | null;
+  repliedAt: string | null;
+  replySubject: string | null;
+  replyBody: string | null;
   createdAt: string;
 }
 
@@ -1680,6 +1724,8 @@ export interface PlatformDomainStatusDto {
   domain: string;
   brevo: PlatformDomainProviderStatus;
   resend: PlatformDomainProviderStatus;
+  /** Registros DNS que pide Brevo para este dominio (si se conocen). */
+  brevoRecords: EmailDnsRecordDto[];
 }
 
 export interface UnusedBrevoDomainDto {

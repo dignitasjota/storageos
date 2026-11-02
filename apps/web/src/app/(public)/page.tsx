@@ -2,6 +2,7 @@ import { ArrowRight, Check, Home, Users, Warehouse } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
+import type { PlatformHomeTextsInput } from '@storageos/shared';
 import type { Metadata } from 'next';
 
 import { PlatformContactForm } from '@/components/public/platform-contact-form';
@@ -101,7 +102,13 @@ const EXTRAS = [
   'deposits',
 ] as const;
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const { home } = await fetchPlatformWebsite();
+  return <LandingContent home={home} />;
+}
+
+/** Los textos propios de la portada (panel admin) mandan sobre los de serie. */
+function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
   const t = useTranslations('landing');
 
   const badges = t.raw('badges') as string[];
@@ -116,7 +123,7 @@ export default function LandingPage() {
     points: string[];
     cta: string;
   }[];
-  const faqItems = t.raw('faq.items') as { q: string; a: string }[];
+  const faqItems = home.faq?.length ? home.faq : (t.raw('faq.items') as { q: string; a: string }[]);
   const plans = t.raw('pricing.plans') as LandingPlanCopy[];
 
   return (
@@ -130,9 +137,11 @@ export default function LandingPage() {
       {/* Hero */}
       <section className="container flex flex-col items-center gap-6 py-20 text-center md:py-28">
         <h1 className="text-balance text-4xl font-semibold tracking-tight md:text-5xl">
-          {t('heroTitle')}
+          {home.heroTitle ?? t('heroTitle')}
         </h1>
-        <p className="max-w-2xl text-pretty text-lg text-muted-foreground">{t('heroSubtitle')}</p>
+        <p className="max-w-2xl text-pretty text-lg text-muted-foreground">
+          {home.heroSubtitle ?? t('heroSubtitle')}
+        </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Button asChild size="lg">
             <Link href="/register">
@@ -144,7 +153,7 @@ export default function LandingPage() {
             <Link href="/login">{t('secondaryCta')}</Link>
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground">{t('heroNote')}</p>
+        <p className="text-sm text-muted-foreground">{home.heroNote ?? t('heroNote')}</p>
         <ul className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
           {badges.map((badge) => (
             <li key={badge} className="flex items-center gap-1.5">

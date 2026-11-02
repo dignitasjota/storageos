@@ -9,6 +9,7 @@ import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { HighlightedUpdateDialog } from '@/components/layout/highlighted-update-dialog';
 import { ImpersonationBanner } from '@/components/layout/impersonation-banner';
+import { LegalAcceptanceBanner } from '@/components/layout/legal-acceptance-banner';
 import { PaymentAlertBanner } from '@/components/layout/payment-alert-banner';
 import { PlatformBanner } from '@/components/layout/platform-banner';
 import { TrialBanner } from '@/components/layout/trial-banner';
@@ -46,6 +47,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <ImpersonationBanner />
                 <AppHeader />
                 <PlatformBanner />
+                <LegalAcceptanceBanner />
                 <HighlightedUpdateDialog />
                 <PaymentAlertBanner />
                 <TrialBanner />

@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Put, UseGuards } from '@nestjs/common';
 import {
+  type PlatformAlertLogDto,
   type PlatformAlertRunResultDto,
   type PlatformAlertSettingsDto,
   UpdatePlatformAlertSettingsSchema,
@@ -10,6 +11,7 @@ import { Public } from '../../common/decorators/public.decorator';
 
 import { AdminAudit } from './admin-audit.decorator';
 import { AdminGuard } from './admin.guard';
+import { PlatformAlertLogService } from './platform-alert-log.service';
 import { PlatformAlertsService } from './platform-alerts.service';
 import { RequireSuperadmin } from './require-superadmin.decorator';
 
@@ -20,7 +22,16 @@ class UpdatePlatformAlertSettingsDto extends createZodDto(UpdatePlatformAlertSet
 @UseGuards(AdminGuard)
 @Controller('admin/platform-alerts')
 export class PlatformAlertsController {
-  constructor(private readonly alerts: PlatformAlertsService) {}
+  constructor(
+    private readonly alerts: PlatformAlertsService,
+    private readonly log: PlatformAlertLogService,
+  ) {}
+
+  /** Los últimos avisos enviados (email y chat). */
+  @Get('log')
+  async history(): Promise<PlatformAlertLogDto[]> {
+    return this.log.list();
+  }
 
   @Get()
   async get(): Promise<PlatformAlertSettingsDto> {

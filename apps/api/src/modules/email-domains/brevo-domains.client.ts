@@ -125,6 +125,22 @@ export class BrevoDomainsClient {
       }));
   }
 
+  /** Créditos de envío que le quedan a la cuenta (null si Brevo no lo dice). */
+  async account(): Promise<{ credits: number | null; plan: string | null }> {
+    if (this.stub) return { credits: 300, plan: 'free' };
+    const body = (await this.request('GET', '/account')) as {
+      plan?: { type?: unknown; credits?: unknown; creditsType?: unknown }[];
+    };
+    const plans = body.plan ?? [];
+    const sending =
+      plans.find((p) => p.creditsType === 'sendLimit') ??
+      plans.find((p) => typeof p.credits === 'number');
+    return {
+      credits: typeof sending?.credits === 'number' ? sending.credits : null,
+      plan: typeof sending?.type === 'string' ? sending.type : null,
+    };
+  }
+
   /** Borra un dominio de la cuenta Brevo (idempotente: 404 = ya no estaba). */
   async deleteDomain(domain: string): Promise<void> {
     if (this.stub) {

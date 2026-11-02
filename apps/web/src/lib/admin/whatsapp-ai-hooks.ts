@@ -31,8 +31,11 @@ export function useUpdateAdminWhatsappAi() {
 
 export function useTestAdminWhatsappAi() {
   return useMutation({
-    mutationFn: () =>
-      adminApiFetch<WhatsappAiTestResultDto>('/admin/whatsapp-ai/test', { method: 'POST' }),
+    mutationFn: (message?: string) =>
+      adminApiFetch<WhatsappAiTestResultDto>('/admin/whatsapp-ai/test', {
+        method: 'POST',
+        json: message ? { message } : {},
+      }),
   });
 }
 
