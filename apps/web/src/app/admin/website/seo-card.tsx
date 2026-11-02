@@ -20,6 +20,7 @@ import {
   useUpdatePlatformSeo,
   useUploadPlatformOgImage,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 /** Lo que se ve en Google si los campos quedan vacíos. */
@@ -43,6 +44,7 @@ function Counter({ value, ideal, max }: { value: number; ideal: number; max: num
 
 /** Título, descripción, imagen para redes, verificaciones, analítica e indexación. */
 export function SeoCard() {
+  const canEdit = useIsSuperadmin();
   const { data } = useAdminPlatformWebsite();
   const update = useUpdatePlatformSeo();
   const upload = useUploadPlatformOgImage();
@@ -188,7 +190,7 @@ export function SeoCard() {
             <Button
               variant="outline"
               onClick={() => input.current?.click()}
-              disabled={upload.isPending}
+              disabled={upload.isPending || !canEdit}
             >
               {upload.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
               Subir imagen
@@ -196,7 +198,7 @@ export function SeoCard() {
             {data.seo.ogImageUrl && (
               <Button
                 variant="ghost"
-                disabled={resetImage.isPending}
+                disabled={resetImage.isPending || !canEdit}
                 onClick={() =>
                   void resetImage
                     .mutateAsync()
@@ -294,7 +296,7 @@ export function SeoCard() {
         )}
 
         <div className="flex justify-end">
-          <Button onClick={() => void onSave()} disabled={update.isPending}>
+          <Button onClick={() => void onSave()} disabled={update.isPending || !canEdit}>
             {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
             Guardar
           </Button>

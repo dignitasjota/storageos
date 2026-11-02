@@ -2513,3 +2513,12 @@ Función `business_reminders` (planes Starter, Pro y Administrador; sin ella 403
 - **Novedades**: `UpsertProductUpdateSchema` gana `publishAt`, `highlighted` e `imageKey` (`POST /admin/product-updates/image-upload-url`); `AdminProductUpdateDto` gana `scheduled`, `highlighted`, `imageUrl`, `seenBy`.
 - **Correos automáticos**: `GET /admin/email-templates`, `PUT /admin/email-templates/:code {subject, body}`, `DELETE /admin/email-templates/:code` (vuelve al de serie); códigos `welcome`, `trial_ending`, `trial_ended`, `past_due`.
 - **Encuestas NPS**: `GET|POST /admin/nps-surveys`, `GET|DELETE /admin/nps-surveys/:id`, `POST …/:id/send`, `POST …/:id/close`; públicos `GET|POST /public/platform-nps/:token {score 0-10, comment?}` (404 `survey_not_found`, 400 `survey_closed`).
+
+### Plataforma del panel admin: arreglos (2026-11-02)
+
+- `GET /admin/platform/contact/messages?cursor=&search=&handled=` → `{items, nextCursor, pending}` (30 por página). `DELETE /admin/platform/contact/messages/:id` (superadmin, auditado). Cambiar los ajustes del formulario y marcar un mensaje como atendido quedan en el registro del admin.
+- `POST /admin/platform-alerts/run` exige el rol superadmin.
+- `GET /admin/email-settings/platform-domain` y `GET /admin/email-settings/brevo-domains/unused` se guardan 5 minutos; `?refresh=1` vuelve a preguntar a Brevo y Resend.
+- `PUT /admin/platform/website/logo` y `…/og-image` comprueban que los bytes son PNG, JPG o WebP de hasta 1 MB (400 `invalid_file_content`/`file_too_large`) y borran del bucket la imagen anterior.
+- `PUT /admin/platform/legal/:slug`: el contenido no puede tener menos de 20 caracteres.
+- Tipo de correo de la plataforma nuevo `admin_alert` («Alertas y resumen al administrador», remitente de «Avisos al equipo»).

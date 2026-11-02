@@ -20,7 +20,7 @@ export class TenantLifecycleEmailsCron {
     private readonly admin: PrismaAdminService,
   ) {}
 
-  @Cron('0 8 * * *', { name: 'tenant-lifecycle.daily' })
+  @Cron('0 8 * * *', { name: 'tenant-lifecycle.daily', timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
     try {
       // Con varias réplicas del API, solo una debe disparar los emails del día.

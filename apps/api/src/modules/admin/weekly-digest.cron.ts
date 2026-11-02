@@ -16,7 +16,7 @@ export class WeeklyDigestCron {
     private readonly admin: PrismaAdminService,
   ) {}
 
-  @Cron('0 8 * * 1', { name: 'weekly-digest.weekly' })
+  @Cron('0 8 * * 1', { name: 'weekly-digest.weekly', timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
     try {
       // Con varias réplicas del API, solo una debe enviar el resumen del día.

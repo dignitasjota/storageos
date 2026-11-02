@@ -931,6 +931,7 @@ export const PLATFORM_EMAIL_KINDS = [
   'web_contact',
   'staff_notice',
   'monthly_report',
+  'admin_alert',
 ] as const;
 export type PlatformEmailKind = (typeof PLATFORM_EMAIL_KINDS)[number];
 
@@ -981,6 +982,11 @@ export const PLATFORM_EMAIL_KIND_INFO: Record<
     category: 'staff_notices',
     label: 'Informe mensual',
     defaultTipo: 'Informe mensual',
+  },
+  admin_alert: {
+    category: 'staff_notices',
+    label: 'Alertas y resumen al administrador',
+    defaultTipo: 'Alertas',
   },
 };
 

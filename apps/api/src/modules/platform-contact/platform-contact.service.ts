@@ -5,9 +5,10 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { PlatformService } from '../platform/platform.service';
 
-import type { PlatformContactMessage, PlatformWebsite } from '@storageos/database';
+import type { PlatformContactMessage, PlatformWebsite, Prisma } from '@storageos/database';
 import type {
   PlatformContactMessageDto,
+  PlatformContactMessagesPageDto,
   PlatformContactSettingsDto,
   SubmitPlatformContactInput,
   UpdatePlatformContactSettingsInput,
@@ -118,12 +119,43 @@ export class PlatformContactService {
     });
   }
 
-  async listMessages(): Promise<PlatformContactMessageDto[]> {
-    const rows = await this.admin.platformContactMessage.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    return rows.map(toMessageDto);
+  async listMessages(
+    f: { cursor?: string; search?: string; handled?: boolean } = {},
+  ): Promise<PlatformContactMessagesPageDto> {
+    const take = 30;
+    const where: Prisma.PlatformContactMessageWhereInput = {};
+    if (f.handled !== undefined) where.handledAt = f.handled ? { not: null } : null;
+    if (f.search) {
+      const contains = { contains: f.search, mode: 'insensitive' as const };
+      where.OR = [
+        { name: contains },
+        { email: contains },
+        { company: contains },
+        { message: contains },
+      ];
+    }
+    const [rows, pending] = await Promise.all([
+      this.admin.platformContactMessage.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: take + 1,
+        ...(f.cursor ? { cursor: { id: f.cursor }, skip: 1 } : {}),
+      }),
+      this.admin.platformContactMessage.count({ where: { handledAt: null } }),
+    ]);
+    const page = rows.slice(0, take);
+    return {
+      items: page.map(toMessageDto),
+      nextCursor: rows.length > take ? (page[page.length - 1]?.id ?? null) : null,
+      pending,
+    };
+  }
+
+  async deleteMessage(id: string): Promise<void> {
+    const deleted = await this.admin.platformContactMessage.deleteMany({ where: { id } });
+    if (deleted.count === 0) {
+      throw new NotFoundException({ code: 'message_not_found', message: 'Mensaje no encontrado' });
+    }
   }
 
   async setHandled(id: string, handled: boolean): Promise<PlatformContactMessageDto> {

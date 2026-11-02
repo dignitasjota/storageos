@@ -7,6 +7,8 @@ import {
   DEFAULT_LEGAL_DOCUMENTS,
   DEFAULT_PLATFORM_FOOTER,
   DEFAULT_PLATFORM_SEO,
+  PLATFORM_LOGO_MAX_BYTES,
+  PLATFORM_LOGO_MIME_TYPES,
   UpdatePlatformFooterSchema,
   UpdatePlatformSeoSchema,
 } from '@storageos/shared';
@@ -135,7 +137,10 @@ export class PlatformService {
     if (key && (!key.startsWith(PlatformService.OG_PREFIX) || key.includes('..'))) {
       throw new BadRequestException({ code: 'invalid_image_key', message: 'Imagen no válida' });
     }
+    await this.checkImage(key);
+    const previous = (await this.admin.platformWebsite.findFirst())?.ogImageKey ?? null;
     await this.upsertWebsite({ ogImageKey: key });
+    await this.dropPrevious(previous, key);
     return this.getWebsite();
   }
 
@@ -143,16 +148,29 @@ export class PlatformService {
     if (key && (!key.startsWith(PlatformService.LOGO_PREFIX) || key.includes('..'))) {
       throw new BadRequestException({ code: 'invalid_logo_key', message: 'Logo no válido' });
     }
-    const existing = await this.admin.platformWebsite.findFirst();
-    if (existing) {
-      await this.admin.platformWebsite.update({
-        where: { id: existing.id },
-        data: { logoKey: key },
-      });
-    } else {
-      await this.admin.platformWebsite.create({ data: { logoKey: key } });
-    }
+    await this.checkImage(key);
+    const previous = (await this.admin.platformWebsite.findFirst())?.logoKey ?? null;
+    await this.upsertWebsite({ logoKey: key });
+    await this.dropPrevious(previous, key);
     return this.getWebsite();
+  }
+
+  /** Los bytes subidos son de verdad una imagen permitida y no pasan de 1 MB. */
+  private async checkImage(key: string | null): Promise<void> {
+    if (!key) return;
+    await this.files.assertObjectMimeType(
+      'public',
+      key,
+      PLATFORM_LOGO_MIME_TYPES,
+      PLATFORM_LOGO_MAX_BYTES,
+    );
+  }
+
+  /** La imagen sustituida o quitada ya no la usa nadie: fuera del bucket. */
+  private async dropPrevious(previous: string | null, current: string | null): Promise<void> {
+    if (previous && previous !== current) {
+      await this.files.deleteObjects('public', [previous]).catch(() => undefined);
+    }
   }
 
   // ---- banners ----

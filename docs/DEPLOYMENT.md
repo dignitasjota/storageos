@@ -1670,3 +1670,11 @@ Migración `20261211100000_admin_comms_features` (se aplica sola). Sin variables
 - «Correos enviados» guarda también el HTML de los correos (no el de los de acceso a la cuenta), así que se pueden ver y reenviar; los anteriores a esta versión no.
 - **Correos automáticos** (bienvenida, fin de la prueba, impago): sus textos se editan en Comunicación → Correos automáticos. Sin cambios, sale el texto de serie (el mismo que antes, sin «responde a este correo»).
 - **Encuestas NPS** a los propietarios: Comunicación → Encuestas NPS. El enlace del correo lleva a `/nps/<token>` (sin sesión, no indexable).
+
+## 77. Plataforma del panel admin: arreglos (2026-11-02)
+
+Sin migración. Variable nueva opcional `RETENTION_CONTACT_MESSAGES_DAYS` (730 por defecto): días que se guardan los mensajes del formulario de contacto de trasteros.pro; la IP del visitante se borra a los 90 días.
+
+- Los avisos al super admin (aviso diario, resumen semanal y el correo de prueba de Correo saliente) salen ahora por el servicio común: quedan en «Correos enviados» con el tipo «Alertas y resumen al administrador», respetan las direcciones bloqueadas y llevan la marca de TrasterOS. Si quieres otro remitente para ellos, está en Correo saliente → «Avisos al equipo».
+- El aviso diario, el resumen semanal y los correos automáticos a los tenants salen a su hora de España (antes, una o dos horas más tarde).
+- Los interruptores de los correos automáticos a los tenants están ahora en Comunicación → Correos automáticos.

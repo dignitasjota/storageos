@@ -1,9 +1,12 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { renderAdminEmail } from '@storageos/shared';
 
+import { formatDateLong } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
-import { PlatformEmailSettingsService } from '../email/platform-email-settings.service';
-import { EMAIL_PROVIDER, type EmailProvider } from '../email/providers/email-provider';
+import { EmailService } from '../email/email.service';
 
+import type { Env } from '../../config/env.schema';
 import type {
   PlatformAlertRunResultDto,
   PlatformAlertSettingsDto,
@@ -19,11 +22,15 @@ import type {
 export class PlatformAlertsService {
   private readonly logger = new Logger(PlatformAlertsService.name);
 
+  private readonly webBase: string;
+
   constructor(
     private readonly admin: PrismaAdminService,
-    @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
-    private readonly platformEmail: PlatformEmailSettingsService,
-  ) {}
+    private readonly email: EmailService,
+    config: ConfigService<Env, true>,
+  ) {
+    this.webBase = config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
+  }
 
   /** Devuelve la config (singleton); la crea con defaults si no existe. */
   async getSettings(): Promise<PlatformAlertSettingsDto> {
@@ -71,11 +78,17 @@ export class PlatformAlertsService {
     const now = new Date();
     const trialLimit = new Date(now.getTime() + settings.trialExpiringDays * 24 * 60 * 60 * 1000);
 
+    // Como «Hoy» y «En riesgo»: ni exentos ni suspendidos o dados de baja.
     const [pastDue, trialExpiring] = await Promise.all([
       settings.notifyPastDue
         ? this.admin.tenant.findMany({
-            where: { deletedAt: null, subscription: { status: 'past_due' } },
-            select: { name: true, slug: true },
+            where: {
+              deletedAt: null,
+              billingExempt: false,
+              status: { in: ['active', 'trial'] },
+              subscription: { status: 'past_due' },
+            },
+            select: { id: true, name: true, slug: true },
             orderBy: { name: 'asc' },
           })
         : Promise.resolve([]),
@@ -83,10 +96,11 @@ export class PlatformAlertsService {
         ? this.admin.tenant.findMany({
             where: {
               deletedAt: null,
+              billingExempt: false,
               status: 'trial',
               trialEndsAt: { gte: now, lte: trialLimit },
             },
-            select: { name: true, slug: true, trialEndsAt: true },
+            select: { id: true, name: true, slug: true, trialEndsAt: true },
             orderBy: { trialEndsAt: 'asc' },
           })
         : Promise.resolve([]),
@@ -97,10 +111,11 @@ export class PlatformAlertsService {
     }
 
     const { html, text } = this.renderDigest(pastDue, trialExpiring);
-    await this.email.send({
-      ...(await this.platformEmail.platformSender()),
+    // Por el servicio común: queda en «Correos enviados» y respeta la lista de bloqueos.
+    await this.email.sendRendered({
       to: settings.alertEmail,
-      subject: `[TrasterOS] Alerta de plataforma: ${pastDue.length} pago(s) fallido(s), ${trialExpiring.length} trial(es) por expirar`,
+      kind: 'admin_alert',
+      subject: `[TrasterOS] Alerta de plataforma: ${pastDue.length} pago(s) fallido(s), ${trialExpiring.length} prueba(s) por terminar`,
       html,
       text,
     });
@@ -115,35 +130,29 @@ export class PlatformAlertsService {
     };
   }
 
+  /** Markdown escapado por `renderAdminEmail`: el nombre del tenant lo elige el tenant. */
   private renderDigest(
-    pastDue: { name: string; slug: string }[],
-    trialExpiring: { name: string; slug: string; trialEndsAt: Date | null }[],
+    pastDue: { id: string; name: string; slug: string }[],
+    trialExpiring: { id: string; name: string; slug: string; trialEndsAt: Date | null }[],
   ): { html: string; text: string } {
+    const clean = (v: string) => v.replace(/[[\]()*_#`]/g, ' ').trim();
+    const link = (t: { id: string; name: string; slug: string }) =>
+      `[${clean(t.name)}](${this.webBase}/admin/tenants/${t.id}) (${clean(t.slug)})`;
     const lines: string[] = [];
-    const htmlParts: string[] = [];
     if (pastDue.length > 0) {
-      lines.push('Pagos fallidos (past_due):');
-      htmlParts.push('<h3>Pagos fallidos (past_due)</h3><ul>');
-      for (const t of pastDue) {
-        lines.push(`- ${t.name} (${t.slug})`);
-        htmlParts.push(`<li>${t.name} (${t.slug})</li>`);
-      }
-      htmlParts.push('</ul>');
+      lines.push('## Pagos fallidos', ...pastDue.map((t) => `- ${link(t)}`), '');
     }
     if (trialExpiring.length > 0) {
-      lines.push('', 'Trials por expirar:');
-      htmlParts.push('<h3>Trials por expirar</h3><ul>');
-      for (const t of trialExpiring) {
-        const d = t.trialEndsAt ? t.trialEndsAt.toISOString().slice(0, 10) : '—';
-        lines.push(`- ${t.name} (${t.slug}) — ${d}`);
-        htmlParts.push(`<li>${t.name} (${t.slug}) — ${d}</li>`);
-      }
-      htmlParts.push('</ul>');
+      lines.push(
+        '## Pruebas que terminan pronto',
+        ...trialExpiring.map(
+          (t) => `- ${link(t)} — ${t.trialEndsAt ? formatDateLong(t.trialEndsAt) : '—'}`,
+        ),
+        '',
+      );
     }
-    return {
-      html: `<div>${htmlParts.join('')}</div>`,
-      text: lines.join('\n'),
-    };
+    lines.push(`[[boton: Abrir «Hoy» | ${this.webBase}/admin/today]]`);
+    return renderAdminEmail(lines.join('\n'));
   }
 
   private toDto(row: {

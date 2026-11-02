@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/select';
 import {
   usePlatformDomainStatus,
+  useRefreshEmailDomains,
   usePlatformSenders,
   useUpdatePlatformSenders,
   useAdminEmailSettings,
@@ -61,6 +62,7 @@ type Choice = 'env' | 'brevo' | 'resend';
 export default function AdminEmailPage() {
   const { data, isLoading } = useAdminEmailSettings();
   const platformDomain = usePlatformDomainStatus();
+  const refreshDomains = useRefreshEmailDomains();
   const update = useUpdateEmailSettings();
   const sendTest = useSendTestEmail();
 
@@ -149,10 +151,22 @@ export default function AdminEmailPage() {
               )}
             </div>
           ))}
-          <p className="pt-2 text-sm">
-            Orden de envío ahora mismo:{' '}
-            <strong>{data.effectiveOrder.map((p) => PROVIDER_LABELS[p] ?? p).join(' → ')}</strong>
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+            <p className="text-sm">
+              Orden de envío ahora mismo:{' '}
+              <strong>{data.effectiveOrder.map((p) => PROVIDER_LABELS[p] ?? p).join(' → ')}</strong>
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={refreshDomains.isPending}
+              onClick={() => refreshDomains.mutate()}
+              title="El estado de los dominios se guarda 5 minutos"
+            >
+              {refreshDomains.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Comprobar ahora
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -543,6 +557,7 @@ function PlatformSendersCard() {
         <Label htmlFor={`ps-${key}-name`}>Nombre</Label>
         <Input
           id={`ps-${key}-name`}
+          maxLength={70}
           value={form[key].name}
           placeholder={placeholder.name}
           onChange={(e) => set(key, 'name', e.target.value)}

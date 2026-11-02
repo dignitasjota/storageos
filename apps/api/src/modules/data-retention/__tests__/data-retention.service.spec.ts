@@ -11,6 +11,7 @@ const RETENTION: Record<string, number> = {
   RETENTION_SEPA_PRENOTICE_DAYS: 430,
   RETENTION_WHATSAPP_DAYS: 365,
   RETENTION_WEB_EVENTS_DAYS: 480,
+  RETENTION_CONTACT_MESSAGES_DAYS: 730,
 };
 
 function build() {
@@ -27,6 +28,10 @@ function build() {
     },
     webEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 8 }) },
     webChatConversation: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    platformContactMessage: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
   };
   const config = {
     get: jest.fn((key: string) => RETENTION[key]),
@@ -82,6 +87,14 @@ describe('DataRetentionService', () => {
       whatsappMessages: 7,
       webEvents: 8,
       webChatConversations: 2,
+      contactMessages: 1,
+    });
+    // Formulario de contacto: 730 días; la IP se quita a los 90.
+    const contactCutoff = admin.platformContactMessage.deleteMany.mock.calls[0]![0].where.createdAt
+      .lt as Date;
+    expect(Math.abs(contactCutoff.getTime() - (before - 730 * 86_400_000))).toBeLessThan(5000);
+    expect(admin.platformContactMessage.updateMany.mock.calls[0]![0].data).toEqual({
+      ipAddress: null,
     });
   });
 });

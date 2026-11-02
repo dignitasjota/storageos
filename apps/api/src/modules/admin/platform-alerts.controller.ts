@@ -35,6 +35,7 @@ export class PlatformAlertsController {
     return this.alerts.updateSettings(input);
   }
 
+  @RequireSuperadmin()
   @Post('run')
   @HttpCode(HttpStatus.OK)
   async run(): Promise<PlatformAlertRunResultDto> {

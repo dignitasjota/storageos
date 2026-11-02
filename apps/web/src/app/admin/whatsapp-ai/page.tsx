@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import {
   useAdminWhatsappAi,
   useTestAdminWhatsappAi,
@@ -30,6 +31,7 @@ import { ApiError } from '@/lib/auth/api';
  * TrasterOS», hasta su límite de respuestas al mes.
  */
 export default function AdminWhatsappAiPage() {
+  const canEdit = useIsSuperadmin();
   const settings = useAdminWhatsappAi();
   const update = useUpdateAdminWhatsappAi();
   const test = useTestAdminWhatsappAi();
@@ -192,11 +194,11 @@ export default function AdminWhatsappAiPage() {
             Activar la IA de WhatsApp de la plataforma
           </label>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={save} disabled={update.isPending}>
+            <Button onClick={save} disabled={update.isPending || !canEdit}>
               {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
               Guardar
             </Button>
-            <Button variant="outline" onClick={runTest} disabled={test.isPending}>
+            <Button variant="outline" onClick={runTest} disabled={test.isPending || !canEdit}>
               {test.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
               Probar
             </Button>

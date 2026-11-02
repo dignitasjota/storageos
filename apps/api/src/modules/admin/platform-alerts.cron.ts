@@ -16,7 +16,7 @@ export class PlatformAlertsCron {
     private readonly admin: PrismaAdminService,
   ) {}
 
-  @Cron('0 7 * * *', { name: 'platform-alerts.daily' })
+  @Cron('0 7 * * *', { name: 'platform-alerts.daily', timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
     try {
       // Con varias réplicas del API, solo una debe enviar el digest del día.

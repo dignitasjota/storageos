@@ -17,7 +17,7 @@ export interface LegalDocumentDto {
 /** Actualización de un documento legal desde el panel super admin. */
 export const UpdateLegalDocumentSchema = z.object({
   title: z.string().trim().min(1).max(200),
-  content: z.string().max(100_000),
+  content: z.string().trim().min(20, 'El texto es demasiado corto').max(100_000),
 });
 export type UpdateLegalDocumentInput = z.infer<typeof UpdateLegalDocumentSchema>;
 
