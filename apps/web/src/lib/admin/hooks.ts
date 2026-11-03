@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { adminApiFetch } from './api';
+import { adminApiFetch, adminApiFetchBlob } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
@@ -83,6 +83,11 @@ import type {
   PlatformFounderOfferDto,
   PlatformLogoUploadDto,
   PlatformWebsiteDto,
+  PlatformHomeTextsInput,
+  PlatformAlertLogDto,
+  EmailUsageDto,
+  LegalVersionDto,
+  LegalFillDataDto,
   UpdatePlatformFooterInput,
   UpdatePlatformSeoInput,
   LegalDocumentDto,
@@ -2296,6 +2301,79 @@ export function useSetContactMessageHandled() {
   });
 }
 
+export function useUpdateContactMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; note?: string | null; assignedToId?: string | null }) => {
+      const { id, ...body } = input;
+      return adminApiFetch<PlatformContactMessageDto>(`/admin/platform/contact/messages/${id}`, {
+        method: 'PUT',
+        json: body,
+      });
+    },
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'contact', 'messages'] }),
+  });
+}
+
+export function useReplyContactMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; subject: string; body: string }) =>
+      adminApiFetch<PlatformContactMessageDto>(
+        `/admin/platform/contact/messages/${input.id}/reply`,
+        { method: 'POST', json: { subject: input.subject, body: input.body } },
+      ),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'contact', 'messages'] }),
+  });
+}
+
+/** Descarga el CSV de los mensajes de contacto (con el filtro de la bandeja). */
+export async function downloadContactMessagesCsv(filters: {
+  search?: string;
+  handled?: boolean;
+}): Promise<void> {
+  const qs = new URLSearchParams();
+  if (filters.search) qs.set('search', filters.search);
+  if (filters.handled !== undefined) qs.set('handled', String(filters.handled));
+  const blob = await adminApiFetchBlob(`/admin/platform/contact/messages/export.csv?${qs}`);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'contactos-web.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function useUpdatePlatformHome() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PlatformHomeTextsInput) =>
+      adminApiFetch<PlatformWebsiteDto>('/admin/platform/website/home', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
+  });
+}
+
+/** Avisos al administrador enviados (email y chat). */
+export function useAdminAlertLog() {
+  return useQuery({
+    queryKey: ['admin', 'platform-alerts', 'log'] as const,
+    queryFn: () => adminApiFetch<PlatformAlertLogDto[]>('/admin/platform-alerts/log'),
+  });
+}
+
+/** Correos de las últimas 24 horas por proveedor. */
+export function useEmailUsage() {
+  return useQuery({
+    queryKey: ['admin', 'email-settings', 'usage'] as const,
+    queryFn: () => adminApiFetch<EmailUsageDto>('/admin/email-settings/usage'),
+  });
+}
+
 // --- Oferta fundador de la web de TrasterOS ---
 export function useAdminFounderOffer() {
   return useQuery({
@@ -2416,12 +2494,30 @@ export function useAdminLegalDoc(slug: LegalSlug) {
 export function useUpdateLegalDoc(slug: LegalSlug) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: UpdateLegalDocumentInput) =>
+    mutationFn: (input: UpdateLegalDocumentInput & { notifyTenants?: boolean }) =>
       adminApiFetch<LegalDocumentDto>(`/admin/platform/legal/${slug}`, {
         method: 'PUT',
         json: input,
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'legal', slug] }),
+  });
+}
+
+export function useLegalVersions(slug: LegalSlug) {
+  return useQuery({
+    queryKey: ['admin', 'legal', slug, 'versions'] as const,
+    queryFn: () => adminApiFetch<LegalVersionDto[]>(`/admin/platform/legal/${slug}/versions`),
+  });
+}
+
+export function fetchLegalVersion(slug: LegalSlug, id: string): Promise<LegalVersionDto> {
+  return adminApiFetch<LegalVersionDto>(`/admin/platform/legal/${slug}/versions/${id}`);
+}
+
+export function useLegalFill() {
+  return useQuery({
+    queryKey: ['admin', 'legal-fill'] as const,
+    queryFn: () => adminApiFetch<LegalFillDataDto>('/admin/platform/legal-fill'),
   });
 }
 

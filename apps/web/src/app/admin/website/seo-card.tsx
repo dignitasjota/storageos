@@ -241,6 +241,31 @@ export function SeoCard() {
         <p className="-mt-3 text-xs text-muted-foreground">
           En los dos, envía después el sitemap: <code>https://{siteHost}/sitemap.xml</code>
         </p>
+        <div className="-mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          {[
+            [
+              'Search Console',
+              `https://search.google.com/search-console?resource_id=${encodeURIComponent(`https://${siteHost}/`)}`,
+            ],
+            ['Bing Webmaster', 'https://www.bing.com/webmasters/home'],
+            ['Páginas indexadas en Google', `https://www.google.com/search?q=site%3A${siteHost}`],
+            [
+              'Prueba de resultados enriquecidos',
+              `https://search.google.com/test/rich-results?url=${encodeURIComponent(`https://${siteHost}/`)}`,
+            ],
+            ['Ver el sitemap', `https://${siteHost}/sitemap.xml`],
+          ].map(([label, href]) => (
+            <a
+              key={label}
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline"
+            >
+              {label} ↗
+            </a>
+          ))}
+        </div>
 
         <div className="space-y-1">
           <Label htmlFor="seo-ga4">Google Analytics 4</Label>

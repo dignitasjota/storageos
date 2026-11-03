@@ -21,6 +21,50 @@ export const UpdateLegalDocumentSchema = z.object({
 });
 export type UpdateLegalDocumentInput = z.infer<typeof UpdateLegalDocumentSchema>;
 
+/** Guardar con opción de pedir a los tenants que acepten la versión nueva. */
+export const SaveLegalDocumentSchema = UpdateLegalDocumentSchema.extend({
+  notifyTenants: z.boolean().default(false),
+});
+export type SaveLegalDocumentInput = z.infer<typeof SaveLegalDocumentSchema>;
+
+/** Una versión guardada de un documento legal. */
+export interface LegalVersionDto {
+  id: string;
+  slug: LegalSlug;
+  title: string;
+  /** Solo en el detalle de una versión. */
+  content?: string;
+  authorName: string | null;
+  notifyTenants: boolean;
+  /** Tenants que la han aceptado (solo si se pidió aceptarla). */
+  acceptedCount: number;
+  createdAt: string;
+}
+
+/** Versión que un tenant tiene pendiente de aceptar. */
+export interface PendingLegalVersionDto {
+  id: string;
+  slug: LegalSlug;
+  title: string;
+  createdAt: string;
+}
+
+/** Datos fiscales de la plataforma para rellenar los huecos de los textos. */
+export interface LegalFillDataDto {
+  /** Hueco (`[NIF]`) → valor. Solo los que hay. */
+  values: Record<string, string>;
+  /** Huecos que no se pueden rellenar porque falta el dato. */
+  missing: string[];
+}
+
+/** Huecos conocidos de los textos de serie y de qué dato salen. */
+export const LEGAL_PLACEHOLDERS = [
+  { key: '[NIF]', field: 'taxId', label: 'NIF' },
+  { key: '[Domicilio social]', field: 'address', label: 'Domicilio' },
+  { key: '[localidad]', field: 'city', label: 'Localidad' },
+  { key: '[correo del DPD]', field: 'email', label: 'Correo' },
+] as const;
+
 const TERMS_MD = `## 1. Información del prestador
 
 El servicio es prestado por:

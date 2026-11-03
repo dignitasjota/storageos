@@ -6,6 +6,7 @@ import type {
   AiConnectionTestDto,
   AiUsageDto,
   PlatformAiSettingsDto,
+  PlatformAiUsageDto,
   UpdatePlatformAiSettingsInput,
   UpdateTenantAiLimitInput,
 } from '@storageos/shared';
@@ -31,8 +32,19 @@ export function useUpdateAdminAiSettings() {
 
 export function useTestAdminAiSettings() {
   return useMutation({
-    mutationFn: () =>
-      adminApiFetch<AiConnectionTestDto>('/admin/ai-settings/test', { method: 'POST' }),
+    mutationFn: (prompt?: string) =>
+      adminApiFetch<AiConnectionTestDto>('/admin/ai-settings/test', {
+        method: 'POST',
+        json: prompt ? { prompt } : {},
+      }),
+  });
+}
+
+/** Uso y coste del mes con la clave de la plataforma. */
+export function useAdminAiUsage() {
+  return useQuery({
+    queryKey: ['admin', 'ai-settings', 'usage'] as const,
+    queryFn: () => adminApiFetch<PlatformAiUsageDto>('/admin/ai-settings/usage'),
   });
 }
 

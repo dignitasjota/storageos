@@ -121,6 +121,34 @@ export class WhatsappAssistantService {
       keyLast4: key ? key.slice(-4) : null,
       monthlyReplyLimit: row.monthlyReplyLimit,
       updatedAt: row.updatedAt.toISOString(),
+      usage: await this.platformUsage(),
+    };
+  }
+
+  /** Cómo usan la IA de WhatsApp los tenants con número (para el panel admin). */
+  private async platformUsage(): Promise<PlatformWhatsappAiDto['usage']> {
+    const { start } = currentMonth();
+    const [rows, platformReplies, ownReplies] = await Promise.all([
+      this.admin.tenantWhatsappSettings.findMany({
+        where: { enabled: true, tenant: { deletedAt: null } },
+        select: { assistantEnabled: true, aiMode: true, ownAiApiKeyEncrypted: true },
+      }),
+      this.admin.whatsappMessage.count({
+        where: { sender: 'assistant', aiKeySource: 'platform', createdAt: { gte: start } },
+      }),
+      this.admin.whatsappMessage.count({
+        where: { sender: 'assistant', aiKeySource: 'own', createdAt: { gte: start } },
+      }),
+    ]);
+    const assistant = rows.filter((r) => r.assistantEnabled);
+    const own = assistant.filter((r) => r.aiMode === 'own' && r.ownAiApiKeyEncrypted);
+    return {
+      tenantsWithNumber: rows.length,
+      assistantEnabled: assistant.length,
+      onPlatformKey: assistant.length - own.length,
+      onOwnKey: own.length,
+      platformRepliesThisMonth: platformReplies,
+      ownRepliesThisMonth: ownReplies,
     };
   }
 
@@ -160,12 +188,12 @@ export class WhatsappAssistantService {
     return this.getPlatform();
   }
 
-  async testPlatform(): Promise<WhatsappAiTestResultDto> {
+  async testPlatform(message?: string): Promise<WhatsappAiTestResultDto> {
     const config = await this.platformConfig();
     if (!config) {
       return { ok: false, sample: null, error: 'Falta el modelo o la clave de API' };
     }
-    return this.test(config);
+    return this.test(config, message);
   }
 
   private async platformConfig(): Promise<WhatsappAiConfig | null> {
@@ -175,12 +203,19 @@ export class WhatsappAssistantService {
     return { provider: row.provider, model: row.model, baseUrl: row.baseUrl, apiKey };
   }
 
-  private async test(config: WhatsappAiConfig): Promise<WhatsappAiTestResultDto> {
+  /**
+   * Con `message`, una conversación simulada de un negocio de trasteros de
+   * ejemplo (sin datos de ningún tenant); sin él, una prueba mínima.
+   */
+  private async test(config: WhatsappAiConfig, message?: string): Promise<WhatsappAiTestResultDto> {
     try {
-      const r = await this.ai.complete(config, 'Responde en una frase corta en español.', [
-        { role: 'user', content: 'Di «hola, funciono».' },
+      const system = message
+        ? 'Eres el asistente de WhatsApp de «Trasteros Ejemplo», un negocio de trasteros en Madrid. Tienes trasteros de 2, 4 y 8 m² desde 39 €/mes, IVA incluido; abierto de 7:00 a 22:00. Responde breve, en el idioma del cliente.'
+        : 'Responde en una frase corta en español.';
+      const r = await this.ai.complete(config, system, [
+        { role: 'user', content: message || 'Di «hola, funciono».' },
       ]);
-      return { ok: true, sample: r.text.trim().slice(0, 200), error: null };
+      return { ok: true, sample: r.text.trim().slice(0, message ? 1500 : 200), error: null };
     } catch (err) {
       return { ok: false, sample: null, error: err instanceof Error ? err.message : String(err) };
     }

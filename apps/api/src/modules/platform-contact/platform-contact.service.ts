@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { renderAdminEmail } from '@storageos/shared';
 
 import { escapeHtml } from '../../common/tenant-email-layout';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -7,6 +9,8 @@ import { PlatformService } from '../platform/platform.service';
 
 import type { PlatformContactMessage, PlatformWebsite, Prisma } from '@storageos/database';
 import type {
+  ReplyContactMessageInput,
+  UpdateContactMessageInput,
   PlatformContactMessageDto,
   PlatformContactMessagesPageDto,
   PlatformContactSettingsDto,
@@ -26,6 +30,7 @@ export class PlatformContactService {
     private readonly admin: PrismaAdminService,
     private readonly email: EmailService,
     private readonly platform: PlatformService,
+    private readonly events: EventEmitter2,
   ) {}
 
   private async row(): Promise<PlatformWebsite> {
@@ -111,6 +116,14 @@ export class PlatformContactService {
         `[contacto] no se pudo enviar el aviso del mensaje ${message.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    // Aviso por Telegram/Slack (lo escucha el módulo admin, si está activado).
+    this.events.emit(PLATFORM_CONTACT_RECEIVED, {
+      id: message.id,
+      name: message.name,
+      email: message.email,
+      company: message.company,
+      message: message.message,
+    } satisfies PlatformContactReceivedEvent);
     await this.platform.notify({
       type: 'platform_contact.received',
       title: `Contacto desde la web: ${message.name}`,
@@ -137,6 +150,7 @@ export class PlatformContactService {
     const [rows, pending] = await Promise.all([
       this.admin.platformContactMessage.findMany({
         where,
+        include: WITH_ASSIGNEE,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: take + 1,
         ...(f.cursor ? { cursor: { id: f.cursor }, skip: 1 } : {}),
@@ -166,8 +180,139 @@ export class PlatformContactService {
     const row = await this.admin.platformContactMessage.update({
       where: { id },
       data: { handledAt: handled ? new Date() : null },
+      include: WITH_ASSIGNEE,
     });
     return toMessageDto(row);
+  }
+
+  /** Nota interna y quién lo lleva (un super admin activo). */
+  async update(id: string, input: UpdateContactMessageInput): Promise<PlatformContactMessageDto> {
+    await this.findOrThrow(id);
+    if (input.assignedToId) {
+      const admin = await this.admin.superAdmin.findFirst({
+        where: { id: input.assignedToId, isActive: true },
+        select: { id: true },
+      });
+      if (!admin) {
+        throw new BadRequestException({
+          code: 'invalid_assignee',
+          message: 'Ese administrador no existe o está desactivado',
+        });
+      }
+    }
+    const row = await this.admin.platformContactMessage.update({
+      where: { id },
+      data: {
+        ...(input.note !== undefined ? { note: input.note || null } : {}),
+        ...(input.assignedToId !== undefined ? { assignedToId: input.assignedToId } : {}),
+      },
+      include: WITH_ASSIGNEE,
+    });
+    return toMessageDto(row);
+  }
+
+  /**
+   * Responde al visitante desde el panel: sale con el remitente de «Contacto
+   * web», queda en «Correos enviados» y el mensaje pasa a atendido.
+   */
+  async reply(id: string, input: ReplyContactMessageInput): Promise<PlatformContactMessageDto> {
+    const msg = await this.findOrThrow(id);
+    const settings = await this.row();
+    const quote = msg.message
+      .split('\n')
+      .map((l) => `> ${l}`)
+      .join('\n');
+    const mail = renderAdminEmail(`${input.body}\n\n---\n\n${quote}`);
+    const result = await this.email.sendRendered({
+      to: msg.email,
+      subject: input.subject,
+      html: mail.html,
+      text: mail.text,
+      ...(settings.contactEmail ? { replyTo: { email: settings.contactEmail } } : {}),
+      kind: 'web_contact',
+      tags: { type: 'platform_contact_reply' },
+    });
+    if (result.suppressed) {
+      throw new BadRequestException({
+        code: 'email_suppressed',
+        message: 'Esa dirección está bloqueada (rebotes o quejas): no se le puede escribir',
+      });
+    }
+    const now = new Date();
+    const row = await this.admin.platformContactMessage.update({
+      where: { id },
+      data: {
+        repliedAt: now,
+        replySubject: input.subject,
+        replyBody: input.body,
+        handledAt: msg.handledAt ?? now,
+      },
+      include: WITH_ASSIGNEE,
+    });
+    return toMessageDto(row);
+  }
+
+  /** Todos los mensajes (o los del filtro) en CSV para Excel. */
+  async exportCsv(f: { search?: string; handled?: boolean } = {}): Promise<string> {
+    const where: Prisma.PlatformContactMessageWhereInput = {};
+    if (f.handled !== undefined) where.handledAt = f.handled ? { not: null } : null;
+    if (f.search) {
+      const contains = { contains: f.search, mode: 'insensitive' as const };
+      where.OR = [{ name: contains }, { email: contains }, { company: contains }];
+    }
+    const rows = await this.admin.platformContactMessage.findMany({
+      where,
+      include: WITH_ASSIGNEE,
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+    const cell = (v: string | null | undefined) => {
+      const t = (v ?? '').replace(/\r?\n/g, ' ');
+      return /[";]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const date = (d: Date | null) =>
+      d ? d.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }) : '';
+    const header = [
+      'Fecha',
+      'Nombre',
+      'Email',
+      'Teléfono',
+      'Empresa',
+      'Trasteros',
+      'Perfil',
+      'Mensaje',
+      'Atendido',
+      'Respondido',
+      'Lo lleva',
+      'Nota',
+    ];
+    const lines = rows.map((r) =>
+      [
+        date(r.createdAt),
+        r.name,
+        r.email,
+        r.phone,
+        r.company,
+        r.units,
+        r.profile,
+        r.message,
+        date(r.handledAt),
+        date(r.repliedAt),
+        r.assignedTo?.fullName ?? '',
+        r.note,
+      ]
+        .map(cell)
+        .join(';'),
+    );
+    return `${String.fromCharCode(0xfeff)}${[header.join(';'), ...lines].join('\r\n')}`;
+  }
+
+  private async findOrThrow(id: string): Promise<PlatformContactMessage> {
+    const row = await this.admin.platformContactMessage.findUnique({ where: { id } });
+    if (!row) {
+      throw new NotFoundException({ code: 'message_not_found', message: 'Mensaje no encontrado' });
+    }
+    return row;
   }
 }
 
@@ -185,7 +330,21 @@ function toSettingsDto(row: PlatformWebsite): PlatformContactSettingsDto {
   };
 }
 
-function toMessageDto(r: PlatformContactMessage): PlatformContactMessageDto {
+export const PLATFORM_CONTACT_RECEIVED = 'platform.contact_received';
+
+export interface PlatformContactReceivedEvent {
+  id: string;
+  name: string;
+  email: string;
+  company: string | null;
+  message: string;
+}
+
+const WITH_ASSIGNEE = { assignedTo: { select: { fullName: true } } } as const;
+
+function toMessageDto(
+  r: PlatformContactMessage & { assignedTo?: { fullName: string } | null },
+): PlatformContactMessageDto {
   return {
     id: r.id,
     name: r.name,
@@ -197,6 +356,12 @@ function toMessageDto(r: PlatformContactMessage): PlatformContactMessageDto {
     message: r.message,
     emailSent: r.emailSent,
     handledAt: r.handledAt?.toISOString() ?? null,
+    note: r.note,
+    assignedToId: r.assignedToId,
+    assignedToName: r.assignedTo?.fullName ?? null,
+    repliedAt: r.repliedAt?.toISOString() ?? null,
+    replySubject: r.replySubject,
+    replyBody: r.replyBody,
     createdAt: r.createdAt.toISOString(),
   };
 }

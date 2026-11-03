@@ -1,8 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { platformEmailShell } from '@storageos/shared';
 
-import { EmailService } from '../email/email.service';
-
 import { AdminBusinessService } from './admin-business.service';
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminTenantsService } from './admin-tenants.service';
@@ -45,7 +43,6 @@ export class WeeklyDigestService {
     private readonly mrr: MrrSnapshotService,
     private readonly tenants: AdminTenantsService,
     private readonly alerts: PlatformAlertsService,
-    private readonly email: EmailService,
     private readonly chat: ChatAlertsService,
     private readonly business: AdminBusinessService,
   ) {}
@@ -76,17 +73,15 @@ export class WeeklyDigestService {
     const { html, text } = this.render(overview, lastMovement, atRisk, business?.alerts ?? []);
 
     if (emailOn && settings.alertEmail) {
-      // Por el servicio común: queda en «Correos enviados» y respeta la lista de bloqueos.
-      await this.email.sendRendered({
-        to: settings.alertEmail,
-        kind: 'admin_alert',
+      await this.alerts.emailAdmins({
+        kind: 'weekly',
         subject: `[TrasterOS] Resumen semanal: MRR ${euro(overview.mrr.total)} · ${overview.tenants.active} activos`,
         html,
         text,
       });
       this.logger.log(`[weekly-digest] resumen enviado a ${settings.alertEmail}`);
     }
-    if (chatOn) await this.chat.send(text);
+    if (chatOn) await this.chat.send(text, 'weekly');
     return { sent: true, reason: null };
   }
 

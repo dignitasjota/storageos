@@ -347,7 +347,21 @@ export interface PlatformWhatsappAiDto {
   keyLast4: string | null;
   monthlyReplyLimit: number;
   updatedAt: string;
+  /** Cómo usan la IA los tenants con número de WhatsApp. */
+  usage: {
+    tenantsWithNumber: number;
+    assistantEnabled: number;
+    onPlatformKey: number;
+    onOwnKey: number;
+    platformRepliesThisMonth: number;
+    ownRepliesThisMonth: number;
+  };
 }
+
+/** Probar la IA de WhatsApp con una conversación simulada. */
+export const TestWhatsappAiSchema = z.object({
+  message: z.string().trim().max(1000).optional(),
+});
 
 export interface WhatsappAiTestResultDto {
   ok: boolean;

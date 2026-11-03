@@ -601,7 +601,21 @@ export type SetSuperAdminActiveInput = z.infer<typeof SetSuperAdminActiveSchema>
 // --- Alertas proactivas de plataforma ---
 export const UpdatePlatformAlertSettingsSchema = z.object({
   enabled: z.boolean(),
-  alertEmail: z.string().email().nullable().or(z.literal('')),
+  /** Uno o varios emails separados por comas. */
+  alertEmail: z
+    .string()
+    .trim()
+    .max(500)
+    .refine(
+      (v) =>
+        v === '' ||
+        v
+          .split(',')
+          .map((e) => e.trim())
+          .every((e) => z.string().email().safeParse(e).success),
+      'Algún email no es válido',
+    )
+    .nullable(),
   notifyPastDue: z.boolean(),
   notifyTrialExpiring: z.boolean(),
   trialExpiringDays: z.number().int().min(1).max(30),
@@ -615,6 +629,8 @@ export const UpdatePlatformAlertSettingsSchema = z.object({
   sendActivation: z.boolean().optional(),
   // Resumen semanal de KPIs por email al super admin. Opcional, misma razón.
   weeklyDigestEnabled: z.boolean().optional(),
+  dailyHour: z.number().int().min(0).max(23).optional(),
+  chatContactEnabled: z.boolean().optional(),
 });
 export type UpdatePlatformAlertSettingsInput = z.infer<typeof UpdatePlatformAlertSettingsSchema>;
 
@@ -1301,3 +1317,44 @@ export const SendAdminQuoteSchema = AdminQuoteSchema.extend({
   followupDays: z.number().int().min(0).max(60).default(7),
 });
 export type SendAdminQuoteInput = z.infer<typeof SendAdminQuoteSchema>;
+
+// --- Mejoras de «Plataforma» ---
+
+/** Responder a un mensaje del formulario de contacto. */
+export const ReplyContactMessageSchema = z.object({
+  subject: z.string().trim().min(3).max(200),
+  body: z.string().trim().min(1).max(10_000),
+});
+export type ReplyContactMessageInput = z.infer<typeof ReplyContactMessageSchema>;
+
+/** Nota interna y quién lleva un mensaje de contacto. */
+export const UpdateContactMessageSchema = z.object({
+  note: z.string().trim().max(2000).nullable().optional(),
+  assignedToId: z.string().uuid().nullable().optional(),
+});
+export type UpdateContactMessageInput = z.infer<typeof UpdateContactMessageSchema>;
+
+/** Textos propios de la portada de trasteros.pro (null = el de serie). */
+export const PlatformHomeTextsSchema = z.object({
+  heroTitle: z.string().trim().max(120).nullable(),
+  heroSubtitle: z.string().trim().max(400).nullable(),
+  heroNote: z.string().trim().max(160).nullable(),
+  /** null = las preguntas de serie. */
+  faq: z
+    .array(
+      z.object({
+        q: z.string().trim().min(3).max(200),
+        a: z.string().trim().min(3).max(1500),
+      }),
+    )
+    .max(20)
+    .nullable(),
+});
+export type PlatformHomeTextsInput = z.infer<typeof PlatformHomeTextsSchema>;
+
+export const DEFAULT_PLATFORM_HOME_TEXTS: PlatformHomeTextsInput = {
+  heroTitle: null,
+  heroSubtitle: null,
+  heroNote: null,
+  faq: null,
+};

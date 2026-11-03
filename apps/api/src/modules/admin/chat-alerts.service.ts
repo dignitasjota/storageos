@@ -1,11 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import {
+  PLATFORM_CONTACT_RECEIVED,
+  type PlatformContactReceivedEvent,
+} from '../platform-contact/platform-contact.service';
 
 import { AdminActivityService } from './admin-activity.service';
 import { AdminTodayService } from './admin-today.service';
+import { PlatformAlertLogService } from './platform-alert-log.service';
 
 import type { Env } from '../../config/env.schema';
 import type {
@@ -42,6 +48,7 @@ export class ChatAlertsService {
     private readonly crypto: CryptoService,
     private readonly today: AdminTodayService,
     private readonly activity: AdminActivityService,
+    private readonly log: PlatformAlertLogService,
     config: ConfigService<Env, true>,
   ) {
     this.stub = config.get('NODE_ENV', { infer: true }) === 'test';
@@ -93,8 +100,8 @@ export class ChatAlertsService {
     return this.getSettings();
   }
 
-  /** Envía un texto a los canales configurados. */
-  async send(text: string): Promise<ChatAlertSendResultDto> {
+  /** Envía un texto a los canales configurados y lo anota en el historial. */
+  async send(text: string, kind = 'other'): Promise<ChatAlertSendResultDto> {
     const r = await this.row();
     const telegramToken = r.telegramBotTokenEncrypted
       ? this.crypto.decryptString(r.telegramBotTokenEncrypted, AAD_TELEGRAM)
@@ -111,12 +118,47 @@ export class ChatAlertsService {
         : Promise.resolve<ChatChannelResult>('off'),
       slackUrl ? this.sendSlack(slackUrl, text) : Promise.resolve<ChatChannelResult>('off'),
     ]);
+    const summary = text.split('\n')[0] ?? '';
+    for (const [channel, res] of [
+      ['telegram', telegram],
+      ['slack', slack],
+    ] as const) {
+      if (res === 'off') continue;
+      await this.log.record({
+        channel,
+        kind,
+        ok: res === 'sent',
+        summary,
+        error: res === 'sent' ? null : res,
+      });
+    }
     return { sent: telegram === 'sent' || slack === 'sent', telegram, slack, reason: null };
+  }
+
+  /** Cada mensaje del formulario de contacto de la web, al momento. */
+  @OnEvent(PLATFORM_CONTACT_RECEIVED, { async: true })
+  async onContact(e: PlatformContactReceivedEvent): Promise<void> {
+    try {
+      const r = await this.row();
+      if (!r.chatContactEnabled) return;
+      const who = e.company ? `${e.name} (${e.company})` : e.name;
+      await this.send(
+        [
+          `TrasterOS · Contacto desde la web: ${who}`,
+          e.email,
+          e.message.slice(0, 300),
+          `${this.webBase}/admin/website`,
+        ].join('\n'),
+        'contact',
+      );
+    } catch (err) {
+      this.logger.warn(`Aviso de contacto: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   /** Mensaje de prueba. */
   sendTest(): Promise<ChatAlertSendResultDto> {
-    return this.send('✅ TrasterOS: los avisos del panel admin llegan a este chat.');
+    return this.send('✅ TrasterOS: los avisos del panel admin llegan a este chat.', 'test');
   }
 
   /**
@@ -132,7 +174,7 @@ export class ChatAlertsService {
     if (today.urgentCount === 0) {
       return { sent: false, telegram: 'off', slack: 'off', reason: 'nothing_urgent' };
     }
-    return this.send(this.dailyText(today));
+    return this.send(this.dailyText(today), 'daily');
   }
 
   /** Texto del aviso diario (se exporta para tests). */
@@ -187,7 +229,7 @@ export class ChatAlertsService {
       this.webBase,
     );
     if (!text) return { sent: false, telegram: 'off', slack: 'off', reason: 'nothing_urgent' };
-    return this.send(text);
+    return this.send(text, 'commercial');
   }
 
   /** ¿Va el resumen semanal por chat? (lo usa el resumen semanal). */

@@ -2,9 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { renderAdminEmail } from '@storageos/shared';
 
-import { formatDateLong } from '../../common/format';
+import { currentMonth, formatDateLong } from '../../common/format';
+import { OWN_KEY_AI_FEATURES } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
+
+import { PlatformAlertLogService } from './platform-alert-log.service';
 
 import type { Env } from '../../config/env.schema';
 import type {
@@ -23,13 +26,42 @@ export class PlatformAlertsService {
   private readonly logger = new Logger(PlatformAlertsService.name);
 
   private readonly webBase: string;
+  private readonly aiPrices: { input: number; output: number };
 
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly email: EmailService,
+    private readonly log: PlatformAlertLogService,
     config: ConfigService<Env, true>,
   ) {
     this.webBase = config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    this.aiPrices = {
+      input: config.get('AI_COST_INPUT_PER_MTOK_USD', { infer: true }),
+      output: config.get('AI_COST_OUTPUT_PER_MTOK_USD', { infer: true }),
+    };
+  }
+
+  /** Gasto de IA del mes si supera el aviso del panel (null si no hay aviso o no llega). */
+  private async aiOverBudget(): Promise<{ costUsd: number; alertUsd: number } | null> {
+    const ai = await this.admin.platformAiSettings.findFirst({
+      select: { monthlyCostAlertUsd: true },
+    });
+    if (ai?.monthlyCostAlertUsd == null) return null;
+    const alertUsd = Number(ai.monthlyCostAlertUsd);
+    const tokens = await this.admin.aiUsageEvent.aggregate({
+      where: {
+        countsAsQuery: false,
+        ownKey: false,
+        feature: { notIn: OWN_KEY_AI_FEATURES },
+        createdAt: { gte: currentMonth().start },
+      },
+      _sum: { inputTokens: true, outputTokens: true },
+    });
+    const costUsd =
+      ((tokens._sum.inputTokens ?? 0) * this.aiPrices.input +
+        (tokens._sum.outputTokens ?? 0) * this.aiPrices.output) /
+      1_000_000;
+    return costUsd >= alertUsd ? { costUsd: Math.round(costUsd * 100) / 100, alertUsd } : null;
   }
 
   /** Devuelve la config (singleton); la crea con defaults si no existe. */
@@ -43,7 +75,7 @@ export class PlatformAlertsService {
     const current = await this.admin.platformAlertSettings.findFirst();
     const data = {
       enabled: input.enabled,
-      alertEmail: input.alertEmail ? input.alertEmail : null,
+      alertEmail: input.alertEmail ? alertRecipients(input.alertEmail).join(', ') : null,
       notifyPastDue: input.notifyPastDue,
       notifyTrialExpiring: input.notifyTrialExpiring,
       trialExpiringDays: input.trialExpiringDays,
@@ -58,11 +90,58 @@ export class PlatformAlertsService {
       ...(input.weeklyDigestEnabled !== undefined
         ? { weeklyDigestEnabled: input.weeklyDigestEnabled }
         : {}),
+      ...(input.dailyHour !== undefined ? { dailyHour: input.dailyHour } : {}),
+      ...(input.chatContactEnabled !== undefined
+        ? { chatContactEnabled: input.chatContactEnabled }
+        : {}),
     };
     const row = current
       ? await this.admin.platformAlertSettings.update({ where: { id: current.id }, data })
       : await this.admin.platformAlertSettings.create({ data });
     return this.toDto(row);
+  }
+
+  /**
+   * Manda un aviso a cada email de las alertas (por el servicio común: queda en
+   * «Correos enviados» y respeta los bloqueos) y lo anota en el historial.
+   * Devuelve a cuántos llegó.
+   */
+  async emailAdmins(args: {
+    kind: string;
+    subject: string;
+    html: string;
+    text: string;
+  }): Promise<number> {
+    const row = await this.admin.platformAlertSettings.findFirst();
+    let ok = 0;
+    for (const to of alertRecipients(row?.alertEmail ?? '')) {
+      try {
+        const res = await this.email.sendRendered({
+          to,
+          kind: 'admin_alert',
+          subject: args.subject,
+          html: args.html,
+          text: args.text,
+        });
+        if (!res.suppressed) ok += 1;
+        await this.log.record({
+          channel: 'email',
+          kind: args.kind,
+          ok: !res.suppressed,
+          summary: `${args.subject} → ${to}`,
+          error: res.suppressed ? 'Dirección bloqueada' : null,
+        });
+      } catch (err) {
+        await this.log.record({
+          channel: 'email',
+          kind: args.kind,
+          ok: false,
+          summary: `${args.subject} → ${to}`,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return ok;
   }
 
   /**
@@ -106,15 +185,14 @@ export class PlatformAlertsService {
         : Promise.resolve([]),
     ]);
 
-    if (pastDue.length === 0 && trialExpiring.length === 0) {
+    const ai = await this.aiOverBudget();
+    if (pastDue.length === 0 && trialExpiring.length === 0 && !ai) {
       return { sent: false, pastDue: 0, trialExpiring: 0, reason: 'no_signals' };
     }
 
-    const { html, text } = this.renderDigest(pastDue, trialExpiring);
-    // Por el servicio común: queda en «Correos enviados» y respeta la lista de bloqueos.
-    await this.email.sendRendered({
-      to: settings.alertEmail,
-      kind: 'admin_alert',
+    const { html, text } = this.renderDigest(pastDue, trialExpiring, ai);
+    await this.emailAdmins({
+      kind: 'daily',
       subject: `[TrasterOS] Alerta de plataforma: ${pastDue.length} pago(s) fallido(s), ${trialExpiring.length} prueba(s) por terminar`,
       html,
       text,
@@ -134,6 +212,7 @@ export class PlatformAlertsService {
   private renderDigest(
     pastDue: { id: string; name: string; slug: string }[],
     trialExpiring: { id: string; name: string; slug: string; trialEndsAt: Date | null }[],
+    ai: { costUsd: number; alertUsd: number } | null = null,
   ): { html: string; text: string } {
     const clean = (v: string) => v.replace(/[[\]()*_#`]/g, ' ').trim();
     const link = (t: { id: string; name: string; slug: string }) =>
@@ -148,6 +227,13 @@ export class PlatformAlertsService {
         ...trialExpiring.map(
           (t) => `- ${link(t)} — ${t.trialEndsAt ? formatDateLong(t.trialEndsAt) : '—'}`,
         ),
+        '',
+      );
+    }
+    if (ai) {
+      lines.push(
+        '## Gasto de IA',
+        `El asistente IA lleva **${ai.costUsd} $** este mes (aviso a partir de ${ai.alertUsd} $). [Ver el uso](${this.webBase}/admin/ai)`,
         '',
       );
     }
@@ -167,6 +253,8 @@ export class PlatformAlertsService {
     sendPastDue: boolean;
     sendActivation: boolean;
     weeklyDigestEnabled: boolean;
+    dailyHour: number;
+    chatContactEnabled: boolean;
   }): PlatformAlertSettingsDto {
     return {
       enabled: row.enabled,
@@ -180,6 +268,20 @@ export class PlatformAlertsService {
       sendPastDue: row.sendPastDue,
       sendActivation: row.sendActivation,
       weeklyDigestEnabled: row.weeklyDigestEnabled,
+      dailyHour: row.dailyHour,
+      chatContactEnabled: row.chatContactEnabled,
     };
   }
+}
+
+/** Los emails del campo de alertas (uno o varios separados por comas). */
+export function alertRecipients(raw: string): string[] {
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
 }

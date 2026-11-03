@@ -1678,3 +1678,12 @@ Sin migración. Variable nueva opcional `RETENTION_CONTACT_MESSAGES_DAYS` (730 p
 - Los avisos al super admin (aviso diario, resumen semanal y el correo de prueba de Correo saliente) salen ahora por el servicio común: quedan en «Correos enviados» con el tipo «Alertas y resumen al administrador», respetan las direcciones bloqueadas y llevan la marca de TrasterOS. Si quieres otro remitente para ellos, está en Correo saliente → «Avisos al equipo».
 - El aviso diario, el resumen semanal y los correos automáticos a los tenants salen a su hora de España (antes, una o dos horas más tarde).
 - Los interruptores de los correos automáticos a los tenants están ahora en Comunicación → Correos automáticos.
+
+## 78. Plataforma del panel admin: mejoras (2026-11-03)
+
+Migración `20261212100000_admin_platform_features` (sin variables nuevas). Tras desplegar:
+
+- **Alertas al admin**: elige la hora del aviso diario (hora de España) y, si quieres, varios emails separados por comas. El aviso diario incluye también el gasto de IA del mes cuando pasa del aviso que pongas en Asistente IA.
+- **Asistente IA**: si quieres un límite distinto por plan, rellénalo en «Consultas al mes por plan» (vacío = el general).
+- **Páginas legales**: al guardar los términos o la privacidad con «Es un cambio importante», se manda un correo a los propietarios de todos los tenants activos y en prueba y les sale un aviso para aceptarlo en su panel. Úsalo solo para cambios que de verdad lo requieran.
+- **Mensajes de la web**: llegan también por Telegram/Slack si están configurados (se puede apagar en Alertas al admin).

@@ -317,10 +317,16 @@ export class AdminOpportunitiesService {
         WHERE counts_as_query AND NOT own_key AND created_at >= ${from}
           AND tenant_id = ANY(${ids}::uuid[])
         GROUP BY 1, 2`,
-      this.admin.platformAiSettings.findFirst({ select: { monthlyQueryLimit: true } }),
+      this.admin.platformAiSettings.findFirst({
+        select: { monthlyQueryLimit: true, planLimits: true },
+      }),
       this.admin.tenant.findMany({
         where: { id: { in: ids } },
-        select: { id: true, aiMonthlyLimit: true },
+        select: {
+          id: true,
+          aiMonthlyLimit: true,
+          subscription: { select: { plan: { select: { slug: true } } } },
+        },
       }),
       this.admin.tenantSubscriptionAddon.findMany({
         where: { tenantId: { in: ids }, suspendedAt: null, addon: { grantsAiQueries: { gt: 0 } } },
@@ -339,7 +345,11 @@ export class AdminOpportunitiesService {
     for (const r of rows) counts.set(`${r.tenant_id}:${r.month}`, r.n);
     const result = new Map<string, string>();
     for (const t of tenantRows) {
-      const limit = t.aiMonthlyLimit ?? general + (extraBy.get(t.id) ?? 0);
+      const planLimits = (settings?.planLimits ?? {}) as Record<string, unknown>;
+      const slug = t.subscription?.plan.slug;
+      const base =
+        slug && typeof planLimits[slug] === 'number' ? (planLimits[slug] as number) : general;
+      const limit = t.aiMonthlyLimit ?? base + (extraBy.get(t.id) ?? 0);
       if (limit <= 0) continue;
       const [older, last, now0] = keys.map((k) => counts.get(`${t.id}:${k}`) ?? 0) as [
         number,

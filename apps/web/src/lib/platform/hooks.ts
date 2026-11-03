@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
-import type { PlatformBannerDto } from '@storageos/shared';
+import type { PendingLegalVersionDto, PlatformBannerDto } from '@storageos/shared';
 
 /** Banner global de plataforma (lo lee el panel del tenant). */
 export function usePlatformBanner() {
@@ -17,5 +17,23 @@ export function usePlatformBanner() {
     refetchInterval: 5 * 60_000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
+  });
+}
+
+/** Textos legales de TrasterOS que el negocio tiene que aceptar. */
+export function usePendingLegal() {
+  return useQuery({
+    queryKey: ['platform-legal-pending'] as const,
+    queryFn: () => apiFetch<PendingLegalVersionDto[]>('/platform-legal-pending'),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useAcceptLegal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (versionId: string) =>
+      apiFetch<null>(`/platform-legal-pending/${versionId}/accept`, { method: 'POST' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['platform-legal-pending'] }),
   });
 }

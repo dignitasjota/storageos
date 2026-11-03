@@ -159,7 +159,9 @@ export class AdminUsageService {
   > {
     const month = currentMonth(now);
     const [settings, tenants, overrides, addons, queries] = await Promise.all([
-      this.admin.platformAiSettings.findFirst({ select: { monthlyQueryLimit: true } }),
+      this.admin.platformAiSettings.findFirst({
+        select: { monthlyQueryLimit: true, planLimits: true },
+      }),
       this.admin.tenant.findMany({
         where: { id: { in: tenantIds } },
         select: {
@@ -226,7 +228,8 @@ export class AdminUsageService {
       result.set(t.id, {
         queriesThisMonth: queriesBy.get(t.id) ?? 0,
         queryLimit: features.includes('ai_assistant')
-          ? (t.aiMonthlyLimit ?? general + extra.queries)
+          ? (t.aiMonthlyLimit ??
+            planBase(settings?.planLimits, t.subscription?.plan.slug, general) + extra.queries)
           : null,
         revenueMonthly: Math.round(extra.revenue * 100) / 100,
       });
@@ -238,4 +241,10 @@ export class AdminUsageService {
     const usd = (input * this.inputPrice + output * this.outputPrice) / 1_000_000;
     return Math.round(usd * 100) / 100;
   }
+}
+
+/** El límite del plan si el panel le puso uno; si no, el general. */
+function planBase(raw: unknown, slug: string | undefined, general: number): number {
+  const v = slug && raw && typeof raw === 'object' ? (raw as Record<string, unknown>)[slug] : null;
+  return typeof v === 'number' ? v : general;
 }

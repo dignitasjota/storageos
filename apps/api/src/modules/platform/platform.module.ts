@@ -7,6 +7,7 @@ import {
   PlatformAdminController,
   PlatformBannerPublicController,
   PlatformFounderOfferPublicController,
+  PlatformLegalPendingController,
   PlatformLegalPublicController,
   PlatformWebsitePublicController,
 } from './platform.controller';
@@ -19,6 +20,7 @@ import { PlatformService } from './platform.service';
     PlatformAdminController,
     PlatformBannerPublicController,
     PlatformFounderOfferPublicController,
+    PlatformLegalPendingController,
     PlatformLegalPublicController,
     PlatformWebsitePublicController,
   ],

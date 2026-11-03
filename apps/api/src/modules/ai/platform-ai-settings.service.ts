@@ -32,7 +32,18 @@ interface Snapshot {
   webModel: string | null;
   webMonthlyLimit: number;
   webVisitorDailyLimit: number;
+  monthlyCostAlertUsd: number | null;
+  planLimits: Record<string, number>;
   updatedAt: Date | null;
+}
+
+function parsePlanLimits(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 0) out[k] = v;
+  }
+  return out;
 }
 
 export interface ResolvedAiConfig {
@@ -59,6 +70,8 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
     webModel: null,
     webMonthlyLimit: DEFAULT_WEB_CHAT_MONTHLY_LIMIT,
     webVisitorDailyLimit: DEFAULT_WEB_CHAT_VISITOR_DAILY_LIMIT,
+    monthlyCostAlertUsd: null,
+    planLimits: {},
     updatedAt: null,
   };
   private timer: NodeJS.Timeout | null = null;
@@ -100,6 +113,9 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
         webModel: row?.webModel || null,
         webMonthlyLimit: row?.webMonthlyLimit ?? DEFAULT_WEB_CHAT_MONTHLY_LIMIT,
         webVisitorDailyLimit: row?.webVisitorDailyLimit ?? DEFAULT_WEB_CHAT_VISITOR_DAILY_LIMIT,
+        monthlyCostAlertUsd:
+          row?.monthlyCostAlertUsd != null ? Number(row.monthlyCostAlertUsd) : null,
+        planLimits: parsePlanLimits(row?.planLimits),
         updatedAt: row?.updatedAt ?? null,
       };
     } catch (err) {
@@ -115,6 +131,16 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
       dailyUserLimit: this.snapshot.dailyUserLimit,
       portalDailyLimit: this.snapshot.portalDailyLimit,
     };
+  }
+
+  /** Consultas al mes del plan (null = el límite general). */
+  planLimit(planSlug: string | null | undefined): number | null {
+    if (!planSlug) return null;
+    return this.snapshot.planLimits[planSlug] ?? null;
+  }
+
+  get monthlyCostAlertUsd(): number | null {
+    return this.snapshot.monthlyCostAlertUsd;
   }
 
   /** Chat de la web pública: modelo (uno barato por defecto) y límites. */
@@ -162,6 +188,8 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
       panelWebModel: this.snapshot.webModel,
       webMonthlyLimit: this.snapshot.webMonthlyLimit,
       webVisitorDailyLimit: this.snapshot.webVisitorDailyLimit,
+      monthlyCostAlertUsd: this.snapshot.monthlyCostAlertUsd,
+      planLimits: this.snapshot.planLimits,
       updatedAt: this.snapshot.updatedAt?.toISOString() ?? null,
     };
   }
@@ -182,6 +210,10 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
       ...(input.webVisitorDailyLimit !== undefined
         ? { webVisitorDailyLimit: input.webVisitorDailyLimit }
         : {}),
+      ...(input.monthlyCostAlertUsd !== undefined
+        ? { monthlyCostAlertUsd: input.monthlyCostAlertUsd }
+        : {}),
+      ...(input.planLimits !== undefined ? { planLimits: input.planLimits } : {}),
     };
     const row = await this.admin.platformAiSettings.findFirst({ select: { id: true } });
     if (row) await this.admin.platformAiSettings.update({ where: { id: row.id }, data });
@@ -190,8 +222,11 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
     return this.get();
   }
 
-  /** Una llamada mínima al modelo con la clave que se usa ahora. */
-  async test(): Promise<AiConnectionTestDto> {
+  /**
+   * Una llamada al modelo con la clave que se usa ahora. Con `prompt`, la
+   * respuesta del modelo a esa pregunta (sin datos de ningún tenant).
+   */
+  async test(prompt?: string): Promise<AiConnectionTestDto> {
     const r = this.resolved();
     if (!r.apiKey) {
       return {
@@ -208,15 +243,31 @@ export class PlatformAiSettingsService implements OnModuleInit, OnModuleDestroy 
         model: r.model,
         source: r.source,
         message: ok ? 'Conexión correcta (simulada).' : 'La clave no es válida (simulado).',
+        answer: ok && prompt ? `Respuesta simulada a: ${prompt.slice(0, 80)}` : null,
       };
     }
     try {
-      await new AnthropicAiProvider(r.apiKey, r.model).createMessage({
-        system: 'Responde solo «ok».',
-        messages: [{ role: 'user', content: 'ok' }],
+      const res = await new AnthropicAiProvider(r.apiKey, r.model).createMessage({
+        system: prompt
+          ? 'Eres el asistente de TrasterOS, un programa de gestión de trasteros. Responde en español, breve.'
+          : 'Responde solo «ok».',
+        messages: [{ role: 'user', content: prompt || 'ok' }],
         tools: [],
       });
-      return { ok: true, model: r.model, source: r.source, message: 'Conexión correcta.' };
+      const answer = prompt
+        ? res.content
+            .map((b) => (b.type === 'text' ? b.text : ''))
+            .join('')
+            .trim()
+            .slice(0, 2000)
+        : null;
+      return {
+        ok: true,
+        model: r.model,
+        source: r.source,
+        message: 'Conexión correcta.',
+        answer,
+      };
     } catch (err) {
       const code = err instanceof Error ? err.message : String(err);
       const message = code.endsWith('401')

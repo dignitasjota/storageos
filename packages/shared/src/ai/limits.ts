@@ -45,8 +45,38 @@ export interface PlatformAiSettingsDto {
   panelWebModel: string | null;
   webMonthlyLimit: number;
   webVisitorDailyLimit: number;
+  /** Aviso de gasto del mes (USD); null = sin aviso. */
+  monthlyCostAlertUsd: number | null;
+  /** Consultas al mes por plan (slug → n). */
+  planLimits: Record<string, number>;
   updatedAt: string | null;
 }
+
+/** Uso y coste del asistente IA en el mes (panel admin). */
+export interface PlatformAiUsageDto {
+  /** AAAA-MM. */
+  month: string;
+  /** Preguntas con la clave de la plataforma y con las claves de los tenants. */
+  queries: number;
+  ownKeyQueries: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  /** Gasto previsto a final de mes al ritmo actual. */
+  projectedCostUsd: number;
+  alertUsd: number | null;
+  overAlert: boolean;
+  /** Los tenants que más gastan este mes. */
+  topTenants: { tenantId: string; name: string; queries: number; costUsd: number }[];
+}
+
+/** Modelos de Claude que se proponen en el panel (se puede escribir otro). */
+export const SUGGESTED_AI_MODELS = [
+  'claude-opus-5-5',
+  'claude-sonnet-5-5',
+  'claude-haiku-5-5',
+  'claude-fable-5-1',
+] as const;
 
 export const UpdatePlatformAiSettingsSchema = z.object({
   /** Clave nueva; `''` la quita (vuelve a las variables de entorno). */
@@ -70,6 +100,13 @@ export const UpdatePlatformAiSettingsSchema = z.object({
     .optional(),
   webMonthlyLimit: z.number().int().min(0).max(1_000_000).optional(),
   webVisitorDailyLimit: z.number().int().min(0).max(1000).optional(),
+  monthlyCostAlertUsd: z.number().min(0).max(1_000_000).nullable().optional(),
+  planLimits: z.record(z.string().max(60), z.number().int().min(0).max(1_000_000)).optional(),
+});
+
+/** Probar el asistente con una pregunta propia (sin guardar nada). */
+export const TestAiPromptSchema = z.object({
+  prompt: z.string().trim().max(2000).optional(),
 });
 export type UpdatePlatformAiSettingsInput = z.infer<typeof UpdatePlatformAiSettingsSchema>;
 
@@ -78,6 +115,8 @@ export interface AiConnectionTestDto {
   model: string;
   source: AiKeySource;
   message: string;
+  /** Respuesta del modelo a la pregunta de prueba (si se mandó una). */
+  answer?: string | null;
 }
 
 /** Consumo del asistente IA de un tenant en el mes (hora de Madrid). */

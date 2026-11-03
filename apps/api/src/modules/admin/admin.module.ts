@@ -74,6 +74,7 @@ import { FeatureExpiryCron } from './feature-expiry.cron';
 import { FeatureExpiryService } from './feature-expiry.service';
 import { ImpersonationService } from './impersonation.service';
 import { MrrModule } from './mrr.module';
+import { PlatformAlertLogService } from './platform-alert-log.service';
 import { PlatformAlertsController } from './platform-alerts.controller';
 import { PlatformAlertsCron } from './platform-alerts.cron';
 import { PlatformAlertsService } from './platform-alerts.service';
@@ -81,6 +82,7 @@ import { PlatformAnnouncementsController } from './platform-announcements.contro
 import { PlatformAnnouncementsService } from './platform-announcements.service';
 import { PlatformEmailTemplatesController } from './platform-email-templates.controller';
 import { PlatformEmailTemplatesService } from './platform-email-templates.service';
+import { PlatformLegalNoticeService } from './platform-legal-notice.service';
 import { PlatformMessagesTenantController } from './platform-messages-tenant.controller';
 import { PlatformNpsAdminController, PlatformNpsPublicController } from './platform-nps.controller';
 import { PlatformNpsService } from './platform-nps.service';
@@ -184,6 +186,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     TenantDataExportController,
   ],
   providers: [
+    PlatformAlertLogService,
+    PlatformLegalNoticeService,
     AdminTenantToolsService,
     AdminGuard,
     AdminTenantsOverviewService,

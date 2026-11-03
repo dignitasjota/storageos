@@ -11,11 +11,13 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
   LegalSlugEnum,
-  UpdateLegalDocumentSchema,
+  PlatformHomeTextsSchema,
+  SaveLegalDocumentSchema,
   UpsertPlatformBannerSchema,
   UpdatePlatformFounderOfferSchema,
   RequestPlatformLogoUploadSchema,
@@ -23,6 +25,9 @@ import {
   UpdatePlatformFooterSchema,
   UpdatePlatformSeoSchema,
   type LegalDocumentDto,
+  type LegalFillDataDto,
+  type LegalVersionDto,
+  type PendingLegalVersionDto,
   type LegalSlug,
   type AdminPlatformBannerDto,
   type PlatformBannerDto,
@@ -40,14 +45,18 @@ import {
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminAudit } from '../admin/admin-audit.decorator';
 import { AdminGuard } from '../admin/admin.guard';
+import { CurrentSuperAdmin } from '../admin/current-super-admin.decorator';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
 import { PlatformService } from './platform.service';
 
+import type { Request } from 'express';
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 class UpsertBannerDto extends createZodDto(UpsertPlatformBannerSchema) {}
-class UpdateLegalDto extends createZodDto(UpdateLegalDocumentSchema) {}
+class UpdateLegalDto extends createZodDto(SaveLegalDocumentSchema) {}
+class UpdateHomeDto extends createZodDto(PlatformHomeTextsSchema) {}
 class UpdateFounderOfferDto extends createZodDto(UpdatePlatformFounderOfferSchema) {}
 class RequestLogoUploadDto extends createZodDto(RequestPlatformLogoUploadSchema) {}
 class SetLogoDto extends createZodDto(SetPlatformLogoSchema) {}
@@ -70,6 +79,33 @@ export class PlatformBannerPublicController {
   @Get()
   get(@CurrentUser() user: AuthenticatedUser): Promise<PlatformBannerDto | null> {
     return this.service.getPublicBanner(user.tenantId);
+  }
+}
+
+/** Versiones de los legales que el tenant tiene que aceptar (banner del panel). */
+@Controller('platform-legal-pending')
+export class PlatformLegalPendingController {
+  constructor(private readonly service: PlatformService) {}
+
+  @Get()
+  list(@CurrentUser() user: AuthenticatedUser): Promise<PendingLegalVersionDto[]> {
+    return this.service.pendingLegalForTenant(user.tenantId);
+  }
+
+  @Post(':versionId/accept')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async accept(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('versionId', new ParseUUIDPipe()) versionId: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.service.acceptLegal({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      role: user.role,
+      versionId,
+      ipAddress: req.ip ?? null,
+    });
   }
 }
 
@@ -199,6 +235,13 @@ export class PlatformAdminController {
   }
 
   @RequireSuperadmin()
+  @AdminAudit('admin.platform.website_home_updated')
+  @Put('website/home')
+  updateHome(@Body() body: UpdateHomeDto): Promise<PlatformWebsiteDto> {
+    return this.service.updateHome(body);
+  }
+
+  @RequireSuperadmin()
   @AdminAudit('admin.platform.website_logo_updated')
   @Put('website/logo')
   setLogo(@Body() body: SetLogoDto): Promise<PlatformWebsiteDto> {
@@ -243,9 +286,28 @@ export class PlatformAdminController {
     await this.service.markAllRead();
   }
 
+  /** Datos fiscales de Facturación SaaS para rellenar los huecos de los textos. */
+  @Get('legal-fill')
+  legalFill(): Promise<LegalFillDataDto> {
+    return this.service.legalFillData();
+  }
+
   @Get('legal/:slug')
   getLegal(@Param('slug') slug: string): Promise<LegalDocumentDto> {
     return this.service.getLegal(parseSlug(slug));
+  }
+
+  @Get('legal/:slug/versions')
+  legalVersions(@Param('slug') slug: string): Promise<LegalVersionDto[]> {
+    return this.service.listLegalVersions(parseSlug(slug));
+  }
+
+  @Get('legal/:slug/versions/:id')
+  legalVersion(
+    @Param('slug') slug: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<LegalVersionDto> {
+    return this.service.getLegalVersion(parseSlug(slug), id);
   }
 
   @RequireSuperadmin()
@@ -254,7 +316,8 @@ export class PlatformAdminController {
   updateLegal(
     @Param('slug') slug: string,
     @Body() body: UpdateLegalDto,
+    @CurrentSuperAdmin('sub') superAdminId: string,
   ): Promise<LegalDocumentDto> {
-    return this.service.updateLegal(parseSlug(slug), body);
+    return this.service.updateLegal(parseSlug(slug), body, superAdminId);
   }
 }

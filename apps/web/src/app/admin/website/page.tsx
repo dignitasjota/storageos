@@ -5,11 +5,13 @@ import {
   type PlatformContactSettingsDto,
   type PlatformFounderOfferDto,
 } from '@storageos/shared';
-import { Check, Loader2, Mail, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, Download, ExternalLink, Loader2, Mail, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { ContactReplyDialog, ContactNoteEditor } from './contact-tools';
 import { FooterCard } from './footer-card';
+import { HomeTextsCard } from './home-texts-card';
 import { SeoCard } from './seo-card';
 
 import { useConfirm } from '@/components/confirm-provider';
@@ -25,6 +27,7 @@ import {
   useAdminContactSettings,
   useAdminFounderOffer,
   useAdminPlatformWebsite,
+  downloadContactMessagesCsv,
   useDeleteContactMessage,
   useResetPlatformLogo,
   useSetContactMessageHandled,
@@ -63,10 +66,20 @@ export default function AdminWebsitePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Web de TrasterOS</h1>
-        <p className="text-sm text-muted-foreground">
-          Lo que aparece en trasteros.pro (no afecta a las webs de los tenants).
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Web de TrasterOS</h1>
+            <p className="text-sm text-muted-foreground">
+              Lo que aparece en trasteros.pro (no afecta a las webs de los tenants).
+            </p>
+          </div>
+          <Button variant="outline" size="sm" asChild>
+            <a href={process.env.NEXT_PUBLIC_SITE_URL ?? '/'} target="_blank" rel="noreferrer">
+              <ExternalLink className="mr-1 size-4" />
+              Ver la web
+            </a>
+          </Button>
+        </div>
         {!canEdit && (
           <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
             Con el rol de soporte puedes ver estos ajustes y atender los mensajes, pero no
@@ -76,6 +89,8 @@ export default function AdminWebsitePage() {
       </div>
 
       <SeoCard />
+
+      <HomeTextsCard />
 
       <LogoCard />
 
@@ -416,6 +431,8 @@ function ContactMessagesCard() {
   const setHandled = useSetContactMessageHandled();
   const remove = useDeleteContactMessage();
   const rows = messages.data?.pages.flatMap((p) => p.items) ?? [];
+  const [replying, setReplying] = useState<(typeof rows)[number] | null>(null);
+  const [exporting, setExporting] = useState(false);
   const pending = messages.data?.pages[0]?.pending ?? 0;
 
   return (
@@ -426,8 +443,8 @@ function ContactMessagesCard() {
           {pending > 0 && <Badge>{pending} sin atender</Badge>}
         </CardTitle>
         <CardDescription>
-          Márcalos como atendidos cuando los hayas contestado. Se guardan dos años; la IP de quien
-          escribe, 90 días.
+          Contesta desde aquí (sale con el remitente «Contacto web» y queda en Correos enviados) o
+          márcalos como atendidos. Se guardan dos años; la IP de quien escribe, 90 días.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -446,6 +463,28 @@ function ContactMessagesCard() {
             />
             Mostrar también los atendidos
           </label>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true);
+              try {
+                await downloadContactMessagesCsv({
+                  ...(search ? { search } : {}),
+                  ...(showHandled ? {} : { handled: false }),
+                });
+              } catch {
+                toast.error('No se pudo descargar.');
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            <Download className="mr-1 size-4" />
+            CSV
+          </Button>
         </div>
         {messages.isLoading ? (
           <div className="flex justify-center py-6">
@@ -488,19 +527,29 @@ function ContactMessagesCard() {
                   </div>
                 )}
                 <p className="whitespace-pre-wrap text-sm">{m.message}</p>
+                {m.repliedAt && (
+                  <details className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                    <summary className="cursor-pointer text-xs text-muted-foreground">
+                      Respondido el{' '}
+                      {new Date(m.repliedAt).toLocaleString('es-ES', {
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                      })}
+                      : {m.replySubject}
+                    </summary>
+                    <p className="mt-2 whitespace-pre-wrap">{m.replyBody}</p>
+                  </details>
+                )}
+                <ContactNoteEditor message={m} />
                 {!m.emailSent && (
                   <p className="text-xs text-amber-600 dark:text-amber-400">
                     No se pudo enviar el aviso por email: revísalo aquí.
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" asChild>
-                    <a
-                      href={`mailto:${m.email}?subject=${encodeURIComponent('Re: tu mensaje a TrasterOS')}`}
-                    >
-                      <Mail className="mr-1 size-4" />
-                      Responder
-                    </a>
+                  <Button size="sm" variant="outline" onClick={() => setReplying(m)}>
+                    <Mail className="mr-1 size-4" />
+                    Responder
                   </Button>
                   <Button
                     size="sm"
@@ -558,6 +607,7 @@ function ContactMessagesCard() {
           </div>
         )}
       </CardContent>
+      <ContactReplyDialog message={replying} onClose={() => setReplying(null)} />
     </Card>
   );
 }

@@ -218,22 +218,27 @@ export class EmailDomainsService {
           this.brevoDomainStatus(domain),
           this.resendDomainStatus(domain),
         ]);
-        return { domain, brevo, resend };
+        return { domain, brevo: brevo.status, resend, brevoRecords: brevo.records };
       }),
     );
   }
 
-  private async brevoDomainStatus(domain: string): Promise<PlatformDomainProviderStatus> {
-    if (!this.brevo.available) return 'no_key';
+  private async brevoDomainStatus(
+    domain: string,
+  ): Promise<{ status: PlatformDomainProviderStatus; records: EmailDnsRecordDto[] }> {
+    if (!this.brevo.available) return { status: 'no_key', records: [] };
     try {
       const state = await this.brevo.get(domain);
-      return state.authenticated ? 'authenticated' : 'pending';
+      return {
+        status: state.authenticated ? 'authenticated' : 'pending',
+        records: state.records,
+      };
     } catch (err) {
       if (err instanceof BrevoDomainsError && (err.status === 404 || err.status === 400)) {
-        return 'missing';
+        return { status: 'missing', records: [] };
       }
       this.logger.warn(`Brevo: estado de ${domain}: ${err instanceof Error ? err.message : err}`);
-      return 'error';
+      return { status: 'error', records: [] };
     }
   }
 
@@ -253,6 +258,17 @@ export class EmailDomainsService {
     } catch (err) {
       this.logger.warn(`Resend: estado de ${domain}: ${err instanceof Error ? err.message : err}`);
       return 'error';
+    }
+  }
+
+  /** Créditos de la cuenta Brevo de la plataforma (null sin clave o si falla). */
+  async brevoAccount(): Promise<{ credits: number | null; plan: string | null } | null> {
+    if (!this.brevo.available) return null;
+    try {
+      return await this.brevo.account();
+    } catch (err) {
+      this.logger.warn(`Brevo: cuenta: ${err instanceof Error ? err.message : err}`);
+      return null;
     }
   }
 

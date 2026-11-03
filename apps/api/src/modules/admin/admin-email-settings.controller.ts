@@ -17,6 +17,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  type EmailUsageDto,
   type EmailSuppressionDto,
   isValidCustomDomain,
   renderAdminEmail,
@@ -33,6 +34,7 @@ import { createZodDto } from 'nestjs-zod';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
 import { Public } from '../../common/decorators/public.decorator';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { EmailService } from '../email/email.service';
 import { PlatformEmailSettingsService } from '../email/platform-email-settings.service';
@@ -69,7 +71,60 @@ export class AdminEmailSettingsController {
     private readonly audit: SuperAdminAuditService,
     private readonly emailDomains: EmailDomainsService,
     private readonly suppressions: EmailSuppressionsService,
+    private readonly admin: PrismaAdminService,
   ) {}
+
+  /**
+   * Correos de las últimas 24 horas por proveedor (plataforma e inquilinos),
+   * cuántos salieron por el respaldo y los créditos que le quedan a Brevo.
+   */
+  @Get('usage')
+  async usage(@Query('refresh') refresh?: string): Promise<EmailUsageDto> {
+    const since = new Date(Date.now() - 24 * 3_600_000);
+    const [platform, tenants, order, account] = await Promise.all([
+      this.admin.platformEmailLog.groupBy({
+        by: ['provider', 'status'],
+        where: { createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      this.admin.communication.groupBy({
+        by: ['provider', 'status'],
+        where: { channel: 'email', createdAt: { gte: since }, provider: { not: null } },
+        _count: { _all: true },
+      }),
+      this.settings.sendOrder(),
+      (async () => {
+        if (refresh === '1') this.providerCache.clear();
+        return this.providerCache.get('brevo-account', () =>
+          this.emailDomains.brevoAccount(),
+        ) as Promise<{ credits: number | null; plan: string | null } | null>;
+      })(),
+    ]);
+    const primary = order[0] ?? 'smtp';
+    const by = new Map<string, { sent: number; failed: number; bounced: number }>();
+    for (const row of [...platform, ...tenants]) {
+      const provider = row.provider || 'desconocido';
+      const cur = by.get(provider) ?? { sent: 0, failed: 0, bounced: 0 };
+      const n = row._count._all;
+      if (row.status === 'failed') cur.failed += n;
+      else if (row.status === 'bounced') cur.bounced += n;
+      else if (row.status === 'sent' || row.status === 'delivered') cur.sent += n;
+      by.set(provider, cur);
+    }
+    const providers = [...by.entries()]
+      .map(([provider, c]) => ({ provider, ...c }))
+      .sort((a, b) => b.sent - a.sent);
+    const viaFallback = providers
+      .filter((p) => p.provider !== primary && ['brevo', 'resend'].includes(p.provider))
+      .reduce((n, p) => n + p.sent, 0);
+    return {
+      primary,
+      providers,
+      viaFallback,
+      brevoCreditsLeft: account?.credits ?? null,
+      brevoPlan: account?.plan ?? null,
+    };
+  }
 
   /**
    * Dominios de la cuenta Brevo que ya no usa ningún tenant (la app nunca los
