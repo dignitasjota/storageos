@@ -1,11 +1,13 @@
 'use client';
 
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 /**
  * Renderiza Markdown con estilos legibles (sin plugin `typography`). Con
  * `resolveHref`, los enlaces `web:…` del blog pasan a la dirección real de la
  * web del tenant (el resto de esquemas peligrosos los quita react-markdown).
+ * Con `remark-gfm` entiende también tablas (`| a | b |`), tachado y listas de tareas.
  */
 export function MarkdownView({
   content,
@@ -20,6 +22,7 @@ export function MarkdownView({
   return (
     <div className="space-y-4 text-sm leading-relaxed text-foreground/80">
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         urlTransform={(url) =>
           url.startsWith('web:') ? (resolveHref ? resolveHref(url) : '#') : defaultUrlTransform(url)
         }
@@ -41,6 +44,24 @@ export function MarkdownView({
           ul: ({ children }) => <ul className="list-disc space-y-1.5 pl-5">{children}</ul>,
           ol: ({ children }) => <ol className="list-decimal space-y-1.5 pl-5">{children}</ol>,
           li: ({ children }) => <li>{children}</li>,
+          // En el móvil la tabla se desplaza en horizontal sin romper la página.
+          table: ({ children }) => (
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full border-collapse text-left text-sm">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-muted/60">{children}</thead>,
+          tr: ({ children }) => <tr className="border-b last:border-b-0">{children}</tr>,
+          th: ({ children, style }) => (
+            <th className="px-3 py-2 font-semibold text-foreground" style={style}>
+              {children}
+            </th>
+          ),
+          td: ({ children, style }) => (
+            <td className="px-3 py-2 align-top" style={style}>
+              {children}
+            </td>
+          ),
           strong: ({ children }) => (
             <strong className="font-semibold text-foreground">{children}</strong>
           ),
