@@ -5,12 +5,12 @@ import { ArrowRight, MapPin } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
-import { facilityHref, type PublicWebLocale } from '../i18n/messages';
+import { trackEvent } from '../google-analytics';
+import { bookHrefFor, facilityHref, type PublicWebLocale } from '../i18n/messages';
 import { formatPrice, grossPrice } from '../price-format';
 import { themeFor } from '../promo/promo-theme';
 import { resolveSiteHref, type SiteLinkContext } from '../site-links';
 import { StorageCalculator } from '../storage-calculator';
-import { UnitTypeList } from '../templates';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
@@ -116,7 +116,7 @@ function BlogWidgetView({
         {facilities.map((f) => (
           <div key={f.id}>
             {facilities.length > 1 && <p className="font-semibold">{f.name}</p>}
-            <UnitTypeList f={f} locale={locale} site={landing} />
+            <BlogUnitTypes f={f} locale={locale} site={landing} brand={brand} />
           </div>
         ))}
       </div>
@@ -154,6 +154,78 @@ function BlogWidgetView({
               </Link>
             ) : (
               <div className="rounded-md border p-3">{inner}</div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * Tamaños y precios del local dentro de una entrada del blog: sin el número de
+ * trasteros libres (el texto del post dura más que la disponibilidad) y con un
+ * enlace para contratar cada tamaño (la reserva sale con el local y el tamaño
+ * ya elegidos). Un tamaño agotado lleva a la lista de espera.
+ */
+function BlogUnitTypes({
+  f,
+  locale,
+  site,
+  brand,
+}: {
+  f: PublicLandingDto['facilities'][number];
+  locale: PublicWebLocale;
+  site: PublicLandingDto;
+  brand: string;
+}) {
+  const t = useTranslations('publicWeb.common');
+  if (f.unitTypes.length === 0) {
+    return <p className="mt-4 text-sm text-muted-foreground">{t('noAvailabilityShort')}</p>;
+  }
+  return (
+    <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+      {f.unitTypes.map((unitType) => {
+        const soldOut = unitType.available === 0;
+        return (
+          <li
+            key={unitType.id}
+            className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+          >
+            <span className="min-w-0">
+              <span className="block font-medium">{unitType.name}</span>
+              {soldOut ? (
+                <span className="text-xs font-medium text-destructive">{t('soldOut')}</span>
+              ) : (
+                <span className="font-semibold">
+                  {t('from')} {formatPrice(grossPrice(unitType), locale)}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {t('perMonthVatIncl')}
+                  </span>
+                </span>
+              )}
+            </span>
+            {soldOut ? (
+              <Link
+                href={bookHrefFor(site, locale, {
+                  facilityId: f.id,
+                  unitTypeId: unitType.id,
+                  waitlist: true,
+                })}
+                onClick={() => trackEvent('waitlist_notify_click', { location: 'blog' })}
+                className="shrink-0 text-xs font-medium text-primary underline-offset-2 hover:underline"
+              >
+                {t('notifyMe')}
+              </Link>
+            ) : (
+              <Link
+                href={bookHrefFor(site, locale, { facilityId: f.id, unitTypeId: unitType.id })}
+                onClick={() => trackEvent('cta_reservar_click', { location: 'blog_sizes' })}
+                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold text-white"
+                style={{ backgroundColor: brand }}
+              >
+                {t('hireThisSize')}
+              </Link>
             )}
           </li>
         );

@@ -9,7 +9,7 @@ import {
   type BlogPostDto,
   type BlogWidget,
 } from '@storageos/shared';
-import { ImagePlus, Link2, Loader2, MousePointerClick, Puzzle, Trash2 } from 'lucide-react';
+import { ImagePlus, Link2, Loader2, MousePointerClick, Puzzle, Table2, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -43,6 +43,14 @@ import {
   useUpdateBlogPost,
   useUploadBlogCover,
 } from '@/lib/blog/hooks';
+
+/** Tabla de ejemplo que inserta el botón «Tabla»: cabecera, separador y dos filas. */
+const TABLE_TEMPLATE = [
+  '| Tamaño | Qué cabe | Precio |',
+  '| --- | --- | --- |',
+  '| 2 m² | Cajas y una bicicleta | 40 € |',
+  '| 6 m² | Un piso de 1 habitación | 80 € |',
+].join('\n');
 
 const MAX_RELATED = 3;
 
@@ -219,6 +227,14 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
                 >
                   <MousePointerClick className="mr-1 h-4 w-4" /> Botón
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => insertText(`\n${TABLE_TEMPLATE}\n`, true)}
+                >
+                  <Table2 className="mr-1 h-4 w-4" /> Tabla
+                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button type="button" variant="outline" size="sm">
@@ -244,8 +260,8 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
                 placeholder={'## Título\n\nTexto con **negrita**, listas y enlaces.'}
               />
               <p className="text-xs text-muted-foreground">
-                Los botones y widgets van en una línea propia. Puedes moverlos o borrarlos como
-                cualquier texto.
+                Los botones, widgets y tablas van en líneas propias. En una tabla, cada fila es una
+                línea y las columnas se separan con «|»; la segunda línea (----) separa la cabecera.
               </p>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
