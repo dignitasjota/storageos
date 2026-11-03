@@ -4,12 +4,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type {
   BlogCoverUploadResponseDto,
+  BlogImageDto,
   BlogPostDto,
   CreateBlogPostInput,
   UpdateBlogPostInput,
 } from '@storageos/shared';
 
 import { apiFetch } from '@/lib/auth/api';
+import { compressImage } from '@/lib/images/compress';
 
 const blogKey = ['blog-posts'] as const;
 const blogDetailKey = (id: string) => ['blog-posts', id] as const;
@@ -112,6 +114,33 @@ export function useUploadBlogCover() {
     onSuccess: (data) => {
       void qc.invalidateQueries({ queryKey: blogKey });
       void qc.invalidateQueries({ queryKey: blogDetailKey(data.id) });
+    },
+  });
+}
+
+/**
+ * Sube una imagen para el texto de un post (comparativas) y devuelve su
+ * dirección pública. No necesita que el post esté guardado.
+ */
+export function useUploadBlogImage() {
+  return useMutation({
+    mutationFn: async (input: File): Promise<string> => {
+      const file = await compressImage(input);
+      const presign = await apiFetch<BlogCoverUploadResponseDto>('/blog-posts/images/upload-url', {
+        method: 'POST',
+        json: { mimeType: file.type, sizeBytes: file.size, fileName: input.name },
+      });
+      const put = await fetch(presign.uploadUrl, {
+        method: 'PUT',
+        headers: presign.requiredHeaders,
+        body: file,
+      });
+      if (!put.ok) throw new Error('No se pudo subir la imagen');
+      const res = await apiFetch<BlogImageDto>('/blog-posts/images/confirm', {
+        method: 'POST',
+        json: { key: presign.key },
+      });
+      return res.url;
     },
   });
 }

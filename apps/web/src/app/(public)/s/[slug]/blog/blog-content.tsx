@@ -1,6 +1,11 @@
 'use client';
 
-import { splitBlogContent, BLOG_WIDGET_LABELS, type BlogWidget } from '@storageos/shared';
+import {
+  splitBlogContent,
+  BLOG_WIDGET_LABELS,
+  type BlogComparisonColumn,
+  type BlogWidget,
+} from '@storageos/shared';
 import { ArrowRight, MapPin } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -65,6 +70,9 @@ export function BlogContent({
               </Link>
             </div>
           );
+        }
+        if (block.type === 'comparison') {
+          return <BlogComparison key={i} columns={block.columns} />;
         }
         return landing ? (
           <BlogWidgetView
@@ -231,5 +239,45 @@ function BlogUnitTypes({
         );
       })}
     </ul>
+  );
+}
+
+/** Columnas de la rejilla según cuántas haya (en el móvil, 2 o 1 por fila). */
+const COMPARISON_GRID: Record<number, string> = {
+  2: 'grid-cols-2',
+  3: 'grid-cols-1 sm:grid-cols-3',
+  4: 'grid-cols-2 sm:grid-cols-4',
+};
+
+/**
+ * Comparativa dentro de un post: una celda por columna con su imagen, el título
+ * (h3) y el subtítulo (h4). El texto alternativo de la imagen es el título.
+ */
+function BlogComparison({ columns }: { columns: BlogComparisonColumn[] }) {
+  return (
+    <div
+      className={`grid gap-px overflow-hidden rounded-md border bg-border ${
+        COMPARISON_GRID[columns.length] ?? 'grid-cols-2'
+      }`}
+    >
+      {columns.map((c, i) => (
+        <div key={i} className="flex flex-col bg-background">
+          {c.imageUrl ? (
+            // Imágenes del tenant o de fuera (https): sin optimizar con next/image.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={c.imageUrl}
+              alt={c.title}
+              loading="lazy"
+              className="aspect-[4/3] w-full object-cover"
+            />
+          ) : null}
+          <div className="space-y-1 p-3 text-center">
+            <h3 className="text-base font-semibold text-foreground">{c.title}</h3>
+            {c.subtitle && <h4 className="text-sm text-muted-foreground">{c.subtitle}</h4>}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

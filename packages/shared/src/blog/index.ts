@@ -71,6 +71,18 @@ export interface BlogCoverUploadResponseDto {
   requiredHeaders: Record<string, string>;
 }
 
+/** Imagen dentro del texto de un post (p. ej. en una comparativa): mismos límites que la portada. */
+export const RequestBlogImageUploadSchema = RequestBlogCoverUploadSchema;
+export type RequestBlogImageUploadInput = RequestBlogCoverUploadInput;
+
+/** Tras subirla, se confirma por su key y se devuelve su dirección pública. */
+export const ConfirmBlogImageSchema = z.object({ key: z.string().min(1).max(300) });
+export type ConfirmBlogImageInput = z.infer<typeof ConfirmBlogImageSchema>;
+
+export interface BlogImageDto {
+  url: string;
+}
+
 /** Confirma/quita la portada de un post por su key (o `null` para quitarla). */
 export const SetBlogPostCoverSchema = z.object({
   coverImageKey: z.string().min(1).max(300).nullable(),

@@ -13,8 +13,11 @@ import {
 } from '@nestjs/common';
 import {
   type BlogCoverUploadResponseDto,
+  type BlogImageDto,
   type BlogPostDto,
+  ConfirmBlogImageSchema,
   CreateBlogPostSchema,
+  RequestBlogImageUploadSchema,
   RequestBlogCoverUploadSchema,
   SetBlogPostCoverSchema,
   UpdateBlogPostSchema,
@@ -34,6 +37,8 @@ class CreateBlogPostDto extends createZodDto(CreateBlogPostSchema) {}
 class UpdateBlogPostDto extends createZodDto(UpdateBlogPostSchema) {}
 class RequestBlogCoverUploadDto extends createZodDto(RequestBlogCoverUploadSchema) {}
 class SetBlogPostCoverDto extends createZodDto(SetBlogPostCoverSchema) {}
+class RequestBlogImageUploadDto extends createZodDto(RequestBlogImageUploadSchema) {}
+class ConfirmBlogImageDto extends createZodDto(ConfirmBlogImageSchema) {}
 
 /** Gestión del blog del tenant (lado staff). Feature `web_premium`. */
 @RequireFeature('web_premium')
@@ -83,6 +88,32 @@ export class BlogController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
     await this.blog.remove(user.tenantId, id);
+  }
+
+  @RequirePermission('settings:manage')
+  @Post('images/upload-url')
+  @HttpCode(HttpStatus.OK)
+  async requestImageUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: RequestBlogImageUploadDto,
+  ): Promise<BlogCoverUploadResponseDto> {
+    const { uploadUrl, key, expiresIn } = await this.blog.requestImageUploadUrl({
+      tenantId: user.tenantId,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      ...(input.fileName ? { fileName: input.fileName } : {}),
+    });
+    return { uploadUrl, key, expiresIn, requiredHeaders: { 'Content-Type': input.mimeType } };
+  }
+
+  @RequirePermission('settings:manage')
+  @Post('images/confirm')
+  @HttpCode(HttpStatus.OK)
+  confirmImage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: ConfirmBlogImageDto,
+  ): Promise<BlogImageDto> {
+    return this.blog.confirmImage(user.tenantId, input.key);
   }
 
   @RequirePermission('settings:manage')

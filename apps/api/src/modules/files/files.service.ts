@@ -504,6 +504,16 @@ export class FilesService implements OnModuleInit {
       : `${tenantId}/blog/${postId}/${randomUUID()}.${ext}`;
   }
 
+  /**
+   * Key de una imagen del texto del blog (bucket público). No depende del post:
+   * se puede subir antes de guardarlo. Al borrar el post no se borra (puede
+   * estar copiada en otra entrada).
+   */
+  buildBlogBodyImageKey(tenantId: string, mimeType: string, fileName?: string): string {
+    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp';
+    return `${tenantId}/blog/images/${randomUUID().slice(0, 8)}/${fileName || randomUUID()}.${ext}`;
+  }
+
   /** Key de la foto principal de una landing de promoción (bucket público). */
   buildPromoLandingImageKey(tenantId: string, landingId: string, mimeType: string): string {
     const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp';
