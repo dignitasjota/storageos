@@ -78,6 +78,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 # Orden de build: shared -> database -> worker. El worker tira de modulos
 # del API via tsc paths (@api/*), no necesita el dist del API.
+# La compilación de TypeScript pasa de 2,5 GB de memoria; sin subir el límite de Node
+# el build aborta («exit code: 134») en el VPS.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN pnpm --filter @storageos/shared build \
  && pnpm --filter @storageos/database build \
  && pnpm --filter worker build
