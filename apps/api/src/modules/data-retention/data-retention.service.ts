@@ -28,6 +28,9 @@ const STALE_INVITATION_DAYS = 90;
 /** Días que se guardan las conversaciones del chat de la web. */
 const WEB_CHAT_RETENTION_DAYS = 90;
 
+/** Días que se guarda la IP de quien escribe por el formulario de contacto. */
+const CONTACT_IP_DAYS = 90;
+
 @Injectable()
 export class DataRetentionService {
   private readonly logger = new Logger(DataRetentionService.name);
@@ -96,6 +99,7 @@ export class DataRetentionService {
     const notifDays = this.config.get('RETENTION_NOTIFICATIONS_DAYS', { infer: true });
     const whatsappDays = this.config.get('RETENTION_WHATSAPP_DAYS', { infer: true });
     const webEventsDays = this.config.get('RETENTION_WEB_EVENTS_DAYS', { infer: true });
+    const contactDays = this.config.get('RETENTION_CONTACT_MESSAGES_DAYS', { infer: true });
     const prenoticeDays = Math.max(
       this.config.get('RETENTION_SEPA_PRENOTICE_DAYS', { infer: true }),
       commsDays,
@@ -124,6 +128,7 @@ export class DataRetentionService {
       whatsappMessages,
       webEvents,
       webChatConversations,
+      contactMessages,
     ] = await Promise.all([
       this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
       this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
@@ -154,7 +159,16 @@ export class DataRetentionService {
       this.admin.webChatConversation.deleteMany({
         where: { lastMessageAt: { lt: cutoff(WEB_CHAT_RETENTION_DAYS) } },
       }),
+      // Formulario de contacto de trasteros.pro: datos de visitantes.
+      this.admin.platformContactMessage.deleteMany({
+        where: { createdAt: { lt: cutoff(contactDays) } },
+      }),
     ]);
+    // La IP del visitante solo hace falta los primeros días (abusos).
+    await this.admin.platformContactMessage.updateMany({
+      where: { ipAddress: { not: null }, createdAt: { lt: cutoff(CONTACT_IP_DAYS) } },
+      data: { ipAddress: null },
+    });
 
     await this.files.deleteObjects('uploads', expiredMedia.map((m) => m.mediaKey!).filter(Boolean));
 
@@ -168,6 +182,7 @@ export class DataRetentionService {
       whatsappMessages: whatsappMessages.count,
       webEvents: webEvents.count,
       webChatConversations: webChatConversations.count,
+      contactMessages: contactMessages.count,
     };
     const total =
       result.auditLogs +
@@ -178,7 +193,8 @@ export class DataRetentionService {
       result.whatsappConversations +
       result.whatsappMessages +
       result.webEvents +
-      result.webChatConversations;
+      result.webChatConversations +
+      result.contactMessages;
     if (total > 0) {
       this.logger.log(
         `data-retention: borradas ${total} filas ` +
@@ -186,7 +202,7 @@ export class DataRetentionService {
           `comms=${result.communications}, notif=${result.notifications}, ` +
           `platform_emails=${result.platformEmails}, ` +
           `whatsapp=${result.whatsappConversations}/${result.whatsappMessages}, ` +
-          `web_events=${result.webEvents}, web_chat=${result.webChatConversations})`,
+          `web_events=${result.webEvents}, web_chat=${result.webChatConversations}, contacto=${result.contactMessages})`,
       );
     }
     return result;

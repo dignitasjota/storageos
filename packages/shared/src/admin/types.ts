@@ -1032,6 +1032,13 @@ export interface PlatformContactMessageDto {
   createdAt: string;
 }
 
+export interface PlatformContactMessagesPageDto {
+  items: PlatformContactMessageDto[];
+  nextCursor: string | null;
+  /** Mensajes sin atender (todos, no solo los de la página). */
+  pending: number;
+}
+
 export interface PlatformLogoUploadDto {
   uploadUrl: string;
   key: string;

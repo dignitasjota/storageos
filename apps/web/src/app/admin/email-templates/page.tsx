@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import type { LifecycleEmailTemplateDto } from '@storageos/shared';
 
 import { EmailPreviewFrame } from '@/components/admin/comms/email-preview-frame';
+import { LifecycleSettingsCard } from '@/components/admin/comms/lifecycle-settings-card';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,7 @@ export default function AdminEmailTemplatesPage() {
           texto de serie.
         </p>
       </div>
+      <LifecycleSettingsCard />
       {templates.isLoading ? (
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
       ) : (

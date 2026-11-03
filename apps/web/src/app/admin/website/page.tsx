@@ -5,13 +5,14 @@ import {
   type PlatformContactSettingsDto,
   type PlatformFounderOfferDto,
 } from '@storageos/shared';
-import { Check, Loader2, Mail, RotateCcw } from 'lucide-react';
+import { Check, Loader2, Mail, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { FooterCard } from './footer-card';
 import { SeoCard } from './seo-card';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { PlatformLogo } from '@/components/public/platform-logo';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,16 +25,19 @@ import {
   useAdminContactSettings,
   useAdminFounderOffer,
   useAdminPlatformWebsite,
+  useDeleteContactMessage,
   useResetPlatformLogo,
   useSetContactMessageHandled,
   useUpdateContactSettings,
   useUpdateFounderOffer,
   useUploadPlatformLogo,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 /** Ajustes de la web pública de TrasterOS (no las webs de los tenants). */
 export default function AdminWebsitePage() {
+  const canEdit = useIsSuperadmin();
   const { data } = useAdminFounderOffer();
   const update = useUpdateFounderOffer();
   const [form, setForm] = useState<PlatformFounderOfferDto | null>(null);
@@ -63,6 +67,12 @@ export default function AdminWebsitePage() {
         <p className="text-sm text-muted-foreground">
           Lo que aparece en trasteros.pro (no afecta a las webs de los tenants).
         </p>
+        {!canEdit && (
+          <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            Con el rol de soporte puedes ver estos ajustes y atender los mensajes, pero no
+            cambiarlos.
+          </p>
+        )}
       </div>
 
       <SeoCard />
@@ -164,7 +174,7 @@ export default function AdminWebsitePage() {
               <div className="flex justify-end">
                 <Button
                   onClick={() => void onSave()}
-                  disabled={update.isPending || !form.title.trim() || !form.text.trim()}
+                  disabled={update.isPending || !canEdit || !form.title.trim() || !form.text.trim()}
                 >
                   {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
                   Guardar
@@ -180,6 +190,7 @@ export default function AdminWebsitePage() {
 
 /** Logo del header (azul) y del footer (gris oscuro) de la web. */
 function LogoCard() {
+  const canEdit = useIsSuperadmin();
   const { data } = useAdminPlatformWebsite();
   const upload = useUploadPlatformLogo();
   const reset = useResetPlatformLogo();
@@ -232,14 +243,14 @@ function LogoCard() {
             className="hidden"
             onChange={(e) => void onFile(e.target.files?.[0])}
           />
-          <Button onClick={() => input.current?.click()} disabled={upload.isPending}>
+          <Button onClick={() => input.current?.click()} disabled={upload.isPending || !canEdit}>
             {upload.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
             Subir logo
           </Button>
           {data?.logoUrl && (
             <Button
               variant="outline"
-              disabled={reset.isPending}
+              disabled={reset.isPending || !canEdit}
               onClick={() =>
                 void reset.mutateAsync().then(() => toast.success('Vuelve el logo de TrasterOS.'))
               }
@@ -265,6 +276,7 @@ const FIELD_TOGGLES: {
 
 /** Destino y campos del formulario de contacto de la portada. */
 function ContactSettingsCard() {
+  const canEdit = useIsSuperadmin();
   const { data } = useAdminContactSettings();
   const update = useUpdateContactSettings();
   const [form, setForm] = useState<PlatformContactSettingsDto | null>(null);
@@ -373,7 +385,7 @@ function ContactSettingsCard() {
             <div className="flex justify-end">
               <Button
                 onClick={() => void onSave()}
-                disabled={update.isPending || !form.title.trim()}
+                disabled={update.isPending || !canEdit || !form.title.trim()}
               >
                 {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
                 Guardar
@@ -386,14 +398,25 @@ function ContactSettingsCard() {
   );
 }
 
-/** Mensajes recibidos por el formulario (los 100 últimos). */
+/** Mensajes recibidos por el formulario, de 30 en 30 y con buscador. */
 function ContactMessagesCard() {
-  const { data, isLoading } = useAdminContactMessages();
-  const setHandled = useSetContactMessageHandled();
+  const canEdit = useIsSuperadmin();
+  const confirm = useConfirm();
   const [showHandled, setShowHandled] = useState(false);
-  const all = data ?? [];
-  const pending = all.filter((m) => !m.handledAt).length;
-  const rows = showHandled ? all : all.filter((m) => !m.handledAt);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+  const messages = useAdminContactMessages({
+    ...(search ? { search } : {}),
+    ...(showHandled ? {} : { handled: false }),
+  });
+  const setHandled = useSetContactMessageHandled();
+  const remove = useDeleteContactMessage();
+  const rows = messages.data?.pages.flatMap((p) => p.items) ?? [];
+  const pending = messages.data?.pages[0]?.pending ?? 0;
 
   return (
     <Card>
@@ -402,24 +425,35 @@ function ContactMessagesCard() {
           Mensajes recibidos
           {pending > 0 && <Badge>{pending} sin atender</Badge>}
         </CardTitle>
-        <CardDescription>Márcalos como atendidos cuando los hayas contestado.</CardDescription>
+        <CardDescription>
+          Márcalos como atendidos cuando los hayas contestado. Se guardan dos años; la IP de quien
+          escribe, 90 días.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={showHandled}
-            onChange={(e) => setShowHandled(e.target.checked)}
+        <div className="flex flex-wrap items-center gap-3">
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Buscar por nombre, email, empresa o texto"
+            className="w-full text-base sm:w-72 sm:text-sm"
           />
-          Mostrar también los atendidos
-        </label>
-        {isLoading ? (
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={showHandled}
+              onChange={(e) => setShowHandled(e.target.checked)}
+            />
+            Mostrar también los atendidos
+          </label>
+        </div>
+        {messages.isLoading ? (
           <div className="flex justify-center py-6">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : rows.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            {all.length === 0 ? 'Todavía no ha llegado ningún mensaje.' : 'Nada pendiente.'}
+            {search ? 'Nada coincide con la búsqueda.' : 'Nada pendiente.'}
           </p>
         ) : (
           <ul className="divide-y rounded-lg border">
@@ -486,10 +520,42 @@ function ContactMessagesCard() {
                       </>
                     )}
                   </Button>
+                  {canEdit && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="Borrar el mensaje"
+                      title="Borrar el mensaje"
+                      disabled={remove.isPending}
+                      onClick={async () => {
+                        if (
+                          await confirm({
+                            title: `¿Borrar el mensaje de ${m.name}? No se puede deshacer.`,
+                            destructive: true,
+                          })
+                        )
+                          remove.mutate(m.id);
+                      }}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
+        )}
+        {messages.hasNextPage && (
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={messages.isFetchingNextPage}
+              onClick={() => void messages.fetchNextPage()}
+            >
+              {messages.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
+            </Button>
+          </div>
         )}
       </CardContent>
     </Card>

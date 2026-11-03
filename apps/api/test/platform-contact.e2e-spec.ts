@@ -93,12 +93,13 @@ describe('Formulario de contacto de la web (e2e)', () => {
     expect(mail.Subject).toBe('Contacto desde la web: Ana López');
 
     const list = await http().get('/admin/platform/contact/messages').set(adminAuth).expect(200);
-    expect(list.body).toHaveLength(1);
+    expect(list.body.items).toHaveLength(1);
+    expect(list.body.pending).toBe(1);
     // La empresa no se pide (campo oculto): no se guarda aunque llegue.
-    expect(list.body[0]).toMatchObject({ name: 'Ana López', company: null, emailSent: true });
+    expect(list.body.items[0]).toMatchObject({ name: 'Ana López', company: null, emailSent: true });
 
     const done = await http()
-      .post(`/admin/platform/contact/messages/${list.body[0].id}/handled`)
+      .post(`/admin/platform/contact/messages/${list.body.items[0].id}/handled`)
       .set(adminAuth)
       .send({ handled: true })
       .expect(200);
@@ -109,9 +110,9 @@ describe('Formulario de contacto de la web (e2e)', () => {
       .post('/platform-contact')
       .send({ ...body, hp: 'spam' })
       .expect(204);
-    expect((await http().get('/admin/platform/contact/messages').set(adminAuth)).body).toHaveLength(
-      1,
-    );
+    expect(
+      (await http().get('/admin/platform/contact/messages').set(adminAuth)).body.items,
+    ).toHaveLength(1);
 
     await http().get('/admin/platform/contact/messages').expect(401);
   });

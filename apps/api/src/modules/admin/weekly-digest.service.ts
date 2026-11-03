@@ -1,7 +1,7 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { platformEmailShell } from '@storageos/shared';
 
-import { PlatformEmailSettingsService } from '../email/platform-email-settings.service';
-import { EMAIL_PROVIDER, type EmailProvider } from '../email/providers/email-provider';
+import { EmailService } from '../email/email.service';
 
 import { AdminBusinessService } from './admin-business.service';
 import { AdminMetricsService } from './admin-metrics.service';
@@ -45,8 +45,7 @@ export class WeeklyDigestService {
     private readonly mrr: MrrSnapshotService,
     private readonly tenants: AdminTenantsService,
     private readonly alerts: PlatformAlertsService,
-    @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
-    private readonly platformEmail: PlatformEmailSettingsService,
+    private readonly email: EmailService,
     private readonly chat: ChatAlertsService,
     private readonly business: AdminBusinessService,
   ) {}
@@ -77,9 +76,10 @@ export class WeeklyDigestService {
     const { html, text } = this.render(overview, lastMovement, atRisk, business?.alerts ?? []);
 
     if (emailOn && settings.alertEmail) {
-      await this.email.send({
-        ...(await this.platformEmail.platformSender()),
+      // Por el servicio común: queda en «Correos enviados» y respeta la lista de bloqueos.
+      await this.email.sendRendered({
         to: settings.alertEmail,
+        kind: 'admin_alert',
         subject: `[TrasterOS] Resumen semanal: MRR ${euro(overview.mrr.total)} · ${overview.tenants.active} activos`,
         html,
         text,
@@ -159,13 +159,11 @@ export class WeeklyDigestService {
             .map((a) => `<li><strong>${escapeHtml(a.title)}</strong>. ${escapeHtml(a.detail)}</li>`)
             .join('')}</ul></div>`
         : '';
-    const html = `<div style="font-family:system-ui,-apple-system,sans-serif;color:#111">
-<h2 style="margin:0 0 4px">Resumen semanal de KPIs</h2>
-<p style="margin:0 0 16px;color:#777">TrasterOS · plataforma</p>
+    const html =
+      platformEmailShell(`<p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#0F172A">Resumen semanal de KPIs</p>
 ${alertsHtml}
 <table style="border-collapse:collapse;min-width:320px">${rows}</table>
-${riskHtml}
-</div>`;
+${riskHtml}`);
 
     return { html, text: textLines.join('\n') };
   }

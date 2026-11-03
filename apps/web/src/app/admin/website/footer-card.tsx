@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useAdminPlatformWebsite, useUpdatePlatformFooter } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 const SOCIAL_LABELS: Record<FooterSocialNetwork, string> = {
@@ -41,6 +42,7 @@ function move<T>(list: T[], index: number, dir: -1 | 1): T[] {
 
 /** Pie de la web: contacto, redes y columnas de enlaces. */
 export function FooterCard() {
+  const canEdit = useIsSuperadmin();
   const { data } = useAdminPlatformWebsite();
   const update = useUpdatePlatformFooter();
   const [form, setForm] = useState<UpdatePlatformFooterInput | null>(null);
@@ -299,7 +301,7 @@ export function FooterCard() {
           >
             Restaurar el de por defecto
           </Button>
-          <Button onClick={() => void onSave()} disabled={update.isPending}>
+          <Button onClick={() => void onSave()} disabled={update.isPending || !canEdit}>
             {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
             Guardar
           </Button>

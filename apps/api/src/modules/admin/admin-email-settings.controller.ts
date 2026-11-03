@@ -7,7 +7,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Inject,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -20,6 +19,7 @@ import {
 import {
   type EmailSuppressionDto,
   isValidCustomDomain,
+  renderAdminEmail,
   type PlatformDomainStatusDto,
   type PlatformSendersDto,
   type PlatformEmailSettingsDto,
@@ -31,10 +31,11 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { TtlCache } from '../../common/cache/ttl-cache';
 import { Public } from '../../common/decorators/public.decorator';
 import { EmailSuppressionsService } from '../email/email-suppressions.service';
+import { EmailService } from '../email/email.service';
 import { PlatformEmailSettingsService } from '../email/platform-email-settings.service';
-import { EMAIL_PROVIDER, type EmailProvider } from '../email/providers/email-provider';
 import { EmailDomainsService } from '../email-domains/email-domains.service';
 
 import { AdminGuard } from './admin.guard';
@@ -57,9 +58,14 @@ class UpdatePlatformSendersDto extends createZodDto(UpdatePlatformSendersSchema)
 @UseGuards(AdminGuard)
 @Controller('admin/email-settings')
 export class AdminEmailSettingsController {
+  /** Brevo y Resend tardan: el estado de los dominios se guarda 5 minutos. */
+  private readonly providerCache = new TtlCache<unknown>(
+    process.env.NODE_ENV === 'test' ? 0 : 5 * 60_000,
+  );
+
   constructor(
     private readonly settings: PlatformEmailSettingsService,
-    @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
+    private readonly mail: EmailService,
     private readonly audit: SuperAdminAuditService,
     private readonly emailDomains: EmailDomainsService,
     private readonly suppressions: EmailSuppressionsService,
@@ -71,10 +77,13 @@ export class AdminEmailSettingsController {
    */
   /** ¿Están autenticados en cada proveedor los dominios de los remitentes de la plataforma? */
   @Get('platform-domain')
-  async platformDomain(): Promise<PlatformDomainStatusDto[]> {
+  async platformDomain(@Query('refresh') refresh?: string): Promise<PlatformDomainStatusDto[]> {
+    if (refresh === '1') this.providerCache.clear();
     const senders = await this.settings.getSenders();
     const domains = Object.values(senders.effective).map((s) => s.email.split('@')[1] ?? '');
-    return this.emailDomains.platformDomainStatus(domains);
+    return this.providerCache.get(`domains:${[...new Set(domains)].sort().join(',')}`, () =>
+      this.emailDomains.platformDomainStatus(domains),
+    ) as Promise<PlatformDomainStatusDto[]>;
   }
 
   /** Remitentes de los correos de la plataforma (común y por tipo de correo). */
@@ -138,8 +147,11 @@ export class AdminEmailSettingsController {
   }
 
   @Get('brevo-domains/unused')
-  unusedBrevoDomains(): Promise<UnusedBrevoDomainDto[]> {
-    return this.emailDomains.listUnusedBrevoDomains();
+  unusedBrevoDomains(@Query('refresh') refresh?: string): Promise<UnusedBrevoDomainDto[]> {
+    if (refresh === '1') this.providerCache.clear();
+    return this.providerCache.get('brevo-unused', () =>
+      this.emailDomains.listUnusedBrevoDomains(),
+    ) as Promise<UnusedBrevoDomainDto[]>;
   }
 
   @RequireSuperadmin()
@@ -154,6 +166,7 @@ export class AdminEmailSettingsController {
       throw new BadRequestException({ code: 'invalid_domain', message: 'Dominio no válido.' });
     }
     await this.emailDomains.deleteUnusedBrevoDomain(domain);
+    this.providerCache.clear();
     await this.audit.record({
       superAdminId: admin.sub,
       action: 'admin.brevo_domain.deleted',
@@ -194,14 +207,17 @@ export class AdminEmailSettingsController {
   @HttpCode(HttpStatus.OK)
   async test(@Body() body: SendTestEmailDto): Promise<TestEmailResultDto> {
     const sentAt = new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
-    const text = `Este es un correo de prueba enviado desde el panel de administración (${sentAt}).`;
+    const { html, text } = renderAdminEmail(
+      `Este es un correo de prueba enviado desde el panel de administración (${sentAt}).`,
+    );
     let res;
     try {
-      res = await this.email.send({
-        ...(await this.settings.platformSender()),
+      // Por el servicio común: queda en «Correos enviados» con la marca de TrasterOS.
+      res = await this.mail.sendRendered({
         to: body.to,
+        kind: 'admin_alert',
         subject: 'Prueba de correo de TrasterOS',
-        html: `<p>${text}</p>`,
+        html,
         text,
       });
     } catch (err) {
@@ -211,6 +227,9 @@ export class AdminEmailSettingsController {
         code: 'email_send_failed',
         message: `No se pudo enviar: ${err instanceof Error ? err.message : String(err)}`,
       });
+    }
+    if (res.suppressed) {
+      throw new BadGatewayException({ code: 'email_suppressed', message: res.suppressed });
     }
     return { provider: res.provider ?? 'unknown', providerMessageId: res.providerMessageId };
   }

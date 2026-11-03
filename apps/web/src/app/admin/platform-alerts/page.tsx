@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -14,7 +15,6 @@ import { Label } from '@/components/ui/label';
 import {
   useAdminPlatformAlerts,
   useRunPlatformAlerts,
-  useRunTenantLifecycleEmails,
   useRunWeeklyDigest,
   useUpdatePlatformAlerts,
 } from '@/lib/admin/hooks';
@@ -26,7 +26,6 @@ export default function PlatformAlertsPage() {
   const { data, isLoading } = useAdminPlatformAlerts();
   const update = useUpdatePlatformAlerts();
   const run = useRunPlatformAlerts();
-  const runLifecycle = useRunTenantLifecycleEmails();
   const runDigest = useRunWeeklyDigest();
 
   const [form, setForm] = useState({
@@ -35,11 +34,6 @@ export default function PlatformAlertsPage() {
     notifyPastDue: true,
     notifyTrialExpiring: true,
     trialExpiringDays: 3,
-    lifecycleEnabled: false,
-    sendWelcome: true,
-    sendTrialReminders: true,
-    sendPastDue: true,
-    sendActivation: true,
     weeklyDigestEnabled: false,
   });
 
@@ -51,11 +45,6 @@ export default function PlatformAlertsPage() {
         notifyPastDue: data.notifyPastDue,
         notifyTrialExpiring: data.notifyTrialExpiring,
         trialExpiringDays: data.trialExpiringDays,
-        lifecycleEnabled: data.lifecycleEnabled,
-        sendWelcome: data.sendWelcome,
-        sendTrialReminders: data.sendTrialReminders,
-        sendPastDue: data.sendPastDue,
-        sendActivation: data.sendActivation,
         weeklyDigestEnabled: data.weeklyDigestEnabled,
       });
     }
@@ -102,30 +91,6 @@ export default function PlatformAlertsPage() {
     }
   }
 
-  async function onRunLifecycle() {
-    try {
-      const res = await runLifecycle.mutateAsync();
-      const total =
-        res.welcome +
-        res.trialReminders +
-        res.pastDue +
-        res.activationNudges +
-        res.suspensionNotices;
-      if (res.trialsEnded > 0) {
-        toast.info(`${res.trialsEnded} pruebas vencidas han pasado al plan Free.`);
-      }
-      if (total > 0) {
-        toast.success(
-          `Emails encolados: ${res.welcome} bienvenida, ${res.trialReminders} prueba, ${res.activationNudges} ayuda para arrancar, ${res.pastDue} pago fallido, ${res.suspensionNotices} suspensión.`,
-        );
-      } else if (res.trialsEnded === 0) {
-        toast.info('No hay emails de ciclo de vida pendientes ahora mismo.');
-      }
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
-    }
-  }
-
   if (isLoading) {
     return (
       <div className="flex h-[60vh] items-center justify-center">
@@ -137,16 +102,20 @@ export default function PlatformAlertsPage() {
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Alertas de plataforma</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Alertas al admin</h1>
         <p className="text-sm text-muted-foreground">
-          Recibe un digest diario por email con tenants en pago fallido y trials por expirar.
+          Lo que te llega a ti: el aviso diario por email con los tenants con el pago pendiente y
+          las pruebas que terminan, el resumen semanal y los avisos por Telegram o Slack.
         </p>
       </div>
 
       <Card className="max-w-xl">
         <CardHeader>
           <CardTitle className="text-base">Configuración</CardTitle>
-          <CardDescription>El cron envía el digest a las 07:00 si hay señales.</CardDescription>
+          <CardDescription>
+            Cada día a las 07:00 (hora de España), solo si hay algo. No cuenta las cuentas exentas
+            ni las suspendidas.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <label className="flex items-center gap-2 text-sm">
@@ -160,7 +129,7 @@ export default function PlatformAlertsPage() {
             <Label>Email de destino</Label>
             <Input
               type="email"
-              placeholder="equipo@storageos.com"
+              placeholder="tu@trasteros.pro"
               value={form.alertEmail}
               onChange={(e) => setForm((f) => ({ ...f, alertEmail: e.target.value }))}
             />
@@ -170,33 +139,40 @@ export default function PlatformAlertsPage() {
               checked={form.notifyPastDue}
               onCheckedChange={(v) => setForm((f) => ({ ...f, notifyPastDue: v === true }))}
             />
-            Avisar de pagos fallidos (past_due)
+            Avisar de pagos pendientes
           </label>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
               checked={form.notifyTrialExpiring}
               onCheckedChange={(v) => setForm((f) => ({ ...f, notifyTrialExpiring: v === true }))}
             />
-            Avisar de trials por expirar
+            Avisar de pruebas que terminan pronto
           </label>
           <div className="space-y-1">
-            <Label>Días de antelación del trial</Label>
+            <Label>Días de antelación de la prueba</Label>
             <Input
               type="number"
               min={1}
               max={30}
-              value={form.trialExpiringDays}
+              value={Number.isNaN(form.trialExpiringDays) ? '' : form.trialExpiringDays}
               onChange={(e) =>
-                setForm((f) => ({ ...f, trialExpiringDays: e.target.valueAsNumber || 3 }))
+                setForm((f) => ({ ...f, trialExpiringDays: e.target.valueAsNumber }))
               }
               className="w-24"
             />
           </div>
           <div className="flex gap-2">
-            <Button onClick={onSave} disabled={update.isPending || !canEdit}>
+            <Button
+              onClick={onSave}
+              disabled={
+                update.isPending ||
+                !canEdit ||
+                !(form.trialExpiringDays >= 1 && form.trialExpiringDays <= 30)
+              }
+            >
               Guardar
             </Button>
-            <Button variant="outline" onClick={onRun} disabled={run.isPending}>
+            <Button variant="outline" onClick={onRun} disabled={run.isPending || !canEdit}>
               Evaluar y enviar ahora
             </Button>
           </div>
@@ -207,9 +183,9 @@ export default function PlatformAlertsPage() {
         <CardHeader>
           <CardTitle className="text-base">Resumen semanal de KPIs</CardTitle>
           <CardDescription>
-            Recibe cada lunes a las 08:00 un email con los KPIs clave (MRR y su variación, net new
-            MRR, churn, ARPU, nuevos tenants, trials por convertir y tickets abiertos) al email de
-            destino de arriba, sin entrar al panel.
+            Recibe cada lunes a las 08:00 (hora de España) un email con los KPIs clave (MRR y su
+            variación, net new MRR, churn, ARPU, nuevos tenants, trials por convertir y tickets
+            abiertos) al email de destino de arriba, sin entrar al panel.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -235,72 +211,14 @@ export default function PlatformAlertsPage() {
         </CardContent>
       </Card>
 
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle className="text-base">Emails automáticos al tenant</CardTitle>
-          <CardDescription>
-            Correos automáticos al owner del tenant: bienvenida al alta, recordatorios de trial (7,
-            3 y 1 días antes) y aviso de pago fallido. Un cron diario (08:00) los envía; cada tipo
-            se manda una sola vez por tenant.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={form.lifecycleEnabled}
-              onCheckedChange={(v) => setForm((f) => ({ ...f, lifecycleEnabled: v === true }))}
-            />
-            Activar emails de ciclo de vida
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={form.sendWelcome}
-              onCheckedChange={(v) => setForm((f) => ({ ...f, sendWelcome: v === true }))}
-            />
-            Email de bienvenida (al dar de alta)
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={form.sendTrialReminders}
-              onCheckedChange={(v) => setForm((f) => ({ ...f, sendTrialReminders: v === true }))}
-            />
-            Recordatorios de trial por expirar (7 / 3 / 1 días)
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={form.sendPastDue}
-              onCheckedChange={(v) => setForm((f) => ({ ...f, sendPastDue: v === true }))}
-            />
-            Aviso de pago fallido (past_due)
-          </label>
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox
-              className="mt-0.5"
-              checked={form.sendActivation}
-              onCheckedChange={(v) => setForm((f) => ({ ...f, sendActivation: v === true }))}
-            />
-            <span>
-              Ayuda para arrancar según el uso de la prueba
-              <span className="block text-xs text-muted-foreground">
-                Día 3 sin locales, día 7 sin inquilinos y día 12 sin facturas (este último también
-                te deja un seguimiento para llamarle).
-              </span>
-            </span>
-          </label>
-          <div className="flex gap-2">
-            <Button onClick={onSave} disabled={update.isPending || !canEdit}>
-              Guardar
-            </Button>
-            <Button
-              variant="outline"
-              onClick={onRunLifecycle}
-              disabled={runLifecycle.isPending || !canEdit}
-            >
-              Ejecutar ahora
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <p className="max-w-xl text-sm text-muted-foreground">
+        Los correos automáticos a los tenants (bienvenida, fin de la prueba, impago) se activan y se
+        redactan en{' '}
+        <Link href="/admin/email-templates" className="text-primary hover:underline">
+          Comunicación → Correos automáticos
+        </Link>
+        .
+      </p>
 
       <ChatAlertsCard />
     </div>

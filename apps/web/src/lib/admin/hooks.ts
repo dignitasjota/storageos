@@ -36,6 +36,7 @@ import type {
   PlatformPaymentSettingsDto,
   UpdatePlatformPaymentSettingsInput,
   PlatformContactMessageDto,
+  PlatformContactMessagesPageDto,
   PlatformContactSettingsDto,
   UpdatePlatformContactSettingsInput,
   TenantDataExportDto,
@@ -1753,6 +1754,23 @@ export function usePlatformDomainStatus() {
   });
 }
 
+/** Vuelve a preguntar a Brevo y Resend (el estado se guarda 5 minutos). */
+export function useRefreshEmailDomains() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const [domains, unused] = await Promise.all([
+        adminApiFetch<PlatformDomainStatusDto[]>('/admin/email-settings/platform-domain?refresh=1'),
+        adminApiFetch<UnusedBrevoDomainDto[]>(
+          '/admin/email-settings/brevo-domains/unused?refresh=1',
+        ).catch(() => null),
+      ]);
+      qc.setQueryData(['admin', 'email-settings', 'platform-domain'], domains);
+      if (unused) qc.setQueryData(['admin', 'email-settings', 'brevo-unused'], unused);
+    },
+  });
+}
+
 export function useUnusedBrevoDomains() {
   return useQuery({
     queryKey: ['admin', 'email-settings', 'brevo-unused'] as const,
@@ -2235,12 +2253,33 @@ export function useUpdateContactSettings() {
   });
 }
 
-export function useAdminContactMessages() {
-  return useQuery({
-    queryKey: ['admin', 'platform', 'contact', 'messages'] as const,
-    queryFn: () => adminApiFetch<PlatformContactMessageDto[]>('/admin/platform/contact/messages'),
+export function useAdminContactMessages(filters: { search?: string; handled?: boolean }) {
+  return useInfiniteQuery({
+    queryKey: ['admin', 'platform', 'contact', 'messages', filters] as const,
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+      const qs = new URLSearchParams();
+      if (filters.search) qs.set('search', filters.search);
+      if (filters.handled !== undefined) qs.set('handled', String(filters.handled));
+      if (pageParam) qs.set('cursor', pageParam);
+      return adminApiFetch<PlatformContactMessagesPageDto>(
+        `/admin/platform/contact/messages?${qs}`,
+      );
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    placeholderData: (prev) => prev,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
+  });
+}
+
+export function useDeleteContactMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<null>(`/admin/platform/contact/messages/${id}`, { method: 'DELETE' }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'contact', 'messages'] }),
   });
 }
 
