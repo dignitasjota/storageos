@@ -5,15 +5,25 @@ import {
   BLOG_WIDGET_LABELS,
   blogImageFileName,
   buttonBlock,
+  comparisonBlock,
   widgetBlock,
   type BlogPostDto,
   type BlogWidget,
 } from '@storageos/shared';
-import { ImagePlus, Link2, Loader2, MousePointerClick, Puzzle, Table2, Trash2 } from 'lucide-react';
+import {
+  Columns3,
+  ImagePlus,
+  Link2,
+  Loader2,
+  MousePointerClick,
+  Puzzle,
+  Table2,
+  Trash2,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import { InsertTargetDialog } from './blog-insert-dialogs';
+import { InsertComparisonDialog, InsertTargetDialog } from './blog-insert-dialogs';
 
 import { BlogContent } from '@/app/(public)/s/[slug]/blog/blog-content';
 import { Button } from '@/components/ui/button';
@@ -84,6 +94,7 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
   // Tras crear, la entrada recién creada: el diálogo sigue abierto para la portada.
   const [saved, setSaved] = useState<BlogPostDto | null>(null);
   const [insert, setInsert] = useState<{ kind: 'link' | 'button'; text: string } | null>(null);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
 
   const current = saved ?? post ?? null;
   const pending = create.isPending || update.isPending;
@@ -235,6 +246,14 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
                 >
                   <Table2 className="mr-1 h-4 w-4" /> Tabla
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setComparisonOpen(true)}
+                >
+                  <Columns3 className="mr-1 h-4 w-4" /> Comparativa
+                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button type="button" variant="outline" size="sm">
@@ -260,8 +279,9 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
                 placeholder={'## Título\n\nTexto con **negrita**, listas y enlaces.'}
               />
               <p className="text-xs text-muted-foreground">
-                Los botones, widgets y tablas van en líneas propias. En una tabla, cada fila es una
-                línea y las columnas se separan con «|»; la segunda línea (----) separa la cabecera.
+                Los botones, widgets, tablas y comparativas van en líneas propias. En una tabla,
+                cada fila es una línea y las columnas se separan con «|»; la segunda línea (----)
+                separa la cabecera.
               </p>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -433,6 +453,13 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
           </Button>
         </DialogFooter>
 
+        {comparisonOpen && (
+          <InsertComparisonDialog
+            open
+            onOpenChange={setComparisonOpen}
+            onInsert={(columns) => insertText(comparisonBlock(columns), true)}
+          />
+        )}
         {insert && (
           <InsertTargetDialog
             kind={insert.kind}

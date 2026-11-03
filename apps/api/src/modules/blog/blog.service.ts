@@ -175,6 +175,40 @@ export class BlogService {
     return { uploadUrl, key, expiresIn };
   }
 
+  /** URL firmada para subir una imagen del texto del post (sin post: vale antes de guardarlo). */
+  async requestImageUploadUrl(args: {
+    tenantId: string;
+    mimeType: string;
+    sizeBytes: number;
+    fileName?: string;
+  }): Promise<{ uploadUrl: string; key: string; expiresIn: number }> {
+    const fileName = args.fileName ? blogImageFileName(args.fileName) : '';
+    const key = this.files.buildBlogBodyImageKey(
+      args.tenantId,
+      args.mimeType,
+      fileName || undefined,
+    );
+    const { uploadUrl, expiresIn } = await this.files.getPresignedPutUrl({
+      bucket: 'public',
+      key,
+      contentType: args.mimeType,
+      contentLengthRange: { min: 1, max: args.sizeBytes },
+    });
+    return { uploadUrl, key, expiresIn };
+  }
+
+  /** Comprueba la imagen subida (del tenant y una imagen de verdad) y da su dirección. */
+  async confirmImage(tenantId: string, key: string): Promise<{ url: string }> {
+    if (!key.startsWith(`${tenantId}/blog/images/`) || key.includes('..')) {
+      throw new NotFoundException({
+        code: 'invalid_image_key',
+        message: 'La imagen no pertenece a este negocio',
+      });
+    }
+    await this.files.assertObjectMimeType('public', key, ['image/jpeg', 'image/png', 'image/webp']);
+    return { url: this.files.buildPublicUrl('public', key) };
+  }
+
   /** Confirma (o quita, con `null`) la portada por su key. */
   async setCover(tenantId: string, id: string, coverImageKey: string | null): Promise<BlogPostDto> {
     const existing = await this.findOrThrow(tenantId, id);

@@ -119,4 +119,27 @@ describe('Blog: texto alternativo, nombre de la portada y entradas relacionadas 
       .send({ mimeType: 'image/png', sizeBytes: 1000 });
     expect(random.body.key).toMatch(new RegExp(`/blog/${post.id}/[0-9a-f-]{36}\\.png$`));
   });
+  it('imágenes del texto: se suben sin guardar el post y solo las del negocio', async () => {
+    const { auth } = await setup('blogimages');
+    const req = await request(app.getHttpServer())
+      .post('/blog-posts/images/upload-url')
+      .set(auth)
+      .send({ mimeType: 'image/jpeg', sizeBytes: 2000, fileName: 'Trastero Grande.jpg' });
+    expect(req.status).toBe(200);
+    expect(req.body.key).toMatch(/\/blog\/images\/[0-9a-f]{8}\/trastero-grande\.jpg$/);
+
+    const ok = await request(app.getHttpServer())
+      .post('/blog-posts/images/confirm')
+      .set(auth)
+      .send({ key: req.body.key });
+    expect(ok.status).toBe(200);
+    expect(ok.body.url).toContain(req.body.key);
+
+    const other = await setup('blogimagesb');
+    const foreign = await request(app.getHttpServer())
+      .post('/blog-posts/images/confirm')
+      .set(other.auth)
+      .send({ key: req.body.key });
+    expect(foreign.status).toBe(404);
+  });
 });

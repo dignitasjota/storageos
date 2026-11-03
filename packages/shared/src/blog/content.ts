@@ -6,6 +6,8 @@
  *   sección y no la dirección, así vale en trasteros.pro y en el dominio propio.
  * - Bloque: una línea sola con `[[boton: Texto | web:reservar]]`,
  *   `[[calculadora]]`, `[[tamanos]]` o `[[locales]]`.
+ * - Comparativa: entre `[[comparativa]]` y `[[/comparativa]]`, una línea por
+ *   columna (de 2 a 4) con `imagen | título | subtítulo`.
  */
 
 export const BLOG_WEB_SECTIONS = [
@@ -69,7 +71,41 @@ export const BLOG_WIDGET_LABELS: Record<BlogWidget, string> = {
 export type BlogContentBlock =
   | { type: 'markdown'; text: string }
   | { type: 'button'; label: string; href: string }
-  | { type: 'widget'; widget: BlogWidget };
+  | { type: 'widget'; widget: BlogWidget }
+  | { type: 'comparison'; columns: BlogComparisonColumn[] };
+
+/** Columna de una comparativa: imagen (https o vacía), título y subtítulo. */
+export interface BlogComparisonColumn {
+  imageUrl: string | null;
+  title: string;
+  subtitle: string | null;
+}
+
+/** Columnas admitidas en una comparativa: más de 4 no caben en el ancho del post. */
+export const BLOG_COMPARISON_MIN_COLUMNS = 2;
+export const BLOG_COMPARISON_MAX_COLUMNS = 4;
+
+const COMPARISON_OPEN_RE = /^\[\[\s*comparativa\s*\]\]$/i;
+const COMPARISON_CLOSE_RE = /^\[\[\s*\/\s*comparativa\s*\]\]$/i;
+
+/** Las líneas de dentro de `[[comparativa]]`; null si no forman una comparativa válida. */
+function parseComparison(lines: string[]): BlogComparisonColumn[] | null {
+  const columns: BlogComparisonColumn[] = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const [image = '', title = '', subtitle = ''] = line.split('|').map((x) => x.trim());
+    if (!title || (image && !/^https:\/\//i.test(image))) return null;
+    columns.push({
+      imageUrl: image ? image.slice(0, 500) : null,
+      title: title.slice(0, 120),
+      subtitle: subtitle ? subtitle.slice(0, 200) : null,
+    });
+  }
+  return columns.length >= BLOG_COMPARISON_MIN_COLUMNS &&
+    columns.length <= BLOG_COMPARISON_MAX_COLUMNS
+    ? columns
+    : null;
+}
 
 const BLOCK_RE = /^\[\[\s*([a-zA-Zñáéíóú]+)\s*(?::\s*(.*?))?\s*\]\]$/;
 
@@ -92,8 +128,20 @@ export function splitBlogContent(markdown: string): BlogContentBlock[] {
     if (text.trim()) out.push({ type: 'markdown', text });
     buffer = [];
   };
-  for (const line of markdown.split('\n')) {
+  const lines = markdown.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+    if (!inFence && COMPARISON_OPEN_RE.test(line.trim())) {
+      const close = lines.findIndex((l, j) => j > i && COMPARISON_CLOSE_RE.test(l.trim()));
+      const columns = close > i ? parseComparison(lines.slice(i + 1, close)) : null;
+      if (columns) {
+        flush();
+        out.push({ type: 'comparison', columns });
+        i = close;
+        continue;
+      }
+    }
     const m = inFence ? null : BLOCK_RE.exec(line.trim());
     if (m) {
       const name = m[1]!.toLowerCase();
@@ -126,6 +174,16 @@ export function buttonBlock(label: string, href: string): string {
 
 export function widgetBlock(widget: BlogWidget): string {
   return `[[${widget}]]`;
+}
+
+/** Texto de una comparativa para el Markdown (quita los `|` de los textos). */
+export function comparisonBlock(columns: BlogComparisonColumn[]): string {
+  const clean = (v: string | null) => (v ?? '').replace(/[|\s]+/g, ' ').trim();
+  return [
+    '[[comparativa]]',
+    ...columns.map((c) => `${clean(c.imageUrl)} | ${clean(c.title)} | ${clean(c.subtitle)}`),
+    '[[/comparativa]]',
+  ].join('\n');
 }
 
 /** Nombre de fichero para Google: sin tildes, minúsculas y guiones, sin extensión. */

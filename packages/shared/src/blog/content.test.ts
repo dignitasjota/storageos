@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { blogImageFileName, parseWebLink, splitBlogContent } from './content';
+import { blogImageFileName, comparisonBlock, parseWebLink, splitBlogContent } from './content';
 
 describe('parseWebLink', () => {
   it('lee secciones y páginas', () => {
@@ -54,5 +54,52 @@ describe('splitBlogContent', () => {
 describe('blogImageFileName', () => {
   it('limpia el nombre del fichero', () => {
     expect(blogImageFileName('Trastero Pequeño Madrid.JPG')).toBe('trastero-pequeno-madrid');
+  });
+});
+
+describe('comparativa', () => {
+  const block = [
+    'Intro.',
+    '[[comparativa]]',
+    'https://x.com/a.jpg | Pequeño | Para cajas',
+    ' | Mediano | ',
+    '[[/comparativa]]',
+    'Final.',
+  ].join('\n');
+  it('lee una columna por línea', () => {
+    expect(splitBlogContent(block)).toEqual([
+      { type: 'markdown', text: 'Intro.' },
+      {
+        type: 'comparison',
+        columns: [
+          { imageUrl: 'https://x.com/a.jpg', title: 'Pequeño', subtitle: 'Para cajas' },
+          { imageUrl: null, title: 'Mediano', subtitle: null },
+        ],
+      },
+      { type: 'markdown', text: 'Final.' },
+    ]);
+  });
+  it('mal escrita se queda como texto', () => {
+    const one = '[[comparativa]]\nhttps://x.com/a.jpg | Solo una\n[[/comparativa]]';
+    expect(splitBlogContent(one)).toEqual([{ type: 'markdown', text: one }]);
+    const five = ['[[comparativa]]', ...Array(5).fill(' | A | '), '[[/comparativa]]'].join('\n');
+    expect(splitBlogContent(five)[0]!.type).toBe('markdown');
+    const http = '[[comparativa]]\nhttp://x.com/a.jpg | A\n | B\n[[/comparativa]]';
+    expect(splitBlogContent(http)[0]!.type).toBe('markdown');
+    expect(splitBlogContent('[[comparativa]]\n | A\n | B')[0]!.type).toBe('markdown');
+  });
+  it('se genera y se vuelve a leer igual', () => {
+    const cols = [
+      { imageUrl: 'https://x.com/a.jpg', title: 'A | b', subtitle: null },
+      { imageUrl: null, title: 'C', subtitle: 'D' },
+    ];
+    const parsed = splitBlogContent(comparisonBlock(cols));
+    expect(parsed[0]).toEqual({
+      type: 'comparison',
+      columns: [
+        { imageUrl: 'https://x.com/a.jpg', title: 'A b', subtitle: null },
+        { imageUrl: null, title: 'C', subtitle: 'D' },
+      ],
+    });
   });
 });
