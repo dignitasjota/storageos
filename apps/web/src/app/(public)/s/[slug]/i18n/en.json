@@ -25,7 +25,8 @@
       "notifyMe": "Notify me",
       "whatsappButton": "Message us on WhatsApp",
       "whatsappMessage": "Hi, I'm coming from your website and I'd like information about a storage unit.",
-      "whatsappMessageFacility": "Hi, I'm coming from your website and I'd like information about a storage unit at {facility}."
+      "whatsappMessageFacility": "Hi, I'm coming from your website and I'd like information about a storage unit at {facility}.",
+      "hireThisSize": "Book"
     },
     "hours": {
       "title": "Hours",
