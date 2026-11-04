@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAddonSuspension, useAdminToday, useChargeAddon } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 const eur = (n: number, c = 'EUR') =>
@@ -70,25 +71,6 @@ export default function AdminTodayPage() {
       </div>
     );
   }
-
-  const nothing =
-    data &&
-    data.addonCharges.length === 0 &&
-    data.manualRenewalsDue.length === 0 &&
-    data.pastDue.length === 0 &&
-    data.trialsExpiring.length === 0 &&
-    data.followupsDue.length === 0 &&
-    data.staleSuspendedAddons.length === 0 &&
-    data.openTickets.length === 0 &&
-    data.failedWebhooks.length === 0 &&
-    data.failedJobs === 0 &&
-    data.aeatIssues.length === 0 &&
-    data.certificatesExpiring.length === 0 &&
-    data.holdedReview.length === 0 &&
-    data.devicesOffline.length === 0 &&
-    data.overdueCrons.length === 0 &&
-    data.pendingApprovals.length === 0 &&
-    data.expiringOverrides.length === 0;
 
   const opsCount = data
     ? data.aeatIssues.length +
@@ -124,14 +106,6 @@ export default function AdminTodayPage() {
       {data && <TodayKpis kpis={data.kpis} />}
       {data?.businessGoals && <TodayGoals goals={data.businessGoals} />}
 
-      {nothing && (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Nada pendiente hoy. 🎉
-          </CardContent>
-        </Card>
-      )}
-
       <Tabs defaultValue="business">
         <TabsList>
           <TabsTrigger value="business">
@@ -155,9 +129,8 @@ export default function AdminTodayPage() {
               </CardHeader>
               <CardContent className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  Add-ons de tenants que pagan el plan por Stripe: cóbralos a mano cada mes.
-                  Registrar el cobro no toca el periodo del plan y reprograma el siguiente en un
-                  mes.
+                  Extras que se cobran a mano. Registrar el cobro no toca el periodo del plan y
+                  programa el siguiente un mes después de la fecha que tocaba.
                 </p>
                 {data.addonCharges.map((c) => (
                   <AddonChargeRow key={c.tenantAddonId} charge={c} />
@@ -263,8 +236,10 @@ export default function AdminTodayPage() {
                     >
                       {t.tenantName}
                     </Link>
-                    {t.priority === 'high' && (
-                      <span className="ml-1 text-xs font-medium text-red-500">urgente</span>
+                    {(t.priority === 'urgent' || t.priority === 'high') && (
+                      <span className="ml-1 text-xs font-medium text-red-500">
+                        {t.priority === 'urgent' ? 'urgente' : 'alta'}
+                      </span>
                     )}
                   </div>
                   <span className="shrink-0 text-xs text-muted-foreground">
@@ -485,11 +460,12 @@ function AddonChargeRow({ charge }: { charge: AdminAddonChargeDueDto }) {
   const chargeAddon = useChargeAddon();
   const suspend = useAddonSuspension(charge.tenantId, 'suspend');
   const [provider, setProvider] = useState<SaasPaymentProviderValue>('cash');
+  const canCharge = useIsSuperadmin();
 
   async function onCharge() {
     try {
       await chargeAddon.mutateAsync({ tenantAddonId: charge.tenantAddonId, provider });
-      toast.success('Cobro registrado. Siguiente cobro en un mes.');
+      toast.success('Cobro registrado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo registrar el cobro.');
     }
@@ -516,30 +492,37 @@ function AddonChargeRow({ charge }: { charge: AdminAddonChargeDueDto }) {
       </div>
       <div className="flex items-center gap-2">
         <span className="font-semibold tabular-nums">{eur(charge.amount, charge.currency)}</span>
-        <Select value={provider} onValueChange={(v) => setProvider(v as SaasPaymentProviderValue)}>
-          <SelectTrigger className="h-8 w-32 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PROVIDERS.map((p) => (
-              <SelectItem key={p.value} value={p.value}>
-                {p.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button size="sm" onClick={onCharge} disabled={chargeAddon.isPending}>
-          Registrar cobro
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-amber-600 hover:text-amber-700"
-          onClick={onSuspend}
-          disabled={suspend.isPending}
-        >
-          Suspender
-        </Button>
+        {canCharge && (
+          <>
+            <Select
+              value={provider}
+              onValueChange={(v) => setProvider(v as SaasPaymentProviderValue)}
+            >
+              <SelectTrigger className="h-8 w-32 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PROVIDERS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" onClick={onCharge} disabled={chargeAddon.isPending}>
+              Registrar cobro
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-amber-600 hover:text-amber-700"
+              onClick={onSuspend}
+              disabled={suspend.isPending}
+            >
+              Suspender
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

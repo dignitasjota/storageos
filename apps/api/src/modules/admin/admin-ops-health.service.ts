@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { TtlCache } from '../../common/cache/ttl-cache';
 import { HoldedSyncService } from '../accounting/holded-sync.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -39,6 +40,10 @@ function aeatMessage(response: unknown): string | null {
  */
 @Injectable()
 export class AdminOpsHealthService {
+  private readonly holdedCache = new TtlCache<AdminTenantIssueCountDto[]>(
+    process.env.NODE_ENV === 'test' ? 0 : 5 * 60_000,
+  );
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly holded: HoldedSyncService,
@@ -86,6 +91,11 @@ export class AdminOpsHealthService {
 
   /** Tenants con Holded activo y envíos «para revisar». */
   async holdedReview(): Promise<AdminTenantIssueCountDto[]> {
+    // Una consulta por tenant con Holded: no hace falta repetirla cada minuto.
+    return this.holdedCache.get('all', () => this.computeHoldedReview());
+  }
+
+  private async computeHoldedReview(): Promise<AdminTenantIssueCountDto[]> {
     const enabled = await this.admin.holdedSettings.findMany({
       where: { enabled: true, tenant: { deletedAt: null } },
       select: { tenantId: true },
@@ -106,7 +116,7 @@ export class AdminOpsHealthService {
       where: {
         isActive: true,
         lastSeenAt: { not: null, lt: new Date(now.getTime() - DEVICE_OFFLINE_MS) },
-        tenant: { deletedAt: null },
+        tenant: { deletedAt: null, status: { in: ['active', 'trial'] } },
       },
       _count: { _all: true },
     });
@@ -242,7 +252,11 @@ export class AdminOpsHealthService {
   ): Promise<AdminTenantIssueCountDto[]> {
     if (rows.length === 0) return [];
     const tenants = await this.admin.tenant.findMany({
-      where: { id: { in: rows.map((r) => r.tenantId) }, deletedAt: null },
+      where: {
+        id: { in: rows.map((r) => r.tenantId) },
+        deletedAt: null,
+        status: { not: 'cancelled' },
+      },
       select: { id: true, name: true },
     });
     const names = new Map(tenants.map((t) => [t.id, t.name]));

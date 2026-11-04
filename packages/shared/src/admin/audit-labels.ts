@@ -73,6 +73,7 @@ export const SUPER_ADMIN_AUDIT_GROUPS: Record<string, Record<string, AuditAction
   },
   'Cobros y facturación': {
     'admin.tenant.saas_payment_manual_created': { label: 'Pago manual registrado' },
+    'admin.saas_addon.charged': { label: 'Cobro de un extra registrado' },
     'admin.tenant.billing_exempted': { label: 'Cuenta marcada exenta' },
     'admin.tenant.billing_unexempted': { label: 'Cuenta deja de ser exenta' },
     'admin.tenant.billing_mode_changed': { label: 'Forma de cobro cambiada' },

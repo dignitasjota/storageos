@@ -268,6 +268,7 @@ export class AdminTenantsService {
         where: {
           deletedAt: null,
           billingExempt: false,
+          status: { not: 'cancelled' },
           subscription: { status: 'past_due' },
           ...notSnoozed,
         },

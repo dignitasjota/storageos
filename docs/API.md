@@ -2576,3 +2576,7 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 | POST   | `/public/move-in/sign/:token/deposit-method` | Enlace de firma | `{method: online\|cash}`. Solo reserva online sin firmar con «Pagar en el local» activo. Devuelve la vista de firma |
 
 `POST /contracts/:id/deposit/collect` admite `methodType: card` (TPV físico).
+
+## «Hoy» del panel admin (2026-11-04)
+
+`POST /admin/today/addon-charges/:id/charge` responde 409 `addon_not_chargeable` si el extra ya no se cobra a mano y 409 `addon_already_charged` si ya está registrado. `kpis.pending` de `GET /admin/today` es el total de `GET /admin/billing/receivables`.
