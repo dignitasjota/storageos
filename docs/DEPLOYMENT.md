@@ -1708,3 +1708,7 @@ Migración `20261214100000_admin_security_features` (sin variables nuevas). Tras
 ## 81. Fianza en el local al reservar online (2026-11-04)
 
 Sin migración ni variables nuevas. Para ofrecerlo, activa «Pagar en el local» en Configuración → Cobros. Quien reserva online verá antes de firmar «¿Dónde pagas la fianza?». Con la fianza en el local recibe el acceso al pagar el alquiler y la fianza queda en «Hoy» hasta registrar su cobro, también con «Tarjeta (TPV físico)».
+
+## 82. «Hoy» del panel admin: arreglos (2026-11-04)
+
+Sin migración ni variables nuevas. Tras desplegar, «Pendiente» puede cambiar: ahora es la misma cifra que Cobros pendientes. Los tenants en SEPA o Redsys dejan de salir en «Renovaciones manuales por expirar».

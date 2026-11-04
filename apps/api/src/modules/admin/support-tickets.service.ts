@@ -257,9 +257,13 @@ export class SupportTicketsService {
         authorAdmin: { select: { fullName: true } },
       },
     });
-    // Si el ticket estaba esperando al cliente o resuelto, vuelve a open: la
-    // pelota pasa al admin (un «resuelto» que no lo estaba se reabre solo).
-    if (ticket.status === 'waiting_user' || ticket.status === 'resolved') {
+    // Si el ticket estaba esperando al cliente, en curso o resuelto, vuelve a
+    // open: la pelota pasa al admin (en curso se quedaba sin aviso alguno).
+    if (
+      ticket.status === 'waiting_user' ||
+      ticket.status === 'in_progress' ||
+      ticket.status === 'resolved'
+    ) {
       await this.admin.supportTicket.update({
         where: { id: args.ticketId },
         data: { status: 'open' },
@@ -298,7 +302,9 @@ export class SupportTicketsService {
 
   /** Nº de tickets esperando respuesta del admin (cross-tenant) — badge del panel admin. */
   async countOpenForAdmin(): Promise<number> {
-    return this.admin.supportTicket.count({ where: { status: 'open' } });
+    return this.admin.supportTicket.count({
+      where: { status: 'open', tenant: { deletedAt: null, status: { not: 'cancelled' } } },
+    });
   }
 
   /**

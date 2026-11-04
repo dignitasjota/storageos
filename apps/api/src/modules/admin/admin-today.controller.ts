@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { ChargeAddonSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -6,9 +6,11 @@ import { Public } from '../../common/decorators/public.decorator';
 
 import { AdminTodayService } from './admin-today.service';
 import { AdminGuard } from './admin.guard';
+import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
 import { RequireSuperadmin } from './require-superadmin.decorator';
 
 import type { AdminTodayDto } from '@storageos/shared';
+import type { Request } from 'express';
 
 class ChargeAddonDto extends createZodDto(ChargeAddonSchema) {}
 
@@ -33,7 +35,13 @@ export class AdminTodayController {
   chargeAddon(
     @Param('tenantAddonId', new ParseUUIDPipe()) tenantAddonId: string,
     @Body() body: ChargeAddonDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
   ): Promise<AdminTodayDto> {
-    return this.service.chargeAddon(tenantAddonId, body.provider);
+    return this.service.chargeAddon(tenantAddonId, body.provider, {
+      superAdminId: admin.sub,
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
   }
 }

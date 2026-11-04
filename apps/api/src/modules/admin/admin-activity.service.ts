@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { FEATURE_LABELS, type TenantFeature } from '@storageos/shared';
 
-import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
+import { currentMonth } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+
+import { AdminBillingOpsService } from './admin-billing-ops.service';
 
 import type { AdminActivityItemDto, AdminTodayKpisDto } from '@storageos/shared';
 
@@ -26,7 +28,10 @@ const CHURN_LABEL: Record<string, string> = {
  */
 @Injectable()
 export class AdminActivityService {
-  constructor(private readonly admin: PrismaAdminService) {}
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly billingOps: AdminBillingOpsService,
+  ) {}
 
   async activity(since: Date, now = new Date()): Promise<AdminActivityItemDto[]> {
     const window = { gte: since, lt: now };
@@ -279,9 +284,8 @@ export class AdminActivityService {
   }
 
   async kpis(now = new Date()): Promise<AdminTodayKpisDto> {
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const pricing = await platformPricing(this.admin);
-    const [paying, addons, collected, pastDue, manualAddons, trials, suspended, newThisMonth] =
+    const monthStart = currentMonth(now).start;
+    const [paying, addons, collected, receivables, trials, suspended, newThisMonth] =
       await Promise.all([
         this.admin.tenantSubscription.findMany({
           where: {
@@ -301,25 +305,8 @@ export class AdminActivityService {
           where: { status: 'paid', paidAt: { gte: new Date(now.getTime() - 7 * DAY) } },
           _sum: { amount: true, refundedAmount: true },
         }),
-        this.admin.tenantSubscription.findMany({
-          where: { status: 'past_due', tenant: { deletedAt: null, billingExempt: false } },
-          select: { plan: { select: { priceMonthly: true } } },
-        }),
-        this.admin.tenantSubscriptionAddon.findMany({
-          where: {
-            nextChargeAt: { lte: now },
-            suspendedAt: null,
-            billingMode: { not: 'stripe' },
-            tenant: {
-              deletedAt: null,
-              billingExempt: false,
-              // Con la cuota domiciliada o cobrada sola con tarjeta, los extras van
-              // en el mismo cargo.
-              NOT: { subscription: { billingMode: { in: ['sepa', 'redsys'] } } },
-            },
-          },
-          select: { priceMonthly: true, quantity: true },
-        }),
+        // La misma cifra que «Cobros pendientes», adonde lleva la tarjeta.
+        this.billingOps.receivables(now),
         this.admin.tenant.count({ where: { deletedAt: null, status: 'trial' } }),
         this.admin.tenant.count({ where: { deletedAt: null, status: 'suspended' } }),
         this.admin.tenant.count({ where: { deletedAt: null, createdAt: { gte: monthStart } } }),
@@ -335,18 +322,12 @@ export class AdminActivityService {
       (s, p) => s + Number(p.plan.priceMonthly) + (addonsBy.get(p.tenantId) ?? 0),
       0,
     );
-    const pending =
-      pastDue.reduce((s, p) => s + amountToCharge(Number(p.plan.priceMonthly), pricing), 0) +
-      manualAddons.reduce(
-        (s, a) => s + amountToCharge(Number(a.priceMonthly) * a.quantity, pricing),
-        0,
-      );
     return {
       mrr: round2(mrr),
       collected7d: round2(
         Number(collected._sum.amount ?? 0) - Number(collected._sum.refundedAmount ?? 0),
       ),
-      pending: round2(pending),
+      pending: receivables.total,
       trials,
       suspended,
       newThisMonth,

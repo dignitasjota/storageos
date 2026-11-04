@@ -1,5 +1,10 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Queue } from 'bullmq';
 
 import { todayInTimezone } from '../../common/format';
@@ -25,6 +30,7 @@ import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
 import { FeatureExpiryService } from './feature-expiry.service';
+import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type {
   AdminAddonChargeDueDto,
@@ -45,6 +51,9 @@ function addMonths(date: Date, months: number): Date {
   d.setDate(Math.min(day, last));
   return d;
 }
+
+/** Un tenant dado de baja ya no tiene a quién contestar; uno suspendido sí. */
+const LIVE_TENANT_FOR_TICKETS = { deletedAt: null, status: { not: 'cancelled' as const } };
 
 /** Orden de prioridad de los tickets (mayor = antes). */
 const PRIORITY_ORDER: Record<string, number> = { urgent: 3, high: 2, normal: 1, low: 0 };
@@ -71,6 +80,7 @@ export class AdminTodayService {
     private readonly featureExpiry: FeatureExpiryService,
     private readonly activityService: AdminActivityService,
     private readonly business: AdminBusinessService,
+    private readonly audit: SuperAdminAuditService,
     @InjectQueue(QUEUE_BILLING) billingQueue: Queue,
     @InjectQueue(QUEUE_DUNNING) dunningQueue: Queue,
     @InjectQueue(QUEUE_PAYMENTS) paymentsQueue: Queue,
@@ -114,6 +124,7 @@ export class AdminTodayService {
       expiringOverrides,
       kpis,
       activity,
+      goals,
     ] = await Promise.all([
       this.addonChargesDue(now),
       this.manualRenewalsDue(now),
@@ -132,9 +143,9 @@ export class AdminTodayService {
       this.featureExpiry.expiringSoon(now),
       this.activityService.kpis(now),
       this.activityService.activity(new Date(now.getTime() - 48 * 3_600_000), now),
+      this.business.getGoals().catch(() => null),
     ]);
     // Progreso de los objetivos del negocio (solo si hay alguno puesto).
-    const goals = await this.business.getGoals().catch(() => null);
     const businessGoals =
       goals && (goals.progress.mrr || goals.progress.signups || goals.progress.trialConversion)
         ? goals
@@ -188,7 +199,7 @@ export class AdminTodayService {
   /** Tickets de soporte esperando respuesta del admin (status open). */
   private async openTickets(now: Date): Promise<AdminOpenTicketDto[]> {
     const rows = await this.admin.supportTicket.findMany({
-      where: { status: 'open' },
+      where: { status: 'open', tenant: LIVE_TENANT_FOR_TICKETS },
       select: {
         id: true,
         tenantId: true,
@@ -245,7 +256,7 @@ export class AdminTodayService {
     const tenantIds = groups.map((g) => g.tenantId);
     const [tenants, lastErrors] = await Promise.all([
       this.admin.tenant.findMany({
-        where: { id: { in: tenantIds } },
+        where: { id: { in: tenantIds }, deletedAt: null, status: { not: 'cancelled' } },
         select: { id: true, name: true },
       }),
       this.admin.webhookDelivery.findMany({
@@ -263,6 +274,7 @@ export class AdminTodayService {
       ]),
     );
     return groups
+      .filter((g) => names.has(g.tenantId))
       .map((g) => ({
         tenantId: g.tenantId,
         tenantName: names.get(g.tenantId) ?? '—',
@@ -280,20 +292,22 @@ export class AdminTodayService {
   }
 
   /**
-   * Suscripciones de pago MANUAL (sin `stripeSubscriptionId`) cuyo periodo vence
-   * en ≤7 días o ya venció: hay que cobrarlas a mano antes de que caduquen
-   * (las de Stripe se renuevan solas, no necesitan recordatorio).
+   * Suscripciones de pago MANUAL de un plan de pago cuyo periodo vence en ≤7
+   * días o ya venció: hay que cobrarlas a mano antes de que caduquen. Las de
+   * Stripe, SEPA y Redsys se cobran solas y las del plan gratis no se cobran.
    */
   private async manualRenewalsDue(now: Date): Promise<AdminManualRenewalDueDto[]> {
     const cutoff = new Date(now.getTime() + 7 * MS_PER_DAY);
     const rows = await this.admin.tenantSubscription.findMany({
       where: {
+        billingMode: 'manual',
         stripeSubscriptionId: null,
         status: 'active',
         currentPeriodEnd: { lte: cutoff },
+        plan: { priceMonthly: { gt: 0 } },
         // Las cuentas exentas no se cobran nunca → no deben aparecer como
         // «renovación manual pendiente» (su fecha de fin es irrelevante).
-        tenant: { deletedAt: null, billingExempt: false },
+        tenant: { deletedAt: null, billingExempt: false, status: { in: ['active', 'trial'] } },
       },
       select: { tenantId: true, currentPeriodEnd: true, tenant: { select: { name: true } } },
       orderBy: { currentPeriodEnd: 'asc' },
@@ -377,14 +391,27 @@ export class AdminTodayService {
 
   /**
    * Registra el cobro manual de un add-on (sin extender el periodo) y avanza su
-   * `next_charge_at` un mes.
+   * `next_charge_at` un mes desde la fecha que tocaba: cobrar con retraso no
+   * regala días. Se comprueba de nuevo que sigue siendo cobrable, porque la
+   * bandeja pudo pintarse antes de que pasara a cobrarse solo.
    */
-  async chargeAddon(tenantAddonId: string, provider: string): Promise<AdminTodayDto> {
+  async chargeAddon(
+    tenantAddonId: string,
+    provider: string,
+    actor: { superAdminId: string; ipAddress: string | null; userAgent: string | null },
+  ): Promise<AdminTodayDto> {
     const row = await this.admin.tenantSubscriptionAddon.findUnique({
       where: { id: tenantAddonId },
       include: {
         addon: { select: { name: true } },
-        tenant: { select: { currency: true } },
+        tenant: {
+          select: {
+            currency: true,
+            deletedAt: true,
+            billingExempt: true,
+            subscription: { select: { billingMode: true } },
+          },
+        },
       },
     });
     if (!row) {
@@ -397,24 +424,66 @@ export class AdminTodayService {
         message: 'El add-on está suspendido; reactívalo antes de cobrarlo.',
       });
     }
+    const chargedAlone =
+      row.billingMode === 'stripe' ||
+      row.tenant.subscription?.billingMode === 'sepa' ||
+      row.tenant.subscription?.billingMode === 'redsys';
+    if (chargedAlone || row.tenant.deletedAt || row.tenant.billingExempt) {
+      throw new ConflictException({
+        code: 'addon_not_chargeable',
+        message: 'Este extra ya no se cobra a mano: actualiza la página.',
+      });
+    }
+    const due = row.nextChargeAt;
+    if (!due || due.getTime() > Date.now()) {
+      throw new ConflictException({
+        code: 'addon_already_charged',
+        message: 'Este cobro ya está registrado.',
+      });
+    }
+    // Reserva el cobro: de dos clics o dos personas, solo pasa uno.
+    const next = addMonths(due, 1);
+    const claimed = await this.admin.tenantSubscriptionAddon.updateMany({
+      where: { id: tenantAddonId, nextChargeAt: due },
+      data: { nextChargeAt: next },
+    });
+    if (claimed.count !== 1) {
+      throw new ConflictException({
+        code: 'addon_already_charged',
+        message: 'Este cobro ya está registrado.',
+      });
+    }
     // Con precios +IVA se cobra el precio más el IVA.
     const amount = amountToCharge(
       Number(row.priceMonthly) * row.quantity,
       await platformPricing(this.admin),
     );
-    await this.billing.recordManualPayment({
-      tenantId: row.tenantId,
-      provider,
-      amount,
-      currency: row.tenant.currency,
-      durationMonths: 1,
-      extendsPeriod: false, // cobro del add-on: NO toca el periodo del plan
-      description: `Add-on: ${row.addon.name}`,
-    });
-    // Programa el siguiente cobro dentro de un mes.
-    await this.admin.tenantSubscriptionAddon.update({
-      where: { id: tenantAddonId },
-      data: { nextChargeAt: addMonths(new Date(), 1) },
+    try {
+      await this.billing.recordManualPayment({
+        tenantId: row.tenantId,
+        provider,
+        amount,
+        currency: row.tenant.currency,
+        durationMonths: 1,
+        extendsPeriod: false, // cobro del add-on: NO toca el periodo del plan
+        description: `Add-on: ${row.addon.name}`,
+      });
+    } catch (err) {
+      await this.admin.tenantSubscriptionAddon.updateMany({
+        where: { id: tenantAddonId, nextChargeAt: next },
+        data: { nextChargeAt: due },
+      });
+      throw err;
+    }
+    await this.audit.record({
+      superAdminId: actor.superAdminId,
+      action: 'admin.saas_addon.charged',
+      targetType: 'tenant_addon',
+      targetId: tenantAddonId,
+      targetTenantId: row.tenantId,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+      changes: { addon: row.addon.name, amount, provider },
     });
     return this.getToday();
   }

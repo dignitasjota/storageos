@@ -265,6 +265,132 @@ describe('Admin «Hoy» (e2e)', () => {
     expect(t?.waitingDays).toBe(2);
   });
 
+  it('un extra que dejó de cobrarse a mano no se cobra dos veces, y el cobro queda auditado', async () => {
+    const owner = await registerVerifiedUser(app, 'today-charge-guard');
+    const auth = { Authorization: `Bearer ${adminToken}` };
+    const tenant = await admin.tenant.findUniqueOrThrow({ where: { slug: owner.slug } });
+    const assign = await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenant.id}/addons`)
+      .set(auth)
+      .send({ addonId, quantity: 1 });
+    expect(assign.status).toBe(201);
+    const row = await admin.tenantSubscriptionAddon.findFirstOrThrow({
+      where: { tenantId: tenant.id },
+    });
+    // Tocaba hace 10 días: el siguiente cuenta desde esa fecha, no desde hoy.
+    const due = new Date(Date.now() - 10 * 86_400_000);
+    await admin.tenantSubscriptionAddon.update({
+      where: { id: row.id },
+      data: { nextChargeAt: due },
+    });
+    const url = `/admin/today/addon-charges/${row.id}/charge`;
+
+    await admin.tenantSubscription.update({
+      where: { tenantId: tenant.id },
+      data: { billingMode: 'sepa' },
+    });
+    const sepa = await request(app.getHttpServer()).post(url).set(auth).send({ provider: 'cash' });
+    expect(sepa.status).toBe(409);
+    expect(sepa.body.code).toBe('addon_not_chargeable');
+    await admin.tenantSubscription.update({
+      where: { tenantId: tenant.id },
+      data: { billingMode: 'manual' },
+    });
+
+    await request(app.getHttpServer())
+      .post(url)
+      .set(auth)
+      .send({ provider: 'bank_transfer' })
+      .expect(201);
+    const after = await admin.tenantSubscriptionAddon.findUniqueOrThrow({ where: { id: row.id } });
+    expect(after.nextChargeAt!.getTime()).toBeLessThan(Date.now() + 25 * 86_400_000);
+
+    const again = await request(app.getHttpServer()).post(url).set(auth).send({ provider: 'cash' });
+    expect(again.status).toBe(409);
+    expect(again.body.code).toBe('addon_already_charged');
+
+    const log = await admin.superAdminAuditLog.findFirst({
+      where: { action: 'admin.saas_addon.charged', targetTenantId: tenant.id },
+    });
+    expect(log?.changes).toMatchObject({ provider: 'bank_transfer' });
+  });
+
+  it('solo pide renovar a mano lo que de verdad se cobra a mano', async () => {
+    const owner = await registerVerifiedUser(app, 'today-renewal-mode');
+    const auth = { Authorization: `Bearer ${adminToken}` };
+    const tenant = await admin.tenant.findUniqueOrThrow({ where: { slug: owner.slug } });
+    await admin.tenant.update({
+      where: { id: tenant.id },
+      data: { status: 'active', trialEndsAt: null },
+    });
+    await admin.tenantSubscription.update({
+      where: { tenantId: tenant.id },
+      data: {
+        status: 'active',
+        billingMode: 'manual',
+        currentPeriodEnd: new Date(Date.now() + 2 * 86_400_000),
+      },
+    });
+    const listed = async (): Promise<boolean> => {
+      const res = await request(app.getHttpServer()).get('/admin/today').set(auth).expect(200);
+      return res.body.manualRenewalsDue.some((r: { tenantId: string }) => r.tenantId === tenant.id);
+    };
+    expect(await listed()).toBe(true);
+
+    await admin.tenantSubscription.update({
+      where: { tenantId: tenant.id },
+      data: { billingMode: 'redsys' },
+    });
+    expect(await listed()).toBe(false);
+
+    const free = await admin.subscriptionPlan.findUniqueOrThrow({ where: { slug: 'free' } });
+    await admin.tenantSubscription.update({
+      where: { tenantId: tenant.id },
+      data: { billingMode: 'manual', planId: free.id },
+    });
+    expect(await listed()).toBe(false);
+  });
+
+  it('la cifra de pendiente es la misma que la de Cobros pendientes', async () => {
+    const auth = { Authorization: `Bearer ${adminToken}` };
+    const today = await request(app.getHttpServer()).get('/admin/today').set(auth).expect(200);
+    const receivables = await request(app.getHttpServer())
+      .get('/admin/billing/receivables')
+      .set(auth)
+      .expect(200);
+    expect(today.body.kpis.pending).toBe(receivables.body.total);
+  });
+
+  it('un ticket en curso al que contesta el tenant vuelve a salir sin responder', async () => {
+    const owner = await registerVerifiedUser(app, 'today-ticket-progress');
+    const auth = { Authorization: `Bearer ${adminToken}` };
+    const created = await request(app.getHttpServer())
+      .post('/support/tickets')
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .send({
+        subject: 'Duda sobre la factura',
+        category: 'billing',
+        body: 'No me cuadra el total',
+      });
+    expect(created.status).toBe(201);
+    await admin.supportTicket.update({
+      where: { id: created.body.id },
+      data: { status: 'in_progress' },
+    });
+    const hidden = await request(app.getHttpServer()).get('/admin/today').set(auth).expect(200);
+    expect(hidden.body.openTickets.some((t: { id: string }) => t.id === created.body.id)).toBe(
+      false,
+    );
+
+    await request(app.getHttpServer())
+      .post(`/support/tickets/${created.body.id}/messages`)
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .send({ body: 'Sigo esperando' })
+      .expect(201);
+    const back = await request(app.getHttpServer()).get('/admin/today').set(auth).expect(200);
+    expect(back.body.openTickets.some((t: { id: string }) => t.id === created.body.id)).toBe(true);
+  });
+
   it('sin token → 401', async () => {
     await request(app.getHttpServer()).get('/admin/today').expect(401);
   });
