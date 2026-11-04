@@ -235,6 +235,15 @@ export interface AdminAtRiskTenantDto {
   /** Impagos: lo que debe (una cuota por periodo vencido). */
   owedAmount?: number;
   owedPeriods?: number;
+  /** Pruebas: cuánto la está usando, para decidir si llamar. */
+  usage?: AdminTrialUsageDto;
+}
+
+export interface AdminTrialUsageDto {
+  facilities: number;
+  units: number;
+  contracts: number;
+  lastLoginAt: string | null;
 }
 
 /** Tenants en riesgo agrupados por motivo. */
@@ -897,6 +906,7 @@ export interface PlatformAlertSettingsDto {
   sendActivation: boolean;
   /** Resumen semanal de KPIs por email al super admin (lunes 08:00). */
   weeklyDigestEnabled: boolean;
+  instantAlertsEnabled: boolean;
   /** Hora (España) del aviso diario. */
   dailyHour: number;
   /** Avisar por chat de cada mensaje del formulario de contacto. */
@@ -1319,6 +1329,65 @@ export interface AdminOpenTicketDto {
   priority: SupportTicketPriorityValue;
   /** Días desde la última actividad del ticket (lleva N días esperando). */
   waitingDays: number;
+  assignedAdminId: string | null;
+  assignedAdminName: string | null;
+}
+
+/** Mensaje de la web de TrasterOS sin atender. */
+export interface AdminTodayContactDto {
+  id: string;
+  name: string;
+  email: string;
+  waitingDays: number;
+}
+
+export interface AdminTodayDomainDto {
+  tenantId: string;
+  tenantName: string;
+  domain: string;
+}
+
+/** Respuesta baja de una encuesta NPS de la plataforma (últimos 30 días). */
+export interface AdminTodayNpsDto {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  score: number;
+  comment: string | null;
+}
+
+/** Prueba de más de una semana que aún no ha firmado ningún contrato. */
+export interface AdminTodayActivationDto {
+  tenantId: string;
+  tenantName: string;
+  ownerEmail: string | null;
+  daysSinceSignup: number;
+  /** Lo primero que le falta. */
+  missing: 'facility' | 'units' | 'contract';
+}
+
+/** Trabajo asignado a cada super admin. */
+export interface AdminTodayWorkloadDto {
+  superAdminId: string;
+  name: string;
+  tickets: number;
+  followups: number;
+}
+
+/** Aviso apartado por el equipo. */
+export interface AdminTodaySnoozeDto {
+  id: string;
+  kind: string;
+  ref: string;
+  label: string | null;
+  until: string;
+}
+
+/** Lo que el equipo ha cerrado hoy. */
+export interface AdminTodayDoneDto {
+  ticketsAnswered: number;
+  followupsDone: number;
+  actions: { id: string; at: string; action: string; adminName: string | null }[];
 }
 
 export interface AdminTodayDto {
@@ -1354,6 +1423,21 @@ export interface AdminTodayDto {
   pendingApprovals: AdminApprovalRequestDto[];
   /** Cortesías y pruebas gratis que vencen en 7 días. */
   expiringOverrides: AdminExpiringOverrideDto[];
+  /** Seguimientos de los próximos 7 días. */
+  followupsUpcoming: TenantFollowupDto[];
+  /** Mensajes del formulario de la web sin atender. */
+  contactMessages: AdminTodayContactDto[];
+  /** Dominios con el DNS listo, por activar. */
+  domainsReady: AdminTodayDomainDto[];
+  /** Facturas de suscripción de los últimos 90 días sin NIF o domicilio. */
+  incompleteInvoices: AdminTenantIssueCountDto[];
+  /** Solicitudes RGPD de inquilinos fuera de plazo. */
+  rgpdOverdue: AdminTenantIssueCountDto[];
+  npsNegative: AdminTodayNpsDto[];
+  activationStalled: AdminTodayActivationDto[];
+  workload: AdminTodayWorkloadDto[];
+  snoozes: AdminTodaySnoozeDto[];
+  done: AdminTodayDoneDto;
   /** Cifras del día (arriba de «Hoy»). */
   kpis: AdminTodayKpisDto;
   /** Lo que ha pasado en las últimas 48 horas. */
@@ -2117,6 +2201,12 @@ export interface AdminTodayKpisDto {
   mrr: number;
   /** Cobrado en los últimos 7 días. */
   collected7d: number;
+  /** Cobrado en los 7 días anteriores. */
+  collectedPrev7d: number;
+  /** MRR guardado del mes pasado (null sin histórico). */
+  mrrPrevMonth: number | null;
+  /** Altas del mes pasado hasta el mismo punto del mes. */
+  newPrevMonthToDate: number;
   /** Cuotas impagadas (past_due) + extras manuales sin cobrar. */
   pending: number;
   trials: number;

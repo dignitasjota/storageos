@@ -61,6 +61,7 @@ import { AdminTenantsOverviewController } from './admin-tenants-overview.control
 import { AdminTenantsOverviewService } from './admin-tenants-overview.service';
 import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
+import { AdminTodayExtrasService } from './admin-today-extras.service';
 import { AdminTodayController } from './admin-today.controller';
 import { AdminTodayService } from './admin-today.service';
 import { AdminUsageService } from './admin-usage.service';
@@ -112,6 +113,8 @@ import { TenantDataExportService } from './tenant-data-export.service';
 import { TenantLifecycleEmailsController } from './tenant-lifecycle-emails.controller';
 import { TenantLifecycleEmailsCron } from './tenant-lifecycle-emails.cron';
 import { TenantLifecycleEmailsService } from './tenant-lifecycle-emails.service';
+import { TodayWatchCron } from './today-watch.cron';
+import { TodayWatchService } from './today-watch.service';
 import { UsageModule } from './usage.module';
 import { WebhooksCleanupController } from './webhooks-cleanup.controller';
 import { WeeklyDigestController } from './weekly-digest.controller';
@@ -217,6 +220,9 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SecurityAlertsCron,
     SystemWatchService,
     SystemWatchCron,
+    AdminTodayExtrasService,
+    TodayWatchService,
+    TodayWatchCron,
     ChatAlertsService,
     AdminApprovalsService,
     ChatAlertsCron,

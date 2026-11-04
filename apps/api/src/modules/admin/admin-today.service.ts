@@ -29,6 +29,7 @@ import { AdminBusinessService } from './admin-business.service';
 import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
+import { AdminTodayExtrasService } from './admin-today-extras.service';
 import { FeatureExpiryService } from './feature-expiry.service';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
@@ -39,6 +40,7 @@ import type {
   AdminOpenTicketDto,
   AdminStaleSuspendedAddonDto,
   AdminTodayDto,
+  TodaySnoozeKind,
 } from '@storageos/shared';
 
 /** Suma N meses conservando el fin de mes (evita desbordes de día). */
@@ -81,6 +83,7 @@ export class AdminTodayService {
     private readonly activityService: AdminActivityService,
     private readonly business: AdminBusinessService,
     private readonly audit: SuperAdminAuditService,
+    private readonly extras: AdminTodayExtrasService,
     @InjectQueue(QUEUE_BILLING) billingQueue: Queue,
     @InjectQueue(QUEUE_DUNNING) dunningQueue: Queue,
     @InjectQueue(QUEUE_PAYMENTS) paymentsQueue: Queue,
@@ -125,6 +128,15 @@ export class AdminTodayService {
       kpis,
       activity,
       goals,
+      snoozes,
+      contactAll,
+      domainsAll,
+      invoicesAll,
+      rgpdAll,
+      npsAll,
+      activationAll,
+      workload,
+      done,
     ] = await Promise.all([
       this.addonChargesDue(now),
       this.manualRenewalsDue(now),
@@ -144,7 +156,20 @@ export class AdminTodayService {
       this.activityService.kpis(now),
       this.activityService.activity(new Date(now.getTime() - 48 * 3_600_000), now),
       this.business.getGoals().catch(() => null),
+      this.extras.snoozes(now),
+      this.extras.contactMessages(now),
+      this.extras.domainsReady(),
+      this.extras.incompleteInvoices(now),
+      this.extras.rgpdOverdue(now),
+      this.extras.npsNegative(now),
+      this.extras.activationStalled(now),
+      this.extras.workload(),
+      this.extras.done(now),
     ]);
+    // Lo apartado por el equipo no sale hasta que venza.
+    const apart = new Set(snoozes.map((s) => `${s.kind}:${s.ref}`));
+    const keep = <T>(items: T[], kind: TodaySnoozeKind, ref: (item: T) => string): T[] =>
+      items.filter((item) => !apart.has(`${kind}:${ref(item)}`));
     // Progreso de los objetivos del negocio (solo si hay alguno puesto).
     const businessGoals =
       goals && (goals.progress.mrr || goals.progress.signups || goals.progress.trialConversion)
@@ -155,40 +180,69 @@ export class AdminTodayService {
     // también los de dentro de semanas, como «vencidos» y urgentes).
     const todayIso = todayInTimezone('Europe/Madrid', now).toISOString().slice(0, 10);
     const followupsDue = pendingFollowups.filter((f) => f.dueDate <= todayIso);
+    const weekIso = new Date(todayInTimezone('Europe/Madrid', now).getTime() + 7 * MS_PER_DAY)
+      .toISOString()
+      .slice(0, 10);
+    const followupsUpcoming = pendingFollowups.filter(
+      (f) => f.dueDate > todayIso && f.dueDate <= weekIso,
+    );
+
+    const lists = {
+      addonCharges: keep(addonCharges, 'addon_charge', (c) => c.tenantAddonId),
+      manualRenewalsDue: keep(manualRenewalsDue, 'renewal', (r) => r.tenantId),
+      trialsExpiring: await this.extras.withTrialUsage(
+        keep(atRisk.trialExpiring, 'trial', (t) => t.id),
+      ),
+      // Quien más debe, primero.
+      pastDue: keep(atRisk.pastDue, 'past_due', (t) => t.id).sort(
+        (a, b) => (b.owedAmount ?? 0) - (a.owedAmount ?? 0),
+      ),
+      staleSuspendedAddons: keep(staleSuspendedAddons, 'stale_addon', (s) => s.tenantAddonId),
+      openTickets: keep(openTickets, 'ticket', (t) => t.id),
+      failedWebhooks: keep(failedWebhooks, 'webhook', (w) => w.tenantId),
+      aeatIssues: keep(aeatIssues, 'aeat', (t) => t.tenantId),
+      certificatesExpiring: keep(certificatesExpiring, 'certificate', (c) => c.id),
+      holdedReview: keep(holdedReview, 'holded', (t) => t.tenantId),
+      devicesOffline: keep(devicesOffline, 'device', (t) => t.tenantId),
+      overdueCrons: keep(overdueCrons, 'cron', (c) => c.name),
+      expiringOverrides: keep(expiringOverrides, 'override', (o) => `${o.tenantId}-${o.feature}`),
+      contactMessages: keep(contactAll, 'contact', (c) => c.id),
+      domainsReady: keep(domainsAll, 'domain', (d) => d.tenantId),
+      incompleteInvoices: keep(invoicesAll, 'invoice_data', (t) => t.tenantId),
+      rgpdOverdue: keep(rgpdAll, 'rgpd', (t) => t.tenantId),
+      npsNegative: keep(npsAll, 'nps', (n) => n.id),
+      activationStalled: keep(activationAll, 'activation', (a) => a.tenantId),
+    };
 
     const urgentCount =
-      addonCharges.length +
-      manualRenewalsDue.length +
-      atRisk.pastDue.length +
+      lists.addonCharges.length +
+      // Lo que aún tiene días por delante es de «Esta semana», no urgente.
+      lists.manualRenewalsDue.filter((r) => r.daysLeft <= 1).length +
+      lists.pastDue.length +
       followupsDue.length +
-      openTickets.length +
-      failedWebhooks.length +
+      lists.openTickets.length +
+      lists.failedWebhooks.length +
       (failedJobs > 0 ? 1 : 0) +
-      aeatIssues.length +
-      certificatesExpiring.filter((c) => c.daysLeft <= 15).length +
-      holdedReview.length +
-      devicesOffline.length +
-      overdueCrons.length +
+      lists.aeatIssues.length +
+      lists.certificatesExpiring.filter((c) => c.daysLeft <= 15).length +
+      lists.holdedReview.length +
+      lists.devicesOffline.length +
+      lists.overdueCrons.length +
       pendingApprovals.length +
-      expiringOverrides.filter((o) => o.daysLeft <= 1).length;
+      lists.expiringOverrides.filter((o) => o.daysLeft <= 1).length +
+      lists.contactMessages.length +
+      lists.domainsReady.length +
+      lists.rgpdOverdue.length;
     return {
       date: now.toISOString(),
-      addonCharges,
-      manualRenewalsDue,
-      trialsExpiring: atRisk.trialExpiring,
-      pastDue: atRisk.pastDue,
+      ...lists,
       followupsDue,
-      staleSuspendedAddons,
-      openTickets,
-      failedWebhooks,
+      followupsUpcoming,
       failedJobs,
-      aeatIssues,
-      certificatesExpiring,
-      holdedReview,
-      devicesOffline,
-      overdueCrons,
       pendingApprovals,
-      expiringOverrides,
+      workload,
+      snoozes,
+      done,
       kpis,
       activity,
       businessGoals,
@@ -207,6 +261,8 @@ export class AdminTodayService {
         priority: true,
         createdAt: true,
         tenant: { select: { name: true } },
+        assignedAdminId: true,
+        assignedAdmin: { select: { fullName: true } },
         // Lo que espera el admin cuenta desde el último mensaje del tenant
         // (`updatedAt` cambia también con un cambio de prioridad o una nota).
         messages: {
@@ -229,6 +285,8 @@ export class AdminTodayService {
             subject: r.subject,
             priority: r.priority,
             waitingDays: Math.floor((now.getTime() - since.getTime()) / MS_PER_DAY),
+            assignedAdminId: r.assignedAdminId,
+            assignedAdminName: r.assignedAdmin?.fullName ?? null,
           },
         };
       })

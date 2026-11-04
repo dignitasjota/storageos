@@ -38,6 +38,7 @@ export default function PlatformAlertsPage() {
     notifyTrialExpiring: true,
     trialExpiringDays: 3,
     weeklyDigestEnabled: false,
+    instantAlertsEnabled: true,
     dailyHour: 7,
     chatContactEnabled: true,
   });
@@ -51,6 +52,7 @@ export default function PlatformAlertsPage() {
         notifyTrialExpiring: data.notifyTrialExpiring,
         trialExpiringDays: data.trialExpiringDays,
         weeklyDigestEnabled: data.weeklyDigestEnabled,
+        instantAlertsEnabled: data.instantAlertsEnabled,
         dailyHour: data.dailyHour,
         chatContactEnabled: data.chatContactEnabled,
       });
@@ -222,6 +224,14 @@ export default function PlatformAlertsPage() {
               onCheckedChange={(v) => setForm((f) => ({ ...f, weeklyDigestEnabled: v === true }))}
             />
             Resumen semanal de KPIs por email
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.instantAlertsEnabled}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, instantAlertsEnabled: v === true }))}
+            />
+            Avisar al momento de lo urgente de «Hoy» (tickets urgentes, pagos pendientes nuevos y
+            dispositivos sin conexión)
           </label>
           <div className="flex gap-2">
             <Button onClick={onSave} disabled={update.isPending || !canEdit}>

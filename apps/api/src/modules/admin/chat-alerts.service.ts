@@ -182,6 +182,9 @@ export class ChatAlertsService {
     const lines: [number, string][] = [
       [t.pendingApprovals.length, 'solicitudes de soporte por aprobar'],
       [t.openTickets.length, 'tickets sin responder'],
+      [t.contactMessages.length, 'mensajes de la web sin atender'],
+      [t.domainsReady.length, 'dominios propios por activar'],
+      [t.rgpdOverdue.length, 'tenants con solicitudes RGPD fuera de plazo'],
       [t.pastDue.length, 'tenants con pago pendiente'],
       [t.addonCharges.length, 'cobros de extras por registrar'],
       [t.manualRenewalsDue.length, 'renovaciones manuales por vencer'],

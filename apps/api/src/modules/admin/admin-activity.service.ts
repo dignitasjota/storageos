@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { FEATURE_LABELS, type TenantFeature } from '@storageos/shared';
 
-import { currentMonth } from '../../common/format';
+import { currentMonth, zonedDayStart } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AdminBillingOpsService } from './admin-billing-ops.service';
@@ -284,33 +284,65 @@ export class AdminActivityService {
   }
 
   async kpis(now = new Date()): Promise<AdminTodayKpisDto> {
-    const monthStart = currentMonth(now).start;
-    const [paying, addons, collected, receivables, trials, suspended, newThisMonth] =
-      await Promise.all([
-        this.admin.tenantSubscription.findMany({
-          where: {
-            status: { in: ['active', 'past_due'] },
-            tenant: { deletedAt: null, billingExempt: false, status: 'active' },
-          },
-          select: { tenantId: true, status: true, plan: { select: { priceMonthly: true } } },
-        }),
-        this.admin.tenantSubscriptionAddon.findMany({
-          where: {
-            suspendedAt: null,
-            tenant: { deletedAt: null, billingExempt: false, status: 'active' },
-          },
-          select: { tenantId: true, priceMonthly: true, quantity: true },
-        }),
-        this.admin.tenantSubscriptionPayment.aggregate({
-          where: { status: 'paid', paidAt: { gte: new Date(now.getTime() - 7 * DAY) } },
-          _sum: { amount: true, refundedAmount: true },
-        }),
-        // La misma cifra que «Cobros pendientes», adonde lleva la tarjeta.
-        this.billingOps.receivables(now),
-        this.admin.tenant.count({ where: { deletedAt: null, status: 'trial' } }),
-        this.admin.tenant.count({ where: { deletedAt: null, status: 'suspended' } }),
-        this.admin.tenant.count({ where: { deletedAt: null, createdAt: { gte: monthStart } } }),
-      ]);
+    const { key, start: monthStart } = currentMonth(now);
+    const [year, month] = key.split('-').map(Number) as [number, number];
+    const prevKey = new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 10);
+    const prevMonthStart = zonedDayStart(prevKey);
+    const prevMonthPoint = new Date(
+      prevMonthStart.getTime() + (now.getTime() - monthStart.getTime()),
+    );
+    const weekAgo = new Date(now.getTime() - 7 * DAY);
+    const [
+      paying,
+      addons,
+      collected,
+      collectedPrev,
+      receivables,
+      trials,
+      suspended,
+      newThisMonth,
+      newPrev,
+      mrrPrev,
+    ] = await Promise.all([
+      this.admin.tenantSubscription.findMany({
+        where: {
+          status: { in: ['active', 'past_due'] },
+          tenant: { deletedAt: null, billingExempt: false, status: 'active' },
+        },
+        select: { tenantId: true, status: true, plan: { select: { priceMonthly: true } } },
+      }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: {
+          suspendedAt: null,
+          tenant: { deletedAt: null, billingExempt: false, status: 'active' },
+        },
+        select: { tenantId: true, priceMonthly: true, quantity: true },
+      }),
+      this.admin.tenantSubscriptionPayment.aggregate({
+        where: { status: 'paid', paidAt: { gte: weekAgo } },
+        _sum: { amount: true, refundedAmount: true },
+      }),
+      this.admin.tenantSubscriptionPayment.aggregate({
+        where: {
+          status: 'paid',
+          paidAt: { gte: new Date(now.getTime() - 14 * DAY), lt: weekAgo },
+        },
+        _sum: { amount: true, refundedAmount: true },
+      }),
+      // La misma cifra que «Cobros pendientes», adonde lleva la tarjeta.
+      this.billingOps.receivables(now),
+      this.admin.tenant.count({ where: { deletedAt: null, status: 'trial' } }),
+      this.admin.tenant.count({ where: { deletedAt: null, status: 'suspended' } }),
+      this.admin.tenant.count({ where: { deletedAt: null, createdAt: { gte: monthStart } } }),
+      this.admin.tenant.count({
+        where: { deletedAt: null, createdAt: { gte: prevMonthStart, lt: prevMonthPoint } },
+      }),
+      this.admin.mrrSnapshot.aggregate({
+        where: { month: new Date(prevKey) },
+        _sum: { mrr: true },
+        _count: { _all: true },
+      }),
+    ]);
     const addonsBy = new Map<string, number>();
     for (const a of addons) {
       addonsBy.set(
@@ -327,6 +359,11 @@ export class AdminActivityService {
       collected7d: round2(
         Number(collected._sum.amount ?? 0) - Number(collected._sum.refundedAmount ?? 0),
       ),
+      collectedPrev7d: round2(
+        Number(collectedPrev._sum.amount ?? 0) - Number(collectedPrev._sum.refundedAmount ?? 0),
+      ),
+      mrrPrevMonth: mrrPrev._count._all > 0 ? round2(Number(mrrPrev._sum.mrr ?? 0)) : null,
+      newPrevMonthToDate: newPrev,
       pending: receivables.total,
       trials,
       suspended,

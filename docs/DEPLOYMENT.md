@@ -1712,3 +1712,10 @@ Sin migración ni variables nuevas. Para ofrecerlo, activa «Pagar en el local»
 ## 82. «Hoy» del panel admin: arreglos (2026-11-04)
 
 Sin migración ni variables nuevas. Tras desplegar, «Pendiente» puede cambiar: ahora es la misma cifra que Cobros pendientes. Los tenants en SEPA o Redsys dejan de salir en «Renovaciones manuales por expirar».
+
+## 83. «Hoy» del panel admin: mejoras (2026-11-04)
+
+Migración `20261215100000_admin_today_features` (sin variables nuevas). Tras desplegar:
+
+- **Avisos al momento:** vienen activados. La primera pasada agrupa en un solo mensaje lo urgente que ya exista. Se apagan en Alertas al admin.
+- **Contador de urgentes:** baja, porque lo que tiene días por delante pasa a la pestaña «Esta semana».

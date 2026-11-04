@@ -151,6 +151,7 @@ export const SUPER_ADMIN_AUDIT_GROUPS: Record<string, Record<string, AuditAction
     'admin.queue.paused': { label: 'Cola pausada', tone: 'destructive' },
     'admin.queue.resumed': { label: 'Cola reanudada' },
     'admin.cron.removed': { label: 'Tarea retirada de la lista' },
+    'admin.today.snoozed': { label: 'Aviso de «Hoy» apartado' },
     'admin.webhooks_cleanup.run': { label: 'Limpieza de webhooks' },
   },
 };
