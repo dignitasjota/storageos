@@ -86,7 +86,11 @@ import { PlatformLegalNoticeService } from './platform-legal-notice.service';
 import { PlatformMessagesTenantController } from './platform-messages-tenant.controller';
 import { PlatformNpsAdminController, PlatformNpsPublicController } from './platform-nps.controller';
 import { PlatformNpsService } from './platform-nps.service';
+import { PlatformSecurityController } from './platform-security.controller';
+import { PlatformSecurityService } from './platform-security.service';
 import { SecurityAlertsController } from './security-alerts.controller';
+import { SecurityAlertsCron } from './security-alerts.cron';
+import { SecurityAlertsService } from './security-alerts.service';
 import { SecurityEventsController } from './security-events.controller';
 import { SuperAdminAuditController } from './super-admin-audit.controller';
 import { SuperAdminAuditService } from './super-admin-audit.service';
@@ -164,6 +168,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminSystemController,
     SecurityEventsController,
     SecurityAlertsController,
+    PlatformSecurityController,
     SuperAdminAuditController,
     AdminSuperAdminsController,
     PlatformAlertsController,
@@ -202,6 +207,10 @@ import { WeeklyDigestService } from './weekly-digest.service';
     { provide: APP_INTERCEPTOR, useClass: AdminAuditInterceptor },
     PlatformAlertsService,
     PlatformAlertsCron,
+    PlatformSecurityService,
+    // Corre en el API: el aviso se reserva en BD, así que no se repite entre réplicas.
+    SecurityAlertsService,
+    SecurityAlertsCron,
     ChatAlertsService,
     AdminApprovalsService,
     ChatAlertsCron,

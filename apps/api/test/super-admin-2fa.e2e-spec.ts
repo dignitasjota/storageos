@@ -242,7 +242,7 @@ describe('Fase 9A: super admin 2FA + refresh cookie (e2e)', () => {
   // ------------------------------------------------------------------------
 
   describe('refresh cookie + paranoid reuse', () => {
-    it('rota la cookie en cada refresh; el reuso revoca todas las sesiones', async () => {
+    it('rota la cookie en cada refresh; el reuso desde otro navegador revoca todas las sesiones', async () => {
       const admin = await seedSuperAdmin('refresh-paranoid');
       const session1 = await loginNoTwoFactor(admin);
       const cookie1 = session1.refreshCookie;
@@ -257,9 +257,10 @@ describe('Fase 9A: super admin 2FA + refresh cookie (e2e)', () => {
       expect(cookie2).toBeTruthy();
       expect(cookie2).not.toBe(cookie1);
 
-      // Reuso de la cookie1 (ya rotada) -> 401 + revocacion total.
+      // Reuso de la cookie1 (ya rotada) desde otro navegador -> 401 + revocacion total.
       const replay = await request(app.getHttpServer())
         .post('/admin/auth/refresh')
+        .set('User-Agent', 'otro-navegador')
         .set('Cookie', cookie1);
       expect(replay.status).toBe(401);
       expect(replay.body.code).toBe('invalid_refresh');

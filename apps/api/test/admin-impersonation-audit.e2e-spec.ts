@@ -33,7 +33,7 @@ describe('Admin: auditoría de impersonación (e2e)', () => {
 
     const res = await request(app.getHttpServer()).get('/admin/impersonation-logs').set(auth);
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.items)).toBe(true);
 
     // Actividad de una sesión inexistente → 404.
     await request(app.getHttpServer())
@@ -70,7 +70,7 @@ describe('Admin: auditoría de impersonación (e2e)', () => {
         .get(`/admin/impersonation-logs?tenantId=${owner.tenantId}`)
         .set(auth);
       expect(sessions.status).toBe(200);
-      const session = sessions.body[0] as { id: string; revokedAt: string | null };
+      const session = sessions.body.items[0] as { id: string; revokedAt: string | null };
       expect(session.revokedAt).toBeNull();
 
       // Revoca.
@@ -134,7 +134,7 @@ describe('Admin: auditoría de impersonación (e2e)', () => {
       .get(`/admin/impersonation-logs?tenantId=${owner.tenantId}`)
       .set(auth)
       .expect(200);
-    expect(sessions.body[0].readOnly).toBe(true);
+    expect(sessions.body.items[0].readOnly).toBe(true);
 
     // La sesión del propietario de verdad no lleva `impersonation`.
     const ownerMe = await request(app.getHttpServer())

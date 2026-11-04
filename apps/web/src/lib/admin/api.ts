@@ -136,6 +136,14 @@ export async function adminApiFetch<T = unknown>(
 
   if (!res.ok) {
     const body = (await parseJsonOrThrow(res).catch(() => ({}))) as Partial<ApiErrorBody>;
+    // Pasado el plazo de la 2FA obligatoria, solo se puede activarla.
+    if (
+      body.code === 'admin_two_factor_required' &&
+      typeof window !== 'undefined' &&
+      window.location.pathname !== '/admin/security'
+    ) {
+      window.location.assign('/admin/security');
+    }
     throw new ApiError({
       statusCode: body.statusCode ?? res.status,
       error: body.error ?? res.statusText,
@@ -176,6 +184,14 @@ export async function adminApiFetchBlob(
 
   if (!res.ok) {
     const body = (await parseJsonOrThrow(res).catch(() => ({}))) as Partial<ApiErrorBody>;
+    // Pasado el plazo de la 2FA obligatoria, solo se puede activarla.
+    if (
+      body.code === 'admin_two_factor_required' &&
+      typeof window !== 'undefined' &&
+      window.location.pathname !== '/admin/security'
+    ) {
+      window.location.assign('/admin/security');
+    }
     throw new ApiError({
       statusCode: body.statusCode ?? res.status,
       error: body.error ?? res.statusText,
@@ -188,4 +204,28 @@ export async function adminApiFetchBlob(
   }
 
   return res.blob();
+}
+
+/** Filas que se bajan como mucho al exportar un listado paginado. */
+export const EXPORT_MAX_ROWS = 5000;
+
+/**
+ * Recorre un listado por cursor para exportarlo entero con sus filtros.
+ * `truncated` avisa si se ha quedado en el tope.
+ */
+export async function adminFetchAllPages<T>(
+  path: string,
+  params: URLSearchParams,
+): Promise<{ items: T[]; truncated: boolean }> {
+  const items: T[] = [];
+  const qs = new URLSearchParams(params);
+  qs.delete('cursor');
+  qs.set('limit', '200');
+  for (;;) {
+    const page = await adminApiFetch<{ items: T[]; nextCursor: string | null }>(`${path}?${qs}`);
+    items.push(...page.items);
+    if (!page.nextCursor) return { items, truncated: false };
+    if (items.length >= EXPORT_MAX_ROWS) return { items, truncated: true };
+    qs.set('cursor', page.nextCursor);
+  }
 }

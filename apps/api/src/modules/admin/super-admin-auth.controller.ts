@@ -14,7 +14,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
 import {
+  SuperAdminChangePasswordSchema,
+  SuperAdminForgotPasswordSchema,
   SuperAdminLoginSchema,
+  SuperAdminResetPasswordSchema,
   SuperAdminTwoFactorChallengeSchema,
   SuperAdminTwoFactorDisableSchema,
   SuperAdminTwoFactorVerifySchema,
@@ -38,10 +41,13 @@ import {
   Throttle2fa,
   ThrottleLogin,
   ThrottleRefresh,
+  ThrottleRegister,
 } from '../../common/decorators/throttle-presets';
+import { respondThenRun } from '../../common/security/respond-then-run';
 
 import { AdminGuard } from './admin.guard';
 import { CurrentSuperAdmin, type AuthenticatedSuperAdmin } from './current-super-admin.decorator';
+import { AllowWithoutTwoFactor } from './require-superadmin.decorator';
 import { SuperAdminSessionsService } from './super-admin-sessions.service';
 import { SuperAdminTwoFactorService } from './super-admin-two-factor.service';
 import { SuperAdminService, type SuperAdminLoginMeta } from './super-admin.service';
@@ -50,6 +56,9 @@ import type { Env } from '../../config/env.schema';
 import type { Request, Response } from 'express';
 
 class SuperAdminLoginDto extends createZodDto(SuperAdminLoginSchema) {}
+class SuperAdminChangePasswordDto extends createZodDto(SuperAdminChangePasswordSchema) {}
+class SuperAdminForgotPasswordDto extends createZodDto(SuperAdminForgotPasswordSchema) {}
+class SuperAdminResetPasswordDto extends createZodDto(SuperAdminResetPasswordSchema) {}
 class SuperAdminTwoFactorVerifyDto extends createZodDto(SuperAdminTwoFactorVerifySchema) {}
 class SuperAdminTwoFactorDisableDto extends createZodDto(SuperAdminTwoFactorDisableSchema) {}
 class SuperAdminTwoFactorChallengeDto extends createZodDto(SuperAdminTwoFactorChallengeSchema) {}
@@ -80,6 +89,7 @@ const COOKIE_PATH = '/v1/admin';
  *     para mantener todas las rutas bajo `/admin/auth/*`.
  */
 @ApiTags('Admin')
+@AllowWithoutTwoFactor()
 @Controller('admin/auth')
 export class SuperAdminAuthController {
   private readonly logger = new Logger(SuperAdminAuthController.name);
@@ -152,9 +162,9 @@ export class SuperAdminAuthController {
         await this.sessions.revokeSession({ sessionId: parsed.sessionId, reason: 'logout' });
       }
     }
+    // Los otros dispositivos sacan un token nuevo solos con su cookie de refresh.
+    await this.sessions.invalidateAccessTokens(admin.sub);
     this.clearRefreshCookie(res);
-    // El access JWT no tiene mecanismo de revocacion (TTL corto = 8h). El
-    // logger nos basta como rastro.
     this.logger.log(`admin.session.revoked adminId=${admin.sub} reason=logout`);
   }
 
@@ -168,6 +178,47 @@ export class SuperAdminAuthController {
   ): Promise<void> {
     await this.sessions.revokeAll({ superAdminId: admin.sub, reason: 'logout_all' });
     this.clearRefreshCookie(res);
+  }
+
+  // ============================ contraseña =================================
+
+  /** Cierra todas las sesiones: hay que volver a entrar con la nueva. */
+  @Public()
+  @UseGuards(AdminGuard)
+  @Throttle2fa()
+  @Post('change-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async changePassword(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Body() input: SuperAdminChangePasswordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    await this.admins.changePassword(admin.sub, input, this.extractMeta(req));
+    this.clearRefreshCookie(res);
+  }
+
+  /** Siempre 204: no dice si el email es de un super admin. */
+  @Public()
+  @ThrottleRegister()
+  @Post('password/forgot')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  forgotPassword(@Body() input: SuperAdminForgotPasswordDto, @Req() req: Request): void {
+    const meta = this.extractMeta(req);
+    respondThenRun(this.logger, 'admin-password-forgot', () =>
+      this.admins.requestPasswordReset(input.email, meta),
+    );
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('password/reset')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async resetPassword(
+    @Body() input: SuperAdminResetPasswordDto,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.admins.resetPassword(input, this.extractMeta(req));
   }
 
   // ============================== me =======================================

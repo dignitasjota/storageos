@@ -3,6 +3,9 @@
 import { type SecurityEventTypeValue } from '@storageos/shared';
 import { Download, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
+
+import type { SecurityEventDto } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,24 +18,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { adminFetchAllPages, EXPORT_MAX_ROWS } from '@/lib/admin/api';
 import { useAdminSecurityEvents } from '@/lib/admin/hooks';
 import { downloadCsv } from '@/lib/csv';
+import { useDebouncedSearch } from '@/lib/pagination';
 
 const EVENT_TYPE_LABELS: Record<
   SecurityEventTypeValue,
   { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }
 > = {
   login_failed_email_not_found: { label: 'Email no encontrado', variant: 'secondary' },
-  login_failed_tenant_not_found: { label: 'Tenant no encontrado', variant: 'destructive' },
-  login_failed_wrong_password: { label: 'Password incorrecta', variant: 'secondary' },
-  login_failed_throttled: { label: 'Login throttled', variant: 'outline' },
-  register_throttled: { label: 'Register throttled', variant: 'outline' },
-  password_reset_throttled: { label: 'Reset throttled', variant: 'outline' },
-  invitation_token_invalid: { label: 'Token invitacion invalido', variant: 'destructive' },
-  refresh_token_reuse: { label: 'Reuso de refresh', variant: 'destructive' },
+  login_failed_tenant_not_found: { label: 'Empresa no encontrada', variant: 'destructive' },
+  login_failed_wrong_password: { label: 'Contraseña incorrecta', variant: 'secondary' },
+  login_failed_throttled: { label: 'Demasiados intentos de entrar', variant: 'outline' },
+  register_throttled: { label: 'Demasiados registros', variant: 'outline' },
+  password_reset_throttled: { label: 'Demasiadas recuperaciones', variant: 'outline' },
+  invitation_token_invalid: { label: 'Invitación no válida', variant: 'destructive' },
+  refresh_token_reuse: { label: 'Sesión reutilizada', variant: 'destructive' },
+  admin_login_failed: { label: 'Panel admin: entrada fallida', variant: 'destructive' },
+  admin_two_factor_failed: { label: 'Panel admin: 2FA fallida', variant: 'destructive' },
 };
 
 const EVENT_TYPES = Object.keys(EVENT_TYPE_LABELS) as SecurityEventTypeValue[];
+
+/** Solo se filtra con una IP completa: el API compara la dirección exacta. */
+function isIp(value: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(value) || (value.includes(':') && value.length > 2);
+}
 
 /**
  * Panel super admin: tabla read-only de eventos de seguridad globales
@@ -41,7 +53,9 @@ const EVENT_TYPES = Object.keys(EVENT_TYPE_LABELS) as SecurityEventTypeValue[];
  */
 export default function AdminSecurityEventsPage() {
   const [eventType, setEventType] = useState<SecurityEventTypeValue | undefined>();
-  const [emailAttempted, setEmailAttempted] = useState('');
+  const [emailInput, emailAttempted, setEmailInput] = useDebouncedSearch();
+  const [ipInput, ipAddress, setIpInput] = useDebouncedSearch();
+  const [exporting, setExporting] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [cursor, setCursor] = useState<string | undefined>();
@@ -49,7 +63,8 @@ export default function AdminSecurityEventsPage() {
 
   const filters = {
     ...(eventType ? { eventType } : {}),
-    ...(emailAttempted.trim() ? { emailAttempted: emailAttempted.trim() } : {}),
+    ...(emailAttempted ? { emailAttempted } : {}),
+    ...(isIp(ipAddress) ? { ipAddress } : {}),
     ...(fromDate ? { fromDate: new Date(fromDate).toISOString() } : {}),
     ...(toDate ? { toDate: new Date(toDate).toISOString() } : {}),
     ...(cursor ? { cursor } : {}),
@@ -79,13 +94,32 @@ export default function AdminSecurityEventsPage() {
     });
   }
 
-  function exportCsv() {
-    const items = events.data?.items ?? [];
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(filters)) {
+        if (key !== 'cursor' && key !== 'limit') params.set(key, String(value));
+      }
+      const { items, truncated } = await adminFetchAllPages<SecurityEventDto>(
+        '/admin/security-events',
+        params,
+      );
+      writeCsv(items);
+      if (truncated) toast.warning(`Exportadas solo las ${EXPORT_MAX_ROWS} filas más recientes.`);
+    } catch {
+      toast.error('No se ha podido exportar.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function writeCsv(items: SecurityEventDto[]) {
     const rows: (string | number)[][] = [['Fecha', 'Tipo', 'Email', 'Tenant', 'IP', 'Motivo']];
     for (const ev of items) {
       rows.push([
         new Date(ev.occurredAt).toLocaleString('es-ES'),
-        ev.eventType,
+        EVENT_TYPE_LABELS[ev.eventType]?.label ?? ev.eventType,
         ev.emailAttempted ?? '',
         ev.tenantSlugAttempted ?? '',
         ev.ipAddress ?? '',
@@ -101,15 +135,16 @@ export default function AdminSecurityEventsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Eventos de seguridad</h1>
           <p className="text-sm text-muted-foreground">
-            Intentos de login fallidos, throttles y reuso de refresh tokens. Retenidos 90 dias.
+            Intentos de entrar fallidos, también al panel admin, límites de peticiones y sesiones
+            reutilizadas.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={exportCsv}>
+        <Button variant="outline" size="sm" onClick={exportCsv} disabled={exporting}>
           <Download className="mr-1 size-4" /> Exportar CSV
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 rounded-md border bg-card p-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 rounded-md border bg-card p-4 md:grid-cols-5">
         <div className="space-y-1">
           <Label className="text-xs">Tipo de evento</Label>
           <Select
@@ -135,10 +170,23 @@ export default function AdminSecurityEventsPage() {
         <div className="space-y-1">
           <Label className="text-xs">Email intentado</Label>
           <Input
-            value={emailAttempted}
-            onChange={(e) => setEmailAttempted(e.target.value)}
-            onBlur={resetCursor}
-            placeholder="email@ejemplo.com"
+            value={emailInput}
+            onChange={(e) => {
+              setEmailInput(e.target.value);
+              resetCursor();
+            }}
+            placeholder="Parte del email"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">IP exacta</Label>
+          <Input
+            value={ipInput}
+            onChange={(e) => {
+              setIpInput(e.target.value);
+              resetCursor();
+            }}
+            placeholder="203.0.113.42"
           />
         </div>
         <div className="space-y-1">

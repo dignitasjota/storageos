@@ -3,7 +3,7 @@ import { hash as argonHash } from '@node-rs/argon2';
 import { PrismaClient, type SecurityEventType } from '@storageos/database';
 import request from 'supertest';
 
-import { SecurityAlertsService } from '../src/modules/security-events/security-alerts.service';
+import { SecurityAlertsService } from '../src/modules/admin/security-alerts.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
@@ -97,13 +97,13 @@ describe('Fase 12A.2: security alerts brute-force (e2e)', () => {
     // Cada test debe arrancar con BD y mailbox limpios y dedup vacio.
     await adminClient.securityEvent.deleteMany({});
     await deleteAllMessages();
-    alertsService.resetDedup();
+    await adminClient.platformAlertSettings.deleteMany({});
+    await alertsService.resetDedup();
   });
 
-  it('sin SECURITY_ALERT_EMAIL configurado -> alertsSent=0 y no envia nada', async () => {
+  it('sin ningún email configurado -> el aviso queda en el panel del super admin', async () => {
     const spy = stubConfig(config, { alertEmail: undefined });
     try {
-      // Seedeamos 10 fallos para asegurarnos de que NO se envia.
       await seedSecurityEvents(adminClient, {
         count: 10,
         eventType: 'login_failed_wrong_password',
@@ -111,7 +111,11 @@ describe('Fase 12A.2: security alerts brute-force (e2e)', () => {
       });
 
       const result = await alertsService.scanAndAlert();
-      expect(result.alertsSent).toBe(0);
+      expect(result.alertsSent).toBeGreaterThanOrEqual(1);
+      const notice = await adminClient.superAdminNotification.findFirst({
+        where: { type: 'security.brute_force', body: { contains: 'noalert@e2e.local' } },
+      });
+      expect(notice).not.toBeNull();
     } finally {
       spy.mockRestore();
     }

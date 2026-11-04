@@ -2,8 +2,6 @@ import { Global, Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 
-import { SecurityAlertsCron } from './security-alerts.cron';
-import { SecurityAlertsService } from './security-alerts.service';
 import { SecurityEventsCleanupService } from './security-events-cleanup.service';
 import { SecurityEventsService } from './security-events.service';
 
@@ -12,26 +10,18 @@ import { SecurityEventsService } from './security-events.service';
  * `DatabaseModule` para que `AuthService` y `SessionsService` puedan inyectar
  * `SecurityEventsService` sin importar este modulo en cada parent.
  *
- * El controller `SecurityEventsController` y `SecurityAlertsController`
- * viven en `AdminModule` para compartir el `AdminGuard` y la convencion
- * `/admin/...` de Fase 8.
+ * Los controllers y las alertas de fuerza bruta (`SecurityAlertsService`, que
+ * avisa por los canales del super admin) viven en `AdminModule`.
  *
- * `SecurityAlertsService` se inyecta con `EMAIL_PROVIDER` (EmailModule es
- * global) y `PrismaAdminService` (DatabaseModule es global).
- *
- * Sub-bloque 14A.1: las clases con `@Cron` (`SecurityAlertsCron` y
- * `SecurityEventsCleanupService`) solo se registran cuando
- * `ENABLE_WORKERS_IN_API=true`. Los services base (`SecurityEventsService`,
- * `SecurityAlertsService`) siguen activos en el API HTTP-only porque los
- * controllers admin los consultan en lectura.
+ * Sub-bloque 14A.1: la limpieza con `@Cron` solo se registra cuando
+ * `ENABLE_WORKERS_IN_API=true`.
  */
 @Global()
 @Module({
   providers: [
     SecurityEventsService,
-    SecurityAlertsService,
-    ...(WORKERS_ENABLED_IN_API ? [SecurityEventsCleanupService, SecurityAlertsCron] : []),
+    ...(WORKERS_ENABLED_IN_API ? [SecurityEventsCleanupService] : []),
   ],
-  exports: [SecurityEventsService, SecurityAlertsService],
+  exports: [SecurityEventsService],
 })
 export class SecurityEventsModule {}

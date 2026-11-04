@@ -12,10 +12,13 @@ import { RequireSuperadmin } from './require-superadmin.decorator';
 
 import type { Env } from '../../config/env.schema';
 
+/** Lo más reciente que se puede borrar a mano: el tenant aún puede estar mirándolo. */
+const MIN_MANUAL_RETENTION_DAYS = 7;
+
 const RunCleanupSchema = z.object({
   /** Override del retention configurado por env. Útil para purga manual
    *  más agresiva tras un incidente. Si se omite usa el default del env. */
-  olderThanDays: z.coerce.number().int().positive().optional(),
+  olderThanDays: z.coerce.number().int().min(MIN_MANUAL_RETENTION_DAYS).optional(),
 });
 
 class RunCleanupDto extends createZodDto(RunCleanupSchema) {}

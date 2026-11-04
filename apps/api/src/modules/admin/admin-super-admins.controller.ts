@@ -14,6 +14,7 @@ import {
 import {
   CreateSuperAdminSchema,
   SetSuperAdminActiveSchema,
+  SetSuperAdminRoleSchema,
   type SuperAdminDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -30,6 +31,7 @@ import type { Request } from 'express';
 
 class CreateSuperAdminDto extends createZodDto(CreateSuperAdminSchema) {}
 class SetSuperAdminActiveDto extends createZodDto(SetSuperAdminActiveSchema) {}
+class SetSuperAdminRoleDto extends createZodDto(SetSuperAdminRoleSchema) {}
 
 /**
  * Gestión de super admins (listar, crear, activar/desactivar). Solo el rol
@@ -59,7 +61,7 @@ export class AdminSuperAdminsController {
     const created = await this.admins.create({
       email: input.email,
       fullName: input.fullName,
-      password: input.password,
+      ...(input.password ? { password: input.password } : {}),
       ...(input.role ? { role: input.role } : {}),
     });
     await this.audit.record({
@@ -69,7 +71,7 @@ export class AdminSuperAdminsController {
       targetId: created.id,
       ipAddress: req.ip ?? null,
       userAgent: req.header('user-agent') ?? null,
-      changes: { email: created.email, role: created.role },
+      changes: { email: created.email, role: created.role, invited: !input.password },
     });
     return created;
   }
@@ -96,6 +98,32 @@ export class AdminSuperAdminsController {
       ipAddress: req.ip ?? null,
       userAgent: req.header('user-agent') ?? null,
       changes: { isActive: input.isActive },
+    });
+    return updated;
+  }
+
+  @RequireSuperadmin()
+  @Patch(':id/role')
+  @HttpCode(HttpStatus.OK)
+  async setRole(
+    @CurrentSuperAdmin() actor: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: SetSuperAdminRoleDto,
+    @Req() req: Request,
+  ): Promise<SuperAdminDto> {
+    const updated = await this.admins.setRole({
+      actorId: actor.sub,
+      targetId: id,
+      role: input.role,
+    });
+    await this.audit.record({
+      superAdminId: actor.sub,
+      action: 'admin.super_admin.role_changed',
+      targetType: 'super_admin',
+      targetId: id,
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+      changes: { role: input.role },
     });
     return updated;
   }

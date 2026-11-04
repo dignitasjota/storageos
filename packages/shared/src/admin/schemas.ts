@@ -504,12 +504,15 @@ export const SecurityEventTypeEnum = z.enum([
   'password_reset_throttled',
   'invitation_token_invalid',
   'refresh_token_reuse',
+  'admin_login_failed',
+  'admin_two_factor_failed',
 ]);
 export type SecurityEventTypeValue = z.infer<typeof SecurityEventTypeEnum>;
 
 export const ListSecurityEventsSchema = z.object({
   eventType: SecurityEventTypeEnum.optional(),
   emailAttempted: z.string().trim().toLowerCase().max(320).optional(),
+  ipAddress: z.string().trim().ip().optional(),
   fromDate: z.coerce.date().optional(),
   toDate: z.coerce.date().optional(),
   cursor: z.string().uuid().optional(),
@@ -537,6 +540,14 @@ export const ListSuperAdminAuditLogsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 export type ListSuperAdminAuditLogsInput = z.infer<typeof ListSuperAdminAuditLogsSchema>;
+
+export const ListImpersonationLogsSchema = z.object({
+  tenantId: z.string().uuid().optional(),
+  superAdminId: z.string().uuid().optional(),
+  cursor: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+export type ListImpersonationLogsInput = z.infer<typeof ListImpersonationLogsSchema>;
 
 export const UpsertSubscriptionPlanSchema = z.object({
   slug: z
@@ -588,15 +599,45 @@ export type SetTenantFeaturesInput = z.infer<typeof SetTenantFeaturesSchema>;
 
 // --- Gestión de super admins (CRUD) ---
 export const CreateSuperAdminSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().email(),
   fullName: z.string().trim().min(2).max(120),
-  password: z.string().min(12).max(200),
+  /** Sin contraseña se le envía un enlace para que la elija. */
+  password: z.string().min(12).max(200).optional(),
   role: SuperAdminRoleEnum.optional(),
 });
 export type CreateSuperAdminInput = z.infer<typeof CreateSuperAdminSchema>;
 
 export const SetSuperAdminActiveSchema = z.object({ isActive: z.boolean() });
 export type SetSuperAdminActiveInput = z.infer<typeof SetSuperAdminActiveSchema>;
+
+export const SetSuperAdminRoleSchema = z.object({ role: SuperAdminRoleEnum });
+export type SetSuperAdminRoleInput = z.infer<typeof SetSuperAdminRoleSchema>;
+
+export const SuperAdminChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(200),
+  newPassword: z.string().min(12).max(200),
+});
+export type SuperAdminChangePasswordInput = z.infer<typeof SuperAdminChangePasswordSchema>;
+
+export const SuperAdminForgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+});
+export type SuperAdminForgotPasswordInput = z.infer<typeof SuperAdminForgotPasswordSchema>;
+
+export const SuperAdminResetPasswordSchema = z.object({
+  token: z.string().min(20).max(300),
+  newPassword: z.string().min(12).max(200),
+});
+export type SuperAdminResetPasswordInput = z.infer<typeof SuperAdminResetPasswordSchema>;
+
+/** Política de acceso al panel admin. */
+export const UpdatePlatformSecuritySettingsSchema = z.object({
+  requireAdminTwoFactor: z.boolean(),
+  adminTwoFactorGraceDays: z.number().int().min(0).max(30),
+});
+export type UpdatePlatformSecuritySettingsInput = z.infer<
+  typeof UpdatePlatformSecuritySettingsSchema
+>;
 
 // --- Alertas proactivas de plataforma ---
 export const UpdatePlatformAlertSettingsSchema = z.object({

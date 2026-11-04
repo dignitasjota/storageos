@@ -80,7 +80,7 @@ export default function WebhooksCleanupPage() {
             <Input
               id="older-than"
               type="number"
-              min={1}
+              min={7}
               placeholder={`Default: ${stats.data?.olderThanDays ?? 30}`}
               value={olderThanInput}
               onChange={(e) => setOlderThanInput(e.target.value)}

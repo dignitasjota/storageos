@@ -27,6 +27,9 @@ function build() {
       findMany: jest.fn().mockResolvedValue([{ mediaKey: 't/whatsapp/c/m.jpg' }]),
     },
     webEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 8 }) },
+    superAdminSession: { deleteMany: jest.fn().mockResolvedValue({ count: 9 }) },
+    impersonationLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    superAdminAuditLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     webChatConversation: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     platformContactMessage: {
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -88,6 +91,9 @@ describe('DataRetentionService', () => {
       webEvents: 8,
       webChatConversations: 2,
       contactMessages: 1,
+      adminSessions: 9,
+      impersonationLogs: 1,
+      superAdminAuditLogs: 1,
     });
     // Formulario de contacto: 730 días; la IP se quita a los 90.
     const contactCutoff = admin.platformContactMessage.deleteMany.mock.calls[0]![0].where.createdAt

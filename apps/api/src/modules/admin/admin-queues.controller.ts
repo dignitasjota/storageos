@@ -1,6 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -9,7 +10,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { Queue } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 
 import { Public } from '../../common/decorators/public.decorator';
 import {
@@ -27,6 +28,9 @@ import {
 import { AdminAudit } from './admin-audit.decorator';
 import { AdminGuard } from './admin.guard';
 import { RequireSuperadmin } from './require-superadmin.decorator';
+
+/** Jobs por vuelta al reintentar o limpiar una cola entera. */
+const BATCH_SIZE = 1000;
 
 export interface AdminQueueStatusDto {
   name: string;
@@ -116,6 +120,28 @@ export class AdminQueuesController {
     );
   }
 
+  /** Reintenta un job fallido concreto. */
+  @RequireSuperadmin()
+  @AdminAudit('admin.queue.job_retried')
+  @Post(':name/jobs/:id/retry')
+  @HttpCode(HttpStatus.OK)
+  async retryJob(@Param('name') name: string, @Param('id') id: string): Promise<{ ok: true }> {
+    const job = await this.failedJob(name, id);
+    await job.retry();
+    return { ok: true };
+  }
+
+  /** Elimina un job fallido concreto. */
+  @RequireSuperadmin()
+  @AdminAudit('admin.queue.job_removed')
+  @Delete(':name/jobs/:id')
+  @HttpCode(HttpStatus.OK)
+  async removeJob(@Param('name') name: string, @Param('id') id: string): Promise<{ ok: true }> {
+    const job = await this.failedJob(name, id);
+    await job.remove();
+    return { ok: true };
+  }
+
   /** Reintenta todos los jobs fallidos de una cola. */
   @RequireSuperadmin()
   @AdminAudit('admin.queue.failed_retried')
@@ -123,15 +149,23 @@ export class AdminQueuesController {
   @HttpCode(HttpStatus.OK)
   async retryFailed(@Param('name') name: string): Promise<{ retried: number }> {
     const queue = this.byName(name);
-    const failed = await queue.getFailed(0, 999);
     let retried = 0;
-    for (const job of failed) {
-      try {
-        await job.retry();
-        retried += 1;
-      } catch {
-        // El job pudo cambiar de estado entre el listado y el retry; lo ignoramos.
+    // Cada reintento saca el job de `failed`: se recorre por lotes hasta vaciarla.
+    // Si un lote entero no se puede reintentar, se para para no dar vueltas.
+    for (;;) {
+      const failed = await queue.getFailed(0, BATCH_SIZE - 1);
+      if (failed.length === 0) break;
+      let done = 0;
+      for (const job of failed) {
+        try {
+          await job.retry();
+          done += 1;
+        } catch {
+          // El job pudo cambiar de estado entre el listado y el retry; lo ignoramos.
+        }
       }
+      retried += done;
+      if (done === 0) break;
     }
     return { retried };
   }
@@ -143,8 +177,21 @@ export class AdminQueuesController {
   @HttpCode(HttpStatus.OK)
   async cleanFailed(@Param('name') name: string): Promise<{ cleaned: number }> {
     const queue = this.byName(name);
-    const removed = await queue.clean(0, 1000, 'failed');
-    return { cleaned: removed.length };
+    let cleaned = 0;
+    for (;;) {
+      const removed = await queue.clean(0, BATCH_SIZE, 'failed');
+      cleaned += removed.length;
+      if (removed.length < BATCH_SIZE) break;
+    }
+    return { cleaned };
+  }
+
+  private async failedJob(name: string, id: string): Promise<Job> {
+    const job = await this.byName(name).getJob(id);
+    if (!job || !(await job.isFailed())) {
+      throw new NotFoundException({ code: 'job_not_found', message: 'Job no encontrado' });
+    }
+    return job;
   }
 
   private byName(name: string): Queue {

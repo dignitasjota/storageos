@@ -4,6 +4,12 @@ import { adminApiFetch, adminApiFetchBlob } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  PlatformSecuritySettingsDto,
+  SuperAdminChangePasswordInput,
+  SuperAdminForgotPasswordInput,
+  SuperAdminResetPasswordInput,
+  SuperAdminRoleValue,
+  UpdatePlatformSecuritySettingsInput,
   ApplicationFeeReportDto,
   CatalogPriceChangeDto,
   PlanPricePreviewDto,
@@ -1008,6 +1014,7 @@ export function useTransitionTicket() {
 export interface AdminSecurityEventsFilters {
   eventType?: SecurityEventTypeValue | undefined;
   emailAttempted?: string | undefined;
+  ipAddress?: string | undefined;
   fromDate?: string | undefined;
   toDate?: string | undefined;
   cursor?: string | undefined;
@@ -1021,6 +1028,7 @@ export function useAdminSecurityEvents(filters?: AdminSecurityEventsFilters) {
   const qs = new URLSearchParams();
   if (filters?.eventType) qs.set('eventType', filters.eventType);
   if (filters?.emailAttempted) qs.set('emailAttempted', filters.emailAttempted);
+  if (filters?.ipAddress) qs.set('ipAddress', filters.ipAddress);
   if (filters?.fromDate) qs.set('fromDate', filters.fromDate);
   if (filters?.toDate) qs.set('toDate', filters.toDate);
   if (filters?.cursor) qs.set('cursor', filters.cursor);
@@ -1043,7 +1051,9 @@ export interface SecurityEventStatsResponse {
   windowHours: number;
   bucket: 'hour' | 'day';
   bruteForceThreshold: number;
+  bruteForceWindowMinutes: number;
   total: number;
+  uniqueIps: number;
   byEventType: Array<{ eventType: string; count: number }>;
   topEmails: Array<{ email: string; count: number; exceedsThreshold: boolean }>;
   topIps: Array<{ ip: string; count: number; exceedsThreshold: boolean }>;
@@ -1425,6 +1435,18 @@ export function useQueueFailedAction(action: 'retry-failed' | 'clean-failed') {
   });
 }
 
+/** Reintenta o elimina un job fallido concreto. */
+export function useQueueJobAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { queue: string; id: string; action: 'retry' | 'remove' }) =>
+      args.action === 'retry'
+        ? adminApiFetch(`/admin/queues/${args.queue}/jobs/${args.id}/retry`, { method: 'POST' })
+        : adminApiFetch(`/admin/queues/${args.queue}/jobs/${args.id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'queues'] }),
+  });
+}
+
 export function useAdminTenantSaasPayments(id: string | undefined) {
   return useQuery({
     queryKey: ['admin', 'tenants', id, 'saas-payments'] as const,
@@ -1684,6 +1706,69 @@ export function useSetSuperAdminActive() {
   });
 }
 
+export function useSetSuperAdminRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; role: SuperAdminRoleValue }) =>
+      adminApiFetch<SuperAdminDto>(`/admin/super-admins/${args.id}/role`, {
+        method: 'PATCH',
+        json: { role: args.role },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'super-admins'] }),
+  });
+}
+
+export function useAdminChangePassword() {
+  return useMutation({
+    mutationFn: (input: SuperAdminChangePasswordInput) =>
+      adminApiFetch<void>('/admin/auth/change-password', { method: 'POST', json: input }),
+  });
+}
+
+export function useAdminForgotPassword() {
+  return useMutation({
+    mutationFn: (input: SuperAdminForgotPasswordInput) =>
+      adminApiFetch<void>('/admin/auth/password/forgot', {
+        method: 'POST',
+        json: input,
+        requiresAuth: false,
+      }),
+  });
+}
+
+export function useAdminResetPassword() {
+  return useMutation({
+    mutationFn: (input: SuperAdminResetPasswordInput) =>
+      adminApiFetch<void>('/admin/auth/password/reset', {
+        method: 'POST',
+        json: input,
+        requiresAuth: false,
+      }),
+  });
+}
+
+export function useAdminSecuritySettings() {
+  return useQuery({
+    queryKey: ['admin', 'security-settings'],
+    queryFn: () => adminApiFetch<PlatformSecuritySettingsDto>('/admin/security-settings'),
+  });
+}
+
+export function useUpdateAdminSecuritySettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformSecuritySettingsInput) =>
+      adminApiFetch<PlatformSecuritySettingsDto>('/admin/security-settings', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'security-settings'] });
+      void qc.invalidateQueries({ queryKey: admin2faStatusKey });
+    },
+  });
+}
+
 // ============================================================================
 // Alertas proactivas de plataforma
 // ============================================================================
@@ -1853,10 +1938,23 @@ export function useRunWeeklyDigest() {
 // Auditoría de impersonación
 // ============================================================================
 
-export function useAdminImpersonationLogs() {
-  return useQuery({
-    queryKey: ['admin', 'impersonation-logs'] as const,
-    queryFn: () => adminApiFetch<AdminImpersonationSessionDto[]>('/admin/impersonation-logs'),
+export function useAdminImpersonationLogs(filters: {
+  superAdminId?: string | undefined;
+  tenantId?: string | undefined;
+}) {
+  return useInfiniteQuery({
+    queryKey: ['admin', 'impersonation-logs', 'list', filters] as const,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => {
+      const qs = new URLSearchParams();
+      if (filters.superAdminId) qs.set('superAdminId', filters.superAdminId);
+      if (filters.tenantId) qs.set('tenantId', filters.tenantId);
+      if (pageParam) qs.set('cursor', pageParam);
+      return adminApiFetch<{ items: AdminImpersonationSessionDto[]; nextCursor: string | null }>(
+        `/admin/impersonation-logs${qs.toString() ? `?${qs}` : ''}`,
+      );
+    },
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }
 
@@ -2739,6 +2837,15 @@ export function useAdminBillingHealth() {
 }
 
 /** Tareas programadas: última ejecución y si van con retraso. */
+export function useRemoveAdminCron() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      adminApiFetch(`/admin/crons/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'crons'] }),
+  });
+}
+
 export function useAdminCrons() {
   return useQuery({
     queryKey: ['admin', 'crons'],

@@ -462,8 +462,9 @@ export class WebhooksService {
    */
   async cleanupDeliveries(olderThanDays = 30): Promise<{ deleted: number }> {
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+    // Un envío `pending` puede seguir en la cola con reintentos: no se toca.
     const result = await this.admin.webhookDelivery.deleteMany({
-      where: { createdAt: { lt: cutoff } },
+      where: { createdAt: { lt: cutoff }, status: { not: 'pending' } },
     });
     return { deleted: result.count };
   }
@@ -479,7 +480,7 @@ export class WebhooksService {
 
     const total = await this.admin.webhookDelivery.count();
     const eligibleForCleanup = await this.admin.webhookDelivery.count({
-      where: { createdAt: { lt: cutoff } },
+      where: { createdAt: { lt: cutoff }, status: { not: 'pending' } },
     });
 
     const oldest = await this.admin.webhookDelivery.findFirst({

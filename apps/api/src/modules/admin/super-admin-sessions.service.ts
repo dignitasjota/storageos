@@ -5,9 +5,14 @@ import { ConfigService } from '@nestjs/config';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { SecurityEventsService } from '../security-events/security-events.service';
 
 import type { Env } from '../../config/env.schema';
 import type { SuperAdminSession } from '@storageos/database';
+
+/** Margen para dos pestañas o un doble refresco: el token anterior aún vale. */
+export const SUPER_ADMIN_REFRESH_GRACE_MS = 30_000;
+const SUPER_ADMIN_REFRESH_GRACE_MAX_FORKS = 3;
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -34,6 +39,7 @@ export type SuperAdminRevocationReason =
   | 'logout_all'
   | 'rotated'
   | 'refresh_reuse'
+  | 'lost_response'
   | 'password_changed'
   | 'two_factor_disabled';
 
@@ -45,8 +51,11 @@ export type SuperAdminRevocationReason =
  * Persistimos solo el hash argon2id del secret en BD.
  *
  * Rotacion estricta: cada refresh marca la sesion actual como `rotatedAt` +
- * `replacedBySessionId` y crea otra nueva. Si se reusa un token ya rotado o
- * expirado, revocamos TODAS las sesiones del admin (politica paranoid).
+ * `replacedBySessionId` y crea otra nueva. Si se reusa un token ya rotado,
+ * revocamos TODAS las sesiones del admin (politica paranoid), salvo dos casos
+ * normales que no son un robo: dos pestañas que refrescan a la vez (margen de
+ * `SUPER_ADMIN_REFRESH_GRACE_MS`) y una respuesta que no llegó (la sesión que
+ * salió de ese token sigue sin usarse). Igual que en `SessionsService`.
  */
 @Injectable()
 export class SuperAdminSessionsService {
@@ -55,6 +64,7 @@ export class SuperAdminSessionsService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly config: ConfigService<Env, true>,
+    private readonly securityEvents: SecurityEventsService,
   ) {}
 
   async createSession(
@@ -119,10 +129,50 @@ export class SuperAdminSessionsService {
     const isRevoked = session.revokedAt !== null;
     const isRotated = session.rotatedAt !== null;
 
+    // Caducada sin más: no hay indicio de robo, no se toca el resto de sesiones.
+    if (isExpired && !isRotated && !isRevoked) {
+      throw new UnauthorizedException({
+        code: 'invalid_refresh',
+        message: 'Refresh invalido',
+      });
+    }
+
+    if (isRotated && !isRevoked && !isExpired) {
+      const sameBrowser = (session.userAgent ?? null) === (args.userAgent ?? null);
+      const inGrace =
+        sameBrowser &&
+        now.getTime() - (session.rotatedAt as Date).getTime() <= SUPER_ADMIN_REFRESH_GRACE_MS;
+      const recovered = inGrace
+        ? await this.forkWithinGrace(session, args)
+        : sameBrowser
+          ? await this.recoverLostResponse(session, args)
+          : null;
+      if (recovered) return recovered;
+      if (inGrace) {
+        // Tope de gracia agotado: se rechaza sin cerrar nada.
+        throw new UnauthorizedException({
+          code: 'invalid_refresh',
+          message: 'Refresh invalido',
+        });
+      }
+    }
+
     if (isExpired || isRevoked || isRotated) {
       const revokedCount = await this.admin.superAdminSession.updateMany({
         where: { superAdminId: session.superAdminId, revokedAt: null },
         data: { revokedAt: now, revokedReason: 'refresh_reuse' },
+      });
+      await this.invalidateAccessTokens(session.superAdminId);
+      const owner = await this.admin.superAdmin.findUnique({
+        where: { id: session.superAdminId },
+        select: { email: true },
+      });
+      await this.securityEvents.record({
+        eventType: 'refresh_token_reuse',
+        emailAttempted: owner?.email ?? null,
+        ipAddress: args.ipAddress ?? null,
+        userAgent: args.userAgent ?? null,
+        reason: 'super_admin',
       });
       this.logger.warn(
         `Reuso de refresh detectado en super_admin_sessions.${sessionId} (admin ${session.superAdminId}); revocadas ${revokedCount.count} sesiones`,
@@ -147,6 +197,7 @@ export class SuperAdminSessionsService {
           userAgent: args.userAgent ?? null,
           ipAddress: args.ipAddress ?? null,
           expiresAt: newExpiresAt,
+          rotatedFromId: session.id,
         },
       });
       await tx.superAdminSession.update({
@@ -164,6 +215,79 @@ export class SuperAdminSessionsService {
       refreshToken: this.formatRefreshToken(newSession.id, newSecret),
       superAdminId: session.superAdminId,
     };
+  }
+
+  /** Token rotado hace nada en el mismo navegador: sesión hermana, sin cerrar nada. */
+  private async forkWithinGrace(
+    session: SuperAdminSession,
+    args: RotateSuperAdminSessionArgs,
+  ): Promise<RotateSuperAdminSessionResult | null> {
+    const siblings = await this.admin.superAdminSession.count({
+      where: { rotatedFromId: session.id },
+    });
+    if (siblings >= 1 + SUPER_ADMIN_REFRESH_GRACE_MAX_FORKS) return null;
+    return this.createHeir(session, args);
+  }
+
+  /**
+   * El móvil congela la app a mitad del refresh: el servidor rotó y la cookie
+   * nueva no llegó. Si lo que salió de ese token sigue sin usarse, se sustituye.
+   * Si alguna heredera ya se usó, es un reuso real.
+   */
+  private async recoverLostResponse(
+    session: SuperAdminSession,
+    args: RotateSuperAdminSessionArgs,
+  ): Promise<RotateSuperAdminSessionResult | null> {
+    const heirs = await this.admin.superAdminSession.findMany({
+      where: { rotatedFromId: session.id },
+      select: { id: true, rotatedAt: true, revokedAt: true, revokedReason: true },
+    });
+    if (heirs.length === 0) return null;
+    const used = heirs.some(
+      (h) => h.rotatedAt !== null || (h.revokedAt !== null && h.revokedReason !== 'lost_response'),
+    );
+    if (used) return null;
+    const live = heirs.filter((h) => h.revokedAt === null).map((h) => h.id);
+    // Si otra petición acaba de usar una heredera, no se sustituye.
+    const claimed = await this.admin.superAdminSession.updateMany({
+      where: { id: { in: live }, revokedAt: null, rotatedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'lost_response' },
+    });
+    if (claimed.count !== live.length) return null;
+    return this.createHeir(session, args);
+  }
+
+  private async createHeir(
+    session: SuperAdminSession,
+    args: RotateSuperAdminSessionArgs,
+  ): Promise<RotateSuperAdminSessionResult> {
+    const secret = randomBytes(32).toString('base64url');
+    const heir = await this.admin.superAdminSession.create({
+      data: {
+        superAdminId: session.superAdminId,
+        refreshTokenHash: await argonHash(secret),
+        userAgent: args.userAgent ?? null,
+        ipAddress: args.ipAddress ?? null,
+        expiresAt: this.computeExpiresAt(),
+        rotatedFromId: session.id,
+      },
+    });
+    return {
+      session: heir,
+      refreshToken: this.formatRefreshToken(heir.id, secret),
+      superAdminId: session.superAdminId,
+    };
+  }
+
+  /**
+   * Deja sin valor los access tokens ya emitidos. Los otros dispositivos con
+   * sesión viva sacan uno nuevo solos con su cookie de refresh.
+   */
+  async invalidateAccessTokens(superAdminId: string): Promise<void> {
+    await this.admin.superAdmin.update({
+      where: { id: superAdminId },
+      data: { tokensValidAfter: new Date() },
+    });
   }
 
   async revokeSession(args: {
@@ -190,6 +314,7 @@ export class SuperAdminSessionsService {
         revokedReason: args.reason ?? 'logout_all',
       },
     });
+    await this.invalidateAccessTokens(args.superAdminId);
     return result.count;
   }
 

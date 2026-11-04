@@ -78,7 +78,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
  * - `ReportsModule`          -> ReportsProcessor.
  * - `DunningModule`          -> DunningProcessor (cron diario + handler de jobs).
  * - `AccessModule`           -> dependencia de DunningModule.
- * - `SecurityEventsModule`   -> SecurityAlertsCron + SecurityEventsCleanupService.
+ * - `SecurityEventsModule`   -> SecurityEventsCleanupService.
  *
  * Sub-bloque 14A.1: estos Processors y Crons ya NO se registran en el
  * API en produccion (`ENABLE_WORKERS_IN_API=false` en `.env.prod`). El

@@ -1060,3 +1060,11 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `platform_ai_settings` += `monthly_cost_alert_usd`, `plan_limits` (jsonb slug → consultas).
 - `platform_alert_settings` += `daily_hour`, `chat_contact_enabled`.
 - `platform_alert_logs` (global, REVOKE): avisos al administrador enviados (canal, tipo, resultado, resumen).
+
+### Seguridad y sistema del panel admin (`20261213100000_admin_security_review`)
+
+- `security_event_type` += `admin_login_failed`, `admin_two_factor_failed`.
+- `super_admins` += `password_reset_token_hash`, `password_reset_expires_at`, `tokens_valid_after` (los access tokens anteriores dejan de valer).
+- `super_admin_sessions.rotated_from_id`: sesión de la que sale al rotar.
+- **`security_alert_states`** (global, REVOKE): `kind`, `identifier`, `last_sent_at`. Última alerta de fuerza bruta por email o IP.
+- **`platform_security_settings`** (global, REVOKE, un registro): `require_admin_two_factor`, `admin_two_factor_grace_days`, `admin_two_factor_required_since`.

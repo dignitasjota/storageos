@@ -9,7 +9,7 @@ import {
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { type FormEvent, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -34,13 +34,19 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useAdminAuthStore } from '@/lib/admin/auth-store';
 import {
   useAdmin2faDisable,
   useAdmin2faRegenerateRecoveryCodes,
   useAdmin2faSetup,
   useAdmin2faStatus,
   useAdmin2faVerify,
+  useAdminChangePassword,
+  useAdminSecuritySettings,
+  useUpdateAdminSecuritySettings,
 } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
 function formatDate(value: string | null): string {
@@ -50,6 +56,128 @@ function formatDate(value: string | null): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+/** Cambiar la contraseña cierra las sesiones: hay que volver a entrar. */
+function ChangePasswordCard() {
+  const router = useRouter();
+  const change = useAdminChangePassword();
+  const clear = useAdminAuthStore((s) => s.clear);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (newPassword.length < 12) {
+      toast.error('La contraseña nueva necesita 12 caracteres o más.');
+      return;
+    }
+    try {
+      await change.mutateAsync({ currentPassword, newPassword });
+      toast.success('Contraseña cambiada. Vuelve a entrar.');
+      clear();
+      router.replace('/admin/login');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error de la API.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Contraseña</CardTitle>
+        <CardDescription>Al cambiarla se cierran todas tus sesiones abiertas.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="grid gap-3 sm:grid-cols-2" onSubmit={onSubmit}>
+          <div className="space-y-1">
+            <Label htmlFor="current-password">Contraseña actual</Label>
+            <Input
+              id="current-password"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="new-password">Contraseña nueva</Label>
+            <Input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <Button type="submit" disabled={change.isPending || !currentPassword}>
+              Cambiar contraseña
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Política de la plataforma: obligar a todos los super admins a tener 2FA. */
+function TwoFactorPolicyCard() {
+  const settings = useAdminSecuritySettings();
+  const update = useUpdateAdminSecuritySettings();
+  const isSuperadmin = useIsSuperadmin();
+  const [graceDays, setGraceDays] = useState<number | null>(null);
+  if (!settings.data) return null;
+  const days = graceDays ?? settings.data.adminTwoFactorGraceDays;
+  const required = settings.data.requireAdminTwoFactor;
+
+  async function save(requireAdminTwoFactor: boolean) {
+    try {
+      await update.mutateAsync({ requireAdminTwoFactor, adminTwoFactorGraceDays: days });
+      toast.success('Política guardada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error de la API.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Obligar a todos los super admins</CardTitle>
+        <CardDescription>
+          Pasado el plazo, quien no tenga la verificación en dos pasos solo podrá activarla. Ahora
+          mismo no la tienen: {settings.data.adminsWithoutTwoFactor}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="grace-days">Días de plazo</Label>
+          <Input
+            id="grace-days"
+            type="number"
+            min={0}
+            max={30}
+            className="w-28"
+            disabled={!isSuperadmin}
+            value={days}
+            onChange={(e) => setGraceDays(Number(e.target.value))}
+          />
+        </div>
+        <Button
+          variant={required ? 'outline' : 'default'}
+          disabled={!isSuperadmin || update.isPending}
+          onClick={() => save(!required)}
+        >
+          {required ? 'Dejar de obligar' : 'Obligar'}
+        </Button>
+        {required && (
+          <Button variant="outline" disabled={!isSuperadmin} onClick={() => save(true)}>
+            Guardar el plazo
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function AdminSecurityPage() {
@@ -145,6 +273,15 @@ export default function AdminSecurityPage() {
         </p>
       </div>
 
+      {status.data.required && !enabled && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+          La verificación en dos pasos es obligatoria.{' '}
+          {status.data.deadline && new Date(status.data.deadline) > new Date()
+            ? `Actívala antes del ${formatDate(status.data.deadline)} para seguir usando el panel.`
+            : 'Actívala para seguir usando el panel.'}
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -175,13 +312,18 @@ export default function AdminSecurityPage() {
               <Button variant="outline" onClick={() => setRegenerateOpen(true)}>
                 Regenerar códigos de recuperación
               </Button>
-              <Button variant="destructive" onClick={() => setDisableOpen(true)}>
-                Desactivar 2FA
-              </Button>
+              {!status.data.required && (
+                <Button variant="destructive" onClick={() => setDisableOpen(true)}>
+                  Desactivar 2FA
+                </Button>
+              )}
             </>
           )}
         </CardContent>
       </Card>
+
+      <ChangePasswordCard />
+      <TwoFactorPolicyCard />
 
       {setupUri && setupSecret && setupQrCode && (
         <Card>

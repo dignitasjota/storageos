@@ -18,6 +18,7 @@ export interface RecordSecurityEventArgs {
 export interface ListSecurityEventsArgs {
   eventType?: SecurityEventType | undefined;
   emailAttempted?: string | undefined;
+  ipAddress?: string | undefined;
   fromDate?: Date | undefined;
   toDate?: Date | undefined;
   cursor?: string | undefined;
@@ -28,6 +29,25 @@ export interface ListSecurityEventsResult {
   items: SecurityEvent[];
   nextCursor: string | null;
 }
+
+/** Intentos de entrar al panel admin. */
+export const ADMIN_FAILURE_EVENT_TYPES = [
+  'admin_login_failed',
+  'admin_two_factor_failed',
+] as const satisfies readonly SecurityEventType[];
+
+/** Fallos que cuentan por email para la fuerza bruta. */
+export const EMAIL_FAILURE_EVENT_TYPES = [
+  'login_failed_wrong_password',
+  'login_failed_email_not_found',
+  ...ADMIN_FAILURE_EVENT_TYPES,
+] as const satisfies readonly SecurityEventType[];
+
+/** Fallos que cuentan por IP: además, el barrido de slugs de tenants. */
+export const IP_FAILURE_EVENT_TYPES = [
+  ...EMAIL_FAILURE_EVENT_TYPES,
+  'login_failed_tenant_not_found',
+] as const satisfies readonly SecurityEventType[];
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -41,7 +61,7 @@ const MAX_LIMIT = 200;
  * y solo es accesible via `PrismaAdminService`. El endpoint
  * `/admin/security-events` la expone al super admin.
  *
- * Retencion 90 dias gestionada por cron diario (`cleanup`).
+ * Retencion `RETENTION_SECURITY_EVENTS_DAYS` gestionada por cron diario (`cleanup`).
  */
 @Injectable()
 export class SecurityEventsService {
@@ -90,8 +110,9 @@ export class SecurityEventsService {
     const where: Prisma.SecurityEventWhereInput = {};
     if (args.eventType) where.eventType = args.eventType;
     if (args.emailAttempted) {
-      where.emailAttempted = { equals: args.emailAttempted.trim().toLowerCase() };
+      where.emailAttempted = { contains: args.emailAttempted.trim(), mode: 'insensitive' };
     }
+    if (args.ipAddress) where.ipAddress = args.ipAddress;
     if (args.fromDate || args.toDate) {
       where.occurredAt = {};
       if (args.fromDate) where.occurredAt.gte = args.fromDate;
@@ -126,8 +147,9 @@ export class SecurityEventsService {
 
   /**
    * Agrega los eventos de la ventana indicada para el dashboard admin.
-   * Devuelve KPIs, distribuciones top, timeseries y alertas activas
-   * (grupos que superan `bruteForceThreshold` en la ventana).
+   * Devuelve KPIs, distribuciones top y timeseries. Las alertas activas se
+   * miden como el escáner: fallos de acceso en los últimos
+   * `bruteForceWindowMinutes`, no en todo el periodo que se está viendo.
    *
    * `bucket` controla la granularidad del timeseries:
    *   - `hour`: 1 punto por hora (usar con `windowHours <= 48`)
@@ -137,10 +159,14 @@ export class SecurityEventsService {
     windowHours: number;
     bucket: 'hour' | 'day';
     bruteForceThreshold: number;
+    bruteForceWindowMinutes: number;
     topLimit?: number;
   }): Promise<SecurityEventStatsResult> {
     const since = new Date(Date.now() - args.windowHours * 60 * 60 * 1000);
     const topLimit = args.topLimit ?? 10;
+    const active = await this.activeAlerts(args.bruteForceThreshold, args.bruteForceWindowMinutes);
+    const isActive = (kind: 'email' | 'ip', identifier: string): boolean =>
+      active.some((a) => a.kind === kind && a.identifier === identifier);
 
     const total = await this.admin.securityEvent.count({
       where: { occurredAt: { gte: since } },
@@ -170,7 +196,7 @@ export class SecurityEventsService {
     const topEmails = topEmailsRaw.map((g) => ({
       email: g.emailAttempted!,
       count: g._count._all,
-      exceedsThreshold: g._count._all >= args.bruteForceThreshold,
+      exceedsThreshold: isActive('email', g.emailAttempted!),
     }));
 
     const topIpsRaw = await this.admin.securityEvent.groupBy({
@@ -186,8 +212,13 @@ export class SecurityEventsService {
     const topIps = topIpsRaw.map((g) => ({
       ip: g.ipAddress!,
       count: g._count._all,
-      exceedsThreshold: g._count._all >= args.bruteForceThreshold,
+      exceedsThreshold: isActive('ip', g.ipAddress!),
     }));
+
+    const [distinctIps] = await this.admin.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(DISTINCT ip_address)::bigint AS count
+      FROM security_events
+      WHERE occurred_at >= ${since}`;
 
     // Timeseries: usamos SQL raw porque Prisma no soporta `date_trunc` en groupBy.
     const truncUnit = args.bucket === 'hour' ? 'hour' : 'day';
@@ -205,26 +236,57 @@ export class SecurityEventsService {
       count: Number(r.count),
     }));
 
-    const activeAlerts: SecurityEventStatsResult['activeAlerts'] = [
-      ...topEmails
-        .filter((t) => t.exceedsThreshold)
-        .map((t) => ({ kind: 'email' as const, identifier: t.email, count: t.count })),
-      ...topIps
-        .filter((t) => t.exceedsThreshold)
-        .map((t) => ({ kind: 'ip' as const, identifier: t.ip, count: t.count })),
-    ];
-
     return {
       windowHours: args.windowHours,
       bucket: args.bucket,
       bruteForceThreshold: args.bruteForceThreshold,
+      bruteForceWindowMinutes: args.bruteForceWindowMinutes,
       total,
+      uniqueIps: Number(distinctIps?.count ?? 0),
       byEventType,
       topEmails,
       topIps,
       timeseries,
-      activeAlerts,
+      activeAlerts: active,
     };
+  }
+
+  /** Emails e IPs que ahora mismo superan el umbral en la ventana de fuerza bruta. */
+  private async activeAlerts(
+    threshold: number,
+    windowMinutes: number,
+  ): Promise<SecurityEventStatsResult['activeAlerts']> {
+    const cutoff = new Date(Date.now() - windowMinutes * 60_000);
+    const [emails, ips] = await Promise.all([
+      this.admin.securityEvent.groupBy({
+        by: ['emailAttempted'],
+        where: {
+          occurredAt: { gte: cutoff },
+          eventType: { in: [...EMAIL_FAILURE_EVENT_TYPES] },
+          emailAttempted: { not: null },
+        },
+        _count: { _all: true },
+        having: { emailAttempted: { _count: { gte: threshold } } },
+      }),
+      this.admin.securityEvent.groupBy({
+        by: ['ipAddress'],
+        where: {
+          occurredAt: { gte: cutoff },
+          eventType: { in: [...IP_FAILURE_EVENT_TYPES] },
+          ipAddress: { not: null },
+        },
+        _count: { _all: true },
+        having: { ipAddress: { _count: { gte: threshold } } },
+      }),
+    ]);
+    return [
+      ...emails.map((g) => ({
+        kind: 'email' as const,
+        identifier: g.emailAttempted!,
+        count: g._count._all,
+      })),
+      ...ips.map((g) => ({ kind: 'ip' as const, identifier: g.ipAddress!, count: g._count._all })),
+    ];
   }
 }
 
@@ -232,7 +294,9 @@ export interface SecurityEventStatsResult {
   windowHours: number;
   bucket: 'hour' | 'day';
   bruteForceThreshold: number;
+  bruteForceWindowMinutes: number;
   total: number;
+  uniqueIps: number;
   byEventType: Array<{ eventType: string; count: number }>;
   topEmails: Array<{ email: string; count: number; exceedsThreshold: boolean }>;
   topIps: Array<{ ip: string; count: number; exceedsThreshold: boolean }>;

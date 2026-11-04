@@ -10,7 +10,7 @@ import type {
   AdminImpersonationSessionDto,
 } from '@storageos/shared';
 
-const SESSIONS_LIMIT = 100;
+const SESSIONS_PAGE = 50;
 const ACTIVITY_LIMIT = 200;
 
 const SESSION_INCLUDE = {
@@ -54,14 +54,28 @@ export class AdminImpersonationAuditService {
     };
   }
 
-  async listSessions(tenantId?: string): Promise<AdminImpersonationSessionDto[]> {
+  async listSessions(args: {
+    tenantId?: string | undefined;
+    superAdminId?: string | undefined;
+    cursor?: string | undefined;
+    limit?: number | undefined;
+  }): Promise<{ items: AdminImpersonationSessionDto[]; nextCursor: string | null }> {
+    const limit = args.limit ?? SESSIONS_PAGE;
     const rows = await this.admin.impersonationLog.findMany({
-      where: tenantId ? { tenantId } : {},
+      where: {
+        ...(args.tenantId ? { tenantId: args.tenantId } : {}),
+        ...(args.superAdminId ? { superAdminId: args.superAdminId } : {}),
+      },
       include: SESSION_INCLUDE,
-      orderBy: { createdAt: 'desc' },
-      take: SESSIONS_LIMIT,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(args.cursor ? { cursor: { id: args.cursor }, skip: 1 } : {}),
     });
-    return rows.map((r) => this.toDto(r));
+    const items = rows.slice(0, limit);
+    return {
+      items: items.map((r) => this.toDto(r)),
+      nextCursor: rows.length > limit ? (items[items.length - 1]?.id ?? null) : null,
+    };
   }
 
   /**

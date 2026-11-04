@@ -207,7 +207,7 @@ export function AdminLayoutClient({ children }: { children: ReactNode }) {
       storageKey="storageos-admin-theme"
     >
       <ConfirmProvider>
-        {pathname === '/admin/login' ? (
+        {pathname === '/admin/login' || pathname.startsWith('/admin/reset-password/') ? (
           <div className="min-h-screen bg-background">{children}</div>
         ) : (
           <AdminGuard>
