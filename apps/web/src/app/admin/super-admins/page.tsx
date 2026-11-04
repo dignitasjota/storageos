@@ -3,6 +3,7 @@
 import {
   CreateSuperAdminSchema,
   type CreateSuperAdminInput,
+  type SuperAdminDto,
   type SuperAdminRoleValue,
 } from '@storageos/shared';
 import { useState } from 'react';
@@ -36,9 +37,65 @@ import {
   useAdminSuperAdmins,
   useCreateSuperAdmin,
   useSetSuperAdminActive,
+  useRevokeSuperAdminSessions,
   useSetSuperAdminRole,
+  useSuperAdminSessions,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
+
+/** Sesiones abiertas de un super admin, con opción de cerrarlas todas. */
+function SessionsDialog({ admin, onClose }: { admin: SuperAdminDto; onClose: () => void }) {
+  const sessions = useSuperAdminSessions(admin.id);
+  const revoke = useRevokeSuperAdminSessions();
+
+  async function closeAll() {
+    try {
+      const { revoked } = await revoke.mutateAsync(admin.id);
+      toast.success(revoked === 1 ? 'Sesión cerrada.' : `${revoked} sesiones cerradas.`);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  const rows = sessions.data ?? [];
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Sesiones de {admin.fullName}</DialogTitle>
+          <DialogDescription>Dispositivos con la sesión abierta ahora.</DialogDescription>
+        </DialogHeader>
+        {sessions.isLoading ? (
+          <Skeleton className="h-16" />
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No tiene sesiones abiertas.</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {rows.map((s) => (
+              <li key={s.id} className="rounded-md border p-2">
+                <div className="truncate">{s.userAgent ?? 'Dispositivo desconocido'}</div>
+                <div className="text-xs text-muted-foreground">
+                  {s.ipAddress ?? 'IP desconocida'} ·{' '}
+                  {new Date(s.createdAt).toLocaleString('es-ES')}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <DialogFooter>
+          <Button
+            variant="destructive"
+            disabled={revoke.isPending || rows.length === 0}
+            onClick={closeAll}
+          >
+            Cerrar todas
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default function SuperAdminsPage() {
   const me = useAdminMe();
@@ -47,6 +104,7 @@ export default function SuperAdminsPage() {
   const setActive = useSetSuperAdminActive();
   const setRole = useSetSuperAdminRole();
   const [open, setOpen] = useState(false);
+  const [sessionsOf, setSessionsOf] = useState<SuperAdminDto | null>(null);
   const [form, setForm] = useState({ email: '', fullName: '', password: '', role: 'support' });
 
   const canManage = me.data?.role === 'superadmin';
@@ -226,7 +284,10 @@ export default function SuperAdminsPage() {
                         : 'Nunca'}
                     </TableCell>
                     {canManage && (
-                      <TableCell className="text-right">
+                      <TableCell className="space-x-2 whitespace-nowrap text-right">
+                        <Button variant="ghost" size="sm" onClick={() => setSessionsOf(a)}>
+                          Sesiones
+                        </Button>
                         {a.id !== me.data?.id && (
                           <Button
                             variant="outline"
@@ -246,6 +307,7 @@ export default function SuperAdminsPage() {
           )}
         </CardContent>
       </Card>
+      {sessionsOf && <SessionsDialog admin={sessionsOf} onClose={() => setSessionsOf(null)} />}
     </div>
   );
 }

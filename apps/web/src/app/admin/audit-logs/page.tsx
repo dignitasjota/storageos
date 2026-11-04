@@ -29,6 +29,30 @@ import { useAdminAuditLogs, useAdminSearch, useAdminSuperAdmins } from '@/lib/ad
 import { downloadCsv } from '@/lib/csv';
 import { useDebouncedSearch } from '@/lib/pagination';
 
+/** Una línea por dato, en vez del JSON en bruto. */
+function ChangesDetail({ changes }: { changes: unknown }) {
+  if (!changes || typeof changes !== 'object') return <>—</>;
+  const entries = Object.entries(changes as Record<string, unknown>);
+  if (entries.length === 0) return <>—</>;
+  const show = (v: unknown): string =>
+    Array.isArray(v) ? v.join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return (
+    <details>
+      <summary className="cursor-pointer">
+        {entries.length === 1 ? '1 dato' : `${entries.length} datos`}
+      </summary>
+      <dl className="mt-1 space-y-0.5">
+        {entries.map(([key, value]) => (
+          <div key={key} className="flex gap-2">
+            <dt className="shrink-0 font-medium">{key}:</dt>
+            <dd className="break-all">{show(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
 /**
  * Registro de acciones del super admin, con filtros por acción, super admin,
  * tenant y fechas. Paginación por cursor (50 por defecto).
@@ -304,13 +328,7 @@ export default function AdminAuditLogsPage() {
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">{log.ipAddress ?? '—'}</td>
                       <td className="max-w-[420px] px-3 py-2 text-xs text-muted-foreground">
-                        {log.changes ? (
-                          <code className="block truncate" title={JSON.stringify(log.changes)}>
-                            {JSON.stringify(log.changes)}
-                          </code>
-                        ) : (
-                          '—'
-                        )}
+                        <ChangesDetail changes={log.changes} />
                       </td>
                     </tr>
                   );

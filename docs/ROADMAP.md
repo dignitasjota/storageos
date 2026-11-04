@@ -883,4 +883,4 @@ PR A (arreglos) ✅: aviso diario escapado, sin cuentas exentas ni suspendidas y
 
 ### Seguridad y sistema del panel admin: revisión (2026-11-04)
 
-PR A con 17 arreglos: fallos de entrada al panel como eventos de seguridad, alertas por todos los canales, cierre de sesión real, recuperar y cambiar la contraseña, roles, 2FA obligatoria, retención, CSV completos y colas sin tope. Sigue la PR B con las mejoras.
+PR A con 17 arreglos: fallos de entrada al panel como eventos de seguridad, alertas por todos los canales, cierre de sesión real, recuperar y cambiar la contraseña, roles, 2FA obligatoria, retención, CSV completos y colas sin tope. La PR B añade sesiones, bloqueos de IP y email, alertas ampliadas, actividad exacta del soporte, pausar colas y avisos si el worker o una tarea fallan.

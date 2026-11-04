@@ -506,6 +506,7 @@ export const SecurityEventTypeEnum = z.enum([
   'refresh_token_reuse',
   'admin_login_failed',
   'admin_two_factor_failed',
+  'login_blocked',
 ]);
 export type SecurityEventTypeValue = z.infer<typeof SecurityEventTypeEnum>;
 
@@ -634,7 +635,26 @@ export type SuperAdminResetPasswordInput = z.infer<typeof SuperAdminResetPasswor
 export const UpdatePlatformSecuritySettingsSchema = z.object({
   requireAdminTwoFactor: z.boolean(),
   adminTwoFactorGraceDays: z.number().int().min(0).max(30),
+  /** Minutos antes de repetir una alerta del mismo email o IP. */
+  alertCooldownMinutes: z.number().int().min(5).max(1440).optional(),
 });
+
+/** Bloquear una IP o un email en las entradas. Sin horas, hasta quitarlo a mano. */
+export const CreateSecurityBlockSchema = z
+  .object({
+    kind: z.enum(['ip', 'email']),
+    value: z.string().trim().toLowerCase().min(3).max(320),
+    reason: z.string().trim().max(300).optional(),
+    expiresInHours: z.number().int().min(1).max(8760).optional(),
+  })
+  .refine(
+    (b) =>
+      b.kind === 'ip'
+        ? z.string().ip().safeParse(b.value).success
+        : z.string().email().safeParse(b.value).success,
+    { message: 'El valor no es válido', path: ['value'] },
+  );
+export type CreateSecurityBlockInput = z.infer<typeof CreateSecurityBlockSchema>;
 export type UpdatePlatformSecuritySettingsInput = z.infer<
   typeof UpdatePlatformSecuritySettingsSchema
 >;

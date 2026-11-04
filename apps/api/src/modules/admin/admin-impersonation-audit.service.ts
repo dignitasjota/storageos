@@ -11,6 +11,7 @@ import type {
 } from '@storageos/shared';
 
 const SESSIONS_PAGE = 50;
+const IMPERSONATION_TRACKED_SINCE = new Date('2026-11-04T00:00:00Z');
 const ACTIVITY_LIMIT = 200;
 
 const SESSION_INCLUDE = {
@@ -25,9 +26,9 @@ type SessionRow = Prisma.ImpersonationLogGetPayload<{ include: typeof SESSION_IN
  * cada una, la actividad del tenant registrada en `audit_logs` durante la
  * ventana de la sesión `[createdAt, revokedAt ?? expiresAt]`.
  *
- * Nota: la ventana captura toda la actividad del tenant en ese rato (no solo la
- * del admin). Marcar cada acción con el impersonador requeriría tocar el
- * AuditService global y queda como follow-up.
+ * Desde `IMPERSONATION_TRACKED_SINCE` cada acción lleva su sesión
+ * (`audit_logs.impersonation_id`). En las anteriores solo hay la ventana, que
+ * incluye toda la actividad del tenant en ese rato.
  */
 @Injectable()
 export class AdminImpersonationAuditService {
@@ -36,7 +37,7 @@ export class AdminImpersonationAuditService {
     private readonly superAdminAudit: SuperAdminAuditService,
   ) {}
 
-  private toDto(r: SessionRow): AdminImpersonationSessionDto {
+  private toDto(r: SessionRow, actionsCount = 0): AdminImpersonationSessionDto {
     return {
       id: r.id,
       superAdminId: r.superAdminId,
@@ -47,6 +48,7 @@ export class AdminImpersonationAuditService {
       tenantSlug: r.tenant.slug,
       reason: r.reason,
       readOnly: r.readOnly,
+      actionsCount,
       ipAddress: r.ipAddress,
       createdAt: r.createdAt.toISOString(),
       expiresAt: r.expiresAt.toISOString(),
@@ -72,8 +74,15 @@ export class AdminImpersonationAuditService {
       ...(args.cursor ? { cursor: { id: args.cursor }, skip: 1 } : {}),
     });
     const items = rows.slice(0, limit);
+    const counts = await this.admin.auditLog.groupBy({
+      by: ['impersonationId'],
+      where: { impersonationId: { in: items.map((r) => r.id) } },
+      _count: { _all: true },
+    });
+    const countOf = (id: string): number =>
+      counts.find((c) => c.impersonationId === id)?._count._all ?? 0;
     return {
-      items: items.map((r) => this.toDto(r)),
+      items: items.map((r) => this.toDto(r, countOf(r.id))),
       nextCursor: rows.length > limit ? (items[items.length - 1]?.id ?? null) : null,
     };
   }
@@ -129,10 +138,13 @@ export class AdminImpersonationAuditService {
     }
     const windowEnd = session.revokedAt ?? session.expiresAt;
     const rows = await this.admin.auditLog.findMany({
-      where: {
-        tenantId: session.tenantId,
-        occurredAt: { gte: session.createdAt, lte: windowEnd },
-      },
+      where:
+        session.createdAt >= IMPERSONATION_TRACKED_SINCE
+          ? { impersonationId: session.id }
+          : {
+              tenantId: session.tenantId,
+              occurredAt: { gte: session.createdAt, lte: windowEnd },
+            },
       include: { user: { select: { fullName: true } } },
       orderBy: { occurredAt: 'desc' },
       take: ACTIVITY_LIMIT,

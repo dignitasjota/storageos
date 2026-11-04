@@ -2552,3 +2552,19 @@ Función `business_reminders` (planes Starter, Pro y Administrador; sin ella 403
 | DELETE | `/admin/crons/:name`                 | superadmin | Quita una tarea de la lista                                                       |
 
 Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_two_factor_required`, salvo `/admin/auth/*` y `GET /admin/security-settings`. `POST /admin/webhooks-cleanup/run` exige `olderThanDays` de 7 o más.
+
+### Mejoras (2026-11-04)
+
+| Método | Ruta                                      | Acceso     | Notas                                                              |
+| ------ | ----------------------------------------- | ---------- | ------------------------------------------------------------------ |
+| GET    | `/admin/auth/sessions`                    | AdminGuard | Tus sesiones abiertas, con `current`                               |
+| DELETE | `/admin/auth/sessions/:id`                | AdminGuard | Cierra una sesión tuya                                             |
+| GET    | `/admin/super-admins/:id/sessions`        | superadmin | Sesiones de otro super admin                                       |
+| POST   | `/admin/super-admins/:id/revoke-sessions` | superadmin | Las cierra todas                                                   |
+| GET    | `/admin/security-blocks`                  | AdminGuard | Bloqueos vigentes                                                  |
+| POST   | `/admin/security-blocks`                  | superadmin | `{kind, value, reason?, expiresInHours?}`. 400 `cannot_block_self` |
+| DELETE | `/admin/security-blocks/:id`              | superadmin | Quita un bloqueo                                                   |
+| GET    | `/admin/queues/:name/failed?page=`        | superadmin | Fallidos con sus datos, 25 por página                              |
+| POST   | `/admin/queues/:name/pause`, `/resume`    | superadmin | Pausa o reanuda una cola                                           |
+
+`GET /admin/security-events/stats` añade `adminLogins` y `tenantId`/`tenantName` en `topEmails`. `GET /admin/impersonation-logs` añade `actionsCount`. `PUT /admin/security-settings` admite `alertCooldownMinutes`.

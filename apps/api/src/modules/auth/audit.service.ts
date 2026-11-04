@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { impersonationContext } from '../../common/async-context/impersonation-context';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Prisma } from '@storageos/database';
@@ -46,6 +47,7 @@ export class AuditService {
           changes: entry.changes ?? {},
           ipAddress: entry.ipAddress ?? null,
           userAgent: entry.userAgent ?? null,
+          impersonationId: impersonationContext.getStore()?.impersonationId ?? null,
         },
       });
     } catch (err) {

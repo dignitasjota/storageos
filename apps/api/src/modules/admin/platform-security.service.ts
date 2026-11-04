@@ -21,6 +21,7 @@ export class PlatformSecurityService {
       requireAdminTwoFactor: row?.requireAdminTwoFactor ?? false,
       adminTwoFactorGraceDays: row?.adminTwoFactorGraceDays ?? 7,
       adminTwoFactorRequiredSince: row?.adminTwoFactorRequiredSince?.toISOString() ?? null,
+      alertCooldownMinutes: row?.alertCooldownMinutes ?? 60,
       adminsWithoutTwoFactor,
     };
   }
@@ -47,6 +48,9 @@ export class PlatformSecurityService {
     const data = {
       requireAdminTwoFactor: input.requireAdminTwoFactor,
       adminTwoFactorGraceDays: input.adminTwoFactorGraceDays,
+      ...(input.alertCooldownMinutes !== undefined
+        ? { alertCooldownMinutes: input.alertCooldownMinutes }
+        : {}),
       adminTwoFactorRequiredSince: !input.requireAdminTwoFactor
         ? null
         : turningOn

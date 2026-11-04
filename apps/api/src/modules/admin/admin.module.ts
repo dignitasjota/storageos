@@ -91,6 +91,7 @@ import { PlatformSecurityService } from './platform-security.service';
 import { SecurityAlertsController } from './security-alerts.controller';
 import { SecurityAlertsCron } from './security-alerts.cron';
 import { SecurityAlertsService } from './security-alerts.service';
+import { SecurityBlocksController } from './security-blocks.controller';
 import { SecurityEventsController } from './security-events.controller';
 import { SuperAdminAuditController } from './super-admin-audit.controller';
 import { SuperAdminAuditService } from './super-admin-audit.service';
@@ -104,6 +105,8 @@ import { SupportAutoCloseCron } from './support-autoclose.cron';
 import { SupportTicketsAdminController } from './support-tickets-admin.controller';
 import { SupportTicketsTenantController } from './support-tickets-tenant.controller';
 import { SupportTicketsService } from './support-tickets.service';
+import { SystemWatchCron } from './system-watch.cron';
+import { SystemWatchService } from './system-watch.service';
 import { TenantDataExportController } from './tenant-data-export.controller';
 import { TenantDataExportService } from './tenant-data-export.service';
 import { TenantLifecycleEmailsController } from './tenant-lifecycle-emails.controller';
@@ -169,6 +172,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SecurityEventsController,
     SecurityAlertsController,
     PlatformSecurityController,
+    SecurityBlocksController,
     SuperAdminAuditController,
     AdminSuperAdminsController,
     PlatformAlertsController,
@@ -211,6 +215,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     // Corre en el API: el aviso se reserva en BD, así que no se repite entre réplicas.
     SecurityAlertsService,
     SecurityAlertsCron,
+    SystemWatchService,
+    SystemWatchCron,
     ChatAlertsService,
     AdminApprovalsService,
     ChatAlertsCron,

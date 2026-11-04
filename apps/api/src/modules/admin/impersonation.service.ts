@@ -1,12 +1,17 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { permissionsForRole, type ImpersonationTokenDto } from '@storageos/shared';
+import {
+  permissionsForRole,
+  renderAdminEmail,
+  type ImpersonationTokenDto,
+} from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { EmailService } from '../email/email.service';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
@@ -39,12 +44,15 @@ interface ImpersonateArgs {
  */
 @Injectable()
 export class ImpersonationService {
+  private readonly logger = new Logger(ImpersonationService.name);
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly jwt: JwtService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
     private readonly superAdminAudit: SuperAdminAuditService,
+    private readonly email: EmailService,
   ) {}
 
   async impersonate(args: ImpersonateArgs): Promise<ImpersonationTokenDto> {
@@ -118,6 +126,8 @@ export class ImpersonationService {
       },
     );
 
+    if (!args.readOnly) void this.notifyOwners(tenant.id, tenant.name, args.reason);
+
     await this.audit.write({
       tenantId: tenant.id,
       userId: null,
@@ -159,5 +169,33 @@ export class ImpersonationService {
       expiresIn: ttl,
       readOnly: args.readOnly ?? false,
     };
+  }
+
+  /** Entrar con permiso para hacer cambios se avisa al propietario. No bloquea la entrada. */
+  private async notifyOwners(tenantId: string, tenantName: string, reason: string): Promise<void> {
+    try {
+      const owners = await this.admin.user.findMany({
+        where: { tenantId, role: 'owner', isActive: true },
+        select: { email: true },
+      });
+      const { html, text } = renderAdminEmail(
+        [
+          `El equipo de soporte de TrasterOS ha entrado en la cuenta de ${tenantName} con permiso para hacer cambios.`,
+          `Motivo: ${reason}`,
+          'Si no esperabas este acceso, escríbenos desde Soporte en tu panel.',
+        ].join('\n\n'),
+      );
+      for (const owner of owners) {
+        await this.email.sendRendered({
+          to: owner.email,
+          kind: 'admin_message',
+          subject: 'El soporte de TrasterOS ha entrado en tu cuenta',
+          html,
+          text,
+        });
+      }
+    } catch (err) {
+      this.logger.warn(`Aviso de impersonación: ${(err as Error).message}`);
+    }
   }
 }

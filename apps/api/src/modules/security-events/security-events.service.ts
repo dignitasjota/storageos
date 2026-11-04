@@ -47,6 +47,11 @@ export const EMAIL_FAILURE_EVENT_TYPES = [
 export const IP_FAILURE_EVENT_TYPES = [
   ...EMAIL_FAILURE_EVENT_TYPES,
   'login_failed_tenant_not_found',
+  'login_failed_throttled',
+  'register_throttled',
+  'password_reset_throttled',
+  'invitation_token_invalid',
+  'login_blocked',
 ] as const satisfies readonly SecurityEventType[];
 
 const DEFAULT_LIMIT = 50;
@@ -236,6 +241,35 @@ export class SecurityEventsService {
       count: Number(r.count),
     }));
 
+    const loginRows = await this.admin.$queryRawUnsafe<
+      Array<{ bucket: Date; success: bigint; failed: bigint }>
+    >(
+      `SELECT date_trunc($1, occurred_at) AS bucket,
+              COUNT(*) FILTER (WHERE action = 'admin.login.success')::bigint AS success,
+              COUNT(*) FILTER (WHERE action = 'admin.login.failed')::bigint AS failed
+       FROM super_admin_audit_logs
+       WHERE occurred_at >= $2 AND action IN ('admin.login.success', 'admin.login.failed')
+       GROUP BY 1
+       ORDER BY 1 ASC`,
+      truncUnit,
+      since,
+    );
+    const adminLogins = loginRows.map((r) => ({
+      bucket: r.bucket.toISOString(),
+      success: Number(r.success),
+      failed: Number(r.failed),
+    }));
+
+    // De qué tenant es cada email: lleva a su ficha desde el panel.
+    const owners = await this.admin.user.findMany({
+      where: { email: { in: topEmails.map((t) => t.email) } },
+      select: { email: true, tenant: { select: { id: true, name: true } } },
+    });
+    const withTenant = topEmails.map((t) => {
+      const match = owners.find((o) => o.email === t.email);
+      return { ...t, tenantId: match?.tenant.id ?? null, tenantName: match?.tenant.name ?? null };
+    });
+
     return {
       windowHours: args.windowHours,
       bucket: args.bucket,
@@ -244,7 +278,8 @@ export class SecurityEventsService {
       total,
       uniqueIps: Number(distinctIps?.count ?? 0),
       byEventType,
-      topEmails,
+      topEmails: withTenant,
+      adminLogins,
       topIps,
       timeseries,
       activeAlerts: active,
@@ -297,8 +332,15 @@ export interface SecurityEventStatsResult {
   bruteForceWindowMinutes: number;
   total: number;
   uniqueIps: number;
+  adminLogins: Array<{ bucket: string; success: number; failed: number }>;
   byEventType: Array<{ eventType: string; count: number }>;
-  topEmails: Array<{ email: string; count: number; exceedsThreshold: boolean }>;
+  topEmails: Array<{
+    email: string;
+    count: number;
+    exceedsThreshold: boolean;
+    tenantId: string | null;
+    tenantName: string | null;
+  }>;
   topIps: Array<{ ip: string; count: number; exceedsThreshold: boolean }>;
   timeseries: Array<{ bucket: string; count: number }>;
   activeAlerts: Array<{ kind: 'email' | 'ip'; identifier: string; count: number }>;

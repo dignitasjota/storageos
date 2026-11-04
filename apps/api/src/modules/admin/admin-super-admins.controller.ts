@@ -16,15 +16,18 @@ import {
   SetSuperAdminActiveSchema,
   SetSuperAdminRoleSchema,
   type SuperAdminDto,
+  type SuperAdminOpenSessionDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 
+import { AdminAudit } from './admin-audit.decorator';
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
 import { RequireSuperadmin } from './require-superadmin.decorator';
 import { SuperAdminAuditService } from './super-admin-audit.service';
+import { SuperAdminSessionsService } from './super-admin-sessions.service';
 import { SuperAdminService } from './super-admin.service';
 
 import type { Request } from 'express';
@@ -44,6 +47,7 @@ export class AdminSuperAdminsController {
   constructor(
     private readonly admins: SuperAdminService,
     private readonly audit: SuperAdminAuditService,
+    private readonly sessionsService: SuperAdminSessionsService,
   ) {}
 
   @Get()
@@ -100,6 +104,23 @@ export class AdminSuperAdminsController {
       changes: { isActive: input.isActive },
     });
     return updated;
+  }
+
+  @RequireSuperadmin()
+  @Get(':id/sessions')
+  sessions(@Param('id', new ParseUUIDPipe()) id: string): Promise<SuperAdminOpenSessionDto[]> {
+    return this.sessionsService.listOpen(id);
+  }
+
+  /** Cierra todas sus sesiones, también el token que esté usando ahora. */
+  @RequireSuperadmin()
+  @AdminAudit('admin.super_admin.sessions_closed')
+  @Post(':id/revoke-sessions')
+  @HttpCode(HttpStatus.OK)
+  async revokeSessions(@Param('id', new ParseUUIDPipe()) id: string): Promise<{ revoked: number }> {
+    return {
+      revoked: await this.sessionsService.revokeAll({ superAdminId: id, reason: 'logout_all' }),
+    };
   }
 
   @RequireSuperadmin()

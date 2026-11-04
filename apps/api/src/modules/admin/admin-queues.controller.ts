@@ -8,6 +8,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
@@ -29,11 +30,17 @@ import { AdminAudit } from './admin-audit.decorator';
 import { AdminGuard } from './admin.guard';
 import { RequireSuperadmin } from './require-superadmin.decorator';
 
+import type { AdminFailedJobsPageDto } from '@storageos/shared';
+
 /** Jobs por vuelta al reintentar o limpiar una cola entera. */
 const BATCH_SIZE = 1000;
 
+/** Lo que se enseña como mucho de los datos de un job. */
+const JOB_DATA_MAX = 2000;
+
 export interface AdminQueueStatusDto {
   name: string;
+  paused: boolean;
   counts: {
     waiting: number;
     active: number;
@@ -101,6 +108,7 @@ export class AdminQueuesController {
         const failedJobs = await queue.getFailed(0, 9);
         return {
           name: queue.name,
+          paused: await queue.isPaused(),
           counts: {
             waiting: counts.waiting ?? 0,
             active: counts.active ?? 0,
@@ -118,6 +126,55 @@ export class AdminQueuesController {
         };
       }),
     );
+  }
+
+  /** Jobs fallidos de una cola con sus datos, por páginas. */
+  @RequireSuperadmin()
+  @Get(':name/failed')
+  async failed(
+    @Param('name') name: string,
+    @Query('page') pageRaw?: string,
+  ): Promise<AdminFailedJobsPageDto> {
+    const queue = this.byName(name);
+    const page = Math.max(1, Number(pageRaw) || 1);
+    const pageSize = 25;
+    const start = (page - 1) * pageSize;
+    const [total, jobs] = await Promise.all([
+      queue.getFailedCount(),
+      queue.getFailed(start, start + pageSize - 1),
+    ]);
+    return {
+      total,
+      page,
+      pageSize,
+      items: jobs.map((job) => ({
+        id: String(job.id ?? ''),
+        name: job.name,
+        failedReason: job.failedReason ?? null,
+        attemptsMade: job.attemptsMade,
+        timestamp: job.timestamp ? new Date(job.timestamp).toISOString() : null,
+        data: JSON.stringify(job.data ?? {}).slice(0, JOB_DATA_MAX),
+      })),
+    };
+  }
+
+  /** Deja de procesar la cola: lo que entra espera. */
+  @RequireSuperadmin()
+  @AdminAudit('admin.queue.paused')
+  @Post(':name/pause')
+  @HttpCode(HttpStatus.OK)
+  async pause(@Param('name') name: string): Promise<{ paused: true }> {
+    await this.byName(name).pause();
+    return { paused: true };
+  }
+
+  @RequireSuperadmin()
+  @AdminAudit('admin.queue.resumed')
+  @Post(':name/resume')
+  @HttpCode(HttpStatus.OK)
+  async resume(@Param('name') name: string): Promise<{ paused: false }> {
+    await this.byName(name).resume();
+    return { paused: false };
   }
 
   /** Reintenta un job fallido concreto. */

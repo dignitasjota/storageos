@@ -43,6 +43,8 @@ import {
   useAdmin2faStatus,
   useAdmin2faVerify,
   useAdminChangePassword,
+  useAdminOwnSessions,
+  useCloseAdminSession,
   useAdminSecuritySettings,
   useUpdateAdminSecuritySettings,
 } from '@/lib/admin/hooks';
@@ -121,19 +123,74 @@ function ChangePasswordCard() {
   );
 }
 
+/** Tus sesiones abiertas: la de este navegador no se cierra desde aquí. */
+function OwnSessionsCard() {
+  const sessions = useAdminOwnSessions();
+  const close = useCloseAdminSession();
+  const rows = sessions.data ?? [];
+  if (rows.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sesiones abiertas</CardTitle>
+        <CardDescription>Si no reconoces una, ciérrala y cambia la contraseña.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.map((s) => (
+          <div
+            key={s.id}
+            className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm"
+          >
+            <div className="min-w-0">
+              <div className="truncate">{s.userAgent ?? 'Dispositivo desconocido'}</div>
+              <div className="text-xs text-muted-foreground">
+                {s.ipAddress ?? 'IP desconocida'} · {formatDate(s.createdAt)}
+              </div>
+            </div>
+            {s.current ? (
+              <Badge variant="secondary">Este navegador</Badge>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={close.isPending}
+                onClick={() =>
+                  close.mutate(s.id, {
+                    onSuccess: () => toast.success('Sesión cerrada.'),
+                    onError: (err) =>
+                      toast.error(err instanceof ApiError ? err.body.message : 'Error de la API.'),
+                  })
+                }
+              >
+                Cerrar
+              </Button>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Política de la plataforma: obligar a todos los super admins a tener 2FA. */
 function TwoFactorPolicyCard() {
   const settings = useAdminSecuritySettings();
   const update = useUpdateAdminSecuritySettings();
   const isSuperadmin = useIsSuperadmin();
   const [graceDays, setGraceDays] = useState<number | null>(null);
+  const [cooldown, setCooldown] = useState<number | null>(null);
   if (!settings.data) return null;
   const days = graceDays ?? settings.data.adminTwoFactorGraceDays;
   const required = settings.data.requireAdminTwoFactor;
+  const cooldownMinutes = cooldown ?? settings.data.alertCooldownMinutes;
 
   async function save(requireAdminTwoFactor: boolean) {
     try {
-      await update.mutateAsync({ requireAdminTwoFactor, adminTwoFactorGraceDays: days });
+      await update.mutateAsync({
+        requireAdminTwoFactor,
+        adminTwoFactorGraceDays: days,
+        alertCooldownMinutes: cooldownMinutes,
+      });
       toast.success('Política guardada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error de la API.');
@@ -163,6 +220,19 @@ function TwoFactorPolicyCard() {
             onChange={(e) => setGraceDays(Number(e.target.value))}
           />
         </div>
+        <div className="space-y-1">
+          <Label htmlFor="cooldown">Repetir una alerta cada (minutos)</Label>
+          <Input
+            id="cooldown"
+            type="number"
+            min={5}
+            max={1440}
+            className="w-28"
+            disabled={!isSuperadmin}
+            value={cooldownMinutes}
+            onChange={(e) => setCooldown(Number(e.target.value))}
+          />
+        </div>
         <Button
           variant={required ? 'outline' : 'default'}
           disabled={!isSuperadmin || update.isPending}
@@ -170,11 +240,9 @@ function TwoFactorPolicyCard() {
         >
           {required ? 'Dejar de obligar' : 'Obligar'}
         </Button>
-        {required && (
-          <Button variant="outline" disabled={!isSuperadmin} onClick={() => save(true)}>
-            Guardar el plazo
-          </Button>
-        )}
+        <Button variant="outline" disabled={!isSuperadmin} onClick={() => save(required)}>
+          Guardar
+        </Button>
       </CardContent>
     </Card>
   );
@@ -323,6 +391,7 @@ export default function AdminSecurityPage() {
       </Card>
 
       <ChangePasswordCard />
+      <OwnSessionsCard />
       <TwoFactorPolicyCard />
 
       {setupUri && setupSecret && setupQrCode && (

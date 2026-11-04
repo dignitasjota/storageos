@@ -1,11 +1,24 @@
 'use client';
 
-import { AlertTriangle, Loader2, TrendingUp } from 'lucide-react';
-import { useState } from 'react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { AlertTriangle, Ban, Loader2, TrendingUp, X } from 'lucide-react';
+import Link from 'next/link';
+import { type FormEvent, useState } from 'react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -13,7 +26,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAdminSecurityStats } from '@/lib/admin/hooks';
+import {
+  useAdminSecurityStats,
+  useCreateSecurityBlock,
+  useRemoveSecurityBlock,
+  useSecurityBlocks,
+} from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
+import { ApiError } from '@/lib/auth/api';
 
 type Window = '24h' | '7d' | '30d';
 
@@ -23,6 +43,128 @@ function formatBucket(bucketIso: string, bucketSize: 'hour' | 'day'): string {
     return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
   }
   return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+}
+
+/** Botón para bloquear 24 h una IP o un email desde las tablas. */
+function BlockButton({ kind, value }: { kind: 'ip' | 'email'; value: string }) {
+  const create = useCreateSecurityBlock();
+  const isSuperadmin = useIsSuperadmin();
+  if (!isSuperadmin) return null;
+  return (
+    <Button
+      size="icon"
+      variant="ghost"
+      className="size-7"
+      aria-label={`Bloquear ${value}`}
+      title="Bloquear 24 horas"
+      disabled={create.isPending}
+      onClick={() =>
+        create.mutate(
+          { kind, value, expiresInHours: 24 },
+          {
+            onSuccess: () => toast.success(`${value} bloqueado 24 horas.`),
+            onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
+          },
+        )
+      }
+    >
+      <Ban className="size-4" />
+    </Button>
+  );
+}
+
+/** Bloqueos activos y alta manual. */
+function BlocksCard() {
+  const blocks = useSecurityBlocks();
+  const create = useCreateSecurityBlock();
+  const remove = useRemoveSecurityBlock();
+  const isSuperadmin = useIsSuperadmin();
+  const [value, setValue] = useState('');
+  const [hours, setHours] = useState('24');
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    const trimmed = value.trim();
+    create.mutate(
+      {
+        kind: trimmed.includes('@') ? 'email' : 'ip',
+        value: trimmed,
+        ...(Number(hours) > 0 ? { expiresInHours: Number(hours) } : {}),
+      },
+      {
+        onSuccess: () => {
+          toast.success('Bloqueo guardado.');
+          setValue('');
+        },
+        onError: (err) =>
+          toast.error(err instanceof ApiError ? err.body.message : 'Revisa el valor.'),
+      },
+    );
+  }
+
+  const rows = blocks.data ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Bloqueos</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isSuperadmin && (
+          <form className="flex flex-wrap items-center gap-2" onSubmit={onSubmit}>
+            <Input
+              className="w-64"
+              aria-label="IP o email"
+              placeholder="IP o email"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+            <Input
+              className="w-24"
+              type="number"
+              min={0}
+              aria-label="Horas (0 = sin fin)"
+              title="Horas (0 = sin fin)"
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+            />
+            <Button type="submit" variant="outline" disabled={create.isPending || !value.trim()}>
+              Bloquear
+            </Button>
+          </form>
+        )}
+        {rows.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No hay nada bloqueado.</p>
+        ) : (
+          <ul className="space-y-1 text-sm">
+            {rows.map((b) => (
+              <li key={b.id} className="flex items-center justify-between gap-2 rounded border p-2">
+                <span className="min-w-0 truncate">
+                  <code className="font-mono">{b.value}</code>
+                  <span className="text-muted-foreground ml-2 text-xs">
+                    {b.expiresAt
+                      ? `hasta ${new Date(b.expiresAt).toLocaleString('es-ES')}`
+                      : 'sin fin'}
+                  </span>
+                </span>
+                {isSuperadmin && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    aria-label={`Quitar ${b.value}`}
+                    disabled={remove.isPending}
+                    onClick={() => remove.mutate(b.id)}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function SecurityDashboardPage() {
@@ -143,6 +285,51 @@ export default function SecurityDashboardPage() {
             </CardContent>
           </Card>
 
+          {/* Entradas al panel admin */}
+          {data.adminLogins.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Entradas al panel admin</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-56 w-full">
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    initialDimension={{ width: 300, height: 224 }}
+                  >
+                    <BarChart
+                      data={data.adminLogins.map((t) => ({
+                        ...t,
+                        label: formatBucket(t.bucket, data.bucket),
+                      }))}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" fontSize={11} />
+                      <YAxis allowDecimals={false} fontSize={11} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar
+                        dataKey="success"
+                        name="Correctas"
+                        fill="hsl(var(--primary))"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="failed"
+                        name="Fallidas"
+                        fill="hsl(var(--destructive))"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <BlocksCard />
+
           {/* Top tables */}
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
@@ -165,10 +352,11 @@ export default function SecurityDashboardPage() {
                         {data.topIps.map((t) => (
                           <tr key={t.ip} className="border-t">
                             <td className="py-1.5 font-mono">{t.ip}</td>
-                            <td className="text-right">
+                            <td className="whitespace-nowrap text-right">
                               <Badge variant={t.exceedsThreshold ? 'destructive' : 'secondary'}>
                                 {t.count}
                               </Badge>
+                              <BlockButton kind="ip" value={t.ip} />
                             </td>
                           </tr>
                         ))}
@@ -198,11 +386,22 @@ export default function SecurityDashboardPage() {
                       <tbody>
                         {data.topEmails.map((t) => (
                           <tr key={t.email} className="border-t">
-                            <td className="py-1.5 font-mono text-xs">{t.email}</td>
-                            <td className="text-right">
+                            <td className="py-1.5 text-xs">
+                              <span className="font-mono">{t.email}</span>
+                              {t.tenantId && (
+                                <Link
+                                  href={`/admin/tenants/${t.tenantId}`}
+                                  className="text-primary ml-2 hover:underline"
+                                >
+                                  {t.tenantName}
+                                </Link>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap text-right">
                               <Badge variant={t.exceedsThreshold ? 'destructive' : 'secondary'}>
                                 {t.count}
                               </Badge>
+                              <BlockButton kind="email" value={t.email} />
                             </td>
                           </tr>
                         ))}
