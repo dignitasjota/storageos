@@ -1687,3 +1687,12 @@ Migración `20261212100000_admin_platform_features` (sin variables nuevas). Tras
 - **Asistente IA**: si quieres un límite distinto por plan, rellénalo en «Consultas al mes por plan» (vacío = el general).
 - **Páginas legales**: al guardar los términos o la privacidad con «Es un cambio importante», se manda un correo a los propietarios de todos los tenants activos y en prueba y les sale un aviso para aceptarlo en su panel. Úsalo solo para cambios que de verdad lo requieran.
 - **Mensajes de la web**: llegan también por Telegram/Slack si están configurados (se puede apagar en Alertas al admin).
+
+## 79. Seguridad y sistema del panel admin: arreglos (2026-11-04)
+
+Migración `20261213100000_admin_security_review`. Variables opcionales con valor por defecto: `RETENTION_SECURITY_EVENTS_DAYS` (90), `RETENTION_ADMIN_SESSIONS_DAYS` (30), `RETENTION_IMPERSONATION_LOGS_DAYS` (730) y `RETENTION_SUPER_ADMIN_AUDIT_DAYS` (730). Tras desplegar:
+
+- **Alertas de fuerza bruta**: salen ahora a los emails de Alertas al admin, a Telegram/Slack y a las notificaciones del panel. `SECURITY_ALERT_EMAIL` solo se usa si Alertas no tiene ningún email.
+- **2FA obligatoria**: para activarla, entra en Seguridad, activa tu 2FA y pulsa «Obligar». Quien no la tenga dispone de los días de plazo que elijas; después solo podrá activarla.
+- **Tareas programadas**: al arrancar el API y el worker desaparecen de la lista las que ya no existen.
+- El primer cron de retención borra las sesiones del panel caducadas hace más de 30 días y las impersonaciones y acciones de más de 2 años.

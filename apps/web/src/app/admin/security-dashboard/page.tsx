@@ -68,7 +68,7 @@ export default function SecurityDashboardPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:grid-cols-4">
             <KpiCard label="Eventos totales" value={data.total} />
             <KpiCard label="Tipos distintos" value={data.byEventType.length} />
-            <KpiCard label="IPs únicas" value={data.topIps.length} />
+            <KpiCard label="IPs únicas" value={data.uniqueIps} />
             <KpiCard
               label="Alertas activas"
               value={data.activeAlerts.length}
@@ -82,7 +82,8 @@ export default function SecurityDashboardPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-destructive">
                   <AlertTriangle className="size-4" />
-                  Alertas activas (≥ {data.bruteForceThreshold} fallos en ventana)
+                  Alertas activas (≥ {data.bruteForceThreshold} fallos en{' '}
+                  {data.bruteForceWindowMinutes} min)
                 </CardTitle>
               </CardHeader>
               <CardContent>

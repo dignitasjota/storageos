@@ -19,12 +19,13 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { useAdmin2faChallenge, useAdminLogin } from '@/lib/admin/hooks';
+import { useAdmin2faChallenge, useAdminForgotPassword, useAdminLogin } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
 export default function AdminLoginPage() {
   const router = useRouter();
   const login = useAdminLogin();
+  const forgot = useAdminForgotPassword();
   const [pendingToken, setPendingToken] = useState<string | null>(null);
 
   const form = useForm<SuperAdminLoginInput>({
@@ -32,6 +33,20 @@ export default function AdminLoginPage() {
     mode: 'onBlur',
     defaultValues: { email: '', password: '' },
   });
+
+  async function onForgot() {
+    const email = form.getValues('email').trim();
+    if (!email) {
+      toast.error('Escribe tu email y vuelve a pulsar.');
+      return;
+    }
+    try {
+      await forgot.mutateAsync({ email });
+      toast.success('Si ese email tiene acceso, te hemos enviado un enlace.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Inténtalo de nuevo más tarde.');
+    }
+  }
 
   async function onSubmit(values: SuperAdminLoginInput) {
     try {
@@ -115,6 +130,15 @@ export default function AdminLoginPage() {
                 />
                 <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
                   {form.formState.isSubmitting ? 'Iniciando...' : 'Iniciar sesión'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="w-full"
+                  disabled={forgot.isPending}
+                  onClick={onForgot}
+                >
+                  He olvidado mi contraseña
                 </Button>
               </form>
             </Form>

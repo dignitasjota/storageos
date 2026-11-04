@@ -77,6 +77,7 @@ export const SUPER_ADMIN_PUSH_TYPES: Record<string, string> = {
   'saas_billing.unresolved_webhook': 'Pago de Stripe sin tenant',
   'email.provider_rejected': 'El proveedor de correo rechaza envíos',
   feature_interest: 'Un tenant insiste en una función de pago',
+  'security.brute_force': 'Posible ataque de fuerza bruta',
 };
 
 export function isSuperAdminPushType(type: string): boolean {

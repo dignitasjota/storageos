@@ -880,3 +880,7 @@ PR A (arreglos) ✅: los correos del admin no falsean el soporte y se cierran so
 ### Plataforma del panel admin: revisión (2026-11-02)
 
 PR A (arreglos) ✅: aviso diario escapado, sin cuentas exentas ni suspendidas y con enlaces; avisos al admin por el servicio común (historial, bloqueos, marca); crons en hora de España; logo e imagen para redes con bytes comprobados y sin ficheros huérfanos; soporte en solo lectura; formulario de contacto auditado, paginado, con buscador, borrado y retención; editor de legales sin perder cambios, con fecha y huecos por rellenar; estado de los dominios en caché; auditoría completa de la IA. PR B (mejoras) ✅: responder a los mensajes de contacto desde el panel con nota, responsable, CSV y aviso por chat; textos de la portada editables y enlaces de SEO; versiones de los legales con comparación, relleno con los datos fiscales y aceptación de los tenants; consumo de correo por proveedor, créditos de Brevo y registros DNS; uso y coste de la IA con aviso de gasto, límites por plan y prueba con una pregunta; uso de la IA de WhatsApp y conversación simulada; alertas con varios emails, hora del aviso diario, resumen de canales e historial.
+
+### Seguridad y sistema del panel admin: revisión (2026-11-04)
+
+PR A con 17 arreglos: fallos de entrada al panel como eventos de seguridad, alertas por todos los canales, cierre de sesión real, recuperar y cambiar la contraseña, roles, 2FA obligatoria, retención, CSV completos y colas sin tope. Sigue la PR B con las mejoras.

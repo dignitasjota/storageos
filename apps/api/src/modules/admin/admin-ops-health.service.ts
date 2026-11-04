@@ -45,6 +45,11 @@ export class AdminOpsHealthService {
     private readonly certificates: AeatCertExpiryService,
   ) {}
 
+  async removeCron(name: string): Promise<{ removed: number }> {
+    const { count } = await this.admin.cronHeartbeat.deleteMany({ where: { name } });
+    return { removed: count };
+  }
+
   /** Tareas programadas: última ejecución, siguiente prevista y si va con retraso. */
   async crons(now = new Date()): Promise<AdminCronStatusDto[]> {
     const rows = await this.admin.cronHeartbeat.findMany({ orderBy: { name: 'asc' } });

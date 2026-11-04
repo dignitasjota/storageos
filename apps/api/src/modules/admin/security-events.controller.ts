@@ -49,7 +49,15 @@ export class SecurityEventsController {
     const windowHours = query.window === '24h' ? 24 : query.window === '7d' ? 24 * 7 : 24 * 30;
     const bucket: 'hour' | 'day' = query.window === '24h' ? 'hour' : 'day';
     const bruteForceThreshold = this.config.get('SECURITY_BRUTE_FORCE_THRESHOLD', { infer: true });
-    return this.service.stats({ windowHours, bucket, bruteForceThreshold });
+    const bruteForceWindowMinutes = this.config.get('SECURITY_BRUTE_FORCE_WINDOW_MINUTES', {
+      infer: true,
+    });
+    return this.service.stats({
+      windowHours,
+      bucket,
+      bruteForceThreshold,
+      bruteForceWindowMinutes,
+    });
   }
 
   @Get()
@@ -57,6 +65,7 @@ export class SecurityEventsController {
     const result = await this.service.list({
       ...(query.eventType ? { eventType: query.eventType } : {}),
       ...(query.emailAttempted ? { emailAttempted: query.emailAttempted } : {}),
+      ...(query.ipAddress ? { ipAddress: query.ipAddress } : {}),
       ...(query.fromDate ? { fromDate: query.fromDate } : {}),
       ...(query.toDate ? { toDate: query.toDate } : {}),
       ...(query.cursor ? { cursor: query.cursor } : {}),

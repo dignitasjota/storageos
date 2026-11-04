@@ -236,8 +236,7 @@ const envSchemaBase = z.object({
   SECURITY_BRUTE_FORCE_THRESHOLD: z.coerce.number().int().positive().default(5),
   /** Ventana temporal (minutos) sobre la que se cuentan los fallos. */
   SECURITY_BRUTE_FORCE_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
-  /** Destinatario de las alertas (super admin). Si esta vacio, las alertas
-   *  quedan deshabilitadas (solo se loggean). */
+  /** Destinatario de las alertas si en Alertas al admin no hay ningún email. */
   SECURITY_ALERT_EMAIL: z.string().email().optional(),
 
   // --- Webhooks (Fase 16A.1) ---
@@ -264,6 +263,14 @@ const envSchemaBase = z.object({
   RETENTION_WEB_EVENTS_DAYS: z.coerce.number().int().positive().default(480),
   /** Mensajes del formulario de contacto de trasteros.pro: 2 años (la IP se quita a los 90 días). */
   RETENTION_CONTACT_MESSAGES_DAYS: z.coerce.number().int().positive().default(730),
+  /** Eventos de seguridad (intentos de acceso fallidos): 90 días. */
+  RETENTION_SECURITY_EVENTS_DAYS: z.coerce.number().int().positive().default(90),
+  /** Sesiones del panel admin, días después de caducar. */
+  RETENTION_ADMIN_SESSIONS_DAYS: z.coerce.number().int().positive().default(30),
+  /** Registro de impersonaciones: 24 meses. */
+  RETENTION_IMPERSONATION_LOGS_DAYS: z.coerce.number().int().positive().default(730),
+  /** Registro de acciones del super admin: 24 meses. */
+  RETENTION_SUPER_ADMIN_AUDIT_DAYS: z.coerce.number().int().positive().default(730),
 
   // --- Control de accesos: anti-fuerza-bruta en /access/verify ---
   //     Además del throttle por IP (60/min), lockout por DISPOSITIVO (frena el

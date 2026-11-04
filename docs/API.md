@@ -1251,13 +1251,16 @@ Modulos `apps/api/src/modules/{admin,billing-saas,support}/`. Para los endpoints
 
 Ver tambien la subseccion **Fase 9A** mas abajo para 2FA, refresh cookie y recovery codes.
 
-| Metodo | Ruta                     | Auth       | Descripcion                                                                                               |
-| ------ | ------------------------ | ---------- | --------------------------------------------------------------------------------------------------------- |
-| POST   | `/admin/auth/login`      | Public     | Body `{email, password}`. Si 2FA off → access + cookie refresh. Si 2FA on → `{requires2fa, pendingToken}` |
-| POST   | `/admin/auth/refresh`    | cookie     | Cookie `super_admin_refresh`. Rota cookie. Paranoid reuse                                                 |
-| POST   | `/admin/auth/logout`     | AdminGuard | Revoca sesion actual + borra cookie                                                                       |
-| POST   | `/admin/auth/logout-all` | AdminGuard | Revoca todas las sesiones                                                                                 |
-| GET    | `/admin/auth/me`         | AdminGuard | Datos del super admin                                                                                     |
+| Metodo | Ruta                          | Auth       | Descripcion                                                                                               |
+| ------ | ----------------------------- | ---------- | --------------------------------------------------------------------------------------------------------- |
+| POST   | `/admin/auth/login`           | Public     | Body `{email, password}`. Si 2FA off → access + cookie refresh. Si 2FA on → `{requires2fa, pendingToken}` |
+| POST   | `/admin/auth/refresh`         | cookie     | Cookie `super_admin_refresh`. Rota cookie. Paranoid reuse                                                 |
+| POST   | `/admin/auth/logout`          | AdminGuard | Revoca sesion actual + borra cookie                                                                       |
+| POST   | `/admin/auth/logout-all`      | AdminGuard | Revoca todas las sesiones                                                                                 |
+| POST   | `/admin/auth/change-password` | AdminGuard | Body `{currentPassword, newPassword}`. 403 `wrong_password`. Cierra todas las sesiones                    |
+| POST   | `/admin/auth/password/forgot` | Public     | Body `{email}`. Siempre 204. Envía un enlace de 1 h                                                       |
+| POST   | `/admin/auth/password/reset`  | Public     | Body `{token, newPassword}`. Un solo uso. 400 `invalid_token`                                             |
+| GET    | `/admin/auth/me`              | AdminGuard | Datos del super admin                                                                                     |
 
 ### Endpoints — Super admin tenants + metrics + impersonation
 
@@ -1439,9 +1442,9 @@ panel autenticado y rectificativas Veri\*Factu por diferencias.
 
 ### Endpoints — Security events (super admin)
 
-| Metodo | Ruta                     | Auth       | Descripcion                                                                          |
-| ------ | ------------------------ | ---------- | ------------------------------------------------------------------------------------ |
-| GET    | `/admin/security-events` | AdminGuard | Filtros `?eventType=&emailAttempted=&fromDate=&toDate=&cursor=&limit=`. Solo lectura |
+| Metodo | Ruta                     | Auth       | Descripcion                                                                                                                |
+| ------ | ------------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/admin/security-events` | AdminGuard | Filtros `?eventType=&emailAttempted=&ipAddress=&fromDate=&toDate=&cursor=&limit=` (email parcial, IP exacta). Solo lectura |
 
 Eventos registrados (campo `event_type`): `login_failed_email_not_found`,
 `login_failed_tenant_not_found`, `login_failed_wrong_password`,
@@ -2534,3 +2537,18 @@ Función `business_reminders` (planes Starter, Pro y Administrador; sin ella 403
 - Asistente IA: `GET /admin/ai-settings/usage` (uso, coste, previsión y los que más gastan); `PUT /admin/ai-settings` acepta `monthlyCostAlertUsd` y `planLimits`; `POST /admin/ai-settings/test {prompt?}` devuelve `answer`.
 - IA de WhatsApp: `PlatformWhatsappAiDto.usage`; `POST /admin/whatsapp-ai/test {message?}` (conversación simulada).
 - Alertas: `alertEmail` admite varios separados por comas; `dailyHour`, `chatContactEnabled`; `GET /admin/platform-alerts/log` (últimos 100 avisos por email y chat).
+
+## Seguridad y sistema del panel admin (2026-11-04)
+
+| Método | Ruta                                 | Acceso     | Notas                                                                             |
+| ------ | ------------------------------------ | ---------- | --------------------------------------------------------------------------------- |
+| GET    | `/admin/security-settings`           | AdminGuard | Política de 2FA y cuántos super admins no la tienen                               |
+| PUT    | `/admin/security-settings`           | superadmin | `{requireAdminTwoFactor, adminTwoFactorGraceDays}`. 400 `own_two_factor_required` |
+| PATCH  | `/admin/super-admins/:id/role`       | superadmin | `{role}`. 400 `cannot_modify_self`, `last_super_admin`                            |
+| POST   | `/admin/super-admins`                | superadmin | `password` opcional: sin ella se envía un enlace de 7 días                        |
+| GET    | `/admin/impersonation-logs`          | AdminGuard | Ahora `{items, nextCursor}`. Filtros `?tenantId=&superAdminId=&cursor=&limit=`    |
+| POST   | `/admin/queues/:name/jobs/:id/retry` | superadmin | Reintenta un job fallido. 404 `job_not_found`                                     |
+| DELETE | `/admin/queues/:name/jobs/:id`       | superadmin | Elimina un job fallido                                                            |
+| DELETE | `/admin/crons/:name`                 | superadmin | Quita una tarea de la lista                                                       |
+
+Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_two_factor_required`, salvo `/admin/auth/*` y `GET /admin/security-settings`. `POST /admin/webhooks-cleanup/run` exige `olderThanDays` de 7 o más.

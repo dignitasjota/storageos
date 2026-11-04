@@ -10,8 +10,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   useAdminImpersonationActivity,
   useAdminImpersonationLogs,
+  useAdminSuperAdmins,
   useRevokeImpersonation,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
@@ -57,7 +65,11 @@ function SessionActivity({ id }: { id: string }) {
 
 export default function ImpersonationPage() {
   const confirm = useConfirm();
-  const { data, isLoading } = useAdminImpersonationLogs();
+  const [superAdminId, setSuperAdminId] = useState<string | undefined>();
+  const superAdmins = useAdminSuperAdmins();
+  const logs = useAdminImpersonationLogs({ superAdminId });
+  const { isLoading } = logs;
+  const sessions = logs.data?.pages.flatMap((p) => p.items) ?? [];
   const revoke = useRevokeImpersonation();
   const [open, setOpen] = useState<string | null>(null);
 
@@ -96,19 +108,35 @@ export default function ImpersonationPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
           <CardTitle className="text-base">Sesiones</CardTitle>
+          <Select
+            value={superAdminId ?? 'all'}
+            onValueChange={(v) => setSuperAdminId(v === 'all' ? undefined : v)}
+          >
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Todos los super admins" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los super admins</SelectItem>
+              {(superAdmins.data ?? []).map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.fullName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          ) : (data ?? []).length === 0 ? (
+          ) : sessions.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
               No hay sesiones de impersonación registradas.
             </p>
           ) : (
             <div className="divide-y">
-              {(data ?? []).map((s) => {
+              {sessions.map((s) => {
                 const isOpen = open === s.id;
                 const isLive = !s.revokedAt && new Date(s.expiresAt) > new Date();
                 return (
@@ -159,6 +187,18 @@ export default function ImpersonationPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+          {logs.hasNextPage && (
+            <div className="pt-3 text-center">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={logs.isFetchingNextPage}
+                onClick={() => void logs.fetchNextPage()}
+              >
+                Cargar más
+              </Button>
             </div>
           )}
         </CardContent>

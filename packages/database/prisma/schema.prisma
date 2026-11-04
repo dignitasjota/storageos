@@ -4063,6 +4063,11 @@ model SuperAdmin {
   twoFactorLastStep               BigInt?        @map("two_factor_last_step")
   twoFactorEnrolledAt             DateTime?      @map("two_factor_enrolled_at") @db.Timestamptz(6)
   lastLoginAt                     DateTime?      @map("last_login_at") @db.Timestamptz(6)
+  /// Enlace para elegir contraseña (recuperación o invitación): huella del secreto.
+  passwordResetTokenHash          String?        @map("password_reset_token_hash")
+  passwordResetExpiresAt          DateTime?      @map("password_reset_expires_at") @db.Timestamptz(6)
+  /// Los access tokens emitidos antes de esta fecha ya no valen.
+  tokensValidAfter                DateTime?      @map("tokens_valid_after") @db.Timestamptz(6)
   createdAt                       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -4131,12 +4136,15 @@ model SuperAdminSession {
   revokedAt           DateTime? @map("revoked_at") @db.Timestamptz(6)
   revokedReason       String?   @map("revoked_reason")
   replacedBySessionId String?   @map("replaced_by_session_id") @db.Uuid
+  /// Sesión de la que sale al rotar (margen de gracia y respuesta perdida).
+  rotatedFromId       String?   @map("rotated_from_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   superAdmin SuperAdmin @relation(fields: [superAdminId], references: [id], onDelete: Cascade)
 
   @@index([superAdminId])
   @@index([expiresAt])
+  @@index([rotatedFromId], map: "super_admin_sessions_rotated_from_idx")
   @@map("super_admin_sessions")
 }
 
@@ -4502,6 +4510,8 @@ enum SecurityEventType {
   password_reset_throttled
   invitation_token_invalid
   refresh_token_reuse
+  admin_login_failed
+  admin_two_factor_failed
 
   @@map("security_event_type")
 }
@@ -6106,6 +6116,27 @@ model PlatformLegalAcceptance {
 }
 
 /// Historial de avisos al administrador (email y chat).
+/// Última alerta de fuerza bruta enviada por email/IP (evita repetirla).
+model SecurityAlertState {
+  kind       String
+  identifier String
+  lastSentAt DateTime @default(now()) @map("last_sent_at") @db.Timestamptz(6)
+
+  @@id([kind, identifier])
+  @@map("security_alert_states")
+}
+
+/// Política de acceso al panel admin (un registro).
+model PlatformSecuritySettings {
+  id                          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  requireAdminTwoFactor       Boolean   @default(false) @map("require_admin_two_factor")
+  adminTwoFactorGraceDays     Int       @default(7) @map("admin_two_factor_grace_days")
+  adminTwoFactorRequiredSince DateTime? @map("admin_two_factor_required_since") @db.Timestamptz(6)
+  updatedAt                   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_security_settings")
+}
+
 model PlatformAlertLog {
   id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   /// email | telegram | slack

@@ -38,6 +38,7 @@ const NOINDEX_PREFIXES = [
   '/g/',
   '/portal',
   '/book',
+  '/admin',
 ];
 
 function withNoindex(pathname: string, res: NextResponse): NextResponse {

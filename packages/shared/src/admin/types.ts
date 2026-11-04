@@ -67,6 +67,18 @@ export interface SuperAdminTwoFactorStatusResponse {
   enabled: boolean;
   enrolledAt: string | null;
   recoveryCodesRemaining: number;
+  /** La política de la plataforma obliga a tenerla. */
+  required: boolean;
+  /** Hasta cuándo se puede usar el panel sin ella (null = sin plazo pendiente). */
+  deadline: string | null;
+}
+
+export interface PlatformSecuritySettingsDto {
+  requireAdminTwoFactor: boolean;
+  adminTwoFactorGraceDays: number;
+  adminTwoFactorRequiredSince: string | null;
+  /** Super admins activos sin 2FA. */
+  adminsWithoutTwoFactor: number;
 }
 
 /** Respuesta de POST /admin/auth/refresh. */

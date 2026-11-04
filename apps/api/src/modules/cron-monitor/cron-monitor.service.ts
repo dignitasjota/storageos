@@ -26,9 +26,28 @@ export class CronMonitorService implements OnApplicationBootstrap {
   ) {}
 
   onApplicationBootstrap(): void {
-    for (const [name, job] of this.registry.getCronJobs()) {
+    const jobs = this.registry.getCronJobs();
+    for (const [name, job] of jobs) {
       void this.record(name, job, false);
       job.addCallback(() => this.record(name, job, true));
+    }
+    void this.forgetRemoved([...jobs.keys()]);
+  }
+
+  /**
+   * Una tarea que se quita del código o cambia de nombre se quedaba para
+   * siempre como «atrasada». Con el registro vacío (arranque raro) no se borra nada.
+   */
+  private async forgetRemoved(names: string[]): Promise<void> {
+    if (names.length === 0) return;
+    try {
+      await this.admin.cronHeartbeat.deleteMany({
+        where: { process: PROCESS_NAME, name: { notIn: names } },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[cron-monitor] no se pudieron limpiar tareas: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

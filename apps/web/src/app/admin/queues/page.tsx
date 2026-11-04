@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/table';
 import {
   useAdminCrons,
+  useQueueJobAction,
+  useRemoveAdminCron,
   useAdminQueues,
   useAdminSystemHealth,
   useQueueFailedAction,
@@ -214,6 +216,21 @@ export default function AdminQueuesPage() {
 /** Tareas programadas: última ejecución, siguiente prevista y si van con retraso. */
 function CronsSection() {
   const crons = useAdminCrons();
+  const remove = useRemoveAdminCron();
+  const confirm = useConfirm();
+  const isSuperadmin = useIsSuperadmin();
+
+  async function onRemove(name: string) {
+    const ok = await confirm({
+      title: `¿Quitar «${name}» de la lista?`,
+      description: 'Úsalo con tareas que ya no existen. Si sigue activa, volverá a salir.',
+    });
+    if (!ok) return;
+    remove.mutate(name, {
+      onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
+    });
+  }
+
   const rows = crons.data ?? [];
   const overdue = rows.filter((c) => c.overdue).length;
   return (
@@ -241,6 +258,7 @@ function CronsSection() {
                   <TableHead>Última ejecución</TableHead>
                   <TableHead>Siguiente</TableHead>
                   <TableHead>Estado</TableHead>
+                  {isSuperadmin && <TableHead />}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -260,6 +278,22 @@ function CronsSection() {
                         <Badge variant="secondary">Al día</Badge>
                       )}
                     </TableCell>
+                    {isSuperadmin && (
+                      <TableCell className="text-right">
+                        {c.overdue && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            aria-label={`Quitar ${c.name}`}
+                            title="Quitar de la lista"
+                            disabled={remove.isPending}
+                            onClick={() => onRemove(c.name)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -272,6 +306,19 @@ function CronsSection() {
 }
 
 function FailedJobsCard({ queue }: { queue: AdminQueueStatus }) {
+  const jobAction = useQueueJobAction();
+  const isSuperadmin = useIsSuperadmin();
+
+  function run(id: string, action: 'retry' | 'remove') {
+    jobAction.mutate(
+      { queue: queue.name, id, action },
+      {
+        onSuccess: () => toast.success(action === 'retry' ? 'Job reintentado.' : 'Job eliminado.'),
+        onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
+      },
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -286,6 +333,7 @@ function FailedJobsCard({ queue }: { queue: AdminQueueStatus }) {
               <TableHead>Motivo</TableHead>
               <TableHead className="text-right">Intentos</TableHead>
               <TableHead className="text-right">Fecha</TableHead>
+              {isSuperadmin && <TableHead />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -299,6 +347,30 @@ function FailedJobsCard({ queue }: { queue: AdminQueueStatus }) {
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{job.attemptsMade}</TableCell>
                 <TableCell className="text-right text-xs">{formatDate(job.timestamp)}</TableCell>
+                {isSuperadmin && (
+                  <TableCell className="whitespace-nowrap text-right">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Reintentar ${job.id}`}
+                      title="Reintentar"
+                      disabled={jobAction.isPending}
+                      onClick={() => run(job.id, 'retry')}
+                    >
+                      <RotateCw className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Eliminar ${job.id}`}
+                      title="Eliminar"
+                      disabled={jobAction.isPending}
+                      onClick={() => run(job.id, 'remove')}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>

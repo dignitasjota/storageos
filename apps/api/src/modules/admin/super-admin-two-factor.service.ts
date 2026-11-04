@@ -15,6 +15,7 @@ import QRCode from 'qrcode';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { SecurityEventsService } from '../security-events/security-events.service';
 import { TotpService } from '../two-factor/totp.service';
 import {
   TWO_FACTOR_FAILURE_WINDOW_MS,
@@ -22,6 +23,7 @@ import {
   twoFactorLockedException,
 } from '../two-factor/two-factor-limits';
 
+import { adminTwoFactorDeadline } from './admin-two-factor-policy';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 import { SuperAdminSessionsService } from './super-admin-sessions.service';
 
@@ -97,6 +99,7 @@ export class SuperAdminTwoFactorService {
     private readonly sessions: SuperAdminSessionsService,
     private readonly config: ConfigService<Env, true>,
     private readonly auditService: SuperAdminAuditService,
+    private readonly securityEvents: SecurityEventsService,
   ) {}
 
   // ----------------------------- status ------------------------------------
@@ -108,10 +111,17 @@ export class SuperAdminTwoFactorService {
           where: { superAdminId: adminId, usedAt: null },
         })
       : 0;
+    const settings = await this.admin.platformSecuritySettings.findFirst();
+    const deadline =
+      settings && !record.twoFactorEnabled
+        ? adminTwoFactorDeadline(settings, record.createdAt)
+        : null;
     return {
       enabled: record.twoFactorEnabled,
       enrolledAt: record.twoFactorEnrolledAt ? record.twoFactorEnrolledAt.toISOString() : null,
       recoveryCodesRemaining: remaining,
+      required: settings?.requireAdminTwoFactor ?? false,
+      deadline: deadline ? deadline.toISOString() : null,
     };
   }
 
@@ -209,6 +219,13 @@ export class SuperAdminTwoFactorService {
       throw new ForbiddenException({
         code: 'wrong_password',
         message: 'Contrasena incorrecta',
+      });
+    }
+    const settings = await this.admin.platformSecuritySettings.findFirst();
+    if (settings?.requireAdminTwoFactor) {
+      throw new BadRequestException({
+        code: 'two_factor_required_by_policy',
+        message: 'La política de la plataforma obliga a tener la verificación en dos pasos',
       });
     }
     await this.admin.$transaction([
@@ -368,6 +385,13 @@ export class SuperAdminTwoFactorService {
         ipAddress: meta.ipAddress ?? null,
         userAgent: meta.userAgent ?? null,
         changes: { method: usedRecovery ? 'recovery_code' : 'totp' },
+      });
+      await this.securityEvents.record({
+        eventType: 'admin_two_factor_failed',
+        emailAttempted: record.email,
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+        reason: usedRecovery ? 'recovery_code' : 'totp',
       });
       throw new ForbiddenException({
         code: 'invalid_code',

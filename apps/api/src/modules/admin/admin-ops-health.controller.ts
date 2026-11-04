@@ -1,7 +1,8 @@
-import { Controller, Get, HttpCode, Post, Query, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
 
 import { Public } from '../../common/decorators/public.decorator';
 
+import { AdminAudit } from './admin-audit.decorator';
 import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminUsageService } from './admin-usage.service';
 import { AdminGuard } from './admin.guard';
@@ -45,5 +46,14 @@ export class AdminOpsHealthController {
   @Get('crons')
   crons(): Promise<AdminCronStatusDto[]> {
     return this.health.crons();
+  }
+
+  /** Quita de la lista una tarea que ya no existe (si existe, reaparece al arrancar). */
+  @RequireSuperadmin()
+  @AdminAudit('admin.cron.removed')
+  @Delete('crons/:name')
+  @HttpCode(200)
+  removeCron(@Param('name') name: string): Promise<{ removed: number }> {
+    return this.health.removeCron(name);
   }
 }

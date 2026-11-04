@@ -89,6 +89,9 @@ export class DataRetentionService {
     whatsappMessages: number;
     webEvents: number;
     webChatConversations: number;
+    adminSessions: number;
+    impersonationLogs: number;
+    superAdminAuditLogs: number;
   }> {
     const now = Date.now();
     const cutoff = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000);
@@ -100,6 +103,9 @@ export class DataRetentionService {
     const whatsappDays = this.config.get('RETENTION_WHATSAPP_DAYS', { infer: true });
     const webEventsDays = this.config.get('RETENTION_WEB_EVENTS_DAYS', { infer: true });
     const contactDays = this.config.get('RETENTION_CONTACT_MESSAGES_DAYS', { infer: true });
+    const adminSessionDays = this.config.get('RETENTION_ADMIN_SESSIONS_DAYS', { infer: true });
+    const impersonationDays = this.config.get('RETENTION_IMPERSONATION_LOGS_DAYS', { infer: true });
+    const adminAuditDays = this.config.get('RETENTION_SUPER_ADMIN_AUDIT_DAYS', { infer: true });
     const prenoticeDays = Math.max(
       this.config.get('RETENTION_SEPA_PRENOTICE_DAYS', { infer: true }),
       commsDays,
@@ -129,6 +135,9 @@ export class DataRetentionService {
       webEvents,
       webChatConversations,
       contactMessages,
+      adminSessions,
+      impersonationLogs,
+      superAdminAuditLogs,
     ] = await Promise.all([
       this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
       this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
@@ -163,6 +172,16 @@ export class DataRetentionService {
       this.admin.platformContactMessage.deleteMany({
         where: { createdAt: { lt: cutoff(contactDays) } },
       }),
+      // Sesiones del panel admin ya caducadas (cada refresco crea una fila).
+      this.admin.superAdminSession.deleteMany({
+        where: { expiresAt: { lt: cutoff(adminSessionDays) } },
+      }),
+      this.admin.impersonationLog.deleteMany({
+        where: { createdAt: { lt: cutoff(impersonationDays) } },
+      }),
+      this.admin.superAdminAuditLog.deleteMany({
+        where: { occurredAt: { lt: cutoff(adminAuditDays) } },
+      }),
     ]);
     // La IP del visitante solo hace falta los primeros días (abusos).
     await this.admin.platformContactMessage.updateMany({
@@ -183,6 +202,9 @@ export class DataRetentionService {
       webEvents: webEvents.count,
       webChatConversations: webChatConversations.count,
       contactMessages: contactMessages.count,
+      adminSessions: adminSessions.count,
+      impersonationLogs: impersonationLogs.count,
+      superAdminAuditLogs: superAdminAuditLogs.count,
     };
     const total =
       result.auditLogs +
@@ -194,7 +216,10 @@ export class DataRetentionService {
       result.whatsappMessages +
       result.webEvents +
       result.webChatConversations +
-      result.contactMessages;
+      result.contactMessages +
+      result.adminSessions +
+      result.impersonationLogs +
+      result.superAdminAuditLogs;
     if (total > 0) {
       this.logger.log(
         `data-retention: borradas ${total} filas ` +
@@ -202,7 +227,9 @@ export class DataRetentionService {
           `comms=${result.communications}, notif=${result.notifications}, ` +
           `platform_emails=${result.platformEmails}, ` +
           `whatsapp=${result.whatsappConversations}/${result.whatsappMessages}, ` +
-          `web_events=${result.webEvents}, web_chat=${result.webChatConversations}, contacto=${result.contactMessages})`,
+          `web_events=${result.webEvents}, web_chat=${result.webChatConversations}, contacto=${result.contactMessages}, ` +
+          `admin_sessions=${result.adminSessions}, impersonations=${result.impersonationLogs}, ` +
+          `admin_audit=${result.superAdminAuditLogs})`,
       );
     }
     return result;

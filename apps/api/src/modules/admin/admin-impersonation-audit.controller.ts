@@ -10,6 +10,8 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ListImpersonationLogsSchema } from '@storageos/shared';
+import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 
@@ -24,6 +26,8 @@ import type {
 } from '@storageos/shared';
 import type { Request } from 'express';
 
+class ListImpersonationLogsDto extends createZodDto(ListImpersonationLogsSchema) {}
+
 /** Auditoría de las sesiones de impersonación + su actividad. */
 @Public()
 @UseGuards(AdminGuard)
@@ -32,8 +36,10 @@ export class AdminImpersonationAuditController {
   constructor(private readonly audit: AdminImpersonationAuditService) {}
 
   @Get()
-  async list(@Query('tenantId') tenantId?: string): Promise<AdminImpersonationSessionDto[]> {
-    return this.audit.listSessions(tenantId?.trim() || undefined);
+  async list(
+    @Query() query: ListImpersonationLogsDto,
+  ): Promise<{ items: AdminImpersonationSessionDto[]; nextCursor: string | null }> {
+    return this.audit.listSessions(query);
   }
 
   @Get(':id/activity')

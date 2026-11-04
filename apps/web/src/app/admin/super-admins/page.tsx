@@ -1,6 +1,10 @@
 'use client';
 
-import { CreateSuperAdminSchema, type CreateSuperAdminInput } from '@storageos/shared';
+import {
+  CreateSuperAdminSchema,
+  type CreateSuperAdminInput,
+  type SuperAdminRoleValue,
+} from '@storageos/shared';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -32,6 +36,7 @@ import {
   useAdminSuperAdmins,
   useCreateSuperAdmin,
   useSetSuperAdminActive,
+  useSetSuperAdminRole,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
@@ -40,6 +45,7 @@ export default function SuperAdminsPage() {
   const { data, isLoading } = useAdminSuperAdmins();
   const create = useCreateSuperAdmin();
   const setActive = useSetSuperAdminActive();
+  const setRole = useSetSuperAdminRole();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ email: '', fullName: '', password: '', role: 'support' });
 
@@ -49,18 +55,29 @@ export default function SuperAdminsPage() {
     const parsed = CreateSuperAdminSchema.safeParse({
       email: form.email,
       fullName: form.fullName,
-      password: form.password,
+      ...(form.password ? { password: form.password } : {}),
       role: form.role as CreateSuperAdminInput['role'],
     });
     if (!parsed.success) {
-      toast.error('Revisa los datos (contraseña mínima 12 caracteres).');
+      toast.error('Revisa los datos (la contraseña, si la pones, de 12 caracteres o más).');
       return;
     }
     try {
       await create.mutateAsync(parsed.data);
-      toast.success('Super admin creado.');
+      toast.success(
+        form.password ? 'Super admin creado.' : 'Super admin creado. Le hemos enviado el enlace.',
+      );
       setOpen(false);
       setForm({ email: '', fullName: '', password: '', role: 'support' });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function changeRole(id: string, role: SuperAdminRoleValue) {
+    try {
+      await setRole.mutateAsync({ id, role });
+      toast.success('Rol cambiado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -93,8 +110,8 @@ export default function SuperAdminsPage() {
               <DialogHeader>
                 <DialogTitle>Nuevo super admin</DialogTitle>
                 <DialogDescription>
-                  Crea una cuenta de acceso a la plataforma. Comparte la contraseña de forma segura;
-                  podrá activar su 2FA al entrar.
+                  Le enviamos un enlace para que elija su contraseña. Si prefieres dársela tú,
+                  escríbela aquí.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -114,9 +131,10 @@ export default function SuperAdminsPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Contraseña (mín. 12)</Label>
+                  <Label>Contraseña (opcional, mín. 12)</Label>
                   <Input
-                    type="text"
+                    type="password"
+                    autoComplete="new-password"
                     value={form.password}
                     onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                   />
@@ -169,9 +187,22 @@ export default function SuperAdminsPage() {
                     <TableCell className="font-medium">{a.fullName}</TableCell>
                     <TableCell className="text-sm">{a.email}</TableCell>
                     <TableCell>
-                      <Badge variant={a.role === 'superadmin' ? 'default' : 'secondary'}>
-                        {a.role}
-                      </Badge>
+                      {canManage && a.id !== me.data?.id ? (
+                        <select
+                          aria-label={`Rol de ${a.fullName}`}
+                          className="h-8 rounded-md border bg-background px-2 text-sm"
+                          value={a.role}
+                          disabled={setRole.isPending}
+                          onChange={(e) => changeRole(a.id, e.target.value as SuperAdminRoleValue)}
+                        >
+                          <option value="support">support</option>
+                          <option value="superadmin">superadmin</option>
+                        </select>
+                      ) : (
+                        <Badge variant={a.role === 'superadmin' ? 'default' : 'secondary'}>
+                          {a.role}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       {a.twoFactorEnabled ? (

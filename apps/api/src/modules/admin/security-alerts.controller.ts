@@ -1,9 +1,11 @@
 import { Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 
 import { Public } from '../../common/decorators/public.decorator';
-import { SecurityAlertsService } from '../security-events/security-alerts.service';
 
+import { AdminAudit } from './admin-audit.decorator';
 import { AdminGuard } from './admin.guard';
+import { RequireSuperadmin } from './require-superadmin.decorator';
+import { SecurityAlertsService } from './security-alerts.service';
 
 /**
  * Endpoint manual de scan de alertas de brute-force. Permite al super admin
@@ -18,6 +20,8 @@ import { AdminGuard } from './admin.guard';
 export class SecurityAlertsController {
   constructor(private readonly alerts: SecurityAlertsService) {}
 
+  @RequireSuperadmin()
+  @AdminAudit('admin.security_alerts.scan')
   @Post('scan')
   @HttpCode(200)
   async scan(): Promise<{ alertsSent: number }> {

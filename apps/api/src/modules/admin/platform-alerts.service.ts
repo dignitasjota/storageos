@@ -111,10 +111,15 @@ export class PlatformAlertsService {
     subject: string;
     html: string;
     text: string;
+    /** A quién escribir si en Alertas no hay ningún email. */
+    fallbackTo?: string | undefined;
   }): Promise<number> {
     const row = await this.admin.platformAlertSettings.findFirst();
+    const configured = alertRecipients(row?.alertEmail ?? '');
+    const recipients =
+      configured.length > 0 ? configured : args.fallbackTo ? [args.fallbackTo] : [];
     let ok = 0;
-    for (const to of alertRecipients(row?.alertEmail ?? '')) {
+    for (const to of recipients) {
       try {
         const res = await this.email.sendRendered({
           to,

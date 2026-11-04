@@ -11,7 +11,11 @@ import { JwtService } from '@nestjs/jwt';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import { REQUIRE_SUPERADMIN_KEY } from './require-superadmin.decorator';
+import { adminTwoFactorDeadline } from './admin-two-factor-policy';
+import {
+  ALLOW_WITHOUT_TWO_FACTOR_KEY,
+  REQUIRE_SUPERADMIN_KEY,
+} from './require-superadmin.decorator';
 
 import type { AuthenticatedSuperAdmin } from './current-super-admin.decorator';
 import type { Env } from '../../config/env.schema';
@@ -71,7 +75,13 @@ export class AdminGuard implements CanActivate {
     // SELECT por PK por request (tráfico admin es mínimo) cierra el hueco.
     const record = await this.adminDb.superAdmin.findUnique({
       where: { id: payload.sub },
-      select: { isActive: true, role: true },
+      select: {
+        isActive: true,
+        role: true,
+        twoFactorEnabled: true,
+        tokensValidAfter: true,
+        createdAt: true,
+      },
     });
     if (!record?.isActive) {
       throw new UnauthorizedException({
@@ -79,6 +89,18 @@ export class AdminGuard implements CanActivate {
         message: 'Cuenta de super admin desactivada',
       });
     }
+    // Cerrar sesión, cambiar la contraseña…: el access JWT dura horas y sin esto
+    // seguía valiendo. La fecha se compara en segundos, como el `iat` del token.
+    if (
+      record.tokensValidAfter &&
+      (payload.iat ?? 0) < Math.floor(record.tokensValidAfter.getTime() / 1000)
+    ) {
+      throw new UnauthorizedException({
+        code: 'unauthorized',
+        message: 'La sesión se ha cerrado',
+      });
+    }
+    await this.assertTwoFactorPolicy(ctx, record);
     // Separacion de roles: acciones destructivas/de dinero/de seguridad
     // marcadas con @RequireSuperadmin() exigen el rol completo.
     const requiresSuperadmin = this.reflector.getAllAndOverride<boolean>(REQUIRE_SUPERADMIN_KEY, [
@@ -96,5 +118,27 @@ export class AdminGuard implements CanActivate {
     }
     req.user = { ...payload, role };
     return true;
+  }
+
+  /** Pasado el plazo de la política, sin 2FA solo se puede activarla. */
+  private async assertTwoFactorPolicy(
+    ctx: ExecutionContext,
+    record: { twoFactorEnabled: boolean; createdAt: Date },
+  ): Promise<void> {
+    if (record.twoFactorEnabled) return;
+    const allowed = this.reflector.getAllAndOverride<boolean>(ALLOW_WITHOUT_TWO_FACTOR_KEY, [
+      ctx.getHandler(),
+      ctx.getClass(),
+    ]);
+    if (allowed) return;
+    const settings = await this.adminDb.platformSecuritySettings.findFirst();
+    if (!settings) return;
+    const deadline = adminTwoFactorDeadline(settings, record.createdAt);
+    if (deadline && deadline.getTime() <= Date.now()) {
+      throw new ForbiddenException({
+        code: 'admin_two_factor_required',
+        message: 'Activa la verificación en dos pasos para seguir usando el panel',
+      });
+    }
   }
 }
