@@ -639,6 +639,38 @@ export const UpdatePlatformSecuritySettingsSchema = z.object({
   alertCooldownMinutes: z.number().int().min(5).max(1440).optional(),
 });
 
+/** Avisos de «Hoy» que se pueden apartar unos días. */
+export const TodaySnoozeKindEnum = z.enum([
+  'addon_charge',
+  'past_due',
+  'renewal',
+  'trial',
+  'stale_addon',
+  'ticket',
+  'webhook',
+  'aeat',
+  'certificate',
+  'holded',
+  'device',
+  'cron',
+  'override',
+  'contact',
+  'domain',
+  'invoice_data',
+  'rgpd',
+  'nps',
+  'activation',
+]);
+export type TodaySnoozeKind = z.infer<typeof TodaySnoozeKindEnum>;
+
+export const CreateTodaySnoozeSchema = z.object({
+  kind: TodaySnoozeKindEnum,
+  ref: z.string().trim().min(1).max(200),
+  label: z.string().trim().max(200).optional(),
+  days: z.number().int().min(1).max(90),
+});
+export type CreateTodaySnoozeInput = z.infer<typeof CreateTodaySnoozeSchema>;
+
 /** Bloquear una IP o un email en las entradas. Sin horas, hasta quitarlo a mano. */
 export const CreateSecurityBlockSchema = z
   .object({
@@ -690,6 +722,7 @@ export const UpdatePlatformAlertSettingsSchema = z.object({
   sendActivation: z.boolean().optional(),
   // Resumen semanal de KPIs por email al super admin. Opcional, misma razón.
   weeklyDigestEnabled: z.boolean().optional(),
+  instantAlertsEnabled: z.boolean().optional(),
   dailyHour: z.number().int().min(0).max(23).optional(),
   chatContactEnabled: z.boolean().optional(),
 });

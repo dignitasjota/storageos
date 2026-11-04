@@ -2580,3 +2580,12 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 ## «Hoy» del panel admin (2026-11-04)
 
 `POST /admin/today/addon-charges/:id/charge` responde 409 `addon_not_chargeable` si el extra ya no se cobra a mano y 409 `addon_already_charged` si ya está registrado. `kpis.pending` de `GET /admin/today` es el total de `GET /admin/billing/receivables`.
+
+### Mejoras de «Hoy» (2026-11-04)
+
+| Método | Ruta                       | Acceso     | Notas                                                       |
+| ------ | -------------------------- | ---------- | ----------------------------------------------------------- |
+| POST   | `/admin/today/snoozes`     | AdminGuard | `{kind, ref, label?, days}`. Aparta un aviso de 1 a 90 días |
+| DELETE | `/admin/today/snoozes/:id` | AdminGuard | Lo recupera                                                 |
+
+`GET /admin/today` añade `followupsUpcoming`, `contactMessages`, `domainsReady`, `incompleteInvoices`, `rgpdOverdue`, `npsNegative`, `activationStalled`, `workload`, `snoozes`, `done`, `usage` en las pruebas y la asignación en los tickets. `PUT /admin/platform-alerts` admite `instantAlertsEnabled`.

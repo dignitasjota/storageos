@@ -8,6 +8,7 @@ import {
   IP_FAILURE_EVENT_TYPES,
 } from '../security-events/security-events.service';
 
+import { claimAlert } from './alert-state';
 import { ChatAlertsService } from './chat-alerts.service';
 import { PlatformAlertsService } from './platform-alerts.service';
 
@@ -130,13 +131,7 @@ export class SecurityAlertsService {
 
   /** Reserva el aviso de este email/IP para la ventana: solo lo gana una réplica. */
   private async claim(args: AlertArgs): Promise<boolean> {
-    const rows = await this.admin.$queryRaw<Array<{ kind: string }>>`
-      INSERT INTO security_alert_states (kind, identifier, last_sent_at)
-      VALUES (${args.kind}, ${args.identifier}, now())
-      ON CONFLICT (kind, identifier) DO UPDATE SET last_sent_at = now()
-      WHERE security_alert_states.last_sent_at < now() - make_interval(mins => ${args.cooldownMin}::int)
-      RETURNING kind`;
-    return rows.length > 0;
+    return claimAlert(this.admin, args.kind, args.identifier, args.cooldownMin);
   }
 
   private async maybeAlert(args: AlertArgs): Promise<boolean> {

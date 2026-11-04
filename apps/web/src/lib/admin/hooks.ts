@@ -4,6 +4,7 @@ import { adminApiFetch, adminApiFetchBlob } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  CreateTodaySnoozeInput,
   AdminFailedJobsPageDto,
   CreateSecurityBlockInput,
   SecurityBlockDto,
@@ -561,6 +562,7 @@ export function useExtendTrial() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
       qc.invalidateQueries({ queryKey: ['admin', 'trials'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'today'] });
     },
   });
 }
@@ -992,6 +994,7 @@ export function useAddAdminTicketMessage() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets', vars.id] });
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'today'] });
     },
   });
 }
@@ -1007,6 +1010,7 @@ export function useTransitionTicket() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets', vars.id] });
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'today'] });
     },
   });
 }
@@ -1133,6 +1137,7 @@ export function useAssignTicket() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets', vars.id] });
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'today'] });
     },
   });
 }
@@ -1515,6 +1520,7 @@ export function useAddManualSaasPayment(id: string) {
       }),
     onSuccess: () => {
       // Refresca los pagos y el detalle del tenant (el periodo de suscripción cambió).
+      qc.invalidateQueries({ queryKey: ['admin', 'today'] });
       qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'saas-payments'] });
       qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
     },
@@ -1611,6 +1617,7 @@ export function useUpdateFollowup() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'followups', 'pending'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
     },
   });
 }
@@ -2717,6 +2724,24 @@ export function useAdminToday() {
     queryFn: () => adminApiFetch<AdminTodayDto>('/admin/today'),
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
+  });
+}
+
+export function useTodaySnooze() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateTodaySnoozeInput) =>
+      adminApiFetch<void>('/admin/today/snoozes', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'today'] }),
+  });
+}
+
+export function useRemoveTodaySnooze() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/today/snoozes/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'today'] }),
   });
 }
 

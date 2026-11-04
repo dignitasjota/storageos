@@ -7,6 +7,7 @@ import { QUEUE_BILLING } from '../queues/queues.module';
 import { WORKERS_HEARTBEAT_KEY } from '../queues/workers-heartbeat.cron';
 
 import { AdminOpsHealthService } from './admin-ops-health.service';
+import { claimAlert } from './alert-state';
 import { ChatAlertsService } from './chat-alerts.service';
 import { PlatformAlertsService } from './platform-alerts.service';
 
@@ -48,14 +49,8 @@ export class SystemWatchService {
     return { problems };
   }
 
-  private async claim(identifier: string): Promise<boolean> {
-    const rows = await this.admin.$queryRaw<Array<{ kind: string }>>`
-      INSERT INTO security_alert_states (kind, identifier, last_sent_at)
-      VALUES ('system', ${identifier}, now())
-      ON CONFLICT (kind, identifier) DO UPDATE SET last_sent_at = now()
-      WHERE security_alert_states.last_sent_at < now() - make_interval(mins => ${REPEAT_MINUTES}::int)
-      RETURNING kind`;
-    return rows.length > 0;
+  private claim(identifier: string): Promise<boolean> {
+    return claimAlert(this.admin, 'system', identifier, REPEAT_MINUTES);
   }
 
   private async notify(problems: string[]): Promise<void> {

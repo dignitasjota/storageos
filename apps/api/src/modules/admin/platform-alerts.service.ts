@@ -90,6 +90,9 @@ export class PlatformAlertsService {
       ...(input.weeklyDigestEnabled !== undefined
         ? { weeklyDigestEnabled: input.weeklyDigestEnabled }
         : {}),
+      ...(input.instantAlertsEnabled !== undefined
+        ? { instantAlertsEnabled: input.instantAlertsEnabled }
+        : {}),
       ...(input.dailyHour !== undefined ? { dailyHour: input.dailyHour } : {}),
       ...(input.chatContactEnabled !== undefined
         ? { chatContactEnabled: input.chatContactEnabled }
@@ -258,6 +261,7 @@ export class PlatformAlertsService {
     sendPastDue: boolean;
     sendActivation: boolean;
     weeklyDigestEnabled: boolean;
+    instantAlertsEnabled: boolean;
     dailyHour: number;
     chatContactEnabled: boolean;
   }): PlatformAlertSettingsDto {
@@ -273,6 +277,7 @@ export class PlatformAlertsService {
       sendPastDue: row.sendPastDue,
       sendActivation: row.sendActivation,
       weeklyDigestEnabled: row.weeklyDigestEnabled,
+      instantAlertsEnabled: row.instantAlertsEnabled,
       dailyHour: row.dailyHour,
       chatContactEnabled: row.chatContactEnabled,
     };

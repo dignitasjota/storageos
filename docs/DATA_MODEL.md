@@ -1075,3 +1075,8 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `audit_logs.impersonation_id`: sesión de impersonación en la que se hizo la acción.
 - **`security_blocks`** (global, REVOKE): `kind` (ip/email), `value`, `reason`, `expires_at`, `created_by_id` (FK SET NULL). Único por `kind` y `value`.
 - `platform_security_settings.alert_cooldown_minutes` (60).
+
+### Mejoras de «Hoy» (`20261215100000_admin_today_features`)
+
+- **`admin_today_snoozes`** (global, REVOKE): `kind`, `ref`, `label`, `until`, `created_by_id` (FK SET NULL). Único por `kind` y `ref`.
+- `platform_alert_settings.instant_alerts_enabled` (por defecto sí).

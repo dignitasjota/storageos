@@ -4074,6 +4074,7 @@ model SuperAdmin {
   updatedAt                       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   securityBlocks SecurityBlock[] @relation("SecurityBlockAuthor")
+  todaySnoozes   AdminTodaySnooze[] @relation("TodaySnoozeAuthor")
   ticketsAssigned    SupportTicket[]          @relation("TicketAssignedAdmin")
   messagesAuthored   SupportTicketMessage[]   @relation("MessageAuthorAdmin")
   impersonationLogs  ImpersonationLog[]       @relation("ImpersonationAdmin")
@@ -5407,6 +5408,8 @@ model PlatformAlertSettings {
   sendActivation      Boolean  @default(true) @map("send_activation")
   /// Resumen semanal de KPIs (MRR/churn/altas) por email al super admin (lunes 08:00).
   weeklyDigestEnabled Boolean  @default(false) @map("weekly_digest_enabled")
+  /// Aviso al momento de lo urgente que aparece en «Hoy».
+  instantAlertsEnabled Boolean @default(true) @map("instant_alerts_enabled")
   /// Avisos por chat (Telegram/Slack): token y webhook cifrados (AES-GCM).
   telegramBotTokenEncrypted String? @map("telegram_bot_token_encrypted")
   telegramChatId            String? @map("telegram_chat_id")
@@ -6128,6 +6131,23 @@ model SecurityAlertState {
 
   @@id([kind, identifier])
   @@map("security_alert_states")
+}
+
+/// Aviso de «Hoy» apartado unos días por el equipo.
+model AdminTodaySnooze {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  kind        String
+  ref         String
+  /// Qué se apartó, para poder enseñarlo.
+  label       String?
+  until       DateTime @db.Timestamptz(6)
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  createdBy SuperAdmin? @relation("TodaySnoozeAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([kind, ref])
+  @@map("admin_today_snoozes")
 }
 
 /// Bloqueo manual de una IP o un email en las entradas.

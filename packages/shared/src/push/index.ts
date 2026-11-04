@@ -79,6 +79,7 @@ export const SUPER_ADMIN_PUSH_TYPES: Record<string, string> = {
   feature_interest: 'Un tenant insiste en una función de pago',
   'security.brute_force': 'Posible ataque de fuerza bruta',
   'system.attention': 'Una tarea programada o el worker no responden',
+  'today.attention': 'Algo urgente nuevo en «Hoy»',
 };
 
 export function isSuperAdminPushType(type: string): boolean {
