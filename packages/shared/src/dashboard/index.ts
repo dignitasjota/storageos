@@ -15,17 +15,19 @@ export interface TodayItemDto {
   amount?: number;
   /** Factura: el inquilino tiene una tarjeta o domiciliación guardada para cobrarla ya. */
   chargeable?: boolean;
+  /** Factura: ya se está cobrando («Cobro en curso», «En plan de pagos»); no se reclama. */
+  note?: string | null;
 }
 
 /** Bandeja operativa «Hoy»: lo que el equipo debe atender, de un vistazo. */
 export interface TodayDto {
   /** Fecha del día en ISO (para la cabecera). */
   date: string;
-  /** Nº de cosas urgentes hoy (atrasadas / que vencen hoy). */
+  /** Asuntos de hoy: lo que vence hoy o está atrasado y se puede hacer hoy (deuda: uno por inquilino). */
   urgentCount: number;
   /** Entradas de hoy: contratos que empiezan hoy (acceso a emitir). */
   moveInsToday: { count: number; items: TodayItemDto[] };
-  /** Salidas de hoy: contratos que terminan hoy (check-out + fianza). */
+  /** Salidas de hoy y atrasadas: contratos con la fecha de fin hoy o pasada, sin cerrar. */
   moveOutsToday: { count: number; items: TodayItemDto[] };
   /** Tareas vencidas o que vencen hoy (open/in_progress). */
   tasksDue: { count: number; items: TodayItemDto[] };
@@ -112,9 +114,11 @@ export interface OnboardingDto {
 
 /** Cifras del mes en curso para la cabecera de «Hoy». */
 export interface TodayKpisDto {
+  /** Quien no puede ver facturas ni cobros recibe el dinero a cero. */
+  moneyVisible: boolean;
   /** Facturado en el mes (emitido, sin borradores ni anuladas). */
   invoicedMonth: number;
-  /** Cobrado en el mes (cobros reales). */
+  /** Cobrado en el mes (cobros reales, sin fianzas y neto de devoluciones). */
   collectedMonth: number;
   /** Deuda vencida pendiente. */
   overduePending: number;

@@ -4,7 +4,7 @@ import { type ContractDto, type ContractStatusValue } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Plus, Upload } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { contractStartLabel } from './[id]/pre-opening-card';
 
@@ -35,6 +35,11 @@ const STATUS_LABELS: Record<ContractStatusValue, string> = {
 
 export default function ContractsPage() {
   const [status, setStatus] = useState<ContractStatusValue | undefined>();
+  // «Ver todo» de «Hoy» llega con el estado en la dirección.
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('status');
+    if (fromUrl) setStatus(fromUrl as ContractStatusValue);
+  }, []);
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [facilityId, setFacilityId] = useFacilityFilterState();
 

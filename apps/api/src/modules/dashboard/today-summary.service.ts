@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
+import { leadSourceLabel, NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
 import {
   invoiceFacilityWhere,
@@ -9,11 +9,31 @@ import {
 import { formatEur, todayInTimezone, zonedDayStart } from '../../common/format';
 import { PrismaService } from '../database/prisma.service';
 
+import { overdueInvoiceWhere } from './today-filters';
+
 import type { Prisma } from '@storageos/database';
-import type { TodayActivityDto, TodaySummaryDto } from '@storageos/shared';
+import type { Permission, TodayActivityDto, TodaySummaryDto } from '@storageos/shared';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const ACTIVITY_HOURS = 48;
+
+const SEVERITY_LABELS: Record<string, string> = {
+  low: 'Gravedad baja',
+  medium: 'Gravedad media',
+  high: 'Gravedad alta',
+  critical: 'Gravedad crítica',
+};
+
+/** Permiso de lectura que hace falta para ver cada tipo de actividad. */
+const ACTIVITY_PERMISSION: Record<TodayActivityDto['kind'], Permission> = {
+  contract_signed: 'contracts:read',
+  payment_received: 'payments:read',
+  payment_failed: 'payments:read',
+  move_out_requested: 'contracts:read',
+  lead_created: 'leads:read',
+  customer_message: 'customers:read',
+  incident_reported: 'incidents:read',
+};
 
 type NameRow = {
   firstName: string | null;
@@ -41,6 +61,7 @@ export class TodaySummaryService {
     tenantId: string,
     facilityId: string | undefined,
     scope: string[] | null,
+    permissions: readonly Permission[],
     now = new Date(),
   ): Promise<TodaySummaryDto> {
     const ids = resolveFacilityFilter(scope, facilityId);
@@ -54,12 +75,18 @@ export class TodaySummaryService {
       facilityId: { in: [] },
     }) as Prisma.IncidentWhereInput;
 
-    const today = todayInTimezone('Europe/Madrid', now).toISOString().slice(0, 10);
+    const tenantZone = await this.prisma.withTenant(
+      (tx) => tx.tenant.findFirst({ where: { id: tenantId }, select: { timezone: true } }),
+      tenantId,
+    );
+    const timezone = tenantZone?.timezone ?? 'Europe/Madrid';
+    const startOfToday = todayInTimezone(timezone, now);
+    const today = startOfToday.toISOString().slice(0, 10);
     const monthStartDay = `${today.slice(0, 7)}-01`;
     const [y, m] = today.split('-').map(Number) as [number, number];
     const nextMonthDay = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
-    const monthFrom = zonedDayStart(monthStartDay);
-    const monthTo = zonedDayStart(nextMonthDay);
+    const monthFrom = zonedDayStart(monthStartDay, timezone);
+    const monthTo = zonedDayStart(nextMonthDay, timezone);
     const since = new Date(now.getTime() - ACTIVITY_HOURS * 3_600_000);
     // Mes anterior hasta el mismo día (el 10 de mayo se compara con el 1-10 de
     // abril), para que la comparación sea justa a mitad de mes.
@@ -69,8 +96,19 @@ export class TodaySummaryService {
     const prevEndDay = new Date(Date.UTC(y, m - 2, Math.min(day, prevLastDay) + 1))
       .toISOString()
       .slice(0, 10);
-    const prevFrom = zonedDayStart(prevStartDay);
-    const prevTo = zonedDayStart(prevEndDay);
+    const prevFrom = zonedDayStart(prevStartDay, timezone);
+    const prevTo = zonedDayStart(prevEndDay, timezone);
+    const overdueWhere: Prisma.InvoiceWhereInput = {
+      AND: [overdueInvoiceWhere(startOfToday), invWhere],
+    };
+    // Cobrado como en Analítica: alquileres y demás facturas, sin fianzas y neto
+    // de lo devuelto.
+    const collectedWhere = (from: Date, to: Date): Prisma.PaymentWhereInput => ({
+      invoice: { AND: [{ kind: 'invoice' }, invWhere] },
+      status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+      paidAt: { gte: from, lt: to },
+      methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+    });
 
     return this.prisma.withTenant(async (tx) => {
       const [
@@ -105,18 +143,10 @@ export class TodaySummaryService {
           _sum: { total: true },
         }),
         tx.payment.aggregate({
-          where: {
-            invoice: invWhere,
-            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
-            paidAt: { gte: monthFrom, lt: monthTo },
-            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
-          },
-          _sum: { amount: true },
+          where: collectedWhere(monthFrom, monthTo),
+          _sum: { amount: true, refundedAmount: true },
         }),
-        tx.invoice.aggregate({
-          where: { ...invWhere, deletedAt: null, kind: 'invoice', status: 'overdue' },
-          _sum: { total: true, amountPaid: true },
-        }),
+        tx.invoice.aggregate({ where: overdueWhere, _sum: { total: true, amountPaid: true } }),
         tx.unit.groupBy({ by: ['status'], where: unitWhere, _count: { _all: true } }),
         tx.contract.count({
           where: { ...contractUnit, deletedAt: null, signedAt: { gte: monthFrom, lt: monthTo } },
@@ -216,7 +246,7 @@ export class TodaySummaryService {
           where: {
             deletedAt: null,
             portalLastSeenAt: null,
-            invoices: { some: { ...invWhere, deletedAt: null, status: 'overdue' } },
+            invoices: { some: overdueWhere },
           },
         }),
         tx.invoice.aggregate({
@@ -230,13 +260,8 @@ export class TodaySummaryService {
           _sum: { total: true },
         }),
         tx.payment.aggregate({
-          where: {
-            invoice: invWhere,
-            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
-            paidAt: { gte: prevFrom, lt: prevTo },
-            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
-          },
-          _sum: { amount: true },
+          where: collectedWhere(prevFrom, prevTo),
+          _sum: { amount: true, refundedAmount: true },
         }),
         tx.contract.count({
           where: { ...contractUnit, deletedAt: null, signedAt: { gte: prevFrom, lt: prevTo } },
@@ -293,7 +318,7 @@ export class TodaySummaryService {
           at: l.createdAt.toISOString(),
           kind: 'lead_created' as const,
           label: `Contacto nuevo: ${[l.firstName, l.lastName].filter(Boolean).join(' ') || l.companyName || l.email || 'sin nombre'}`,
-          detail: l.source,
+          detail: leadSourceLabel(l.source),
           href: '/leads',
         })),
         ...messages.map((m) => ({
@@ -307,18 +332,27 @@ export class TodaySummaryService {
           at: i.createdAt.toISOString(),
           kind: 'incident_reported' as const,
           label: `Incidencia: ${i.title}`,
-          detail: i.severity,
+          detail: SEVERITY_LABELS[i.severity] ?? i.severity,
           href: '/incidents',
         })),
       ]
+        .filter((a) => permissions.includes(ACTIVITY_PERMISSION[a.kind]))
         .sort((a, b) => b.at.localeCompare(a.at))
         .slice(0, 40);
 
+      // Sin permiso sobre las facturas o los cobros no se enseña dinero.
+      const moneyVisible =
+        permissions.includes('invoices:read') && permissions.includes('payments:read');
+      const money = (value: number) => (moneyVisible ? round2(value) : 0);
+      const net = (agg: typeof collected) =>
+        Number(agg._sum.amount ?? 0) - Number(agg._sum.refundedAmount ?? 0);
+
       return {
         kpis: {
-          invoicedMonth: round2(Number(invoiced._sum.total ?? 0)),
-          collectedMonth: round2(Number(collected._sum.amount ?? 0)),
-          overduePending: round2(
+          moneyVisible,
+          invoicedMonth: money(Number(invoiced._sum.total ?? 0)),
+          collectedMonth: money(net(collected)),
+          overduePending: money(
             Math.max(0, Number(overdue._sum.total ?? 0) - Number(overdue._sum.amountPaid ?? 0)),
           ),
           occupancyPct: totalUnits ? Math.round((occupied / totalUnits) * 1000) / 10 : 0,
@@ -326,10 +360,10 @@ export class TodaySummaryService {
           totalUnits,
           moveInsMonth: moveIns,
           moveOutsMonth: moveOuts,
-          debtorsWithoutPortal,
+          debtorsWithoutPortal: moneyVisible ? debtorsWithoutPortal : 0,
           previous: {
-            invoicedMonth: round2(Number(prevInvoiced._sum.total ?? 0)),
-            collectedMonth: round2(Number(prevCollected._sum.amount ?? 0)),
+            invoicedMonth: money(Number(prevInvoiced._sum.total ?? 0)),
+            collectedMonth: money(net(prevCollected)),
             moveInsMonth: prevMoveIns,
             moveOutsMonth: prevMoveOuts,
           },

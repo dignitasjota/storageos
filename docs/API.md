@@ -2589,3 +2589,7 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 | DELETE | `/admin/today/snoozes/:id` | AdminGuard | Lo recupera                                                 |
 
 `GET /admin/today` añade `followupsUpcoming`, `contactMessages`, `domainsReady`, `incompleteInvoices`, `rgpdOverdue`, `npsNegative`, `activationStalled`, `workload`, `snoozes`, `done`, `usage` en las pruebas y la asignación en los tickets. `PUT /admin/platform-alerts` admite `instantAlertsEnabled`.
+
+### «Hoy» del panel del tenant (2026-11-05)
+
+`GET /dashboard/today` acepta `full=1` (listas enteras, modo mostrador). Cada apartado sale solo con su permiso de lectura; sin él llega vacío y no cuenta en `urgentCount`. `TodayItemDto.note` marca las facturas con cobro en curso o en plan de pagos. `GET /dashboard/today/summary` añade `kpis.moneyVisible`. `POST /invoices/bulk/remind` devuelve en `failed` los códigos `payment_in_progress` e `invoice_in_payment_plan`.
