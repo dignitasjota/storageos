@@ -73,10 +73,50 @@ export interface SuperAdminTwoFactorStatusResponse {
   deadline: string | null;
 }
 
+/** Una sesión abierta del panel admin. */
+export interface SuperAdminOpenSessionDto {
+  id: string;
+  userAgent: string | null;
+  ipAddress: string | null;
+  createdAt: string;
+  expiresAt: string;
+  /** Es la de este navegador. */
+  current: boolean;
+}
+
+export interface SecurityBlockDto {
+  id: string;
+  kind: 'ip' | 'email';
+  value: string;
+  reason: string | null;
+  expiresAt: string | null;
+  createdByName: string | null;
+  createdAt: string;
+}
+
+/** Un job fallido con sus datos, para la lista paginada de una cola. */
+export interface AdminFailedJobDto {
+  id: string;
+  name: string;
+  failedReason: string | null;
+  attemptsMade: number;
+  timestamp: string | null;
+  /** Datos del job en JSON, recortados. */
+  data: string;
+}
+
+export interface AdminFailedJobsPageDto {
+  items: AdminFailedJobDto[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface PlatformSecuritySettingsDto {
   requireAdminTwoFactor: boolean;
   adminTwoFactorGraceDays: number;
   adminTwoFactorRequiredSince: string | null;
+  alertCooldownMinutes: number;
   /** Super admins activos sin 2FA. */
   adminsWithoutTwoFactor: number;
 }
@@ -932,6 +972,8 @@ export interface AdminImpersonationSessionDto {
   reason: string;
   /** Sesión de solo lectura. */
   readOnly: boolean;
+  /** Acciones hechas dentro de esta sesión. */
+  actionsCount: number;
   ipAddress: string | null;
   createdAt: string;
   expiresAt: string;

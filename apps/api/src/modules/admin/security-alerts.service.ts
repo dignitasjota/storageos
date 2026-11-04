@@ -14,13 +14,14 @@ import { PlatformAlertsService } from './platform-alerts.service';
 import type { Env } from '../../config/env.schema';
 
 /** Tipo de identificador agregado en el scan. */
-type AlertKind = 'email' | 'ip';
+type AlertKind = 'email' | 'ip' | 'reuse';
 
 interface AlertArgs {
   kind: AlertKind;
   identifier: string;
   count: number;
   windowMin: number;
+  cooldownMin: number;
 }
 
 /**
@@ -76,7 +77,31 @@ export class SecurityAlertsService {
       having: { ipAddress: { _count: { gte: threshold } } },
     });
 
+    // Una sola sesión reutilizada ya es grave: no espera al umbral.
+    const reuseGroups = await this.admin.securityEvent.groupBy({
+      by: ['emailAttempted'],
+      where: {
+        occurredAt: { gte: cutoff },
+        eventType: 'refresh_token_reuse',
+        emailAttempted: { not: null },
+      },
+      _count: { _all: true },
+    });
+
+    const settings = await this.admin.platformSecuritySettings.findFirst();
+    const cooldownMin = settings?.alertCooldownMinutes ?? 60;
     let alertsSent = 0;
+    for (const group of reuseGroups) {
+      if (!group.emailAttempted) continue;
+      const sent = await this.maybeAlert({
+        kind: 'reuse',
+        identifier: group.emailAttempted,
+        count: group._count._all,
+        windowMin,
+        cooldownMin,
+      });
+      if (sent) alertsSent++;
+    }
     for (const group of emailGroups) {
       if (!group.emailAttempted) continue;
       const sent = await this.maybeAlert({
@@ -84,6 +109,7 @@ export class SecurityAlertsService {
         identifier: group.emailAttempted,
         count: group._count._all,
         windowMin,
+        cooldownMin,
       });
       if (sent) alertsSent++;
     }
@@ -94,6 +120,7 @@ export class SecurityAlertsService {
         identifier: group.ipAddress,
         count: group._count._all,
         windowMin,
+        cooldownMin,
       });
       if (sent) alertsSent++;
     }
@@ -107,7 +134,7 @@ export class SecurityAlertsService {
       INSERT INTO security_alert_states (kind, identifier, last_sent_at)
       VALUES (${args.kind}, ${args.identifier}, now())
       ON CONFLICT (kind, identifier) DO UPDATE SET last_sent_at = now()
-      WHERE security_alert_states.last_sent_at < now() - make_interval(mins => ${args.windowMin}::int)
+      WHERE security_alert_states.last_sent_at < now() - make_interval(mins => ${args.cooldownMin}::int)
       RETURNING kind`;
     return rows.length > 0;
   }
@@ -119,8 +146,14 @@ export class SecurityAlertsService {
     }
     const againstPanel = await this.touchesAdminPanel(args);
     const target = againstPanel ? ' en el panel admin' : '';
-    const title = `Posible ataque de fuerza bruta${target}`;
-    const detail = `${args.count} intentos fallidos en ${args.windowMin} min desde ${args.kind === 'ip' ? 'la IP' : 'el email'} ${args.identifier}`;
+    const title =
+      args.kind === 'reuse'
+        ? 'Sesión reutilizada: posible robo de sesión'
+        : `Posible ataque de fuerza bruta${target}`;
+    const detail =
+      args.kind === 'reuse'
+        ? `Se ha reutilizado una sesión ya renovada de ${args.identifier}. Se han cerrado sus sesiones.`
+        : `${args.count} intentos fallidos en ${args.windowMin} min desde ${args.kind === 'ip' ? 'la IP' : 'el email'} ${args.identifier}`;
 
     await this.notifyPanel(title, detail);
     await this.sendEmail(args, target);
@@ -136,9 +169,9 @@ export class SecurityAlertsService {
       where: {
         occurredAt: { gte: new Date(Date.now() - args.windowMin * 60_000) },
         eventType: { in: [...ADMIN_FAILURE_EVENT_TYPES] },
-        ...(args.kind === 'email'
-          ? { emailAttempted: args.identifier }
-          : { ipAddress: args.identifier }),
+        ...(args.kind === 'ip'
+          ? { ipAddress: args.identifier }
+          : { emailAttempted: args.identifier }),
       },
     });
     return count > 0;
@@ -156,7 +189,7 @@ export class SecurityAlertsService {
   }
 
   private async sendEmail(args: AlertArgs, target: string): Promise<void> {
-    const kindLabel = args.kind === 'email' ? 'EMAIL' : 'IP';
+    const kindLabel = args.kind === 'ip' ? 'IP' : 'EMAIL';
     const subject = `[TrasterOS] Posible brute-force: ${args.kind}=${args.identifier} (${args.count} en ${args.windowMin}min)${target}`;
     const webBase = this.config.get('WEB_BASE_URL', { infer: true });
     const dashboardUrl = `${webBase}/admin/security-events`;

@@ -1696,3 +1696,11 @@ Migración `20261213100000_admin_security_review`. Variables opcionales con valo
 - **2FA obligatoria**: para activarla, entra en Seguridad, activa tu 2FA y pulsa «Obligar». Quien no la tenga dispone de los días de plazo que elijas; después solo podrá activarla.
 - **Tareas programadas**: al arrancar el API y el worker desaparecen de la lista las que ya no existen.
 - El primer cron de retención borra las sesiones del panel caducadas hace más de 30 días y las impersonaciones y acciones de más de 2 años.
+
+## 80. Seguridad y sistema del panel admin: mejoras (2026-11-04)
+
+Migración `20261214100000_admin_security_features` (sin variables nuevas). Tras desplegar:
+
+- **Bloqueos**: en el panel de Seguridad se bloquea una IP o un email, 24 horas desde las tablas o el plazo que elijas. Afecta a la entrada del equipo y del panel admin, no al área de clientes.
+- **Avisos del sistema**: si el worker deja de latir o una tarea lleva más de una hora atrasada, llega un aviso por los canales de Alertas al admin, como mucho cada 6 horas.
+- **Impersonación**: entrar con permiso para hacer cambios manda un correo a los propietarios del tenant. Entrar en solo lectura no avisa.

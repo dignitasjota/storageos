@@ -1,6 +1,6 @@
 import { Module, type ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { APP_GUARD, APP_PIPE } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
@@ -15,6 +15,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
 import { SecurityThrottlerGuard } from './common/guards/security-throttler.guard';
 import { TenantStatusGuard } from './common/guards/tenant-status.guard';
 import { isInternalWebRequest } from './common/http/internal-request';
+import { ImpersonationContextInterceptor } from './common/interceptors/impersonation-context.interceptor';
 import { serializeRequestForLog } from './common/logging/sanitize';
 import { AppConfigModule } from './config/env.config';
 import { AccessModule } from './modules/access/access.module';
@@ -293,6 +294,8 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     // Límites de las sesiones de impersonación del soporte (solo lectura, datos de acceso).
     { provide: APP_GUARD, useClass: ImpersonationGuard },
+    // Marca lo que se audita durante una impersonación con su sesión.
+    { provide: APP_INTERCEPTOR, useClass: ImpersonationContextInterceptor },
     // Revalida por request que el tenant del token sigue vivo (no borrado):
     // cierra la ventana en que un token de staff opera tras borrar el tenant.
     { provide: APP_GUARD, useClass: TenantStatusGuard },

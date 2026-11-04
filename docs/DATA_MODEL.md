@@ -1068,3 +1068,10 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `super_admin_sessions.rotated_from_id`: sesión de la que sale al rotar.
 - **`security_alert_states`** (global, REVOKE): `kind`, `identifier`, `last_sent_at`. Última alerta de fuerza bruta por email o IP.
 - **`platform_security_settings`** (global, REVOKE, un registro): `require_admin_two_factor`, `admin_two_factor_grace_days`, `admin_two_factor_required_since`.
+
+### Mejoras de seguridad y sistema (`20261214100000_admin_security_features`)
+
+- `security_event_type` += `login_blocked`.
+- `audit_logs.impersonation_id`: sesión de impersonación en la que se hizo la acción.
+- **`security_blocks`** (global, REVOKE): `kind` (ip/email), `value`, `reason`, `expires_at`, `created_by_id` (FK SET NULL). Único por `kind` y `value`.
+- `platform_security_settings.alert_cooldown_minutes` (60).

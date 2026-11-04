@@ -4,6 +4,10 @@ import { adminApiFetch, adminApiFetchBlob } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminFailedJobsPageDto,
+  CreateSecurityBlockInput,
+  SecurityBlockDto,
+  SuperAdminOpenSessionDto,
   PlatformSecuritySettingsDto,
   SuperAdminChangePasswordInput,
   SuperAdminForgotPasswordInput,
@@ -1054,8 +1058,15 @@ export interface SecurityEventStatsResponse {
   bruteForceWindowMinutes: number;
   total: number;
   uniqueIps: number;
+  adminLogins: Array<{ bucket: string; success: number; failed: number }>;
   byEventType: Array<{ eventType: string; count: number }>;
-  topEmails: Array<{ email: string; count: number; exceedsThreshold: boolean }>;
+  topEmails: Array<{
+    email: string;
+    count: number;
+    exceedsThreshold: boolean;
+    tenantId: string | null;
+    tenantName: string | null;
+  }>;
   topIps: Array<{ ip: string; count: number; exceedsThreshold: boolean }>;
   timeseries: Array<{ bucket: string; count: number }>;
   activeAlerts: Array<{ kind: 'email' | 'ip'; identifier: string; count: number }>;
@@ -1172,6 +1183,7 @@ export function useAdminWebhooksCleanupRun() {
 
 export interface AdminQueueStatus {
   name: string;
+  paused: boolean;
   counts: {
     waiting: number;
     active: number;
@@ -1744,6 +1756,85 @@ export function useAdminResetPassword() {
         json: input,
         requiresAuth: false,
       }),
+  });
+}
+
+export function useAdminOwnSessions() {
+  return useQuery({
+    queryKey: ['admin', 'own-sessions'],
+    queryFn: () => adminApiFetch<SuperAdminOpenSessionDto[]>('/admin/auth/sessions'),
+  });
+}
+
+export function useCloseAdminSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/auth/sessions/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'own-sessions'] }),
+  });
+}
+
+export function useSuperAdminSessions(id: string | null) {
+  return useQuery({
+    queryKey: ['admin', 'super-admins', id, 'sessions'],
+    queryFn: () => adminApiFetch<SuperAdminOpenSessionDto[]>(`/admin/super-admins/${id}/sessions`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useRevokeSuperAdminSessions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<{ revoked: number }>(`/admin/super-admins/${id}/revoke-sessions`, {
+        method: 'POST',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'super-admins'] }),
+  });
+}
+
+export function useSecurityBlocks() {
+  return useQuery({
+    queryKey: ['admin', 'security-blocks'],
+    queryFn: () => adminApiFetch<SecurityBlockDto[]>('/admin/security-blocks'),
+  });
+}
+
+export function useCreateSecurityBlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateSecurityBlockInput) =>
+      adminApiFetch<void>('/admin/security-blocks', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'security-blocks'] }),
+  });
+}
+
+export function useRemoveSecurityBlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/security-blocks/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'security-blocks'] }),
+  });
+}
+
+export function useAdminFailedJobs(queue: string, page: number) {
+  return useQuery({
+    queryKey: ['admin', 'queues', queue, 'failed', page],
+    queryFn: () =>
+      adminApiFetch<AdminFailedJobsPageDto>(`/admin/queues/${queue}/failed?page=${page}`),
+  });
+}
+
+export function useQueuePause() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { queue: string; paused: boolean }) =>
+      adminApiFetch(`/admin/queues/${args.queue}/${args.paused ? 'pause' : 'resume'}`, {
+        method: 'POST',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'queues'] }),
   });
 }
 

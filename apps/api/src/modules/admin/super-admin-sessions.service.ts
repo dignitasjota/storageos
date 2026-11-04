@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 
@@ -9,6 +9,7 @@ import { SecurityEventsService } from '../security-events/security-events.servic
 
 import type { Env } from '../../config/env.schema';
 import type { SuperAdminSession } from '@storageos/database';
+import type { SuperAdminOpenSessionDto } from '@storageos/shared';
 
 /** Margen para dos pestañas o un doble refresco: el token anterior aún vale. */
 export const SUPER_ADMIN_REFRESH_GRACE_MS = 30_000;
@@ -129,8 +130,9 @@ export class SuperAdminSessionsService {
     const isRevoked = session.revokedAt !== null;
     const isRotated = session.rotatedAt !== null;
 
-    // Caducada sin más: no hay indicio de robo, no se toca el resto de sesiones.
-    if (isExpired && !isRotated && !isRevoked) {
+    // Caducada o cerrada a mano sin haber rotado: no hay indicio de robo. Un
+    // dispositivo cerrado desde otro intentará renovar y no debe cerrar el resto.
+    if (!isRotated && (isExpired || isRevoked)) {
       throw new UnauthorizedException({
         code: 'invalid_refresh',
         message: 'Refresh invalido',
@@ -215,6 +217,42 @@ export class SuperAdminSessionsService {
       refreshToken: this.formatRefreshToken(newSession.id, newSecret),
       superAdminId: session.superAdminId,
     };
+  }
+
+  /** Sesiones abiertas de un super admin; `currentSessionId` marca la de este navegador. */
+  async listOpen(
+    superAdminId: string,
+    currentSessionId?: string | null,
+  ): Promise<SuperAdminOpenSessionDto[]> {
+    const rows = await this.admin.superAdminSession.findMany({
+      where: {
+        superAdminId,
+        revokedAt: null,
+        rotatedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      userAgent: r.userAgent,
+      ipAddress: r.ipAddress,
+      createdAt: r.createdAt.toISOString(),
+      expiresAt: r.expiresAt.toISOString(),
+      current: r.id === currentSessionId,
+    }));
+  }
+
+  /** Cierra una sesión propia. El resto de dispositivos renuevan su token solos. */
+  async closeOwn(superAdminId: string, sessionId: string): Promise<void> {
+    const closed = await this.admin.superAdminSession.updateMany({
+      where: { id: sessionId, superAdminId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'logout' },
+    });
+    if (closed.count === 0) {
+      throw new NotFoundException({ code: 'session_not_found', message: 'Sesión no encontrada' });
+    }
+    await this.invalidateAccessTokens(superAdminId);
   }
 
   /** Token rotado hace nada en el mismo navegador: sesión hermana, sin cerrar nada. */

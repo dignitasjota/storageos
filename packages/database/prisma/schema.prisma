@@ -982,6 +982,8 @@ model AuditLog {
   ipAddress  String?  @map("ip_address") @db.Inet
   userAgent  String?  @map("user_agent")
   occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  /// Sesión de impersonación en la que se hizo (null = el propio usuario).
+  impersonationId String? @map("impersonation_id") @db.Uuid
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -4071,6 +4073,7 @@ model SuperAdmin {
   createdAt                       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  securityBlocks SecurityBlock[] @relation("SecurityBlockAuthor")
   ticketsAssigned    SupportTicket[]          @relation("TicketAssignedAdmin")
   messagesAuthored   SupportTicketMessage[]   @relation("MessageAuthorAdmin")
   impersonationLogs  ImpersonationLog[]       @relation("ImpersonationAdmin")
@@ -4512,6 +4515,7 @@ enum SecurityEventType {
   refresh_token_reuse
   admin_login_failed
   admin_two_factor_failed
+  login_blocked
 
   @@map("security_event_type")
 }
@@ -6126,12 +6130,30 @@ model SecurityAlertState {
   @@map("security_alert_states")
 }
 
+/// Bloqueo manual de una IP o un email en las entradas.
+model SecurityBlock {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// ip | email
+  kind        String
+  value       String
+  reason      String?
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  createdBy SuperAdmin? @relation("SecurityBlockAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([kind, value])
+  @@map("security_blocks")
+}
+
 /// Política de acceso al panel admin (un registro).
 model PlatformSecuritySettings {
   id                          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   requireAdminTwoFactor       Boolean   @default(false) @map("require_admin_two_factor")
   adminTwoFactorGraceDays     Int       @default(7) @map("admin_two_factor_grace_days")
   adminTwoFactorRequiredSince DateTime? @map("admin_two_factor_required_since") @db.Timestamptz(6)
+  alertCooldownMinutes        Int       @default(60) @map("alert_cooldown_minutes")
   updatedAt                   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_security_settings")

@@ -78,6 +78,7 @@ export const SUPER_ADMIN_PUSH_TYPES: Record<string, string> = {
   'email.provider_rejected': 'El proveedor de correo rechaza envíos',
   feature_interest: 'Un tenant insiste en una función de pago',
   'security.brute_force': 'Posible ataque de fuerza bruta',
+  'system.attention': 'Una tarea programada o el worker no responden',
 };
 
 export function isSuperAdminPushType(type: string): boolean {

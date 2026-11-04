@@ -37,6 +37,7 @@ const EVENT_TYPE_LABELS: Record<
   refresh_token_reuse: { label: 'Sesión reutilizada', variant: 'destructive' },
   admin_login_failed: { label: 'Panel admin: entrada fallida', variant: 'destructive' },
   admin_two_factor_failed: { label: 'Panel admin: 2FA fallida', variant: 'destructive' },
+  login_blocked: { label: 'Entrada bloqueada', variant: 'destructive' },
 };
 
 const EVENT_TYPES = Object.keys(EVENT_TYPE_LABELS) as SecurityEventTypeValue[];

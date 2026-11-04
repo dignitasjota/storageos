@@ -41,7 +41,7 @@ function SessionActivity({ id }: { id: string }) {
   if (items.length === 0) {
     return (
       <div className="px-4 py-3 text-sm text-muted-foreground">
-        No se registró actividad durante esta sesión.
+        No se hizo ningún cambio durante esta sesión.
       </div>
     );
   }
@@ -92,8 +92,8 @@ export default function ImpersonationPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Impersonaciones</h1>
         <p className="text-sm text-muted-foreground">
-          Sesiones en las que un super admin entró como un tenant. Despliega para ver la actividad
-          registrada durante la ventana de la sesión.
+          Sesiones en las que un super admin entró como un tenant. Despliega para ver lo que se hizo
+          en cada una.
         </p>
       </div>
 
@@ -160,6 +160,11 @@ export default function ImpersonationPage() {
                         <span className="ml-auto truncate text-xs text-muted-foreground">
                           {s.reason}
                         </span>
+                        {s.actionsCount > 0 && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {s.actionsCount === 1 ? '1 acción' : `${s.actionsCount} acciones`}
+                          </Badge>
+                        )}
                         {s.readOnly && (
                           <Badge variant="outline" className="text-[10px]">
                             solo lectura

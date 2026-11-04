@@ -16,6 +16,7 @@ import { renderAdminEmail } from '@storageos/shared';
 import { verifyAgainstDummyHash } from '../../common/security/dummy-password';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
+import { SecurityBlocksService } from '../security-events/security-blocks.service';
 import { SecurityEventsService } from '../security-events/security-events.service';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
@@ -86,6 +87,7 @@ export class SuperAdminService {
     private readonly audit: SuperAdminAuditService,
     private readonly securityEvents: SecurityEventsService,
     private readonly email: EmailService,
+    private readonly blocks: SecurityBlocksService,
   ) {}
 
   // =============================== login ===================================
@@ -105,6 +107,7 @@ export class SuperAdminService {
     input: SuperAdminLoginInput,
     meta: SuperAdminLoginMeta = {},
   ): Promise<SuperAdminLoginResult> {
+    await this.blocks.assertAllowed({ email: input.email, ...meta });
     const record = await this.admin.superAdmin.findUnique({ where: { email: input.email } });
     if (!record) {
       // No autenticado: superAdminId queda null pero registramos el intento

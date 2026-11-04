@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 
+import { SecurityBlocksService } from './security-blocks.service';
 import { SecurityEventsCleanupService } from './security-events-cleanup.service';
 import { SecurityEventsService } from './security-events.service';
 
@@ -20,8 +21,9 @@ import { SecurityEventsService } from './security-events.service';
 @Module({
   providers: [
     SecurityEventsService,
+    SecurityBlocksService,
     ...(WORKERS_ENABLED_IN_API ? [SecurityEventsCleanupService] : []),
   ],
-  exports: [SecurityEventsService],
+  exports: [SecurityEventsService, SecurityBlocksService],
 })
 export class SecurityEventsModule {}

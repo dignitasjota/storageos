@@ -24,6 +24,7 @@ import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
 import { PasswordResetEmail } from '../email/templates/password-reset-email';
 import { VerificationEmail } from '../email/templates/verification-email';
+import { SecurityBlocksService } from '../security-events/security-blocks.service';
 import { SecurityEventsService } from '../security-events/security-events.service';
 
 import { AuditService } from './audit.service';
@@ -87,6 +88,7 @@ export class AuthService {
     private readonly passwordResetTokens: PasswordResetTokensService,
     private readonly config: ConfigService<Env, true>,
     private readonly securityEvents: SecurityEventsService,
+    private readonly blocks: SecurityBlocksService,
   ) {}
 
   // Nota: `login_failed_throttled`, `register_throttled` y
@@ -152,6 +154,7 @@ export class AuthService {
     | { body: LoginRequires2faResponse }
     | { body: LoginRequires2faEnrolmentResponse }
   > {
+    await this.blocks.assertAllowed({ email: input.email, ...meta });
     const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
     if (!tenant || tenant.deletedAt) {
       // Sin tenant_id: el evento no puede ir a audit_logs. Lo persistimos

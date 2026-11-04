@@ -1,6 +1,7 @@
 'use client';
 
-import { CheckCircle2, Loader2, RotateCw, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, Loader2, Pause, Play, RotateCw, Trash2, XCircle } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
@@ -17,7 +18,9 @@ import {
 } from '@/components/ui/table';
 import {
   useAdminCrons,
+  useAdminFailedJobs,
   useQueueJobAction,
+  useQueuePause,
   useRemoveAdminCron,
   useAdminQueues,
   useAdminSystemHealth,
@@ -146,7 +149,15 @@ export default function AdminQueuesPage() {
                   <TableBody>
                     {queues.data.map((q) => (
                       <TableRow key={q.name}>
-                        <TableCell className="font-mono text-sm">{q.name}</TableCell>
+                        <TableCell className="font-mono text-sm">
+                          {q.name}
+                          {q.paused && (
+                            <Badge variant="destructive" className="ml-2">
+                              Pausada
+                            </Badge>
+                          )}
+                          <PauseButton name={q.name} paused={q.paused} />
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {q.counts.waiting}
                         </TableCell>
@@ -305,9 +316,93 @@ function CronsSection() {
   );
 }
 
+function PauseButton({ name, paused }: { name: string; paused: boolean }) {
+  const pause = useQueuePause();
+  const confirm = useConfirm();
+  const isSuperadmin = useIsSuperadmin();
+  if (!isSuperadmin) return null;
+
+  async function toggle() {
+    if (!paused) {
+      const ok = await confirm({
+        title: `¿Pausar la cola ${name}?`,
+        description: 'Lo que entre esperará hasta que la reanudes.',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    pause.mutate(
+      { queue: name, paused: !paused },
+      { onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error') },
+    );
+  }
+
+  return (
+    <Button
+      size="icon"
+      variant="ghost"
+      className="ml-1 size-7"
+      aria-label={paused ? `Reanudar ${name}` : `Pausar ${name}`}
+      title={paused ? 'Reanudar' : 'Pausar'}
+      disabled={pause.isPending}
+      onClick={toggle}
+    >
+      {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
+    </Button>
+  );
+}
+
+/** Todos los fallos de una cola, con los datos de cada job. */
+function AllFailedJobs({ queue }: { queue: string }) {
+  const [page, setPage] = useState(1);
+  const jobs = useAdminFailedJobs(queue, page);
+  const data = jobs.data;
+  if (!data) return <Loader2 className="size-5 animate-spin text-muted-foreground" />;
+  const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  return (
+    <div className="space-y-2">
+      {data.items.map((job) => (
+        <details key={job.id} className="rounded-md border p-2 text-xs">
+          <summary className="cursor-pointer font-mono">
+            {job.name} #{job.id} · {formatDate(job.timestamp)}
+          </summary>
+          <p className="mt-1">{job.failedReason ?? '—'}</p>
+          <pre className="mt-1 overflow-auto whitespace-pre-wrap break-all text-muted-foreground">
+            {job.data}
+          </pre>
+        </details>
+      ))}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          Página {data.page} de {pages} · {data.total} fallidos
+        </span>
+        <span className="space-x-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            Anterior
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page >= pages}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Siguiente
+          </Button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function FailedJobsCard({ queue }: { queue: AdminQueueStatus }) {
   const jobAction = useQueueJobAction();
   const isSuperadmin = useIsSuperadmin();
+  const [showAll, setShowAll] = useState(false);
 
   function run(id: string, action: 'retry' | 'remove') {
     jobAction.mutate(
@@ -323,9 +418,21 @@ function FailedJobsCard({ queue }: { queue: AdminQueueStatus }) {
     <Card>
       <CardHeader>
         <CardTitle className="font-mono text-base">{queue.name} — últimos fallos</CardTitle>
-        <CardDescription>Máximo 10 más recientes.</CardDescription>
+        <CardDescription>
+          Los 10 más recientes.{' '}
+          {isSuperadmin && queue.counts.failed > 0 && (
+            <button
+              type="button"
+              className="text-primary hover:underline"
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? 'Ocultar la lista completa' : 'Ver todos con sus datos'}
+            </button>
+          )}
+        </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {showAll && <AllFailedJobs queue={queue.name} />}
         <Table>
           <TableHeader>
             <TableRow>

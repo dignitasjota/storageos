@@ -1,10 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Logger,
+  Param,
+  ParseUUIDPipe,
   Post,
   Req,
   Res,
@@ -22,6 +25,7 @@ import {
   SuperAdminTwoFactorDisableSchema,
   SuperAdminTwoFactorVerifySchema,
   type SuperAdminDto,
+  type SuperAdminOpenSessionDto,
   type SuperAdminLoginRequires2faResponse,
   type SuperAdminRecoveryCodesResponse,
   type SuperAdminRefreshResponse,
@@ -178,6 +182,31 @@ export class SuperAdminAuthController {
   ): Promise<void> {
     await this.sessions.revokeAll({ superAdminId: admin.sub, reason: 'logout_all' });
     this.clearRefreshCookie(res);
+  }
+
+  // ============================== sesiones =================================
+
+  @Public()
+  @UseGuards(AdminGuard)
+  @Get('sessions')
+  sessionsList(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ): Promise<SuperAdminOpenSessionDto[]> {
+    const cookie = this.readRefreshCookie(req);
+    const current = cookie ? this.sessions.parseRefreshToken(cookie)?.sessionId : null;
+    return this.sessions.listOpen(admin.sub, current ?? null);
+  }
+
+  @Public()
+  @UseGuards(AdminGuard)
+  @Delete('sessions/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async closeSession(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    await this.sessions.closeOwn(admin.sub, id);
   }
 
   // ============================ contraseña =================================

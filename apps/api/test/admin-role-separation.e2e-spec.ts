@@ -190,7 +190,7 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
     }
 
     // El superadmin sí; y el cambio queda en el registro (sin valores, solo campos).
-    const since = new Date();
+    const since = new Date(Date.now() - 5000);
     const banner = await request(app.getHttpServer())
       .post('/admin/platform/banners')
       .set('Authorization', `Bearer ${superToken}`)
