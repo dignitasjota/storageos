@@ -172,7 +172,7 @@ export function OfflinePaymentOptionsCard() {
     {
       key: 'offlineCashEnabled',
       title: 'Pagar en el local',
-      text: 'Paga en persona (efectivo o lo que aceptes en el local).',
+      text: 'Paga en persona (efectivo o TPV). Al reservar online también puede dejar solo la fianza para el local y pagar el alquiler con tarjeta.',
       enabled: s.offlineCashEnabled,
       blocked: null,
     },

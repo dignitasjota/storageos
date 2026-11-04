@@ -1704,3 +1704,7 @@ Migración `20261214100000_admin_security_features` (sin variables nuevas). Tras
 - **Bloqueos**: en el panel de Seguridad se bloquea una IP o un email, 24 horas desde las tablas o el plazo que elijas. Afecta a la entrada del equipo y del panel admin, no al área de clientes.
 - **Avisos del sistema**: si el worker deja de latir o una tarea lleva más de una hora atrasada, llega un aviso por los canales de Alertas al admin, como mucho cada 6 horas.
 - **Impersonación**: entrar con permiso para hacer cambios manda un correo a los propietarios del tenant. Entrar en solo lectura no avisa.
+
+## 81. Fianza en el local al reservar online (2026-11-04)
+
+Sin migración ni variables nuevas. Para ofrecerlo, activa «Pagar en el local» en Configuración → Cobros. Quien reserva online verá antes de firmar «¿Dónde pagas la fianza?». Con la fianza en el local recibe el acceso al pagar el alquiler y la fianza queda en «Hoy» hasta registrar su cobro, también con «Tarjeta (TPV físico)».

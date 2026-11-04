@@ -153,7 +153,8 @@ export class TodayService {
     const depositToCollectWhere = {
       kind: 'deposit_receipt' as const,
       status: { in: ['issued' as const, 'overdue' as const] },
-      bundledWithInvoiceId: null,
+      // También la de quien eligió pagarlo todo en el local.
+      OR: [{ bundledWithInvoiceId: null }, { contract: { is: { offlinePaymentMethod: 'cash' } } }],
       deletedAt: null,
       contract: {
         is: {

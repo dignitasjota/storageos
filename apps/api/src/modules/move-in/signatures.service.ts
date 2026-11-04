@@ -200,6 +200,34 @@ export class SignaturesService {
     return { signingUrl, expiresAt: expiresAt.toISOString(), emailed, token };
   }
 
+  /**
+   * Reserva online: antes de firmar, el inquilino decide si la fianza va con el
+   * pago online o la paga en el local. Se elige aquí, no tras firmar, para que
+   * el texto firmado y el primer pago digan ya lo mismo.
+   */
+  async setDepositMethodViaToken(
+    token: string,
+    method: 'online' | 'cash',
+  ): Promise<ContractSignViewDto> {
+    const contract = await this.resolveToken(token);
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: contract.tenantId },
+      select: { offlineCashEnabled: true },
+    });
+    if (!canChooseDepositAtFacility(contract, !!tenant?.offlineCashEnabled)) {
+      throw new BadRequestException({
+        code: 'deposit_method_not_available',
+        message: 'Esta reserva no permite cambiar dónde se paga la fianza',
+      });
+    }
+    // Condicionado a borrador: una firma a la vez no se queda con otro texto.
+    await this.admin.contract.updateMany({
+      where: { id: contract.id, status: 'draft' },
+      data: { depositPaymentMethod: method },
+    });
+    return this.getSignView(token);
+  }
+
   /** Público: vista del contrato a firmar (resuelta por token). */
   async getSignView(token: string): Promise<ContractSignViewDto> {
     const contract = await this.resolveToken(token);
@@ -212,6 +240,7 @@ export class SignaturesService {
         portalBrandColor: true,
         portalLogoUrl: true,
         googleAnalyticsId: true,
+        offlineCashEnabled: true,
       },
     });
     const propertyKind = contract.unit.unitType?.propertyKind ?? 'storage';
@@ -228,6 +257,10 @@ export class SignaturesService {
       priceMonthly: Number(contract.priceMonthly),
       depositAmount: Number(contract.depositAmount),
       depositPaymentMethod: contract.depositPaymentMethod === 'cash' ? 'cash' : 'online',
+      canChooseDepositAtFacility: canChooseDepositAtFacility(
+        contract,
+        !!tenant?.offlineCashEnabled,
+      ),
       billingCycle: contract.billingCycle,
       startDate: contract.startDate.toISOString().slice(0, 10),
       termsText,
@@ -942,6 +975,25 @@ export class SignaturesService {
     if (cancelled > 0) this.logger.log(`Bookings impagados expirados: ${cancelled}`);
     return { cancelled };
   }
+}
+
+/** Solo reservas online sin firmar, con fianza y fuera de la preapertura. */
+function canChooseDepositAtFacility(
+  contract: {
+    status: string;
+    depositAmount: unknown;
+    firstPaymentDeadline: Date | null;
+    preOpening: boolean;
+  },
+  offlineCashEnabled: boolean,
+): boolean {
+  return (
+    offlineCashEnabled &&
+    contract.status === 'draft' &&
+    contract.firstPaymentDeadline !== null &&
+    !contract.preOpening &&
+    Number(contract.depositAmount) > 0
+  );
 }
 
 function escapeHtml(v: string): string {

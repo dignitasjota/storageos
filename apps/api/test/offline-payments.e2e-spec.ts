@@ -36,11 +36,17 @@ describe('Formas de pago sin pasarela (e2e)', () => {
     await cleanupTestTenants();
   });
 
-  async function bookAndSign(suffix: string) {
+  async function bookAndSign(suffix: string, deposit = 0) {
     const owner = await registerVerifiedUser(app, suffix);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await ensureDefaultSeries(app, owner.accessToken);
     await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    if (deposit > 0) {
+      await admin.unitType.updateMany({
+        where: { tenantId: owner.tenantId },
+        data: { defaultDepositAmount: deposit },
+      });
+    }
     const avail = await request(app.getHttpServer()).get(
       `/public/move-in/book/${owner.slug}/availability`,
     );
@@ -227,5 +233,113 @@ describe('Formas de pago sin pasarela (e2e)', () => {
       .send({ method: 'sepa_debit', iban: CUSTOMER_IBAN })
       .expect(200);
     expect(reuse.body.mandateSigningUrl).toBeNull();
+  });
+
+  it('reserva online: la fianza se elige en el local antes de firmar y se cobra con TPV', async () => {
+    const owner = await registerVerifiedUser(app, 'offdeposit');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const http = app.getHttpServer();
+    await ensureDefaultSeries(app, owner.accessToken);
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    await admin.unitType.updateMany({
+      where: { tenantId: owner.tenantId },
+      data: { defaultDepositAmount: 100 },
+    });
+    const avail = await request(http).get(`/public/move-in/book/${owner.slug}/availability`);
+    const facility = avail.body.facilities[0];
+    const booking = await request(http)
+      .post(`/public/move-in/book/${owner.slug}`)
+      .send({
+        facilityId: facility.id,
+        unitTypeId: facility.unitTypes[0].id,
+        startDate: '2026-03-01',
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Eva',
+          lastName: 'Ruiz',
+          email: `off-deposit-${Date.now()}@e2e.local`,
+        },
+      })
+      .expect(201);
+    const token = booking.body.signingToken as string;
+    const contractId = booking.body.contractId as string;
+
+    // Sin «pagar en el local» activado no se ofrece ni se puede forzar.
+    const off = await request(http).get(`/public/move-in/sign/${token}`).expect(200);
+    expect(off.body.canChooseDepositAtFacility).toBe(false);
+    const denied = await request(http)
+      .post(`/public/move-in/sign/${token}/deposit-method`)
+      .send({ method: 'cash' });
+    expect(denied.status).toBe(400);
+    expect(denied.body.code).toBe('deposit_method_not_available');
+
+    await request(http)
+      .patch('/settings/tenant/billing')
+      .set(auth)
+      .send({ offlineCashEnabled: true })
+      .expect(200);
+    const chosen = await request(http)
+      .post(`/public/move-in/sign/${token}/deposit-method`)
+      .send({ method: 'cash' })
+      .expect(200);
+    expect(chosen.body.depositPaymentMethod).toBe('cash');
+    expect(chosen.body.firstPayment.deposit).toBe(0);
+    expect(chosen.body.termsText).toContain('se paga en el local');
+    expect(chosen.body.termsHash).not.toBe(off.body.termsHash);
+
+    await request(http)
+      .post(`/public/move-in/sign/${token}`)
+      .send({
+        signerName: 'Eva Ruiz',
+        method: 'typed',
+        typedSignature: 'Eva Ruiz',
+        accept: true,
+        termsHash: chosen.body.termsHash,
+        generalTermsHash: await generalTermsHash(app, token),
+      })
+      .expect(201);
+
+    // El pago online es solo el alquiler; la fianza queda aparte, para el local.
+    const receipt = await admin.invoice.findFirstOrThrow({
+      where: { contractId, kind: 'deposit_receipt' },
+    });
+    expect(receipt.bundledWithInvoiceId).toBeNull();
+    const today = await request(http).get('/dashboard/today').set(auth).expect(200);
+    expect(today.body.depositsToCollect.count).toBe(1);
+
+    // Ya firmada no se puede cambiar.
+    await request(http)
+      .post(`/public/move-in/sign/${token}/deposit-method`)
+      .send({ method: 'online' })
+      .expect(400);
+
+    await request(http)
+      .post(`/contracts/${contractId}/deposit/collect`)
+      .set(auth)
+      .send({ methodType: 'card' })
+      .expect(200);
+    const payment = await admin.payment.findFirstOrThrow({ where: { invoiceId: receipt.id } });
+    expect(payment.methodType).toBe('card');
+  });
+
+  it('quien elige pagarlo todo en el local tiene la fianza en la lista del equipo', async () => {
+    const { auth, portal, invoice } = await bookAndSign('offallfacility', 100);
+    const http = app.getHttpServer();
+    const before = await request(http).get('/dashboard/today').set(auth).expect(200);
+    expect(before.body.depositsToCollect.count).toBe(0);
+
+    await request(http)
+      .patch('/settings/tenant/billing')
+      .set(auth)
+      .send({ offlineCashEnabled: true })
+      .expect(200);
+    await request(http)
+      .post(`/portal/me/invoices/${invoice.id}/offline-payment`)
+      .set(portal)
+      .send({ method: 'cash' })
+      .expect(200);
+    const after = await request(http).get('/dashboard/today').set(auth).expect(200);
+    expect(after.body.depositsToCollect.count).toBe(1);
   });
 });

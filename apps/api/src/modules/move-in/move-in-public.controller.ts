@@ -10,6 +10,7 @@ import {
   CaptureBookingLeadSchema,
   type ContractSignViewDto,
   PublicBookingSchema,
+  PublicDepositMethodSchema,
   PublicSignSubmitSchema,
   type SignPaymentSessionDto,
   type SignResultDto,
@@ -29,6 +30,7 @@ class BookingQuoteBody extends createZodDto(BookingQuoteSchema) {}
 class CaptureBookingLeadBody extends createZodDto(CaptureBookingLeadSchema) {}
 class PublicSignBody extends createZodDto(PublicSignSubmitSchema) {}
 class AcceptGeneralTermsBody extends createZodDto(AcceptGeneralTermsSchema) {}
+class PublicDepositMethodBody extends createZodDto(PublicDepositMethodSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -108,6 +110,17 @@ export class MoveInPublicController {
     @Req() req: Request,
   ): Promise<SignResultDto> {
     return this.signatures.signViaToken(token, body, extractMeta(req));
+  }
+
+  /** Antes de firmar: la fianza con el pago online o en el local. */
+  @Post('sign/:token/deposit-method')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  setDepositMethod(
+    @Param('token') token: string,
+    @Body() body: PublicDepositMethodBody,
+  ): Promise<ContractSignViewDto> {
+    return this.signatures.setDepositMethodViaToken(token, body.method);
   }
 
   /** Contrato ya firmado: sesión para pagar la 1ª factura pendiente. */
