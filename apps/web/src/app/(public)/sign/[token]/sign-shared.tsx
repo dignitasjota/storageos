@@ -66,6 +66,7 @@ export function SignPageBody({
   // Vuelve al enlace tras firmar: sesión para pagar lo pendiente.
   const [payToken, setPayToken] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
+  const [changingDeposit, setChangingDeposit] = useState(false);
 
   async function loadPending(portalToken: string) {
     try {
@@ -76,6 +77,24 @@ export function SignPageBody({
       setPending(invoices.filter((i) => i.status === 'issued' || i.status === 'overdue'));
     } catch {
       /* el pago es opcional aquí */
+    }
+  }
+
+  async function changeDepositMethod(method: 'online' | 'cash') {
+    if (view?.depositPaymentMethod === method) return;
+    setChangingDeposit(true);
+    try {
+      setView(
+        await apiFetch<ContractSignViewDto>(`/public/move-in/sign/${token}/deposit-method`, {
+          method: 'POST',
+          requiresAuth: false,
+          json: { method },
+        }),
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : t('depositChoiceError'));
+    } finally {
+      setChangingDeposit(false);
     }
   }
 
@@ -285,6 +304,36 @@ export function SignPageBody({
                   })
                 : t('preOpeningNoDate')}
             </p>
+          )}
+          {view.canChooseDepositAtFacility && (
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">{t('depositChoiceTitle')}</legend>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={view.depositPaymentMethod === 'online' ? 'default' : 'outline'}
+                  aria-pressed={view.depositPaymentMethod === 'online'}
+                  disabled={changingDeposit}
+                  onClick={() => void changeDepositMethod('online')}
+                >
+                  {t('depositChoiceOnline')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={view.depositPaymentMethod === 'cash' ? 'default' : 'outline'}
+                  aria-pressed={view.depositPaymentMethod === 'cash'}
+                  disabled={changingDeposit}
+                  onClick={() => void changeDepositMethod('cash')}
+                >
+                  {t('depositChoiceFacility')}
+                </Button>
+              </div>
+              {view.depositPaymentMethod === 'cash' && (
+                <p className="text-xs text-muted-foreground">{t('depositChoiceHint')}</p>
+              )}
+            </fieldset>
           )}
           <FirstPaymentSummary quote={view.firstPayment} locale={locale} />
           {view.depositAmount > 0 && view.depositPaymentMethod === 'cash' && (

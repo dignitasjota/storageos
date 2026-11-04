@@ -48,7 +48,9 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
   const [open, setOpen] = useState(false);
   const collect = useCollectDeposit();
   const setMethod = useSetDepositPaymentMethod();
-  const [collectMethod, setCollectMethod] = useState<'cash' | 'bank_transfer' | 'other'>('cash');
+  const [collectMethod, setCollectMethod] = useState<'cash' | 'card' | 'bank_transfer' | 'other'>(
+    'cash',
+  );
   const receipt = contract.depositReceipt;
   const collected = receipt?.status === 'paid';
   const live = contract.status !== 'cancelled' && contract.status !== 'ended';
@@ -97,12 +99,12 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
               onChange={(e) => void onChangeMethod(e.target.value as 'online' | 'cash')}
             >
               <option value="online">Con la 1ª factura (online)</option>
-              <option value="cash">En efectivo en el local</option>
+              <option value="cash">En el local (efectivo o TPV)</option>
             </select>
           ) : (
             <span>
               {contract.depositPaymentMethod === 'cash'
-                ? 'En efectivo en el local'
+                ? 'En el local (efectivo o TPV)'
                 : 'Con la 1ª factura'}
             </span>
           )}
@@ -127,10 +129,11 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
                 className="rounded-md border bg-background px-2 py-1 text-sm"
                 value={collectMethod}
                 onChange={(e) =>
-                  setCollectMethod(e.target.value as 'cash' | 'bank_transfer' | 'other')
+                  setCollectMethod(e.target.value as 'cash' | 'card' | 'bank_transfer' | 'other')
                 }
               >
                 <option value="cash">Efectivo</option>
+                <option value="card">Tarjeta (TPV físico)</option>
                 <option value="bank_transfer">Transferencia</option>
                 <option value="other">Otro</option>
               </select>

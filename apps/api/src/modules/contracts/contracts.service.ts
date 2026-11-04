@@ -2132,7 +2132,7 @@ export class ContractsService {
    * deuda pendiente en la UI). Reutiliza el evento `note_added` con payload
    * tipado (el enum no tiene `deposit_settled`, patrón del proyecto).
    */
-  /** Cómo se cobra la fianza (online con la 1ª factura o en efectivo). Solo antes de firmar. */
+  /** Cómo se cobra la fianza (online con la 1ª factura o en el local). Solo antes de firmar. */
   async setDepositPaymentMethod(args: {
     tenantId: string;
     userId: string;
@@ -2171,7 +2171,7 @@ export class ContractsService {
   }
 
   /**
-   * Registra el cobro de la fianza en el local (efectivo, transferencia…): usa
+   * Registra el cobro de la fianza en el local (efectivo, TPV, transferencia…): usa
    * su justificante o lo crea si aún no existe (p. ej. contrato firmado en el
    * panel) y lo marca cobrado por el importe completo.
    */
@@ -2179,7 +2179,7 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
-    methodType: 'cash' | 'bank_transfer' | 'other';
+    methodType: 'cash' | 'card' | 'bank_transfer' | 'other';
     facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ContractDto> {

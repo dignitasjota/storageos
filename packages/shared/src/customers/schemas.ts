@@ -181,6 +181,10 @@ const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
 export const DepositPaymentMethodEnum = z.enum(['online', 'cash']);
 export type DepositPaymentMethodValue = z.infer<typeof DepositPaymentMethodEnum>;
 
+/** Reserva online: el inquilino elige antes de firmar dónde paga la fianza. */
+export const PublicDepositMethodSchema = z.object({ method: DepositPaymentMethodEnum });
+export type PublicDepositMethodInput = z.infer<typeof PublicDepositMethodSchema>;
+
 export const CreateContractSchema = z.object({
   customerId: z.string().uuid(),
   unitId: z.string().uuid(),
@@ -289,7 +293,8 @@ export type SetDepositPaymentMethodInput = z.infer<typeof SetDepositPaymentMetho
 
 /** Registra el cobro de la fianza en el local (crea el justificante si no existe). */
 export const CollectDepositSchema = z.object({
-  methodType: z.enum(['cash', 'bank_transfer', 'other']).default('cash'),
+  /** `card`: cobrada con el TPV físico del local. */
+  methodType: z.enum(['cash', 'card', 'bank_transfer', 'other']).default('cash'),
 });
 export type CollectDepositInput = z.infer<typeof CollectDepositSchema>;
 

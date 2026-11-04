@@ -11,6 +11,8 @@ export interface ContractSignViewDto {
   depositAmount: number;
   /** `cash`: la fianza se paga en el local, no en el pago online. */
   depositPaymentMethod: 'online' | 'cash';
+  /** Reserva online sin firmar de un negocio con pago en el local: puede elegir. */
+  canChooseDepositAtFacility: boolean;
   billingCycle: string;
   startDate: string;
   /** Texto de términos a aceptar (resumen legible). */

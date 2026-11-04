@@ -517,7 +517,7 @@ function StepEconomics(props: {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="online">Con la 1ª factura (online)</SelectItem>
-                  <SelectItem value="cash">En efectivo en el local</SelectItem>
+                  <SelectItem value="cash">En el local (efectivo o TPV)</SelectItem>
                 </SelectContent>
               </Select>
               {props.depositPaymentMethod === 'cash' && (
@@ -825,7 +825,7 @@ function StepReview(props: {
             <dd className="tabular-nums">
               {formatEur(props.depositAmount)}
               {props.depositAmount > 0 && props.depositPaymentMethod === 'cash' && (
-                <span className="text-muted-foreground"> · en efectivo en el local</span>
+                <span className="text-muted-foreground"> · en el local</span>
               )}
             </dd>
           </div>
