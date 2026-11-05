@@ -117,6 +117,7 @@ export default function PaymentsPage() {
         columns={columns}
         data={payments.rows}
         isLoading={payments.isLoading}
+        guide="cobrar"
         emptyText="Aún no hay cobros. Aparecen aquí cuando se cobra una factura (tarjeta, adeudo, efectivo o transferencia)."
         serverSearch={{
           value: searchText,

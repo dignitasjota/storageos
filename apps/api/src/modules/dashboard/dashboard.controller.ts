@@ -40,6 +40,7 @@ import { TodayService } from './today.service';
 import type {
   DailySummaryPrefs,
   OnboardingDto,
+  OnboardingNextStepDto,
   OnboardingTestRunDto,
   TenantTodaySnoozeDto,
   TodayDeskAccessDto,
@@ -140,6 +141,25 @@ export class DashboardController {
     @Body() body: UpdateOnboardingStateDto,
   ): Promise<OnboardingDto> {
     return this.onboarding.setState(user.tenantId, body);
+  }
+
+  /** Siguiente sugerencia cuando lo imprescindible ya está hecho. */
+  @RequirePermission('facilities:manage')
+  @Get('onboarding/next-step')
+  async nextOnboardingStep(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ step: OnboardingNextStepDto | null }> {
+    return { step: await this.onboarding.nextStep(user.tenantId) };
+  }
+
+  @RequirePermission('facilities:manage')
+  @Post('onboarding/next-step/:key/dismiss')
+  @HttpCode(200)
+  async dismissOnboardingStep(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('key') key: string,
+  ): Promise<{ step: OnboardingNextStepDto | null }> {
+    return { step: await this.onboarding.dismissNextStep(user.tenantId, key) };
   }
 
   /** Crea el inquilino de prueba con el email de quien lo pide. */

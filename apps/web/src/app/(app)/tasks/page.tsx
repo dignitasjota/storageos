@@ -592,6 +592,7 @@ export default function TasksPage() {
         columns={columns}
         data={rows}
         isLoading={tasks.isLoading}
+        guide="tareas"
         emptyText="No hay tareas. Crea la primera con «Nueva tarea»."
         serverSearch={{
           value: searchText,

@@ -115,6 +115,11 @@ describe('Tenant lifecycle emails (e2e)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.type).toBe('trial_t1');
 
+    // El correo dice lo que le falta de verdad.
+    const queued = await emailQueue.getJobs(['waiting', 'paused']);
+    const reminder = queued.find((j) => j.data.to === owner.email);
+    expect(reminder?.data.text).toContain('te falta: crear tu primer local');
+
     // Idempotencia: una segunda ejecución NO vuelve a contar/registrar este tenant.
     const run2 = await request(app.getHttpServer()).post('/admin/tenant-lifecycle/run').set(auth);
     expect(run2.status).toBe(200);

@@ -183,6 +183,7 @@ export default function ContractsPage() {
         columns={columns}
         data={contracts.rows}
         isLoading={contracts.isLoading}
+        guide="alquilar"
         emptyText="Aún no hay contratos. Crea el primero con «Nuevo contrato»."
         serverSearch={{
           value: searchText,

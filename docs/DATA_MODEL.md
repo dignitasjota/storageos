@@ -1090,3 +1090,5 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 `users.terms_accepted_at/terms_accepted_hash/terms_accepted_ip/terms_accepted_user_agent`: constancia de los términos y la privacidad aceptados al registrarse (huella SHA-256 de los dos textos vigentes). `tenants.onboarding_state` (jsonb): `{ skipped: string[] }`, los pasos de la Puesta en marcha que el tenant ha dado por resueltos. `tenant_lifecycle_emails` gana los tipos `verify_reminder_1` y `verify_reminder_2`.
 
 `customers.is_test`: inquilino de prueba de la puesta en marcha; no factura, no cuenta en el checklist y se borra con un clic. `tenants.onboarding_state` añade `path`, `wizard` y `testRunAt`.
+
+`tenants.onboarding_state.dismissedTips`: sugerencias descartadas de «Siguiente paso».

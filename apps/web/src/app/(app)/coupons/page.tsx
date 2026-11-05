@@ -212,7 +212,8 @@ export default function CouponsPage() {
         data={coupons.data ?? []}
         isLoading={coupons.isLoading}
         searchPlaceholder="Buscar por código o nombre..."
-        emptyText="Aún no has creado ningún cupón."
+        guide="promociones"
+        emptyText="Un cupón descuenta el primer pago al contratar: útil en anuncios y en la web."
         toolbarRight={
           canManage ? (
             <Button onClick={() => setEditing('new')}>

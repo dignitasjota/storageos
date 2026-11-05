@@ -163,7 +163,8 @@ export default function RentIncreasesPage() {
         data={list.data ?? []}
         isLoading={list.isLoading}
         searchPlaceholder="Buscar tanda..."
-        emptyText="Aún no has programado ninguna subida."
+        guide="precios"
+        emptyText="Sube la cuota a los inquilinos actuales con su preaviso, por antigüedad o por local."
         toolbarRight={canManage ? <CreateDialog /> : null}
       />
 

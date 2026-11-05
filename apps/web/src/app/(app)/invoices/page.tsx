@@ -394,6 +394,7 @@ export default function InvoicesPage() {
           placeholder: 'Buscar por número o inquilino…',
         }}
         loadMore={invoices.loadMore}
+        guide="cobrar"
         emptyText="Aún no hay facturas. Las de alquiler se crean solas cada mes; también puedes crear una con «Nueva factura»."
       />
 

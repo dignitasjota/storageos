@@ -311,7 +311,8 @@ export default function DevicesPage() {
         data={filteredDevices}
         isLoading={devices.isLoading}
         searchPlaceholder="Buscar por nombre..."
-        emptyText="No hay dispositivos. Crea el primero para empezar."
+        guide="accesos"
+        emptyText="Conecta tus puertas y cerraduras para abrir a distancia y registrar quién entra."
         toolbarRight={
           canManage ? (
             <Button onClick={() => setCreateOpen(true)}>
