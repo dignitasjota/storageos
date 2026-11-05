@@ -892,3 +892,15 @@ PR A con 12 arreglos y PR B con acciones desde la bandeja, apartar avisos, «Est
 ### «Hoy» del panel del tenant: revisión (2026-11-05)
 
 PR A con 16 arreglos (urgentes, permisos, cifras, fianzas, cobros en curso, resumen por correo) y PR B con las mejoras: mostrador, avisos nuevos, apartar, esta semana, mañana, hecho hoy, deuda por inquilino y resumen a medida.
+
+### Alta de un tenant: revisión (2026-11-05, #899–#901)
+
+Arreglos: la web y la reserva no se abren sin lo imprescindible, cuentas sin activar y constancia de los términos. Después, asistente de primer acceso, checklist según el punto de partida, inquilino de prueba, menú corto, «Siguiente paso» y guías.
+
+### Resumen del panel del tenant: revisión (2026-11-05, #902–#903)
+
+PR A con una definición única por cifra y una sola petición (`GET /dashboard/overview`), y errores que avisan en vez de decir «todo en orden». PR B con periodo y comparación, caja del mes, trasteros libres, movimiento, por local, resultado, pendiente de cerrar, cifras en el móvil y tarjetas a medida. **Pendiente**: «De dónde sale lo facturado» (Analítica) aún cuenta original y sustitutiva.
+
+### Accesos del panel del tenant: revisión (2026-11-05, #904–#905)
+
+PR A con todos los fallos: diálogo de credencial, corte por impago que se podía sortear, ex-inquilinos con acceso, «ping» que abría la puerta, regenerar clave, PIN reutilizado, propagación a terminales, alcance por defecto y cerraduras ajenas. PR B con las mejoras: accesos por inquilino, avisos de seguridad, conexión real, sincronización a la vista, alta guiada, accesos temporales, registro con CSV y foto de cámara, filtro «Vigentes» y política de corte. **Falta**: probar con los equipos físicos y la foto de cámara; el análisis de cámaras queda para más adelante.

@@ -517,7 +517,7 @@ Cada intento de entrega genera una fila. RLS por `tenant_id`.
 - Un `unit` solo puede tener un `contract` activo (status `active` o `ending`) en un momento dado.
 - `unit.status` se actualiza por trigger o servicio cuando cambia el estado de su contrato.
 - `invoice_number` es secuencial e inmutable una vez emitida (requisito fiscal en España).
-- `access_credentials` se desactivan automáticamente si el contrato se cierra o si hay `dunning_action` de tipo `access_block` activa.
+- `access_credentials` se revocan al terminar el último contrato vivo del inquilino (el repaso `access.sweep` recoge los restos) y se suspenden según la política de corte del tenant si hay `dunning_action` de tipo `access_block` activa.
 - Borrar un `customer` con contratos activos no está permitido; se hace soft delete.
 - La timezone de las fechas mostradas es la del `facility` correspondiente; las almacenadas siempre UTC.
 
@@ -1092,3 +1092,11 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 `customers.is_test`: inquilino de prueba de la puesta en marcha; no factura, no cuenta en el checklist y se borra con un clic. `tenants.onboarding_state` añade `path`, `wizard` y `testRunAt`.
 
 `tenants.onboarding_state.dismissedTips`: sugerencias descartadas de «Siguiente paso».
+
+### Resumen del panel (2026-11-05)
+
+`users.dashboard_layout` (jsonb, `{}` por defecto): qué tarjetas ve cada usuario en el Resumen y en qué orden.
+
+### Accesos del panel del tenant (`20261220100000_access_features`)
+
+`access_credentials.customer_id` admite nulo: un acceso temporal de proveedor o equipo no tiene inquilino y lleva `holder_name`, `holder_kind` y `valid_from`, con fecha de fin obligatoria. `access_devices.last_heartbeat_at/offline_notified_at`: latido del equipo y aviso de sin conexión. `access_credential_sync.last_error`: qué falló al pasar una credencial a un terminal. `tenants.access_cut_mode` (todo, solo adicionales o nada; `all` por defecto), `access_cut_days` (14) y `access_alerts` (jsonb, avisos de seguridad con su interruptor).
