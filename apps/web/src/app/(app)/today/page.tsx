@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   ArrowRight,
@@ -29,7 +30,12 @@ import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
-import type { TodayActivityDto, TodayActivityKind, TodayItemDto } from '@storageos/shared';
+import type {
+  Permission,
+  TodayActivityDto,
+  TodayActivityKind,
+  TodayItemDto,
+} from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { MonthStrip } from '@/components/dashboard/month-strip';
@@ -45,7 +51,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useHasPermission, usePermissions } from '@/lib/auth/hooks';
 import { useBulkRemindInvoices, useChargeInvoice } from '@/lib/billing/hooks';
 import { useRenewContract, useRequestSignature } from '@/lib/customers/hooks';
 import { useToday, useTodaySummary } from '@/lib/dashboard/hooks';
@@ -76,6 +82,7 @@ function SectionCard({
   onComplete,
   completeLabel,
   renderActions,
+  permission,
 }: {
   title: string;
   icon: typeof ClipboardList;
@@ -88,7 +95,12 @@ function SectionCard({
   completeLabel?: string;
   /** Botones propios de cada fila (cobrar, reenviar, prorrogar…). */
   renderActions?: (it: TodayItemDto) => ReactNode;
+  /** Sin este permiso de lectura el apartado no sale (el API tampoco lo envía). */
+  permission?: Permission;
 }) {
+  const permissions = usePermissions();
+  if (permission && !permissions.includes(permission)) return null;
+  const more = count - items.length;
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
@@ -112,8 +124,8 @@ function SectionCard({
           <p className="text-sm text-muted-foreground">{empty}</p>
         ) : (
           <ul className="space-y-1.5">
-            {items.map((it) => (
-              <li key={it.id} className="flex items-center gap-1">
+            {items.map((it, index) => (
+              <li key={`${it.id}-${index}`} className="flex items-center gap-1">
                 <Link
                   href={itemHref(it)}
                   className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted"
@@ -126,6 +138,11 @@ function SectionCard({
                     {it.amount !== undefined && (
                       <span className="shrink-0 text-xs font-medium tabular-nums">
                         {eur(it.amount)}
+                      </span>
+                    )}
+                    {it.note && (
+                      <span className="shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
+                        {it.note}
                       </span>
                     )}
                   </span>
@@ -153,6 +170,13 @@ function SectionCard({
                 )}
               </li>
             ))}
+            {more > 0 && (
+              <li>
+                <Link href={href} className="px-1 text-xs text-muted-foreground hover:underline">
+                  Y {more} más
+                </Link>
+              </li>
+            )}
           </ul>
         )}
       </CardContent>
@@ -238,13 +262,17 @@ function StatTile({
   icon: Icon,
   href,
   highlight,
+  permission,
 }: {
   label: string;
   value: string;
   icon: typeof CreditCard;
   href: string;
   highlight?: boolean;
+  permission?: Permission;
 }) {
+  const permissions = usePermissions();
+  if (permission && !permissions.includes(permission)) return null;
   return (
     <Link href={href}>
       <Card className={highlight ? 'border-amber-300' : undefined}>
@@ -290,7 +318,7 @@ export default function TodayPage() {
   }
   const { data, isLoading } = useToday(facilityId === 'all' ? undefined : facilityId, mine);
   const summary = useTodaySummary(facilityId === 'all' ? undefined : facilityId);
-  const [tab, setTab] = useState('collections');
+  const [tabChoice, setTab] = useState<string | null>(null);
   const counts = data
     ? {
         collections:
@@ -341,11 +369,19 @@ export default function TodayPage() {
   const renew = useRenewContract();
   const confirm = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  // Tras cada acción, la bandeja y las cifras del mes se vuelven a pedir.
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['dashboard', 'today'] });
+  const permissions = usePermissions();
+  const canCollections = permissions.includes('invoices:read');
+  const canSales = permissions.includes('leads:read') || permissions.includes('customers:read');
+  const tab = tabChoice ?? (canCollections ? 'collections' : 'operations');
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
     try {
       await fn();
+      refresh();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     } finally {
@@ -415,7 +451,10 @@ export default function TodayPage() {
         it.chargeable &&
         (it.amount ?? 0) > 0 &&
         rowButton(`charge-${it.id}`, 'Cobrar', () => chargeNow(it))}
-      {canRemind && it.overdue && rowButton(`remind-${it.id}`, 'Recordar', () => remindNow(it))}
+      {canRemind &&
+        it.overdue &&
+        !it.note &&
+        rowButton(`remind-${it.id}`, 'Recordar', () => remindNow(it))}
     </>
   );
 
@@ -423,6 +462,7 @@ export default function TodayPage() {
     try {
       await transitionTask.mutateAsync({ id: it.id, input: { status: 'done' } });
       toast.success('Tarea completada.');
+      refresh();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -431,6 +471,7 @@ export default function TodayPage() {
     try {
       await updateLeadFollowup.mutateAsync({ id: it.id, status: 'done' });
       toast.success('Seguimiento marcado como hecho.');
+      refresh();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -440,6 +481,7 @@ export default function TodayPage() {
     try {
       await updateFollowup.mutateAsync({ id: it.id, status: 'done' });
       toast.success('Seguimiento marcado como hecho.');
+      refresh();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -461,7 +503,7 @@ export default function TodayPage() {
             {todayLabel}
             {data && data.urgentCount > 0 && (
               <span className="ml-1 font-medium text-amber-600">
-                · {data.urgentCount} {data.urgentCount === 1 ? 'cosa urgente' : 'cosas urgentes'}
+                · {data.urgentCount} {data.urgentCount === 1 ? 'asunto' : 'asuntos'} para hoy
               </span>
             )}
           </p>
@@ -533,15 +575,19 @@ export default function TodayPage() {
           <MonthStrip summary={summary.data} />
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="h-auto flex-wrap">
-              <TabsTrigger value="collections">
-                Cobros <TabCount n={counts.collections} />
-              </TabsTrigger>
+              {canCollections && (
+                <TabsTrigger value="collections">
+                  Cobros <TabCount n={counts.collections} />
+                </TabsTrigger>
+              )}
               <TabsTrigger value="operations">
                 Operación <TabCount n={counts.operations} />
               </TabsTrigger>
-              <TabsTrigger value="sales">
-                Comercial <TabCount n={counts.sales} />
-              </TabsTrigger>
+              {canSales && (
+                <TabsTrigger value="sales">
+                  Comercial <TabCount n={counts.sales} />
+                </TabsTrigger>
+              )}
               <TabsTrigger value="activity">
                 Actividad <TabCount n={summary.data?.activity.length ?? 0} neutral />
               </TabsTrigger>
@@ -560,6 +606,7 @@ export default function TodayPage() {
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 <SectionCard
+                  permission="invoices:read"
                   title={`Vencen hoy · ${eur(data.invoicesDueToday.totalDue)}`}
                   icon={CreditCard}
                   count={data.invoicesDueToday.count}
@@ -570,6 +617,7 @@ export default function TodayPage() {
                   renderActions={invoiceActions}
                 />
                 <SectionCard
+                  permission="invoices:read"
                   title={`Vencidas · ${eur(data.invoicesOverdue.totalPending)}`}
                   icon={AlertTriangle}
                   count={data.invoicesOverdue.count}
@@ -580,6 +628,7 @@ export default function TodayPage() {
                   renderActions={invoiceActions}
                 />
                 <SectionCard
+                  permission="collections:read"
                   title="Impagos: plazo vencido"
                   icon={Lock}
                   count={data.collectionsDeadlines.count}
@@ -593,7 +642,7 @@ export default function TodayPage() {
                   icon={PiggyBank}
                   count={data.depositsToSettle.count}
                   items={data.depositsToSettle.items}
-                  href="/contracts"
+                  href="/contracts?status=ended"
                   itemHref={(it) => `/contracts/${it.id}`}
                   empty="Ninguna fianza pendiente de liquidar."
                 />
@@ -627,22 +676,23 @@ export default function TodayPage() {
                   icon={DoorOpen}
                   count={data.moveInsToday.count}
                   items={data.moveInsToday.items}
-                  href="/contracts"
+                  href="/calendar"
                   itemHref={(it) => `/contracts/${it.id}`}
                   empty="Ningún inquilino entra hoy."
                 />
                 <SectionCard
-                  title="Salidas de hoy"
+                  title="Salidas de hoy y atrasadas"
                   icon={LogOut}
                   count={data.moveOutsToday.count}
                   items={data.moveOutsToday.items}
-                  href="/contracts"
+                  href="/contracts?status=ending"
                   itemHref={(it) => `/contracts/${it.id}`}
                   empty="Ninguna salida (check-out) hoy."
                 />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <StatTile
+                  permission="incidents:read"
                   label="Incidencias abiertas"
                   value={String(data.incidentsOpen)}
                   icon={AlertTriangle}
@@ -659,6 +709,7 @@ export default function TodayPage() {
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 <SectionCard
+                  permission="tasks:read"
                   title="Tareas para hoy"
                   icon={ClipboardList}
                   count={data.tasksDue.count}
@@ -674,7 +725,7 @@ export default function TodayPage() {
                   icon={FileSignature}
                   count={data.signaturesPending.count}
                   items={data.signaturesPending.items}
-                  href="/contracts"
+                  href="/contracts?status=draft"
                   itemHref={(it) => `/contracts/${it.id}`}
                   empty="Ningún contrato pendiente de firma."
                   renderActions={
@@ -698,6 +749,7 @@ export default function TodayPage() {
                   }
                 />
                 <SectionCard
+                  permission="reservations:read"
                   title="Reservas que expiran"
                   icon={UserPlus}
                   count={data.reservationsExpiring.count}
@@ -778,6 +830,7 @@ export default function TodayPage() {
             <TabsContent value="sales" className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <StatTile
+                  permission="customers:read"
                   label="Mensajes sin leer"
                   value={String(data.unreadMessages)}
                   icon={MessageSquare}
@@ -787,6 +840,7 @@ export default function TodayPage() {
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 <SectionCard
+                  permission="leads:read"
                   title="Leads sin contactar"
                   icon={Sparkles}
                   count={data.newLeads.count}
@@ -796,6 +850,7 @@ export default function TodayPage() {
                   empty="Ningún lead nuevo sin contactar."
                 />
                 <SectionCard
+                  permission="leads:read"
                   title="Contactos sin atender"
                   icon={Timer}
                   count={data.unattendedLeads?.count ?? 0}
@@ -805,6 +860,7 @@ export default function TodayPage() {
                   empty="Todos los contactos nuevos están atendidos a tiempo."
                 />
                 <SectionCard
+                  permission="leads:read"
                   title="Seguimientos de contactos"
                   icon={CalendarClock}
                   count={data.leadFollowupsDue?.count ?? 0}
@@ -816,6 +872,7 @@ export default function TodayPage() {
                   completeLabel="Marcar hecho"
                 />
                 <SectionCard
+                  permission="customers:read"
                   title="Seguimientos"
                   icon={CalendarClock}
                   count={data.followupsDue.count}
@@ -836,6 +893,7 @@ export default function TodayPage() {
                   empty="Ninguna oferta de retención esperando respuesta."
                 />
                 <SectionCard
+                  permission="marketing:read"
                   title="Renovaciones de marketing"
                   icon={Radio}
                   count={data.marketingRenewalsDue.count}

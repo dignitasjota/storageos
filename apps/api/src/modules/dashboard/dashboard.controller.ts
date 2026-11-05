@@ -1,4 +1,5 @@
 import { BadRequestException, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import { permissionsForRole } from '@storageos/shared';
 
 import {
   type AuthenticatedUser,
@@ -40,17 +41,19 @@ export class DashboardController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('facilityId') facilityId?: string,
     @Query('mine') mine?: string,
+    @Query('full') full?: string,
   ): Promise<TodayDto> {
     if (facilityId && !UUID_RE.test(facilityId)) {
       throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
     }
-    return this.today.getToday(
-      user.tenantId,
-      facilityId || undefined,
-      user.facilityScope ?? null,
-      user.sub,
-      mine === '1' || mine === 'true',
-    );
+    return this.today.getToday(user.tenantId, {
+      facilityId: facilityId || undefined,
+      facilityScope: user.facilityScope ?? null,
+      userId: user.sub,
+      mine: mine === '1' || mine === 'true',
+      full: full === '1',
+      permissions: user.permissions ?? permissionsForRole(user.role),
+    });
   }
 
   /** Cifras del mes y actividad de las últimas 48 h (cabecera de «Hoy»). */
@@ -63,7 +66,12 @@ export class DashboardController {
     if (facilityId && !UUID_RE.test(facilityId)) {
       throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
     }
-    return this.summary.summary(user.tenantId, facilityId || undefined, user.facilityScope ?? null);
+    return this.summary.summary(
+      user.tenantId,
+      facilityId || undefined,
+      user.facilityScope ?? null,
+      user.permissions ?? permissionsForRole(user.role),
+    );
   }
 
   /** Checklist de primeros pasos del operador. */

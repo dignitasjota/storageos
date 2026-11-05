@@ -26,34 +26,36 @@ export function MonthStrip({ summary }: { summary: TodaySummaryDto | undefined }
   const targetPct = Math.min(100, Math.max(0, target));
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Card className="sm:col-span-2">
-        <CardContent className="space-y-2 pt-6">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className="text-xs text-muted-foreground">Cobrado este mes</p>
-            <p className="text-xs text-muted-foreground">
-              Facturado este mes: {eur(k.invoicedMonth)}
+      {k.moneyVisible && (
+        <Card className="sm:col-span-2">
+          <CardContent className="space-y-2 pt-6">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-xs text-muted-foreground">Cobrado este mes</p>
+              <p className="text-xs text-muted-foreground">
+                Facturado este mes: {eur(k.invoicedMonth)}
+              </p>
+            </div>
+            <p className="text-2xl font-semibold tabular-nums">{eur(k.collectedMonth)}</p>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
+            </div>
+            <p className="flex flex-wrap gap-x-3 text-xs">
+              <Delta current={k.collectedMonth} previous={k.previous?.collectedMonth} suffix={VS} />
+              <span className="text-muted-foreground">
+                Incluye facturas de meses anteriores y no las fianzas.
+              </span>
             </p>
-          </div>
-          <p className="text-2xl font-semibold tabular-nums">{eur(k.collectedMonth)}</p>
-          <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
-          </div>
-          <p className="flex flex-wrap gap-x-3 text-xs">
-            <Delta current={k.collectedMonth} previous={k.previous?.collectedMonth} suffix={VS} />
-            <span className="text-muted-foreground">
-              Lo cobrado incluye facturas de meses anteriores.
-            </span>
-          </p>
-          {k.overduePending > 0 && (
-            <Link
-              href="/arrears"
-              className="block text-xs font-medium text-red-600 hover:underline"
-            >
-              {eur(k.overduePending)} vencido sin cobrar →
-            </Link>
-          )}
-        </CardContent>
-      </Card>
+            {k.overduePending > 0 && (
+              <Link
+                href="/arrears"
+                className="block text-xs font-medium text-red-600 hover:underline"
+              >
+                {eur(k.overduePending)} vencido sin cobrar →
+              </Link>
+            )}
+          </CardContent>
+        </Card>
+      )}
       <Link href="/units">
         <Card className="h-full">
           <CardContent className="space-y-1 pt-6">

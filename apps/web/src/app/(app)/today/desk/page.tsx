@@ -76,7 +76,7 @@ function eur(n: number): string {
 export default function TodayDeskPage() {
   const facilityId = useHeaderFacilityId();
   const facilities = useFacilities();
-  const today = useToday(facilityId);
+  const today = useToday(facilityId, false, true);
   const hasAccess = useHasFeature('access_control');
   const data = today.data;
   const facilityName = facilityId

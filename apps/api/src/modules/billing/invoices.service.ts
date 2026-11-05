@@ -36,7 +36,7 @@ import {
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
-import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
+import { assertNotInSepaRemittance, hasPaymentInFlight } from '../../common/sepa-remittance-guard';
 import { HoldedSettingsService } from '../accounting/holded-settings.service';
 import { HoldedSyncService } from '../accounting/holded-sync.service';
 import { AuditService } from '../auth/audit.service';
@@ -1020,13 +1020,20 @@ export class InvoicesService {
         where: { id: tenantId },
         select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
       });
-      return { invoice, tenant };
+      const [inFlight, plan] = await Promise.all([
+        hasPaymentInFlight(tx, invoiceId),
+        tx.paymentPlan.findFirst({
+          where: { status: 'active', invoiceIds: { has: invoiceId } },
+          select: { id: true },
+        }),
+      ]);
+      return { invoice, tenant, inFlight, inPlan: !!plan };
     }, tenantId);
 
     if (!data) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
-    const { invoice, tenant } = data;
+    const { invoice, tenant, inFlight, inPlan } = data;
 
     const facilityId = invoice.contract?.unit?.facilityId;
     if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
@@ -1035,6 +1042,19 @@ export class InvoicesService {
       throw new BadRequestException({
         code: 'invoice_not_pending',
         message: 'Solo se puede recordar una factura emitida o vencida',
+      });
+    }
+    // No se pide pagar a quien ya está pagando.
+    if (inFlight) {
+      throw new ConflictException({
+        code: 'payment_in_progress',
+        message: 'Esta factura ya tiene un cobro en curso',
+      });
+    }
+    if (inPlan) {
+      throw new ConflictException({
+        code: 'invoice_in_payment_plan',
+        message: 'Esta factura va en un plan de pagos',
       });
     }
     const customer = invoice.customer;

@@ -2,7 +2,11 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
-import { resolveStaffEmailSettings, resolveUserEmailNotices } from '@storageos/shared';
+import {
+  permissionsForRole,
+  resolveStaffEmailSettings,
+  resolveUserEmailNotices,
+} from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { formatEur, todayInTimezone } from '../../common/format';
@@ -13,10 +17,15 @@ import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 import { TodayService } from './today.service';
 
 import type { Env } from '../../config/env.schema';
-import type { TodayDto } from '@storageos/shared';
+import type { Permission, TodayDto } from '@storageos/shared';
 
 /** Hora local del negocio a la que sale el resumen. */
 const SEND_HOUR = 8;
+/**
+ * Si el API estaba parado a esa hora (un despliegue), sale en la siguiente
+ * pasada de la mañana: el día se reserva, así que nunca sale dos veces.
+ */
+const LAST_SEND_HOUR = 11;
 
 function localHour(timeZone: string, now: Date): number {
   try {
@@ -71,6 +80,23 @@ export function dailySummaryLines(t: TodayDto): string[] {
   }
   if (t.unreadMessages > 0) lines.push(`Mensajes de inquilinos sin leer: ${t.unreadMessages}`);
   if (t.incidentsOpen > 0) lines.push(`Incidencias abiertas: ${t.incidentsOpen}`);
+  if (t.collectionsDeadlines.count > 0) {
+    lines.push(`Impagos con el plazo vencido: ${t.collectionsDeadlines.count}`);
+  }
+  const deposits = t.depositsToSettle.count + t.depositsToCollect.count;
+  if (deposits > 0) lines.push(`Fianzas por cobrar o liquidar: ${deposits}`);
+  if (t.depositsToRegister.count > 0) {
+    lines.push(`Fianzas de vivienda sin depositar: ${t.depositsToRegister.count}`);
+  }
+  if (t.businessRemindersDue.count > 0) {
+    lines.push(`Vencimientos del negocio: ${t.businessRemindersDue.count}`);
+  }
+  if (t.rgpdRequestsDue.count > 0) {
+    lines.push(`Solicitudes de protección de datos: ${t.rgpdRequestsDue.count}`);
+  }
+  if (t.facilityDocumentsExpiring.count > 0) {
+    lines.push(`Documentos de locales que caducan: ${t.facilityDocumentsExpiring.count}`);
+  }
   return lines;
 }
 
@@ -109,7 +135,8 @@ export class DailySummaryService {
     });
     let sent = 0;
     for (const t of tenants) {
-      if (localHour(t.timezone, now) !== SEND_HOUR) continue;
+      const hour = localHour(t.timezone, now);
+      if (hour < SEND_HOUR || hour > LAST_SEND_HOUR) continue;
       const day = todayInTimezone(t.timezone, now);
       const claimed = await this.admin.tenant.updateMany({
         where: {
@@ -150,6 +177,7 @@ export class DailySummaryService {
         email: true,
         fullName: true,
         role: true,
+        tenantRole: { select: { permissions: true } },
         emailNoticePrefs: true,
         facilities: { select: { facilityId: true } },
       },
@@ -162,7 +190,17 @@ export class DailySummaryService {
       }
       try {
         const scope = u.facilities.length > 0 ? u.facilities.map((f) => f.facilityId) : null;
-        const data = await this.today.getToday(tenantId, undefined, scope, u.id);
+        // Como en el panel: un rol a medida (nunca el del propietario) manda.
+        const permissions =
+          u.role !== 'owner' && u.tenantRole
+            ? (u.tenantRole.permissions as Permission[])
+            : permissionsForRole(u.role);
+        if (!permissions.includes('contracts:read')) continue;
+        const data = await this.today.getToday(tenantId, {
+          facilityScope: scope,
+          userId: u.id,
+          permissions,
+        });
         const lines = dailySummaryLines(data);
         if (lines.length === 0 && !onlyUserId) continue;
         const body = lines.length > 0 ? lines : ['Hoy no hay nada pendiente.'];

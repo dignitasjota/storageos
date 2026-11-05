@@ -888,3 +888,7 @@ PR A con 17 arreglos: fallos de entrada al panel como eventos de seguridad, aler
 ### «Hoy» del panel admin: revisión (2026-11-04)
 
 PR A con 12 arreglos y PR B con acciones desde la bandeja, apartar avisos, «Esta semana», «Lo mío», avisos nuevos, pruebas sin arrancar, KPI con variación, avisos al momento y «Hecho hoy».
+
+### «Hoy» del panel del tenant: revisión (2026-11-05)
+
+PR A con 16 arreglos (urgentes, permisos, cifras, fianzas, cobros en curso, resumen por correo). Sigue la PR B con las mejoras.

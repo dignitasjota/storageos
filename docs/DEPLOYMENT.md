@@ -1719,3 +1719,7 @@ Migración `20261215100000_admin_today_features` (sin variables nuevas). Tras de
 
 - **Avisos al momento:** vienen activados. La primera pasada agrupa en un solo mensaje lo urgente que ya exista. Se apagan en Alertas al admin.
 - **Contador de urgentes:** baja, porque lo que tiene días por delante pasa a la pestaña «Esta semana».
+
+## 84. «Hoy» del panel del tenant: arreglos (2026-11-05)
+
+Sin migración ni variables nuevas. Tras desplegar, el número de «asuntos para hoy» bajará: la deuda cuenta una vez por inquilino y ya no cuentan las ofertas de retención ni lo que no vence hoy. «Cobrado este mes» también puede bajar, porque ya no incluye las fianzas y resta las devoluciones.
