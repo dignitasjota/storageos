@@ -290,12 +290,20 @@ export class CollectionsOpsService {
     const now = new Date();
 
     return this.prisma.withTenant(async (tx) => {
+      const tenant = await tx.tenant.findFirst({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      const startOfToday = todayInTimezone(tenant?.timezone ?? 'Europe/Madrid', now);
+      // Como en «Hoy»: también las emitidas ya vencidas que el cron aún no ha marcado.
       const overdue = await tx.invoice.findMany({
         where: {
           ...(facility as Prisma.InvoiceWhereInput),
           deletedAt: null,
           kind: 'invoice',
-          status: 'overdue',
+          AND: [
+            { OR: [{ status: 'overdue' }, { status: 'issued', dueDate: { lt: startOfToday } }] },
+          ],
           customerId: { not: null },
         },
         select: {

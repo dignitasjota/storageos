@@ -891,4 +891,4 @@ PR A con 12 arreglos y PR B con acciones desde la bandeja, apartar avisos, «Est
 
 ### «Hoy» del panel del tenant: revisión (2026-11-05)
 
-PR A con 16 arreglos (urgentes, permisos, cifras, fianzas, cobros en curso, resumen por correo). Sigue la PR B con las mejoras.
+PR A con 16 arreglos (urgentes, permisos, cifras, fianzas, cobros en curso, resumen por correo) y PR B con las mejoras: mostrador, avisos nuevos, apartar, esta semana, mañana, hecho hoy, deuda por inquilino y resumen a medida.

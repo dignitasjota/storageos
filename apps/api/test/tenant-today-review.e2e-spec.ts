@@ -271,8 +271,14 @@ describe('Revisión de «Hoy» del panel del tenant (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'ttrev8');
     await db.tenant.update({
       where: { id: owner.tenantId },
-      data: { timezone: 'Europe/Madrid', dailySummaryLastDate: null },
+      data: { timezone: 'Europe/Madrid' },
     });
+    await db.user.updateMany({
+      where: { tenantId: owner.tenantId },
+      data: { emailNoticePrefs: { daily_summary: true } },
+    });
+    const customerId = await createCustomer(app, owner.accessToken);
+    await issuedInvoice(owner.accessToken, customerId, -4);
     const base = new Date();
     base.setUTCMinutes(5, 0, 0);
     const at = (hour: number) => {
@@ -291,11 +297,11 @@ describe('Revisión de «Hoy» del panel del tenant (e2e)', () => {
     const service = app.get(DailySummaryService);
 
     await service.sendDue(at(14));
-    let t = await db.tenant.findUniqueOrThrow({ where: { id: owner.tenantId } });
-    expect(t.dailySummaryLastDate).toBeNull();
+    let u = await db.user.findFirstOrThrow({ where: { tenantId: owner.tenantId } });
+    expect(u.dailySummaryLastDate).toBeNull();
 
     await service.sendDue(at(10));
-    t = await db.tenant.findUniqueOrThrow({ where: { id: owner.tenantId } });
-    expect(t.dailySummaryLastDate).not.toBeNull();
+    u = await db.user.findFirstOrThrow({ where: { tenantId: owner.tenantId } });
+    expect(u.dailySummaryLastDate).not.toBeNull();
   });
 });

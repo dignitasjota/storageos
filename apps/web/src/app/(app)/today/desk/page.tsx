@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   ClipboardList,
@@ -8,21 +9,32 @@ import {
   FileSignature,
   LogIn,
   LogOut,
+  PiggyBank,
   Phone,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
-import type { TodayItemDto } from '@storageos/shared';
+import type { TodayDeskAccessDto, TodayItemDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useHasFeature } from '@/lib/auth/hooks';
+import { apiFetch, ApiError } from '@/lib/auth/api';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useToday } from '@/lib/dashboard/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 
-type Kind = 'in' | 'out' | 'sign' | 'charge' | 'task' | 'call';
+type Kind = 'in' | 'out' | 'sign' | 'charge' | 'deposit' | 'task' | 'call';
 
 const KIND: Record<Kind, { label: string; icon: typeof LogIn; tint: string }> = {
   in: {
@@ -43,6 +55,11 @@ const KIND: Record<Kind, { label: string; icon: typeof LogIn; tint: string }> = 
   charge: {
     label: 'Vence hoy',
     icon: CreditCard,
+    tint: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  },
+  deposit: {
+    label: 'Fianza a cobrar',
+    icon: PiggyBank,
     tint: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   },
   task: {
@@ -78,6 +95,41 @@ export default function TodayDeskPage() {
   const facilities = useFacilities();
   const today = useToday(facilityId, false, true);
   const hasAccess = useHasFeature('access_control');
+  const canSeeCode = useHasPermission('access:manage');
+  const canCollect = useHasPermission('payments:charge');
+  const queryClient = useQueryClient();
+  const [collecting, setCollecting] = useState<TodayItemDto | null>(null);
+  const [code, setCode] = useState<{ name: string; access: TodayDeskAccessDto } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function collect(methodType: 'cash' | 'card') {
+    if (!collecting?.linkId) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/contracts/${collecting.linkId}/deposit/collect`, {
+        method: 'POST',
+        json: { methodType },
+      });
+      toast.success('Fianza cobrada.');
+      setCollecting(null);
+      void queryClient.invalidateQueries({ queryKey: ['dashboard', 'today'] });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function showCode(item: TodayItemDto) {
+    if (!item.customerId) return;
+    try {
+      const access = await apiFetch<TodayDeskAccessDto>(
+        `/dashboard/today/desk/customers/${item.customerId}/access`,
+      );
+      setCode({ name: item.label, access });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
   const data = today.data;
   const facilityName = facilityId
     ? facilities.data?.find((f) => f.id === facilityId)?.name
@@ -106,6 +158,11 @@ export default function TodayDeskPage() {
           kind: 'charge' as const,
           item,
           href: `/invoices/${item.id}`,
+        })),
+        ...data.depositsToCollect.items.map((item) => ({
+          kind: 'deposit' as const,
+          item,
+          href: item.linkId ? `/contracts/${item.linkId}` : '/contracts',
         })),
         ...data.tasksDue.items.map((item) => ({
           kind: 'task' as const,
@@ -171,7 +228,7 @@ export default function TodayDeskPage() {
             const k = KIND[kind];
             const Icon = k.icon;
             return (
-              <li key={`${kind}-${item.id}`}>
+              <li key={`${kind}-${item.id}`} className="space-y-1">
                 <Link
                   href={href}
                   className="flex min-h-16 items-center gap-4 rounded-xl border bg-card px-4 py-3 shadow-card transition-colors hover:bg-muted active:bg-accent"
@@ -193,11 +250,89 @@ export default function TodayDeskPage() {
                     <span className="shrink-0 text-xs font-medium text-red-600">Atrasado</span>
                   )}
                 </Link>
+                <div className="flex flex-wrap justify-end gap-2">
+                  {item.phone && (
+                    <Button asChild variant="outline">
+                      <a href={`tel:${item.phone}`}>
+                        <Phone className="mr-1 size-4" /> Llamar
+                      </a>
+                    </Button>
+                  )}
+                  {kind === 'in' && hasAccess && canSeeCode && (
+                    <Button variant="outline" onClick={() => void showCode(item)}>
+                      Ver el código
+                    </Button>
+                  )}
+                  {kind === 'sign' && (
+                    <Button asChild variant="outline">
+                      <Link href={`/contracts/${item.id}?tab=signing`}>Firmar aquí</Link>
+                    </Button>
+                  )}
+                  {kind === 'out' && (
+                    <>
+                      <Button asChild variant="outline">
+                        <Link href={`/contracts/${item.id}?tab=photos`}>Fotos de salida</Link>
+                      </Button>
+                      <Button asChild variant="outline">
+                        <Link href={`/contracts/${item.id}?tab=billing`}>Liquidar fianza</Link>
+                      </Button>
+                    </>
+                  )}
+                  {kind === 'deposit' && canCollect && item.linkId && (
+                    <Button onClick={() => setCollecting(item)}>Cobrar</Button>
+                  )}
+                </div>
               </li>
             );
           })}
         </ul>
       )}
+
+      <Dialog open={!!collecting} onOpenChange={(open) => !open && setCollecting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cobrar la fianza</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm">
+            {collecting?.label}
+            {collecting?.detail ? ` · ${collecting.detail}` : ''}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" disabled={saving} onClick={() => void collect('card')}>
+              Con tarjeta (TPV)
+            </Button>
+            <Button disabled={saving} onClick={() => void collect('cash')}>
+              En efectivo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!code} onOpenChange={(open) => !open && setCode(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Acceso de {code?.name}</DialogTitle>
+          </DialogHeader>
+          {code?.access.credentials.length ? (
+            <ul className="space-y-2">
+              {code.access.credentials.map((c) => (
+                <li key={c.id} className="flex items-center justify-between gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    {c.label ?? (c.method === 'pin' ? 'PIN' : 'QR')}
+                  </span>
+                  {c.method === 'pin' ? (
+                    <span className="font-mono text-2xl tracking-widest">{c.value ?? '—'}</span>
+                  ) : (
+                    <span className="text-sm">Lo tiene en su área de clientes</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">Aún no tiene un acceso activo.</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

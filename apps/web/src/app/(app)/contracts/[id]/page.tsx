@@ -407,7 +407,12 @@ export default function ContractDetailPage() {
 
       {c.status !== 'cancelled' && <ChecklistCard contractId={c.id} />}
 
-      <Tabs defaultValue={c.status === 'draft' ? 'signing' : 'billing'}>
+      <Tabs
+        defaultValue={
+          new URLSearchParams(window.location.search).get('tab') ??
+          (c.status === 'draft' ? 'signing' : 'billing')
+        }
+      >
         <TabsList className="flex-wrap">
           <TabsTrigger value="signing">Firma</TabsTrigger>
           <TabsTrigger value="billing">Cobro y condiciones</TabsTrigger>

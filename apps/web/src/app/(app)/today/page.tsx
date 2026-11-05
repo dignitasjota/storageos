@@ -30,10 +30,24 @@ import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
+import {
+  AttentionCard,
+  DebtsCard,
+  DonePanel,
+  ManualPaymentDialog,
+  PhoneLinks,
+  SettleDepositDialog,
+  SnoozedList,
+  SnoozeMenu,
+  TomorrowCard,
+  WeekList,
+} from './today-extras';
+
 import type {
   Permission,
   TodayActivityDto,
   TodayActivityKind,
+  TodayDebtDto,
   TodayItemDto,
 } from '@storageos/shared';
 
@@ -50,11 +64,11 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ApiError } from '@/lib/auth/api';
-import { useHasPermission, usePermissions } from '@/lib/auth/hooks';
+import { apiFetch, ApiError } from '@/lib/auth/api';
+import { useHasPermission, useMe, usePermissions } from '@/lib/auth/hooks';
 import { useBulkRemindInvoices, useChargeInvoice } from '@/lib/billing/hooks';
 import { useRenewContract, useRequestSignature } from '@/lib/customers/hooks';
-import { useToday, useTodaySummary } from '@/lib/dashboard/hooks';
+import { useToday, useTodayExtras, useTodaySummary } from '@/lib/dashboard/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { useUpdateFollowup } from '@/lib/followups/hooks';
@@ -318,6 +332,8 @@ export default function TodayPage() {
   }
   const { data, isLoading } = useToday(facilityId === 'all' ? undefined : facilityId, mine);
   const summary = useTodaySummary(facilityId === 'all' ? undefined : facilityId);
+  const extras = useTodayExtras(facilityId === 'all' ? undefined : facilityId, mine).data;
+  const urgent = (data?.urgentCount ?? 0) + (extras?.urgentCount ?? 0);
   const [tabChoice, setTab] = useState<string | null>(null);
   const counts = data
     ? {
@@ -371,11 +387,21 @@ export default function TodayPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const queryClient = useQueryClient();
   // Tras cada acción, la bandeja y las cifras del mes se vuelven a pedir.
+  const [paying, setPaying] = useState<{ id: string; amount: number; label: string } | null>(null);
+  const [settling, setSettling] = useState<{
+    contractId: string;
+    amount: number;
+    label: string;
+  } | null>(null);
+  const me = useMe();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['dashboard', 'today'] });
   const permissions = usePermissions();
   const canCollections = permissions.includes('invoices:read');
   const canSales = permissions.includes('leads:read') || permissions.includes('customers:read');
   const tab = tabChoice ?? (canCollections ? 'collections' : 'operations');
+  const canPayments = permissions.includes('payments:read');
+  const canMarkPaid = permissions.includes('payments:charge');
+  const canSettle = permissions.includes('contracts:manage');
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
@@ -445,6 +471,42 @@ export default function TodayPage() {
       {busy === key ? '…' : label}
     </Button>
   );
+  function assignTask(it: TodayItemDto) {
+    void run(`assign-${it.id}`, async () => {
+      await apiFetch(`/tasks/${it.id}`, {
+        method: 'PATCH',
+        json: { assignedToUserId: me.data?.user.id },
+      });
+      toast.success('Tarea asignada a ti.');
+    });
+  }
+  function attendLead(it: TodayItemDto) {
+    void run(`attend-${it.id}`, async () => {
+      await apiFetch(`/leads/${it.id}/transition`, {
+        method: 'POST',
+        json: { status: 'contacted' },
+      });
+      toast.success('Contacto marcado como atendido.');
+    });
+  }
+  function remindDebt(row: TodayDebtDto) {
+    void run(`debt-${row.customerId}`, async () => {
+      const r = await remind.mutateAsync(row.invoiceIds);
+      if (r.succeeded.length > 0) toast.success(`Recordatorio enviado a ${row.customerName}.`);
+      else toast.error(r.failed[0]?.error ?? 'No se pudo enviar el recordatorio.');
+    });
+  }
+  const debtActions = (row: TodayDebtDto) =>
+    canRemind && !row.note
+      ? rowButton(`debt-${row.customerId}`, 'Recordar', () => remindDebt(row))
+      : null;
+  const leadActions = (it: TodayItemDto) => (
+    <>
+      {canLeads && rowButton(`attend-${it.id}`, 'Atendido', () => attendLead(it))}
+      <PhoneLinks phone={it.phone} />
+      <SnoozeMenu kind="lead" refId={it.id} label={it.label} />
+    </>
+  );
   const invoiceActions = (it: TodayItemDto) => (
     <>
       {canCharge &&
@@ -455,6 +517,14 @@ export default function TodayPage() {
         it.overdue &&
         !it.note &&
         rowButton(`remind-${it.id}`, 'Recordar', () => remindNow(it))}
+      {canMarkPaid &&
+        !it.note &&
+        it.amount !== undefined &&
+        rowButton(`pay-${it.id}`, 'Pago a mano', () =>
+          setPaying({ id: it.id, amount: it.amount!, label: it.label }),
+        )}
+      <PhoneLinks phone={it.phone} />
+      <SnoozeMenu kind="invoice" refId={it.id} label={it.label} />
     </>
   );
 
@@ -501,9 +571,9 @@ export default function TodayPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Hoy</h1>
           <p className="text-sm text-muted-foreground">
             {todayLabel}
-            {data && data.urgentCount > 0 && (
+            {urgent > 0 && (
               <span className="ml-1 font-medium text-amber-600">
-                · {data.urgentCount} {data.urgentCount === 1 ? 'asunto' : 'asuntos'} para hoy
+                · {urgent} {urgent === 1 ? 'asunto' : 'asuntos'} para hoy
               </span>
             )}
           </p>
@@ -588,6 +658,8 @@ export default function TodayPage() {
                   Comercial <TabCount n={counts.sales} />
                 </TabsTrigger>
               )}
+              <TabsTrigger value="week">Esta semana</TabsTrigger>
+              <TabsTrigger value="done">Hecho hoy</TabsTrigger>
               <TabsTrigger value="activity">
                 Actividad <TabCount n={summary.data?.activity.length ?? 0} neutral />
               </TabsTrigger>
@@ -616,17 +688,37 @@ export default function TodayPage() {
                   empty="Ninguna factura vence hoy."
                   renderActions={invoiceActions}
                 />
-                <SectionCard
-                  permission="invoices:read"
-                  title={`Vencidas · ${eur(data.invoicesOverdue.totalPending)}`}
-                  icon={AlertTriangle}
-                  count={data.invoicesOverdue.count}
-                  items={data.invoicesOverdue.items ?? []}
-                  href="/arrears"
-                  itemHref={(it) => `/invoices/${it.id}`}
-                  empty="Ninguna factura vencida."
-                  renderActions={invoiceActions}
-                />
+                {canPayments && extras ? (
+                  <DebtsCard debts={extras.debts} renderActions={debtActions} />
+                ) : (
+                  <SectionCard
+                    permission="invoices:read"
+                    title={`Vencidas · ${eur(data.invoicesOverdue.totalPending)}`}
+                    icon={AlertTriangle}
+                    count={data.invoicesOverdue.count}
+                    items={data.invoicesOverdue.items ?? []}
+                    href="/arrears"
+                    itemHref={(it) => `/invoices/${it.id}`}
+                    empty="Ninguna factura vencida."
+                    renderActions={invoiceActions}
+                  />
+                )}
+                {extras && (
+                  <>
+                    <AttentionCard
+                      title="Cobros rechazados y devueltos hoy"
+                      icon={AlertTriangle}
+                      section={extras.paymentProblems}
+                      href="/returned-receipts"
+                    />
+                    <AttentionCard
+                      title="Planes de pago con cuota vencida"
+                      icon={CalendarClock}
+                      section={extras.plansLate}
+                      href="/arrears"
+                    />
+                  </>
+                )}
                 <SectionCard
                   permission="collections:read"
                   title="Impagos: plazo vencido"
@@ -645,6 +737,17 @@ export default function TodayPage() {
                   href="/contracts?status=ended"
                   itemHref={(it) => `/contracts/${it.id}`}
                   empty="Ninguna fianza pendiente de liquidar."
+                  renderActions={(it) => (
+                    <>
+                      {canSettle &&
+                        it.amount !== undefined &&
+                        rowButton(`settle-${it.id}`, 'Liquidar', () =>
+                          setSettling({ contractId: it.id, amount: it.amount!, label: it.label }),
+                        )}
+                      <PhoneLinks phone={it.phone} />
+                      <SnoozeMenu kind="deposit" refId={it.id} label={it.label} />
+                    </>
+                  )}
                 />
                 {data.depositsToRegister.count > 0 && (
                   <SectionCard
@@ -671,6 +774,40 @@ export default function TodayPage() {
 
             <TabsContent value="operations" className="space-y-3">
               <div className="grid gap-3 lg:grid-cols-2">
+                {extras && (
+                  <>
+                    <AttentionCard
+                      title="Contratos que ya deberían estar firmados"
+                      icon={FileSignature}
+                      section={extras.draftsAttention}
+                      href="/contracts?status=draft"
+                    />
+                    <AttentionCard
+                      title="Reservas confirmadas que caducan"
+                      icon={UserPlus}
+                      section={extras.reservationsConfirmed}
+                      href="/reservations?status=confirmed"
+                    />
+                    <AttentionCard
+                      title="Piden otro trastero"
+                      icon={Replace}
+                      section={extras.unitRequests}
+                      href="/unit-requests"
+                    />
+                    <AttentionCard
+                      title="En lista de espera con trastero libre"
+                      icon={Timer}
+                      section={extras.waitlistMatches}
+                      href="/waitlist"
+                    />
+                    <AttentionCard
+                      title="Inventario descuadrado"
+                      icon={Package}
+                      section={extras.inventoryIssues}
+                      href="/units"
+                    />
+                  </>
+                )}
                 <SectionCard
                   title="Entradas de hoy"
                   icon={DoorOpen}
@@ -679,6 +816,7 @@ export default function TodayPage() {
                   href="/calendar"
                   itemHref={(it) => `/contracts/${it.id}`}
                   empty="Ningún inquilino entra hoy."
+                  renderActions={(it) => <PhoneLinks phone={it.phone} />}
                 />
                 <SectionCard
                   title="Salidas de hoy y atrasadas"
@@ -688,7 +826,9 @@ export default function TodayPage() {
                   href="/contracts?status=ending"
                   itemHref={(it) => `/contracts/${it.id}`}
                   empty="Ninguna salida (check-out) hoy."
+                  renderActions={(it) => <PhoneLinks phone={it.phone} />}
                 />
+                {extras && <TomorrowCard items={extras.tomorrow} />}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <StatTile
@@ -719,6 +859,12 @@ export default function TodayPage() {
                   empty="Sin tareas pendientes para hoy."
                   onComplete={canTasks ? completeTask : undefined}
                   completeLabel="Completar tarea"
+                  renderActions={(it) => (
+                    <>
+                      {canTasks && rowButton(`assign-${it.id}`, 'Para mí', () => assignTask(it))}
+                      <SnoozeMenu kind="task" refId={it.id} label={it.label} />
+                    </>
+                  )}
                 />
                 <SectionCard
                   title="Firmas pendientes"
@@ -839,6 +985,14 @@ export default function TodayPage() {
                 />
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
+                {extras && (
+                  <AttentionCard
+                    title="Chats esperando a una persona"
+                    icon={MessageSquare}
+                    section={extras.chatsWaiting}
+                    href="/messages"
+                  />
+                )}
                 <SectionCard
                   permission="leads:read"
                   title="Leads sin contactar"
@@ -848,6 +1002,7 @@ export default function TodayPage() {
                   href="/leads"
                   itemHref={(it) => `/leads?lead=${it.id}`}
                   empty="Ningún lead nuevo sin contactar."
+                  renderActions={leadActions}
                 />
                 <SectionCard
                   permission="leads:read"
@@ -858,6 +1013,7 @@ export default function TodayPage() {
                   href="/leads/response"
                   itemHref={(it) => `/leads?lead=${it.id}`}
                   empty="Todos los contactos nuevos están atendidos a tiempo."
+                  renderActions={leadActions}
                 />
                 <SectionCard
                   permission="leads:read"
@@ -868,6 +1024,9 @@ export default function TodayPage() {
                   href="/followups"
                   itemHref={(it) => (it.linkId ? `/leads?lead=${it.linkId}` : '/leads')}
                   empty="Sin seguimientos de contactos para hoy."
+                  renderActions={(it) => (
+                    <SnoozeMenu kind="lead_followup" refId={it.id} label={it.label} />
+                  )}
                   onComplete={canLeads ? completeLeadFollowup : undefined}
                   completeLabel="Marcar hecho"
                 />
@@ -880,6 +1039,12 @@ export default function TodayPage() {
                   href="/followups"
                   itemHref={(it) => (it.linkId ? `/customers/${it.linkId}` : '/followups')}
                   empty="Sin seguimientos para hoy."
+                  renderActions={(it) => (
+                    <>
+                      <PhoneLinks phone={it.phone} />
+                      <SnoozeMenu kind="customer_followup" refId={it.id} label={it.label} />
+                    </>
+                  )}
                   onComplete={canFollowups ? completeFollowup : undefined}
                   completeLabel="Marcar hecho"
                 />
@@ -905,10 +1070,25 @@ export default function TodayPage() {
               </div>
             </TabsContent>
 
+            <TabsContent value="week">
+              {extras ? <WeekList items={extras.week} /> : <Skeleton className="h-32" />}
+            </TabsContent>
+
+            <TabsContent value="done">
+              {extras ? <DonePanel done={extras.done} /> : <Skeleton className="h-32" />}
+            </TabsContent>
+
             <TabsContent value="activity">
               <ActivityList items={summary.data?.activity ?? null} />
             </TabsContent>
           </Tabs>
+          {extras && <SnoozedList items={extras.snoozed} />}
+          <ManualPaymentDialog invoice={paying} onClose={() => setPaying(null)} onDone={refresh} />
+          <SettleDepositDialog
+            deposit={settling}
+            onClose={() => setSettling(null)}
+            onDone={refresh}
+          />
         </>
       )}
     </div>

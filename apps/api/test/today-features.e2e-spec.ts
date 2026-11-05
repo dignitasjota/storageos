@@ -127,8 +127,8 @@ describe('Funcionalidades de «Hoy» (e2e)', () => {
     // A las 8 de Madrid se reserva el día: la segunda pasada no repite.
     const at8 = eightInMadrid();
     await service.sendDue(at8);
-    const t1 = await db.tenant.findUniqueOrThrow({ where: { id: owner.tenantId } });
-    expect(t1.dailySummaryLastDate).not.toBeNull();
+    const u1 = await db.user.findFirstOrThrow({ where: { tenantId: owner.tenantId } });
+    expect(u1.dailySummaryLastDate).not.toBeNull();
     await db.tenant.update({
       where: { id: owner.tenantId },
       data: { staffEmailSettings: { daily_summary: false } },

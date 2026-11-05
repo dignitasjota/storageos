@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /** Un ítem resumido para la bandeja «Hoy» (lo que requiere atención). */
 export interface TodayItemDto {
   id: string;
@@ -17,6 +19,9 @@ export interface TodayItemDto {
   chargeable?: boolean;
   /** Factura: ya se está cobrando («Cobro en curso», «En plan de pagos»); no se reclama. */
   note?: string | null;
+  /** Para llamar o escribir desde la fila. */
+  phone?: string | null;
+  customerId?: string | null;
 }
 
 /** Bandeja operativa «Hoy»: lo que el equipo debe atender, de un vistazo. */
@@ -164,4 +169,147 @@ export interface TodaySummaryDto {
   kpis: TodayKpisDto;
   /** Lo que ha pasado en las últimas 48 h, lo más reciente primero. */
   activity: TodayActivityDto[];
+}
+
+// --- Apartar avisos -----------------------------------------------------------
+
+export const TenantTodaySnoozeKindEnum = z.enum([
+  'task',
+  'customer_followup',
+  'lead_followup',
+  'lead',
+  'invoice',
+  'deposit',
+  'customer_debt',
+  'unit_request',
+  'waitlist',
+  'draft',
+  'reservation',
+  'payment',
+  'plan',
+  'inventory',
+  'chat',
+]);
+export type TenantTodaySnoozeKind = z.infer<typeof TenantTodaySnoozeKindEnum>;
+
+export const CreateTenantTodaySnoozeSchema = z.object({
+  kind: TenantTodaySnoozeKindEnum,
+  refId: z.string().uuid(),
+  days: z.number().int().min(1).max(30),
+  label: z.string().trim().max(200).optional(),
+});
+export type CreateTenantTodaySnoozeInput = z.infer<typeof CreateTenantTodaySnoozeSchema>;
+
+export interface TenantTodaySnoozeDto {
+  id: string;
+  kind: TenantTodaySnoozeKind;
+  refId: string;
+  label: string | null;
+  until: string;
+}
+
+// --- Lo que completa «Hoy» ----------------------------------------------------
+
+/** Un aviso con su enlace; `kind` y `refId` sirven para apartarlo. */
+export interface TodayAttentionItemDto {
+  kind: TenantTodaySnoozeKind;
+  refId: string;
+  label: string;
+  detail: string | null;
+  date: string | null;
+  href: string;
+  phone?: string | null;
+}
+
+export interface TodayAttentionSectionDto {
+  count: number;
+  items: TodayAttentionItemDto[];
+}
+
+/** Un inquilino con deuda: la vista por persona, no por factura. */
+export interface TodayDebtDto {
+  customerId: string;
+  customerName: string;
+  phone: string | null;
+  amount: number;
+  days: number;
+  invoiceCount: number;
+  invoiceIds: string[];
+  chargeable: boolean;
+  /** Va en un plan de pagos o en la remesa: no hay que reclamar. */
+  note: string | null;
+  nextStep: { label: string; date: string } | null;
+  lastContactAt: string | null;
+}
+
+export interface TodayTomorrowItemDto {
+  id: string;
+  kind: 'in' | 'out';
+  label: string;
+  detail: string | null;
+  phone: string | null;
+  /** Lo que falta para que salga bien: «Firma», «Primer pago», «Acceso»… */
+  missing: string[];
+}
+
+export interface TodayWeekItemDto {
+  id: string;
+  kind: 'task' | 'followup' | 'lead_followup' | 'move_in' | 'move_out' | 'reminder';
+  label: string;
+  detail: string | null;
+  date: string;
+  href: string;
+}
+
+export interface TodayDoneDto {
+  tasks: number;
+  followups: number;
+  contractsSigned: number;
+  leadsContacted: number;
+  /** Cobrado hoy por forma de pago; vacío sin permiso sobre los cobros. */
+  payments: { method: string; label: string; amount: number; count: number }[];
+  collected: number;
+  /** Ya se ha hecho el cierre de caja de hoy. */
+  cashClosed: boolean;
+}
+
+export interface TodayExtrasDto {
+  /** Asuntos de estos apartados que se suman a los de hoy. */
+  urgentCount: number;
+  unitRequests: TodayAttentionSectionDto;
+  waitlistMatches: TodayAttentionSectionDto;
+  draftsAttention: TodayAttentionSectionDto;
+  reservationsConfirmed: TodayAttentionSectionDto;
+  paymentProblems: TodayAttentionSectionDto;
+  plansLate: TodayAttentionSectionDto;
+  inventoryIssues: TodayAttentionSectionDto;
+  chatsWaiting: TodayAttentionSectionDto;
+  debts: { count: number; totalAmount: number; rows: TodayDebtDto[] };
+  tomorrow: TodayTomorrowItemDto[];
+  week: TodayWeekItemDto[];
+  done: TodayDoneDto;
+  snoozed: TenantTodaySnoozeDto[];
+}
+
+/** Código de acceso de un inquilino para el mostrador. */
+export interface TodayDeskAccessDto {
+  credentials: { id: string; method: 'pin' | 'qr'; label: string | null; value: string | null }[];
+}
+
+// --- Resumen del día a medida --------------------------------------------------
+
+export const DEFAULT_DAILY_SUMMARY_HOUR = 8;
+
+export const DailySummaryPrefsSchema = z.object({
+  hour: z.number().int().min(5).max(20).default(DEFAULT_DAILY_SUMMARY_HOUR),
+  /** Locales del resumen; vacío = todos los que ve la persona. */
+  facilityIds: z.array(z.string().uuid()).max(100).default([]),
+  /** Además del correo (o sin él), un aviso en el móvil. */
+  push: z.boolean().default(false),
+});
+export type DailySummaryPrefs = z.infer<typeof DailySummaryPrefsSchema>;
+
+export function parseDailySummaryPrefs(value: unknown): DailySummaryPrefs {
+  const parsed = DailySummaryPrefsSchema.safeParse(value ?? {});
+  return parsed.success ? parsed.data : DailySummaryPrefsSchema.parse({});
 }

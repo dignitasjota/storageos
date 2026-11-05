@@ -25,6 +25,7 @@ export interface PushPublicKeyDto {
  * las que piden actuar pronto. El resto se quedan en la campana.
  */
 export const STAFF_PUSH_TYPES: Record<string, string> = {
+  'today.daily_summary': 'Resumen del día',
   'lead.created': 'Contacto nuevo desde la web',
   'lead.unattended': 'Un contacto lleva tiempo sin atender',
   'lead.assigned': 'Te han asignado un contacto',
