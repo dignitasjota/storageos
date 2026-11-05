@@ -71,6 +71,7 @@ export class CustomerExtrasService {
       const extra = new Map<string, number>();
       const night = new Map<string, number>();
       for (const c of credentials) {
+        if (!c.customerId) continue;
         const source = (c.metadata as { source?: string } | null)?.source;
         if (source === 'portal_self_service' && c.status !== 'expired') {
           extra.set(c.customerId, (extra.get(c.customerId) ?? 0) + 1);

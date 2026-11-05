@@ -15,6 +15,7 @@ import type {
   AccessMethod,
   AccessResult,
 } from '@storageos/database';
+import type { AccessSyncDeviceDto } from '@storageos/shared';
 
 /** Device con la timezone de su local (para las fechas de validez del terminal). */
 type DeviceWithFacility = AccessDevice & { facility?: { timezone: string } | null };
@@ -164,7 +165,7 @@ export class DahuaSyncService {
           // Una tarjeta o un QR nuevos son otro registro en el terminal: el
           // anterior se borra para que deje de abrir.
           const before = previous.find((p) => p.deviceId === device.id);
-          if (before && before.hardwareRef !== ref) {
+          if (before?.hardwareRef && before.hardwareRef !== ref) {
             await provider.remove(syncDevice, before.hardwareRef);
           }
           await this.prisma.withTenant(
@@ -178,7 +179,7 @@ export class DahuaSyncService {
                   hardwareRef: ref,
                   state,
                 },
-                update: { hardwareRef: ref, state, syncedAt: new Date() },
+                update: { lastError: null, hardwareRef: ref, state, syncedAt: new Date() },
               }),
             tenantId,
           );
@@ -186,6 +187,7 @@ export class DahuaSyncService {
           this.logger.warn(
             `[sync] push credencial ${cred.id} → device ${device.id}: ${err instanceof Error ? err.message : String(err)}`,
           );
+          await this.recordError(tenantId, cred.id, device.id, err);
         }
       }
       // Terminales que ya no le tocan (un traslado, un local quitado).
@@ -206,7 +208,9 @@ export class DahuaSyncService {
   ): Promise<void> {
     const provider = this.registry.resolve(row.device.provider);
     try {
-      if (provider) await provider.remove(await this.toSyncDevice(row.device), row.hardwareRef);
+      if (provider && row.hardwareRef) {
+        await provider.remove(await this.toSyncDevice(row.device), row.hardwareRef);
+      }
       await this.prisma.withTenant(
         (tx) => tx.accessCredentialSync.delete({ where: { id: row.id } }),
         tenantId,
@@ -216,6 +220,87 @@ export class DahuaSyncService {
         `[sync] quitar de ${row.device.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  /** Deja constancia del fallo: se ve en el estado de la sincronización. */
+  private async recordError(
+    tenantId: string,
+    credentialId: string,
+    deviceId: string,
+    err: unknown,
+  ): Promise<void> {
+    const lastError = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+    await this.prisma
+      .withTenant(
+        (tx) =>
+          tx.accessCredentialSync.upsert({
+            where: { credentialId_deviceId: { credentialId, deviceId } },
+            create: { tenantId, credentialId, deviceId, hardwareRef: '', lastError },
+            update: { lastError },
+          }),
+        tenantId,
+      )
+      .catch((e) => this.logger.warn(`[sync] no se pudo anotar el fallo: ${String(e)}`));
+  }
+
+  /** Cómo va cada terminal: qué debería tener, qué tiene y qué ha fallado. */
+  async status(tenantId: string, facilityIds: string[] | null): Promise<AccessSyncDeviceDto[]> {
+    return this.prisma.withTenant(async (tx) => {
+      const devices = (
+        await tx.accessDevice.findMany({
+          where: { isActive: true, ...(facilityIds ? { facilityId: { in: facilityIds } } : {}) },
+          include: { facility: { select: { name: true } } },
+          orderBy: { name: 'asc' },
+        })
+      ).filter((d) => this.registry.isSyncable(d.provider) && d.provider);
+      if (devices.length === 0) return [];
+      const creds = await tx.accessCredential.findMany({
+        where: { status: { in: ['active', 'suspended'] } },
+        select: { allowedFacilityIds: true, allowedUnitIds: true },
+      });
+      const rows = await tx.accessCredentialSync.findMany({
+        where: { deviceId: { in: devices.map((d) => d.id) } },
+        select: {
+          deviceId: true,
+          credentialId: true,
+          lastError: true,
+          credential: {
+            select: {
+              holderName: true,
+              label: true,
+              customer: { select: { firstName: true, lastName: true, companyName: true } },
+            },
+          },
+        },
+      });
+      return devices.map((d) => {
+        const own = rows.filter((r) => r.deviceId === d.id);
+        const failed = own.filter((r) => r.lastError);
+        return {
+          deviceId: d.id,
+          deviceName: d.name,
+          facilityName: d.facility.name,
+          expected: creds.filter((c) => {
+            const everywhere = c.allowedFacilityIds.length === 0 && c.allowedUnitIds.length === 0;
+            if (everywhere) return true;
+            if (!c.allowedFacilityIds.includes(d.facilityId)) return false;
+            return !d.unitId || c.allowedUnitIds.includes(d.unitId);
+          }).length,
+          synced: own.length - failed.length,
+          failed: failed.length,
+          errors: failed.slice(0, 20).map((r) => ({
+            credentialId: r.credentialId,
+            holderName:
+              r.credential.holderName ??
+              (r.credential.customer
+                ? (r.credential.customer.companyName ??
+                  `${r.credential.customer.firstName ?? ''} ${r.credential.customer.lastName ?? ''}`.trim())
+                : (r.credential.label ?? 'Sin nombre')),
+            error: r.lastError as string,
+          })),
+        };
+      });
+    }, tenantId);
   }
 
   /** Terminal nuevo: recibe las credenciales vivas que abren su local. */
@@ -260,15 +345,20 @@ export class DahuaSyncService {
         const dev = await this.toSyncDevice(row.device);
         try {
           if (state === 'revoked') {
-            await provider.remove(dev, row.hardwareRef);
+            if (row.hardwareRef) await provider.remove(dev, row.hardwareRef);
             await this.prisma.withTenant(
               (tx) => tx.accessCredentialSync.delete({ where: { id: row.id } }),
               tenantId,
             );
           } else {
+            if (!row.hardwareRef) continue;
             await provider.setState(dev, row.hardwareRef, state);
             await this.prisma.withTenant(
-              (tx) => tx.accessCredentialSync.update({ where: { id: row.id }, data: { state } }),
+              (tx) =>
+                tx.accessCredentialSync.update({
+                  where: { id: row.id },
+                  data: { state, lastError: null },
+                }),
               tenantId,
             );
           }
@@ -276,6 +366,7 @@ export class DahuaSyncService {
           this.logger.warn(
             `[sync] applyState ${credentialId}/${row.device.id}: ${err instanceof Error ? err.message : String(err)}`,
           );
+          await this.recordError(tenantId, credentialId, row.deviceId, err);
         }
       }
     } catch (err) {

@@ -420,6 +420,11 @@ model Tenant {
   referralRewardType           PromotionDiscountType @default(fixed) @map("referral_reward_type")
   referralRewardValue          Decimal               @default(0) @map("referral_reward_value") @db.Decimal(10, 2)
   extraAccessLimit             Int                   @default(2) @map("extra_access_limit")
+  /// Qué corta el impago: all, extras (solo los adicionales) o none.
+  accessCutMode           String   @default("all") @map("access_cut_mode")
+  accessCutDays           Int      @default(14) @map("access_cut_days")
+  /// Avisos de seguridad apagados (solo se guarda lo que se quita).
+  accessAlerts            Json     @default("{}") @map("access_alerts")
   /// White-label del portal del inquilino: color de marca (hex) y URL del logo.
   portalBrandColor             String?               @map("portal_brand_color")
   /// Cabecera de la web pública con el color de la marca (y el botón «Reservar» en blanco).
@@ -3833,7 +3838,12 @@ enum AccessResult {
 model AccessCredential {
   id                 String                 @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId           String                 @map("tenant_id") @db.Uuid
-  customerId         String                 @map("customer_id") @db.Uuid
+  customerId         String?                @map("customer_id") @db.Uuid
+  /// Acceso temporal sin inquilino (proveedor, equipo): de quién es.
+  holderName         String?                @map("holder_name")
+  holderKind         String?                @map("holder_kind")
+  /// Desde cuándo abre (accesos temporales). Null = desde que se crea.
+  validFrom          DateTime?              @map("valid_from") @db.Timestamptz(6)
   method             AccessMethod
   status             AccessCredentialStatus @default(pending)
   label              String?
@@ -3867,7 +3877,7 @@ model AccessCredential {
   updatedAt          DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer    Customer               @relation("CredentialCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  customer    Customer?              @relation("CredentialCustomer", fields: [customerId], references: [id], onDelete: Cascade)
   contract    Contract?              @relation("CredentialContract", fields: [contractId], references: [id], onDelete: SetNull)
   logs        AccessLog[]
   syncEntries AccessCredentialSync[]
@@ -3905,6 +3915,8 @@ model AccessDevice {
   lastSeenAt             DateTime?        @map("last_seen_at") @db.Timestamptz(6)
   /// Patrón B: última reconciliación de los registros de acceso del terminal.
   lastReconciledAt       DateTime?        @map("last_reconciled_at") @db.Timestamptz(6)
+  lastHeartbeatAt        DateTime?        @map("last_heartbeat_at") @db.Timestamptz(6)
+  offlineNotifiedAt      DateTime?        @map("offline_notified_at") @db.Timestamptz(6)
   isActive               Boolean          @default(true) @map("is_active")
   metadata               Json             @default("{}")
   createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -3933,6 +3945,8 @@ model AccessCredentialSync {
   hardwareRef  String   @map("hardware_ref")
   state        String   @default("active")
   syncedAt     DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+  /// Por qué falló el último envío al terminal. Null = al día.
+  lastError    String?  @map("last_error")
 
   tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   credential AccessCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)

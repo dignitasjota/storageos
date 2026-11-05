@@ -6,6 +6,7 @@ import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { QUEUE_BILLING } from '../queues/queues.module';
 
+import { AccessAlertsService } from './access-alerts.service';
 import { AccessCredentialsController } from './access-credentials.controller';
 import { AccessCredentialsService } from './access-credentials.service';
 import { AccessDevicesController } from './access-devices.controller';
@@ -15,6 +16,7 @@ import { AccessIntegrationsService } from './access-integrations.service';
 import { AccessLogsController } from './access-logs.controller';
 import { AccessRateLimitService } from './access-rate-limit.service';
 import { AccessSweepCron } from './access-sweep.cron';
+import { AccessToolsController } from './access-tools.controller';
 import { AccessVerifyController } from './access-verify.controller';
 import { AccessVerifyService } from './access-verify.service';
 import { DahuaReconcileCron } from './dahua-reconcile.cron';
@@ -38,12 +40,14 @@ import { SyncProviderRegistry } from './providers/sync-provider.registry';
     AccessVerifyController,
     AccessLogsController,
     AccessDoorController,
+    AccessToolsController,
   ],
   providers: [
     AccessCredentialsService,
     AccessDevicesService,
     AccessVerifyService,
     AccessRateLimitService,
+    AccessAlertsService,
     AccessIntegrationsService,
     // Todos los adapters de cerradura; el registry elige por-device (o por env).
     StubLockProvider,

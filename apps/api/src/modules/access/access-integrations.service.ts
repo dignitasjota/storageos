@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import {
@@ -37,6 +38,7 @@ export class AccessIntegrationsService {
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
     private readonly config: ConfigService<Env, true>,
+    private readonly crypto: CryptoService,
   ) {}
 
   /**
@@ -371,6 +373,19 @@ export class AccessIntegrationsService {
     customerId: string;
     invoiceId: string;
   }): Promise<void> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: args.tenantId },
+      select: { accessCutMode: true },
+    });
+    if (tenant?.accessCutMode === 'none') return;
+    if (tenant?.accessCutMode === 'extras') {
+      await this.credentials.suspendExtras(
+        args.tenantId,
+        args.customerId,
+        `dunning:invoice-${args.invoiceId}`,
+      );
+      return;
+    }
     await this.credentials.suspend({
       tenantId: args.tenantId,
       userId: null,
@@ -381,6 +396,76 @@ export class AccessIntegrationsService {
     this.logger.log(
       `access_block ejecutado tenant=${args.tenantId} customer=${args.customerId} invoice=${args.invoiceId}`,
     );
+  }
+
+  /** Vuelve a mandar al inquilino su código por correo. */
+  async resendCode(
+    tenantId: string,
+    customerId: string,
+    facilityScope: string[] | null,
+  ): Promise<{ sentTo: string }> {
+    await this.credentials.assertCustomerAllowed(tenantId, customerId, facilityScope);
+    const data = await this.prisma.withTenant(async (tx) => {
+      const [customer, credential] = await Promise.all([
+        tx.customer.findFirst({
+          where: { id: customerId },
+          select: { firstName: true, lastName: true, companyName: true, email: true },
+        }),
+        tx.accessCredential.findFirst({
+          where: {
+            customerId,
+            status: 'active',
+            method: 'pin',
+            secretEncrypted: { not: null },
+            maxUses: null,
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { secretEncrypted: true },
+        }),
+      ]);
+      return { customer, credential };
+    }, tenantId);
+    if (!data.customer?.email) {
+      throw new BadRequestException({
+        code: 'customer_without_email',
+        message: 'Este inquilino no tiene correo',
+      });
+    }
+    if (!data.credential?.secretEncrypted) {
+      throw new BadRequestException({
+        code: 'no_code_to_resend',
+        message: 'No tiene ningún PIN activo que se pueda reenviar',
+      });
+    }
+    const { unitCode, facilityName } = await this.resolveCustomerScope(tenantId, customerId);
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
+    });
+    await this.communications.enqueue({
+      tenantId,
+      channel: 'email',
+      recipient: data.customer.email,
+      templateCode: 'access_credential_issued_email',
+      variables: {
+        customer: data.customer,
+        credential: {
+          secret: this.crypto.decryptString(data.credential.secretEncrypted, tenantId),
+        },
+        unit: { code: unitCode ?? '' },
+        facility: { name: facilityName ?? '' },
+        tenant: { name: tenant?.name ?? '' },
+        portal: {
+          url: tenant
+            ? tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant)
+            : '',
+        },
+      },
+      secretVariables: ['credential.secret'],
+      customerId,
+      source: 'access.code_resent',
+    });
+    return { sentTo: data.customer.email };
   }
 
   /**

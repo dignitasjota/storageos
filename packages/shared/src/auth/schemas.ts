@@ -359,5 +359,18 @@ export const UpdateTenantAccessSettingsSchema = z.object({
   /** Pase nocturno: el inquilino compra un código de un solo uso que salta el toque de queda. */
   nightPassEnabled: z.boolean().optional(),
   nightPassPrice: z.number().min(0).max(1000).optional(),
+  /** Qué corta el impago: todo, solo los accesos adicionales o nada. */
+  accessCutMode: z.enum(['all', 'extras', 'none']).optional(),
+  /** Días tras el vencimiento hasta cortar. */
+  accessCutDays: z.number().int().min(1).max(90).optional(),
+  accessAlerts: z
+    .object({
+      cutAttempt: z.boolean(),
+      repeatedFailures: z.boolean(),
+      nightAttempt: z.boolean(),
+      deviceOffline: z.boolean(),
+    })
+    .partial()
+    .optional(),
 });
 export type UpdateTenantAccessSettingsInput = z.infer<typeof UpdateTenantAccessSettingsSchema>;

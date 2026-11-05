@@ -61,6 +61,28 @@ export class AccessVerifyController {
     });
   }
 
+  /** Latido de los equipos que no se pueden consultar desde fuera. */
+  @Public()
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Post('heartbeat')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async heartbeat(
+    @Body() body: { deviceId?: string },
+    @Headers('x-device-key') apiKey: string | undefined,
+  ): Promise<void> {
+    const device =
+      apiKey && body?.deviceId
+        ? await this.service.authenticateDevice({ apiKey, deviceRef: body.deviceId })
+        : null;
+    if (!device) {
+      throw new UnauthorizedException({
+        code: 'device_auth_failed',
+        message: 'Dispositivo no autorizado',
+      });
+    }
+    await this.service.heartbeat(device);
+  }
+
   /**
    * Variante GET para lectores comerciales que integran por "URL con
    * placeholders" (patrón A). Ejemplos de configuración en el lector:

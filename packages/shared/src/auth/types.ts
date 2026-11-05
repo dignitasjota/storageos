@@ -238,6 +238,14 @@ export interface TenantAccessSettingsResponse {
   /** Pase nocturno: compra de un código de un solo uso que salta el toque de queda. */
   nightPassEnabled: boolean;
   nightPassPrice: number;
+  accessCutMode: 'all' | 'extras' | 'none';
+  accessCutDays: number;
+  accessAlerts: {
+    cutAttempt: boolean;
+    repeatedFailures: boolean;
+    nightAttempt: boolean;
+    deviceOffline: boolean;
+  };
 }
 
 /** GET /me/sessions — una sesión abierta del usuario. */

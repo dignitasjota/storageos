@@ -229,3 +229,48 @@ export const VerifyAccessSchema = z.object({
   deviceId: z.string().trim().min(1).max(120),
 });
 export type VerifyAccessInput = z.infer<typeof VerifyAccessSchema>;
+
+/** Acceso temporal de un proveedor o del equipo: sin inquilino y siempre con fecha de fin. */
+export const AccessHolderKindEnum = z.enum(['supplier', 'staff', 'other']);
+export type AccessHolderKindValue = z.infer<typeof AccessHolderKindEnum>;
+
+export const CreateTemporaryAccessSchema = z
+  .object({
+    holderName: z.string().trim().min(2).max(120),
+    holderKind: AccessHolderKindEnum,
+    method: z.enum(['pin', 'rfid']).default('pin'),
+    pin: z
+      .string()
+      .trim()
+      .regex(/^\d{6,8}$/, 'El PIN debe tener entre 6 y 8 dígitos')
+      .optional(),
+    rfidUid: z.string().trim().min(4).max(40).optional(),
+    allowedFacilityIds: z.array(z.string().uuid()).min(1, 'Elige al menos un local'),
+    allowedUnitIds: z.array(z.string().uuid()).default([]),
+    allowedHours: AccessAllowedHoursSchema,
+    bypassCurfew: z.boolean().default(false),
+    validFrom: z.string().datetime().optional(),
+    expiresAt: z.string().datetime(),
+  })
+  .refine((v) => v.method !== 'rfid' || !!v.rfidUid, {
+    message: 'Indica el número de la tarjeta',
+    path: ['rfidUid'],
+  })
+  .refine((v) => new Date(v.expiresAt) > new Date(v.validFrom ?? Date.now()), {
+    message: 'La fecha de fin tiene que ser posterior',
+    path: ['expiresAt'],
+  });
+export type CreateTemporaryAccessInput = z.infer<typeof CreateTemporaryAccessSchema>;
+
+/** Probar un equipo antes de guardarlo. */
+export const TestDeviceConnectionSchema = z.object({
+  provider: LockProviderEnum,
+  controlUrl: z.string().url().max(500),
+  controlSecret: z.string().trim().max(200).optional(),
+});
+export type TestDeviceConnectionInput = z.infer<typeof TestDeviceConnectionSchema>;
+
+export const SuspendCustomerAccessSchema = z.object({
+  reason: z.string().trim().min(1).max(200),
+});
+export type SuspendCustomerAccessInput = z.infer<typeof SuspendCustomerAccessSchema>;

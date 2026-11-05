@@ -26,7 +26,7 @@ export interface SyncDevice {
 /** Credencial a sincronizar (secreto en claro para escribirlo en el terminal). */
 export interface SyncCredentialSpec {
   credentialId: string;
-  customerId: string;
+  customerId: string | null;
   method: 'pin' | 'qr' | 'rfid' | 'face';
   /** PIN / token QR / UID RFID en claro. Vacío en facial (el secreto es la foto). */
   secret: string;

@@ -61,6 +61,17 @@ import type {
   WebSettingsResponse,
 } from '@storageos/shared';
 
+/** Avisos de seguridad del tenant: todos encendidos salvo lo que apague. */
+function accessAlertSettings(value: unknown): TenantAccessSettingsResponse['accessAlerts'] {
+  return {
+    cutAttempt: true,
+    repeatedFailures: true,
+    nightAttempt: true,
+    deviceOffline: true,
+    ...(value as Partial<TenantAccessSettingsResponse['accessAlerts']>),
+  };
+}
+
 @Injectable()
 export class TenantSettingsService {
   private readonly logger = new Logger(TenantSettingsService.name);
@@ -1008,6 +1019,9 @@ export class TenantSettingsService {
       extraAccessLimit: tenant.extraAccessLimit,
       nightPassEnabled: tenant.nightPassEnabled,
       nightPassPrice: Number(tenant.nightPassPrice),
+      accessCutMode: tenant.accessCutMode as TenantAccessSettingsResponse['accessCutMode'],
+      accessCutDays: tenant.accessCutDays,
+      accessAlerts: accessAlertSettings(tenant.accessAlerts),
     };
   }
 
@@ -1033,6 +1047,20 @@ export class TenantSettingsService {
         ...(args.input.nightPassPrice !== undefined
           ? { nightPassPrice: args.input.nightPassPrice }
           : {}),
+        ...(args.input.accessCutMode !== undefined
+          ? { accessCutMode: args.input.accessCutMode }
+          : {}),
+        ...(args.input.accessCutDays !== undefined
+          ? { accessCutDays: args.input.accessCutDays }
+          : {}),
+        ...(args.input.accessAlerts !== undefined
+          ? {
+              accessAlerts: {
+                ...accessAlertSettings(tenant.accessAlerts),
+                ...args.input.accessAlerts,
+              },
+            }
+          : {}),
       },
     });
     await this.audit.write({
@@ -1049,6 +1077,9 @@ export class TenantSettingsService {
       extraAccessLimit: updated.extraAccessLimit,
       nightPassEnabled: updated.nightPassEnabled,
       nightPassPrice: Number(updated.nightPassPrice),
+      accessCutMode: updated.accessCutMode as TenantAccessSettingsResponse['accessCutMode'],
+      accessCutDays: updated.accessCutDays,
+      accessAlerts: accessAlertSettings(updated.accessAlerts),
     };
   }
 }

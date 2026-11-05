@@ -13,8 +13,10 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { isSafeOutboundUrl } from '../../common/security/safe-outbound-url';
 import { AuditService } from '../auth/audit.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
+import { AccessAlertsService } from './access-alerts.service';
 import { DahuaSyncService } from './dahua-sync.service';
 import { LockProviderRegistry } from './providers/lock-provider.registry';
 
@@ -34,6 +36,7 @@ import type {
   AccessDeviceWithKeyDto,
   CreateDeviceInput,
   UpdateDeviceInput,
+  TestDeviceConnectionInput,
 } from '@storageos/shared';
 
 interface ListFilters {
@@ -58,6 +61,9 @@ function generateApiKey(): string {
   return randomBytes(32).toString('base64url');
 }
 
+/** Sin señal en este tiempo, un equipo que se puede consultar cuenta como caído. */
+const DEVICE_OFFLINE_MINUTES = 15;
+
 @Injectable()
 export class AccessDevicesService {
   private readonly logger = new Logger(AccessDevicesService.name);
@@ -68,7 +74,96 @@ export class AccessDevicesService {
     private readonly crypto: CryptoService,
     private readonly locks: LockProviderRegistry,
     private readonly sync: DahuaSyncService,
+    private readonly alerts: AccessAlertsService,
+    private readonly admin: PrismaAdminService,
   ) {}
+
+  /** Prueba un equipo antes de guardarlo: nunca abre nada. */
+  async testConnection(
+    tenantId: string,
+    input: TestDeviceConnectionInput,
+  ): Promise<{ supported: boolean; online: boolean; message?: string }> {
+    const check = await isSafeOutboundUrl(input.controlUrl);
+    if (!check.safe) {
+      return {
+        supported: true,
+        online: false,
+        message: 'Esa dirección no se puede usar: tiene que alcanzarse desde internet.',
+      };
+    }
+    return this.locks.resolve(input.provider).ping({
+      tenantId,
+      deviceId: 'test',
+      controlUrl: input.controlUrl,
+      controlSecret: input.controlSecret ?? null,
+    });
+  }
+
+  /** Reenvía a un terminal todas las credenciales que le tocan. */
+  async resync(
+    tenantId: string,
+    id: string,
+    facilityScope: string[] | null,
+  ): Promise<{ sent: number }> {
+    await this.findOrThrow(tenantId, id, facilityScope);
+    return { sent: await this.sync.syncDevice(tenantId, id) };
+  }
+
+  /**
+   * Repaso de la conexión. Solo se juzga lo que se puede saber: los equipos con
+   * dirección se consultan y los que mandan latido se miden por él; del resto no
+   * se sabe nada hasta que alguien pase por la puerta.
+   */
+  async checkAll(now = new Date()): Promise<{ online: number; offline: number }> {
+    const devices = await this.admin.accessDevice.findMany({
+      where: {
+        isActive: true,
+        OR: [{ controlUrl: { not: null } }, { lastHeartbeatAt: { not: null } }],
+      },
+    });
+    const limit = now.getTime() - DEVICE_OFFLINE_MINUTES * 60_000;
+    let online = 0;
+    let offline = 0;
+    for (const device of devices) {
+      if (device.lastSeenAt && device.lastSeenAt.getTime() > limit) {
+        online += 1;
+        continue;
+      }
+      const safety = await this.assertControlUrlSafe(device);
+      const res =
+        device.controlUrl && safety.safe
+          ? await this.locks.resolve(device.provider).ping({
+              tenantId: device.tenantId,
+              deviceId: device.id,
+              ...this.controlArgs(device),
+            })
+          : { supported: !!device.lastHeartbeatAt, online: false };
+      if (!res.supported) continue;
+      if (res.online) {
+        online += 1;
+        await this.admin.accessDevice.update({
+          where: { id: device.id },
+          data: { isOnline: true, lastSeenAt: now, offlineNotifiedAt: null },
+        });
+        continue;
+      }
+      offline += 1;
+      const claimed = await this.admin.accessDevice.updateMany({
+        where: { id: device.id, offlineNotifiedAt: null },
+        data: { isOnline: false, offlineNotifiedAt: now },
+      });
+      if (claimed.count === 1) {
+        await this.alerts.notify(device.tenantId, 'deviceOffline', device.id, {
+          type: 'access.device_offline',
+          title: `${device.name} se ha quedado sin conexión`,
+          body: 'No responde. Quien use el teclado o el lector puede no poder entrar.',
+          link: '/access/devices',
+          facilityId: device.facilityId,
+        });
+      }
+    }
+    return { online, offline };
+  }
 
   /** Un terminal nuevo recibe sus credenciales sin hacer esperar a quien lo da de alta. */
   private syncInBackground(tenantId: string, deviceId: string): void {

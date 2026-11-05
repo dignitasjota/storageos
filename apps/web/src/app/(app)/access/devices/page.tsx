@@ -65,6 +65,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  useAccessSyncStatus,
   useCreateDevice,
   useDeleteDevice,
   useCloseDevice,
@@ -72,6 +73,8 @@ import {
   useDevices,
   usePingDevice,
   useRegenerateApiKey,
+  useResyncDevice,
+  useTestDeviceConnection,
   useUpdateDevice,
 } from '@/lib/access/hooks';
 import { ApiError } from '@/lib/auth/api';
@@ -100,6 +103,15 @@ const PROVIDER_LABELS: Record<LockProviderValue, string> = {
   dahua: 'Terminal Dahua',
   mqtt: 'Cerradura conectada por MQTT',
   stub: 'Simulador (solo para pruebas)',
+};
+
+/** Qué hace falta para cada equipo. */
+const PROVIDER_HINTS: Record<LockProviderValue, string> = {
+  http: 'Un controlador que abre al recibir una orden firmada por internet (Shelly, ESP32, Home Assistant…).',
+  dahua:
+    'Terminal que guarda los accesos y sigue abriendo sin internet. Usa la dirección del terminal y su usuario y contraseña.',
+  mqtt: 'Cerradura que escucha órdenes en un canal MQTT.',
+  stub: 'No abre nada de verdad: sirve para probar.',
 };
 
 const PROVIDERS = (Object.keys(PROVIDER_LABELS) as LockProviderValue[]).filter(
@@ -324,6 +336,8 @@ export default function DevicesPage() {
         </Select>
       </div>
 
+      <SyncStatusCard facilityId={facilityId} canManage={canManage} />
+
       {devices.isError && !devices.data ? (
         <SectionError onRetry={() => void devices.refetch()} />
       ) : (
@@ -372,6 +386,63 @@ export default function DevicesPage() {
       )}
 
       {revealed && <RevealedKeyDialog device={revealed} onClose={() => setRevealed(null)} />}
+    </div>
+  );
+}
+
+/** Terminales que guardan los accesos: qué tienen y qué ha fallado. */
+function SyncStatusCard({
+  facilityId,
+  canManage,
+}: {
+  facilityId: string | undefined;
+  canManage: boolean;
+}) {
+  const status = useAccessSyncStatus(facilityId);
+  const resync = useResyncDevice();
+  if (!status.data?.length) return null;
+
+  async function send(id: string, name: string) {
+    try {
+      const res = await resync.mutateAsync(id);
+      toast.success(`${res.sent} accesos enviados a ${name}.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido enviar.');
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border p-3 text-sm">
+      <p className="font-medium">Accesos guardados en los terminales</p>
+      {status.data.map((d) => (
+        <div key={d.deviceId} className="space-y-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              {d.deviceName} · <span className="text-muted-foreground">{d.facilityName}</span>
+            </span>
+            <span className="flex items-center gap-2">
+              <span className={d.synced < d.expected ? 'text-amber-600' : 'text-emerald-600'}>
+                {d.synced} de {d.expected}
+              </span>
+              {canManage && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={resync.isPending}
+                  onClick={() => void send(d.deviceId, d.deviceName)}
+                >
+                  Reenviar todo
+                </Button>
+              )}
+            </span>
+          </div>
+          {d.errors.map((e) => (
+            <p key={e.credentialId} className="text-xs text-destructive">
+              {e.holderName}: {e.error}
+            </p>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -437,6 +508,27 @@ function DeviceDialog({
   const type = form.watch('type');
   const provider = form.watch('provider');
   const units = useUnits(facilityId ? { facilityId } : {});
+  const test = useTestDeviceConnection();
+
+  async function testConnection() {
+    const values = form.getValues();
+    if (!values.provider || !values.controlUrl) {
+      toast.error('Indica la dirección del equipo.');
+      return;
+    }
+    try {
+      const res = await test.mutateAsync({
+        provider: values.provider,
+        controlUrl: values.controlUrl,
+        ...(values.controlSecret ? { controlSecret: values.controlSecret } : {}),
+      });
+      if (res.message) toast.error(res.message);
+      else if (res.online) toast.success('El equipo responde. No se ha abierto nada.');
+      else toast.error('El equipo no responde.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido comprobar.');
+    }
+  }
 
   async function onSubmit(values: CreateDeviceInput) {
     try {
@@ -610,6 +702,9 @@ function DeviceDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                  {provider && (
+                    <p className="text-xs text-muted-foreground">{PROVIDER_HINTS[provider]}</p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -686,6 +781,15 @@ function DeviceDialog({
                     </FormItem>
                   )}
                 />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={test.isPending}
+                  onClick={() => void testConnection()}
+                >
+                  {test.isPending ? 'Comprobando...' : 'Probar conexión (no abre)'}
+                </Button>
               </>
             )}
             {device && (

@@ -179,12 +179,17 @@ export class DunningService {
     const base = invoice.dueDate;
     const tenant = await this.admin.tenant.findUnique({
       where: { id: data.tenantId },
-      select: { lateFeeEnabled: true, lateFeeGraceDays: true },
+      select: {
+        lateFeeEnabled: true,
+        lateFeeGraceDays: true,
+        accessCutMode: true,
+        accessCutDays: true,
+      },
     });
-    const calendar = dunningCalendar({
-      enabled: !!tenant?.lateFeeEnabled,
-      graceDays: tenant?.lateFeeGraceDays ?? 0,
-    });
+    const calendar = dunningCalendar(
+      { enabled: !!tenant?.lateFeeEnabled, graceDays: tenant?.lateFeeGraceDays ?? 0 },
+      { mode: tenant?.accessCutMode ?? 'all', days: tenant?.accessCutDays ?? 14 },
+    );
     for (const step of calendar) {
       const scheduledFor = new Date(base);
       scheduledFor.setUTCDate(scheduledFor.getUTCDate() + step.daysAfter);

@@ -49,6 +49,9 @@ export const STAFF_PUSH_TYPES: Record<string, string> = {
   'payment_plan.broken': 'Un plan de pagos se ha incumplido',
   'camera.alarm': 'Alarma de una cámara',
   'access.device_locked': 'Una puerta se ha bloqueado por intentos fallidos',
+  'access.cut_attempt': 'Un inquilino con el acceso cortado intenta entrar',
+  'access.night_attempt': 'Alguien intenta entrar fuera de horario',
+  'access.device_offline': 'Una puerta se ha quedado sin conexión',
   'business_reminder.due': 'Se acerca un vencimiento del negocio',
   'invoice.offline_payment_chosen':
     'Un inquilino pagará por transferencia, en el local o domiciliando',

@@ -2363,6 +2363,7 @@ export class AdminTenantsService {
           status: 'revoked',
           revokedAt: now,
           secretHash: null,
+          holderName: null,
           secretPreview: null,
           secretEncrypted: null,
           rfidUid: null,

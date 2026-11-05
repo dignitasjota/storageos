@@ -6,8 +6,16 @@ import { toast } from 'sonner';
 import { FeatureGate } from '@/components/auth/feature-gate';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useAccessSettings, useUpdateAccessSettings } from '@/lib/access/settings-hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
@@ -19,6 +27,8 @@ export default function AccessSettingsPage() {
       <div className="space-y-4">
         <ExtraAccessSettingsCard />
         <NightPassSettingsCard />
+        <CutPolicyCard />
+        <AlertsCard />
       </div>
     </FeatureGate>
   );
@@ -154,6 +164,121 @@ function NightPassSettingsCard() {
             Guardar
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Qué corta el impago y a los cuántos días. */
+function CutPolicyCard() {
+  const settings = useAccessSettings();
+  const update = useUpdateAccessSettings();
+  const [mode, setMode] = useState<'all' | 'extras' | 'none' | null>(null);
+  const [days, setDays] = useState('');
+
+  const curMode = mode ?? settings.data?.accessCutMode ?? 'all';
+  const curDays = days === '' ? (settings.data?.accessCutDays ?? 14) : Number(days);
+
+  async function save() {
+    if (!Number.isInteger(curDays) || curDays < 1 || curDays > 90) {
+      toast.error('Indica entre 1 y 90 días.');
+      return;
+    }
+    try {
+      await update.mutateAsync({ accessCutMode: curMode, accessCutDays: curDays });
+      setMode(null);
+      setDays('');
+      toast.success('Política de corte guardada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Corte del acceso por impago</CardTitle>
+        <CardDescription>
+          Se aplica a las facturas que venzan a partir de ahora. Al pagar, el acceso vuelve solo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Qué se corta</Label>
+            <Select value={curMode} onValueChange={(v) => setMode(v as typeof curMode)}>
+              <SelectTrigger className="h-9 w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos sus accesos</SelectItem>
+                <SelectItem value="extras">Solo adicionales, visitas y pases</SelectItem>
+                <SelectItem value="none">Nada: no cortar nunca</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {curMode !== 'none' && (
+            <div className="space-y-1">
+              <Label htmlFor="cut-days" className="text-xs">
+                Días tras el vencimiento
+              </Label>
+              <Input
+                id="cut-days"
+                type="number"
+                min={1}
+                max={90}
+                className="h-9 w-24"
+                value={days === '' ? String(curDays) : days}
+                onChange={(e) => setDays(e.target.value)}
+              />
+            </div>
+          )}
+          <Button size="sm" onClick={() => void save()} disabled={update.isPending}>
+            Guardar
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const ALERTS = [
+  { key: 'cutAttempt', label: 'Un inquilino con el acceso cortado intenta entrar' },
+  { key: 'repeatedFailures', label: 'Una puerta se bloquea por PIN erróneos repetidos' },
+  { key: 'nightAttempt', label: 'Alguien intenta entrar fuera de horario' },
+  { key: 'deviceOffline', label: 'Una puerta se queda sin conexión' },
+] as const;
+
+/** Qué avisa al equipo en la campana y en el móvil. */
+function AlertsCard() {
+  const settings = useAccessSettings();
+  const update = useUpdateAccessSettings();
+
+  async function toggle(key: (typeof ALERTS)[number]['key'], value: boolean) {
+    try {
+      await update.mutateAsync({ accessAlerts: { [key]: value } });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Avisos de seguridad</CardTitle>
+        <CardDescription>Llegan a la campana y al móvil de quien vea ese local.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {ALERTS.map((a) => (
+          <label key={a.key} className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={settings.data?.accessAlerts[a.key] ?? true}
+              disabled={settings.isLoading || update.isPending}
+              onCheckedChange={(v) => void toggle(a.key, v === true)}
+            />
+            {a.label}
+          </label>
+        ))}
       </CardContent>
     </Card>
   );
