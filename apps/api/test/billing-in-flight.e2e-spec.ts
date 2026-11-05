@@ -8,6 +8,7 @@ import { JOB_DUNNING_EXECUTE_ACTION } from '../src/modules/queues/queues.module'
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
+import { signedContractFor } from './helpers/contract-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -143,6 +144,8 @@ describe('Cobros en curso frente a impagos (e2e)', () => {
 
   it('pagar una factura no devuelve el acceso si queda otra por la que se cortó', async () => {
     const { owner, auth, invoiceId, tenantId, customerId } = await issuedInvoice('inflight-acc');
+    // Sin un contrato vivo no se reactiva nada: pagar no devuelve el acceso a un ex-inquilino.
+    await signedContractFor(app, owner.accessToken, { id: customerId });
     const second = await createDraftInvoice(app, owner.accessToken, customerId, { unitPrice: 50 });
     await request(app.getHttpServer()).post(`/invoices/${second}/issue`).set(auth).expect(200);
 
