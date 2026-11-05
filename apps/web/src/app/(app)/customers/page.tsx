@@ -65,6 +65,7 @@ import {
 } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { formatDate } from '@/lib/format';
+import { useOpenFromUrl } from '@/lib/use-open-from-url';
 
 type Row = CustomerOverviewDto;
 
@@ -245,6 +246,7 @@ export default function CustomersPage() {
   const canWrite = useHasPermission('customers:write');
   const canImport = useHasPermission('imports:manage');
   const [open, setOpen] = useState(false);
+  useOpenFromUrl(() => setOpen(true));
   const [type, setType] = useState<'individual' | 'business'>('individual');
 
   const form = useForm<CreateCustomerInput>({

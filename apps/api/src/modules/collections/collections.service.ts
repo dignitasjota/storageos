@@ -206,13 +206,15 @@ export class CollectionsService {
   async getSummary(
     tenantId: string,
     facilityScope: string[] | null,
+    facilityId?: string,
   ): Promise<CollectionsSummaryDto> {
+    const facilities = resolveFacilityFilter(facilityScope, facilityId);
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.delinquencyCase.findMany({
         where: {
           tenantId,
           status: { notIn: CLOSED_CASE_STATUSES },
-          ...(facilityScope ? { facilityId: { in: facilityScope } } : {}),
+          ...(facilities === undefined ? {} : { facilityId: { in: facilities ?? [] } }),
         },
         select: { contractId: true, status: true },
       });

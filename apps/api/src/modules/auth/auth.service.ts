@@ -642,7 +642,10 @@ export class AuthService {
       return {
         user: this.toUserDto(user),
         tenant: this.toTenantDto(tenant),
-        subscription: this.toSubscriptionDto(subscription, subscription.plan.slug),
+        subscription: {
+          ...this.toSubscriptionDto(subscription, subscription.plan.slug),
+          planName: subscription.plan.name,
+        },
         permissions: await this.resolvePermissions(args.tenantId, user),
         features: effectiveFeaturesFromList(
           resolvePlanFeatures(subscription.plan),

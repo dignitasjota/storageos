@@ -16,7 +16,7 @@ interface TxMock {
   sepaMandate: { findMany: jest.Mock };
   unitType: { findMany: jest.Mock };
   unit: { groupBy: jest.Mock; count: jest.Mock };
-  tenant: { findUnique: jest.Mock };
+  tenant: { findUnique: jest.Mock; findFirst: jest.Mock };
   facility: { findMany: jest.Mock };
   competitorFacility: { findMany: jest.Mock };
   waitlistEntry: { groupBy: jest.Mock };
@@ -35,7 +35,10 @@ function buildTx(): TxMock {
     sepaMandate: { findMany: jest.fn().mockResolvedValue([]) },
     unitType: { findMany: jest.fn().mockResolvedValue([]) },
     unit: { groupBy: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
-    tenant: { findUnique: jest.fn().mockResolvedValue(null) },
+    tenant: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findFirst: jest.fn().mockResolvedValue({ timezone: 'Europe/Madrid' }),
+    },
     facility: { findMany: jest.fn().mockResolvedValue([]) },
     competitorFacility: { findMany: jest.fn().mockResolvedValue([]) },
     waitlistEntry: { groupBy: jest.fn().mockResolvedValue([]) },
@@ -181,12 +184,14 @@ describe('InsightsService.getRevenueForecast', () => {
   it('proyecta MRR y ocupación a N meses según churn y altas medias', async () => {
     const tx = buildTx();
     // 10 unidades, 8 ocupadas.
-    tx.unit.count.mockImplementation(({ where }: { where?: { status?: string } } = {}) =>
-      Promise.resolve(where?.status === 'occupied' ? 8 : 10),
-    );
+    tx.unit.groupBy.mockResolvedValue([
+      { facilityId: 'f1', status: 'occupied', _count: { _all: 8 } },
+      { facilityId: 'f1', status: 'available', _count: { _all: 2 } },
+    ]);
     // 8 contratos activos a 100€ efectivos cada uno → MRR 800, valor medio 100.
     tx.contract.findMany.mockImplementation(({ where }: { where?: Record<string, unknown> }) => {
-      if (where && 'status' in where) {
+      const testRun = (where?.customer as { isTest?: boolean } | undefined)?.isTest === true;
+      if (where && 'status' in where && !testRun) {
         return Promise.resolve(
           Array.from({ length: 8 }, () => ({ priceMonthly: 100, discountAmount: 0 })),
         );
@@ -212,7 +217,6 @@ describe('InsightsService.getRevenueForecast', () => {
 
   it('limita el horizonte a 24 meses', async () => {
     const tx = buildTx();
-    tx.unit.count.mockResolvedValue(0);
     const service = buildService(tx);
     const res = await service.getRevenueForecast(TENANT, { months: 100 });
     expect(res.points).toHaveLength(24);

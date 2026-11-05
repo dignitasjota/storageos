@@ -96,8 +96,11 @@ export class CollectionsController {
   /** Vista rápida de expedientes abiertos (Resumen del panel). Antes de `:id`. */
   @RequirePermission('collections:read')
   @Get('summary')
-  summary(@CurrentUser() user: AuthenticatedUser): Promise<CollectionsSummaryDto> {
-    return this.service.getSummary(user.tenantId, user.facilityScope ?? null);
+  summary(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<CollectionsSummaryDto> {
+    return this.service.getSummary(user.tenantId, user.facilityScope ?? null, facilityId);
   }
 
   /** Expediente abierto de un contrato (para el badge de overlock). Antes de `:id`. */

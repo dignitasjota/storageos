@@ -642,7 +642,7 @@ export default function TodayPage() {
         </div>
       ) : (
         <>
-          <MonthStrip summary={summary.data} />
+          <MonthStrip kpis={summary.data?.kpis} />
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="h-auto flex-wrap">
               {canCollections && (

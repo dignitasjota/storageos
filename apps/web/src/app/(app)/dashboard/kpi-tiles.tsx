@@ -10,10 +10,10 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import type { DashboardOverviewDto } from '@storageos/shared';
+
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAging, useCustomerStats, useOccupancy, useRevenueKpis } from '@/lib/analytics/hooks';
-import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const eur = (n: number) =>
   n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -34,16 +34,15 @@ const TONE: Record<NonNullable<Tile['tone']>, string> = {
   warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
 };
 
-export function KpiTiles() {
-  const facilityId = useHeaderFacilityId();
-  const revenue = useRevenueKpis(facilityId);
-  const occupancy = useOccupancy({ facilityId });
-  const customers = useCustomerStats(facilityId);
-  const aging = useAging({ facilityId });
+const UNAVAILABLE = 'No disponible';
 
-  const loading =
-    revenue.isLoading || occupancy.isLoading || customers.isLoading || aging.isLoading;
-
+export function KpiTiles({
+  data,
+  loading,
+}: {
+  data: DashboardOverviewDto | undefined;
+  loading: boolean;
+}) {
   if (loading) {
     return (
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -54,51 +53,56 @@ export function KpiTiles() {
     );
   }
 
-  const r = revenue.data;
-  const o = occupancy.data;
-  const c = customers.data;
-  const a = aging.data;
-  const outstanding = a?.totalOutstanding ?? 0;
-  const overdueInvoices = a?.buckets.reduce((s, b) => s + b.invoiceCount, 0) ?? 0;
+  const r = data?.revenue;
+  const o = data?.occupancy;
+  const c = data?.customers;
+  const d = data?.receivables;
+  const target = data?.month?.targetOccupancyPct;
 
   const tiles: Tile[] = [
     {
       icon: Euro,
       label: 'MRR',
       value: r ? eur(r.mrr) : '—',
-      hint: 'Ingresos recurrentes mensuales',
+      hint: r ? 'Ingresos recurrentes mensuales' : UNAVAILABLE,
       tone: 'positive',
     },
     {
       icon: Building2,
       label: 'Ocupación física',
       value: o ? pct(o.physicalOccupancy) : '—',
-      hint: o ? `${o.occupiedUnits}/${o.totalUnits} trasteros ocupados` : '',
+      hint: o
+        ? `${o.occupiedUnits} de ${o.totalUnits}${target ? ` · objetivo ${target} %` : ''}`
+        : UNAVAILABLE,
     },
     {
       icon: Users,
       label: 'Inquilinos activos',
       value: c ? String(c.withActiveContract) : '—',
-      hint: c ? `${c.total} dados de alta en total` : '',
+      hint: c ? `${c.total} fichas en total` : UNAVAILABLE,
     },
     {
       icon: PiggyBank,
       label: 'Pendiente de cobro',
-      value: eur(outstanding),
-      hint: `${overdueInvoices} factura${overdueInvoices === 1 ? '' : 's'} sin cobrar`,
-      tone: outstanding > 0 ? 'warning' : 'default',
+      value: d ? eur(d.total) : '—',
+      hint: d
+        ? d.overdue > 0
+          ? `${eur(d.overdue)} vencido`
+          : `${d.invoices} ${d.invoices === 1 ? 'factura' : 'facturas'} en plazo`
+        : UNAVAILABLE,
+      tone: d && d.overdue > 0 ? 'warning' : 'default',
     },
     {
       icon: UserPlus,
       label: 'Nuevos este mes',
       value: c ? String(c.newThisMonth) : '—',
-      hint: 'Altas de inquilinos desde el día 1',
+      hint: c ? 'Con su primer contrato' : UNAVAILABLE,
     },
     {
       icon: TrendingUp,
       label: 'RevPAU',
       value: r ? eur(r.revPau) : '—',
-      hint: 'Ingreso por trastero disponible',
+      hint: r ? 'Ingreso por trastero' : UNAVAILABLE,
     },
   ];
 
@@ -115,7 +119,7 @@ export function KpiTiles() {
             <div className="space-y-0.5">
               <p className="text-xs text-muted-foreground">{t.label}</p>
               <p className="text-2xl font-semibold tracking-tight tabular-nums">{t.value}</p>
-              {t.hint ? <p className="truncate text-xs text-muted-foreground">{t.hint}</p> : null}
+              <p className="text-xs text-muted-foreground">{t.hint}</p>
             </div>
           </CardContent>
         </Card>

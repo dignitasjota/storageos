@@ -5,6 +5,7 @@ import { apiFetch } from '../auth/api';
 import type {
   CreateTenantTodaySnoozeInput,
   DailySummaryPrefs,
+  DashboardOverviewDto,
   TenantTodaySnoozeDto,
   TodayDto,
   TodayExtrasDto,
@@ -34,6 +35,17 @@ export function useTodaySummary(facilityId?: string) {
     queryKey: ['dashboard', 'today', 'summary', facilityId ?? null] as const,
     queryFn: () => apiFetch<TodaySummaryDto>(`/dashboard/today/summary${qs}`),
     // Cada 5 minutos y al volver a la pestaña (no cada minuto todo el día).
+    refetchInterval: 300_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+/** Todas las cifras del Resumen en una sola petición. */
+export function useDashboardOverview(facilityId?: string) {
+  const qs = facilityId ? `?facilityId=${facilityId}` : '';
+  return useQuery({
+    queryKey: ['dashboard', 'overview', facilityId ?? null] as const,
+    queryFn: () => apiFetch<DashboardOverviewDto>(`/dashboard/overview${qs}`),
     refetchInterval: 300_000,
     refetchOnWindowFocus: true,
   });

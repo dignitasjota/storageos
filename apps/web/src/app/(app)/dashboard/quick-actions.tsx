@@ -23,9 +23,19 @@ const ACTIONS: Action[] = [
     icon: FileText,
     permission: 'contracts:write',
   },
-  { href: '/customers', label: 'Nuevo inquilino', icon: UserPlus, permission: 'customers:write' },
-  { href: '/invoices', label: 'Nueva factura', icon: CreditCard, permission: 'invoices:write' },
-  { href: '/tasks', label: 'Nueva tarea', icon: ClipboardList, permission: 'tasks:write' },
+  {
+    href: '/customers?new=1',
+    label: 'Nuevo inquilino',
+    icon: UserPlus,
+    permission: 'customers:write',
+  },
+  {
+    href: '/invoices?new=1',
+    label: 'Nueva factura',
+    icon: CreditCard,
+    permission: 'invoices:write',
+  },
+  { href: '/tasks?new=1', label: 'Nueva tarea', icon: ClipboardList, permission: 'tasks:write' },
 ];
 
 /** Accesos directos a las altas más frecuentes desde el dashboard. */

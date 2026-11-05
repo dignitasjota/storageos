@@ -40,6 +40,8 @@ export interface TenantDto {
 export interface SubscriptionDto {
   status: SubscriptionStatus;
   planSlug: string;
+  /** Nombre del plan tal como se vende (solo en `/auth/me`). */
+  planName?: string;
   currentPeriodStart: string;
   currentPeriodEnd: string;
   cancelAtPeriodEnd: boolean;

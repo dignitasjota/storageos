@@ -134,3 +134,21 @@
     padding-bottom: calc(5rem + env(safe-area-inset-bottom));
   }
 }
+
+/* Gráficos: Recharts pinta el cuadro de detalle y la leyenda con estilos en línea
+   pensados para fondo claro; así se leen igual en los dos temas. */
+.recharts-default-tooltip {
+  background-color: hsl(var(--popover)) !important;
+  border-color: hsl(var(--border)) !important;
+  border-radius: 0.5rem;
+  color: hsl(var(--popover-foreground));
+}
+.recharts-default-tooltip .recharts-tooltip-item {
+  color: hsl(var(--popover-foreground)) !important;
+}
+.recharts-rectangle.recharts-tooltip-cursor {
+  fill: hsl(var(--muted));
+}
+.recharts-legend-item-text {
+  color: hsl(var(--foreground)) !important;
+}

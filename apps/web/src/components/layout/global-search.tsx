@@ -24,6 +24,9 @@ const TYPE_LABEL: Record<SearchResultType, string> = {
   invoice: 'Factura',
 };
 
+/** Abre el buscador desde otra parte del panel. */
+export const OPEN_GLOBAL_SEARCH_EVENT = 'storageos:open-search';
+
 export function GlobalSearch() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -39,8 +42,15 @@ export function GlobalSearch() {
         setOpen((v) => !v);
       }
     }
+    function onRequest() {
+      setOpen(true);
+    }
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener(OPEN_GLOBAL_SEARCH_EVENT, onRequest);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(OPEN_GLOBAL_SEARCH_EVENT, onRequest);
+    };
   }, []);
 
   function go(r: SearchResultDto) {

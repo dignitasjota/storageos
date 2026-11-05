@@ -14,10 +14,12 @@ import Link from 'next/link';
 
 import type { SuggestedActionCategory } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSuggestedActions } from '@/lib/analytics/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 
 const CATEGORY: Record<
   SuggestedActionCategory,
@@ -32,7 +34,7 @@ const CATEGORY: Record<
 
 /** «Sugerencias de hoy»: acciones concretas priorizadas con enlace al recurso. */
 export function SuggestedActionsCard() {
-  const q = useSuggestedActions();
+  const q = useSuggestedActions(useHeaderFacilityId());
   const actions = q.data?.actions ?? [];
 
   return (
@@ -59,6 +61,8 @@ export function SuggestedActionsCard() {
           <div className="flex h-24 items-center justify-center">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
+        ) : q.isError ? (
+          <SectionError onRetry={() => void q.refetch()} />
         ) : actions.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             Todo en orden: sin acciones urgentes por ahora. 🎉

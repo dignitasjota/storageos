@@ -57,6 +57,8 @@ export interface OccupancyKpiDto {
   mrrPotential: number;
   /** Trasteros en mantenimiento o bloqueados (no se pueden alquilar). */
   outOfServiceUnits: number;
+  /** Trasteros por cada estado. */
+  byStatus: Record<string, number>;
   perFacility: {
     facilityId: string;
     facilityName: string;
@@ -73,10 +75,23 @@ export interface ChurnKpiDto {
   months: { yearMonth: string; activeAtStart: number; ended: number; churnRate: number }[];
 }
 
+export type AgingBucketRange = '0-30' | '30-60' | '60-90' | '+90';
+
 export interface AgingKpiDto {
   /** Total pendiente en cada tramo en EUR. */
-  buckets: { range: '0-30' | '30-60' | '60-90' | '+90'; amount: number; invoiceCount: number }[];
+  buckets: { range: AgingBucketRange; amount: number; invoiceCount: number }[];
   totalOutstanding: number;
+}
+
+/** Lo emitido sin cobrar, separando lo vencido de lo que aún está en plazo. */
+export interface ReceivablesDto {
+  total: number;
+  overdue: number;
+  notDue: number;
+  invoices: number;
+  overdueInvoices: number;
+  /** Lo vencido por antigüedad. */
+  buckets: AgingKpiDto['buckets'];
 }
 
 export interface LeadsFunnelKpiDto {
@@ -243,6 +258,8 @@ export interface RevenueForecastDto {
     avgContractValue: number;
     /** Nº de meses de histórico usados para las medias. */
     trailingMonths: number;
+    /** La tendencia pasaba de los trasteros que hay y se ha cortado ahí. */
+    cappedAtCapacity: boolean;
   };
   points: RevenueForecastPointDto[];
 }

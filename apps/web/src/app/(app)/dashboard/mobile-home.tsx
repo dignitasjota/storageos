@@ -18,6 +18,7 @@ import { OnboardingCard } from './onboarding-card';
 
 import type { Permission, TenantFeature } from '@storageos/shared';
 
+import { OPEN_GLOBAL_SEARCH_EVENT } from '@/components/layout/global-search';
 import { useFeatures, useMe, usePermissions } from '@/lib/auth/hooks';
 import { useToday } from '@/lib/dashboard/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
@@ -121,13 +122,13 @@ export function MobileHome() {
       <OnboardingCard />
       <NextStepCard />
 
-      {/* Búsqueda grande (lleva a clientes; el ⌘K del header también funciona) */}
-      <Link
-        href="/customers"
-        className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event(OPEN_GLOBAL_SEARCH_EVENT))}
+        className="flex w-full items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
       >
         <Search className="size-4" /> Buscar inquilino, contrato…
-      </Link>
+      </button>
 
       <div className="grid grid-cols-2 gap-3">
         {ACTIONS.filter(canAccess).map((a) => {

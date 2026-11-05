@@ -18,9 +18,9 @@ import { useSeoChecklist } from '@/lib/analytics/hooks';
 export function SeoNudgeCard() {
   const q = useSeoChecklist();
 
-  if (q.isLoading || !q.data) {
-    return <Skeleton className="h-16 rounded-xl" />;
-  }
+  if (q.isLoading) return <Skeleton className="h-16 rounded-xl" />;
+  // Es solo un aviso: si no se pudo cargar, no se enseña.
+  if (!q.data) return null;
 
   const d = q.data;
   const done = d.baseScore.done + (d.hasWebPremium ? d.premiumScore.done : 0);

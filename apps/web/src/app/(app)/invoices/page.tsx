@@ -47,6 +47,7 @@ import {
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
+import { useOpenFromUrl } from '@/lib/use-open-from-url';
 
 const SIMPLIFIED_JUSTIFICATION_LABELS: Record<SimplifiedJustificationValue, string> = {
   reparation: 'Reparacion',
@@ -101,6 +102,7 @@ export default function InvoicesPage() {
   // Estado del dialog "Nueva factura". Soporta F1 (cliente obligatorio)
   // y F2 (simplificada sin destinatario, limite 400€/3000€ con motivo).
   const [createOpen, setCreateOpen] = useState(false);
+  useOpenFromUrl(() => setCreateOpen(true));
   const [newType, setNewType] = useState<CreatableInvoiceTypeValue>('F1');
   const [newCustomerId, setNewCustomerId] = useState<string>('');
   const [newJustification, setNewJustification] = useState<SimplifiedJustificationValue | ''>('');

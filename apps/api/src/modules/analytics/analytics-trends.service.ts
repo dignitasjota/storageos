@@ -9,6 +9,7 @@ import {
   invalidDate,
   invoiceWhere,
   LIFECYCLE_SELECT,
+  SIGNED_CONTRACT_WHERE,
   unitWhere,
   type AnalyticsScope,
 } from './analytics-scope';
@@ -107,7 +108,7 @@ export class AnalyticsTrendsService {
           },
         }),
         tx.contract.findMany({
-          where: { signedAt: { not: null }, deletedAt: null, ...contractWhere(scope) },
+          where: { AND: [SIGNED_CONTRACT_WHERE, contractWhere(scope)] },
           select: { ...LIFECYCLE_SELECT, unitId: true, priceMonthly: true, discountAmount: true },
         }),
       ]);
@@ -296,7 +297,7 @@ export class AnalyticsTrendsService {
     const contracts = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findMany({
-          where: { signedAt: { not: null }, deletedAt: null, ...contractWhere(scope) },
+          where: { AND: [SIGNED_CONTRACT_WHERE, contractWhere(scope)] },
           select: {
             ...LIFECYCLE_SELECT,
             invoices: {
