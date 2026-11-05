@@ -3,31 +3,19 @@
 import { Sparkles } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 
-import { AgingCard } from './aging-card';
-import { ChurnRiskCard } from './churn-risk-card';
-import { CollectionsSummaryCard } from './collections-summary-card';
-import { FacilityOccupancyCard } from './facility-occupancy-card';
-import { ForecastCard } from './forecast-card';
-import { KpiTiles } from './kpi-tiles';
-import { LeadsCard } from './leads-card';
+import { DashboardMetrics } from './dashboard-metrics';
 import { MobileHome } from './mobile-home';
 import { NextStepCard } from './next-step-card';
-import { OccupancyCard } from './occupancy-card';
+import { OwnOccupancyCard } from './occupancy-card';
 import { OnboardingCard } from './onboarding-card';
 import { QuickActions } from './quick-actions';
-import { RevenueTrendCard } from './revenue-trend-card';
-import { SeoNudgeCard } from './seo-nudge-card';
-import { SuggestedActionsCard } from './suggested-actions-card';
 
-import { MonthStrip } from '@/components/dashboard/month-strip';
 import { useOnboarding } from '@/components/onboarding/onboarding-steps';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useHasFeature, useHasPermission, useMe } from '@/lib/auth/hooks';
-import { useTodaySummary } from '@/lib/dashboard/hooks';
-import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { useHasPermission, useMe } from '@/lib/auth/hooks';
 
 const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
   trial: 'En prueba',
@@ -37,21 +25,13 @@ const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
   expired: 'Caducada',
 };
 
-function daysUntil(iso: string | null): number | null {
-  if (!iso) return null;
-  const ms = new Date(iso).getTime() - Date.now();
-  return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
-}
-
 export function DashboardContent() {
   const t = useTranslations('dashboard');
   const format = useFormatter();
   const me = useMe();
   const canSeeAnalytics = useHasPermission('analytics:read');
-  const hasLocalSeo = useHasFeature('local_seo');
+  const canSeeUnits = useHasPermission('units:read');
   const isMobile = useIsMobile();
-  const headerFacilityId = useHeaderFacilityId();
-  const summary = useTodaySummary(headerFacilityId);
   const onboarding = useOnboarding();
   // Hasta el primer contrato las cifras salen todas a cero: no se enseñan.
   const hasFirstContract = onboarding.data?.steps.find((s) => s.key === 'contract')?.done ?? true;
@@ -79,9 +59,10 @@ export function DashboardContent() {
   }
 
   const { user, tenant, subscription } = me.data;
-  const days = daysUntil(tenant.trialEndsAt);
   const trialDate = tenant.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
-  const planTitle = subscription.planSlug.charAt(0).toUpperCase() + subscription.planSlug.slice(1);
+  const planTitle =
+    subscription.planName ??
+    subscription.planSlug.charAt(0).toUpperCase() + subscription.planSlug.slice(1);
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
@@ -93,14 +74,11 @@ export function DashboardContent() {
           <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary" className="capitalize">
-            Plan {planTitle}
-          </Badge>
-          {tenant.status === 'trial' && days !== null ? (
+          <Badge variant="secondary">Plan {planTitle}</Badge>
+          {tenant.status === 'trial' && trialDate ? (
             <Badge variant="outline" className="gap-1 border-primary/30 text-primary">
               <Sparkles className="size-3" />
-              {t('cards.trial.remaining', { days })}
-              {trialDate ? ` · ${format.dateTime(trialDate, 'long')}` : ''}
+              {t('cards.trial.endsOn', { date: format.dateTime(trialDate, 'long') })}
             </Badge>
           ) : (
             <Badge variant="outline">
@@ -123,37 +101,10 @@ export function DashboardContent() {
           </CardContent>
         </Card>
       ) : canSeeAnalytics ? (
-        <>
-          <SuggestedActionsCard />
-
-          {hasLocalSeo && <SeoNudgeCard />}
-
-          <KpiTiles />
-
-          <MonthStrip summary={summary.data} />
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <RevenueTrendCard />
-            <OccupancyCard />
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ForecastCard />
-            <AgingCard />
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ChurnRiskCard />
-            <LeadsCard />
-          </div>
-
-          <CollectionsSummaryCard />
-
-          <FacilityOccupancyCard />
-        </>
+        <DashboardMetrics />
       ) : (
         <>
-          <OccupancyCard />
+          {canSeeUnits && <OwnOccupancyCard />}
           <Card className="border-dashed">
             <CardContent className="py-6 text-sm text-muted-foreground">
               Tu rol no tiene acceso a las métricas de negocio. Pide a un administrador el permiso{' '}

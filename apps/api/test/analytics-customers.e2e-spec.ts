@@ -47,7 +47,8 @@ describe('Analytics — customer stats (e2e)', () => {
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(2);
-    expect(res.body.newThisMonth).toBe(2);
+    // «Nuevos» son los que empiezan su primer contrato, no las fichas creadas.
+    expect(res.body.newThisMonth).toBe(0);
     expect(res.body.withActiveContract).toBe(0);
   });
 

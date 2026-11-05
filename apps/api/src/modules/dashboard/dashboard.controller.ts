@@ -31,6 +31,7 @@ import { AccessCredentialsService } from '../access/access-credentials.service';
 import { AuditService } from '../auth/audit.service';
 
 import { DailySummaryService } from './daily-summary.service';
+import { DashboardOverviewService } from './dashboard-overview.service';
 import { OnboardingTestRunService } from './onboarding-test-run.service';
 import { OnboardingService } from './onboarding.service';
 import { TodayExtrasService } from './today-extras.service';
@@ -39,6 +40,7 @@ import { TodayService } from './today.service';
 
 import type {
   DailySummaryPrefs,
+  DashboardOverviewDto,
   OnboardingDto,
   OnboardingNextStepDto,
   OnboardingTestRunDto,
@@ -72,6 +74,7 @@ export class DashboardController {
     private readonly onboarding: OnboardingService,
     private readonly testRun: OnboardingTestRunService,
     private readonly summary: TodaySummaryService,
+    private readonly overview: DashboardOverviewService,
     private readonly dailySummary: DailySummaryService,
     private readonly extras: TodayExtrasService,
     private readonly credentials: AccessCredentialsService,
@@ -119,6 +122,24 @@ export class DashboardController {
       throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
     }
     return this.summary.summary(
+      user.tenantId,
+      facilityId || undefined,
+      user.facilityScope ?? null,
+      user.permissions ?? permissionsForRole(user.role),
+    );
+  }
+
+  /** Todas las cifras del Resumen en una sola petición. */
+  @RequirePermission('analytics:read')
+  @Get('overview')
+  async getOverview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<DashboardOverviewDto> {
+    if (facilityId && !UUID_RE.test(facilityId)) {
+      throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+    }
+    return this.overview.overview(
       user.tenantId,
       facilityId || undefined,
       user.facilityScope ?? null,

@@ -1,10 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import {
-  effectiveFeaturesFromList,
-  resolvePlanFeatures,
-  NON_CASH_PAYMENT_METHODS,
-} from '@storageos/shared';
+import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -17,10 +14,25 @@ import {
   invoiceWhere,
   leadWhere,
   LIFECYCLE_SELECT,
+  LIVE_CONTRACT_WHERE,
   liveMrr,
+  SIGNED_CONTRACT_WHERE,
   unitWhere,
   type AnalyticsScope,
 } from './analytics-scope';
+import {
+  collectedWhere,
+  currentYearMonth,
+  INVOICED_SELECT,
+  invoicedAmount,
+  invoicedWhere,
+  newCustomers,
+  receivables,
+  tenantTimezone,
+  unitCounts,
+  zonedMonthKey,
+  zonedMonthStart,
+} from './business-metrics';
 
 import type { Prisma } from '@storageos/database';
 import type {
@@ -37,8 +49,6 @@ import type {
   TenantFeature,
   WebPerformanceDto,
 } from '@storageos/shared';
-
-type AgingBucketRange = '0-30' | '30-60' | '60-90' | '+90';
 
 function toNumber(value: Prisma.Decimal | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -82,14 +92,10 @@ const MONTH_RANGE_MAX = 36;
  * ("YYYY-MM") o, si no hay rango válido, los últimos `months` meses hasta hoy.
  * Acota a `MONTH_RANGE_MAX` meses por seguridad.
  */
-function resolveMonthList(opts: {
-  months?: number;
-  from?: string;
-  to?: string;
-}): { year: number; month: number; key: string }[] {
-  const now = new Date();
-  const curIdx = now.getUTCFullYear() * 12 + now.getUTCMonth();
-
+function resolveMonthList(
+  opts: { months?: number; from?: string; to?: string },
+  curIdx: number,
+): { year: number; month: number; key: string }[] {
   let startIdx: number;
   let endIdx: number;
   const fromIdx = parseYearMonthIdx(opts.from);
@@ -134,13 +140,6 @@ function parseDate(value: string, field = 'fecha'): Date {
   return d;
 }
 
-function bucketForDaysOverdue(days: number): AgingBucketRange {
-  if (days < 30) return '0-30';
-  if (days < 60) return '30-60';
-  if (days < 90) return '60-90';
-  return '+90';
-}
-
 @Injectable()
 export class AnalyticsService {
   constructor(
@@ -159,8 +158,8 @@ export class AnalyticsService {
     const facilityIdWhere = scope.ids ? { id: { in: scope.ids } } : {};
 
     return this.prisma.withTenant(async (tx) => {
-      const [byStatus, potential, live, facilities, facilityCounts] = await Promise.all([
-        tx.unit.groupBy({ by: ['status'], where: units, _count: { _all: true } }),
+      const [counts, potential, live, facilities] = await Promise.all([
+        unitCounts(tx, scope),
         // Lo que se ingresaría con todo alquilado: el precio de cada trastero que
         // se puede alquilar (los que están en mantenimiento o bloqueados no).
         tx.unit.aggregate({
@@ -173,33 +172,24 @@ export class AnalyticsService {
           select: { id: true, name: true },
           orderBy: { name: 'asc' },
         }),
-        tx.unit.groupBy({ by: ['facilityId', 'status'], where: units, _count: { _all: true } }),
       ]);
 
-      let totalUnits = 0;
-      let occupiedUnits = 0;
-      let reservedUnits = 0;
-      let availableUnits = 0;
-      for (const row of byStatus) {
-        const count = row._count._all;
-        totalUnits += count;
-        if (row.status === 'occupied') occupiedUnits += count;
-        else if (row.status === 'reserved') reservedUnits += count;
-        else if (row.status === 'available') availableUnits += count;
-      }
-      const outOfServiceUnits = totalUnits - occupiedUnits - reservedUnits - availableUnits;
+      const totalUnits = counts.total;
+      const occupiedUnits = counts.occupied;
+      const reservedUnits = counts.reserved;
+      const availableUnits = counts.available;
+      const outOfServiceUnits = counts.outOfService;
       const physicalOccupancy = totalUnits === 0 ? 0 : occupiedUnits / totalUnits;
       const mrrActual = live.mrr;
       const mrrPotential = Math.round(toNumber(potential._sum.basePriceMonthly) * 100) / 100;
       const economicOccupancy = mrrPotential === 0 ? 0 : Math.min(1, mrrActual / mrrPotential);
 
       const perFacility = facilities.map((f) => {
-        const rows = facilityCounts.filter((r) => r.facilityId === f.id);
-        const of = (status: string) => rows.find((r) => r.status === status)?._count._all ?? 0;
-        const total = rows.reduce((sum, r) => sum + r._count._all, 0);
-        const occupied = of('occupied');
-        const reserved = of('reserved');
-        const available = of('available');
+        const row = counts.byFacility.get(f.id) ?? {};
+        const total = Object.values(row).reduce((sum, n) => sum + n, 0);
+        const occupied = row.occupied ?? 0;
+        const reserved = row.reserved ?? 0;
+        const available = row.available ?? 0;
         return {
           facilityId: f.id,
           facilityName: f.name,
@@ -217,6 +207,7 @@ export class AnalyticsService {
         reservedUnits,
         availableUnits,
         outOfServiceUnits,
+        byStatus: counts.byStatus,
         physicalOccupancy,
         economicOccupancy,
         mrrActual,
@@ -234,8 +225,19 @@ export class AnalyticsService {
     filters?: { from?: string; to?: string },
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<ChurnKpiDto> {
-    const now = new Date();
-    const curIdx = now.getUTCFullYear() * 12 + now.getUTCMonth();
+    // Una sola lectura de los contratos firmados; el cálculo por mes va en memoria.
+    const { contracts, timezone } = await this.prisma.withTenant(
+      async (tx) => ({
+        timezone: await tenantTimezone(tx, tenantId),
+        contracts: await tx.contract.findMany({
+          where: { AND: [SIGNED_CONTRACT_WHERE, contractWhere(scope)] },
+          select: LIFECYCLE_SELECT,
+        }),
+      }),
+      tenantId,
+    );
+    const current = currentYearMonth(timezone);
+    const curIdx = current.year * 12 + current.month - 1;
     let startIdx: number;
     let endIdx: number;
     if (filters?.from && filters?.to) {
@@ -254,15 +256,6 @@ export class AnalyticsService {
       startIdx = curIdx - 11;
     }
 
-    // Una sola lectura de los contratos firmados; el cálculo por mes va en memoria.
-    const contracts = await this.prisma.withTenant(
-      (tx) =>
-        tx.contract.findMany({
-          where: { signedAt: { not: null }, deletedAt: null, ...contractWhere(scope) },
-          select: LIFECYCLE_SELECT,
-        }),
-      tenantId,
-    );
     const lives = contracts
       .map((c) => contractLifecycle(c))
       .filter((l): l is NonNullable<typeof l> => l !== null);
@@ -271,8 +264,8 @@ export class AnalyticsService {
     for (let idx = startIdx; idx <= endIdx; idx++) {
       const year = Math.floor(idx / 12);
       const month = (idx % 12) + 1;
-      const start = monthStartUtc(year, month).getTime();
-      const end = nextMonthStartUtc(year, month).getTime();
+      const start = zonedMonthStart(year, month, timezone).getTime();
+      const end = zonedMonthStart(year, month + 1, timezone).getTime();
       let activeAtStart = 0;
       let ended = 0;
       for (const l of lives) {
@@ -300,52 +293,12 @@ export class AnalyticsService {
     atDate?: string,
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<AgingKpiDto> {
-    const at = atDate ? parseDate(atDate, 'atDate') : startOfDayUtc(new Date());
-
     return this.prisma.withTenant(async (tx) => {
-      const invoices = await tx.invoice.findMany({
-        where: {
-          status: { in: ['issued', 'overdue', 'partially_refunded'] },
-          deletedAt: null,
-          // La fianza no es deuda del alquiler: se cobra y devuelve aparte.
-          kind: 'invoice',
-          dueDate: { lt: at },
-          ...invoiceWhere(scope),
-        },
-        select: { dueDate: true, total: true, amountPaid: true },
-      });
-
-      const buckets: Record<AgingBucketRange, { amount: number; invoiceCount: number }> = {
-        '0-30': { amount: 0, invoiceCount: 0 },
-        '30-60': { amount: 0, invoiceCount: 0 },
-        '60-90': { amount: 0, invoiceCount: 0 },
-        '+90': { amount: 0, invoiceCount: 0 },
-      };
-
-      let totalOutstanding = 0;
-      for (const inv of invoices) {
-        if (!inv.dueDate) continue;
-        const pending = toNumber(inv.total) - toNumber(inv.amountPaid);
-        if (pending <= 0) continue;
-        const daysOverdue = Math.floor(
-          (at.getTime() - inv.dueDate.getTime()) / (1000 * 60 * 60 * 24),
-        );
-        if (daysOverdue < 0) continue;
-        const bucket = bucketForDaysOverdue(daysOverdue);
-        buckets[bucket].amount += pending;
-        buckets[bucket].invoiceCount += 1;
-        totalOutstanding += pending;
-      }
-
-      const order: AgingBucketRange[] = ['0-30', '30-60', '60-90', '+90'];
-      return {
-        buckets: order.map((range) => ({
-          range,
-          amount: Math.round(buckets[range].amount * 100) / 100,
-          invoiceCount: buckets[range].invoiceCount,
-        })),
-        totalOutstanding: Math.round(totalOutstanding * 100) / 100,
-      };
+      const at = atDate
+        ? parseDate(atDate, 'atDate')
+        : todayInTimezone(await tenantTimezone(tx, tenantId));
+      const { buckets, overdue } = await receivables(tx, scope, at);
+      return { buckets, totalOutstanding: overdue };
     }, tenantId);
   }
 
@@ -584,31 +537,28 @@ export class AnalyticsService {
     tenantId: string,
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<CustomerStatsKpiDto> {
-    const now = new Date();
-    const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     // Con local: los inquilinos que tienen (o tuvieron) algún contrato en él.
     const inScope: Prisma.CustomerWhereInput = scope.ids
       ? { contracts: { some: contractWhere(scope) } }
       : {};
 
     return this.prisma.withTenant(async (tx) => {
+      const timezone = await tenantTimezone(tx, tenantId);
+      const { year, month } = currentYearMonth(timezone);
       const [total, withActiveContract, newThisMonth] = await Promise.all([
-        tx.customer.count({ where: { deletedAt: null, ...inScope } }),
+        tx.customer.count({ where: { deletedAt: null, isTest: false, ...inScope } }),
         tx.customer.count({
           where: {
             deletedAt: null,
-            contracts: {
-              some: {
-                status: { in: ['active', 'ending'] },
-                deletedAt: null,
-                ...contractWhere(scope),
-              },
-            },
+            contracts: { some: { AND: [LIVE_CONTRACT_WHERE, contractWhere(scope)] } },
           },
         }),
-        tx.customer.count({
-          where: { deletedAt: null, createdAt: { gte: startOfMonth }, ...inScope },
-        }),
+        newCustomers(
+          tx,
+          scope,
+          zonedMonthStart(year, month, timezone),
+          zonedMonthStart(year, month + 1, timezone),
+        ),
       ]);
       return { total, withActiveContract, newThisMonth };
     }, tenantId);
@@ -629,55 +579,44 @@ export class AnalyticsService {
     opts: { months?: number; from?: string; to?: string } = {},
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<MonthlyRevenueKpiDto> {
-    // Lista de meses (más antiguo → actual): rango from/to o últimos N.
-    const list = resolveMonthList(opts);
-    const first = list[0]!;
-    const last = list[list.length - 1]!;
-    const fromDate = monthStartUtc(first.year, first.month);
-    // Exclusivo: primer día del mes siguiente al último del rango.
-    const toExclusive = nextMonthStartUtc(last.year, last.month);
-
-    const [invoices, payments] = await this.prisma.withTenant(
-      (tx) =>
-        Promise.all([
-          tx.invoice.findMany({
-            where: {
-              tenantId,
-              deletedAt: null,
-              status: {
-                in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
-              },
-              // La fianza no es un ingreso (se devuelve): fuera de lo facturado y cobrado.
-              kind: 'invoice',
-              issueDate: { gte: fromDate, lt: toExclusive },
-              ...invoiceWhere(scope),
-            },
-            select: { issueDate: true, total: true },
-          }),
-          tx.payment.findMany({
-            where: {
-              tenantId,
-              status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
-              paidAt: { gte: fromDate, lt: toExclusive },
-              invoice: { kind: 'invoice', ...invoiceWhere(scope) },
-              methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
-            },
-            select: { paidAt: true, amount: true, refundedAmount: true },
-          }),
-        ]),
-      tenantId,
-    );
+    const { list, invoices, payments, timezone } = await this.prisma.withTenant(async (tx) => {
+      const timezone = await tenantTimezone(tx, tenantId);
+      const current = currentYearMonth(timezone);
+      // Lista de meses (más antiguo → actual): rango from/to o últimos N.
+      const list = resolveMonthList(opts, current.year * 12 + current.month - 1);
+      const first = list[0]!;
+      const last = list[list.length - 1]!;
+      const [invoices, payments] = await Promise.all([
+        tx.invoice.findMany({
+          where: invoicedWhere(
+            scope,
+            monthStartUtc(first.year, first.month),
+            nextMonthStartUtc(last.year, last.month),
+          ),
+          select: INVOICED_SELECT,
+        }),
+        tx.payment.findMany({
+          where: collectedWhere(
+            scope,
+            zonedMonthStart(first.year, first.month, timezone),
+            zonedMonthStart(last.year, last.month + 1, timezone),
+          ),
+          select: { paidAt: true, amount: true, refundedAmount: true },
+        }),
+      ]);
+      return { list, invoices, payments, timezone };
+    }, tenantId);
 
     const invoicedByKey = new Map<string, number>();
     for (const inv of invoices) {
       if (!inv.issueDate) continue;
       const key = formatYearMonth(inv.issueDate.getUTCFullYear(), inv.issueDate.getUTCMonth() + 1);
-      invoicedByKey.set(key, (invoicedByKey.get(key) ?? 0) + Number(inv.total));
+      invoicedByKey.set(key, (invoicedByKey.get(key) ?? 0) + invoicedAmount(inv));
     }
     const collectedByKey = new Map<string, number>();
     for (const p of payments) {
       if (!p.paidAt) continue;
-      const key = formatYearMonth(p.paidAt.getUTCFullYear(), p.paidAt.getUTCMonth() + 1);
+      const key = zonedMonthKey(p.paidAt, timezone);
       collectedByKey.set(
         key,
         (collectedByKey.get(key) ?? 0) + Number(p.amount) - Number(p.refundedAmount),
@@ -716,13 +655,11 @@ export class AnalyticsService {
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<RevenueKpiDto> {
     return this.prisma.withTenant(async (tx) => {
-      const units = unitWhere(scope);
-      const [totalUnits, occupiedUnits, live, contracts, ltvRows] = await Promise.all([
-        tx.unit.count({ where: units }),
-        tx.unit.count({ where: { ...units, status: 'occupied' } }),
+      const [counts, live, contracts, ltvRows] = await Promise.all([
+        unitCounts(tx, scope),
         liveMrr(tx, scope),
         tx.contract.findMany({
-          where: { signedAt: { not: null }, deletedAt: null, ...contractWhere(scope) },
+          where: { AND: [SIGNED_CONTRACT_WHERE, contractWhere(scope)] },
           select: LIFECYCLE_SELECT,
         }),
         tx.invoice.groupBy({
@@ -737,6 +674,8 @@ export class AnalyticsService {
         }),
       ]);
 
+      const totalUnits = counts.total;
+      const occupiedUnits = counts.occupied;
       const mrr = live.mrr;
       const revPau = totalUnits > 0 ? mrr / totalUnits : 0;
 

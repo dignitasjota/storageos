@@ -7,12 +7,26 @@ import {
   resolveFacilityFilter,
 } from '../../common/facility-scope';
 import { formatEur, todayInTimezone, zonedDayStart } from '../../common/format';
+import { resolveAnalyticsScope } from '../analytics/analytics-scope';
+import {
+  collectedBetween,
+  contractMoves,
+  invoicedBetween,
+  receivables,
+  tenantTimezone,
+  unitCounts,
+} from '../analytics/business-metrics';
 import { PrismaService } from '../database/prisma.service';
 
 import { overdueInvoiceWhere } from './today-filters';
 
 import type { Prisma } from '@storageos/database';
-import type { Permission, TodayActivityDto, TodaySummaryDto } from '@storageos/shared';
+import type {
+  Permission,
+  TodayActivityDto,
+  TodayKpisDto,
+  TodaySummaryDto,
+} from '@storageos/shared';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const ACTIVITY_HOURS = 48;
@@ -64,9 +78,119 @@ export class TodaySummaryService {
     permissions: readonly Permission[],
     now = new Date(),
   ): Promise<TodaySummaryDto> {
+    const [kpis, activity] = await Promise.all([
+      this.kpis(tenantId, facilityId, scope, permissions, now),
+      this.activity(tenantId, facilityId, scope, permissions, now),
+    ]);
+    return { kpis, activity };
+  }
+
+  /** Cifras del mes: las mismas en «Hoy» y en el Resumen. */
+  async kpis(
+    tenantId: string,
+    facilityId: string | undefined,
+    scope: string[] | null,
+    permissions: readonly Permission[],
+    now = new Date(),
+  ): Promise<TodayKpisDto> {
+    const metricsScope = resolveAnalyticsScope(scope, facilityId);
+    const invWhere = (invoiceFacilityWhere(scope, facilityId) ?? {
+      id: { in: [] },
+    }) as Prisma.InvoiceWhereInput;
+
+    return this.prisma.withTenant(async (tx) => {
+      const timezone = await tenantTimezone(tx, tenantId);
+      const startOfToday = todayInTimezone(timezone, now);
+      const today = startOfToday.toISOString().slice(0, 10);
+      const monthStartDay = `${today.slice(0, 7)}-01`;
+      const [y, m] = today.split('-').map(Number) as [number, number];
+      const nextMonthDay = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+      const monthFrom = zonedDayStart(monthStartDay, timezone);
+      const monthTo = zonedDayStart(nextMonthDay, timezone);
+      // Mes anterior hasta el mismo día (el 10 de mayo se compara con el 1-10 de
+      // abril), para que la comparación sea justa a mitad de mes.
+      const day = Number(today.slice(8, 10));
+      const prevStartDay = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
+      const prevLastDay = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+      const prevEndDay = new Date(Date.UTC(y, m - 2, Math.min(day, prevLastDay) + 1))
+        .toISOString()
+        .slice(0, 10);
+      const prevFrom = zonedDayStart(prevStartDay, timezone);
+      const prevTo = zonedDayStart(prevEndDay, timezone);
+
+      const [
+        invoiced,
+        collected,
+        debt,
+        units,
+        moves,
+        debtorsWithoutPortal,
+        prevInvoiced,
+        prevCollected,
+        prevMoves,
+        tenantRow,
+      ] = await Promise.all([
+        invoicedBetween(tx, metricsScope, new Date(monthStartDay), new Date(nextMonthDay)),
+        collectedBetween(tx, metricsScope, monthFrom, monthTo),
+        receivables(tx, metricsScope, startOfToday),
+        unitCounts(tx, metricsScope),
+        contractMoves(tx, metricsScope, monthFrom, monthTo),
+        // Deben algo y nunca han entrado en su área de clientes.
+        tx.customer.count({
+          where: {
+            deletedAt: null,
+            portalLastSeenAt: null,
+            invoices: { some: { AND: [overdueInvoiceWhere(startOfToday), invWhere] } },
+          },
+        }),
+        invoicedBetween(tx, metricsScope, new Date(prevStartDay), new Date(prevEndDay)),
+        collectedBetween(tx, metricsScope, prevFrom, prevTo),
+        contractMoves(tx, metricsScope, prevFrom, prevTo),
+        tx.tenant.findFirst({
+          where: { id: tenantId },
+          select: { pricingTargetOccupancy: true },
+        }),
+      ]);
+
+      const target = tenantRow?.pricingTargetOccupancy ?? 88;
+      // Sin permiso sobre las facturas o los cobros no se enseña dinero.
+      const moneyVisible =
+        permissions.includes('invoices:read') && permissions.includes('payments:read');
+      const money = (value: number) => (moneyVisible ? round2(value) : 0);
+
+      return {
+        moneyVisible,
+        invoicedMonth: money(invoiced),
+        collectedMonth: money(collected),
+        overduePending: money(debt.overdue),
+        occupancyPct: units.total ? Math.round((units.occupied / units.total) * 1000) / 10 : 0,
+        freeUnits: units.available,
+        totalUnits: units.total,
+        moveInsMonth: moves.moveIns,
+        moveOutsMonth: moves.moveOuts,
+        debtorsWithoutPortal: moneyVisible ? debtorsWithoutPortal : 0,
+        previous: {
+          invoicedMonth: money(prevInvoiced),
+          collectedMonth: money(prevCollected),
+          moveInsMonth: prevMoves.moveIns,
+          moveOutsMonth: prevMoves.moveOuts,
+        },
+        targetOccupancyPct: target,
+        unitsToTarget: Math.max(0, Math.ceil((target * units.total) / 100) - units.occupied),
+      };
+    }, tenantId);
+  }
+
+  /** Lo que ha pasado en las últimas 48 horas. */
+  private async activity(
+    tenantId: string,
+    facilityId: string | undefined,
+    scope: string[] | null,
+    permissions: readonly Permission[],
+    now: Date,
+  ): Promise<TodayActivityDto[]> {
     const ids = resolveFacilityFilter(scope, facilityId);
     const fac = ids === null ? { in: [] as string[] } : ids ? { in: ids } : undefined;
-    const unitWhere: Prisma.UnitWhereInput = fac ? { facilityId: fac } : {};
     const contractUnit: Prisma.ContractWhereInput = fac ? { unit: { facilityId: fac } } : {};
     const invWhere = (invoiceFacilityWhere(scope, facilityId) ?? {
       id: { in: [] },
@@ -74,91 +198,10 @@ export class TodaySummaryService {
     const own = (optionalFacilityWhere(scope, facilityId) ?? {
       facilityId: { in: [] },
     }) as Prisma.IncidentWhereInput;
-
-    const tenantZone = await this.prisma.withTenant(
-      (tx) => tx.tenant.findFirst({ where: { id: tenantId }, select: { timezone: true } }),
-      tenantId,
-    );
-    const timezone = tenantZone?.timezone ?? 'Europe/Madrid';
-    const startOfToday = todayInTimezone(timezone, now);
-    const today = startOfToday.toISOString().slice(0, 10);
-    const monthStartDay = `${today.slice(0, 7)}-01`;
-    const [y, m] = today.split('-').map(Number) as [number, number];
-    const nextMonthDay = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
-    const monthFrom = zonedDayStart(monthStartDay, timezone);
-    const monthTo = zonedDayStart(nextMonthDay, timezone);
     const since = new Date(now.getTime() - ACTIVITY_HOURS * 3_600_000);
-    // Mes anterior hasta el mismo día (el 10 de mayo se compara con el 1-10 de
-    // abril), para que la comparación sea justa a mitad de mes.
-    const day = Number(today.slice(8, 10));
-    const prevStartDay = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
-    const prevLastDay = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
-    const prevEndDay = new Date(Date.UTC(y, m - 2, Math.min(day, prevLastDay) + 1))
-      .toISOString()
-      .slice(0, 10);
-    const prevFrom = zonedDayStart(prevStartDay, timezone);
-    const prevTo = zonedDayStart(prevEndDay, timezone);
-    const overdueWhere: Prisma.InvoiceWhereInput = {
-      AND: [overdueInvoiceWhere(startOfToday), invWhere],
-    };
-    // Cobrado como en Analítica: alquileres y demás facturas, sin fianzas y neto
-    // de lo devuelto.
-    const collectedWhere = (from: Date, to: Date): Prisma.PaymentWhereInput => ({
-      invoice: { AND: [{ kind: 'invoice' }, invWhere] },
-      status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
-      paidAt: { gte: from, lt: to },
-      methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
-    });
 
     return this.prisma.withTenant(async (tx) => {
-      const [
-        invoiced,
-        collected,
-        overdue,
-        unitsByStatus,
-        moveIns,
-        moveOuts,
-        signed,
-        paid,
-        failed,
-        movingOut,
-        leads,
-        messages,
-        incidents,
-        debtorsWithoutPortal,
-        prevInvoiced,
-        prevCollected,
-        prevMoveIns,
-        prevMoveOuts,
-        tenantRow,
-      ] = await Promise.all([
-        tx.invoice.aggregate({
-          where: {
-            ...invWhere,
-            deletedAt: null,
-            kind: 'invoice',
-            status: { notIn: ['draft', 'cancelled', 'rectified'] },
-            issueDate: { gte: new Date(monthStartDay), lt: new Date(nextMonthDay) },
-          },
-          _sum: { total: true },
-        }),
-        tx.payment.aggregate({
-          where: collectedWhere(monthFrom, monthTo),
-          _sum: { amount: true, refundedAmount: true },
-        }),
-        tx.invoice.aggregate({ where: overdueWhere, _sum: { total: true, amountPaid: true } }),
-        tx.unit.groupBy({ by: ['status'], where: unitWhere, _count: { _all: true } }),
-        tx.contract.count({
-          where: { ...contractUnit, deletedAt: null, signedAt: { gte: monthFrom, lt: monthTo } },
-        }),
-        tx.contract.count({
-          where: {
-            ...contractUnit,
-            deletedAt: null,
-            status: 'ended',
-            endDate: { gte: new Date(monthStartDay), lt: new Date(nextMonthDay) },
-          },
-        }),
+      const [signed, paid, failed, movingOut, leads, messages, incidents] = await Promise.all([
         tx.contract.findMany({
           where: { ...contractUnit, deletedAt: null, signedAt: { gte: since } },
           select: {
@@ -241,49 +284,7 @@ export class TodaySummaryService {
           orderBy: { createdAt: 'desc' },
           take: 20,
         }),
-        // Deben algo y nunca han entrado en su área de clientes.
-        tx.customer.count({
-          where: {
-            deletedAt: null,
-            portalLastSeenAt: null,
-            invoices: { some: overdueWhere },
-          },
-        }),
-        tx.invoice.aggregate({
-          where: {
-            ...invWhere,
-            deletedAt: null,
-            kind: 'invoice',
-            status: { notIn: ['draft', 'cancelled', 'rectified'] },
-            issueDate: { gte: new Date(prevStartDay), lt: new Date(prevEndDay) },
-          },
-          _sum: { total: true },
-        }),
-        tx.payment.aggregate({
-          where: collectedWhere(prevFrom, prevTo),
-          _sum: { amount: true, refundedAmount: true },
-        }),
-        tx.contract.count({
-          where: { ...contractUnit, deletedAt: null, signedAt: { gte: prevFrom, lt: prevTo } },
-        }),
-        tx.contract.count({
-          where: {
-            ...contractUnit,
-            deletedAt: null,
-            status: 'ended',
-            endDate: { gte: new Date(prevStartDay), lt: new Date(prevEndDay) },
-          },
-        }),
-        tx.tenant.findFirst({
-          where: { id: tenantId },
-          select: { pricingTargetOccupancy: true },
-        }),
       ]);
-
-      const count = (s: string) => unitsByStatus.find((u) => u.status === s)?._count._all ?? 0;
-      const totalUnits = unitsByStatus.reduce((s, u) => s + u._count._all, 0);
-      const occupied = count('occupied');
-      const target = tenantRow?.pricingTargetOccupancy ?? 88;
 
       const activity: TodayActivityDto[] = [
         ...signed.map((c) => ({
@@ -340,38 +341,7 @@ export class TodaySummaryService {
         .sort((a, b) => b.at.localeCompare(a.at))
         .slice(0, 40);
 
-      // Sin permiso sobre las facturas o los cobros no se enseña dinero.
-      const moneyVisible =
-        permissions.includes('invoices:read') && permissions.includes('payments:read');
-      const money = (value: number) => (moneyVisible ? round2(value) : 0);
-      const net = (agg: typeof collected) =>
-        Number(agg._sum.amount ?? 0) - Number(agg._sum.refundedAmount ?? 0);
-
-      return {
-        kpis: {
-          moneyVisible,
-          invoicedMonth: money(Number(invoiced._sum.total ?? 0)),
-          collectedMonth: money(net(collected)),
-          overduePending: money(
-            Math.max(0, Number(overdue._sum.total ?? 0) - Number(overdue._sum.amountPaid ?? 0)),
-          ),
-          occupancyPct: totalUnits ? Math.round((occupied / totalUnits) * 1000) / 10 : 0,
-          freeUnits: count('available'),
-          totalUnits,
-          moveInsMonth: moveIns,
-          moveOutsMonth: moveOuts,
-          debtorsWithoutPortal: moneyVisible ? debtorsWithoutPortal : 0,
-          previous: {
-            invoicedMonth: money(Number(prevInvoiced._sum.total ?? 0)),
-            collectedMonth: money(net(prevCollected)),
-            moveInsMonth: prevMoveIns,
-            moveOutsMonth: prevMoveOuts,
-          },
-          targetOccupancyPct: target,
-          unitsToTarget: Math.max(0, Math.ceil((target * totalUnits) / 100) - occupied),
-        },
-        activity,
-      };
+      return activity;
     }, tenantId);
   }
 }

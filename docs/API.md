@@ -2608,3 +2608,9 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - `POST /dashboard/onboarding/test-run` crea el inquilino de prueba con el email de quien lo pide (400 `no_unit_available`, 409 `test_run_exists`) y `DELETE` lo borra y libera su trastero. No se le factura. `ContractSignViewDto.isTest`.
 
 - `GET /dashboard/onboarding/next-step` (`facilities:manage`) → `{step}`: con lo imprescindible hecho, la siguiente sugerencia (primera semana, primer mes y más adelante) según lo que aún no usa y su plan. `POST /dashboard/onboarding/next-step/:key/dismiss` la descarta y devuelve la siguiente.
+
+### Resumen del panel (2026-11-05)
+
+- `GET /dashboard/overview?facilityId=` (`analytics:read`; 400 `invalid_facility_id`): todas las cifras del Resumen en una respuesta (`month`, `revenue`, `occupancy`, `customers`, `receivables`, `monthlyRevenue`, `forecast`, `churnRisk`, `leads`). Una sección que falla llega a `null` y las demás no se ven afectadas.
+- Las cifras salen de `modules/analytics/business-metrics.ts`, también en `/dashboard/today/summary` y `/analytics/*`: el inquilino de prueba no cuenta; lo facturado es neto de abonos y una sustitutiva cuenta solo la diferencia; altas y bajas siguen `contractLifecycle` (una reserva online cuenta al pagarse; una cancelación de un contrato en marcha es una baja); `newThisMonth` son inquilinos con su primer contrato en el mes; los meses se cortan en la zona del tenant.
+- `GET /analytics/occupancy` añade `byStatus`; `GET /analytics/forecast` añade `assumptions.cappedAtCapacity` (la proyección no pasa de los trasteros que hay); `GET /collections/summary` admite `?facilityId=`; `GET /auth/me` añade `subscription.planName`.

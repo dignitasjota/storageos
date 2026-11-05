@@ -2,6 +2,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 
 import { AccessModule } from '../access/access.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuthModule } from '../auth/auth.module';
 import { CollectionsOpsModule } from '../collections-ops/collections-ops.module';
 import { ContractsModule } from '../contracts/contracts.module';
@@ -11,6 +12,7 @@ import { PushModule } from '../push/push.module';
 import { QUEUE_EMAIL } from '../queues/queue-names';
 
 import { DailySummaryService } from './daily-summary.service';
+import { DashboardOverviewService } from './dashboard-overview.service';
 import { DashboardController } from './dashboard.controller';
 import { OnboardingTestRunService } from './onboarding-test-run.service';
 import { OnboardingService } from './onboarding.service';
@@ -22,6 +24,7 @@ import { TodayService } from './today.service';
   imports: [
     BullModule.registerQueue({ name: QUEUE_EMAIL }),
     AccessModule,
+    AnalyticsModule,
     AuthModule,
     CollectionsOpsModule,
     ContractsModule,
@@ -38,6 +41,7 @@ import { TodayService } from './today.service';
     OnboardingService,
     OnboardingTestRunService,
     TodaySummaryService,
+    DashboardOverviewService,
     DailySummaryService,
   ],
 })

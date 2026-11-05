@@ -1739,3 +1739,7 @@ Migración `20261218100000_onboarding_test_customer` (`customers.is_test`), sin 
 ## 88. Seguir aprendiendo tras el alta (2026-11-05)
 
 Sin migración ni variables nuevas. Los correos de fin de prueba añaden lo que le falta a cada tenant; si el texto de «La prueba termina pronto» se ha editado en Comunicación → Correos automáticos sin la variable `{limites}`, no saldrá.
+
+## 89. Resumen del panel: arreglos (2026-11-05)
+
+Sin migración ni variables nuevas. Algunas cifras cambian tras desplegar y es lo esperado: «Facturado este mes» deja de restar de más al anular, las altas y bajas siguen el criterio de Analítica y «Nuevos este mes» pasa a contar inquilinos con su primer contrato, no fichas creadas. «Pendiente de cobro» enseña todo lo emitido sin cobrar, con lo vencido aparte.

@@ -166,10 +166,11 @@ export function usePricingSuggestions(facilityId?: string) {
   });
 }
 
-export function useSuggestedActions() {
+export function useSuggestedActions(facilityId?: string) {
+  const qs = facilityId ? `?facilityId=${facilityId}` : '';
   return useQuery({
-    queryKey: analyticsKey('suggested-actions'),
-    queryFn: () => apiFetch<SuggestedActionsDto>('/analytics/suggested-actions'),
+    queryKey: analyticsKey('suggested-actions', { facilityId }),
+    queryFn: () => apiFetch<SuggestedActionsDto>(`/analytics/suggested-actions${qs}`),
     staleTime: 60_000,
   });
 }

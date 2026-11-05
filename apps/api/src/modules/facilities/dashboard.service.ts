@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { resolveFacilityFilter } from '../../common/facility-scope';
+import { testRunUnits } from '../analytics/business-metrics';
 import { PrismaService } from '../database/prisma.service';
 
 import type { OccupancyDashboardDto, UnitStatusValue } from '@storageos/shared';
@@ -21,15 +22,18 @@ export class DashboardService {
   ): Promise<OccupancyDashboardDto> {
     const facFilter = resolveFacilityFilter(opts.facilityScope, opts.facilityId);
     return this.prisma.withTenant(async (tx) => {
-      const allUnits = await tx.unit.findMany({
-        where:
-          facFilter === null
-            ? { id: { in: [] } }
-            : {
-                facility: { deletedAt: null },
-                ...(facFilter ? { facilityId: { in: facFilter } } : {}),
-              },
+      const where =
+        facFilter === null
+          ? { id: { in: [] } }
+          : {
+              facility: { deletedAt: null },
+              ...(facFilter ? { facilityId: { in: facFilter } } : {}),
+            };
+      const testUnitIds = new Set((await testRunUnits(tx, where)).map((u) => u.id));
+      const rows = await tx.unit.findMany({
+        where,
         select: {
+          id: true,
           status: true,
           facilityId: true,
           unitTypeId: true,
@@ -37,6 +41,10 @@ export class DashboardService {
           unitType: { select: { name: true, color: true } },
         },
       });
+      // El trastero del inquilino de prueba sigue libre a efectos de las cifras.
+      const allUnits = rows.map((u) =>
+        testUnitIds.has(u.id) ? { ...u, status: 'available' as const } : u,
+      );
       const totalUnits = allUnits.length;
 
       const byStatus = STATUSES.reduce<Record<UnitStatusValue, number>>(

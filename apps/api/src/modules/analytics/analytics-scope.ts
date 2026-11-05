@@ -69,6 +69,32 @@ export function leadWhere(scope: AnalyticsScope): Prisma.LeadWhereInput {
   return { OR: [{ preferredFacilityId: { in: scope.ids } }, { preferredFacilityId: null }] };
 }
 
+/** El inquilino de prueba de la puesta en marcha no es un cliente: fuera de las cifras. */
+export const REAL_CONTRACT_WHERE = { customer: { isTest: false } } as const;
+
+/**
+ * Una reserva online cuenta cuando se paga: hasta entonces solo retiene el
+ * trastero. El plazo se limpia tarde, así que se mira también la factura.
+ */
+const COMMITTED_CONTRACT_WHERE: Prisma.ContractWhereInput = {
+  OR: [{ firstPaymentDeadline: null }, { invoices: { some: { status: 'paid', kind: 'invoice' } } }],
+};
+
+/** Contratos que han empezado de verdad, vivos o ya terminados. */
+export const SIGNED_CONTRACT_WHERE: Prisma.ContractWhereInput = {
+  signedAt: { not: null },
+  deletedAt: null,
+  ...REAL_CONTRACT_WHERE,
+  ...STARTED_CONTRACT_WHERE,
+  ...COMMITTED_CONTRACT_WHERE,
+};
+
+/** Cartera viva: activos o con la baja pedida. */
+export const LIVE_CONTRACT_WHERE: Prisma.ContractWhereInput = {
+  ...SIGNED_CONTRACT_WHERE,
+  status: { in: ['active', 'ending'] },
+};
+
 export function invalidDate(field: string, value: string): BadRequestException {
   return new BadRequestException({
     code: 'invalid_date',
@@ -126,12 +152,7 @@ export async function liveMrr(
   scope: AnalyticsScope,
 ): Promise<{ mrr: number; contracts: number }> {
   const rows = await tx.contract.findMany({
-    where: {
-      status: { in: ['active', 'ending'] },
-      ...STARTED_CONTRACT_WHERE,
-      deletedAt: null,
-      ...contractWhere(scope),
-    },
+    where: { ...LIVE_CONTRACT_WHERE, ...contractWhere(scope) },
     select: { priceMonthly: true, discountAmount: true },
   });
   const mrr = rows.reduce(

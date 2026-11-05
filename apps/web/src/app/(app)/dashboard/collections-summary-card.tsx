@@ -6,10 +6,11 @@ import Link from 'next/link';
 import { CASE_STATUS_LABELS } from '@/app/(app)/collections/status';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SectionError } from '@/components/dashboard/section-state';
 import { useHasFeature } from '@/lib/auth/hooks';
 import { useCollectionsSummary } from '@/lib/collections/hooks';
-
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { formatEur } from '@/lib/format';
 
 /**
  * Vista rápida de expedientes de impago ABIERTOS — complementa a «Hoy», que
@@ -18,7 +19,7 @@ const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', curren
  */
 export function CollectionsSummaryCard() {
   const hasCollections = useHasFeature('collections');
-  const q = useCollectionsSummary(hasCollections);
+  const q = useCollectionsSummary(hasCollections, useHeaderFacilityId());
 
   if (!hasCollections) return null;
 
@@ -43,6 +44,8 @@ export function CollectionsSummaryCard() {
           <div className="flex h-40 items-center justify-center">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
+        ) : q.isError ? (
+          <SectionError onRetry={() => void q.refetch()} />
         ) : openCount === 0 ? (
           <p className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
             <ShieldCheck className="size-4 text-emerald-500" />
@@ -61,7 +64,7 @@ export function CollectionsSummaryCard() {
               </span>
               <span className="flex-1 rounded-lg bg-red-500/10 px-3 py-2 text-center">
                 <span className="block text-xl font-semibold tabular-nums text-red-600">
-                  {eur(totalDebt)}
+                  {formatEur(totalDebt)}
                 </span>
                 <span className="text-xs text-muted-foreground">deuda en gestión</span>
               </span>

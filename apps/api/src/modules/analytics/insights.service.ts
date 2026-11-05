@@ -1,7 +1,9 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
+import { formatEur, todayInTimezone } from '../../common/format';
 import { AuditService } from '../auth/audit.service';
+import { overdueInvoiceWhere } from '../dashboard/today-filters';
 import { PrismaService } from '../database/prisma.service';
 import { toActiveUnitOffer } from '../promotions/promotions.service';
 
@@ -9,12 +11,20 @@ import {
   ALL_FACILITIES,
   contractLifecycle,
   contractWhere,
-  invoiceWhere,
   LIFECYCLE_SELECT,
+  LIVE_CONTRACT_WHERE,
   liveMrr,
+  SIGNED_CONTRACT_WHERE,
   unitWhere,
   type AnalyticsScope,
 } from './analytics-scope';
+import {
+  currentYearMonth,
+  receivables,
+  tenantTimezone,
+  unitCounts,
+  zonedMonthStart,
+} from './business-metrics';
 import {
   daysBetween,
   decidePrice,
@@ -123,8 +133,9 @@ export class InsightsService {
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<ChurnRiskKpiDto> {
     return this.prisma.withTenant(async (tx) => {
+      const startOfToday = todayInTimezone(await tenantTimezone(tx, tenantId));
       const contracts = await tx.contract.findMany({
-        where: { status: { in: ['active', 'ending'] }, deletedAt: null, ...contractWhere(scope) },
+        where: { AND: [LIVE_CONTRACT_WHERE, contractWhere(scope)] },
         select: {
           id: true,
           contractNumber: true,
@@ -159,12 +170,7 @@ export class InsightsService {
         await Promise.all([
           tx.invoice.groupBy({
             by: ['customerId'],
-            where: {
-              status: 'overdue',
-              kind: 'invoice',
-              deletedAt: null,
-              customerId: { in: customerIds },
-            },
+            where: { ...overdueInvoiceWhere(startOfToday), customerId: { in: customerIds } },
             _count: { _all: true },
             _sum: { total: true, amountPaid: true },
           }),
@@ -453,19 +459,16 @@ export class InsightsService {
       this.prisma.withTenant(async (tx) => {
         const now = new Date();
         const in30 = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
-        const [overdue, endingSoon] = await Promise.all([
-          tx.invoice.aggregate({
-            where: { status: 'overdue', deletedAt: null, kind: 'invoice', ...invoiceWhere(scope) },
-            _count: { _all: true },
-            _sum: { total: true, amountPaid: true },
-          }),
+        const startOfToday = todayInTimezone(await tenantTimezone(tx, tenantId));
+        const [debt, endingSoon] = await Promise.all([
+          receivables(tx, scope, startOfToday),
           tx.contract.findMany({
             where: {
-              status: { in: ['active', 'ending'] },
-              autoRenew: false,
-              deletedAt: null,
-              endDate: { not: null, gte: now, lte: in30 },
-              ...contractWhere(scope),
+              AND: [
+                LIVE_CONTRACT_WHERE,
+                contractWhere(scope),
+                { autoRenew: false, endDate: { not: null, gte: now, lte: in30 } },
+              ],
             },
             select: {
               id: true,
@@ -484,18 +487,16 @@ export class InsightsService {
             take: 3,
           }),
         ]);
-        return { overdue, endingSoon };
+        return { debt, endingSoon };
       }, tenantId),
     ]);
 
     const actions: SuggestedActionDto[] = [];
 
     // 1) Cobros: facturas vencidas por reclamar.
-    const overdueCount = extra.overdue._count._all;
+    const overdueCount = extra.debt.overdueInvoices;
     if (overdueCount > 0) {
-      const pending = round2(
-        toNumber(extra.overdue._sum.total) - toNumber(extra.overdue._sum.amountPaid),
-      );
+      const pending = extra.debt.overdue;
       actions.push({
         id: 'collections',
         category: 'collections',
@@ -503,9 +504,9 @@ export class InsightsService {
         title: `Reclama ${overdueCount} factura${overdueCount === 1 ? '' : 's'} vencida${
           overdueCount === 1 ? '' : 's'
         }`,
-        detail: `${pending.toFixed(2)} € pendientes de cobro`,
-        href: '/invoices?status=overdue',
-        cta: 'Ver facturas',
+        detail: `${formatEur(pending)} pendientes de cobro`,
+        href: '/arrears',
+        cta: 'Ver deudores',
       });
     }
 
@@ -535,10 +536,8 @@ export class InsightsService {
         category: 'pricing',
         priority: 'medium',
         title: `Sube el precio de ${u.code}`,
-        detail: `Sugerido ${u.suggestedPrice.toFixed(2)} € (+${u.changePct}% vs ${u.currentPrice.toFixed(
-          2,
-        )} €)`,
-        href: '/analytics',
+        detail: `Sugerido ${formatEur(u.suggestedPrice)} (+${u.changePct}% vs ${formatEur(u.currentPrice)})`,
+        href: '/analytics?tab=pricing',
         cta: 'Ver precios',
       });
     }
@@ -566,9 +565,7 @@ export class InsightsService {
         category: 'competition',
         priority: 'medium',
         title: `${drop.competitorName} ha bajado precios`,
-        detail: `${drop.areaM2} m² a ${drop.newPrice.toFixed(2)} € (antes ${drop.previousPrice.toFixed(
-          2,
-        )} €); tú, ${drop.myPrice.toFixed(2)} €`,
+        detail: `${drop.areaM2} m² a ${formatEur(drop.newPrice)} (antes ${formatEur(drop.previousPrice)}); tú, ${formatEur(drop.myPrice)}`,
         href: '/competitors',
         cta: 'Ver competencia',
       });
@@ -1428,16 +1425,17 @@ export class InsightsService {
     const trailing = Math.min(24, Math.max(1, opts.trailingMonths ?? 6));
 
     return this.prisma.withTenant(async (tx) => {
-      const units = unitWhere(scope);
-      const [totalUnits, occupiedUnits, live, contracts] = await Promise.all([
-        tx.unit.count({ where: units }),
-        tx.unit.count({ where: { ...units, status: 'occupied' } }),
+      const timezone = await tenantTimezone(tx, tenantId);
+      const [counts, live, contracts] = await Promise.all([
+        unitCounts(tx, scope),
         liveMrr(tx, scope),
         tx.contract.findMany({
-          where: { signedAt: { not: null }, deletedAt: null, ...contractWhere(scope) },
+          where: { AND: [SIGNED_CONTRACT_WHERE, contractWhere(scope)] },
           select: LIFECYCLE_SELECT,
         }),
       ]);
+      const totalUnits = counts.total;
+      const occupiedUnits = counts.occupied;
       const history = contracts
         .map((c) => contractLifecycle(c))
         .filter((l): l is NonNullable<typeof l> => l !== null);
@@ -1448,15 +1446,13 @@ export class InsightsService {
       const currentOccupancy = totalUnits > 0 ? round2(occupiedUnits / totalUnits) : 0;
 
       // Medias móviles de los `trailing` meses cerrados (excluye el mes en curso).
-      const now = new Date();
+      const { year, month } = currentYearMonth(timezone);
       let churnRateSum = 0;
       let churnRateCount = 0;
       let addsSum = 0;
       for (let i = 1; i <= trailing; i++) {
-        const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-        const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 1));
-        const startMs = monthStart.getTime();
-        const endMs = monthEnd.getTime();
+        const startMs = zonedMonthStart(year, month - i, timezone).getTime();
+        const endMs = zonedMonthStart(year, month - i + 1, timezone).getTime();
 
         let activeAtStart = 0;
         let ended = 0;
@@ -1465,7 +1461,10 @@ export class InsightsService {
           const signed = c.begin.getTime();
           const endedAt = c.end?.getTime() ?? null;
           if (signed < startMs && (endedAt === null || endedAt >= startMs)) activeAtStart += 1;
-          if (endedAt !== null && endedAt >= startMs && endedAt < endMs) ended += 1;
+          // Solo la baja de quien estaba al empezar el mes, como en Analítica → Bajas.
+          if (signed < startMs && endedAt !== null && endedAt >= startMs && endedAt < endMs) {
+            ended += 1;
+          }
           if (signed >= startMs && signed < endMs) adds += 1;
         }
         if (activeAtStart > 0) {
@@ -1477,15 +1476,18 @@ export class InsightsService {
       const monthlyChurnRate = churnRateCount > 0 ? round2(churnRateSum / churnRateCount) : 0;
       const avgMonthlyNewContracts = round2(addsSum / trailing);
 
-      // Proyección mes a mes: decae por churn, crece por altas medias.
+      // Proyección mes a mes: decae por churn, crece por altas medias y no pasa
+      // de los trasteros que hay.
       const points: RevenueForecastPointDto[] = [];
       let prevActive = activeCount;
+      let cappedAtCapacity = false;
       for (let m = 1; m <= horizon; m++) {
-        const projected = Math.max(
-          0,
-          Math.round(prevActive - prevActive * monthlyChurnRate + avgMonthlyNewContracts),
+        const trend = Math.round(
+          prevActive - prevActive * monthlyChurnRate + avgMonthlyNewContracts,
         );
-        const monthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + m, 1));
+        const projected = Math.max(0, Math.min(trend, totalUnits));
+        if (trend > totalUnits) cappedAtCapacity = true;
+        const monthDate = new Date(Date.UTC(year, month - 1 + m, 1));
         const yearMonth = `${monthDate.getUTCFullYear()}-${String(monthDate.getUTCMonth() + 1).padStart(2, '0')}`;
         points.push({
           yearMonth,
@@ -1503,6 +1505,7 @@ export class InsightsService {
           avgMonthlyNewContracts,
           avgContractValue,
           trailingMonths: trailing,
+          cappedAtCapacity,
         },
         points,
       };

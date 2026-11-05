@@ -67,6 +67,7 @@ import {
 } from '@/lib/operations/hooks';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useUsers } from '@/lib/users/hooks';
+import { useOpenFromUrl } from '@/lib/use-open-from-url';
 
 const TYPE_LABELS: Record<TaskTypeValue, string> = {
   cleaning: 'Limpieza',
@@ -117,6 +118,7 @@ export default function TasksPage() {
   const [facilityId, setFacilityId] = useFacilityFilterState();
   const [assignedToUserId, setAssignedToUserId] = useState<string | undefined>();
   const [createOpen, setCreateOpen] = useState(false);
+  useOpenFromUrl(() => setCreateOpen(true));
   const [detailId, setDetailId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [assignTo, setAssignTo] = useState<string>('');

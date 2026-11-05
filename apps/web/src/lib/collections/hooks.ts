@@ -36,10 +36,11 @@ export function useCollectionsCases(status?: DelinquencyCaseStatus) {
 }
 
 /** Vista rápida de expedientes abiertos (card del Resumen). */
-export function useCollectionsSummary(enabled: boolean) {
+export function useCollectionsSummary(enabled: boolean, facilityId?: string) {
+  const qs = facilityId ? `?facilityId=${facilityId}` : '';
   return useQuery({
-    queryKey: [...key, 'summary'] as const,
-    queryFn: () => apiFetch<CollectionsSummaryDto>('/collections/summary'),
+    queryKey: [...key, 'summary', facilityId ?? null] as const,
+    queryFn: () => apiFetch<CollectionsSummaryDto>(`/collections/summary${qs}`),
     enabled,
   });
 }

@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+import type {
+  ChurnRiskKpiDto,
+  CustomerStatsKpiDto,
+  LeadsFunnelKpiDto,
+  MonthlyRevenueKpiDto,
+  OccupancyKpiDto,
+  ReceivablesDto,
+  RevenueForecastDto,
+  RevenueKpiDto,
+} from '../reports/types';
+
 /** Un ítem resumido para la bandeja «Hoy» (lo que requiere atención). */
 export interface TodayItemDto {
   id: string;
@@ -180,7 +191,7 @@ export interface OnboardingDto {
 export interface TodayKpisDto {
   /** Quien no puede ver facturas ni cobros recibe el dinero a cero. */
   moneyVisible: boolean;
-  /** Facturado en el mes (emitido, sin borradores ni anuladas). */
+  /** Facturado en el mes, neto de abonos y sustituciones. */
   invoicedMonth: number;
   /** Cobrado en el mes (cobros reales, sin fianzas y neto de devoluciones). */
   collectedMonth: number;
@@ -189,7 +200,7 @@ export interface TodayKpisDto {
   occupancyPct: number;
   freeUnits: number;
   totalUnits: number;
-  /** Altas (contratos firmados) y bajas (contratos terminados) del mes. */
+  /** Altas y bajas del mes, con el criterio de Analítica → Bajas. */
   moveInsMonth: number;
   moveOutsMonth: number;
   /** Inquilinos con deuda vencida que nunca han entrado en su área de clientes. */
@@ -228,6 +239,22 @@ export interface TodaySummaryDto {
   kpis: TodayKpisDto;
   /** Lo que ha pasado en las últimas 48 h, lo más reciente primero. */
   activity: TodayActivityDto[];
+}
+
+/**
+ * Cifras del Resumen en una sola respuesta. Una sección que no se pudo calcular
+ * llega a null, y la pantalla lo dice en vez de enseñarla vacía.
+ */
+export interface DashboardOverviewDto {
+  month: TodayKpisDto | null;
+  revenue: RevenueKpiDto | null;
+  occupancy: OccupancyKpiDto | null;
+  customers: CustomerStatsKpiDto | null;
+  receivables: ReceivablesDto | null;
+  monthlyRevenue: MonthlyRevenueKpiDto | null;
+  forecast: RevenueForecastDto | null;
+  churnRisk: ChurnRiskKpiDto | null;
+  leads: LeadsFunnelKpiDto | null;
 }
 
 // --- Apartar avisos -----------------------------------------------------------

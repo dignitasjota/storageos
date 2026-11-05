@@ -11,6 +11,13 @@ export function formatEur(n: number | string | null | undefined): string {
   return EUR.format(v == null || Number.isNaN(v) ? 0 : v);
 }
 
+/** Importe corto para los ejes de los gráficos: «1,2k €», «840 €». */
+export function formatEurShort(n: number): string {
+  return n >= 1000
+    ? `${(Math.round(n / 100) / 10).toLocaleString('es-ES')}k €`
+    : `${Math.round(n).toLocaleString('es-ES')} €`;
+}
+
 /**
  * Una fecha `YYYY-MM-DD` se lee como día local (con `new Date('2026-09-01')`
  * sería medianoche UTC y en algunas zonas saldría el día anterior). Las
