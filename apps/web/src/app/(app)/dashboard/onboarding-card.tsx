@@ -18,7 +18,29 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 export function OnboardingCard() {
   const { data } = useOnboarding();
 
-  if (!data || data.completed) return null;
+  if (!data) return null;
+  if (data.wizardPending) {
+    return (
+      <Card className="border-primary/30">
+        <CardHeader>
+          <CardTitle className="text-lg">Vamos a dejar tu negocio listo</CardTitle>
+          <CardDescription>
+            Cuatro preguntas, unos cinco minutos: tu punto de partida, tu local, tus trasteros y
+            cómo cobras. Lo demás puedes hacerlo cuando quieras.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button asChild>
+            <Link href="/onboarding">Empezar</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/settings/getting-started">Prefiero ir por mi cuenta</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (data.completed) return null;
   const required = data.steps.filter((s) => s.group === 'required');
 
   return (

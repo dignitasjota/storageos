@@ -250,6 +250,7 @@ export class SignaturesService {
       (await composeContractTerms(this.admin, contract.tenantId, contract.id)).text;
     const signed = contract.status !== 'draft';
     return {
+      isTest: contract.customer.isTest,
       contractNumber: contract.contractNumber,
       customerName,
       unitCode: contract.unit.code,
@@ -548,11 +549,14 @@ export class SignaturesService {
         channel: 'remote',
       },
       // Self-service remoto: el acceso se emite al pagar la 1ª factura, no al firmar.
-      deferAccessUntilPaid: true,
+      // El inquilino de prueba no paga: lo recibe al firmar.
+      deferAccessUntilPaid: !contract.customer.isTest,
       ...(input.termsHash ? { expectedTermsHash: input.termsHash } : {}),
     });
 
-    await this.maybeIssueFirstInvoice(contract.tenantId, contract.id, contract.customerId);
+    if (!contract.customer.isTest) {
+      await this.maybeIssueFirstInvoice(contract.tenantId, contract.id, contract.customerId);
+    }
 
     return {
       contractId: contract.id,
@@ -603,6 +607,7 @@ export class SignaturesService {
       include: {
         customer: {
           select: {
+            isTest: true,
             email: true,
             customerType: true,
             firstName: true,

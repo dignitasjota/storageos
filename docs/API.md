@@ -2603,3 +2603,6 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - `PUT /dashboard/onboarding/steps/:key {skipped}` (`facilities:manage`): da un paso por resuelto o lo devuelve a pendiente; 400 `step_not_skippable` si el paso no lo admite.
 - `GET /public/landing/:slug`, `/:slug/:facilitySlug` y `/:slug/promo/:promoSlug` dan 404 `web_not_published` sin cuenta activada o sin local. `GET /public/landing/brand/:slug` añade `webPending` y `bookingPending`.
 - `/public/move-in/book/:slug/*` da 409 `booking_unavailable` sin datos fiscales o sin forma de cobro.
+
+- `PUT /dashboard/onboarding/state {path?, wizard?}` (`facilities:manage`): punto de partida (`new`, `opening`, `migrating`) y paso por el asistente. `GET /dashboard/onboarding` añade `path`, `wizardPending` y `testRun`.
+- `POST /dashboard/onboarding/test-run` crea el inquilino de prueba con el email de quien lo pide (400 `no_unit_available`, 409 `test_run_exists`) y `DELETE` lo borra y libera su trastero. No se le factura. `ContractSignViewDto.isTest`.

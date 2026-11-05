@@ -119,15 +119,39 @@ export const ONBOARDING_SKIPPABLE_STEPS = [
   'contract_template',
   'team',
   'verifactu',
+  'test_run',
 ] as const;
 export type OnboardingSkippableStep = (typeof ONBOARDING_SKIPPABLE_STEPS)[number];
 
 export const SkipOnboardingStepSchema = z.object({ skipped: z.boolean() });
 
+/** De dónde parte el negocio: decide qué pasos se le piden. */
+export const OnboardingPathEnum = z.enum(['new', 'opening', 'migrating']);
+export type OnboardingPath = z.infer<typeof OnboardingPathEnum>;
+
+export const UpdateOnboardingStateSchema = z.object({
+  path: OnboardingPathEnum.optional(),
+  wizard: z.enum(['done', 'skipped']).optional(),
+});
+export type UpdateOnboardingStateInput = z.infer<typeof UpdateOnboardingStateSchema>;
+
+/** Inquilino de prueba: el propio tenant recorre lo que vivirán sus clientes. */
+export interface OnboardingTestRunDto {
+  customerId: string;
+  contractId: string;
+  /** Null si el contrato ya se firmó. */
+  signingUrl: string | null;
+}
+
 /** Checklist de puesta en marcha del operador. */
 export interface OnboardingDto {
   /** Si la web ya se ve y acepta reservas, y qué le falta para ello. */
   web: { url: string; published: boolean; bookable: boolean; missing: string[] };
+  path: OnboardingPath | null;
+  /** Cuenta recién creada que aún no ha pasado por el asistente. */
+  wizardPending: boolean;
+  /** Inquilino de prueba en curso. */
+  testRun: OnboardingTestRunDto | null;
   steps: OnboardingStepDto[];
   /** Pasos imprescindibles completados / total (0-1). */
   progress: number;

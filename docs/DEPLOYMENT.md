@@ -1731,3 +1731,7 @@ Migración `20261216100000_tenant_today_features`, sin variables nuevas. El resu
 ## 86. Alta de un tenant nuevo: arreglos (2026-11-05)
 
 Migración `20261217100000_tenant_onboarding_review`, sin variables nuevas. **Antes de desplegar, revisar**: desde esta versión la web de un tenant solo se publica con la cuenta activada y un local, y las reservas online exigen además razón social, NIF, domicilio y una forma de cobro. Un tenant que hoy reciba reservas sin esos datos dejará de aceptarlas hasta completarlos (le saldrá «Reserva online aún no disponible» al visitante y el motivo en su Puesta en marcha). El cron nuevo `tenant-lifecycle.unverified` (cada hora, API) manda los recordatorios de activar la cuenta y borra las cuentas sin activar a los 30 días, siempre con el último aviso enviado hace al menos 7: las que ya llevan más de 30 días reciben primero ese aviso.
+
+## 87. Asistente de primer acceso (2026-11-05)
+
+Migración `20261218100000_onboarding_test_customer` (`customers.is_test`), sin variables nuevas. Los tenants ya creados no ven el asistente (solo se ofrece sin locales ni trasteros). El menú corto se aplica a quien aún no tiene un contrato, también a los tenants actuales en esa situación, y se abre con «Ver todo el menú».
