@@ -1,6 +1,15 @@
 import { z } from 'zod';
 
 import type {
+  DashboardCashDto,
+  DashboardCommercialDto,
+  DashboardFacilityRowDto,
+  DashboardMovesDto,
+  DashboardPeriodFiguresDto,
+  DashboardResultDto,
+  DashboardVacancyDto,
+} from './overview';
+import type {
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
@@ -10,6 +19,8 @@ import type {
   RevenueForecastDto,
   RevenueKpiDto,
 } from '../reports/types';
+
+export * from './overview';
 
 /** Un ítem resumido para la bandeja «Hoy» (lo que requiere atención). */
 export interface TodayItemDto {
@@ -247,6 +258,14 @@ export interface TodaySummaryDto {
  */
 export interface DashboardOverviewDto {
   month: TodayKpisDto | null;
+  period: DashboardPeriodFiguresDto | null;
+  cash: DashboardCashDto | null;
+  vacancy: DashboardVacancyDto | null;
+  moves: DashboardMovesDto | null;
+  byFacility: DashboardFacilityRowDto[] | null;
+  /** Null también si el usuario no puede ver los gastos. */
+  result: DashboardResultDto | null;
+  commercial: DashboardCommercialDto | null;
   revenue: RevenueKpiDto | null;
   occupancy: OccupancyKpiDto | null;
   customers: CustomerStatsKpiDto | null;

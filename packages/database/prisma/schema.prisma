@@ -731,6 +731,7 @@ model User {
   emailNoticePrefs                Json      @default("{}") @map("email_notice_prefs")
   /// Resumen del día a medida: {hour, facilityIds, push}.
   dailySummaryPrefs               Json      @default("{}") @map("daily_summary_prefs")
+  dashboardLayout                 Json      @default("{}") @map("dashboard_layout")
   dailySummaryLastDate            DateTime? @map("daily_summary_last_date") @db.Date
   /// PIN de respaldo para desbloquear la app del panel en el móvil (argon2id).
   appPinHash                      String?   @map("app_pin_hash")

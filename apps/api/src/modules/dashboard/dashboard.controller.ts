@@ -15,6 +15,8 @@ import {
 import {
   CreateTenantTodaySnoozeSchema,
   DailySummaryPrefsSchema,
+  DashboardLayoutSchema,
+  DashboardPeriodEnum,
   permissionsForRole,
   SkipOnboardingStepSchema,
   UpdateOnboardingStateSchema,
@@ -40,6 +42,7 @@ import { TodayService } from './today.service';
 
 import type {
   DailySummaryPrefs,
+  DashboardLayout,
   DashboardOverviewDto,
   OnboardingDto,
   OnboardingNextStepDto,
@@ -53,6 +56,7 @@ import type {
 import type { Request } from 'express';
 
 class CreateTodaySnoozeDto extends createZodDto(CreateTenantTodaySnoozeSchema) {}
+class UpdateDashboardLayoutDto extends createZodDto(DashboardLayoutSchema) {}
 class UpdateDailySummaryPrefsDto extends createZodDto(DailySummaryPrefsSchema) {}
 class SkipOnboardingStepDto extends createZodDto(SkipOnboardingStepSchema) {}
 class UpdateOnboardingStateDto extends createZodDto(UpdateOnboardingStateSchema) {}
@@ -135,16 +139,36 @@ export class DashboardController {
   async getOverview(
     @CurrentUser() user: AuthenticatedUser,
     @Query('facilityId') facilityId?: string,
+    @Query('period') period?: string,
   ): Promise<DashboardOverviewDto> {
     if (facilityId && !UUID_RE.test(facilityId)) {
       throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+    }
+    const parsedPeriod = DashboardPeriodEnum.safeParse(period ?? 'month');
+    if (!parsedPeriod.success) {
+      throw new BadRequestException({ code: 'invalid_period', message: 'Periodo no válido' });
     }
     return this.overview.overview(
       user.tenantId,
       facilityId || undefined,
       user.facilityScope ?? null,
       user.permissions ?? permissionsForRole(user.role),
+      parsedPeriod.data,
     );
+  }
+
+  /** Tarjetas del Resumen que ve cada usuario, y su orden. */
+  @Get('me/layout')
+  async getDashboardLayout(@CurrentUser() user: AuthenticatedUser): Promise<DashboardLayout> {
+    return this.overview.getLayout(user.tenantId, user.sub);
+  }
+
+  @Put('me/layout')
+  async setDashboardLayout(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: UpdateDashboardLayoutDto,
+  ): Promise<DashboardLayout> {
+    return this.overview.setLayout(user.tenantId, user.sub, body);
   }
 
   /** Checklist de primeros pasos del operador. */

@@ -38,7 +38,7 @@ export function LeadsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Captación de leads</CardTitle>
+        <CardTitle className="text-base">Contactos</CardTitle>
         <CardDescription>
           Contactos de los últimos 30 días.{' '}
           {conv && (
@@ -55,7 +55,7 @@ export function LeadsCard({
           {() =>
             !hasData ? (
               <p className="py-12 text-center text-sm text-muted-foreground">
-                Aún no hay leads registrados.
+                Aún no hay contactos en estos 30 días.
               </p>
             ) : (
               <div className="h-56 w-full">
@@ -82,7 +82,7 @@ export function LeadsCard({
                       formatter={(v) => String(Number(v) || 0)}
                       contentStyle={{ fontSize: 13 }}
                     />
-                    <Bar dataKey="value" name="Leads" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="value" name="Contactos" radius={[4, 4, 0, 0]}>
                       {data.map((d) => (
                         <Cell key={d.label} fill={d.color} />
                       ))}

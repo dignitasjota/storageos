@@ -40,7 +40,7 @@ export function AgingCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Morosidad por antigüedad</CardTitle>
+        <CardTitle className="text-base">Deuda vencida por antigüedad</CardTitle>
         <CardDescription>
           {total > 0 ? (
             <>

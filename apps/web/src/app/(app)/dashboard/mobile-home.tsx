@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
+import { MobileFigures } from './mobile-figures';
 import { NextStepCard } from './next-step-card';
 import { OnboardingCard } from './onboarding-card';
 
@@ -121,6 +122,8 @@ export function MobileHome() {
 
       <OnboardingCard />
       <NextStepCard />
+
+      <MobileFigures />
 
       <button
         type="button"

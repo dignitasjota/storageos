@@ -41,7 +41,7 @@ export function ForecastCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Previsión de MRR — 6 meses</CardTitle>
+        <CardTitle className="text-base">Previsión de cuotas — 6 meses</CardTitle>
         <CardDescription>
           {current ? (
             <>
@@ -108,7 +108,7 @@ export function ForecastCard({
                     <Area
                       type="monotone"
                       dataKey="mrr"
-                      name="MRR previsto"
+                      name="Cuotas previstas"
                       stroke="#2563eb"
                       strokeWidth={2}
                       fill="url(#mrrFill)"

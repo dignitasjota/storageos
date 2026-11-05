@@ -1743,3 +1743,7 @@ Sin migración ni variables nuevas. Los correos de fin de prueba añaden lo que 
 ## 89. Resumen del panel: arreglos (2026-11-05)
 
 Sin migración ni variables nuevas. Algunas cifras cambian tras desplegar y es lo esperado: «Facturado este mes» deja de restar de más al anular, las altas y bajas siguen el criterio de Analítica y «Nuevos este mes» pasa a contar inquilinos con su primer contrato, no fichas creadas. «Pendiente de cobro» enseña todo lo emitido sin cobrar, con lo vencido aparte.
+
+## 90. Resumen del panel: mejoras (2026-11-05)
+
+Migración `20261219100000_dashboard_layout` (`users.dashboard_layout`), sin variables nuevas.
