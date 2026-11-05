@@ -68,8 +68,10 @@ describe('Chat: avisos por correo y sin repetir (e2e)', () => {
     });
     expect(notifs).toBe(1);
 
-    // Tras leerlo el equipo, un mensaje nuevo vuelve a avisar.
-    await http().get(`/customers/${customerId}/messages`).set(auth).expect(200);
+    // Pasados 15 minutos, un mensaje nuevo vuelve a avisar.
+    await prisma.$executeRaw`
+      UPDATE security_alert_states SET last_sent_at = now() - interval '16 minutes'
+      WHERE kind = 'customer_message' AND identifier = ${customerId}`;
     await http().post('/portal/me/messages').set(pAuth).send({ body: 'Gracias' });
     const again = await prisma.notification.count({
       where: { tenantId: owner.tenantId, type: 'customer.message' },

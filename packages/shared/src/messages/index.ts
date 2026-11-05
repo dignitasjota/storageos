@@ -44,3 +44,41 @@ export interface MessageAttachmentDto {
 export function attachmentLabel(filename: string): string {
   return `[Adjunto: ${filename}]`;
 }
+
+/** Mensajes por página de un hilo (se piden de más nuevos a más viejos). */
+export const MESSAGE_THREAD_PAGE = 50;
+
+const QUOTE_HEADER = [
+  /^\s*(?:El|On)\b.{5,200}\b(?:escribi[óo]|wrote):\s*$/i,
+  /^\s*-{2,}\s*(?:Mensaje original|Original Message|Forwarded message|Mensaje reenviado)/i,
+  /^\s*_{5,}\s*$/,
+  /^\s*(?:De|From):\s.+$/i,
+];
+
+/**
+ * Lo escrito de verdad en una respuesta por correo: quita lo citado del correo
+ * anterior. Si no queda nada, devuelve el texto entero (mejor citado que perdido).
+ */
+export function stripQuotedReply(text: string): string {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    // Gmail parte a veces la cabecera en dos líneas.
+    const joined = `${line} ${lines[i + 1] ?? ''}`;
+    if (
+      line.startsWith('>') ||
+      QUOTE_HEADER.some((re) => re.test(line)) ||
+      QUOTE_HEADER[0]!.test(joined)
+    ) {
+      end = i;
+      break;
+    }
+  }
+  const kept = lines
+    .slice(0, end)
+    .filter((l) => !l.startsWith('>'))
+    .join('\n')
+    .trim();
+  return kept || text.trim();
+}

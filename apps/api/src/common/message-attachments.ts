@@ -58,7 +58,11 @@ export async function assertAttachment(
   };
 }
 
-/** URL firmada (10 min) del adjunto de un mensaje, o null si no tiene. */
+/** La URL de un adjunto no cambia en este tiempo: el hilo se refresca solo y sin esto
+ * cada refresco volvería a descargar todas las fotos. */
+const STABLE_URL_MS = 5 * 60 * 1000;
+
+/** URL firmada (de 10 a 15 min) del adjunto de un mensaje, o null si no tiene. */
 export async function attachmentDto(
   files: FilesService,
   row: {
@@ -72,9 +76,10 @@ export async function attachmentDto(
   const url = await files.getPresignedGetUrl(
     'uploads',
     row.attachmentKey,
-    600,
+    900,
     // Los PDF se descargan; las imágenes se ven en el hilo.
     row.attachmentMime === 'application/pdf' ? name : undefined,
+    new Date(Math.floor(Date.now() / STABLE_URL_MS) * STABLE_URL_MS),
   );
   return { url, mimeType: row.attachmentMime ?? 'application/octet-stream', filename: name };
 }

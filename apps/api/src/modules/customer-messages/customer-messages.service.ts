@@ -4,22 +4,36 @@ import { Prisma } from '@storageos/database';
 import {
   attachmentLabel,
   chatReplyChannel,
+  MESSAGE_THREAD_PAGE,
   type MessageAttachmentInput,
   type MessageAttachmentUploadDto,
 } from '@storageos/shared';
 
+import { customerScopeSql, customerVisibilityFacilities } from '../../common/customer-scope';
 import {
   assertAttachment,
   attachmentDto,
   requestAttachmentUpload,
 } from '../../common/message-attachments';
+import { claimAlert } from '../admin/alert-state';
 import { DOMAIN_EVENTS, type CustomerMessagePayload } from '../automations/domain-events';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
 
+import type { FacilityScope } from '../../common/facility-scope';
 import type { CustomerConversationDto, CustomerMessageDto } from '@storageos/shared';
+
+/** Como mucho un aviso al equipo por conversación en este tiempo. */
+const TEAM_NOTICE_GAP_MINUTES = 15;
+/** Recordatorio de lo que sigue sin respuesta: desde este tiempo… */
+const UNANSWERED_AFTER_HOURS = 24;
+/** …y hasta este (lo que se quedó muy atrás ya no se recuerda). */
+const UNANSWERED_UNTIL_HOURS = 72;
+/** El recordatorio de un mensaje sale una sola vez. */
+const REMINDER_ONCE_MINUTES = 60 * 24 * 365;
 
 const messageInclude = {
   sender: { select: { fullName: true } },
@@ -51,6 +65,7 @@ function toDto(row: MessageRow): Omit<CustomerMessageDto, 'attachment'> {
 export class CustomerMessagesService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
     private readonly notifications: NotificationsService,
     private readonly push: PushService,
     private readonly events: EventEmitter2,
@@ -84,10 +99,12 @@ export class CustomerMessagesService {
    * la lista de inquilinos y la ficha): total y por cliente. Cuenta los
    * posteriores a su última lectura de cada conversación (o a su alta, si
    * nunca la abrió: un usuario nuevo no hereda el historial como pendiente).
+   * Solo cuenta los inquilinos que puede ver.
    */
   async unreadSummary(
     tenantId: string,
     userId: string,
+    scope: FacilityScope = null,
   ): Promise<{ total: number; byCustomer: Record<string, number> }> {
     const rows = await this.prisma.withTenant(
       (tx) => tx.$queryRaw<{ customer_id: string; n: number }[]>`
@@ -102,6 +119,7 @@ export class CustomerMessagesService {
             r.last_read_at,
             (SELECT u.created_at FROM users u WHERE u.id = ${userId}::uuid)
           )
+          AND ${customerScopeSql(Prisma.sql`m.customer_id`, scope)}
         GROUP BY m.customer_id`,
       tenantId,
     );
@@ -116,13 +134,15 @@ export class CustomerMessagesService {
 
   /**
    * Bandeja «Mensajes»: las conversaciones con su último mensaje, de la más
-   * reciente a la más antigua, con los no leídos de quien mira. Con locales
-   * (filtro o alcance del usuario), solo inquilinos con algún contrato en ellos.
+   * reciente a la más antigua, con los no leídos de quien mira. Quien solo ve
+   * unos locales ve a los inquilinos que puede abrir; con un local elegido, solo
+   * los que tienen algún contrato en él.
    */
   async conversations(
     tenantId: string,
     userId: string,
-    facilityIds: string[] | null,
+    scope: FacilityScope,
+    facilityId: string | null,
   ): Promise<CustomerConversationDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) => tx.$queryRaw<
@@ -162,13 +182,14 @@ export class CustomerMessagesService {
           ) AS unread
         FROM last l
         JOIN customers c ON c.id = l.customer_id AND c.deleted_at IS NULL
-        WHERE ${facilityIds}::uuid[] IS NULL OR EXISTS (
-          SELECT 1 FROM contracts k
-          JOIN units u ON u.id = k.unit_id
-          WHERE k.customer_id = l.customer_id
-            AND k.deleted_at IS NULL
-            AND u.facility_id = ANY(${facilityIds}::uuid[])
-        )
+        WHERE ${customerScopeSql(Prisma.sql`l.customer_id`, scope)}
+          AND (${facilityId}::uuid IS NULL OR EXISTS (
+            SELECT 1 FROM contracts k
+            JOIN units u ON u.id = k.unit_id
+            WHERE k.customer_id = l.customer_id
+              AND k.deleted_at IS NULL
+              AND u.facility_id = ${facilityId}::uuid
+          ))
         ORDER BY l.created_at DESC
         LIMIT 200`,
       tenantId,
@@ -225,37 +246,45 @@ export class CustomerMessagesService {
     return { name };
   }
 
-  /** Lista el hilo y marca como leídos los mensajes del lado contrario. */
+  /**
+   * Los últimos mensajes del hilo, de más viejo a más nuevo, y marca como leídos
+   * los del lado contrario. Con `before` (id de un mensaje), los anteriores a él.
+   */
   async list(
     tenantId: string,
     customerId: string,
     viewer: 'staff' | 'customer',
     /** Usuario del equipo que lo abre: su leído propio de esta conversación. */
     userId?: string,
+    before?: string,
   ): Promise<CustomerMessageDto[]> {
     await this.assertCustomer(tenantId, customerId);
     // El staff lee los del inquilino y viceversa.
     const otherSide = viewer === 'staff' ? 'customer' : 'staff';
     const rows = await this.prisma.withTenant(async (tx) => {
-      await tx.customerMessage.updateMany({
-        where: { tenantId, customerId, senderType: otherSide, readAt: null },
-        data: { readAt: new Date() },
-      });
-      if (viewer === 'staff' && userId) {
-        const now = new Date();
-        await tx.customerMessageRead.upsert({
-          where: { customerId_userId: { customerId, userId } },
-          create: { customerId, userId, tenantId, lastReadAt: now },
-          update: { lastReadAt: now },
+      if (!before) {
+        await tx.customerMessage.updateMany({
+          where: { tenantId, customerId, senderType: otherSide, readAt: null },
+          data: { readAt: new Date() },
         });
+        if (viewer === 'staff' && userId) {
+          const now = new Date();
+          await tx.customerMessageRead.upsert({
+            where: { customerId_userId: { customerId, userId } },
+            create: { customerId, userId, tenantId, lastReadAt: now },
+            update: { lastReadAt: now },
+          });
+        }
       }
       return tx.customerMessage.findMany({
         where: { tenantId, customerId },
         include: messageInclude,
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: MESSAGE_THREAD_PAGE,
+        ...(before ? { cursor: { id: before }, skip: 1 } : {}),
       });
     }, tenantId);
-    return Promise.all(rows.map((r) => this.dto(r)));
+    return Promise.all(rows.reverse().map((r) => this.dto(r)));
   }
 
   /** El staff responde al inquilino → push al inquilino. */
@@ -316,34 +345,42 @@ export class CustomerMessagesService {
     const { name } = await this.assertCustomer(tenantId, customerId);
     const att = await this.attachmentFields(tenantId, customerId, attachment);
     const text = body || (attachment ? attachmentLabel(attachment.filename) : '');
-    const { created, alreadyPending } = await this.prisma.withTenant(async (tx) => {
-      // ¿Ya había mensajes suyos sin leer? Entonces el equipo ya está avisado:
-      // no repetimos notificación ni correo por cada frase.
-      const pending = await tx.customerMessage.count({
-        where: { tenantId, customerId, senderType: 'customer', readAt: null },
-      });
-      const row = await tx.customerMessage.create({
-        data: {
-          tenantId,
-          customerId,
-          senderType: 'customer',
-          body,
-          channel,
-          senderVerified,
-          ...att,
-        },
-        include: messageInclude,
-      });
-      return { created: row, alreadyPending: pending > 0 };
-    }, tenantId);
-    if (!alreadyPending) {
+    const created = await this.prisma.withTenant(
+      (tx) =>
+        tx.customerMessage.create({
+          data: {
+            tenantId,
+            customerId,
+            senderType: 'customer',
+            body,
+            channel,
+            senderVerified,
+            ...att,
+          },
+          include: messageInclude,
+        }),
+      tenantId,
+    );
+    // Un aviso por conversación cada poco: ni uno por frase ni silencio por no
+    // haberla abierto nadie.
+    const claimed = await claimAlert(
+      this.admin,
+      'customer_message',
+      customerId,
+      TEAM_NOTICE_GAP_MINUTES,
+    );
+    if (claimed) {
       const via = channel === 'whatsapp' ? ' (WhatsApp)' : channel === 'email' ? ' (email)' : '';
-      await this.notifications.create(tenantId, {
-        type: 'customer.message',
-        title: `Mensaje de ${name}${via}${senderVerified ? '' : ' — remitente no verificado'}`,
-        body: text.slice(0, 140),
-        link: `/customers/${customerId}?tab=chat`,
-      });
+      await this.notifications.createForFacilities(
+        tenantId,
+        await customerVisibilityFacilities(this.admin, tenantId, customerId),
+        {
+          type: 'customer.message',
+          title: `Mensaje de ${name}${via}${senderVerified ? '' : ' — remitente no verificado'}`,
+          body: text.slice(0, 140),
+          link: `/customers/${customerId}?tab=chat`,
+        },
+      );
       this.events.emit(DOMAIN_EVENTS.customer_message_from_customer, {
         tenantId,
         customerId,
@@ -353,5 +390,71 @@ export class CustomerMessagesService {
       } satisfies CustomerMessagePayload);
     }
     return this.dto(created);
+  }
+
+  /**
+   * Conversaciones cuyo último mensaje es del inquilino y lleva un día sin
+   * respuesta: se recuerda una vez a quien puede verlas.
+   */
+  async remindUnanswered(): Promise<number> {
+    const rows = await this.admin.$queryRaw<
+      {
+        id: string;
+        tenant_id: string;
+        customer_id: string;
+        body: string;
+        channel: string;
+        attachment_name: string | null;
+      }[]
+    >`
+      WITH last AS (
+        SELECT DISTINCT ON (m.customer_id)
+          m.id, m.tenant_id, m.customer_id, m.sender_type, m.body, m.channel,
+          m.attachment_name, m.created_at
+        FROM customer_messages m
+        WHERE m.created_at > now() - make_interval(hours => ${UNANSWERED_UNTIL_HOURS}::int)
+        ORDER BY m.customer_id, m.created_at DESC, m.id DESC
+      )
+      SELECT l.id, l.tenant_id, l.customer_id, l.body, l.channel, l.attachment_name
+      FROM last l
+      JOIN customers c ON c.id = l.customer_id AND c.deleted_at IS NULL
+      JOIN tenants t ON t.id = l.tenant_id
+      WHERE l.sender_type = 'customer'
+        AND l.created_at < now() - make_interval(hours => ${UNANSWERED_AFTER_HOURS}::int)
+        AND t.deleted_at IS NULL
+        AND t.status::text IN ('active', 'trial')
+    `;
+    let sent = 0;
+    for (const row of rows) {
+      const claimed = await claimAlert(
+        this.admin,
+        'customer_message_reminder',
+        row.id,
+        REMINDER_ONCE_MINUTES,
+      );
+      if (!claimed) continue;
+      const { name } = await this.assertCustomer(row.tenant_id, row.customer_id);
+      const text = row.body || (row.attachment_name ? attachmentLabel(row.attachment_name) : '');
+      await this.notifications.createForFacilities(
+        row.tenant_id,
+        await customerVisibilityFacilities(this.admin, row.tenant_id, row.customer_id),
+        {
+          type: 'customer.message_unanswered',
+          title: `${name} lleva un día sin respuesta`,
+          body: text.slice(0, 140),
+          link: `/customers/${row.customer_id}?tab=chat`,
+        },
+      );
+      this.events.emit(DOMAIN_EVENTS.customer_message_from_customer, {
+        tenantId: row.tenant_id,
+        customerId: row.customer_id,
+        messageId: row.id,
+        body: text,
+        channel: (row.channel ?? 'portal') as CustomerMessagePayload['channel'],
+        reminder: true,
+      } satisfies CustomerMessagePayload);
+      sent += 1;
+    }
+    return sent;
   }
 }

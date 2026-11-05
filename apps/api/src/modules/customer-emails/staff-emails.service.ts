@@ -13,6 +13,7 @@ import {
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
+import { customerVisibilityFacilities } from '../../common/customer-scope';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
@@ -43,6 +44,8 @@ interface StaffMessage {
    * tienen ese local asignado. Null = de toda la empresa.
    */
   facilityId: string | null;
+  /** Varios locales: lo reciben quienes tienen alguno (manda sobre `facilityId`). */
+  facilityIds?: string[];
 }
 
 /**
@@ -253,8 +256,8 @@ export class StaffEmailsService {
   }
 
   /**
-   * Un inquilino escribe en «Mensajes» (portal, WhatsApp o email). Solo llega
-   * el primero mientras haya mensajes suyos sin leer (lo decide quien emite).
+   * Un inquilino escribe en «Mensajes» (portal, WhatsApp o email), o su mensaje
+   * sigue sin respuesta. Cada cuánto avisar lo decide quien emite.
    */
   @OnEvent(DOMAIN_EVENTS.customer_message_from_customer, { async: true, promisify: true })
   async onCustomerMessage(p: CustomerMessagePayload): Promise<void> {
@@ -268,11 +271,14 @@ export class StaffEmailsService {
         p.channel === 'whatsapp' ? ' por WhatsApp' : p.channel === 'email' ? ' por email' : '';
       const body = p.body.length > 600 ? `${p.body.slice(0, 600)}…` : p.body;
       await this.notify(p.tenantId, 'customer_message', {
-        subject: `Mensaje de ${customerName(customer)}${via}`,
+        subject: p.reminder
+          ? `Sigue sin respuesta: mensaje de ${customerName(customer)}`
+          : `Mensaje de ${customerName(customer)}${via}`,
         lines: [body],
         path: `/customers/${p.customerId}?tab=chat`,
         cta: 'Leer y responder',
         facilityId: null,
+        facilityIds: await customerVisibilityFacilities(this.admin, p.tenantId, p.customerId),
       });
     });
   }
@@ -322,6 +328,7 @@ export class StaffEmailsService {
   private async notify(tenantId: string, kind: StaffEmailKind, msg: StaffMessage): Promise<void> {
     const settings = await this.getSettings(tenantId);
     if (!settings[kind]) return;
+    const facilities = msg.facilityIds ?? (msg.facilityId ? [msg.facilityId] : []);
     const [tenant, staff] = await Promise.all([
       this.admin.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
       this.admin.user.findMany({
@@ -330,11 +337,11 @@ export class StaffEmailsService {
           isActive: true,
           emailVerifiedAt: { not: null },
           // Un usuario restringido a ciertos locales solo recibe los suyos.
-          ...(msg.facilityId
+          ...(facilities.length > 0
             ? {
                 OR: [
                   { facilities: { none: {} } },
-                  { facilities: { some: { facilityId: msg.facilityId } } },
+                  { facilities: { some: { facilityId: { in: facilities } } } },
                 ],
               }
             : {}),

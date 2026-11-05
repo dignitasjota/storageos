@@ -105,7 +105,11 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
-import { ThrottleLogin, ThrottleRegister } from '../../common/decorators/throttle-presets';
+import {
+  ThrottleChat,
+  ThrottleLogin,
+  ThrottleRegister,
+} from '../../common/decorators/throttle-presets';
 import { respondThenRun } from '../../common/security/respond-then-run';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { AccessVerifyService } from '../access/access-verify.service';
@@ -521,9 +525,10 @@ export class PortalController {
   @Get('me/messages')
   async myMessages(
     @Headers('authorization') auth: string | undefined,
+    @Query('before', new ParseUUIDPipe({ optional: true })) before?: string,
   ): Promise<CustomerMessageDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
-    return this.messages.list(tenantId, customerId, 'customer');
+    return this.messages.list(tenantId, customerId, 'customer', undefined, before);
   }
 
   /** Nº de mensajes del staff sin leer — para el badge de la pestaña «Mensajes». */
@@ -538,7 +543,7 @@ export class PortalController {
 
   /** El inquilino envía un mensaje al staff. */
   @Public()
-  @ThrottleLogin()
+  @ThrottleChat()
   @Post('me/messages')
   async sendMessage(
     @Headers('authorization') auth: string | undefined,
@@ -557,7 +562,7 @@ export class PortalController {
 
   /** URL firmada para adjuntar una imagen o PDF al mensaje. */
   @Public()
-  @ThrottleLogin()
+  @ThrottleChat()
   @Post('me/messages/upload-url')
   @HttpCode(HttpStatus.OK)
   async messageUploadUrl(

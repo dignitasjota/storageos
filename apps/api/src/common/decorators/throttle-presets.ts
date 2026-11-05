@@ -17,6 +17,10 @@ const HOUR = 60 * MINUTE;
 export const ThrottleLogin = () =>
   applyDecorators(Throttle({ default: { limit: 5, ttl: MINUTE } }));
 
+/** Mensajes del área de clientes: una conversación normal no llega aquí. */
+export const ThrottleChat = () =>
+  applyDecorators(Throttle({ default: { limit: 20, ttl: MINUTE } }));
+
 export const ThrottleRegister = () =>
   applyDecorators(Throttle({ default: { limit: 3, ttl: HOUR } }));
 

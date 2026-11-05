@@ -5,9 +5,10 @@ import {
   type SupportTicketMessageDto,
   type SupportTicketStatusValue,
 } from '@storageos/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -17,6 +18,7 @@ import {
   AttachmentView,
   uploadMessageAttachment,
 } from '@/components/messages/attachments';
+import { MessageText } from '@/components/messages/message-text';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,6 +50,12 @@ export default function SupportTicketPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const ticket = useSupportTicket(id);
+  const qc = useQueryClient();
+
+  // Abrirlo lo deja leído para esta persona.
+  useEffect(() => {
+    if (ticket.isSuccess) void qc.invalidateQueries({ queryKey: ['support', 'waiting-count'] });
+  }, [ticket.isSuccess, ticket.dataUpdatedAt, qc]);
 
   if (ticket.isLoading) {
     return (
@@ -115,7 +123,7 @@ function MessageBubble({ message }: { message: SupportTicketMessageDto }) {
         <span className="font-medium text-foreground">{author}</span>
         <span>{new Date(message.createdAt).toLocaleString('es-ES')}</span>
       </div>
-      {message.body && <p className="mt-1 whitespace-pre-wrap">{message.body}</p>}
+      {message.body && <MessageText text={message.body} className="mt-1" />}
       {message.attachment && <AttachmentView attachment={message.attachment} />}
     </div>
   );

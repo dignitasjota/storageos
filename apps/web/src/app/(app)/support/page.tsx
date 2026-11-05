@@ -45,6 +45,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError, apiFetch } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import {
   presignTicketAttachment,
   useCreateSupportTicket,
@@ -73,7 +74,9 @@ const PRIORITY_LABELS: Record<SupportTicketPriorityValue, string> = {
 
 export default function SupportPage() {
   const tickets = useSupportTickets();
-  const platform = usePlatformMessages();
+  // Lo que TrasterOS envía a la cuenta lo leen el propietario y el gestor.
+  const canReadPlatform = useHasPermission('platform_messages:manage');
+  const platform = usePlatformMessages(canReadPlatform);
   const markRead = useMarkPlatformMessagesRead();
   const unread = platform.data?.pages[0]?.unread ?? 0;
   const [creating, setCreating] = useState(false);
@@ -88,10 +91,10 @@ export default function SupportPage() {
   }, [tab, unread, markRead]);
   // Los avisos de un anuncio abren esta pestaña (`?tab=trasteros`).
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('tab') === 'trasteros') {
+    if (new URLSearchParams(window.location.search).get('tab') === 'trasteros' && canReadPlatform) {
       setTab('trasteros');
     }
-  }, []);
+  }, [canReadPlatform]);
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -111,18 +114,22 @@ export default function SupportPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="tickets">Tus tickets</TabsTrigger>
-          <TabsTrigger value="trasteros">
-            Mensajes de TrasterOS
-            {unread > 0 && (
-              <span className="ml-1.5 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-                {unread}
-              </span>
-            )}
-          </TabsTrigger>
+          {canReadPlatform && (
+            <TabsTrigger value="trasteros">
+              Mensajes de TrasterOS
+              {unread > 0 && (
+                <span className="ml-1.5 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                  {unread}
+                </span>
+              )}
+            </TabsTrigger>
+          )}
         </TabsList>
-        <TabsContent value="trasteros" className="mt-4">
-          <PlatformMessages />
-        </TabsContent>
+        {canReadPlatform && (
+          <TabsContent value="trasteros" className="mt-4">
+            <PlatformMessages />
+          </TabsContent>
+        )}
         <TabsContent value="tickets" className="mt-4">
           {tickets.isLoading ? (
             <div className="flex h-[40vh] items-center justify-center">
@@ -145,6 +152,12 @@ export default function SupportPage() {
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
+                            {(t.unreadCount ?? 0) > 0 && (
+                              <span
+                                className="size-2 shrink-0 rounded-full bg-primary"
+                                aria-label="Respuesta sin leer"
+                              />
+                            )}
                             <span className="truncate font-medium">{t.subject}</span>
                             <Badge variant={s.variant}>{s.label}</Badge>
                             <Badge variant="outline">{PRIORITY_LABELS[t.priority]}</Badge>

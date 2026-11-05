@@ -22,7 +22,7 @@ export class CustomerMessagesSummaryController {
   @RequirePermission('customers:read')
   @Get('unread-summary')
   async unreadSummary(@CurrentUser() user: AuthenticatedUser): Promise<CustomerUnreadSummaryDto> {
-    return this.messages.unreadSummary(user.tenantId, user.sub);
+    return this.messages.unreadSummary(user.tenantId, user.sub, user.facilityScope ?? null);
   }
 
   /** Bandeja «Mensajes»: conversaciones por último mensaje (`?facilityId=` opcional). */
@@ -36,11 +36,8 @@ export class CustomerMessagesSummaryController {
       throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
     }
     const scope = user.facilityScope ?? null;
-    let facilities: string[] | null = scope;
-    if (facilityId) {
-      // Un usuario con locales asignados solo puede filtrar por los suyos.
-      facilities = scope && !scope.includes(facilityId) ? [] : [facilityId];
-    }
-    return this.messages.conversations(user.tenantId, user.sub, facilities);
+    // Un usuario con locales asignados solo puede filtrar por los suyos.
+    if (facilityId && scope && !scope.includes(facilityId)) return [];
+    return this.messages.conversations(user.tenantId, user.sub, scope, facilityId ?? null);
   }
 }

@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -40,8 +41,9 @@ export class CustomerMessagesController {
   async list(
     @CurrentUser() user: AuthenticatedUser,
     @Param('customerId', new ParseUUIDPipe()) customerId: string,
+    @Query('before', new ParseUUIDPipe({ optional: true })) before?: string,
   ): Promise<CustomerMessageDto[]> {
-    return this.messages.list(user.tenantId, customerId, 'staff', user.sub);
+    return this.messages.list(user.tenantId, customerId, 'staff', user.sub, before);
   }
 
   @RequirePermission('customers:write')

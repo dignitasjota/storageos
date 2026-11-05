@@ -1,24 +1,27 @@
 'use client';
 
-import { chatReplyChannel } from '@storageos/shared';
+import { chatReplyChannel, MESSAGE_THREAD_PAGE, type CustomerMessageDto } from '@storageos/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, MessageCircle, Send, ShieldAlert, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import {
   AttachmentPicker,
   AttachmentView,
   uploadMessageAttachment,
 } from '@/components/messages/attachments';
+import { MessageText } from '@/components/messages/message-text';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { useSuggestReply } from '@/lib/ai/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import {
+  fetchOlderCustomerMessages,
   presignCustomerMessageAttachment,
   useCustomerMessages,
   useSendCustomerMessage,
@@ -35,8 +38,34 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const canWrite = useHasPermission('customers:write');
+  // El hilo trae los últimos; lo anterior se pide a mano.
+  const [older, setOlder] = useState<CustomerMessageDto[]>([]);
+  const [moreOlder, setMoreOlder] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
-  const items = messages.data ?? [];
+  const latest = useMemo(() => messages.data ?? [], [messages.data]);
+  const items = useMemo(() => {
+    const seen = new Set(latest.map((m) => m.id));
+    return [...older.filter((m) => !seen.has(m.id)), ...latest];
+  }, [older, latest]);
+  const hasOlder = moreOlder && latest.length >= MESSAGE_THREAD_PAGE;
+
+  async function loadOlder() {
+    const first = items[0];
+    if (!first) return;
+    setLoadingOlder(true);
+    try {
+      const page = await fetchOlderCustomerMessages(customerId, first.id);
+      setOlder((prev) => [...page, ...prev]);
+      if (page.length < MESSAGE_THREAD_PAGE) setMoreOlder(false);
+    } catch {
+      toast.error('No se han podido cargar los mensajes anteriores.');
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
+
   // La respuesta sale también por donde escribió el inquilino (WhatsApp en 24 h o email).
   const replyVia = chatReplyChannel(items);
   // Su conversación en el WhatsApp del negocio (otra bandeja), si la hay.
@@ -64,7 +93,7 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [items.length]);
+  }, [latest.length]);
 
   async function submit() {
     const body = text.trim();
@@ -110,11 +139,28 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
           <div className="flex justify-center py-8">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
+        ) : messages.isError ? (
+          <SectionError onRetry={() => void messages.refetch()} />
         ) : (
           <div className="max-h-[28rem] space-y-2 overflow-y-auto rounded-md border p-3">
+            {hasOlder && (
+              <div className="text-center">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={loadOlder}
+                  disabled={loadingOlder}
+                >
+                  {loadingOlder ? 'Cargando…' : 'Ver mensajes anteriores'}
+                </Button>
+              </div>
+            )}
             {items.length === 0 ? (
               <p className="py-4 text-center text-sm text-muted-foreground">
-                Sin mensajes. Escribe para iniciar la conversación con el inquilino.
+                {canWrite
+                  ? 'Sin mensajes. Escribe para iniciar la conversación con el inquilino.'
+                  : 'Sin mensajes.'}
               </p>
             ) : (
               items.map((m) => (
@@ -146,7 +192,7 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
                         Remitente no verificado: confírmalo antes de actuar
                       </p>
                     )}
-                    {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
+                    {m.body && <MessageText text={m.body} />}
                     {m.attachment && <AttachmentView attachment={m.attachment} />}
                     <p className="mt-0.5 text-[10px] opacity-60">
                       {new Date(m.createdAt).toLocaleString('es-ES', {
@@ -163,55 +209,61 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
             <div ref={endRef} />
           </div>
         )}
-        <div className="flex gap-2">
-          <Input
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-            placeholder="Escribe una respuesta…"
-            maxLength={5000}
-          />
-          <AttachmentPicker file={file} onChange={setFile} disabled={uploading} />
-          {hasAi && (
-            <Button
-              variant="outline"
-              onClick={suggestReply}
-              disabled={suggest.isPending}
-              title="Sugerir respuesta con IA"
-              aria-label="Sugerir respuesta con IA"
-            >
-              {suggest.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
+        {canWrite && (
+          <>
+            <div className="flex gap-2">
+              <Textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void submit();
+                  }
+                }}
+                placeholder="Escribe una respuesta… (Mayús + Intro para otra línea)"
+                maxLength={5000}
+                rows={2}
+                className="min-h-10 resize-none"
+              />
+              <AttachmentPicker file={file} onChange={setFile} disabled={uploading} />
+              {hasAi && (
+                <Button
+                  variant="outline"
+                  onClick={suggestReply}
+                  disabled={suggest.isPending}
+                  title="Sugerir respuesta con IA"
+                  aria-label="Sugerir respuesta con IA"
+                >
+                  {suggest.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                </Button>
               )}
-            </Button>
-          )}
-          <Button
-            onClick={submit}
-            disabled={send.isPending || uploading || (!text.trim() && !file)}
-            aria-label="Enviar"
-          >
-            {send.isPending || uploading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          {replyVia === 'whatsapp'
-            ? 'Te escribió por WhatsApp: la respuesta le llega también por WhatsApp y a su área de clientes.'
-            : replyVia === 'email'
-              ? 'Te escribió por email: la respuesta le llega también por email y a su área de clientes.'
-              : 'La respuesta le llega a su área de clientes, con aviso en el móvil y por correo.'}
-        </p>
-        {hasAi && (
+              <Button
+                onClick={submit}
+                disabled={send.isPending || uploading || (!text.trim() && !file)}
+                aria-label="Enviar"
+              >
+                {send.isPending || uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {replyVia === 'whatsapp'
+                ? 'Te escribió por WhatsApp: la respuesta le llega también por WhatsApp y a su área de clientes.'
+                : replyVia === 'email'
+                  ? 'Te escribió por email: la respuesta le llega también por email. Si vuelve a contestar al correo, llega al buzón de tu negocio, no a este hilo.'
+                  : 'La respuesta le llega a su área de clientes, con un aviso por correo (y en el móvil si lo tiene activado).'}
+            </p>
+          </>
+        )}
+        {hasAi && canWrite && (
           <p className="text-[11px] text-muted-foreground">
             <Sparkles className="mr-1 inline size-3" /> «Sugerir respuesta» redacta un borrador con
             IA a partir del hilo; revísalo antes de enviar.

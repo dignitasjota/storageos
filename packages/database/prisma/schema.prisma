@@ -692,6 +692,8 @@ model Tenant {
   platformMessages     TenantPlatformMessage[]
   legalDocVersions        LegalDocVersion[]
   legalDocAcceptances     LegalDocAcceptance[]
+  supportTicketReads        SupportTicketRead[]
+  platformMessageReads      TenantPlatformMessageRead[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -817,6 +819,8 @@ model User {
 
   customerMessageReads CustomerMessageRead[]
   passkeys             UserPasskey[]
+  supportTicketReads        SupportTicketRead[]
+  platformMessageRead       TenantPlatformMessageRead?
   @@unique([tenantId, email])
   @@index([tenantId])
   webChatMessages WebChatMessage[]
@@ -4340,6 +4344,7 @@ model SupportTicket {
   messages      SupportTicketMessage[]
 
   platformMessages TenantPlatformMessage[]
+  reads            SupportTicketRead[]
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([assignedAdminId])
@@ -4898,6 +4903,34 @@ model TenantPlatformMessage {
 
   @@index([tenantId, createdAt(sort: Desc)], map: "tenant_platform_messages_tenant_created_idx")
   @@map("tenant_platform_messages")
+}
+
+model SupportTicketRead {
+  ticketId   String   @map("ticket_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  lastReadAt DateTime @default(now()) @map("last_read_at") @db.Timestamptz(6)
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, userId])
+  @@index([tenantId, userId], map: "support_ticket_reads_tenant_user_idx")
+  @@map("support_ticket_reads")
+}
+
+/// Hasta cuándo ha leído cada persona los mensajes de TrasterOS.
+model TenantPlatformMessageRead {
+  userId     String   @id @map("user_id") @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  lastReadAt DateTime @default(now()) @map("last_read_at") @db.Timestamptz(6)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "tenant_platform_message_reads_tenant_idx")
+  @@map("tenant_platform_message_reads")
 }
 
 model CustomerMessageRead {

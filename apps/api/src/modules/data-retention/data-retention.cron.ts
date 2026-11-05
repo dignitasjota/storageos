@@ -20,6 +20,7 @@ export class DataRetentionCron {
       await this.service.runCleanup();
       await this.service.cleanupExpiredFiles();
       await this.service.cleanupStaleInvitations();
+      await this.service.cleanupOrphanAttachments();
     } catch (err) {
       this.logger.error(
         `data-retention cleanup falló: ${(err as Error).message}`,

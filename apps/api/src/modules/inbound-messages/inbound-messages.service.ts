@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { stripQuotedReply } from '@storageos/shared';
 
+import { claimAlert } from '../admin/alert-state';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { PlatformService } from '../platform/platform.service';
 
 type InboundChannel = 'whatsapp' | 'email';
 
@@ -20,6 +23,7 @@ export class InboundMessagesService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly messages: CustomerMessagesService,
+    private readonly platform: PlatformService,
   ) {}
 
   /** Últimos 9 dígitos (número nacional español) para casar formatos variados. */
@@ -83,9 +87,9 @@ export class InboundMessagesService {
   }
 
   /**
-   * Registra un mensaje entrante. Best-effort: si no se resuelve el remitente o
-   * el cuerpo está vacío, se descarta con un log (no rompe el webhook, que debe
-   * responder 200 para que el proveedor no reintente en bucle).
+   * Registra un mensaje entrante. Best-effort: el webhook debe responder 200
+   * para que el proveedor no reintente en bucle. Si nadie sabe de quién es, el
+   * super admin recibe el mensaje en su panel para no perderlo.
    */
   async record(args: {
     channel: InboundChannel;
@@ -94,14 +98,21 @@ export class InboundMessagesService {
     /** Solo email: ¿reportó el proveedor DMARC `pass`? (WhatsApp lo autentica Meta). */
     senderVerified?: boolean;
   }): Promise<boolean> {
-    const body = args.body.trim();
+    const body = (args.channel === 'email' ? stripQuotedReply(args.body) : args.body).trim();
     if (!body) return false;
     const resolved =
       args.channel === 'whatsapp'
         ? await this.resolveByPhone(args.from)
         : await this.resolveByEmail(args.from);
     if (!resolved) {
-      this.logger.warn(`inbound ${args.channel}: remitente no resoluble (${args.from})`);
+      this.logger.warn(`inbound ${args.channel}: remitente no resoluble`);
+      if (await claimAlert(this.admin, 'inbound_unmatched', args.from.toLowerCase(), 60)) {
+        await this.platform.notify({
+          type: 'inbound.unmatched',
+          title: `Mensaje por ${args.channel === 'email' ? 'correo' : 'WhatsApp'} sin destinatario`,
+          body: `De ${args.from}: ${body.slice(0, 300)}`,
+        });
+      }
       return false;
     }
     await this.messages.sendFromCustomer(

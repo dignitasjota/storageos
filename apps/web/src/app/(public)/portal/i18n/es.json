@@ -515,7 +515,10 @@
         "sendError": "No se pudo enviar el mensaje.",
         "attach": "Adjuntar imagen o PDF",
         "attachType": "Adjunta una imagen (JPG, PNG o WebP) o un PDF.",
-        "attachSize": "El adjunto no puede pasar de 10 MB."
+        "attachSize": "El adjunto no puede pasar de 10 MB.",
+        "loadError": "No se han podido cargar los mensajes.",
+        "retry": "Reintentar",
+        "older": "Ver mensajes anteriores"
       },
       "documents": {
         "pendingTitle": "Te hemos pedido",

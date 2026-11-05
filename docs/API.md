@@ -2656,3 +2656,13 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 
 - `GET /dashboard/overview` admite `?period=month|last_month|3m|12m|year` (400 `invalid_period`) y añade `period` (facturado, cobrado, altas, bajas e inquilinos nuevos frente al periodo anterior), `cash` (caja del mes en curso), `vacancy` (trasteros libres por tamaño, lo que dejan de ingresar y los días libres), `moves` (altas y bajas del periodo; entradas, salidas y vencimientos de los próximos 30 días; exige `contracts:read`), `byFacility`, `result` (facturado sin IVA menos gastos; exige `expenses:read`) y `commercial` (contactos sin atender y abiertos, contratos por firmar, reservas sin pagar, lista de espera).
 - `GET/PUT /dashboard/me/layout`: orden y tarjetas ocultas del Resumen, por usuario (`DashboardLayoutSchema`; sin nada guardado, el orden por defecto).
+
+### Mensajería: revisión (2026-11-06)
+
+- `GET /customers/:customerId/messages?before=<id>` y `GET /portal/me/messages?before=<id>`: 50 mensajes por página, de más viejo a más nuevo. Sin `before`, los últimos (y marca leídos); con él, los anteriores.
+- `GET /customer-messages/unread-summary` y `/conversations` respetan el alcance por local: inquilinos con contrato en sus locales y los que no tienen contrato vivo.
+- `POST /portal/me/messages` y `…/upload-url`: 20 por minuto.
+- `GET /support/tickets` gana `unreadCount` (respuestas sin leer por quien mira). `GET /support/tickets/waiting-count`: tickets con respuesta sin leer. `GET /support/tickets/:id` deja leído para quien lo abre.
+- `POST /admin/support/tickets/:id/messages` en un ticket cerrado: 400 `ticket_closed` salvo nota interna. Responder en `in_progress` pasa a `waiting_user`.
+- `GET /support/platform-messages*` exigen `platform_messages:manage`; `unread`, `readAt` y `POST …/read` son por persona.
+- Notificaciones nuevas: `customer.message_unanswered` (también al móvil) y, en el super admin, `inbound.unmatched`.

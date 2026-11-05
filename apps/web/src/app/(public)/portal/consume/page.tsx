@@ -320,6 +320,19 @@ function PortalConsumeContent() {
   const [unitChanges, setUnitChanges] = useState<PortalUnitChangeRequestDto[] | null>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [tab, setTab] = useState('inicio');
+
+  // El contador de «Mensajes» se mantiene al día sin recargar la página.
+  useEffect(() => {
+    if (!session || tab === 'mensajes') return;
+    const id = setInterval(() => {
+      portalFetch<{ count: number }>(session, '/portal/me/messages/unread-count')
+        .then((u) => setUnreadMessages(u.count))
+        .catch(() => undefined);
+    }, 30_000);
+    return () => clearInterval(id);
+    // `portalFetch` se crea en cada render; basta con la sesión.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, tab]);
   // El push de un mensaje abre directamente la pestaña (`?tab=mensajes`).
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get('tab');

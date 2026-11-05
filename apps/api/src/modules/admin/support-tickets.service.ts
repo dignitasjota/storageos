@@ -17,7 +17,6 @@ import {
   attachmentDto,
   requestAttachmentUpload,
 } from '../../common/message-attachments';
-import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
@@ -135,29 +134,71 @@ export class SupportTicketsService {
 
   // =========================== tenant facade ===============================
 
-  /** Nº de tickets esperando respuesta del tenant (el admin ya contestó) — badge del menú. */
-  async countWaitingForTenant(tenantId: string): Promise<number> {
-    return this.admin.supportTicket.count({
-      where: { tenantId, status: 'waiting_user', NOT: UNANSWERED_ADMIN_MESSAGE },
-    });
+  /**
+   * Respuestas de soporte que esta persona no ha leído, por ticket. Cuentan las
+   * posteriores a su última lectura (o a su alta: quien entra nuevo no hereda
+   * lo anterior). Un aviso del admin sin contestar se ve en «Mensajes de TrasterOS».
+   */
+  private async unreadByTicket(tenantId: string, userId: string): Promise<Map<string, number>> {
+    const rows = await this.admin.$queryRaw<{ ticket_id: string; n: number }[]>`
+      SELECT t.id AS ticket_id, count(*)::int AS n
+      FROM support_tickets t
+      JOIN support_ticket_messages m ON m.ticket_id = t.id
+      LEFT JOIN support_ticket_reads r ON r.ticket_id = t.id AND r.user_id = ${userId}::uuid
+      WHERE t.tenant_id = ${tenantId}::uuid
+        AND t.status <> 'closed'
+        AND m.is_internal = false
+        AND m.author_user_id IS NULL
+        AND m.created_at > COALESCE(
+          r.last_read_at,
+          (SELECT u.created_at FROM users u WHERE u.id = ${userId}::uuid)
+        )
+        AND NOT (
+          t.opened_by_admin
+          AND NOT EXISTS (
+            SELECT 1 FROM support_ticket_messages x
+            WHERE x.ticket_id = t.id AND x.author_user_id IS NOT NULL
+          )
+        )
+      GROUP BY t.id`;
+    return new Map(rows.map((r) => [r.ticket_id, r.n]));
   }
 
-  async listForTenant(tenantId: string): Promise<SupportTicketDto[]> {
-    const rows = await this.admin.supportTicket.findMany({
-      where: { tenantId },
-      include: {
-        tenant: { select: { name: true, slug: true } },
-        createdBy: { select: { fullName: true } },
-        assignedAdmin: { select: { fullName: true } },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    return rows.map((r) => this.toDto(r));
+  /** Nº de tickets con una respuesta de soporte sin leer por esta persona — badge del menú. */
+  async countWaitingForTenant(tenantId: string, userId: string): Promise<number> {
+    return (await this.unreadByTicket(tenantId, userId)).size;
   }
 
-  async detailForTenant(tenantId: string, ticketId: string): Promise<SupportTicketDto> {
+  async listForTenant(tenantId: string, userId: string): Promise<SupportTicketDto[]> {
+    const [rows, unread] = await Promise.all([
+      this.admin.supportTicket.findMany({
+        where: { tenantId },
+        include: {
+          tenant: { select: { name: true, slug: true } },
+          createdBy: { select: { fullName: true } },
+          assignedAdmin: { select: { fullName: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.unreadByTicket(tenantId, userId),
+    ]);
+    return rows.map((r) => ({ ...this.toDto(r), unreadCount: unread.get(r.id) ?? 0 }));
+  }
+
+  /** Abrir el ticket lo deja leído para quien lo abre. */
+  async detailForTenant(
+    tenantId: string,
+    ticketId: string,
+    userId: string,
+  ): Promise<SupportTicketDto> {
     const ticket = await this.findForTenant(tenantId, ticketId);
     const messages = await this.loadMessages(ticketId, { includeInternal: false });
+    const now = new Date();
+    await this.admin.supportTicketRead.upsert({
+      where: { ticketId_userId: { ticketId, userId } },
+      create: { ticketId, userId, tenantId, lastReadAt: now },
+      update: { lastReadAt: now },
+    });
     return { ...this.toDto(ticket), messages };
   }
 
@@ -364,6 +405,13 @@ export class SupportTicketsService {
     },
   ): Promise<SupportTicketMessageDto> {
     const ticket = await this.findForAdmin(args.ticketId);
+    // En un ticket cerrado el tenant no puede contestar: primero hay que reabrirlo.
+    if (ticket.status === 'closed' && !args.input.isInternal) {
+      throw new BadRequestException({
+        code: 'ticket_closed',
+        message: 'Reabre el ticket para responder: el cliente no puede contestar en uno cerrado',
+      });
+    }
     const attachment = await this.attachmentFields(ticket.tenantId, args.input.attachment);
     const message = await this.admin.supportTicketMessage.create({
       data: {
@@ -378,8 +426,8 @@ export class SupportTicketsService {
         authorAdmin: { select: { fullName: true } },
       },
     });
-    // Si el admin responde (no interna) y el ticket estaba open, lo movemos
-    // a waiting_user para reflejar que la pelota esta en el cliente.
+    // Si el admin responde (no interna) y el ticket estaba abierto o en curso,
+    // lo movemos a waiting_user: la pelota esta en el cliente.
     const updates: {
       status?: SupportTicketStatusValue;
       updatedAt?: Date;
@@ -387,7 +435,7 @@ export class SupportTicketsService {
     } = {
       updatedAt: new Date(),
     };
-    if (!args.input.isInternal && ticket.status === 'open') {
+    if (!args.input.isInternal && (ticket.status === 'open' || ticket.status === 'in_progress')) {
       updates.status = 'waiting_user';
     }
     // La primera respuesta visible para el cliente marca el tiempo de respuesta.
