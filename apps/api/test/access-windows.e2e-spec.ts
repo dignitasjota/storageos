@@ -74,6 +74,7 @@ describe('Ventanas horarias por credencial (e2e)', () => {
       .post('/access/credentials')
       .set(auth)
       .send({
+        allFacilities: true,
         customerId: customer.body.id,
         method: 'pin',
         allowedHours: { windows: [{ days: [weekday], start: fmt(lo), end: fmt(hi) }] },
@@ -93,6 +94,7 @@ describe('Ventanas horarias por credencial (e2e)', () => {
       .post('/access/credentials')
       .set(auth)
       .send({
+        allFacilities: true,
         customerId: customer.body.id,
         method: 'pin',
         allowedHours: { windows: [{ days: [otherDay], start: '00:00', end: '23:59' }] },
@@ -108,7 +110,12 @@ describe('Ventanas horarias por credencial (e2e)', () => {
     const free = await request(app.getHttpServer())
       .post('/access/credentials')
       .set(auth)
-      .send({ customerId: customer.body.id, method: 'pin', allowedHours: { windows: [] } });
+      .send({
+        allFacilities: true,
+        customerId: customer.body.id,
+        method: 'pin',
+        allowedHours: { windows: [] },
+      });
     const freeRes = await request(app.getHttpServer())
       .post('/access/verify')
       .set('X-Device-Key', apiKey)
@@ -120,6 +127,7 @@ describe('Ventanas horarias por credencial (e2e)', () => {
       .post('/access/credentials')
       .set(auth)
       .send({
+        allFacilities: true,
         customerId: customer.body.id,
         method: 'pin',
         allowedHours: { windows: [{ days: [1], start: '20:00', end: '08:00' }] },

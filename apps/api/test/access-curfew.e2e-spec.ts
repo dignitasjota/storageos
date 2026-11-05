@@ -69,7 +69,7 @@ describe('Toque de queda de acceso (curfew) (e2e)', () => {
     const normal = await request(app.getHttpServer())
       .post('/access/credentials')
       .set(auth)
-      .send({ customerId: customer.body.id, method: 'pin' });
+      .send({ allFacilities: true, customerId: customer.body.id, method: 'pin' });
     const denied = await request(app.getHttpServer())
       .post('/access/verify')
       .set('X-Device-Key', apiKey)
@@ -79,10 +79,12 @@ describe('Toque de queda de acceso (curfew) (e2e)', () => {
     expect(denied.body.result).toBe('denied_outside_hours');
 
     // Credencial con acceso 24h (staff) → permitida durante el toque de queda.
-    const staff = await request(app.getHttpServer())
-      .post('/access/credentials')
-      .set(auth)
-      .send({ customerId: customer.body.id, method: 'pin', bypassCurfew: true });
+    const staff = await request(app.getHttpServer()).post('/access/credentials').set(auth).send({
+      allFacilities: true,
+      customerId: customer.body.id,
+      method: 'pin',
+      bypassCurfew: true,
+    });
     expect(staff.body.bypassCurfew).toBe(true);
     const allowed = await request(app.getHttpServer())
       .post('/access/verify')

@@ -13,6 +13,7 @@ import {
   RotateCredentialSchema,
   type SuspendCredentialInput,
   SuspendCredentialSchema,
+  type UpdateCredentialInput,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import {
@@ -21,6 +22,7 @@ import {
   KeyRound,
   Loader2,
   MoreHorizontal,
+  Pencil,
   Plus,
   QrCode,
   RotateCw,
@@ -32,14 +34,16 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { AccessScopeFields, type AccessScopeValue } from './access-scope-fields';
+
 import { CustomerSearchSelect } from '@/components/customer-search-select';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
@@ -75,22 +79,23 @@ import {
 import {
   useCreateCredential,
   useCreateFacialCredential,
-  useCredentials,
   useResumeCredential,
   useRevokeCredential,
   useRotateCredential,
   useSuspendCredential,
+  useUpdateCredential,
 } from '@/lib/access/hooks';
-import { useAccessSettings, useUpdateAccessSettings } from '@/lib/access/settings-hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
-import { useFacilities } from '@/lib/facilities/hooks';
-import { formatDate } from '@/lib/format';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { formatDate, formatDateTime } from '@/lib/format';
+import { compressFacePhoto } from '@/lib/images/compress';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 const METHOD_LABELS: Record<AccessMethodValue, { label: string; Icon: React.ElementType }> = {
   pin: { label: 'PIN', Icon: KeyRound },
   qr: { label: 'QR', Icon: QrCode },
-  rfid: { label: 'RFID', Icon: CreditCard },
+  rfid: { label: 'Tarjeta', Icon: CreditCard },
   face: { label: 'Facial', Icon: ScanFace },
 };
 
@@ -111,8 +116,40 @@ const STATUS_LABELS: Record<AccessCredentialStatusValue, { label: string; classN
     label: 'Revocada',
     className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
   },
-  expired: { label: 'Expirada', className: 'bg-slate-300 text-slate-800' },
+  expired: {
+    label: 'Caducada',
+    className: 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  },
 };
+
+/** ISO → lo que espera un campo `datetime-local`, en la hora del navegador. */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Motivo de suspensión en palabras. */
+function suspendLabel(reason: string): string {
+  return reason.startsWith('dunning:') ? 'Por impago' : reason;
+}
+
+function windowsAreValid(windows: AccessWindow[]): boolean {
+  return windows.every((w) => w.days.length > 0 && w.start < w.end);
+}
+
+/** El alcance elegido, listo para enviar al API. */
+function scopePayload(scope: AccessScopeValue): {
+  allFacilities: boolean;
+  allowedFacilityIds: string[];
+  allowedUnitIds: string[];
+} {
+  return {
+    allFacilities: scope.mode === 'all',
+    allowedFacilityIds: scope.mode === 'choose' ? scope.facilityIds : [],
+    allowedUnitIds: scope.mode === 'choose' ? scope.unitIds : [],
+  };
+}
 
 export default function CredentialsPage() {
   const canManage = useHasPermission('access:manage');
@@ -126,12 +163,15 @@ export default function CredentialsPage() {
   const [rotateTarget, setRotateTarget] = useState<AccessCredentialDto | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<AccessCredentialDto | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<AccessCredentialDto | null>(null);
+  const [editTarget, setEditTarget] = useState<AccessCredentialDto | null>(null);
+  const headerFacilityId = useHeaderFacilityId();
+  const [searchText, search, setSearchText] = useDebouncedSearch();
 
-  const credentials = useCredentials({
-    ...(status ? { status } : {}),
-    ...(method ? { method } : {}),
-    ...(customerId ? { customerId } : {}),
-  });
+  const credentials = usePagedList<AccessCredentialDto>(
+    'access-credentials',
+    '/access/credentials',
+    { status, method, customerId, facilityId: headerFacilityId, search },
+  );
   const resume = useResumeCredential();
 
   async function handleResume(cred: AccessCredentialDto) {
@@ -162,6 +202,9 @@ export default function CredentialsPage() {
           <div className="flex items-center gap-1.5 text-sm">
             <Icon className="size-4 text-muted-foreground" />
             <span>{m.label}</span>
+            {row.original.label && !isNightPass && (
+              <span className="text-muted-foreground">· {row.original.label}</span>
+            )}
             {isNightPass ? (
               <Badge variant="secondary" className="text-[10px]">
                 🌙 Pase nocturno · {row.original.usesCount}/1
@@ -183,15 +226,22 @@ export default function CredentialsPage() {
       cell: ({ row }) => {
         const s = STATUS_LABELS[row.original.status];
         return (
-          <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${s.className}`}>
-            {s.label}
-          </span>
+          <div className="space-y-0.5">
+            <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${s.className}`}>
+              {s.label}
+            </span>
+            {row.original.status === 'suspended' && row.original.suspendReason && (
+              <p className="text-xs text-muted-foreground">
+                {suspendLabel(row.original.suspendReason)}
+              </p>
+            )}
+          </div>
         );
       },
     },
     {
       accessorKey: 'secretPreview',
-      header: 'Secreto',
+      header: 'Código',
       cell: ({ row }) => (
         <span className="font-mono text-xs text-muted-foreground">
           {row.original.secretPreview ?? '—'}
@@ -203,17 +253,24 @@ export default function CredentialsPage() {
       header: 'Locales',
       cell: ({ row }) => {
         const count = row.original.allowedFacilityIds.length;
+        const units = row.original.allowedUnitIds.length;
         return (
           <Badge variant="outline">
             {count === 0 ? 'Todos' : `${count} local${count === 1 ? '' : 'es'}`}
+            {units > 0 ? ` · ${units} trastero${units === 1 ? '' : 's'}` : ''}
           </Badge>
         );
       },
     },
     {
       accessorKey: 'expiresAt',
-      header: 'Expira',
+      header: 'Caduca',
       cell: ({ row }) => (row.original.expiresAt ? formatDate(row.original.expiresAt) : '—'),
+    },
+    {
+      accessorKey: 'lastUsedAt',
+      header: 'Último uso',
+      cell: ({ row }) => (row.original.lastUsedAt ? formatDateTime(row.original.lastUsedAt) : '—'),
     },
     {
       accessorKey: 'createdAt',
@@ -235,6 +292,10 @@ export default function CredentialsPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem disabled={isTerminal} onClick={() => setEditTarget(cred)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar
+              </DropdownMenuItem>
               <DropdownMenuItem disabled={isTerminal} onClick={() => setRotateTarget(cred)}>
                 <RotateCw className="mr-2 h-4 w-4" />
                 Rotar
@@ -279,8 +340,6 @@ export default function CredentialsPage() {
 
   return (
     <div className="space-y-4">
-      <ExtraAccessSettingsCard />
-      <NightPassSettingsCard />
       <div className="flex flex-wrap gap-2">
         <Select
           value={status ?? 'all'}
@@ -304,7 +363,7 @@ export default function CredentialsPage() {
           value={method ?? 'all'}
           onValueChange={(v) => setMethod(v === 'all' ? undefined : (v as AccessMethodValue))}
         >
-          <SelectTrigger className="w-[160px]">
+          <SelectTrigger className="w-[190px]">
             <SelectValue placeholder="Método" />
           </SelectTrigger>
           <SelectContent>
@@ -324,28 +383,37 @@ export default function CredentialsPage() {
         />
       </div>
 
-      <DataTable
-        columns={columns}
-        data={credentials.data ?? []}
-        isLoading={credentials.isLoading}
-        searchPlaceholder="Buscar por inquilino..."
-        guide="accesos"
-        emptyText="Cada inquilino recibe su código al pagar; aquí aparecen y puedes crear otros."
-        toolbarRight={
-          canManage ? (
-            <div className="flex gap-2">
-              {hasFacial && (
-                <Button variant="outline" onClick={() => setFacialOpen(true)}>
-                  <ScanFace className="mr-1 h-4 w-4" /> Añadir facial
+      {credentials.isError && credentials.rows.length === 0 ? (
+        <SectionError onRetry={() => void credentials.refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={credentials.rows}
+          isLoading={credentials.isLoading}
+          serverSearch={{
+            value: searchText,
+            onChange: setSearchText,
+            placeholder: 'Buscar por inquilino...',
+          }}
+          loadMore={credentials.loadMore}
+          guide="accesos"
+          emptyText="Cada inquilino recibe su código al pagar; aquí aparecen y puedes crear otros."
+          toolbarRight={
+            canManage ? (
+              <div className="flex gap-2">
+                {hasFacial && (
+                  <Button variant="outline" onClick={() => setFacialOpen(true)}>
+                    <ScanFace className="mr-1 h-4 w-4" /> Añadir facial
+                  </Button>
+                )}
+                <Button onClick={() => setCreateOpen(true)}>
+                  <Plus className="mr-1 h-4 w-4" /> Nueva credencial
                 </Button>
-              )}
-              <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="mr-1 h-4 w-4" /> Nueva credencial
-              </Button>
-            </div>
-          ) : null
-        }
-      />
+              </div>
+            ) : null
+          }
+        />
+      )}
 
       {createOpen && (
         <CreateCredentialDialog
@@ -359,6 +427,10 @@ export default function CredentialsPage() {
       )}
 
       {facialOpen && <FacialCredentialDialog onClose={() => setFacialOpen(false)} />}
+
+      {editTarget && (
+        <EditCredentialDialog credential={editTarget} onClose={() => setEditTarget(null)} />
+      )}
 
       {rotateTarget && (
         <RotateCredentialDialog
@@ -401,7 +473,11 @@ function CreateCredentialDialog({
   onRevealed: (dto: AccessCredentialWithSecretDto) => void;
 }) {
   const create = useCreateCredential();
-  const facilities = useFacilities();
+  const [scope, setScope] = useState<AccessScopeValue>({
+    mode: 'own',
+    facilityIds: [],
+    unitIds: [],
+  });
 
   const form = useForm<CreateCredentialInput>({
     resolver: zodResolver(CreateCredentialSchema),
@@ -417,15 +493,17 @@ function CreateCredentialDialog({
   });
 
   const selectedMethod = form.watch('method');
-  const selectedFacilities = form.watch('allowedFacilityIds') ?? [];
 
   async function onSubmit(values: CreateCredentialInput) {
+    if (scope.mode === 'choose' && scope.facilityIds.length === 0) {
+      toast.error('Elige al menos un local.');
+      return;
+    }
     try {
       const payload: CreateCredentialInput = {
         method: values.method,
         customerId: values.customerId,
-        allowedFacilityIds: values.allowedFacilityIds ?? [],
-        allowedUnitIds: values.allowedUnitIds ?? [],
+        ...scopePayload(scope),
         allowedHours: values.allowedHours ?? { windows: [] },
         bypassCurfew: values.bypassCurfew ?? false,
         metadata: values.metadata ?? {},
@@ -444,18 +522,9 @@ function CreateCredentialDialog({
     }
   }
 
-  function toggleFacility(id: string, checked: boolean) {
-    const current = form.getValues('allowedFacilityIds') ?? [];
-    form.setValue(
-      'allowedFacilityIds',
-      checked ? [...current, id] : current.filter((x) => x !== id),
-      { shouldValidate: true, shouldDirty: true },
-    );
-  }
-
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nueva credencial</DialogTitle>
         </DialogHeader>
@@ -545,7 +614,7 @@ function CreateCredentialDialog({
                 name="rfidUid"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>UID RFID</FormLabel>
+                    <FormLabel>Número de la tarjeta</FormLabel>
                     <FormControl>
                       <Input {...field} value={field.value ?? ''} placeholder="Ej: 04A3B2C1D5" />
                     </FormControl>
@@ -559,11 +628,11 @@ function CreateCredentialDialog({
               name="expiresAt"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Expira (opcional)</FormLabel>
+                  <FormLabel>Caduca (opcional)</FormLabel>
                   <FormControl>
                     <Input
                       type="datetime-local"
-                      value={field.value ? field.value.slice(0, 16) : ''}
+                      value={field.value ? toLocalInput(field.value) : ''}
                       onChange={(e) =>
                         field.onChange(
                           e.target.value ? new Date(e.target.value).toISOString() : undefined,
@@ -575,26 +644,7 @@ function CreateCredentialDialog({
                 </FormItem>
               )}
             />
-            <div className="space-y-2">
-              <Label>Locales permitidos (vacío = todos)</Label>
-              <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border p-2">
-                {(facilities.data ?? []).length === 0 && (
-                  <p className="text-xs text-muted-foreground">No hay locales disponibles.</p>
-                )}
-                {(facilities.data ?? []).map((f) => {
-                  const checked = selectedFacilities.includes(f.id);
-                  return (
-                    <label key={f.id} className="flex cursor-pointer items-center gap-2 text-sm">
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={(v) => toggleFacility(f.id, v === true)}
-                      />
-                      <span>{f.name}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
+            <AccessScopeFields value={scope} onChange={setScope} />
             <FormField
               control={form.control}
               name="bypassCurfew"
@@ -607,34 +657,132 @@ function CreateCredentialDialog({
                     />
                   </FormControl>
                   <FormLabel className="!mt-0">
-                    Acceso 24h (salta el toque de queda del local) — staff
+                    Acceso 24 h (entra también durante el toque de queda del local)
                   </FormLabel>
                 </FormItem>
               )}
             />
-            <Controller
+            <FormField
               control={form.control}
               name="allowedHours"
               render={({ field }) => (
-                <div className="space-y-1">
-                  <FormLabel>Ventanas horarias de acceso</FormLabel>
+                <FormItem>
+                  <FormLabel>Horario de acceso</FormLabel>
                   <AccessWindowsEditor
                     windows={field.value?.windows ?? []}
                     onChange={(windows) => field.onChange({ windows })}
                   />
-                </div>
+                </FormItem>
               )}
             />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
+              <Button
+                type="submit"
+                disabled={
+                  form.formState.isSubmitting ||
+                  !windowsAreValid(form.watch('allowedHours')?.windows ?? [])
+                }
+              >
                 {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
               </Button>
             </DialogFooter>
           </form>
         </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
+// Edit credential
+// ============================================================================
+
+function EditCredentialDialog({
+  credential,
+  onClose,
+}: {
+  credential: AccessCredentialDto;
+  onClose: () => void;
+}) {
+  const update = useUpdateCredential(credential.id);
+  const [label, setLabel] = useState(credential.label ?? '');
+  const [expiresAt, setExpiresAt] = useState(credential.expiresAt);
+  const [bypassCurfew, setBypassCurfew] = useState(credential.bypassCurfew);
+  const [windows, setWindows] = useState<AccessWindow[]>(credential.allowedHours.windows ?? []);
+  const [scope, setScope] = useState<AccessScopeValue>({
+    mode: credential.allowedFacilityIds.length === 0 ? 'all' : 'choose',
+    facilityIds: credential.allowedFacilityIds,
+    unitIds: credential.allowedUnitIds,
+  });
+
+  async function submit() {
+    if (scope.mode === 'choose' && scope.facilityIds.length === 0) {
+      toast.error('Elige al menos un local.');
+      return;
+    }
+    try {
+      const input: UpdateCredentialInput = {
+        label: label.trim(),
+        expiresAt,
+        bypassCurfew,
+        allowedHours: { windows },
+        ...scopePayload(scope),
+      };
+      await update.mutateAsync(input);
+      toast.success('Credencial actualizada.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar credencial de {credential.customerName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="cred-label">Etiqueta</Label>
+            <Input id="cred-label" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cred-expires">Caduca</Label>
+            <Input
+              id="cred-expires"
+              type="datetime-local"
+              value={expiresAt ? toLocalInput(expiresAt) : ''}
+              onChange={(e) =>
+                setExpiresAt(e.target.value ? new Date(e.target.value).toISOString() : null)
+              }
+            />
+          </div>
+          <AccessScopeFields value={scope} onChange={setScope} />
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={bypassCurfew} onCheckedChange={(v) => setBypassCurfew(v === true)} />
+            Acceso 24 h (entra también durante el toque de queda del local)
+          </label>
+          <div className="space-y-1.5">
+            <Label>Horario de acceso</Label>
+            <AccessWindowsEditor windows={windows} onChange={setWindows} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void submit()}
+            disabled={update.isPending || !windowsAreValid(windows)}
+          >
+            {update.isPending ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -654,17 +802,18 @@ function FacialCredentialDialog({ onClose }: { onClose: () => void }) {
   );
   const [fileError, setFileError] = useState<string | null>(null);
 
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     setFileError(null);
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
+    const original = e.target.files?.[0];
+    if (!original) return;
+    if (original.type !== 'image/jpeg' && original.type !== 'image/png') {
       setFileError('La foto debe ser JPEG o PNG.');
       return;
     }
-    // Dahua FaceInfoManager limita la foto a ~100 KB.
+    // Dahua FaceInfoManager limita la foto a ~100 KB: se reduce aquí mismo.
+    const file = await compressFacePhoto(original);
     if (file.size > 100_000) {
-      setFileError('La foto no puede superar los 100 KB.');
+      setFileError('No se ha podido reducir la foto. Prueba con otra.');
       return;
     }
     const reader = new FileReader();
@@ -721,8 +870,8 @@ function FacialCredentialDialog({ onClose }: { onClose: () => void }) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Foto del rostro (JPEG/PNG, máx. 100 KB)</Label>
-            <Input type="file" accept="image/jpeg,image/png" onChange={onFile} />
+            <Label>Foto del rostro (JPEG o PNG)</Label>
+            <Input type="file" accept="image/jpeg,image/png" onChange={(e) => void onFile(e)} />
             {fileError && <p className="text-sm text-destructive">{fileError}</p>}
             {preview && (
               // eslint-disable-next-line @next/next/no-img-element
@@ -822,7 +971,7 @@ function RotateCredentialDialog({
                 name="rfidUid"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Nuevo UID RFID</FormLabel>
+                    <FormLabel>Nuevo número de la tarjeta</FormLabel>
                     <FormControl>
                       <Input {...field} value={field.value ?? ''} placeholder="Ej: 04A3B2C1D5" />
                     </FormControl>
@@ -1007,7 +1156,7 @@ function RevealedSecretDialog({
             </div>
           ) : (
             <div className="rounded-md border bg-muted/40 p-3 text-sm">
-              UID RFID guardado: <span className="font-mono">{credential.rfidUid}</span>
+              Tarjeta guardada: <span className="font-mono">{credential.rfidUid}</span>
             </div>
           )}
           <div className="text-xs text-muted-foreground">
@@ -1023,141 +1172,6 @@ function RevealedSecretDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-/**
- * Ajuste del tenant: máximo de accesos adicionales que un inquilino puede
- * crearse desde su portal (p. ej. para familiares). Solo owner/manager.
- */
-function ExtraAccessSettingsCard() {
-  const canManage = useHasPermission('settings:manage');
-  const settings = useAccessSettings();
-  const update = useUpdateAccessSettings();
-  const [value, setValue] = useState<string>('');
-
-  if (!canManage) return null;
-
-  const current = settings.data?.extraAccessLimit ?? 0;
-  const parsed = value === '' ? current : Number(value);
-  const dirty = value !== '' && Number(value) !== current;
-
-  async function save() {
-    const n = Number(value);
-    if (!Number.isInteger(n) || n < 0 || n > 10) {
-      toast.error('Indica un número entre 0 y 10.');
-      return;
-    }
-    try {
-      await update.mutateAsync({ extraAccessLimit: n });
-      setValue('');
-      toast.success('Límite de accesos actualizado.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Accesos adicionales del inquilino</CardTitle>
-        <CardDescription>
-          Cuántos accesos extra (para familiares, empleados…) puede crearse cada inquilino desde su
-          portal, además del que recibe al contratar. 0 = desactivado.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-end gap-2">
-          <div className="space-y-1">
-            <Label htmlFor="extra-access-limit" className="text-xs">
-              Máximo por inquilino
-            </Label>
-            <Input
-              id="extra-access-limit"
-              type="number"
-              min={0}
-              max={10}
-              className="h-9 w-24"
-              value={value === '' ? String(current) : value}
-              onChange={(e) => setValue(e.target.value)}
-              disabled={settings.isLoading}
-            />
-          </div>
-          <Button size="sm" onClick={() => void save()} disabled={!dirty || update.isPending}>
-            Guardar
-          </Button>
-          <span className="pb-2 text-xs text-muted-foreground">Actual: {parsed}</span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-/** Pase nocturno: el inquilino compra un código de un solo uso (de pago). */
-function NightPassSettingsCard() {
-  const canManage = useHasPermission('settings:manage');
-  const settings = useAccessSettings();
-  const update = useUpdateAccessSettings();
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [price, setPrice] = useState<string>('');
-
-  if (!canManage) return null;
-
-  const curEnabled = enabled ?? settings.data?.nightPassEnabled ?? false;
-  const curPrice = price === '' ? (settings.data?.nightPassPrice ?? 0) : Number(price);
-
-  async function save() {
-    try {
-      await update.mutateAsync({ nightPassEnabled: curEnabled, nightPassPrice: curPrice });
-      setEnabled(null);
-      setPrice('');
-      toast.success('Pase nocturno actualizado.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Pase nocturno (de pago)</CardTitle>
-        <CardDescription>
-          Permite al inquilino comprar desde su portal un código de <strong>un solo uso</strong> que
-          salta el toque de queda y caduca a la mañana siguiente. Se le factura el importe (+ IVA).
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={curEnabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-              className="size-4"
-            />
-            Activar
-          </label>
-          <div className="space-y-1">
-            <Label htmlFor="night-pass-price" className="text-xs">
-              Precio (€, sin IVA)
-            </Label>
-            <Input
-              id="night-pass-price"
-              type="number"
-              step="0.01"
-              min={0}
-              className="h-9 w-28"
-              value={price === '' ? String(settings.data?.nightPassPrice ?? 0) : price}
-              onChange={(e) => setPrice(e.target.value)}
-              disabled={settings.isLoading}
-            />
-          </div>
-          <Button size="sm" onClick={() => void save()} disabled={update.isPending}>
-            Guardar
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -1241,6 +1255,15 @@ function AccessWindowsEditor({
               <Trash2 className="size-4" />
             </Button>
           </div>
+          {w.days.length === 0 && (
+            <p className="text-xs text-destructive">Elige al menos un día.</p>
+          )}
+          {w.start >= w.end && (
+            <p className="text-xs text-destructive">
+              La hora de fin tiene que ser posterior a la de inicio. Para una franja que pasa de
+              medianoche, añade dos.
+            </p>
+          )}
         </div>
       ))}
       <Button

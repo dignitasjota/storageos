@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import type { DoorViewPersonDto, VisitorPinDto } from '@storageos/shared';
 
 import { CustomerSearchSelect } from '@/components/customer-search-select';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -71,6 +72,8 @@ export default function DoorPage() {
 
       {!facilityId ? (
         <p className="text-sm text-muted-foreground">Elige un local para ver su puerta.</p>
+      ) : view.isError && !view.data ? (
+        <SectionError onRetry={() => void view.refetch()} />
       ) : !view.data ? (
         <p className="text-sm text-muted-foreground">Cargando…</p>
       ) : (
@@ -119,13 +122,14 @@ export default function DoorPage() {
               {view.data.recent.map((l) => (
                 <div key={l.id} className="flex justify-between gap-2">
                   <span>
-                    {formatDateTime(l.occurredAt)} · {l.customerName ?? 'Sin identificar'}
+                    {formatDateTime(l.occurredAt)} ·{' '}
+                    {l.fromStaff ? 'Equipo' : (l.customerName ?? 'Sin identificar')}
                     {l.deviceName ? (
                       <span className="text-muted-foreground"> · {l.deviceName}</span>
                     ) : null}
                   </span>
                   <span className={l.result === 'allowed' ? 'text-emerald-600' : 'text-red-600'}>
-                    {l.result === 'allowed' ? 'Entró' : 'Denegado'}
+                    {l.fromStaff ? 'Desde el panel' : l.result === 'allowed' ? 'Entró' : 'Denegado'}
                   </span>
                 </div>
               ))}
@@ -222,6 +226,11 @@ function VisitorPinCard({ facilityId }: { facilityId: string }) {
           <div className="rounded-md border bg-muted/40 p-4 text-center">
             <p className="text-xs text-muted-foreground">PIN de un solo uso</p>
             <p className="font-mono text-3xl font-semibold tracking-widest">{result.pin}</p>
+            {result.customerCutForDebt && (
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                Este inquilino tiene el acceso cortado por impago. Este PIN abrirá igualmente.
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               Caduca {formatDateTime(result.expiresAt)}
             </p>

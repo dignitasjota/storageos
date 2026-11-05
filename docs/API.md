@@ -1178,26 +1178,27 @@ Modulo `apps/api/src/modules/access/`.
 
 ### Endpoints — Access credentials
 
-| Metodo | Ruta                                 | Auth | Roles          | Descripcion                                               |
-| ------ | ------------------------------------ | ---- | -------------- | --------------------------------------------------------- |
-| GET    | `/access/credentials`                | SI   | cualquiera     | Filtros `?status=&type=&customerId=&unitId=`              |
-| GET    | `/access/credentials/:id`            | SI   | cualquiera     | Detalle sin secret                                        |
-| POST   | `/access/credentials`                | SI   | owner, manager | Crea. Devuelve `revealedSecret` en payload (una sola vez) |
-| POST   | `/access/credentials/:id/rotate`     | SI   | owner, manager | Genera secret nuevo. Devuelve `revealedSecret`            |
-| POST   | `/access/credentials/:id/transition` | SI   | owner, manager | State machine                                             |
-| DELETE | `/access/credentials/:id`            | SI   | owner, manager | Revoke (no hard delete)                                   |
+| Metodo | Ruta                                 | Auth | Roles          | Descripcion                                                                                                                                                                                             |
+| ------ | ------------------------------------ | ---- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/access/credentials`                | SI   | cualquiera     | Filtros `?status=&type=&customerId=&unitId=`                                                                                                                                                            |
+| GET    | `/access/credentials/page`           | SI   | cualquiera     | Por páginas: `?search=&facilityId=&status=&method=&customerId=&cursor=`                                                                                                                                 |
+| GET    | `/access/credentials/:id`            | SI   | cualquiera     | Detalle sin secret                                                                                                                                                                                      |
+| POST   | `/access/credentials`                | SI   | owner, manager | Crea. Devuelve `revealedSecret` (una sola vez). Sin locales elegidos se limita a los trasteros del inquilino; abrir todo pide `allFacilities: true`. 400 `credential_scope_required`, 409 `rfid_in_use` |
+| POST   | `/access/credentials/:id/rotate`     | SI   | owner, manager | Genera secret nuevo. Devuelve `revealedSecret`                                                                                                                                                          |
+| POST   | `/access/credentials/:id/transition` | SI   | owner, manager | State machine                                                                                                                                                                                           |
+| DELETE | `/access/credentials/:id`            | SI   | owner, manager | Revoke (no hard delete)                                                                                                                                                                                 |
 
 ### Endpoints — Access devices
 
-| Metodo | Ruta                             | Auth | Roles               | Descripcion                                                                            |
-| ------ | -------------------------------- | ---- | ------------------- | -------------------------------------------------------------------------------------- |
-| GET    | `/access/devices`                | SI   | cualquiera          | Lista con facility + unitos vinculados                                                 |
-| POST   | `/access/devices`                | SI   | owner, manager      | Crea. Devuelve `apiKey` plaintext (una sola vez)                                       |
-| POST   | `/access/devices/:id/rotate-key` | SI   | owner, manager      | Rota apiKey. Devuelve plaintext nuevo                                                  |
-| PATCH  | `/access/devices/:id`            | SI   | owner, manager      | Edita nombre/unidades vinculadas                                                       |
-| DELETE | `/access/devices/:id`            | SI   | owner, manager      | Soft delete                                                                            |
-| POST   | `/access/devices/:id/ping`       | SI   | owner/manager/staff | Comprueba conectividad (open de prueba)                                                |
-| POST   | `/access/devices/:id/open`       | SI   | owner, manager      | Apertura remota (server→controlador). Registra `access_logs`. `{dispatched, message?}` |
+| Metodo | Ruta                                     | Auth | Roles          | Descripcion                                                                            |
+| ------ | ---------------------------------------- | ---- | -------------- | -------------------------------------------------------------------------------------- |
+| GET    | `/access/devices`                        | SI   | cualquiera     | Lista con facility + unitos vinculados                                                 |
+| POST   | `/access/devices`                        | SI   | owner, manager | Crea. Devuelve `apiKey` plaintext (una sola vez)                                       |
+| POST   | `/access/devices/:id/regenerate-api-key` | SI   | owner, manager | Rota apiKey. Devuelve plaintext nuevo                                                  |
+| PATCH  | `/access/devices/:id`                    | SI   | owner, manager | Edita nombre/unidades vinculadas                                                       |
+| DELETE | `/access/devices/:id`                    | SI   | owner, manager | Soft delete                                                                            |
+| POST   | `/access/devices/:id/ping`               | SI   | owner, manager | Comprueba la conexión sin abrir: `{supported, online}`                                 |
+| POST   | `/access/devices/:id/open`               | SI   | owner, manager | Apertura remota (server→controlador). Registra `access_logs`. `{dispatched, message?}` |
 
 > Crear/editar device acepta `controlUrl` + `controlSecret` (HMAC) para el provider `LOCK_PROVIDER=http`; el secreto se guarda cifrado y el DTO solo expone `controlUrl` + `hasControlSecret`.
 

@@ -130,12 +130,25 @@ export class DahuaSyncService {
         return;
       }
 
-      const devices = await this.syncableDevices(tenantId, cred.allowedFacilityIds);
+      const unrestricted = cred.allowedFacilityIds.length === 0 && cred.allowedUnitIds.length === 0;
+      const devices = (await this.syncableDevices(tenantId, cred.allowedFacilityIds)).filter(
+        // Igual que al verificar: la cerradura de un trastero, solo para quien lo tiene.
+        (d) => !d.unitId || unrestricted || cred.allowedUnitIds.includes(d.unitId),
+      );
+      const previous = await this.prisma.withTenant(
+        (tx) =>
+          tx.accessCredentialSync.findMany({
+            where: { credentialId: cred.id },
+            include: { device: { include: DEVICE_FACILITY_INCLUDE } },
+          }),
+        tenantId,
+      );
       for (const device of devices) {
         const provider = this.registry.resolve(device.provider);
         if (!provider) continue;
         try {
-          const { ref } = await provider.pushCredential(await this.toSyncDevice(device), {
+          const syncDevice = await this.toSyncDevice(device);
+          const { ref } = await provider.pushCredential(syncDevice, {
             credentialId: cred.id,
             customerId: cred.customerId,
             method: cred.method as 'pin' | 'qr' | 'rfid' | 'face',
@@ -148,6 +161,12 @@ export class DahuaSyncService {
             validUntil: cred.expiresAt,
             maxUses: cred.maxUses,
           });
+          // Una tarjeta o un QR nuevos son otro registro en el terminal: el
+          // anterior se borra para que deje de abrir.
+          const before = previous.find((p) => p.deviceId === device.id);
+          if (before && before.hardwareRef !== ref) {
+            await provider.remove(syncDevice, before.hardwareRef);
+          }
           await this.prisma.withTenant(
             (tx) =>
               tx.accessCredentialSync.upsert({
@@ -169,11 +188,59 @@ export class DahuaSyncService {
           );
         }
       }
+      // Terminales que ya no le tocan (un traslado, un local quitado).
+      const inScope = new Set(devices.map((d) => d.id));
+      for (const row of previous.filter((p) => !inScope.has(p.deviceId))) {
+        await this.removeFromDevice(tenantId, row);
+      }
     } catch (err) {
       this.logger.warn(
         `[sync] syncCredential ${credentialId} falló: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  private async removeFromDevice(
+    tenantId: string,
+    row: { id: string; hardwareRef: string; device: DeviceWithFacility },
+  ): Promise<void> {
+    const provider = this.registry.resolve(row.device.provider);
+    try {
+      if (provider) await provider.remove(await this.toSyncDevice(row.device), row.hardwareRef);
+      await this.prisma.withTenant(
+        (tx) => tx.accessCredentialSync.delete({ where: { id: row.id } }),
+        tenantId,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[sync] quitar de ${row.device.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /** Terminal nuevo: recibe las credenciales vivas que abren su local. */
+  async syncDevice(tenantId: string, deviceId: string): Promise<number> {
+    const device = await this.prisma.withTenant(
+      (tx) => tx.accessDevice.findFirst({ where: { id: deviceId } }),
+      tenantId,
+    );
+    if (!device?.isActive || !this.registry.isSyncable(device.provider)) return 0;
+    const creds = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findMany({
+          where: {
+            status: { in: ['active', 'suspended'] },
+            OR: [
+              { allowedFacilityIds: { isEmpty: true } },
+              { allowedFacilityIds: { has: device.facilityId } },
+            ],
+          },
+          select: { id: true },
+        }),
+      tenantId,
+    );
+    for (const c of creds) await this.syncCredential(tenantId, c.id);
+    return creds.length;
   }
 
   /** Propaga un cambio de estado (suspender/reactivar/revocar) a los terminales. */
@@ -242,7 +309,10 @@ export class DahuaSyncService {
             (tx) =>
               tx.accessCredentialSync.findFirst({
                 where: { deviceId, hardwareRef: ev.credentialRef as string },
-                select: { credentialId: true },
+                select: {
+                  credentialId: true,
+                  credential: { select: { customerId: true } },
+                },
               }),
             tenantId,
           )
@@ -254,6 +324,7 @@ export class DahuaSyncService {
               tenantId,
               deviceId,
               credentialId: sync?.credentialId ?? null,
+              customerId: sync?.credential.customerId ?? null,
               method: ev.method as AccessMethod,
               result: (ev.allowed ? 'allowed' : 'denied_invalid_credential') as AccessResult,
               reason: 'reconciled_from_device',
@@ -263,6 +334,19 @@ export class DahuaSyncService {
           }),
         tenantId,
       );
+      if (ev.allowed && sync) {
+        await this.prisma.withTenant(
+          (tx) =>
+            tx.accessCredential.updateMany({
+              where: {
+                id: sync.credentialId,
+                OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: ev.occurredAt } }],
+              },
+              data: { lastUsedAt: ev.occurredAt },
+            }),
+          tenantId,
+        );
+      }
       imported += 1;
       maxTs = Math.max(maxTs, ev.occurredAt.getTime());
     }
@@ -270,7 +354,10 @@ export class DahuaSyncService {
       (tx) =>
         tx.accessDevice.update({
           where: { id: deviceId },
-          data: { lastReconciledAt: new Date(Math.max(maxTs, Date.now() - 1)) },
+          data: {
+            lastReconciledAt: new Date(Math.max(maxTs, Date.now() - 1)),
+            ...(events.length > 0 ? { isOnline: true, lastSeenAt: new Date() } : {}),
+          },
         }),
       tenantId,
     );

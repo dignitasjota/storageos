@@ -297,7 +297,21 @@ export class AccessIntegrationsService {
           }),
         payload.tenantId,
       );
-      if (stillBlocked === 0)
+      // Sin contratos vivos no se reactiva nada: quien paga una deuda antigua ya
+      // no tiene trastero (el repaso periódico le retira lo que quede).
+      const liveContracts = await this.prisma.withTenant(
+        (tx) =>
+          tx.contract.count({
+            where: {
+              customerId,
+              status: { in: ['active', 'ending'] },
+              ...STARTED_CONTRACT_WHERE,
+              deletedAt: null,
+            },
+          }),
+        payload.tenantId,
+      );
+      if (stillBlocked === 0 && liveContracts > 0)
         await this.credentials.resume({
           tenantId: payload.tenantId,
           userId: null,
@@ -468,26 +482,16 @@ export class AccessIntegrationsService {
       );
       return;
     }
-    const active = await this.credentials.listForCustomer(payload.tenantId, customerId);
-    for (const cred of active) {
-      try {
-        await this.credentials.revoke({
-          tenantId: payload.tenantId,
-          userId: null,
-          id: cred.id,
-          meta: {},
-        });
-      } catch (err) {
-        // Best-effort: no romper el fin de contrato si una credencial falla.
-        this.logger.warn(
-          `contract_ended: no se pudo revocar credential ${cred.id}: ${String(err)}`,
+    try {
+      const revoked = await this.credentials.revokeAllForCustomer(payload.tenantId, customerId);
+      if (revoked > 0) {
+        this.logger.log(
+          `contract_ended: revocadas ${revoked} credencial(es) del customer=${customerId} (sin contratos vivos)`,
         );
       }
-    }
-    if (active.length > 0) {
-      this.logger.log(
-        `contract_ended: revocadas ${active.length} credencial(es) del customer=${customerId} (sin contratos vivos)`,
-      );
+    } catch (err) {
+      // Best-effort: no romper el fin de contrato; el repaso periódico lo completa.
+      this.logger.warn(`contract_ended: no se pudo revocar todo: ${String(err)}`);
     }
   }
 }

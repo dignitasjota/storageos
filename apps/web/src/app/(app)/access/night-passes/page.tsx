@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import type { NightPassStaffDto } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Card, CardContent } from '@/components/ui/card';
 import { useNightPasses } from '@/lib/access/hooks';
@@ -33,7 +34,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
 }
 
 export default function NightPassesPage() {
-  const { data, isLoading } = useNightPasses();
+  const { data, isLoading, isError, refetch } = useNightPasses();
 
   const columns: ColumnDef<NightPassStaffDto>[] = [
     {
@@ -103,26 +104,32 @@ export default function NightPassesPage() {
         salta el toque de queda y caduca a la mañana siguiente).
       </p>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <Stat label="Total" value={data?.total ?? 0} />
-        <Stat label="Sin usar" value={data?.active ?? 0} />
-        <Stat label="Utilizados" value={data?.used ?? 0} />
-        <Stat label="Caducados" value={data?.expired ?? 0} />
-        <Stat
-          label="Ingresos"
-          value={(data?.revenue ?? 0).toLocaleString('es-ES', {
-            style: 'currency',
-            currency: 'EUR',
-          })}
-        />
-      </div>
+      {isError && !data ? (
+        <SectionError onRetry={() => void refetch()} />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <Stat label="Total" value={data?.total ?? 0} />
+            <Stat label="Sin usar" value={data?.active ?? 0} />
+            <Stat label="Utilizados" value={data?.used ?? 0} />
+            <Stat label="Caducados" value={data?.expired ?? 0} />
+            <Stat
+              label="Ingresos"
+              value={(data?.revenue ?? 0).toLocaleString('es-ES', {
+                style: 'currency',
+                currency: 'EUR',
+              })}
+            />
+          </div>
 
-      <DataTable
-        columns={columns}
-        data={data?.passes ?? []}
-        isLoading={isLoading}
-        emptyText="Todavía no se ha comprado ningún pase nocturno."
-      />
+          <DataTable
+            columns={columns}
+            data={data?.passes ?? []}
+            isLoading={isLoading}
+            emptyText="Todavía no se ha comprado ningún pase nocturno."
+          />
+        </>
+      )}
     </div>
   );
 }

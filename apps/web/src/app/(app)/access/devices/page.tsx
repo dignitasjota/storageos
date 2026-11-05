@@ -7,6 +7,8 @@ import {
   type AccessDeviceWithKeyDto,
   type CreateDeviceInput,
   CreateDeviceSchema,
+  type LockProviderValue,
+  type UpdateDeviceInput,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import {
@@ -16,6 +18,7 @@ import {
   Loader2,
   Lock,
   MoreHorizontal,
+  Pencil,
   Plus,
   RotateCw,
   Signal,
@@ -26,9 +29,11 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -67,10 +72,13 @@ import {
   useDevices,
   usePingDevice,
   useRegenerateApiKey,
+  useUpdateDevice,
 } from '@/lib/access/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilities, useUnits } from '@/lib/facilities/hooks';
+import { useFacilityFilterState } from '@/lib/facilities/store';
+import { formatDateTime } from '@/lib/format';
 
 const TYPE_LABELS: Record<AccessDeviceTypeValue, string> = {
   door: 'Puerta principal',
@@ -86,15 +94,28 @@ const TYPE_ICONS: Record<AccessDeviceTypeValue, React.ElementType> = {
   other: Signal,
 };
 
+/** Cómo habla el sistema con cada equipo, en palabras. */
+const PROVIDER_LABELS: Record<LockProviderValue, string> = {
+  http: 'Controlador por internet',
+  dahua: 'Terminal Dahua',
+  mqtt: 'Cerradura conectada por MQTT',
+  stub: 'Simulador (solo para pruebas)',
+};
+
+const PROVIDERS = (Object.keys(PROVIDER_LABELS) as LockProviderValue[]).filter(
+  (p) => p !== 'stub' || process.env.NODE_ENV !== 'production',
+);
+
 export default function DevicesPage() {
   const canManage = useHasPermission('access:manage');
-  const [facilityId, setFacilityId] = useState<string | undefined>();
+  const [facilityId, setFacilityId] = useFacilityFilterState();
   const [type, setType] = useState<AccessDeviceTypeValue | undefined>();
   const [onlineFilter, setOnlineFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [createOpen, setCreateOpen] = useState(false);
   const [revealed, setRevealed] = useState<AccessDeviceWithKeyDto | null>(null);
   const [regenerateTarget, setRegenerateTarget] = useState<AccessDeviceDto | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AccessDeviceDto | null>(null);
+  const [editTarget, setEditTarget] = useState<AccessDeviceDto | null>(null);
 
   const devices = useDevices({
     ...(facilityId ? { facilityId } : {}),
@@ -113,9 +134,13 @@ export default function DevicesPage() {
   async function handlePing(device: AccessDeviceDto) {
     try {
       const res = await ping.mutateAsync(device.id);
-      toast.success(
-        res.isOnline ? `${device.name} está online.` : `${device.name} no responde (offline).`,
-      );
+      if (!res.supported) {
+        toast.warning(`${device.name} no permite comprobar la conexión sin abrir.`);
+      } else if (res.online) {
+        toast.success(`${device.name} está conectado.`);
+      } else {
+        toast.error(`${device.name} no responde.`);
+      }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -152,7 +177,7 @@ export default function DevicesPage() {
           className={`inline-block size-2.5 rounded-full ${
             row.original.isOnline ? 'bg-green-500' : 'bg-slate-300'
           }`}
-          aria-label={row.original.isOnline ? 'online' : 'offline'}
+          aria-label={row.original.isOnline ? 'Conectado' : 'Sin conexión'}
         />
       ),
     },
@@ -186,14 +211,13 @@ export default function DevicesPage() {
     },
     {
       accessorKey: 'hardwareId',
-      header: 'Hardware ID',
+      header: 'Identificador',
       cell: ({ row }) => <span className="font-mono text-xs">{row.original.hardwareId}</span>,
     },
     {
       accessorKey: 'lastSeenAt',
       header: 'Última conexión',
-      cell: ({ row }) =>
-        row.original.lastSeenAt ? new Date(row.original.lastSeenAt).toLocaleString('es-ES') : '—',
+      cell: ({ row }) => (row.original.lastSeenAt ? formatDateTime(row.original.lastSeenAt) : '—'),
     },
     {
       accessorKey: 'isActive',
@@ -210,6 +234,7 @@ export default function DevicesPage() {
       header: '',
       cell: ({ row }) => {
         const device = row.original;
+        if (!canManage) return null;
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -218,44 +243,37 @@ export default function DevicesPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {canManage && (
-                <DropdownMenuItem
-                  onClick={() => handleOpen(device)}
-                  disabled={openDevice.isPending}
-                >
-                  <DoorOpen className="mr-2 h-4 w-4" />
-                  Abrir (remoto)
-                </DropdownMenuItem>
-              )}
-              {canManage && (
-                <DropdownMenuItem
-                  onClick={() => handleClose(device)}
-                  disabled={closeDevice.isPending}
-                >
-                  <DoorClosed className="mr-2 h-4 w-4" />
-                  Cerrar (remoto)
-                </DropdownMenuItem>
-              )}
+              <DropdownMenuItem onClick={() => setEditTarget(device)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleOpen(device)} disabled={openDevice.isPending}>
+                <DoorOpen className="mr-2 h-4 w-4" />
+                Abrir
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleClose(device)}
+                disabled={closeDevice.isPending}
+              >
+                <DoorClosed className="mr-2 h-4 w-4" />
+                Cerrar
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handlePing(device)} disabled={ping.isPending}>
                 <Signal className="mr-2 h-4 w-4" />
-                Hacer ping
+                Comprobar conexión
               </DropdownMenuItem>
-              {canManage && (
-                <>
-                  <DropdownMenuItem onClick={() => setRegenerateTarget(device)}>
-                    <RotateCw className="mr-2 h-4 w-4" />
-                    Regenerar API key
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setDeleteTarget(device)}
-                    className="text-red-600 focus:text-red-600"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Eliminar
-                  </DropdownMenuItem>
-                </>
-              )}
+              <DropdownMenuItem onClick={() => setRegenerateTarget(device)}>
+                <RotateCw className="mr-2 h-4 w-4" />
+                Nueva clave del dispositivo
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setDeleteTarget(device)}
+                className="text-red-600 focus:text-red-600"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Eliminar
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         );
@@ -299,32 +317,37 @@ export default function DevicesPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Online y offline</SelectItem>
-            <SelectItem value="online">Solo online</SelectItem>
-            <SelectItem value="offline">Solo offline</SelectItem>
+            <SelectItem value="all">Con y sin conexión</SelectItem>
+            <SelectItem value="online">Conectados</SelectItem>
+            <SelectItem value="offline">Sin conexión</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={filteredDevices}
-        isLoading={devices.isLoading}
-        searchPlaceholder="Buscar por nombre..."
-        guide="accesos"
-        emptyText="Conecta tus puertas y cerraduras para abrir a distancia y registrar quién entra."
-        toolbarRight={
-          canManage ? (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="mr-1 h-4 w-4" /> Nuevo dispositivo
-            </Button>
-          ) : null
-        }
-      />
+      {devices.isError && !devices.data ? (
+        <SectionError onRetry={() => void devices.refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={filteredDevices}
+          isLoading={devices.isLoading}
+          searchPlaceholder="Buscar por nombre..."
+          guide="accesos"
+          emptyText="Conecta tus puertas y cerraduras para abrir a distancia y registrar quién entra."
+          toolbarRight={
+            canManage ? (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-1 h-4 w-4" /> Nuevo dispositivo
+              </Button>
+            ) : null
+          }
+        />
+      )}
+
+      {editTarget && <DeviceDialog device={editTarget} onClose={() => setEditTarget(null)} />}
 
       {createOpen && (
-        <CreateDeviceDialog
-          open={createOpen}
+        <DeviceDialog
           onClose={() => setCreateOpen(false)}
           onRevealed={(dto) => {
             setRevealed(dto);
@@ -379,63 +402,87 @@ function FacilityFilter({
 }
 
 // ============================================================================
-// Create device
+// Create / edit device
 // ============================================================================
 
-function CreateDeviceDialog({
-  open,
+function DeviceDialog({
+  device,
   onClose,
   onRevealed,
 }: {
-  open: boolean;
+  device?: AccessDeviceDto;
   onClose: () => void;
-  onRevealed: (dto: AccessDeviceWithKeyDto) => void;
+  onRevealed?: (dto: AccessDeviceWithKeyDto) => void;
 }) {
   const create = useCreateDevice();
+  const update = useUpdateDevice(device?.id);
   const facilities = useFacilities();
+  const [isActive, setIsActive] = useState(device?.isActive ?? true);
 
   const form = useForm<CreateDeviceInput>({
     resolver: zodResolver(CreateDeviceSchema),
     defaultValues: {
-      facilityId: '',
-      type: 'door',
-      name: '',
-      hardwareId: '',
-      mqttTopic: '',
-      controlUrl: '',
-      controlSecret: '',
+      facilityId: device?.facilityId ?? '',
+      type: device?.type ?? 'door',
+      name: device?.name ?? '',
+      hardwareId: device?.hardwareId ?? '',
       metadata: {},
+      ...(device?.unitId ? { unitId: device.unitId } : {}),
+      ...(device?.provider ? { provider: device.provider as LockProviderValue } : {}),
+      ...(device?.mqttTopic ? { mqttTopic: device.mqttTopic } : {}),
+      ...(device?.controlUrl ? { controlUrl: device.controlUrl } : {}),
     },
   });
+  const facilityId = form.watch('facilityId');
+  const type = form.watch('type');
+  const provider = form.watch('provider');
+  const units = useUnits(facilityId ? { facilityId } : {});
 
   async function onSubmit(values: CreateDeviceInput) {
     try {
-      const payload: CreateDeviceInput = {
+      const unitId = values.type === 'unit_lock' ? values.unitId : undefined;
+      if (device) {
+        const input: UpdateDeviceInput = {
+          facilityId: values.facilityId,
+          type: values.type,
+          name: values.name,
+          hardwareId: values.hardwareId,
+          isActive,
+          unitId: unitId ?? null,
+          provider: values.provider ?? null,
+          mqttTopic: values.mqttTopic ?? '',
+          controlUrl: values.controlUrl ?? null,
+          ...(values.controlSecret ? { controlSecret: values.controlSecret } : {}),
+        };
+        await update.mutateAsync(input);
+        toast.success('Dispositivo actualizado.');
+        onClose();
+        return;
+      }
+      const dto = await create.mutateAsync({
         facilityId: values.facilityId,
         type: values.type,
         name: values.name,
         hardwareId: values.hardwareId,
         metadata: values.metadata ?? {},
-        ...(values.unitId ? { unitId: values.unitId } : {}),
+        ...(unitId ? { unitId } : {}),
         ...(values.provider ? { provider: values.provider } : {}),
         ...(values.mqttTopic ? { mqttTopic: values.mqttTopic } : {}),
         ...(values.controlUrl ? { controlUrl: values.controlUrl } : {}),
         ...(values.controlSecret ? { controlSecret: values.controlSecret } : {}),
-      };
-      const dto = await create.mutateAsync(payload);
+      });
       toast.success('Dispositivo creado.');
-      form.reset();
-      onRevealed(dto);
+      onRevealed?.(dto);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nuevo dispositivo</DialogTitle>
+          <DialogTitle>{device ? `Editar ${device.name}` : 'Nuevo dispositivo'}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
@@ -463,7 +510,7 @@ function CreateDeviceDialog({
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="type"
@@ -502,12 +549,40 @@ function CreateDeviceDialog({
                 )}
               />
             </div>
+            {type === 'unit_lock' && (
+              <FormField
+                control={form.control}
+                name="unitId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Trastero de esta cerradura</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value ?? ''}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={facilityId ? 'Elige el trastero' : 'Elige antes el local'}
+                          />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {(facilityId ? (units.data?.items ?? []) : []).map((u) => (
+                          <SelectItem key={u.id} value={u.id}>
+                            {u.code}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <FormField
               control={form.control}
               name="hardwareId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Hardware ID</FormLabel>
+                  <FormLabel>Identificador del equipo</FormLabel>
                   <FormControl>
                     <Input {...field} value={field.value ?? ''} placeholder="Ej: ESP32-A1B2C3" />
                   </FormControl>
@@ -520,82 +595,111 @@ function CreateDeviceDialog({
               name="provider"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Provider de cerradura (opcional)</FormLabel>
+                  <FormLabel>Tipo de equipo</FormLabel>
                   <Select value={field.value ?? ''} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Por defecto (config global)" />
+                        <SelectValue placeholder="El de por defecto de la instalación" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="stub">stub (dev)</SelectItem>
-                      <SelectItem value="mqtt">mqtt</SelectItem>
-                      <SelectItem value="http">http (HMAC)</SelectItem>
-                      <SelectItem value="dahua">dahua (ASI · Digest)</SelectItem>
+                      {PROVIDERS.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {PROVIDER_LABELS[p]}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="mqttTopic"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>MQTT topic (opcional)</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      value={field.value ?? ''}
-                      placeholder="storageos/devices/door-01"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="controlUrl"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>URL de control HTTP (opcional)</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      value={field.value ?? ''}
-                      placeholder="https://controlador.local/open"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="controlSecret"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Secreto HMAC del controlador (opcional)</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type="password"
-                      value={field.value ?? ''}
-                      placeholder="mínimo 8 caracteres"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {provider === 'mqtt' && (
+              <FormField
+                control={form.control}
+                name="mqttTopic"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Canal MQTT</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ''}
+                        placeholder="storageos/devices/door-01"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            {(provider === 'http' || provider === 'dahua') && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="controlUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Dirección del equipo</FormLabel>
+                      <FormControl>
+                        <Input
+                          value={field.value ?? ''}
+                          onChange={(e) => field.onChange(e.target.value || undefined)}
+                          placeholder={
+                            provider === 'dahua'
+                              ? 'https://terminal.tudominio.com'
+                              : 'https://cerradura.tudominio.com/abrir'
+                          }
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Tiene que poder alcanzarse desde internet.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="controlSecret"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {provider === 'dahua' ? 'Usuario y contraseña' : 'Clave de firma'}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          autoComplete="new-password"
+                          value={field.value ?? ''}
+                          onChange={(e) => field.onChange(e.target.value || undefined)}
+                          placeholder={
+                            device?.hasControlSecret
+                              ? 'Déjalo vacío para conservar la actual'
+                              : provider === 'dahua'
+                                ? 'usuario:contraseña'
+                                : 'Mínimo 8 caracteres'
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
+            {device && (
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={isActive} onCheckedChange={(v) => setIsActive(v === true)} />
+                Activo
+              </label>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
+                {form.formState.isSubmitting ? 'Guardando...' : device ? 'Guardar' : 'Crear'}
               </Button>
             </DialogFooter>
           </form>
@@ -623,7 +727,7 @@ function RegenerateKeyDialog({
   async function handleRegenerate() {
     try {
       const dto = await regenerate.mutateAsync(device.id);
-      toast.success('API key regenerada.');
+      toast.success('Clave nueva generada.');
       onRevealed(dto);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -634,18 +738,18 @@ function RegenerateKeyDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Regenerar API key</DialogTitle>
+          <DialogTitle>Nueva clave del dispositivo</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          La API key actual del dispositivo <strong>{device.name}</strong> dejará de funcionar.
-          Tendrás que reconfigurar el dispositivo con la nueva.
+          La clave actual de <strong>{device.name}</strong> dejará de funcionar. Tendrás que
+          configurar el equipo con la nueva.
         </p>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             Cancelar
           </Button>
           <Button type="button" onClick={handleRegenerate} disabled={regenerate.isPending}>
-            {regenerate.isPending ? 'Regenerando...' : 'Regenerar'}
+            {regenerate.isPending ? 'Generando...' : 'Generar clave nueva'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -721,11 +825,11 @@ function RevealedKeyDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>API key del dispositivo</DialogTitle>
+          <DialogTitle>Clave del dispositivo</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="rounded-md border bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-            Guarda esta API key ahora. <strong>No se mostrará otra vez.</strong>
+            Guarda esta clave ahora. <strong>No se mostrará otra vez.</strong>
           </div>
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-3 font-mono text-sm">
             <span className="flex-1 break-all">{device.revealedApiKey}</span>
@@ -734,7 +838,7 @@ function RevealedKeyDialog({
             </Button>
           </div>
           <div className="text-xs text-muted-foreground">
-            Dispositivo: <strong>{device.name}</strong> · Hardware ID:{' '}
+            Dispositivo: <strong>{device.name}</strong> · Identificador:{' '}
             <span className="font-mono">{device.hardwareId}</span>
           </div>
         </div>

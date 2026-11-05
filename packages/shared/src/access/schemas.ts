@@ -120,6 +120,11 @@ export const CreateCredentialSchema = z
       .trim()
       .regex(/^\d{6,8}$/, 'El PIN debe tener entre 6 y 8 dígitos')
       .optional(),
+    /**
+     * Abre todos los locales y cerraduras. Hay que pedirlo: sin esto y sin locales
+     * elegidos, la credencial se limita a los trasteros en uso del inquilino.
+     */
+    allFacilities: z.boolean().optional(),
     allowedFacilityIds: z.array(z.string().uuid()).default([]),
     allowedUnitIds: z.array(z.string().uuid()).default([]),
     allowedHours: AccessAllowedHoursSchema,
@@ -140,6 +145,7 @@ export type CreateCredentialInput = z.infer<typeof CreateCredentialSchema>;
 export const UpdateCredentialSchema = z
   .object({
     label: optionalText(120),
+    allFacilities: z.boolean().optional(),
     allowedFacilityIds: z.array(z.string().uuid()).optional(),
     allowedUnitIds: z.array(z.string().uuid()).optional(),
     allowedHours: AccessAllowedHoursSchema.optional(),
@@ -198,7 +204,14 @@ export const CreateDeviceSchema = z.object({
 export type CreateDeviceInput = z.infer<typeof CreateDeviceSchema>;
 
 export const UpdateDeviceSchema = CreateDeviceSchema.partial()
-  .extend({ isActive: z.boolean().optional() })
+  .extend({
+    isActive: z.boolean().optional(),
+    // Null quita el valor (cerradura que deja de ser de un trastero, URL que se borra).
+    unitId: z.string().uuid().nullable().optional(),
+    provider: LockProviderEnum.nullable().optional(),
+    controlUrl: z.string().url().max(500).nullable().optional(),
+    controlSecret: z.string().trim().min(8).max(200).nullable().optional(),
+  })
   .refine((v) => Object.values(v).some((field) => field !== undefined), {
     message: 'Debes enviar al menos un campo',
   });

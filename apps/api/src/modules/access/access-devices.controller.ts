@@ -161,13 +161,13 @@ export class AccessDevicesController {
   }
 
   @Post(':id/ping')
-  @RequirePermission('access:read')
+  @RequirePermission('access:manage')
   @HttpCode(HttpStatus.OK)
   ping(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Req() req: Request,
-  ): Promise<{ online: boolean }> {
+  ): Promise<{ supported: boolean; online: boolean }> {
     return this.service.ping({
       tenantId: user.tenantId,
       userId: user.sub,

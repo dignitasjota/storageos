@@ -11,9 +11,12 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { accessWindowsFrom } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone, zonedDayStart, zonedNextDayStart } from '../../common/format';
+import { pageArgs, type PageRequest } from '../../common/pagination';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { AuditService } from '../auth/audit.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
@@ -48,6 +51,11 @@ interface ListFilters {
   status?: AccessCredentialStatusValue;
   customerId?: string;
   method?: AccessMethodValue;
+  /** Búsqueda por nombre del inquilino. */
+  search?: string;
+  /** El local elegido en la cabecera. */
+  facilityId?: string;
+  page?: PageRequest;
   /** Permisos por local: si está, solo credenciales de clientes con contrato en esos locales. */
   facilityScope?: string[] | null;
 }
@@ -98,11 +106,11 @@ function generateQrToken(): string {
   return randomBytes(18).toString('base64url');
 }
 
-/** Próxima 08:00 en Europe/Madrid, como ISO (caducidad del pase nocturno). */
-function nextMorningIso(hour = 8): string {
+/** Próximas 08:00 en la hora del local, como ISO (caducidad del pase nocturno). */
+function nextMorningIso(timeZone: string, hour = 8): string {
   const now = new Date();
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Madrid',
+    timeZone,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
@@ -113,6 +121,9 @@ function nextMorningIso(hour = 8): string {
   if (deltaMin <= 0) deltaMin += 1440; // ya pasó hoy → mañana
   return new Date(now.getTime() + deltaMin * 60_000).toISOString();
 }
+
+/** Pases nocturnos que se listan; las cifras de la página cuentan todos. */
+const NIGHT_PASS_LIST_LIMIT = 500;
 
 /** Pases de visita que puede crear un inquilino al día desde su área de clientes. */
 const VISITOR_PASSES_PER_DAY = 3;
@@ -125,7 +136,119 @@ export class AccessCredentialsService {
     private readonly crypto: CryptoService,
     private readonly sync: DahuaSyncService,
     private readonly files: FilesService,
+    private readonly admin: PrismaAdminService,
   ) {}
+
+  /** ¿Tiene el inquilino el acceso cortado por una factura sin pagar? */
+  async isCutForDebt(tenantId: string, customerId: string): Promise<boolean> {
+    return this.prisma.withTenant(async (tx) => {
+      const [credentials, actions] = await Promise.all([
+        tx.accessCredential.count({
+          where: {
+            customerId,
+            status: 'suspended' as AccessCredentialStatus,
+            suspendReason: { startsWith: 'dunning:' },
+          },
+        }),
+        tx.dunningAction.count({
+          where: {
+            actionType: 'access_block',
+            status: 'executed',
+            supersededAt: null,
+            invoice: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+          },
+        }),
+      ]);
+      return credentials + actions > 0;
+    }, tenantId);
+  }
+
+  /** Quien tiene el acceso cortado no se da otro desde su área de clientes. */
+  private async assertNotCutForDebt(tenantId: string, customerId: string): Promise<void> {
+    if (await this.isCutForDebt(tenantId, customerId)) {
+      throw new ConflictException({
+        code: 'access_cut_for_debt',
+        message: 'Tu acceso está cortado por un pago pendiente. Págalo para recuperarlo.',
+      });
+    }
+  }
+
+  /** Una misma tarjeta no puede estar viva en dos credenciales. */
+  private async assertRfidFree(
+    tenantId: string,
+    rfidUid: string,
+    exceptId?: string,
+  ): Promise<void> {
+    const taken = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.count({
+          where: {
+            method: 'rfid' as AccessMethod,
+            rfidUid: { equals: rfidUid, mode: 'insensitive' },
+            status: { in: ['active', 'suspended', 'pending'] as AccessCredentialStatus[] },
+            ...(exceptId ? { id: { not: exceptId } } : {}),
+          },
+        }),
+      tenantId,
+    );
+    if (taken > 0) {
+      throw new ConflictException({
+        code: 'rfid_in_use',
+        message: 'Esa tarjeta ya la tiene otra credencial activa',
+      });
+    }
+  }
+
+  /**
+   * Hasta dónde abre una credencial creada a mano. Lo normal son los trasteros
+   * en uso del inquilino; abrirlo todo hay que pedirlo y no puede hacerlo quien
+   * solo ve algunos locales.
+   */
+  private async resolveManualScope(args: {
+    tenantId: string;
+    customerId: string;
+    allFacilities: boolean;
+    allowedFacilityIds: string[];
+    allowedUnitIds: string[];
+    facilityScope: string[] | null | undefined;
+  }): Promise<{ allowedFacilityIds: string[]; allowedUnitIds: string[] }> {
+    if (args.allFacilities) {
+      if (args.facilityScope) {
+        throw new ForbiddenException({
+          code: 'facility_not_in_scope',
+          message: 'Solo puedes dar acceso a tus locales',
+        });
+      }
+      return { allowedFacilityIds: [], allowedUnitIds: [] };
+    }
+    if (args.allowedFacilityIds.length > 0 || args.allowedUnitIds.length > 0) {
+      for (const id of args.allowedFacilityIds) assertFacilityAllowed(args.facilityScope, id);
+      const units = await this.prisma.withTenant(
+        (tx) =>
+          tx.unit.findMany({
+            where: { id: { in: args.allowedUnitIds } },
+            select: { facilityId: true },
+          }),
+        args.tenantId,
+      );
+      for (const u of units) assertFacilityAllowed(args.facilityScope, u.facilityId);
+      return {
+        // Un trastero suelto también abre la puerta de su local.
+        allowedFacilityIds: [
+          ...new Set([...args.allowedFacilityIds, ...units.map((u) => u.facilityId)]),
+        ],
+        allowedUnitIds: args.allowedUnitIds,
+      };
+    }
+    const own = await this.customerScope(args.tenantId, args.customerId);
+    if (own.allowedFacilityIds.length === 0) {
+      throw new BadRequestException({
+        code: 'credential_scope_required',
+        message: 'Este inquilino no tiene trasteros en uso: elige qué locales abre',
+      });
+    }
+    return own;
+  }
 
   /**
    * ¿El PIN colisiona con otra credencial VIVA del mismo tenant? Como el verify
@@ -226,22 +349,34 @@ export class AccessCredentialsService {
   }
 
   async list(tenantId: string, filters: ListFilters): Promise<AccessCredentialDto[]> {
+    const facilities = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (facilities === null) return [];
     const where: Prisma.AccessCredentialWhereInput = {};
     if (filters.status) where.status = filters.status as AccessCredentialStatus;
     if (filters.method) where.method = filters.method as AccessMethod;
     if (filters.customerId) where.customerId = filters.customerId;
-    if (filters.facilityScope) {
-      where.customer = {
-        contracts: { some: { unit: { facilityId: { in: filters.facilityScope } } } },
-      };
+    const customer: Prisma.CustomerWhereInput = {};
+    if (facilities) {
+      customer.contracts = { some: { unit: { facilityId: { in: facilities } } } };
     }
+    const words = filters.search?.trim().split(/\s+/).filter(Boolean) ?? [];
+    if (words.length > 0) {
+      customer.AND = words.map((w) => ({
+        OR: [
+          { firstName: { contains: w, mode: 'insensitive' as const } },
+          { lastName: { contains: w, mode: 'insensitive' as const } },
+          { companyName: { contains: w, mode: 'insensitive' as const } },
+        ],
+      }));
+    }
+    if (Object.keys(customer).length > 0) where.customer = customer;
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.accessCredential.findMany({
           where,
           include: CUSTOMER_SELECT,
-          orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
-          take: 500,
+          orderBy: [{ status: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }],
+          ...pageArgs(filters.page),
         }),
       tenantId,
     );
@@ -252,20 +387,22 @@ export class AccessCredentialsService {
   async listNightPasses(
     tenantId: string,
     facilityScope?: string[] | null,
+    facilityId?: string,
   ): Promise<NightPassListDto> {
+    const facilities = resolveFacilityFilter(facilityScope, facilityId);
     return this.prisma.withTenant(async (tx) => {
-      const rows = await tx.accessCredential.findMany({
-        where: {
-          tenantId,
-          metadata: { path: ['source'], equals: 'night_pass' },
-          ...(facilityScope
-            ? { customer: { contracts: { some: { unit: { facilityId: { in: facilityScope } } } } } }
-            : {}),
-        },
-        include: CUSTOMER_SELECT,
-        orderBy: { createdAt: 'desc' },
-        take: 500,
-      });
+      const rows =
+        facilities === null
+          ? []
+          : await tx.accessCredential.findMany({
+              where: {
+                tenantId,
+                metadata: { path: ['source'], equals: 'night_pass' },
+                ...(facilities ? { allowedFacilityIds: { hasSome: facilities } } : {}),
+              },
+              include: CUSTOMER_SELECT,
+              orderBy: { createdAt: 'desc' },
+            });
       const now = new Date();
       const passes: NightPassListDto['passes'] = rows.map((r) => {
         let status: 'active' | 'used' | 'expired';
@@ -291,14 +428,19 @@ export class AccessCredentialsService {
       // Ingresos: suma de las líneas de factura «Pase nocturno» (excluye draft/cancelled).
       const items = await tx.invoiceItem.findMany({
         where: {
-          invoice: { tenantId, status: { notIn: ['draft', 'cancelled'] } },
+          invoice: {
+            tenantId,
+            status: { notIn: ['draft', 'cancelled'] },
+            ...(facilities ? { facilityId: { in: facilities } } : {}),
+          },
           description: { contains: 'Pase nocturno', mode: 'insensitive' },
         },
         select: { total: true },
       });
       const revenue = items.reduce((sum, it) => sum + Number(it.total), 0);
       return {
-        passes,
+        // La tabla enseña los últimos; las cifras cuentan todos.
+        passes: passes.slice(0, NIGHT_PASS_LIST_LIMIT),
         total: passes.length,
         active: passes.filter((p) => p.status === 'active').length,
         used: passes.filter((p) => p.status === 'used').length,
@@ -325,6 +467,17 @@ export class AccessCredentialsService {
   }): Promise<AccessCredentialWithSecretDto> {
     const input = args.input;
     await this.assertCustomerInScope(args.tenantId, input.customerId, args.facilityScope);
+    const isInternal = args.userId === null;
+    const access = isInternal
+      ? { allowedFacilityIds: input.allowedFacilityIds, allowedUnitIds: input.allowedUnitIds }
+      : await this.resolveManualScope({
+          tenantId: args.tenantId,
+          customerId: input.customerId,
+          allFacilities: input.allFacilities ?? false,
+          allowedFacilityIds: input.allowedFacilityIds,
+          allowedUnitIds: input.allowedUnitIds,
+          facilityScope: args.facilityScope,
+        });
     let secretHash: string | null = null;
     let secretPreview: string | null = null;
     let rfidUid: string | null = null;
@@ -351,6 +504,7 @@ export class AccessCredentialsService {
           message: 'rfidUid requerido cuando method=rfid',
         });
       }
+      await this.assertRfidFree(args.tenantId, input.rfidUid);
       rfidUid = input.rfidUid;
     }
 
@@ -365,8 +519,8 @@ export class AccessCredentialsService {
       secretPreview,
       secretEncrypted,
       rfidUid,
-      allowedFacilityIds: input.allowedFacilityIds,
-      allowedUnitIds: input.allowedUnitIds,
+      allowedFacilityIds: access.allowedFacilityIds,
+      allowedUnitIds: access.allowedUnitIds,
       allowedHours: input.allowedHours as Prisma.InputJsonValue,
       bypassCurfew: input.bypassCurfew,
       maxUses: input.maxUses ?? null,
@@ -447,13 +601,27 @@ export class AccessCredentialsService {
     meta: RequestMeta;
     facilityScope?: string[] | null;
   }): Promise<AccessCredentialDto> {
-    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const data: Prisma.AccessCredentialUncheckedUpdateInput = {};
     const input = args.input;
     if (input.label !== undefined) data.label = input.label?.trim() || null;
-    if (input.allowedFacilityIds !== undefined)
-      data.allowedFacilityIds = { set: input.allowedFacilityIds };
-    if (input.allowedUnitIds !== undefined) data.allowedUnitIds = { set: input.allowedUnitIds };
+    const scopeChanged =
+      input.allFacilities !== undefined ||
+      input.allowedFacilityIds !== undefined ||
+      input.allowedUnitIds !== undefined;
+    if (scopeChanged) {
+      const access = await this.resolveManualScope({
+        tenantId: args.tenantId,
+        customerId: existing.customerId,
+        allFacilities: input.allFacilities ?? false,
+        allowedFacilityIds: input.allowedFacilityIds ?? [],
+        allowedUnitIds: input.allowedUnitIds ?? [],
+        facilityScope: args.facilityScope,
+      });
+      data.allowedFacilityIds = { set: access.allowedFacilityIds };
+      data.allowedUnitIds = { set: access.allowedUnitIds };
+    }
+    if (input.bypassCurfew !== undefined) data.bypassCurfew = input.bypassCurfew;
     if (input.allowedHours !== undefined)
       data.allowedHours = input.allowedHours as Prisma.InputJsonValue;
     if (input.expiresAt !== undefined)
@@ -469,6 +637,7 @@ export class AccessCredentialsService {
       args.tenantId,
     );
     await this.writeAudit('access.credential_updated', args, args.id);
+    await this.sync.syncCredential(args.tenantId, args.id);
     return this.toDto(updated);
   }
 
@@ -510,6 +679,7 @@ export class AccessCredentialsService {
           message: 'rfidUid requerido para rotar credencial rfid',
         });
       }
+      await this.assertRfidFree(args.tenantId, args.input.rfidUid, args.id);
       data.rfidUid = args.input.rfidUid;
       revealedSecret = null;
     }
@@ -524,6 +694,7 @@ export class AccessCredentialsService {
       args.tenantId,
     );
     await this.writeAudit('access.credential_rotated', args, args.id);
+    await this.sync.syncCredential(args.tenantId, args.id);
     return { ...this.toDto(updated), revealedSecret };
   }
 
@@ -687,6 +858,7 @@ export class AccessCredentialsService {
           data: {
             status: 'revoked' as AccessCredentialStatus,
             revokedAt: new Date(),
+            facePhotoKey: null,
           },
           include: CUSTOMER_SELECT,
         }),
@@ -694,7 +866,80 @@ export class AccessCredentialsService {
     );
     await this.writeAudit('access.credential_revoked', args, args.id);
     await this.sync.applyState(args.tenantId, args.id, 'revoked');
+    // La foto de una cara ya no hace falta: es un dato biométrico.
+    if (existing.facePhotoKey) {
+      await this.files.deleteObjects('uploads', [existing.facePhotoKey]).catch(() => undefined);
+    }
     return this.toDto(updated);
+  }
+
+  /**
+   * Revoca todo lo que abre algo a nombre del inquilino: PIN, QR, tarjetas y
+   * caras, activas o suspendidas. Es lo que pasa al irse del todo.
+   */
+  async revokeAllForCustomer(tenantId: string, customerId: string): Promise<number> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findMany({
+          where: {
+            customerId,
+            status: { in: ['active', 'suspended', 'pending'] as AccessCredentialStatus[] },
+          },
+          select: { id: true },
+        }),
+      tenantId,
+    );
+    for (const row of rows) {
+      await this.revoke({ tenantId, userId: null, id: row.id, meta: {} });
+    }
+    return rows.length;
+  }
+
+  /**
+   * Repaso periódico: marca lo caducado o gastado (y lo saca de los terminales)
+   * y revoca lo que le quede a quien ya no tiene ningún contrato.
+   */
+  async sweep(now = new Date()): Promise<{ expired: number; revoked: number }> {
+    const due = await this.admin.accessCredential.findMany({
+      where: {
+        OR: [
+          { status: 'active' as AccessCredentialStatus, expiresAt: { lte: now } },
+          { status: 'expired' as AccessCredentialStatus, syncEntries: { some: {} } },
+        ],
+      },
+      select: { id: true, tenantId: true, status: true },
+      take: 2000,
+    });
+    for (const c of due) {
+      if (c.status === 'active') {
+        await this.admin.accessCredential.updateMany({
+          where: { id: c.id, status: 'active' as AccessCredentialStatus },
+          data: { status: 'expired' as AccessCredentialStatus },
+        });
+      }
+      await this.sync.applyState(c.tenantId, c.id, 'revoked');
+    }
+
+    // Quien tuvo contrato y ya no tiene ninguno. Sin contrato nunca (equipo,
+    // proveedores) no se toca: no se ha ido de ningún sitio.
+    const gone = await this.admin.customer.findMany({
+      where: {
+        credentials: {
+          some: {
+            status: { in: ['active', 'suspended', 'pending'] as AccessCredentialStatus[] },
+          },
+        },
+        contracts: {
+          some: { status: { in: ['ended', 'cancelled'] } },
+          none: { status: { in: ['draft', 'active', 'ending'] }, deletedAt: null },
+        },
+      },
+      select: { id: true, tenantId: true },
+      take: 500,
+    });
+    let revoked = 0;
+    for (const c of gone) revoked += await this.revokeAllForCustomer(c.tenantId, c.id);
+    return { expired: due.length, revoked };
   }
 
   // ===================== portal del inquilino =============================
@@ -866,6 +1111,7 @@ export class AccessCredentialsService {
       (tx) => tx.accessCredential.update({ where: { id: credentialId }, data }),
       tenantId,
     );
+    await this.sync.syncCredential(tenantId, credentialId);
     return {
       id: updated.id,
       method: updated.method as 'pin' | 'qr',
@@ -941,6 +1187,7 @@ export class AccessCredentialsService {
     customerId: string,
     label: string,
   ): Promise<PortalAccessCredentialDto> {
+    await this.assertNotCutForDebt(tenantId, customerId);
     const limit = await this.prisma.withTenant(
       (tx) => tx.tenant.findUnique({ where: { id: tenantId }, select: { extraAccessLimit: true } }),
       tenantId,
@@ -1001,6 +1248,7 @@ export class AccessCredentialsService {
     customerId: string,
     args: { label: string; facilityId?: string | undefined; authorizedPersonId?: string | null },
   ): Promise<PortalAccessCredentialDto & { facilityId: string }> {
+    await this.assertNotCutForDebt(tenantId, customerId);
     const all = await this.requireCustomerScope(tenantId, customerId);
     let facilityId = args.facilityId;
     if (facilityId && !all.allowedFacilityIds.includes(facilityId)) {
@@ -1094,7 +1342,13 @@ export class AccessCredentialsService {
     customerId: string,
     facilityId?: string,
   ): Promise<PortalAccessCredentialDto> {
+    await this.assertNotCutForDebt(tenantId, customerId);
     const scope = await this.requireCustomerScope(tenantId, customerId, facilityId);
+    const passFacilityId = facilityId ?? (scope.allowedFacilityIds[0] as string);
+    const facility = await this.prisma.withTenant(
+      (tx) => tx.facility.findFirst({ where: { id: passFacilityId }, select: { timezone: true } }),
+      tenantId,
+    );
     const created = await this.create({
       tenantId,
       userId: null,
@@ -1107,7 +1361,7 @@ export class AccessCredentialsService {
         allowedHours: { windows: [] },
         bypassCurfew: true,
         maxUses: 1,
-        expiresAt: nextMorningIso(),
+        expiresAt: nextMorningIso(facility?.timezone ?? 'Europe/Madrid'),
         metadata: { source: 'night_pass', ...(facilityId ? { facilityId } : {}) },
       } as CreateCredentialInput,
       meta: {},
@@ -1150,6 +1404,7 @@ export class AccessCredentialsService {
     const today = todayInTimezone(facility.timezone).toISOString().slice(0, 10);
     const expiresAt = zonedNextDayStart(today, facility.timezone).toISOString();
     const scope = await this.customerScope(args.tenantId, args.customerId, args.facilityId);
+    const customerCutForDebt = await this.isCutForDebt(args.tenantId, args.customerId);
     const created = await this.create({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -1170,7 +1425,12 @@ export class AccessCredentialsService {
       } as CreateCredentialInput,
       meta: args.meta,
     });
-    return { credentialId: created.id, pin: created.revealedSecret ?? '', expiresAt };
+    return {
+      credentialId: created.id,
+      pin: created.revealedSecret ?? '',
+      expiresAt,
+      customerCutForDebt,
+    };
   }
 
   private async findOrThrow(
@@ -1293,9 +1553,16 @@ export class AccessCredentialsService {
       customerId: c.customerId,
       customerName: customerDisplay(c.customer),
       method: c.method as AccessMethodValue,
-      status: c.status as AccessCredentialStatusValue,
+      // Lo caducado se enseña como tal aunque el repaso aún no haya pasado.
+      status: (c.status === 'active' && c.expiresAt && c.expiresAt <= new Date()
+        ? 'expired'
+        : c.status) as AccessCredentialStatusValue,
       label: c.label,
-      secretPreview: c.secretPreview,
+      // En un PIN, dos cifras bastan para reconocerlo y no ayudan a adivinarlo.
+      secretPreview:
+        c.method === 'pin' && c.secretPreview
+          ? `••••${c.secretPreview.slice(-2)}`
+          : c.secretPreview,
       rfidUid: c.rfidUid,
       allowedFacilityIds: c.allowedFacilityIds,
       allowedUnitIds: c.allowedUnitIds,

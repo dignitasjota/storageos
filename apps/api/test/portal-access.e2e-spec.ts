@@ -48,14 +48,20 @@ describe('Portal: acceso por QR/PIN (e2e)', () => {
     const pinRes = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId, method: 'pin', pin: '482193', label: 'Puerta principal' });
+      .send({
+        allFacilities: true,
+        customerId,
+        method: 'pin',
+        pin: '482193',
+        label: 'Puerta principal',
+      });
     expect(pinRes.status).toBe(201);
     expect(pinRes.body.revealedSecret).toBe('482193');
 
     const qrRes = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId, method: 'qr', label: 'QR móvil' });
+      .send({ allFacilities: true, customerId, method: 'qr', label: 'QR móvil' });
     expect(qrRes.status).toBe(201);
     const qrToken = qrRes.body.revealedSecret as string;
     expect(qrToken).toBeTruthy();
@@ -141,7 +147,7 @@ describe('Portal: acceso por QR/PIN (e2e)', () => {
     const credA = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId: customerA, method: 'pin', pin: '123487' });
+      .send({ allFacilities: true, customerId: customerA, method: 'pin', pin: '123487' });
     expect(credA.status).toBe(201);
 
     const tokenB = await portalLogin(owner.slug, emailB);

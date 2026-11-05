@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { LockProvider, type OpenLockArgs, type OpenLockResult } from './lock-provider';
+import {
+  LockProvider,
+  type OpenLockArgs,
+  type OpenLockResult,
+  type PingLockResult,
+} from './lock-provider';
 
 /**
  * Stub que solo loggea. Util en dev/test donde no hay hardware. La
@@ -24,6 +29,10 @@ export class StubLockProvider extends LockProvider {
       `[lock_stub] tenant=${args.tenantId} device=${args.deviceId} close dispatched`,
     );
     return { dispatched: true, message: 'stub' };
+  }
+
+  override async ping(): Promise<PingLockResult> {
+    return { supported: true, online: true };
   }
 
   async start(): Promise<void> {

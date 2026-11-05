@@ -42,3 +42,39 @@ export async function compressImage(file: File): Promise<File> {
     return file;
   }
 }
+
+/**
+ * Deja la foto de una cara por debajo de los 100 KB que admiten los terminales:
+ * baja de tamaño y de calidad hasta que quepa. Si no puede, devuelve el fichero.
+ */
+export async function compressFacePhoto(file: File, maxBytes = 100_000): Promise<File> {
+  if (file.size <= maxBytes) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    for (const [side, quality] of [
+      [640, 0.8],
+      [480, 0.75],
+      [360, 0.7],
+      [280, 0.6],
+    ] as const) {
+      const scale = Math.min(1, side / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return file;
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', quality),
+      );
+      if (blob && blob.size <= maxBytes) {
+        bitmap.close();
+        return new File([blob], `${file.name.replace(/\.\w+$/, '')}.jpg`, { type: 'image/jpeg' });
+      }
+    }
+    bitmap.close();
+    return file;
+  } catch {
+    return file;
+  }
+}

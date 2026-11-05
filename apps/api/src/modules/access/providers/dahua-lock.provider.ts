@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { digestRequest } from './digest-fetch';
-import { LockProvider, type OpenLockArgs, type OpenLockResult } from './lock-provider';
+import {
+  LockProvider,
+  type OpenLockArgs,
+  type OpenLockResult,
+  type PingLockResult,
+} from './lock-provider';
 
 const TIMEOUT_MS = 8_000;
 
@@ -38,6 +43,22 @@ export class DahuaLockProvider extends LockProvider {
   /** Cierre remoto / lockdown (echa el cerrojo del terminal). */
   override async close(args: OpenLockArgs): Promise<OpenLockResult> {
     return this.sendCommand(args, 'closeDoor');
+  }
+
+  /** Consulta de solo lectura: no toca la puerta. */
+  override async ping(args: OpenLockArgs): Promise<PingLockResult> {
+    if (!args.controlUrl || !args.controlSecret?.includes(':')) {
+      return { supported: false, online: false };
+    }
+    const [username, ...rest] = args.controlSecret.split(':');
+    const res = await digestRequest({
+      url: `${args.controlUrl.replace(/\/+$/, '')}/cgi-bin/magicBox.cgi?action=getSystemInfo`,
+      method: 'GET',
+      username: username as string,
+      password: rest.join(':'),
+      timeoutMs: TIMEOUT_MS,
+    });
+    return { supported: true, online: res.ok };
   }
 
   private async sendCommand(

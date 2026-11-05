@@ -2,7 +2,12 @@ import { createHmac } from 'node:crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
 
-import { LockProvider, type OpenLockArgs, type OpenLockResult } from './lock-provider';
+import {
+  LockProvider,
+  type OpenLockArgs,
+  type OpenLockResult,
+  type PingLockResult,
+} from './lock-provider';
 
 const TIMEOUT_MS = 8_000;
 
@@ -71,6 +76,28 @@ export class HttpLockProvider extends LockProvider {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.warn(`[http-lock] fallo POST a ${args.controlUrl}: ${msg}`);
       return { dispatched: false, message: 'http_error' };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * HEAD a la dirección del controlador: sin cuerpo ni firma no ejecuta ninguna
+   * orden, y cualquier respuesta (también un 401 o un 405) dice que está vivo.
+   */
+  override async ping(args: OpenLockArgs): Promise<PingLockResult> {
+    if (!args.controlUrl) return { supported: false, online: false };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      await fetch(args.controlUrl, {
+        method: 'HEAD',
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+      return { supported: true, online: true };
+    } catch {
+      return { supported: true, online: false };
     } finally {
       clearTimeout(timer);
     }

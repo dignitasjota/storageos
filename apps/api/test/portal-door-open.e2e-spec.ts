@@ -75,7 +75,7 @@ describe('Portal: abrir puerta desde el móvil (e2e)', () => {
     const cred = await request(app.getHttpServer())
       .post('/access/credentials')
       .set(auth)
-      .send({ customerId, method: 'pin' });
+      .send({ allFacilities: true, customerId, method: 'pin' });
     expect(cred.status).toBe(201);
 
     const portalToken = await portalLogin(owner.slug, email);

@@ -24,6 +24,7 @@ import {
   RotateCredentialSchema,
   SuspendCredentialSchema,
   UpdateCredentialSchema,
+  MAX_PAGE_SIZE,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -33,10 +34,12 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { parsePageRequest, toPage } from '../../common/pagination';
 
 import { AccessCredentialsService } from './access-credentials.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateCredentialDto extends createZodDto(CreateCredentialSchema) {}
@@ -78,6 +81,7 @@ export class AccessCredentialsController {
     @Query('status') status?: string,
     @Query('customerId') customerId?: string,
     @Query('method') method?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<AccessCredentialDto[]> {
     const parsedStatus = parseStatus(status);
     const parsedMethod = parseMethod(method);
@@ -85,15 +89,48 @@ export class AccessCredentialsController {
       ...(parsedStatus ? { status: parsedStatus } : {}),
       ...(customerId ? { customerId } : {}),
       ...(parsedMethod ? { method: parsedMethod } : {}),
+      ...(facilityId ? { facilityId } : {}),
       facilityScope: user.facilityScope ?? null,
+      page: { limit: MAX_PAGE_SIZE },
     });
+  }
+
+  /** La lista por páginas, con búsqueda por inquilino. Antes de `:id`. */
+  @RequirePermission('access:read')
+  @Get('page')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: string,
+    @Query('customerId') customerId?: string,
+    @Query('method') method?: string,
+    @Query('facilityId') facilityId?: string,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<AccessCredentialDto>> {
+    const parsedStatus = parseStatus(status);
+    const parsedMethod = parseMethod(method);
+    const page = parsePageRequest(cursor, limit);
+    const rows = await this.service.list(user.tenantId, {
+      ...(parsedStatus ? { status: parsedStatus } : {}),
+      ...(customerId ? { customerId } : {}),
+      ...(parsedMethod ? { method: parsedMethod } : {}),
+      ...(facilityId ? { facilityId } : {}),
+      ...(search ? { search } : {}),
+      facilityScope: user.facilityScope ?? null,
+      page,
+    });
+    return toPage(rows, page);
   }
 
   /** Pases nocturnos del tenant (subpágina de accesos) + ingresos. */
   @RequirePermission('access:read')
   @Get('night-passes')
-  nightPasses(@CurrentUser() user: AuthenticatedUser): Promise<NightPassListDto> {
-    return this.service.listNightPasses(user.tenantId, user.facilityScope ?? null);
+  nightPasses(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<NightPassListDto> {
+    return this.service.listNightPasses(user.tenantId, user.facilityScope ?? null, facilityId);
   }
 
   @RequirePermission('access:read')

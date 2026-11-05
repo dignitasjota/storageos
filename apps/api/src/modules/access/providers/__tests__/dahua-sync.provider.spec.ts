@@ -119,7 +119,11 @@ describe('DahuaSyncProvider', () => {
         }
         if (url.includes('recordFinder.cgi') && url.includes('name=AccessControlCard&')) {
           // Falta el AccessControlCardRec: es la búsqueda del recno de la card.
-          res.end('found=1\r\nrecords[0].RecNo=777\r\nrecords[0].CardNo=12001');
+          res.end(
+            url.includes('condition.CardNo=12001')
+              ? 'found=1\r\nrecords[0].RecNo=777\r\nrecords[0].CardNo=12001'
+              : 'found=0',
+          );
           return;
         }
         if (url.includes('recordFinder.cgi') && url.includes('AccessControlCardRec')) {
@@ -196,6 +200,14 @@ describe('DahuaSyncProvider', () => {
       await provider.pushCredential({ ...device, channel: 2 }, pinSpec);
       const insert = urls.find((u) => u.includes('action=insert'));
       expect(insert).toContain('Doors[0]=1'); // channel=2 → índice base 0 = 1
+    });
+
+    it('si la tarjeta ya está en el terminal, la reescribe en vez de duplicarla', async () => {
+      urls.length = 0;
+      await provider.pushCredential(device, { ...pinSpec, method: 'rfid', secret: '12001' });
+      expect(urls.some((u) => u.includes('action=insert'))).toBe(false);
+      const update = urls.find((u) => u.includes('action=update'));
+      expect(update).toContain('recno=777');
     });
 
     it('setState resuelve el recno vía recordFinder y actualiza CardStatus=8 (impago)', async () => {

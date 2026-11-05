@@ -186,7 +186,7 @@ describe('Mejoras de «Hoy» del panel del tenant (e2e)', () => {
     const pin = await http()
       .post('/access/credentials')
       .set(auth)
-      .send({ customerId, method: 'pin', label: 'Mostrador' })
+      .send({ allFacilities: true, customerId, method: 'pin', label: 'Mostrador' })
       .expect(201);
     const access = await http()
       .get(`/dashboard/today/desk/customers/${customerId}/access`)

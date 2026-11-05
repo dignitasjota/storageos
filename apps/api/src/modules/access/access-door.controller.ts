@@ -1,5 +1,10 @@
 import { Body, Controller, Get, NotFoundException, Post, Query, Req } from '@nestjs/common';
-import { type DoorViewDto, VisitorPinSchema, type VisitorPinDto } from '@storageos/shared';
+import {
+  type DoorViewDto,
+  isStaffAccessLog,
+  VisitorPinSchema,
+  type VisitorPinDto,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -67,7 +72,8 @@ export class AccessDoorController {
     return this.prisma.withTenant(async (tx) => {
       const [devices, ins, outs, recent] = await Promise.all([
         tx.accessDevice.findMany({
-          where: { facilityId: facility.id, isActive: true },
+          // Las puertas del local; las cerraduras de cada trastero van en Dispositivos.
+          where: { facilityId: facility.id, isActive: true, unitId: null },
           select: { id: true, name: true, lastSeenAt: true },
           orderBy: { name: 'asc' },
         }),
@@ -109,6 +115,7 @@ export class AccessDoorController {
             id: true,
             occurredAt: true,
             result: true,
+            reason: true,
             customer: CUSTOMER,
             device: { select: { name: true } },
           },
@@ -136,6 +143,7 @@ export class AccessDoorController {
           result: l.result,
           customerName: l.customer ? personName(l.customer) : null,
           deviceName: l.device?.name ?? null,
+          fromStaff: isStaffAccessLog(l.reason),
         })),
       };
     }, user.tenantId);

@@ -74,6 +74,12 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         permission: 'settings:manage',
       },
       {
+        href: '/settings/access',
+        label: 'Accesos del inquilino',
+        description: 'Accesos adicionales y pase nocturno que se da desde su área de clientes.',
+        permission: 'settings:manage',
+      },
+      {
         href: '/settings/security',
         label: 'Seguridad',
         description: 'Exigir la verificación en dos pasos a propietarios y gestores.',

@@ -31,25 +31,34 @@ describe('Unicidad de PIN de credenciales (e2e)', () => {
     const c1 = await createCustomer(app, owner.accessToken);
     const c2 = await createCustomer(app, owner.accessToken);
 
-    const first = await request(app.getHttpServer())
-      .post('/access/credentials')
-      .set(auth)
-      .send({ customerId: c1, method: 'pin', pin: '112233', allowedHours: {} });
+    const first = await request(app.getHttpServer()).post('/access/credentials').set(auth).send({
+      allFacilities: true,
+      customerId: c1,
+      method: 'pin',
+      pin: '112233',
+      allowedHours: {},
+    });
     expect(first.status).toBe(201);
 
     // Mismo PIN (otro inquilino) → colisión → 409.
-    const dup = await request(app.getHttpServer())
-      .post('/access/credentials')
-      .set(auth)
-      .send({ customerId: c2, method: 'pin', pin: '112233', allowedHours: {} });
+    const dup = await request(app.getHttpServer()).post('/access/credentials').set(auth).send({
+      allFacilities: true,
+      customerId: c2,
+      method: 'pin',
+      pin: '112233',
+      allowedHours: {},
+    });
     expect(dup.status).toBe(409);
     expect(dup.body.code).toBe('pin_collision');
 
     // PIN distinto → OK.
-    const ok = await request(app.getHttpServer())
-      .post('/access/credentials')
-      .set(auth)
-      .send({ customerId: c2, method: 'pin', pin: '445566', allowedHours: {} });
+    const ok = await request(app.getHttpServer()).post('/access/credentials').set(auth).send({
+      allFacilities: true,
+      customerId: c2,
+      method: 'pin',
+      pin: '445566',
+      allowedHours: {},
+    });
     expect(ok.status).toBe(201);
   });
 
@@ -69,7 +78,7 @@ describe('Unicidad de PIN de credenciales (e2e)', () => {
         const res = await request(app.getHttpServer())
           .post('/access/credentials')
           .set(auth)
-          .send({ customerId, method: 'pin', pin, allowedHours: {} });
+          .send({ allFacilities: true, customerId, method: 'pin', pin, allowedHours: {} });
         expect(res.status).toBe(201);
       }
 
@@ -78,7 +87,7 @@ describe('Unicidad de PIN de credenciales (e2e)', () => {
       const overflow = await request(app.getHttpServer())
         .post('/access/credentials')
         .set(auth)
-        .send({ customerId, method: 'pin', pin: '209999', allowedHours: {} });
+        .send({ allFacilities: true, customerId, method: 'pin', pin: '209999', allowedHours: {} });
       expect(overflow.status).toBe(409);
       expect(overflow.body.code).toBe('pin_preview_saturated');
 
@@ -86,7 +95,7 @@ describe('Unicidad de PIN de credenciales (e2e)', () => {
       const other = await request(app.getHttpServer())
         .post('/access/credentials')
         .set(auth)
-        .send({ customerId, method: 'pin', pin: '778888', allowedHours: {} });
+        .send({ allFacilities: true, customerId, method: 'pin', pin: '778888', allowedHours: {} });
       expect(other.status).toBe(201);
     },
   );

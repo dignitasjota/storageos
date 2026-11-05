@@ -87,6 +87,8 @@ export interface AccessLogDto {
   ipAddress: string | null;
   metadata: Record<string, unknown>;
   occurredAt: string;
+  /** Apertura o cierre desde el panel: quién lo hizo. */
+  staffName: string | null;
 }
 
 export interface VerifyAccessResultDto {
@@ -170,4 +172,31 @@ export interface NightPassListDto {
   expired: number;
   /** Ingresos facturados por pases nocturnos (suma de las líneas «Pase nocturno»). */
   revenue: number;
+}
+
+/** Motivos del registro de accesos que no son texto para leer. */
+const ACCESS_REASON_LABELS: Record<string, string> = {
+  remote_open_by_staff: 'Apertura desde el panel',
+  remote_close_by_staff: 'Cierre desde el panel',
+  portal_open_by_customer: 'Apertura desde el área de clientes',
+  reconciled_from_device: 'Registrado por el terminal',
+  control_url_unsafe: 'Dirección del equipo no permitida',
+  lock_error: 'La cerradura no ha respondido',
+  http_error: 'La cerradura no ha respondido',
+  redirect_not_allowed: 'La cerradura no ha respondido',
+  device_sin_control_url: 'Equipo sin dirección configurada',
+  device_sin_credenciales_digest: 'Equipo sin usuario y contraseña',
+  close_not_supported: 'El equipo no admite cierre remoto',
+};
+
+/** Motivo de un registro de acceso, en palabras. */
+export function accessReasonLabel(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  const text = reason.replace(/^portal: /, '');
+  return ACCESS_REASON_LABELS[text] ?? text;
+}
+
+/** ¿Es una apertura o un cierre hecho por el equipo, y no una entrada? */
+export function isStaffAccessLog(reason: string | null | undefined): boolean {
+  return reason === 'remote_open_by_staff' || reason === 'remote_close_by_staff';
 }
