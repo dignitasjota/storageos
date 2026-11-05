@@ -1545,6 +1545,8 @@ model Contract {
   /// Recordatorio de reserva online sin terminar ya enviado (una vez).
   bookingReminderSentAt  DateTime? @map("booking_reminder_sent_at") @db.Timestamptz(6)
   autoRenew              Boolean               @default(true) @map("auto_renew")
+  /// Meses de cada prórroga automática (se fija en la primera).
+  termMonths             Int?                  @map("term_months")
   cancellationNoticeDays Int                   @default(15) @map("cancellation_notice_days")
   /// Seguro/protección opcional: plan asignado + prima mensual congelada al asignar.
   insurancePlanId        String?               @map("insurance_plan_id") @db.Uuid

@@ -231,6 +231,8 @@ export const CreateContractSchema = z.object({
   autoRenew: z.boolean().default(true),
   cancellationNoticeDays: z.number().int().min(0).max(365).default(15),
   notes: optionalText(2000),
+  /** Reserva que se convierte en este contrato (mismo trastero e inquilino). */
+  reservationId: z.string().uuid().optional(),
 });
 export type CreateContractInput = z.infer<typeof CreateContractSchema>;
 

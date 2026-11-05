@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { rentTax } from '@storageos/shared';
+import { CreateContractSchema, rentTax } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { toCents } from '../../common/money';
@@ -483,10 +483,34 @@ export class ReservationsService {
   async onInvoicePaid(p: DomainEventPayload): Promise<void> {
     if (p.entityType !== 'invoice') return;
     try {
-      await this.admin.reservation.updateMany({
+      const reservation = await this.admin.reservation.findFirst({
         where: { tenantId: p.tenantId, depositInvoiceId: p.entityId, depositPaid: false },
+        select: { id: true, convertedContractId: true },
+      });
+      if (!reservation) return;
+      const claimed = await this.admin.reservation.updateMany({
+        where: { id: reservation.id, depositPaid: false },
         data: { depositPaid: true },
       });
+      // Reserva ya convertida: la señal se descuenta de la próxima factura.
+      if (claimed.count === 0 || !reservation.convertedContractId) return;
+      const invoice = await this.admin.invoice.findFirst({
+        where: { id: p.entityId },
+        select: { invoiceNumber: true, items: { select: { total: true, taxAmount: true } } },
+      });
+      const baseCents = (invoice?.items ?? []).reduce(
+        (acc, it) => acc + toCents(Number(it.total) - Number(it.taxAmount)),
+        0,
+      );
+      if (baseCents > 0) {
+        await this.admin.contract.update({
+          where: { id: reservation.convertedContractId },
+          data: {
+            pendingCreditAmount: { increment: baseCents / 100 },
+            pendingCreditReason: `señal ${invoice?.invoiceNumber ?? ''}`.trim(),
+          },
+        });
+      }
     } catch (err) {
       this.logger.warn(`Señal cobrada sin marcar (factura ${p.entityId}): ${String(err)}`);
     }
@@ -502,6 +526,7 @@ export class ReservationsService {
   }): Promise<ReservationDto> {
     const existing = await this.findOrThrow(args.tenantId, args.reservationId, args.facilityScope);
     this.assertTransition(existing.status, 'cancelled');
+    let releasedUnit = false;
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.reservation.update({
         where: { id: args.reservationId },
@@ -558,6 +583,7 @@ export class ReservationsService {
                 reason: `Reserva ${row.id} cancelada`,
               },
             });
+            releasedUnit = true;
           }
         }
       }
@@ -574,7 +600,71 @@ export class ReservationsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    await this.settleSignal(args.tenantId, args.userId, updated, 'Reserva cancelada');
+    if (releasedUnit) {
+      this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
+        tenantId: args.tenantId,
+        unitId: existing.unitId,
+      } satisfies UnitAvailablePayload);
+    }
     return this.toDto(updated);
+  }
+
+  /**
+   * La reserva se cae con una señal facturada. Sin cobrar, la factura se anula
+   * (si no, seguiría en impagos). Cobrada, queda un abono en borrador para que
+   * el equipo decida: se revisa, se emite y se devuelve a mano. Best-effort.
+   */
+  private async settleSignal(
+    tenantId: string,
+    userId: string | null,
+    r: { id: string; depositInvoiceId: string | null; unit: { code: string; facilityId: string } },
+    reason: string,
+  ): Promise<void> {
+    if (!r.depositInvoiceId) return;
+    try {
+      const invoice = await this.invoices.detail(tenantId, r.depositInvoiceId);
+      if (invoice.status === 'paid') {
+        const credit = await this.invoices.rectify({
+          originalInvoiceId: invoice.id,
+          tenantId,
+          userId,
+          input: {
+            rectificationType: 'R1',
+            reason: `${reason}: abono de la señal`,
+            correctionMethod: 'by_differences',
+            items: invoice.items.map((i) => ({
+              description: `Abono de la señal — ${i.description}`,
+              quantity: 1,
+              unitPrice: -Number(i.unitPrice) * Number(i.quantity),
+              taxRate: i.taxRate,
+              taxCategory: i.taxCategory,
+            })),
+          },
+          meta: {},
+        });
+        await this.admin.notification.create({
+          data: {
+            tenantId,
+            type: 'reservation.signal_credit_pending',
+            title: `Señal por devolver — trastero ${r.unit.code}`,
+            body: `${reason}. La señal estaba cobrada: revisa el abono en borrador, emítelo y devuelve el importe si corresponde.`,
+            link: `/invoices/${credit.id}`,
+            facilityId: r.unit.facilityId,
+          },
+        });
+      } else if (['draft', 'issued', 'overdue'].includes(invoice.status)) {
+        await this.invoices.cancel({
+          tenantId,
+          userId,
+          invoiceId: invoice.id,
+          input: { reason },
+          meta: {},
+        });
+      }
+    } catch (err) {
+      this.logger.warn(`Señal de la reserva ${r.id} sin resolver: ${String(err)}`);
+    }
   }
 
   async convertToContract(args: {
@@ -600,11 +690,14 @@ export class ReservationsService {
       });
     }
 
-    const contract = await this.prisma.withTenant(async (tx) => {
-      const created = await this.contracts.createFromReservation(tx, {
-        tenantId: args.tenantId,
-        userId: args.userId,
-        reservationId: args.reservationId,
+    // Mismo camino que un alta normal: propietario del local, local por abrir,
+    // inquilino sin fianza… y la reserva queda convertida en la misma transacción.
+    const contract = await this.contracts.create({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      facilityScope: args.facilityScope ?? null,
+      meta: args.meta,
+      input: CreateContractSchema.parse({
         customerId,
         unitId: existing.unitId,
         startDate: args.input.startDate,
@@ -614,35 +707,9 @@ export class ReservationsService {
         ...(args.input.discountReason ? { discountReason: args.input.discountReason } : {}),
         depositAmount: args.input.depositAmount,
         billingCycle: args.input.billingCycle,
-      });
-      await tx.reservation.update({
-        where: { id: args.reservationId },
-        data: { status: 'converted', convertedContractId: created.id },
-      });
-      // La señal cobrada se descuenta de la primera factura del contrato.
-      if (existing.depositInvoiceId) {
-        const signal = await tx.invoice.findFirst({
-          where: { id: existing.depositInvoiceId, status: 'paid' },
-          select: { invoiceNumber: true, items: { select: { total: true, taxAmount: true } } },
-        });
-        if (signal) {
-          const baseCents = signal.items.reduce(
-            (acc, it) => acc + toCents(Number(it.total) - Number(it.taxAmount)),
-            0,
-          );
-          if (baseCents > 0) {
-            await tx.contract.update({
-              where: { id: created.id },
-              data: {
-                pendingCreditAmount: baseCents / 100,
-                pendingCreditReason: `señal ${signal.invoiceNumber}`,
-              },
-            });
-          }
-        }
-      }
-      return created;
-    }, args.tenantId);
+        reservationId: args.reservationId,
+      }),
+    });
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -723,7 +790,13 @@ export class ReservationsService {
     const { expired, releasedUnitIds } = await this.prisma.withTenant(async (tx) => {
       const due = await tx.reservation.findMany({
         where: { status: { in: ['pending', 'confirmed'] }, validUntil: { lt: new Date() } },
-        select: { id: true, unitId: true, status: true },
+        select: {
+          id: true,
+          unitId: true,
+          status: true,
+          depositInvoiceId: true,
+          unit: { select: { code: true, facilityId: true } },
+        },
       });
       const released: string[] = [];
       for (const r of due) {
@@ -740,8 +813,9 @@ export class ReservationsService {
           if (didRelease) released.push(r.unitId);
         }
       }
-      return { expired: due.length, releasedUnitIds: released };
+      return { expired: due, releasedUnitIds: released };
     }, tenantId);
+    for (const r of expired) await this.settleSignal(tenantId, null, r, 'Reserva caducada');
     // Tras el commit: el trastero liberado queda disponible → avisar a la lista
     // de espera de su tipo (el listener corre en el worker, donde vive el cron).
     for (const unitId of releasedUnitIds) {
@@ -750,7 +824,7 @@ export class ReservationsService {
         unitId,
       } satisfies UnitAvailablePayload);
     }
-    return { expired };
+    return { expired: expired.length };
   }
 
   /**

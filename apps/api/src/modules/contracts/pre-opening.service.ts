@@ -613,6 +613,7 @@ export class PreOpeningService {
         tenantId: args.tenantId,
         userId: args.userId,
         contractId: args.contractId,
+        closeUncollected: true,
         input: preview.refundDeposit
           ? { returnedAmount: Number(contract.depositAmount) }
           : {

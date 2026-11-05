@@ -12,6 +12,7 @@ import { isValidSpanishTaxId, normalizeTaxId, rentTax } from '@storageos/shared'
 import { todayInTimezone } from '../../common/format';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { bookingReady, tenantReadiness } from '../../common/tenant-readiness';
+import { noLiveReservationWhere } from '../../common/unit-holds';
 import { DOMAIN_EVENTS, type BookingCreatedPayload } from '../automations/domain-events';
 import { ContractsService } from '../contracts/contracts.service';
 import { CouponsService } from '../coupons/coupons.service';
@@ -229,6 +230,7 @@ export class BookingService {
         facilityId: input.facilityId,
         unitTypeId: input.unitTypeId,
         status: 'available',
+        ...noLiveReservationWhere(),
         // Un local o un tipo desactivado no se reserva (la web ya no lo enseña).
         facility: { deletedAt: null, isActive: true },
         unitType: { isActive: true },
@@ -363,6 +365,7 @@ export class BookingService {
             facilityId: input.facilityId,
             unitTypeId: input.unitTypeId,
             status: 'available',
+            ...noLiveReservationWhere(),
           },
           // El más barato disponible (el precio que anuncia la web y el resumen).
           orderBy: [{ basePriceMonthly: 'asc' }, { code: 'asc' }],

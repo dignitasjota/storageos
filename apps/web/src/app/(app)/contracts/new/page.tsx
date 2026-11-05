@@ -29,9 +29,9 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useValidateCoupon } from '@/lib/coupons/hooks';
-import { useCreateContract } from '@/lib/customers/hooks';
+import { useCreateContract, useCustomer, useReservation } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
-import { useFacilities, useUnitTypes, useUnits } from '@/lib/facilities/hooks';
+import { useFacilities, useUnit, useUnitTypes, useUnits } from '@/lib/facilities/hooks';
 import { formatDate, formatEur, formatNumber } from '@/lib/format';
 import { useInsurancePlans } from '@/lib/insurance/hooks';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
@@ -60,6 +60,58 @@ export default function NewContractWizardPage() {
 
   const create = useCreateContract();
   const unitTypes = useUnitTypes();
+  const facilities = useFacilities();
+
+  // Entrada con datos: desde el plano, un inquilino o una reserva a convertir.
+  const [prefill, setPrefill] = useState<{
+    customerId?: string;
+    unitId?: string;
+    reservationId?: string;
+  }>({});
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    setPrefill({
+      ...(q.get('customerId') ? { customerId: q.get('customerId')! } : {}),
+      ...(q.get('unitId') ? { unitId: q.get('unitId')! } : {}),
+      ...(q.get('reservationId') ? { reservationId: q.get('reservationId')! } : {}),
+    });
+  }, []);
+  const reservation = useReservation(prefill.reservationId);
+  const prefillCustomer = useCustomer(
+    prefill.customerId ?? reservation.data?.customerId ?? undefined,
+  );
+  const prefillUnit = useUnit(prefill.unitId ?? reservation.data?.unitId);
+
+  function applyUnit(u: UnitDto) {
+    setUnit(u);
+    setPriceMonthly(u.basePriceMonthly);
+    // Fianza del tipo de trastero (como en la reserva online); se puede cambiar.
+    setDepositAmount(unitTypes.data?.find((t) => t.id === u.unitTypeId)?.defaultDepositAmount ?? 0);
+  }
+
+  useEffect(() => {
+    if (prefillCustomer.data && !customer) {
+      setCustomer(prefillCustomer.data);
+      setStep((s) => (s === 1 ? 2 : s));
+    }
+  }, [prefillCustomer.data, customer]);
+  useEffect(() => {
+    if (!prefillUnit.data || unit || !unitTypes.data) return;
+    applyUnit(prefillUnit.data);
+    const r = reservation.data;
+    if (r) {
+      setStartDate(localDateString(new Date(r.validFrom)));
+      // Una señal sin facturar se trata como la fianza; facturada, se descuenta del alquiler.
+      if (r.depositAmount > 0 && !r.depositInvoiceId) setDepositAmount(r.depositAmount);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillUnit.data, unit, unitTypes.data, reservation.data]);
+  useEffect(() => {
+    if (customer && unit) setStep((s) => (s === 2 ? 3 : s));
+  }, [customer, unit]);
+  const preOpeningFacility = unit
+    ? facilities.data?.find((f) => f.id === unit.facilityId && f.preOpening)
+    : undefined;
 
   async function submit() {
     if (!customer || !unit) return;
@@ -82,6 +134,7 @@ export default function NewContractWizardPage() {
       ...(insurancePlanId ? { insurancePlanId } : {}),
       autoRenew: true,
       cancellationNoticeDays: 15,
+      ...(prefill.reservationId ? { reservationId: prefill.reservationId } : {}),
     };
     try {
       const created = await create.mutateAsync(input);
@@ -133,7 +186,7 @@ export default function NewContractWizardPage() {
         <StepCustomer
           onPick={(c) => {
             setCustomer(c);
-            setStep(2);
+            setStep(unit ? 3 : 2);
           }}
         />
       )}
@@ -141,15 +194,26 @@ export default function NewContractWizardPage() {
         <StepUnit
           onBack={() => setStep(1)}
           onPick={(u) => {
-            setUnit(u);
-            setPriceMonthly(u.basePriceMonthly);
-            // Fianza del tipo de trastero (como en la reserva online); se puede cambiar.
-            setDepositAmount(
-              unitTypes.data?.find((t) => t.id === u.unitTypeId)?.defaultDepositAmount ?? 0,
-            );
+            applyUnit(u);
             setStep(3);
           }}
         />
+      )}
+      {step === 3 && reservation.data && reservation.data.depositAmount > 0 && (
+        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+          {reservation.data.depositPaid
+            ? `La señal de ${formatEur(reservation.data.depositAmount)} ya cobrada se descontará del alquiler de la primera factura.`
+            : reservation.data.depositInvoiceId
+              ? 'La señal aún no está cobrada: cuando se cobre, se descontará de la siguiente factura.'
+              : `La señal de ${formatEur(reservation.data.depositAmount)} no se llegó a facturar: se propone como fianza.`}
+        </p>
+      )}
+      {step === 3 && preOpeningFacility && (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+          {preOpeningFacility.name} aún no ha abierto: será una reserva antes de la apertura. El
+          alquiler empieza el día que abra, con independencia de la fecha que pongas aquí, y el pago
+          por adelantado no se aplica.
+        </p>
       )}
       {step === 3 && unit && (
         <StepEconomics

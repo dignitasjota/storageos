@@ -681,6 +681,8 @@ reason }`.
 | POST   | `/contracts/:id/inspection-photos`            | SI   | `contracts:write`     | Registra la foto `{kind, key, note?}`; 400 `invalid_photo_key` si la key no es del contrato+kind                                                                                                                                                                            |
 | DELETE | `/contracts/:id/inspection-photos/:photoId`   | SI   | `contracts:write`     | Borra una foto de inspección                                                                                                                                                                                                                                                |
 
+`POST /contracts` admite `reservationId` (convierte esa reserva: mismo trastero e inquilino; 400 `reservation_not_convertible`/`reservation_mismatch`) y responde 400 `invalid_end_date`/`discount_too_high`. `PATCH /contracts/:id`: 400 `contract_closed`, `ending_requires_date`, `promotion_price_locked`. Firmar o trasladar sobre un trastero retenido por otro inquilino: 409 `unit_reserved_for_other`. `POST /contracts/:id/settle-deposit`: 400 `deposit_not_collected`. `ContractDto.depositCollected` dice si la fianza se cobró de verdad.
+
 ### Endpoints — Reservations
 
 | Metodo | Ruta                                    | Auth | Roles                 | Descripcion                                        |

@@ -1764,3 +1764,12 @@ Migración `20261220100000_access_features` (se aplica sola), sin variables nuev
 - **Corte por impago**: sigue igual por defecto (todo, a los 14 días). Cada negocio lo cambia en Configuración → Accesos del inquilino; vale para las facturas que venzan después.
 - **Conexión de los dispositivos**: solo se vigilan los que tienen dirección o mandan latido (`POST /v1/access/heartbeat`). Un teclado que solo llama al entrar alguien no se marca como caído.
 - Con la migración, `access_credentials.customer_id` admite nulo (accesos temporales).
+
+## 93. Contratos: arreglos (2026-11-05)
+
+Migración `20261221100000_contract_term_months` (se aplica sola), sin variables nuevas. Lo que se nota tras desplegar:
+
+- **Prórroga automática**: cada prórroga repite el plazo original (`contracts.term_months`). Los contratos que ya se prorrogaron con plazo duplicado conservan su fecha de fin actual; la migración solo fija el plazo de las siguientes. Si alguno salió con una fecha demasiado lejana, se corrige en la ficha → Condiciones.
+- **Fianza**: una fianza sin cobrar sale como «Pendiente de cobro» y no se puede liquidar. Liquidarla exige registrar antes el cobro; un contrato cerrado sin justificante (anterior a los justificantes) se sigue pudiendo cerrar.
+- **Señal de una reserva**: al cancelar o caducar, una señal sin cobrar se anula y una cobrada deja un abono en borrador con aviso en la campana.
+- «Convertir en contrato» abre el asistente de alta con la reserva cargada.

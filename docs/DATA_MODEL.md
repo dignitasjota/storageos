@@ -1100,3 +1100,7 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 ### Accesos del panel del tenant (`20261220100000_access_features`)
 
 `access_credentials.customer_id` admite nulo: un acceso temporal de proveedor o equipo no tiene inquilino y lleva `holder_name`, `holder_kind` y `valid_from`, con fecha de fin obligatoria. `access_devices.last_heartbeat_at/offline_notified_at`: latido del equipo y aviso de sin conexión. `access_credential_sync.last_error`: qué falló al pasar una credencial a un terminal. `tenants.access_cut_mode` (todo, solo adicionales o nada; `all` por defecto), `access_cut_days` (14) y `access_alerts` (jsonb, avisos de seguridad con su interruptor).
+
+### Contratos (`20261221100000_contract_term_months`)
+
+`contracts.term_months`: meses de cada prórroga automática. Se fija en la primera prórroga (o al renovar a mano) para no recalcularlo desde la fecha de inicio. `deposit_status = held` solo indica que el contrato lleva fianza: lo cobrado se deduce del justificante (`common/deposit-collected.ts`).

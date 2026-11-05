@@ -264,8 +264,9 @@ export function useUpdateContract() {
   return useMutation({
     mutationFn: (args: { id: string; input: UpdateContractInput }) =>
       apiFetch<ContractDto>(`/contracts/${args.id}`, { method: 'PATCH', json: args.input }),
-    onSuccess: () => {
+    onSuccess: (data) => {
       void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: contractEventsKey(data.id) });
     },
   });
 }
@@ -430,6 +431,14 @@ export function useReservations(filters: ReservationFilters = {}) {
       return apiFetch<ReservationDto[]>(`/reservations${qs ? `?${qs}` : ''}`);
     },
     staleTime: 15_000,
+  });
+}
+
+export function useReservation(id: string | undefined) {
+  return useQuery({
+    queryKey: ['reservations', 'detail', id],
+    queryFn: () => apiFetch<ReservationDto>(`/reservations/${id}`),
+    enabled: !!id,
   });
 }
 

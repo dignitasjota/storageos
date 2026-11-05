@@ -15,12 +15,14 @@ import {
   resolvePlanFeatures,
 } from '@storageos/shared';
 
+import { depositWasCollected } from '../../common/deposit-collected';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
 import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { endDateAfterCancellingMoveOut } from '../../common/move-out';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
+import { unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
@@ -166,14 +168,20 @@ export class ContractsService {
     if (facFilter === null) return []; // local pedido fuera del scope del usuario
     if (facFilter) where.unit = { facilityId: { in: facFilter } };
     if (filters.search) {
-      const q = { contains: filters.search, mode: 'insensitive' as const };
-      where.OR = [
-        { contractNumber: q },
-        { customer: { firstName: q } },
-        { customer: { lastName: q } },
-        { customer: { companyName: q } },
-        { unit: { code: q } },
-      ];
+      // Por palabras: «Juan García» encuentra nombre y apellido por separado.
+      const words = filters.search.trim().split(/\s+/).filter(Boolean).slice(0, 5);
+      where.AND = words.map((word) => {
+        const q = { contains: word, mode: 'insensitive' as const };
+        return {
+          OR: [
+            { contractNumber: q },
+            { customer: { firstName: q } },
+            { customer: { lastName: q } },
+            { customer: { companyName: q } },
+            { unit: { code: q } },
+          ],
+        };
+      });
     }
     const rows = await this.prisma.withTenant(
       (tx) =>
@@ -217,8 +225,9 @@ export class ContractsService {
   ): Promise<ContractDto[]> {
     const ids = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
     if (ids === null) return [];
-    const now = new Date();
-    const limit = new Date(now.getTime() + days * 86_400_000);
+    // `end_date` es un día: con la hora actual se quedaban fuera los que vencen hoy.
+    const today = todayInTimezone();
+    const limit = new Date(today.getTime() + days * 86_400_000);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findMany({
@@ -226,7 +235,7 @@ export class ContractsService {
             ...(ids ? { unit: { facilityId: { in: ids } } } : {}),
             deletedAt: null,
             status: { in: ['active', 'ending'] as ContractStatus[] },
-            endDate: { not: null, gte: now, lte: limit },
+            endDate: { not: null, gte: today, lte: limit },
           },
           orderBy: [{ endDate: 'asc' }],
           include: {
@@ -252,7 +261,27 @@ export class ContractsService {
     id: string,
     facilityScope?: string[] | null,
   ): Promise<ContractDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
+    const dto = this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
+    if (dto.depositAmount > 0 && !dto.depositCollected) {
+      dto.depositCollected = await this.prisma.withTenant(
+        (tx) => depositWasCollected(tx, id),
+        tenantId,
+      );
+    }
+    return dto;
+  }
+
+  /** Hoy en la zona del local del trastero. */
+  private async todayAtUnit(tenantId: string, unitId: string): Promise<Date> {
+    const unit = await this.prisma.withTenant(
+      (tx) =>
+        tx.unit.findUnique({
+          where: { id: unitId },
+          select: { facility: { select: { timezone: true } } },
+        }),
+      tenantId,
+    );
+    return todayInTimezone(unit?.facility.timezone ?? 'Europe/Madrid');
   }
 
   /**
@@ -290,33 +319,35 @@ export class ContractsService {
     facilityScope?: string[] | null,
   ): Promise<ContractChecklistDto> {
     const c = await this.findOrThrow(tenantId, contractId, facilityScope);
-    const [photos, credentials, firstInvoice, otherLive] = await this.prisma.withTenant(
-      (tx) =>
-        Promise.all([
-          tx.contractInspectionPhoto.groupBy({
-            by: ['kind'],
-            where: { contractId },
-            _count: { _all: true },
-          }),
-          tx.accessCredential.count({
-            where: { customerId: c.customerId, status: { in: ['active', 'suspended'] } },
-          }),
-          tx.invoice.findFirst({
-            where: { contractId, kind: 'invoice', status: { notIn: ['draft', 'cancelled'] } },
-            orderBy: { issueDate: 'asc' },
-            select: { status: true, invoiceNumber: true },
-          }),
-          tx.contract.count({
-            where: {
-              customerId: c.customerId,
-              id: { not: contractId },
-              status: { in: ['active', 'ending'] },
-              deletedAt: null,
-            },
-          }),
-        ]),
-      tenantId,
-    );
+    const [photos, credentials, firstInvoice, otherLive, depositCollected] =
+      await this.prisma.withTenant(
+        (tx) =>
+          Promise.all([
+            tx.contractInspectionPhoto.groupBy({
+              by: ['kind'],
+              where: { contractId },
+              _count: { _all: true },
+            }),
+            tx.accessCredential.count({
+              where: { customerId: c.customerId, status: { in: ['active', 'suspended'] } },
+            }),
+            tx.invoice.findFirst({
+              where: { contractId, kind: 'invoice', status: { notIn: ['draft', 'cancelled'] } },
+              orderBy: { issueDate: 'asc' },
+              select: { status: true, invoiceNumber: true },
+            }),
+            tx.contract.count({
+              where: {
+                customerId: c.customerId,
+                id: { not: contractId },
+                status: { in: ['active', 'ending'] },
+                deletedAt: null,
+              },
+            }),
+            depositWasCollected(tx, contractId),
+          ]),
+        tenantId,
+      );
     const photoCount = (kind: string) => photos.find((p) => p.kind === kind)?._count._all ?? 0;
     const deposit = Number(c.depositAmount);
     const moveIn: ContractChecklistStepDto[] = [
@@ -345,11 +376,11 @@ export class ContractsService {
       {
         key: 'deposit',
         label: 'Fianza recibida',
-        done: deposit <= 0 || c.depositStatus !== 'none',
+        done: deposit <= 0 || depositCollected,
         hint:
-          deposit <= 0 || c.depositStatus !== 'none'
+          deposit <= 0 || depositCollected
             ? null
-            : 'La fianza aún no consta como recibida.',
+            : 'Sin cobrar: registra el cobro desde la tarjeta de la fianza.',
       },
       {
         key: 'access',
@@ -449,6 +480,18 @@ export class ContractsService {
         message: 'Un cupón no se puede combinar con un descuento manual',
       });
     }
+    if (input.endDate && input.endDate < input.startDate) {
+      throw new BadRequestException({
+        code: 'invalid_end_date',
+        message: 'La fecha de fin no puede ser anterior a la de inicio',
+      });
+    }
+    if (isGreaterThan(Number(input.discountAmount ?? 0), Number(input.priceMonthly))) {
+      throw new BadRequestException({
+        code: 'discount_too_high',
+        message: 'El descuento no puede ser mayor que la cuota',
+      });
+    }
     const result = await this.prisma.withTenant(async (tx) => {
       // Validar customer y unit pertenecientes a este tenant.
       const customer = await tx.customer.findFirst({
@@ -468,6 +511,30 @@ export class ContractsService {
         throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
       }
       assertFacilityAllowed(args.facilityScope, unit.facilityId);
+      // Reserva que se convierte: el contrato sale de su trastero y su inquilino.
+      const reservation = input.reservationId
+        ? await tx.reservation.findFirst({
+            where: { id: input.reservationId, status: { in: ['pending', 'confirmed'] } },
+            select: { id: true, unitId: true, customerId: true, depositInvoiceId: true },
+          })
+        : null;
+      if (input.reservationId) {
+        if (!reservation) {
+          throw new BadRequestException({
+            code: 'reservation_not_convertible',
+            message: 'Solo se pueden convertir reservas pendientes o confirmadas',
+          });
+        }
+        if (
+          reservation.unitId !== input.unitId ||
+          (reservation.customerId && reservation.customerId !== input.customerId)
+        ) {
+          throw new BadRequestException({
+            code: 'reservation_mismatch',
+            message: 'La reserva es de otro trastero o de otro inquilino',
+          });
+        }
+      }
       // El contrato guarda el propietario del local al crearse (plan
       // Administrador): reasignar luego el local no cambia sus facturas.
       const facilityOwner = await tx.facility.findUnique({
@@ -549,8 +616,7 @@ export class ContractsService {
         preOpening || billingIntervalMonths > 1 ? 1 : input.firstPaymentMonths;
       let redeemed: RedeemedCoupon | null = null;
       if (input.couponCode?.trim()) {
-        const months =
-          input.billingIntervalMonths > 1 ? input.billingIntervalMonths : firstPaymentMonths;
+        const months = billingIntervalMonths > 1 ? billingIntervalMonths : firstPaymentMonths;
         const signedBefore = await tx.contract.count({
           where: { tenantId, customerId: input.customerId, signedAt: { not: null } },
         });
@@ -565,7 +631,7 @@ export class ContractsService {
           preOpening: !!preOpening,
         });
         // Con prepago semestral/anual con descuento se aplica el mejor de los dos.
-        const prepayPct = input.billingIntervalMonths > 1 ? input.prepayDiscountPct : 0;
+        const prepayPct = billingIntervalMonths > 1 ? input.prepayDiscountPct : 0;
         if (prepayPct > 0) {
           const prepayCents = Math.round((toCents(monthlyPrice) * months * prepayPct) / 100);
           if (prepayCents >= toCents(redeemed.quote.discountAmount)) {
@@ -657,6 +723,20 @@ export class ContractsService {
           invoiceId: null,
         });
       }
+      if (reservation) {
+        await tx.reservation.update({
+          where: { id: reservation.id },
+          data: { status: 'converted', convertedContractId: row.id },
+        });
+        // La señal ya cobrada se descuenta de la primera factura del contrato.
+        const credit = await this.signalCredit(tx, reservation.depositInvoiceId);
+        if (credit) {
+          await tx.contract.update({
+            where: { id: row.id },
+            data: { pendingCreditAmount: credit.amount, pendingCreditReason: credit.reason },
+          });
+        }
+      }
       return { row, redeemed };
     }, tenantId);
     const created = result.row;
@@ -698,6 +778,18 @@ export class ContractsService {
     meta: RequestMeta;
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    if (existing.status === 'ended' || existing.status === 'cancelled') {
+      throw new BadRequestException({
+        code: 'contract_closed',
+        message: 'El contrato ya no está vivo',
+      });
+    }
+    if (existing.status === 'ending' && args.input.endDate === '') {
+      throw new BadRequestException({
+        code: 'ending_requires_date',
+        message: 'Un contrato en baja necesita su fecha de fin: para anularla, usa «Renovar»',
+      });
+    }
     // En estados activos solo permitimos cambios "meta" (notas, autoRenew,
     // endDate planificada, dias preaviso). El precio cambia via endpoint
     // dedicado para que sea auditeable.
@@ -730,6 +822,14 @@ export class ContractsService {
             'Este contrato lleva un cupón calculado con su cuota: para cambiarla, cancélalo y crea otro',
         });
       }
+      // El descuento de una promoción se calculó con la cuota de entonces.
+      if (existing.promotionId) {
+        throw new BadRequestException({
+          code: 'promotion_price_locked',
+          message:
+            'Este contrato lleva una promoción calculada con su cuota: para cambiarla, cancélalo y crea otro',
+        });
+      }
       data.priceMonthly = args.input.priceMonthly;
       changes.priceMonthly = { from: Number(existing.priceMonthly), to: args.input.priceMonthly };
     }
@@ -743,6 +843,7 @@ export class ContractsService {
     }
     if (args.input.endDate !== undefined) {
       data.endDate = args.input.endDate ? new Date(args.input.endDate) : null;
+      data.endingSoonNotifiedAt = null;
       changes.endDate = args.input.endDate;
     }
     const effectiveStart = args.input.startDate ?? existing.startDate.toISOString().slice(0, 10);
@@ -773,6 +874,17 @@ export class ContractsService {
         });
       }
     }
+    const effectivePrice = args.input.priceMonthly ?? Number(existing.priceMonthly);
+    const effectiveDiscount =
+      existing.status === 'draft'
+        ? (args.input.discountAmount ?? Number(existing.discountAmount))
+        : Number(existing.discountAmount);
+    if (isGreaterThan(effectiveDiscount, effectivePrice)) {
+      throw new BadRequestException({
+        code: 'discount_too_high',
+        message: 'El descuento no puede ser mayor que la cuota',
+      });
+    }
     if (args.input.discountAmount !== undefined && existing.status === 'draft') {
       data.discountAmount = args.input.discountAmount;
       changes.discountAmount = args.input.discountAmount;
@@ -794,36 +906,46 @@ export class ContractsService {
       changes.notes = data.notes;
     }
 
-    const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.contract.update({
-          where: { id: args.contractId },
-          data,
-          include: {
-            customer: {
-              select: {
-                firstName: true,
-                lastName: true,
-                companyName: true,
-                customerType: true,
-              },
-            },
-            unit: {
-              select: {
-                code: true,
-                facilityId: true,
-                facility: { select: { name: true } },
-                unitType: { select: { propertyKind: true } },
-              },
-            },
-            insurancePlan: { select: { name: true } },
-            owner: { select: { legalName: true } },
-            invoices: DEPOSIT_RECEIPT_SELECT,
-            couponRedemptions: COUPON_SELECT,
+    const updated = await this.prisma.withTenant(async (tx) => {
+      // Cambios tras la firma: quedan en el historial del contrato.
+      if (existing.status !== 'draft' && Object.keys(changes).length > 0) {
+        await tx.contractEvent.create({
+          data: {
+            tenantId: args.tenantId,
+            contractId: args.contractId,
+            eventType: 'note_added',
+            payload: { event: 'conditions_updated', changes } as Prisma.InputJsonValue,
+            createdByUserId: args.userId,
           },
-        }),
-      args.tenantId,
-    );
+        });
+      }
+      return tx.contract.update({
+        where: { id: args.contractId },
+        data,
+        include: {
+          customer: {
+            select: {
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              customerType: true,
+            },
+          },
+          unit: {
+            select: {
+              code: true,
+              facilityId: true,
+              facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
+            },
+          },
+          insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
+        },
+      });
+    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -896,6 +1018,21 @@ export class ContractsService {
             code: 'unit_reserved_for_other',
             message:
               'Este trastero está reservado para otro inquilino. Cancela esa reserva antes de firmar.',
+          });
+        }
+        // Tampoco si lo retiene otro inquilino con una reserva online en plazo.
+        if (
+          unit.status === 'reserved' &&
+          (await unitHeldByOther(tx, {
+            unitId: existing.unitId,
+            contractId: existing.id,
+            customerId: existing.customerId,
+          }))
+        ) {
+          throw new ConflictException({
+            code: 'unit_reserved_for_other',
+            message:
+              'Este trastero está retenido por la reserva de otro inquilino. Elige otro o espera a que caduque.',
           });
         }
         const own = liveReservations.filter((r) => r.customerId === existing.customerId);
@@ -1222,10 +1359,11 @@ export class ContractsService {
       });
     }
     // Sin fecha de fin la recurrente seguía facturando y la baja no salía en «Hoy».
+    const today = await this.todayAtUnit(args.tenantId, existing.unitId);
     const endDate = args.endDate
       ? new Date(`${args.endDate}T00:00:00Z`)
       : (() => {
-          const d = todayInTimezone();
+          const d = new Date(today);
           d.setUTCDate(d.getUTCDate() + existing.cancellationNoticeDays);
           return d;
         })();
@@ -1440,9 +1578,8 @@ export class ContractsService {
       });
     }
     // Preaviso: la fecha de salida debe respetar `cancellationNoticeDays`.
-    const minDate = new Date();
-    minDate.setHours(0, 0, 0, 0);
-    minDate.setDate(minDate.getDate() + existing.cancellationNoticeDays);
+    const minDate = await this.todayAtUnit(args.tenantId, existing.unitId);
+    minDate.setUTCDate(minDate.getUTCDate() + existing.cancellationNoticeDays);
     const requested = new Date(`${args.endDate}T00:00:00Z`);
     if (requested.getTime() < minDate.getTime()) {
       throw new BadRequestException({
@@ -1715,10 +1852,14 @@ export class ContractsService {
         message: 'La reserva aún no ha empezado: cancélala como reserva antes de la apertura',
       });
     }
+    // Cerrar antes de la fecha de fin: la fecha real es hoy (la ficha y el abono
+    // de un prepago la usan).
+    const today = await this.todayAtUnit(args.tenantId, existing.unitId);
+    const effectiveEnd = !existing.endDate || existing.endDate > today ? today : existing.endDate;
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
-        data: { status: 'ended', endedAt: new Date() },
+        data: { status: 'ended', endedAt: new Date(), endDate: effectiveEnd },
         include: {
           customer: {
             select: {
@@ -1778,26 +1919,35 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    // Baja de un contrato PREPAGADO: abono (rectificativa en borrador) de los
-    // meses completos no consumidos. Best-effort: no bloquea la baja.
-    if (existing.billingIntervalMonths > 1) {
-      try {
-        await this.createPrepayCreditNote({
-          tenantId: args.tenantId,
-          userId: args.userId,
-          contractId: args.contractId,
-          interval: existing.billingIntervalMonths,
-          endDate: existing.endDate ?? new Date(),
-          meta: args.meta,
-        });
-      } catch (err) {
-        this.logger.warn(
-          `[prepay-credit] contrato=${args.contractId}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
+    await this.creditPrepaidMonths(args, existing.billingIntervalMonths, effectiveEnd);
     await this.emitContractEnded(args.tenantId, updated);
     return this.toDto(updated);
+  }
+
+  /**
+   * Baja de un contrato PREPAGADO: abono (rectificativa en borrador) de los
+   * meses completos no consumidos. Best-effort: no bloquea la baja.
+   */
+  private async creditPrepaidMonths(
+    args: { tenantId: string; userId: string | null; contractId: string; meta: RequestMeta },
+    interval: number,
+    endDate: Date,
+  ): Promise<void> {
+    if (interval <= 1) return;
+    try {
+      await this.createPrepayCreditNote({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        contractId: args.contractId,
+        interval,
+        endDate,
+        meta: args.meta,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[prepay-credit] contrato=${args.contractId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**
@@ -1822,6 +1972,7 @@ export class ContractsService {
         tenantId: true,
         startDate: true,
         endDate: true,
+        termMonths: true,
         autoRenew: true,
         contractNumber: true,
         unit: { select: { facilityId: true } },
@@ -1834,7 +1985,8 @@ export class ContractsService {
       if (!c.endDate) continue;
       try {
         if (c.autoRenew) {
-          const months = termMonths(c.startDate, c.endDate);
+          // Siempre el plazo original: el de la primera prórroga queda guardado.
+          const months = c.termMonths ?? termMonths(c.startDate, c.endDate);
           let newEnd = this.addMonths(c.endDate, months);
           let guard = 0;
           while (newEnd < today && guard < 120) {
@@ -1844,7 +1996,7 @@ export class ContractsService {
           await this.prisma.withTenant(async (tx) => {
             const moved = await tx.contract.updateMany({
               where: { id: c.id, status: 'active', endDate: c.endDate },
-              data: { endDate: newEnd, endingSoonNotifiedAt: null },
+              data: { endDate: newEnd, termMonths: months, endingSoonNotifiedAt: null },
             });
             if (moved.count === 0) return;
             await tx.contractEvent.create({
@@ -2235,12 +2387,28 @@ export class ContractsService {
     input: SettleDepositInput;
     facilityScope?: string[] | null;
     meta: RequestMeta;
+    /** Cancelación de una reserva anticipada: cierra la fianza aunque no llegara a cobrarse. */
+    closeUncollected?: boolean;
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     if (existing.depositStatus !== 'held') {
       throw new BadRequestException({
         code: 'deposit_not_held',
         message: 'La fianza no está retenida (nada que liquidar)',
+      });
+    }
+    // Solo se liquida lo cobrado. Un contrato cerrado sin justificante pendiente
+    // viene de antes de los justificantes: se puede cerrar igual.
+    const collected = await this.prisma.withTenant(
+      (tx) => depositWasCollected(tx, existing.id),
+      args.tenantId,
+    );
+    const legacyClosed =
+      (existing.status === 'ended' || existing.status === 'cancelled') && !existing.invoices?.[0];
+    if (!collected && !legacyClosed && !args.closeUncollected) {
+      throw new BadRequestException({
+        code: 'deposit_not_collected',
+        message: 'La fianza aún no se ha cobrado: no hay nada que devolver ni retener',
       });
     }
     const deposit = Number(existing.depositAmount);
@@ -2357,6 +2525,7 @@ export class ContractsService {
     // Cancelar un contrato VIVO (no un draft) equivale a una baja: hay que
     // revocar accesos y disparar las automatizaciones de fin de contrato.
     const wasLive = existing.status === 'active' || existing.status === 'ending';
+    let released = false;
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
@@ -2398,11 +2567,20 @@ export class ContractsService {
       // de un booking self-service que se cancela sin firmar, p. ej. por impago
       // vía BookingExpiryCron). Sin liberar el `reserved`, la unidad quedaría
       // retenida para siempre.
+      // Solo si lo retenía este contrato: un borrador cualquiera sobre un trastero
+      // reservado para otra persona no lo devuelve a la venta.
       const unit = await tx.unit.findUniqueOrThrow({ where: { id: existing.unitId } });
+      const held =
+        wasLive ||
+        !!existing.firstPaymentDeadline ||
+        existing.preOpening ||
+        (await tx.reservation.count({ where: { convertedContractId: existing.id } })) > 0;
       const releasable =
-        unit.status === 'reserved' ||
-        ((existing.status === 'active' || existing.status === 'ending') &&
-          unit.status === 'occupied');
+        (unit.status === 'reserved' &&
+          held &&
+          !(await unitHeldByOther(tx, { unitId: existing.unitId, contractId: existing.id }))) ||
+        (wasLive && unit.status === 'occupied');
+      released = releasable;
       if (releasable) {
         await this.syncUnitStatus(
           tx,
@@ -2429,7 +2607,19 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    if (wasLive) await this.emitContractEnded(args.tenantId, updated);
+    if (wasLive) {
+      await this.creditPrepaidMonths(
+        args,
+        existing.billingIntervalMonths,
+        await this.todayAtUnit(args.tenantId, existing.unitId),
+      );
+      await this.emitContractEnded(args.tenantId, updated);
+    } else if (released) {
+      this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
+        tenantId: args.tenantId,
+        unitId: existing.unitId,
+      } satisfies UnitAvailablePayload);
+    }
     return this.toDto(updated);
   }
 
@@ -2452,6 +2642,12 @@ export class ContractsService {
       throw new BadRequestException({
         code: 'pre_opening_not_started',
         message: 'El precio de una reserva antes de la apertura queda fijado desde la reserva',
+      });
+    }
+    if (isGreaterThan(Number(existing.discountAmount), args.input.priceMonthly)) {
+      throw new BadRequestException({
+        code: 'discount_too_high',
+        message: 'La cuota no puede ser menor que el descuento del contrato',
       });
     }
     const previousPrice = Number(existing.priceMonthly);
@@ -2585,6 +2781,8 @@ export class ContractsService {
         where: { id: args.contractId },
         data: {
           endDate: newEndDate,
+          // Las prórrogas automáticas siguen con el último plazo pactado.
+          termMonths: args.months,
           // Renovar reactiva un contrato en baja y limpia la solicitud.
           ...(existing.status === 'ending'
             ? { status: 'active' as const, endingRequestedAt: null, endDateBeforeEnding: null }
@@ -2676,6 +2874,14 @@ export class ContractsService {
           throw new BadRequestException({
             code: 'unit_not_available',
             message: 'El trastero de destino no está disponible',
+          });
+        }
+        if (
+          await unitHeldByOther(tx, { unitId: args.newUnitId, customerId: existing.customerId })
+        ) {
+          throw new ConflictException({
+            code: 'unit_reserved_for_other',
+            message: 'El trastero de destino está reservado para otro inquilino',
           });
         }
         const ctx = { tenantId: args.tenantId, userId: args.userId, meta: args.meta };
@@ -3039,56 +3245,23 @@ export class ContractsService {
     });
   }
 
-  /**
-   * Crea un contrato a partir de una reserva confirmada. Lo invoca
-   * ReservationsService.convertToContract dentro de su transaccion.
-   */
-  async createFromReservation(
+  /** Lo que se descuenta del alquiler por una señal ya cobrada (base sin IVA). */
+  private async signalCredit(
     tx: Prisma.TransactionClient,
-    args: {
-      tenantId: string;
-      userId: string;
-      reservationId: string;
-      customerId: string;
-      unitId: string;
-      startDate: string;
-      endDate?: string;
-      priceMonthly: number;
-      discountAmount: number;
-      discountReason?: string;
-      depositAmount: number;
-      billingCycle: 'monthly' | 'weekly' | 'daily';
-    },
-  ): Promise<Contract> {
-    const contractNumber = await this.nextContractNumber(tx, args.tenantId);
-    const created = await tx.contract.create({
-      data: {
-        tenantId: args.tenantId,
-        customerId: args.customerId,
-        unitId: args.unitId,
-        contractNumber,
-        status: 'draft',
-        startDate: new Date(args.startDate),
-        ...(args.endDate ? { endDate: new Date(args.endDate) } : {}),
-        billingCycle: args.billingCycle,
-        priceMonthly: args.priceMonthly,
-        discountAmount: args.discountAmount,
-        discountReason: args.discountReason?.trim() || null,
-        depositAmount: args.depositAmount,
-        events: {
-          create: {
-            tenantId: args.tenantId,
-            eventType: 'created',
-            payload: {
-              contractNumber,
-              fromReservationId: args.reservationId,
-            },
-            createdByUserId: args.userId,
-          },
-        },
-      },
+    invoiceId: string | null,
+  ): Promise<{ amount: number; reason: string } | null> {
+    if (!invoiceId) return null;
+    const signal = await tx.invoice.findFirst({
+      where: { id: invoiceId, status: 'paid' },
+      select: { invoiceNumber: true, items: { select: { total: true, taxAmount: true } } },
     });
-    return created;
+    if (!signal) return null;
+    const baseCents = signal.items.reduce(
+      (acc, it) => acc + toCents(Number(it.total) - Number(it.taxAmount)),
+      0,
+    );
+    if (baseCents <= 0) return null;
+    return { amount: baseCents / 100, reason: `señal ${signal.invoiceNumber}` };
   }
 
   private async findOrThrow(
@@ -3180,6 +3353,8 @@ export class ContractsService {
     tx: Prisma.TransactionClient,
     tenantId: string,
   ): Promise<string> {
+    // Dos altas a la vez leerían el mismo último número.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}::text), hashtext('contract-number'))`;
     // Patron simple: prefijo CT- + zero-padded count + año. Para Fase 4
     // (Verifactu) habra invoice_series por tenant; aqui no.
     const year = new Date().getFullYear();
@@ -3262,6 +3437,7 @@ export class ContractsService {
           : null,
       },
       depositPaymentMethod: row.depositPaymentMethod === 'cash' ? 'cash' : 'online',
+      depositCollected: row.invoices?.[0]?.status === 'paid',
       depositReceipt: row.invoices?.[0]
         ? {
             id: row.invoices[0].id,

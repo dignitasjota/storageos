@@ -8,6 +8,7 @@ import {
 import { type ColumnDef } from '@tanstack/react-table';
 import { MoreHorizontal } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -41,10 +42,8 @@ import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useCancelReservation,
   useConfirmReservation,
-  useConvertReservation,
   useReservations,
 } from '@/lib/customers/hooks';
-import { localDateString } from '@/lib/dates';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
@@ -79,14 +78,9 @@ export default function ReservationsPage() {
   const depositInvoice = useReservationDepositInvoice();
   const canInvoice = useHasPermission('invoices:manage');
   const cancel = useCancelReservation();
-  const convert = useConvertReservation();
+  const router = useRouter();
   const canWrite = useHasPermission('reservations:write');
 
-  const [target, setTarget] = useState<ReservationDto | null>(null);
-  const [convertOpen, setConvertOpen] = useState(false);
-  const [price, setPrice] = useState(0);
-  const [deposit, setDeposit] = useState(0);
-  const [startDate, setStartDate] = useState(localDateString());
   const [cancelTarget, setCancelTarget] = useState<ReservationDto | null>(null);
   const [cancelReason, setCancelReason] = useState('');
 
@@ -199,14 +193,7 @@ export default function ReservationsPage() {
                 )}
               {(r.status === 'pending' || r.status === 'confirmed') && (
                 <DropdownMenuItem
-                  onClick={() => {
-                    setTarget(r);
-                    setPrice(r.unitPriceMonthly);
-                    // La señal se descuenta del alquiler: no es la fianza del contrato.
-                    setDeposit(r.depositInvoiceId ? 0 : r.depositAmount);
-                    setStartDate(localDateString(new Date(r.validFrom)));
-                    setConvertOpen(true);
-                  }}
+                  onClick={() => router.push(`/contracts/new?reservationId=${r.id}`)}
                 >
                   Convertir en contrato
                 </DropdownMenuItem>
@@ -325,76 +312,6 @@ export default function ReservationsPage() {
               }
             >
               Cancelar la reserva
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Convertir reserva en contrato</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            {target && target.depositAmount > 0 && (
-              <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                {target.depositPaid
-                  ? `La señal de ${formatEur(target.depositAmount)} ya cobrada se descontará del alquiler de la primera factura.`
-                  : 'La señal aún no está cobrada: si se cobra después, no se descontará sola.'}
-              </p>
-            )}
-            <div>
-              <Label>Fecha de inicio</Label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            </div>
-            <div>
-              <Label>Cuota mensual sin IVA (€)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={price}
-                onChange={(e) => setPrice(Number(e.target.value))}
-              />
-            </div>
-            <div>
-              <Label>Fianza (€)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={deposit}
-                onChange={(e) => setDeposit(Number(e.target.value))}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConvertOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={() =>
-                target &&
-                convert
-                  .mutateAsync({
-                    id: target.id,
-                    input: {
-                      startDate,
-                      priceMonthly: price,
-                      discountAmount: 0,
-                      depositAmount: deposit,
-                      billingCycle: 'monthly',
-                    },
-                  })
-                  .then(
-                    () => {
-                      toast.success('Contrato creado en borrador.');
-                      setConvertOpen(false);
-                    },
-                    (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
-                  )
-              }
-              disabled={price <= 0}
-            >
-              Crear borrador
             </Button>
           </DialogFooter>
         </DialogContent>
