@@ -37,7 +37,7 @@ export function CollectionsSummaryCard() {
           <Lock className="size-4 text-amber-500" />
           Impagos en gestión
         </CardTitle>
-        <CardDescription>Expedientes de impago abiertos (overlock → disposición).</CardDescription>
+        <CardDescription>Expedientes de impago abiertos.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {q.isLoading ? (

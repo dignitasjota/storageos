@@ -140,8 +140,9 @@ export const INVOICED_STATUSES = [
 export const INVOICED_SELECT = {
   issueDate: true,
   total: true,
+  subtotal: true,
   correctionMethod: true,
-  rectifiesInvoice: { select: { total: true } },
+  rectifiesInvoice: { select: { total: true, subtotal: true } },
 } as const;
 
 export function invoicedAmount(row: {
@@ -154,6 +155,19 @@ export function invoicedAmount(row: {
     return total - Number(row.rectifiesInvoice.total);
   }
   return total;
+}
+
+/** Lo mismo sin IVA, para compararlo con los gastos. */
+export function invoicedBase(row: {
+  subtotal: Prisma.Decimal | number;
+  correctionMethod: string | null;
+  rectifiesInvoice: { subtotal: Prisma.Decimal | number } | null;
+}): number {
+  const subtotal = Number(row.subtotal);
+  if (row.correctionMethod === 'by_substitution' && row.rectifiesInvoice) {
+    return subtotal - Number(row.rectifiesInvoice.subtotal);
+  }
+  return subtotal;
 }
 
 export function invoicedWhere(scope: AnalyticsScope, from: Date, to: Date) {
@@ -269,13 +283,25 @@ export async function receivables(
 
 // --- Altas y bajas -----------------------------------------------------------
 
+export interface ContractMoveRow {
+  id: string;
+  date: Date;
+  customer: {
+    customerType: string;
+    firstName: string | null;
+    lastName: string | null;
+    companyName: string | null;
+  };
+  unitCode: string;
+}
+
 /** Altas y bajas entre dos instantes, con el criterio de Analítica → Bajas. */
-export async function contractMoves(
+export async function contractMoveRows(
   tx: Prisma.TransactionClient,
   scope: AnalyticsScope,
   from: Date,
   to: Date,
-): Promise<{ moveIns: number; moveOuts: number }> {
+): Promise<{ moveIns: ContractMoveRow[]; moveOuts: ContractMoveRow[] }> {
   const range = { gte: from, lt: to };
   const rows = await tx.contract.findMany({
     where: {
@@ -292,17 +318,35 @@ export async function contractMoves(
         },
       ],
     },
-    select: LIFECYCLE_SELECT,
+    select: {
+      ...LIFECYCLE_SELECT,
+      id: true,
+      unit: { select: { code: true } },
+      customer: {
+        select: { customerType: true, firstName: true, lastName: true, companyName: true },
+      },
+    },
   });
-  let moveIns = 0;
-  let moveOuts = 0;
+  const moveIns: ContractMoveRow[] = [];
+  const moveOuts: ContractMoveRow[] = [];
   for (const row of rows) {
     const life = contractLifecycle(row);
     if (!life) continue;
-    if (life.begin >= from && life.begin < to) moveIns += 1;
-    if (life.end && life.end >= from && life.end < to) moveOuts += 1;
+    const base = { id: row.id, customer: row.customer, unitCode: row.unit.code };
+    if (life.begin >= from && life.begin < to) moveIns.push({ ...base, date: life.begin });
+    if (life.end && life.end >= from && life.end < to) moveOuts.push({ ...base, date: life.end });
   }
   return { moveIns, moveOuts };
+}
+
+export async function contractMoves(
+  tx: Prisma.TransactionClient,
+  scope: AnalyticsScope,
+  from: Date,
+  to: Date,
+): Promise<{ moveIns: number; moveOuts: number }> {
+  const rows = await contractMoveRows(tx, scope, from, to);
+  return { moveIns: rows.moveIns.length, moveOuts: rows.moveOuts.length };
 }
 
 /** Inquilinos cuyo primer contrato empezó entre dos instantes. */
