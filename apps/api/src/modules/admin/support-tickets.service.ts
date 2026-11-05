@@ -298,6 +298,18 @@ export class SupportTicketsService {
         authorAdmin: { select: { fullName: true } },
       },
     });
+    // Quien contesta ya ha leído lo anterior.
+    const now = new Date();
+    await this.admin.supportTicketRead.upsert({
+      where: { ticketId_userId: { ticketId: args.ticketId, userId: args.userId } },
+      create: {
+        ticketId: args.ticketId,
+        userId: args.userId,
+        tenantId: args.tenantId,
+        lastReadAt: now,
+      },
+      update: { lastReadAt: now },
+    });
     // Si el ticket estaba esperando al cliente, en curso o resuelto, vuelve a
     // open: la pelota pasa al admin (en curso se quedaba sin aviso alguno).
     if (

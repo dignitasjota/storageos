@@ -57,6 +57,9 @@ describe('Soporte: badge de tickets esperando respuesta del tenant (e2e)', () =>
       where: { id: ticketId },
       data: { status: 'waiting_user' },
     });
+    await prismaAdmin.supportTicketMessage.create({
+      data: { ticketId, body: '¿Qué navegador usas?', isInternal: false },
+    });
 
     const waiting = await request(app.getHttpServer())
       .get('/support/tickets/waiting-count')
