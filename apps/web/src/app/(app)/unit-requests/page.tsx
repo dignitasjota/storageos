@@ -1,7 +1,7 @@
 'use client';
 
 import { type ColumnDef } from '@tanstack/react-table';
-import { Check, X } from 'lucide-react';
+import { Check, Download, Hourglass, X } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -13,9 +13,27 @@ import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { downloadCsv } from '@/lib/csv';
+import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
 import { formatDate } from '@/lib/format';
+import { useUnitRequestToWaitlist } from '@/lib/unit-ops/hooks';
 import { useResolveUnitRequest, useUnitRequests } from '@/lib/unit-requests/hooks';
 
 const STATUS: Record<
@@ -33,6 +51,22 @@ export default function UnitRequestsPage() {
   const list = useUnitRequests(statusFilter || undefined);
   const resolve = useResolveUnitRequest();
   const canResolve = useHasPermission('contracts:write');
+  const [toQueue, setToQueue] = useState<UnitRequestDto | null>(null);
+
+  function exportCsv() {
+    downloadCsv('solicitudes-de-trastero.csv', [
+      ['Fecha', 'Cliente', 'Local', 'Trastero o tamaño', 'Nota', 'Estado', 'Respuesta'],
+      ...(list.data ?? []).map((r) => [
+        formatDate(r.createdAt),
+        r.customerName,
+        r.facilityName ?? '',
+        r.unitCode ?? r.unitTypeName ?? '',
+        r.note,
+        STATUS[r.status].label,
+        r.resolutionNote ?? '',
+      ]),
+    ]);
+  }
 
   async function doResolve(id: string, status: 'handled' | 'rejected') {
     const res = await ask(
@@ -137,6 +171,9 @@ export default function UnitRequestsPage() {
                 Crear contrato
               </Link>
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => setToQueue(row.original)}>
+              <Hourglass className="mr-1 h-4 w-4" /> A la lista de espera
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -167,7 +204,7 @@ export default function UnitRequestsPage() {
         </p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {(['pending', 'handled', 'rejected', ''] as const).map((s) => (
           <Button
             key={s || 'all'}
@@ -178,6 +215,14 @@ export default function UnitRequestsPage() {
             {s === '' ? 'Todas' : STATUS[s].label}
           </Button>
         ))}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={exportCsv}
+          disabled={(list.data ?? []).length === 0}
+        >
+          <Download className="mr-1 size-4" /> CSV
+        </Button>
       </div>
 
       {list.isError ? (
@@ -190,6 +235,82 @@ export default function UnitRequestsPage() {
           emptyText="No hay solicitudes."
         />
       )}
+      {toQueue && <ToWaitlistDialog request={toQueue} onClose={() => setToQueue(null)} />}
     </div>
+  );
+}
+
+/** No hay hueco: lo apunta a la cola y le contesta. */
+function ToWaitlistDialog({ request, onClose }: { request: UnitRequestDto; onClose: () => void }) {
+  const facilities = useFacilities();
+  const unitTypes = useUnitTypes();
+  const move = useUnitRequestToWaitlist();
+  const [facilityId, setFacilityId] = useState(request.facilityId ?? '');
+  const [unitTypeId, setUnitTypeId] = useState(request.unitTypeId ?? '');
+
+  async function submit() {
+    try {
+      await move.mutateAsync({ id: request.id, input: { facilityId, unitTypeId } });
+      toast.success('Apuntado a la lista de espera y avisado.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo apuntar');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Pasar a la lista de espera</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {request.customerName} entra en la cola y recibe un correo. La solicitud queda atendida.
+          </p>
+          <div className="space-y-1">
+            <Label>Local</Label>
+            <Select value={facilityId} onValueChange={setFacilityId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Elige un local" />
+              </SelectTrigger>
+              <SelectContent>
+                {(facilities.data ?? []).map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Tamaño</Label>
+            <Select value={unitTypeId} onValueChange={setUnitTypeId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Elige un tamaño" />
+              </SelectTrigger>
+              <SelectContent>
+                {(unitTypes.data ?? []).map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={() => void submit()}
+            disabled={!facilityId || !unitTypeId || move.isPending}
+          >
+            Apuntar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -18,6 +18,7 @@ import type {
   PortalUnitChangeRequestInput,
   PortalUnitChangeRequestDto,
   ResolveUnitChangeRequestInput,
+  UnitAlternativeDto,
   UnitChangeRequestDto,
   UnitChangeRequestStatus,
 } from '@storageos/shared';
@@ -285,6 +286,54 @@ export class UnitChangesService {
     return r.contractId;
   }
 
+  /** Trasteros libres del local parecidos al que pidió (o al que tiene). */
+  async alternatives(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<UnitAlternativeDto[]> {
+    return this.prisma.withTenant(async (tx) => {
+      const r = await tx.unitChangeRequest.findFirst({
+        where: { id, tenantId },
+        select: {
+          contract: { select: { unit: { select: { facilityId: true, areaM2: true } } } },
+          targetUnit: { select: { areaM2: true, unitTypeId: true } },
+        },
+      });
+      if (!r) {
+        throw new NotFoundException({
+          code: 'request_not_found',
+          message: 'Solicitud no encontrada',
+        });
+      }
+      if (!r.contract) return [];
+      assertFacilityAllowed(facilityScope, r.contract.unit.facilityId);
+      const wanted = Number(r.targetUnit?.areaM2 ?? r.contract.unit.areaM2 ?? 0);
+      const units = await tx.unit.findMany({
+        where: {
+          tenantId,
+          facilityId: r.contract.unit.facilityId,
+          status: 'available',
+          ...noLiveReservationWhere(),
+        },
+        include: { unitType: { select: { name: true } } },
+      });
+      return units
+        .sort(
+          (a, b) =>
+            Math.abs(Number(a.areaM2 ?? 0) - wanted) - Math.abs(Number(b.areaM2 ?? 0) - wanted),
+        )
+        .slice(0, 5)
+        .map((u) => ({
+          unitId: u.id,
+          unitCode: u.code,
+          unitTypeName: u.unitType?.name ?? null,
+          areaM2: u.areaM2 == null ? null : Number(u.areaM2),
+          priceMonthly: Number(u.basePriceMonthly),
+        }));
+    }, tenantId);
+  }
+
   async resolve(args: {
     tenantId: string;
     userId: string;
@@ -398,6 +447,7 @@ export class UnitChangesService {
     resolutionNote: string | null;
     createdAt: Date;
     handledAt: Date | null;
+    assignedToUserId: string | null;
     desiredDate: Date | null;
     targetUnitId: string | null;
     targetUnit: { id: string; code: string; basePriceMonthly: unknown; status: string } | null;
@@ -429,6 +479,7 @@ export class UnitChangesService {
       note: r.note,
       status: r.status as UnitChangeRequestStatus,
       resolutionNote: r.resolutionNote,
+      assignedToUserId: r.assignedToUserId,
       createdAt: r.createdAt.toISOString(),
       handledAt: r.handledAt?.toISOString() ?? null,
     };

@@ -6,14 +6,15 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image as KonvaImage, Layer, Rect, Stage, Text } from 'react-konva';
 
-import type { FloorOccupantDto } from '@storageos/shared';
+import type { FloorHoldDto, FloorOccupantDto } from '@storageos/shared';
 import type Konva from 'konva';
 
 import { Button } from '@/components/ui/button';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useFloors, useUnits } from '@/lib/facilities/hooks';
-import { useFloorOccupants } from '@/lib/facilities/inventory-hooks';
+import { useFloorHolds, useFloorOccupants } from '@/lib/facilities/inventory-hooks';
 import { proportionalPlanSize } from '@/lib/facilities/plan-size';
+import { formatDate } from '@/lib/format';
 
 interface Props {
   facilityId: string;
@@ -135,6 +136,12 @@ export function PlanViewer({ facilityId, floorId }: Props) {
   const occupantByUnit = useMemo(
     () => new Map((occupants.data ?? []).map((o) => [o.unitId, o])),
     [occupants.data],
+  );
+
+  const holds = useFloorHolds(floorId, canSeeCustomers);
+  const holdByUnit = useMemo(
+    () => new Map((holds.data ?? []).map((h) => [h.unitId, h])),
+    [holds.data],
   );
 
   const sceneSize = useMemo(() => {
@@ -415,6 +422,7 @@ export function PlanViewer({ facilityId, floorId }: Props) {
         <SelectedUnitPanel
           unit={rects.find((x) => x.id === selectedId) ?? null}
           occupant={occupantByUnit.get(selectedId) ?? null}
+          hold={holdByUnit.get(selectedId) ?? null}
           onOpen={() => router.push(`/units/${selectedId}`)}
           onClose={() => setSelectedId(null)}
         />
@@ -430,11 +438,13 @@ export function PlanViewer({ facilityId, floorId }: Props) {
 function SelectedUnitPanel({
   unit,
   occupant,
+  hold,
   onOpen,
   onClose,
 }: {
   unit: UnitRect | null;
   occupant: FloorOccupantDto | null;
+  hold: FloorHoldDto | null;
   onOpen: () => void;
   onClose: () => void;
 }) {
@@ -449,6 +459,15 @@ function SelectedUnitPanel({
         <p className="text-muted-foreground">
           {unit.typeName} · {unit.areaM2.toFixed(1)} m² · {eur(unit.price)}/mes
         </p>
+        {hold && (
+          <p className="text-xs text-muted-foreground">
+            <Link href={hold.link} className="font-medium text-foreground hover:underline">
+              {hold.label}
+            </Link>
+            {hold.name ? ` · ${hold.name}` : ''}
+            {hold.until ? ` · hasta el ${formatDate(hold.until)}` : ''}
+          </p>
+        )}
         {occupant && (
           <p>
             <Link

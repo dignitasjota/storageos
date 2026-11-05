@@ -2041,6 +2041,16 @@ Páginas propias por promoción en la web del tenant, con el estilo de su planti
 - `POST /portal/me/unit-change-requests`: fecha real y no pasada (400), 409 `unit_change_already_pending`. `POST /portal/me/unit-requests`: necesita trastero, tamaño o una nota de 5 caracteres (400), 409 `unit_request_already_pending`, 400 `unit_not_available`.
 - `UnitChangeRequestDto.targetUnitFree`. Los `pending-count` respetan el alcance por local.
 
+### Reservas, lista de espera y peticiones de trastero: mejoras (2026-11-05)
+
+- `GET /units/:id/hold` y `GET /floors/:id/holds` (`customers:read`): quién retiene un trastero (`UnitHoldDto`). `GET /reservations/held-units` (`reservations:read`): todos los reservados.
+- `GET/PUT /reservations/settings`: `signalPolicy` (`refund`|`keep`), `waitlistHoldHours` (12-168), `waitlistStaleDays` (0-365). Guardar pide `settings:manage`.
+- `PATCH /reservations/:id {validUntil?, customerId?, notes?}`: 409 `reservation_has_signal` si cambia el inquilino con la señal facturada. `POST /reservations/:id/cancel {keepSignal?}`.
+- `GET /waitlist/demand`, `GET /waitlist/pending-count`, `GET /waitlist/:id/upcoming-units`, `POST /waitlist/:id/notify` (409 `no_free_unit`), `POST /waitlist/:id/skip` (409 `waitlist_last_in_queue`), `POST /waitlist/:id/requeue`, `POST /waitlist/:id/preassign {unitId|null}` (400 `unit_not_ending`, 409 `unit_already_preassigned`). `WaitlistEntryDto` gana `position`, `holdExpiresAt`, `preassignedUnitId/Code`, `freeUnitAvailable`.
+- Público: `GET /public/waitlist/interest/:token` y `POST … {stillInterested}` (204).
+- `GET /unit-change-requests/:id/alternatives`. `POST /unit-requests/:id/to-waitlist {facilityId?, unitTypeId?}`.
+- `GET /unit-inbox` (`reservations:read`; cambios y solicitudes solo con `contracts:read`), `PATCH /unit-inbox/:kind/:id/assign {userId|null}` (`reservations:write`), `GET /unit-inbox/stats?days=`.
+
 ### Cambio de trastero (`/portal/me/unit-change-requests`, `/unit-change-requests`)
 
 - `GET/POST /portal/me/unit-change-requests` (`@Public` + sesión de portal, throttle): el inquilino lista/crea solicitudes `{ contractId?, note }`; al crear notifica al staff.

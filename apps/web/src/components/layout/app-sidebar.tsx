@@ -89,6 +89,7 @@ import { useProductUpdatesUnread } from '@/lib/product-updates/hooks';
 import { useSupportWaitingCount } from '@/lib/support/hooks';
 import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
 import { useUnitRequestPendingCount } from '@/lib/unit-requests/hooks';
+import { useWaitlistPendingCount } from '@/lib/waitlist/hooks';
 import { useWhatsappUnreadCount } from '@/lib/whatsapp/hooks';
 
 interface NavItem {
@@ -131,6 +132,12 @@ const GROUPS: NavGroup[] = [
             labelKey: 'contracts',
             icon: FileText,
             permission: 'contracts:read',
+          },
+          {
+            href: '/unit-inbox',
+            labelKey: 'unitInbox',
+            icon: Inbox,
+            permission: 'reservations:read',
           },
           {
             href: '/reservations',
@@ -500,6 +507,8 @@ export function AppSidebar() {
     useUnitChangePendingCount(permissions.includes('contracts:read')).data?.count ?? 0;
   const unitRequestPending =
     useUnitRequestPendingCount(permissions.includes('contracts:read')).data?.count ?? 0;
+  const waitlistPending =
+    useWaitlistPendingCount(permissions.includes('reservations:read')).data?.count ?? 0;
   // Incidencias abiertas por estado (reportadas + en investigación).
   const incidentCounts = useIncidentPendingCounts(permissions.includes('incidents:read')).data ?? {
     reported: 0,
@@ -563,6 +572,7 @@ export function AppSidebar() {
   function badgeCount(href: string): number {
     if (href === '/unit-change-requests') return unitChangePending;
     if (href === '/unit-requests') return unitRequestPending;
+    if (href === '/waitlist') return waitlistPending;
     if (href === '/messages') return unreadMessages;
     if (href === '/whatsapp') return whatsappUnread;
     if (href === '/marketing/web-chat') return webChatCount;
@@ -583,6 +593,20 @@ export function AppSidebar() {
       return (
         <SidebarMenuBadge className="bg-primary text-primary-foreground">
           {unitRequestPending}
+        </SidebarMenuBadge>
+      );
+    }
+    if (href === '/waitlist' && waitlistPending > 0) {
+      return (
+        <SidebarMenuBadge className="bg-primary text-primary-foreground">
+          {waitlistPending}
+        </SidebarMenuBadge>
+      );
+    }
+    if (href === '/unit-inbox' && unitChangePending + unitRequestPending + waitlistPending > 0) {
+      return (
+        <SidebarMenuBadge className="bg-primary text-primary-foreground">
+          {unitChangePending + unitRequestPending + waitlistPending}
         </SidebarMenuBadge>
       );
     }

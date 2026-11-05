@@ -12,6 +12,7 @@ import type {
   FacilityDocumentKind,
   FacilityDocumentUploadDto,
   FacilitySummaryDto,
+  FloorHoldDto,
   FloorOccupantDto,
   UnitInsightsDto,
   UpdateFacilityDocumentInput,
@@ -55,6 +56,14 @@ export function useFloorOccupants(floorId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: ['facilities', 'floors', floorId, 'occupants'],
     queryFn: () => apiFetch<FloorOccupantDto[]>(`/floors/${floorId}/occupants`),
+    enabled: !!floorId && enabled,
+  });
+}
+
+export function useFloorHolds(floorId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['facilities', 'floors', floorId, 'holds'],
+    queryFn: () => apiFetch<FloorHoldDto[]>(`/floors/${floorId}/holds`),
     enabled: !!floorId && enabled,
   });
 }

@@ -1809,3 +1809,12 @@ Sin migración. Variable opcional `RETENTION_WAITLIST_DAYS` (365).
 - **Respuesta a las peticiones**: el inquilino recibe un correo nuevo al atender o rechazar un cambio o una solicitud de trastero. Se apaga en Configuración → Correo. Rechazar exige un motivo.
 - **Reservas**: `POST /reservations/expire-due` desaparece (nadie lo usaba; lo hace el cron). Una señal necesita inquilino y `validUntil` tiene que ser futura.
 - **RGPD**: anonimizar a un inquilino lo saca de la cola y suelta su trastero guardado. Los contactos de la cola sin ficha y ya cerrados se borran al año.
+
+## 98. Reservas, lista de espera, cambios y solicitudes: mejoras (2026-11-05)
+
+Migración `20261224100000_reservations_features`, se aplica sola. Sin variables nuevas.
+
+- **Correos nuevos al inquilino**: «Reserva confirmada» y «Reserva a punto de caducar», activados por defecto. Se apagan en Configuración → Correo. Si el negocio tiene una automatización de reserva confirmada, sale la suya.
+- **Limpieza de la cola**: quien lleva 90 días esperando recibe «¿Sigues buscando?» en la primera hora tras desplegar, y sale de la cola si no responde en 14 días. Cada negocio lo cambia (o lo apaga con 0) en Reservas → Ajustes.
+- **Aviso por WhatsApp**: sale solo con el extra activo y la plantilla de recordatorio configurada, o con la conversación abierta.
+- **Señal**: por defecto se sigue devolviendo. Si un negocio elige quedársela, conviene que lo digan sus condiciones.

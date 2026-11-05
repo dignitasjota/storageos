@@ -1110,3 +1110,7 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 ### Inquilinos (`20261223100000_customer_features`)
 
 `customers.merged_into_customer_id` (fusionado en otro: borrado y sin restaurar) y `billing_email` (facturas, cobros y recordatorios). Con RLS: `customer_contacts` (personas de una empresa), `customer_document_requests` (`pending`, `fulfilled`, `cancelled`; se cierra al subir un documento de ese tipo) y `customer_saved_views` (vistas de la lista, únicas por nombre).
+
+### Reservas y lista de espera (`20261224100000_reservations_features`)
+
+`tenants.waitlist_hold_hours` (48), `waitlist_stale_days` (90, 0 = no se pregunta), `reservation_signal_policy` (`refund`|`keep`). `reservations.reminder_sent_at`. `waitlist_entries.queue_date` (orden de la cola), `hold_expires_at`, `no_reply_alerted_at`, `preassigned_unit_id` (FK SET NULL a `units`), `interest_asked_at`, `interest_confirmed_at`, `interest_token_hash` (huella del enlace «¿Sigues buscando?»). `assigned_to_user_id` (FK SET NULL a `users`) en `reservations`, `waitlist_entries`, `unit_change_requests` y `unit_requests`.

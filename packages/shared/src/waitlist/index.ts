@@ -73,6 +73,16 @@ export interface WaitlistEntryDto {
   /** Trastero guardado para esta persona mientras dura el aviso. */
   heldUnitId: string | null;
   heldUnitCode: string | null;
+  /** Hasta cuándo se le guarda el trastero. */
+  holdExpiresAt: string | null;
+  /** Posición en la cola de ese local y tamaño (solo en espera). */
+  position: number | null;
+  /** Trastero con baja pedida reservado para esta persona. */
+  preassignedUnitId: string | null;
+  preassignedUnitCode: string | null;
+  /** ¿Hay un trastero libre de su tamaño ahora mismo? */
+  freeUnitAvailable: boolean;
+  assignedToUserId: string | null;
   createdAt: string;
 }
 

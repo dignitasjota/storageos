@@ -10,6 +10,7 @@ export * from './auth';
 export * from './users';
 export * from './facilities';
 export * from './customers';
+export * from './unit-ops';
 export * from './contracts';
 export * from './expenses';
 export * from './business-reminders';

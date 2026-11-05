@@ -1,6 +1,11 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { PublicJoinWaitlistSchema, type PublicWaitlistOptionsDto } from '@storageos/shared';
+import {
+  PublicJoinWaitlistSchema,
+  type PublicWaitlistOptionsDto,
+  type WaitlistInterestViewDto,
+  WaitlistInterestSchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -8,6 +13,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { WaitlistService } from './waitlist.service';
 
 class PublicJoinWaitlistBody extends createZodDto(PublicJoinWaitlistSchema) {}
+class WaitlistInterestBody extends createZodDto(WaitlistInterestSchema) {}
 
 /**
  * Alta self-service en la lista de espera desde la web pública (sin sesión).
@@ -18,6 +24,20 @@ class PublicJoinWaitlistBody extends createZodDto(PublicJoinWaitlistSchema) {}
 @Controller('public/waitlist')
 export class WaitlistPublicController {
   constructor(private readonly waitlist: WaitlistService) {}
+
+  /** Enlace del correo «¿Sigues buscando?». */
+  @Get('interest/:token')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  interest(@Param('token') token: string): Promise<WaitlistInterestViewDto> {
+    return this.waitlist.interestView(token);
+  }
+
+  @Post('interest/:token')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  answerInterest(@Param('token') token: string, @Body() body: WaitlistInterestBody): Promise<void> {
+    return this.waitlist.answerInterest(token, body.stillInterested);
+  }
 
   /** Catálogo (locales + tipos + disponibilidad) para elegir a qué apuntarse. */
   @Get(':slug/options')

@@ -14,8 +14,10 @@ import {
 import {
   CreateFloorSchema,
   type FacilityFloorDto,
+  type FloorHoldDto,
   type FloorOccupantDto,
   type PlanUploadResponseDto,
+  type UnitHoldDto,
   RequestPlanUploadSchema,
   UpdateFloorPlanSchema,
   UpdateFloorSchema,
@@ -75,6 +77,28 @@ export class FacilityFloorsController {
   ): Promise<FacilityFloorDto[]> {
     assertFacilityAllowed(user.facilityScope, facilityId);
     return this.floors.list(user.tenantId, facilityId);
+  }
+
+  /** Quién retiene un trastero (reserva, aviso de la cola, traslado…). */
+  @RequirePermission('customers:read')
+  @Get('units/:id/hold')
+  async unitHold(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ hold: UnitHoldDto | null }> {
+    return {
+      hold: await this.insights.unitHold(user.tenantId, id, user.facilityScope ?? null),
+    };
+  }
+
+  /** Para quién está guardado cada trastero reservado de la planta. */
+  @RequirePermission('customers:read')
+  @Get('floors/:id/holds')
+  async holds(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<FloorHoldDto[]> {
+    return this.insights.holds(user.tenantId, id, user.facilityScope ?? null);
   }
 
   /** Quién ocupa cada trastero de la planta (para el visor del plano). */

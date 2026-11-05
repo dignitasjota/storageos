@@ -1,18 +1,19 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { type ColumnDef } from '@tanstack/react-table';
+import { Download, MoreHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { WaitlistStatus } from '@storageos/shared';
+import type { WaitlistDemandRowDto, WaitlistEntryDto, WaitlistStatus } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
+import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -29,20 +36,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
+import { downloadCsv } from '@/lib/csv';
 import { useFacilities, useUnitTypes, useUnits } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate } from '@/lib/format';
-import { useCreateWaitlistEntry, useUpdateWaitlistEntry, useWaitlist } from '@/lib/waitlist/hooks';
+import {
+  useCreateWaitlistEntry,
+  usePreassignWaitlist,
+  useUpcomingUnits,
+  useUpdateWaitlistEntry,
+  useWaitlist,
+  useWaitlistAction,
+  useWaitlistDemand,
+} from '@/lib/waitlist/hooks';
 
 const STATUS: Record<
   WaitlistStatus,
@@ -55,9 +65,16 @@ const STATUS: Record<
   expired: { label: 'Aviso caducado', variant: 'outline' },
 };
 
+/** Lo que queda del aviso, en horas. */
+function timeLeft(iso: string): string {
+  const hours = Math.round((new Date(iso).getTime() - Date.now()) / 3_600_000);
+  if (hours <= 0) return 'caduca ya';
+  return hours < 48 ? `quedan ${hours} h` : `quedan ${Math.round(hours / 24)} días`;
+}
+
 export default function WaitlistPage() {
-  const headerFacilityId = useHeaderFacilityId();
   const ask = useConfirm();
+  const headerFacilityId = useHeaderFacilityId();
   const { data, isLoading, isError, refetch } = useWaitlist(
     headerFacilityId ? { facilityId: headerFacilityId } : {},
   );
@@ -65,6 +82,10 @@ export default function WaitlistPage() {
   const unitTypes = useUnitTypes();
   const create = useCreateWaitlistEntry();
   const update = useUpdateWaitlistEntry();
+  const action = useWaitlistAction();
+  const canWrite = useHasPermission('reservations:write');
+  const canContract = useHasPermission('contracts:write');
+  const [preassigning, setPreassigning] = useState<WaitlistEntryDto | null>(null);
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
@@ -136,114 +157,239 @@ export default function WaitlistPage() {
     }
   }
 
-  const rows = data ?? [];
-  const live = rows.filter((e) => e.status === 'waiting' || e.status === 'notified').length;
+  async function runAction(e: WaitlistEntryDto, kind: 'notify' | 'skip' | 'requeue') {
+    if (kind === 'skip') {
+      const ok = await ask({
+        title: 'Ceder el turno',
+        description:
+          e.status === 'notified'
+            ? 'Suelta el trastero guardado, se le ofrece al siguiente y esta persona vuelve a esperar detrás.'
+            : 'Pasa detrás de la siguiente persona de la cola.',
+        confirmLabel: 'Ceder el turno',
+      });
+      if (!ok) return;
+    }
+    try {
+      await action.mutateAsync({ id: e.id, action: kind });
+      toast.success(
+        kind === 'notify'
+          ? 'Avisado: le guardamos un trastero.'
+          : kind === 'skip'
+            ? 'Turno cedido.'
+            : 'De vuelta en la cola.',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error.');
+    }
+  }
+
+  const rows = useMemo(() => data ?? [], [data]);
+  const waiting = rows.filter((e) => e.status === 'waiting');
+  const notified = rows.filter((e) => e.status === 'notified');
+  const closed = rows.filter((e) => e.status !== 'waiting' && e.status !== 'notified');
+
+  function exportCsv() {
+    downloadCsv('lista-de-espera.csv', [
+      ['Nombre', 'Email', 'Teléfono', 'Local', 'Tamaño', 'Estado', 'Posición', 'Desde'],
+      ...rows.map((e) => [
+        e.contactName,
+        e.contactEmail,
+        e.contactPhone ?? '',
+        e.facilityName,
+        e.unitTypeName,
+        STATUS[e.status].label,
+        e.position ?? '',
+        formatDate(e.createdAt),
+      ]),
+    ]);
+  }
+
+  const columns: ColumnDef<WaitlistEntryDto>[] = [
+    {
+      id: 'contact',
+      header: 'Contacto',
+      cell: ({ row }) => {
+        const e = row.original;
+        return (
+          <div>
+            {e.customerId ? (
+              <Link href={`/customers/${e.customerId}`} className="font-medium hover:underline">
+                {e.contactName}
+              </Link>
+            ) : (
+              <span className="font-medium">{e.contactName}</span>
+            )}
+            <div className="text-xs text-muted-foreground">
+              {e.contactEmail}
+              {e.contactPhone ? ` · ${e.contactPhone}` : ''}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'queue',
+      header: 'Local y tamaño',
+      cell: ({ row }) => (
+        <span className="text-sm">
+          {row.original.facilityName} · {row.original.unitTypeName}
+        </span>
+      ),
+    },
+    {
+      id: 'status',
+      header: 'Estado',
+      cell: ({ row }) => {
+        const e = row.original;
+        return (
+          <div className="space-y-0.5">
+            <Badge variant={STATUS[e.status].variant}>
+              {e.position ? `${e.position}.º en la cola` : STATUS[e.status].label}
+            </Badge>
+            {e.heldUnitCode && (
+              <p className="text-xs text-muted-foreground">
+                Guardado: {e.heldUnitCode}
+                {e.holdExpiresAt ? ` · ${timeLeft(e.holdExpiresAt)}` : ''}
+              </p>
+            )}
+            {e.preassignedUnitCode && (
+              <p className="text-xs text-muted-foreground">Preasignado: {e.preassignedUnitCode}</p>
+            )}
+            {e.status === 'waiting' && e.freeUnitAvailable && (
+              <p className="text-xs text-emerald-600">Hay un trastero libre</p>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'since',
+      header: 'Desde',
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">{formatDate(row.original.createdAt)}</span>
+      ),
+    },
+    {
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => {
+        const e = row.original;
+        if (!canWrite) return null;
+        const live = e.status === 'waiting' || e.status === 'notified';
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Acciones">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {live && canContract && (
+                <DropdownMenuItem asChild>
+                  <Link
+                    href={`/contracts/new?${new URLSearchParams({
+                      waitlistEntryId: e.id,
+                      facilityId: e.facilityId,
+                      unitTypeId: e.unitTypeId,
+                      ...(e.customerId ? { customerId: e.customerId } : {}),
+                      ...(e.heldUnitId ? { unitId: e.heldUnitId } : {}),
+                    }).toString()}`}
+                  >
+                    Crear contrato
+                  </Link>
+                </DropdownMenuItem>
+              )}
+              {e.status === 'waiting' && e.freeUnitAvailable && (
+                <DropdownMenuItem onClick={() => void runAction(e, 'notify')}>
+                  Avisar ahora
+                </DropdownMenuItem>
+              )}
+              {e.status === 'waiting' && (
+                <DropdownMenuItem onClick={() => setPreassigning(e)}>
+                  Preasignar un trastero con baja
+                </DropdownMenuItem>
+              )}
+              {live && (
+                <DropdownMenuItem onClick={() => void runAction(e, 'skip')}>
+                  Ceder el turno
+                </DropdownMenuItem>
+              )}
+              {live && (
+                <DropdownMenuItem onClick={() => void onUpdate(e.id, 'converted')}>
+                  Marcar como convertido
+                </DropdownMenuItem>
+              )}
+              {live && (
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={() => void onUpdate(e.id, 'cancelled')}
+                >
+                  Sacar de la cola
+                </DropdownMenuItem>
+              )}
+              {(e.status === 'expired' || e.status === 'cancelled') && (
+                <DropdownMenuItem onClick={() => void runAction(e, 'requeue')}>
+                  Volver a la cola
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ];
+
+  const table = (list: WaitlistEntryDto[], emptyText: string) =>
+    isError ? (
+      <SectionError onRetry={() => void refetch()} />
+    ) : (
+      <DataTable columns={columns} data={list} isLoading={isLoading} emptyText={emptyText} />
+    );
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Lista de espera</h1>
           <p className="text-sm text-muted-foreground">
-            Clientes esperando un tipo de trastero. Al liberarse una unidad de ese tipo, se avisa al
-            primero de la cola automáticamente.
+            Clientes esperando un tipo de trastero. Al quedar uno libre, se avisa al primero de la
+            cola y se le guarda.
           </p>
         </div>
-        <Can permission="reservations:write">
-          <Button onClick={() => setOpen(true)}>Añadir a la lista</Button>
-        </Can>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
+            <Download className="mr-1 size-4" /> CSV
+          </Button>
+          <Can permission="reservations:write">
+            <Button onClick={() => setOpen(true)}>Añadir a la lista</Button>
+          </Can>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Cola ({live})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isError ? (
-            <SectionError onRetry={() => void refetch()} />
-          ) : isLoading ? (
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          ) : rows.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              Nadie en lista de espera todavía.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Contacto</TableHead>
-                  <TableHead>Local</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Desde</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((e) => (
-                  <TableRow key={e.id}>
-                    <TableCell>
-                      <div className="font-medium">{e.contactName}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {e.contactEmail}
-                        {e.contactPhone ? ` · ${e.contactPhone}` : ''}
-                      </div>
-                    </TableCell>
-                    <TableCell>{e.facilityName}</TableCell>
-                    <TableCell>{e.unitTypeName}</TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS[e.status].variant}>{STATUS[e.status].label}</Badge>
-                      {e.heldUnitCode && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          Guardado: {e.heldUnitCode}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {formatDate(e.createdAt)}
-                    </TableCell>
-                    <TableCell className="space-x-2 text-right">
-                      {(e.status === 'waiting' || e.status === 'notified') && (
-                        <Can permission="reservations:write">
-                          <Can permission="contracts:write">
-                            <Button asChild size="sm">
-                              <Link
-                                href={`/contracts/new?${new URLSearchParams({
-                                  waitlistEntryId: e.id,
-                                  facilityId: e.facilityId,
-                                  unitTypeId: e.unitTypeId,
-                                  ...(e.customerId ? { customerId: e.customerId } : {}),
-                                  ...(e.heldUnitId ? { unitId: e.heldUnitId } : {}),
-                                }).toString()}`}
-                              >
-                                Crear contrato
-                              </Link>
-                            </Button>
-                          </Can>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onUpdate(e.id, 'converted')}
-                          >
-                            Convertido
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onUpdate(e.id, 'cancelled')}
-                          >
-                            Cancelar
-                          </Button>
-                        </Can>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="waiting">
+        <TabsList>
+          <TabsTrigger value="waiting">En cola ({waiting.length})</TabsTrigger>
+          <TabsTrigger value="notified">Avisados ({notified.length})</TabsTrigger>
+          <TabsTrigger value="closed">Cerrados ({closed.length})</TabsTrigger>
+          <TabsTrigger value="demand">Demanda</TabsTrigger>
+        </TabsList>
+        <TabsContent value="waiting" className="mt-4">
+          {table(waiting, 'Nadie en lista de espera.')}
+        </TabsContent>
+        <TabsContent value="notified" className="mt-4">
+          {table(notified, 'No hay avisos en curso.')}
+        </TabsContent>
+        <TabsContent value="closed" className="mt-4">
+          {table(closed, 'Aún no hay entradas cerradas.')}
+        </TabsContent>
+        <TabsContent value="demand" className="mt-4">
+          <DemandTab facilityId={headerFacilityId} />
+        </TabsContent>
+      </Tabs>
+
+      {preassigning && (
+        <PreassignDialog entry={preassigning} onClose={() => setPreassigning(null)} />
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -332,5 +478,111 @@ export default function WaitlistPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Cuánta gente espera por local y tamaño. */
+function DemandTab({ facilityId }: { facilityId: string | undefined }) {
+  const demand = useWaitlistDemand(facilityId);
+  const columns: ColumnDef<WaitlistDemandRowDto>[] = [
+    {
+      id: 'queue',
+      header: 'Local y tamaño',
+      cell: ({ row }) => `${row.original.facilityName} · ${row.original.unitTypeName}`,
+    },
+    { accessorKey: 'waiting', header: 'Esperando' },
+    {
+      accessorKey: 'oldestDays',
+      header: 'Espera más larga',
+      cell: ({ row }) => (row.original.waiting ? `${row.original.oldestDays} días` : '—'),
+    },
+    { accessorKey: 'freeUnits', header: 'Libres ahora' },
+    {
+      id: 'conversion',
+      header: 'Avisos que acaban en contrato',
+      cell: ({ row }) =>
+        row.original.conversionPct === null
+          ? '—'
+          : `${row.original.conversionPct} % (${row.original.converted} de ${
+              row.original.converted + row.original.expired
+            })`,
+    },
+  ];
+  if (demand.isError) return <SectionError onRetry={() => void demand.refetch()} />;
+  return (
+    <DataTable
+      columns={columns}
+      data={demand.data ?? []}
+      isLoading={demand.isLoading}
+      emptyText="Todavía no hay demanda registrada."
+    />
+  );
+}
+
+/** Reserva para esta persona un trastero que se va a liberar. */
+function PreassignDialog({ entry, onClose }: { entry: WaitlistEntryDto; onClose: () => void }) {
+  const units = useUpcomingUnits(entry.id);
+  const preassign = usePreassignWaitlist();
+
+  async function choose(unitId: string | null) {
+    try {
+      await preassign.mutateAsync({ id: entry.id, unitId });
+      toast.success(unitId ? 'Trastero preasignado.' : 'Preasignación quitada.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error.');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Preasignar a {entry.contactName}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Cuando el inquilino actual se vaya, el aviso irá a esta persona antes que al resto de la
+          cola.
+        </p>
+        {units.isError ? (
+          <SectionError onRetry={() => void units.refetch()} />
+        ) : (units.data ?? []).length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            {units.isLoading
+              ? 'Cargando…'
+              : `No hay ningún ${entry.unitTypeName} con baja pedida en ${entry.facilityName}.`}
+          </p>
+        ) : (
+          <ul className="divide-y rounded-md border text-sm">
+            {(units.data ?? []).map((u) => (
+              <li key={u.unitId} className="flex items-center justify-between gap-3 p-2">
+                <span>
+                  {u.unitCode} · queda libre el {formatDate(u.endDate)}
+                  {u.preassignedTo ? ` · preasignado a ${u.preassignedTo}` : ''}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={preassign.isPending || !!u.preassignedTo}
+                  onClick={() => void choose(u.unitId)}
+                >
+                  Elegir
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <DialogFooter>
+          {entry.preassignedUnitId && (
+            <Button variant="outline" onClick={() => void choose(null)}>
+              Quitar la preasignación
+            </Button>
+          )}
+          <Button variant="outline" onClick={onClose}>
+            Cerrar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

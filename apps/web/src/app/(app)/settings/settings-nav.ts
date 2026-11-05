@@ -263,6 +263,12 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
 /** Ajustes que viven junto a la función que configuran (enlazados desde el inicio). */
 export const MODULE_SETTINGS: SettingsNavItem[] = [
   {
+    href: '/reservations?settings=1',
+    label: 'Reservas y lista de espera',
+    description: 'Qué pasa con la señal, cuánto se guarda un trastero y cuándo limpiar la cola.',
+    permission: 'settings:manage',
+  },
+  {
     href: '/facilities',
     label: 'Tipos de trastero',
     description: 'Precio y fianza por defecto de cada tipo (en la ficha de cada local).',

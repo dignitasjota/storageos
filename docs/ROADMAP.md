@@ -565,6 +565,7 @@ Fases 0 a 4 completas + un subset esencial de la 5 (al menos email transaccional
 ### Reservas, lista de espera y peticiones de trastero: revisión (2026-11-05)
 
 - ✅ **PR A (arreglos)**: un trastero guardado para otra persona ya no se reserva ni vuelve a la venta (`unitHeldByOther` + `releaseReservedUnit`); dos trasteros liberados a la vez no van a la misma persona; repaso horario de la cola con trastero libre; correo al inquilino al responder sus peticiones; transiciones atómicas y validaciones.
+- ✅ **PR B (mejoras)**: quién retiene cada trastero, reservas editables con correos, política de señal, cola manejable (posición, cuenta atrás, avisar, ceder turno, volver), aviso por WhatsApp, limpieza de la cola, demanda, preasignar trasteros con baja, alternativas al cambiar, pasar una solicitud a la cola, bandeja única con responsable, CSV y cifras.
 
 ### Segundo análisis de correos y notificaciones (2026-10-01/02, #580–#595) ✅
 

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
 
 import { UnitRequestsController } from './unit-requests.controller';
 import { UnitRequestsService } from './unit-requests.service';
@@ -11,7 +12,7 @@ import { UnitRequestsService } from './unit-requests.service';
  * staff. El inquilino ve la disponibilidad de su local y manda una solicitud.
  */
 @Module({
-  imports: [AuthModule, NotificationsModule],
+  imports: [AuthModule, NotificationsModule, WaitlistModule],
   controllers: [UnitRequestsController],
   providers: [UnitRequestsService],
   exports: [UnitRequestsService],

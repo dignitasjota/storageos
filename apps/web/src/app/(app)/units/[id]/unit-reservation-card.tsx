@@ -1,5 +1,6 @@
 'use client';
 
+import { UNIT_HOLD_LABELS } from '@storageos/shared';
 import { CalendarClock, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -35,6 +36,7 @@ import {
 } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
 import { formatDate, formatEur } from '@/lib/format';
+import { useUnitHold } from '@/lib/unit-ops/hooks';
 
 /** Fecha (YYYY-MM-DD) → ISO al final de ese día, para que la reserva cubra el día completo. */
 function endOfDayIso(date: string): string {
@@ -66,6 +68,7 @@ export function UnitReservationCard({
   const [notes, setNotes] = useState('');
   const [signal, setSignal] = useState('');
   const customers = useCustomers(search);
+  const hold = useUnitHold(unitId, unitStatus === 'reserved');
 
   if (unitStatus !== 'available' && unitStatus !== 'reserved') return null;
 
@@ -181,10 +184,26 @@ export function UnitReservationCard({
             )}
           </div>
         ) : unitStatus === 'reserved' ? (
-          <p className="text-sm text-muted-foreground">
-            Este trastero ya está guardado para alguien: una reserva online, un aviso de la lista de
-            espera o un traslado.
-          </p>
+          hold.data?.hold ? (
+            <div className="rounded-md border bg-muted/30 p-3 text-sm">
+              <p className="text-xs text-muted-foreground">
+                {UNIT_HOLD_LABELS[hold.data.hold.kind]}
+              </p>
+              <Link href={hold.data.hold.link} className="font-medium hover:underline">
+                {hold.data.hold.name ?? 'Ver quién lo retiene'}
+              </Link>
+              {hold.data.hold.until && (
+                <p className="text-xs text-muted-foreground">
+                  Hasta el {formatDate(hold.data.hold.until)}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Este trastero está reservado pero nadie lo retiene: puedes cambiar su estado a
+              disponible.
+            </p>
+          )
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
