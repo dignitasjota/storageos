@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 
 import { AccessCredentialsService } from './access-credentials.service';
+import { AccessDevicesService } from './access-devices.service';
 
 /**
  * Repaso de las credenciales: marca lo caducado o gastado y lo saca de los
@@ -11,7 +12,10 @@ import { AccessCredentialsService } from './access-credentials.service';
 export class AccessSweepCron {
   private readonly logger = new Logger(AccessSweepCron.name);
 
-  constructor(private readonly credentials: AccessCredentialsService) {}
+  constructor(
+    private readonly credentials: AccessCredentialsService,
+    private readonly devices: AccessDevicesService,
+  ) {}
 
   @Cron('*/15 * * * *', { name: 'access.sweep' })
   async run(): Promise<void> {
@@ -19,5 +23,10 @@ export class AccessSweepCron {
     if (expired + revoked > 0) {
       this.logger.log(`[access] ${expired} caducadas, ${revoked} revocadas de ex-inquilinos`);
     }
+  }
+
+  @Cron('*/10 * * * *', { name: 'access.device-health' })
+  async health(): Promise<void> {
+    await this.devices.checkAll();
   }
 }

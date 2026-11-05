@@ -57,8 +57,9 @@ function extractMeta(req: Request): RequestMeta {
   };
 }
 
-function parseStatus(value: string | undefined): AccessCredentialStatusValue | undefined {
+function parseStatus(value: string | undefined): AccessCredentialStatusValue | 'live' | undefined {
   if (!value) return undefined;
+  if (value === 'live') return 'live';
   const parsed = AccessCredentialStatusEnum.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }

@@ -1190,15 +1190,26 @@ Modulo `apps/api/src/modules/access/`.
 
 ### Endpoints — Access devices
 
-| Metodo | Ruta                                     | Auth | Roles          | Descripcion                                                                            |
-| ------ | ---------------------------------------- | ---- | -------------- | -------------------------------------------------------------------------------------- |
-| GET    | `/access/devices`                        | SI   | cualquiera     | Lista con facility + unitos vinculados                                                 |
-| POST   | `/access/devices`                        | SI   | owner, manager | Crea. Devuelve `apiKey` plaintext (una sola vez)                                       |
-| POST   | `/access/devices/:id/regenerate-api-key` | SI   | owner, manager | Rota apiKey. Devuelve plaintext nuevo                                                  |
-| PATCH  | `/access/devices/:id`                    | SI   | owner, manager | Edita nombre/unidades vinculadas                                                       |
-| DELETE | `/access/devices/:id`                    | SI   | owner, manager | Soft delete                                                                            |
-| POST   | `/access/devices/:id/ping`               | SI   | owner, manager | Comprueba la conexión sin abrir: `{supported, online}`                                 |
-| POST   | `/access/devices/:id/open`               | SI   | owner, manager | Apertura remota (server→controlador). Registra `access_logs`. `{dispatched, message?}` |
+| Metodo | Ruta                                     | Auth             | Roles          | Descripcion                                                                                    |
+| ------ | ---------------------------------------- | ---------------- | -------------- | ---------------------------------------------------------------------------------------------- |
+| GET    | `/access/devices`                        | SI               | cualquiera     | Lista con facility + unitos vinculados                                                         |
+| POST   | `/access/devices`                        | SI               | owner, manager | Crea. Devuelve `apiKey` plaintext (una sola vez)                                               |
+| POST   | `/access/devices/:id/regenerate-api-key` | SI               | owner, manager | Rota apiKey. Devuelve plaintext nuevo                                                          |
+| PATCH  | `/access/devices/:id`                    | SI               | owner, manager | Edita nombre/unidades vinculadas                                                               |
+| DELETE | `/access/devices/:id`                    | SI               | owner, manager | Soft delete                                                                                    |
+| POST   | `/access/devices/:id/ping`               | SI               | owner, manager | Comprueba la conexión sin abrir: `{supported, online}`                                         |
+| POST   | `/access/heartbeat`                      | Clave del equipo | —              | Latido de un equipo que no se puede consultar desde fuera. `{deviceId}` + `X-Device-Key` → 204 |
+| POST   | `/access/devices/test-connection`        | SI               | owner, manager | Prueba un equipo sin guardarlo ni abrir. `{provider, controlUrl, controlSecret?}`              |
+| POST   | `/access/devices/:id/resync`             | SI               | owner, manager | Reenvía al terminal las credenciales que le tocan. `{sent}`                                    |
+| GET    | `/access/sync-status`                    | SI               | cualquiera     | Por terminal: `expected`, `synced`, `failed` y `errors`                                        |
+| GET    | `/access/customers/:id`                  | SI               | cualquiera     | Todo el acceso de un inquilino (`CustomerAccessSummaryDto`)                                    |
+| POST   | `/access/customers/:id/suspend`          | SI               | owner, manager | Corta todo. `{reason}` → `{changed}`                                                           |
+| POST   | `/access/customers/:id/resume`           | SI               | owner, manager | Reactiva todo, también lo cortado por impago → `{changed}`                                     |
+| POST   | `/access/customers/:id/resend`           | SI               | owner, manager | Reenvía su PIN por correo → `{sentTo}`. 400 `customer_without_email`, `no_code_to_resend`      |
+| GET    | `/access/temporary`                      | SI               | cualquiera     | Accesos temporales (sin inquilino)                                                             |
+| POST   | `/access/temporary`                      | SI               | owner, manager | Crea uno: titular, locales, `validFrom?`, `expiresAt` obligatorio                              |
+| GET    | `/access/logs/:id/camera`                | SI               | cualquiera     | Foto de cámara más cercana (±2 min), o null. Solo con la función `cameras`                     |
+| POST   | `/access/devices/:id/open`               | SI               | owner, manager | Apertura remota (server→controlador). Registra `access_logs`. `{dispatched, message?}`         |
 
 > Crear/editar device acepta `controlUrl` + `controlSecret` (HMAC) para el provider `LOCK_PROVIDER=http`; el secreto se guarda cifrado y el DTO solo expone `controlUrl` + `hasControlSecret`.
 

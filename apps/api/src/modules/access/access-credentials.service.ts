@@ -45,10 +45,14 @@ import type {
   SuspendCredentialInput,
   UpdateCredentialInput,
   VisitorPinDto,
+  AccessLogDto,
+  CreateTemporaryAccessInput,
+  CustomerAccessSummaryDto,
 } from '@storageos/shared';
 
 interface ListFilters {
-  status?: AccessCredentialStatusValue;
+  /** live = lo que puede abrir algo (activas, suspendidas y pendientes). */
+  status?: AccessCredentialStatusValue | 'live';
   customerId?: string;
   method?: AccessMethodValue;
   /** Búsqueda por nombre del inquilino. */
@@ -124,6 +128,12 @@ function nextMorningIso(timeZone: string, hour = 8): string {
 
 /** Pases nocturnos que se listan; las cifras de la página cuentan todos. */
 const NIGHT_PASS_LIST_LIMIT = 500;
+
+/** Accesos que el inquilino se da a sí mismo o a otros, además del suyo. */
+const EXTRA_SOURCES = ['portal_self_service', 'portal_visitor', 'visitor', 'night_pass'];
+
+/** Accesos temporales que se listan (los últimos). */
+const MAX_TEMPORARY_LIST = 200;
 
 /** Pases de visita que puede crear un inquilino al día desde su área de clientes. */
 const VISITOR_PASSES_PER_DAY = 3;
@@ -352,9 +362,16 @@ export class AccessCredentialsService {
     const facilities = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
     if (facilities === null) return [];
     const where: Prisma.AccessCredentialWhereInput = {};
-    if (filters.status) where.status = filters.status as AccessCredentialStatus;
+    if (filters.status === 'live') {
+      where.status = { in: ['active', 'suspended', 'pending'] as AccessCredentialStatus[] };
+      // Lo vencido que el repaso aún no ha marcado tampoco está vigente.
+      where.OR = [{ expiresAt: null }, { expiresAt: { gt: new Date() } }];
+    } else if (filters.status) {
+      where.status = filters.status as AccessCredentialStatus;
+    }
     if (filters.method) where.method = filters.method as AccessMethod;
-    if (filters.customerId) where.customerId = filters.customerId;
+    // Los accesos temporales van en su pestaña.
+    where.customerId = filters.customerId ?? { not: null };
     const customer: Prisma.CustomerWhereInput = {};
     if (facilities) {
       customer.contracts = { some: { unit: { facilityId: { in: facilities } } } };
@@ -418,7 +435,7 @@ export class AccessCredentialsService {
         }
         return {
           id: r.id,
-          customerId: r.customerId,
+          customerId: r.customerId as string,
           customerName: customerDisplay(r.customer),
           status,
           createdAt: r.createdAt.toISOString(),
@@ -610,14 +627,22 @@ export class AccessCredentialsService {
       input.allowedFacilityIds !== undefined ||
       input.allowedUnitIds !== undefined;
     if (scopeChanged) {
-      const access = await this.resolveManualScope({
-        tenantId: args.tenantId,
-        customerId: existing.customerId,
-        allFacilities: input.allFacilities ?? false,
-        allowedFacilityIds: input.allowedFacilityIds ?? [],
-        allowedUnitIds: input.allowedUnitIds ?? [],
-        facilityScope: args.facilityScope,
-      });
+      const access = existing.customerId
+        ? await this.resolveManualScope({
+            tenantId: args.tenantId,
+            customerId: existing.customerId,
+            allFacilities: input.allFacilities ?? false,
+            allowedFacilityIds: input.allowedFacilityIds ?? [],
+            allowedUnitIds: input.allowedUnitIds ?? [],
+            facilityScope: args.facilityScope,
+          })
+        : {
+            // Un acceso temporal nunca abre «todo»: siempre tiene sus locales.
+            allowedFacilityIds: input.allowedFacilityIds?.length
+              ? input.allowedFacilityIds
+              : existing.allowedFacilityIds,
+            allowedUnitIds: input.allowedUnitIds ?? existing.allowedUnitIds,
+          };
       data.allowedFacilityIds = { set: access.allowedFacilityIds };
       data.allowedUnitIds = { set: access.allowedUnitIds };
     }
@@ -893,6 +918,243 @@ export class AccessCredentialsService {
       await this.revoke({ tenantId, userId: null, id: row.id, meta: {} });
     }
     return rows.length;
+  }
+
+  /** Todo el acceso de un inquilino, para atenderle desde su ficha. */
+  async customerSummary(
+    tenantId: string,
+    customerId: string,
+    facilityScope: string[] | null,
+  ): Promise<CustomerAccessSummaryDto> {
+    await this.assertCustomerInScope(tenantId, customerId, facilityScope);
+    const credentials = await this.list(tenantId, { customerId });
+    return this.prisma.withTenant(async (tx) => {
+      const [actions, lastAllowed, lastDenied, recent] = await Promise.all([
+        tx.dunningAction.findMany({
+          where: {
+            actionType: 'access_block',
+            status: 'executed',
+            supersededAt: null,
+            invoice: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+          },
+          select: {
+            invoice: {
+              select: {
+                id: true,
+                invoiceNumber: true,
+                total: true,
+                amountPaid: true,
+                amountRefunded: true,
+              },
+            },
+          },
+        }),
+        tx.accessLog.findFirst({
+          where: { customerId, result: 'allowed' },
+          orderBy: { occurredAt: 'desc' },
+          select: { occurredAt: true },
+        }),
+        tx.accessLog.findFirst({
+          where: { customerId, result: { not: 'allowed' } },
+          orderBy: { occurredAt: 'desc' },
+          select: { occurredAt: true },
+        }),
+        tx.accessLog.findMany({
+          where: { customerId },
+          orderBy: { occurredAt: 'desc' },
+          take: 10,
+          include: { device: { select: { name: true } } },
+        }),
+      ]);
+      const cutByCredential = credentials.some(
+        (c) => c.status === 'suspended' && c.suspendReason?.startsWith('dunning:'),
+      );
+      return {
+        credentials,
+        cutForDebt: cutByCredential || actions.length > 0,
+        debtInvoices: actions.map(({ invoice: i }) => ({
+          id: i.id,
+          invoiceNumber: i.invoiceNumber,
+          amountPending: Number(i.total) - Number(i.amountPaid) + Number(i.amountRefunded),
+        })),
+        lastAllowedAt: lastAllowed?.occurredAt.toISOString() ?? null,
+        lastDeniedAt: lastDenied?.occurredAt.toISOString() ?? null,
+        recent: recent.map((l) => ({
+          id: l.id,
+          deviceId: l.deviceId,
+          deviceName: l.device?.name ?? null,
+          credentialId: l.credentialId,
+          customerId: l.customerId,
+          customerName: null,
+          method: l.method as AccessMethodValue,
+          result: l.result as AccessLogDto['result'],
+          attemptedValue: null,
+          reason: l.reason,
+          ipAddress: null,
+          metadata: {},
+          occurredAt: l.occurredAt.toISOString(),
+          staffName: null,
+        })),
+      };
+    }, tenantId);
+  }
+
+  async suspendAllForCustomer(args: {
+    tenantId: string;
+    userId: string;
+    customerId: string;
+    reason: string;
+    facilityScope: string[] | null;
+    meta: RequestMeta;
+  }): Promise<{ changed: number }> {
+    await this.assertCustomerInScope(args.tenantId, args.customerId, args.facilityScope);
+    const rows = await this.suspend({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      customerId: args.customerId,
+      input: { reason: args.reason },
+      meta: args.meta,
+    });
+    return { changed: rows.length };
+  }
+
+  /** Con la política «solo los adicionales», el acceso principal sigue abriendo. */
+  async suspendExtras(tenantId: string, customerId: string, reason: string): Promise<void> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findMany({
+          where: {
+            customerId,
+            status: 'active' as AccessCredentialStatus,
+            OR: EXTRA_SOURCES.map((source) => ({
+              metadata: { path: ['source'], equals: source },
+            })),
+          },
+          select: { id: true },
+        }),
+      tenantId,
+    );
+    for (const row of rows) {
+      await this.suspend({ tenantId, userId: null, id: row.id, input: { reason }, meta: {} });
+    }
+  }
+
+  async assertCustomerAllowed(
+    tenantId: string,
+    customerId: string,
+    facilityScope: string[] | null,
+  ): Promise<void> {
+    await this.assertCustomerInScope(tenantId, customerId, facilityScope);
+  }
+
+  /** Lo que el equipo reactiva a mano, también lo cortado por impago. */
+  async resumeAllForCustomer(args: {
+    tenantId: string;
+    userId: string;
+    customerId: string;
+    facilityScope: string[] | null;
+    meta: RequestMeta;
+  }): Promise<{ changed: number }> {
+    await this.assertCustomerInScope(args.tenantId, args.customerId, args.facilityScope);
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findMany({
+          where: {
+            customerId: args.customerId,
+            status: 'suspended' as AccessCredentialStatus,
+          },
+          select: { id: true },
+        }),
+      args.tenantId,
+    );
+    for (const row of rows) {
+      await this.resume({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        id: row.id,
+        meta: args.meta,
+      });
+    }
+    return { changed: rows.length };
+  }
+
+  /** Accesos temporales de proveedores y equipo. */
+  async listTemporary(
+    tenantId: string,
+    facilityScope: string[] | null,
+    facilityId?: string,
+  ): Promise<AccessCredentialDto[]> {
+    const facilities = resolveFacilityFilter(facilityScope, facilityId);
+    if (facilities === null) return [];
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findMany({
+          where: {
+            customerId: null,
+            ...(facilities ? { allowedFacilityIds: { hasSome: facilities } } : {}),
+          },
+          include: CUSTOMER_SELECT,
+          orderBy: [{ status: 'asc' }, { expiresAt: 'desc' }],
+          take: MAX_TEMPORARY_LIST,
+        }),
+      tenantId,
+    );
+    return rows.map((r) => this.toDto(r));
+  }
+
+  async createTemporary(args: {
+    tenantId: string;
+    userId: string;
+    input: CreateTemporaryAccessInput;
+    facilityScope: string[] | null;
+    meta: RequestMeta;
+  }): Promise<AccessCredentialWithSecretDto> {
+    const { input } = args;
+    for (const id of input.allowedFacilityIds) assertFacilityAllowed(args.facilityScope, id);
+    let secret: Pick<
+      Prisma.AccessCredentialUncheckedCreateInput,
+      'secretHash' | 'secretPreview' | 'secretEncrypted' | 'rfidUid'
+    >;
+    let revealedSecret: string | null = null;
+    if (input.method === 'pin') {
+      const pin = await this.resolveUniquePin(args.tenantId, input.pin);
+      revealedSecret = pin;
+      secret = {
+        secretHash: await argonHash(pin),
+        secretPreview: pin.slice(-4),
+        secretEncrypted: this.crypto.encryptString(pin, args.tenantId),
+      };
+    } else {
+      await this.assertRfidFree(args.tenantId, input.rfidUid as string);
+      secret = { rfidUid: input.rfidUid as string };
+    }
+    const created = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.create({
+          data: {
+            tenantId: args.tenantId,
+            customerId: null,
+            holderName: input.holderName,
+            holderKind: input.holderKind,
+            method: input.method as AccessMethod,
+            status: 'active' as AccessCredentialStatus,
+            ...secret,
+            allowedFacilityIds: input.allowedFacilityIds,
+            allowedUnitIds: input.allowedUnitIds,
+            allowedHours: input.allowedHours as Prisma.InputJsonValue,
+            bypassCurfew: input.bypassCurfew,
+            validFrom: input.validFrom ? new Date(input.validFrom) : null,
+            expiresAt: new Date(input.expiresAt),
+            activatedAt: new Date(),
+            metadata: { source: 'temporary' },
+          },
+          include: CUSTOMER_SELECT,
+        }),
+      args.tenantId,
+    );
+    await this.writeAudit('access.credential_created', args, created.id);
+    await this.sync.syncCredential(args.tenantId, created.id);
+    return { ...this.toDto(created), revealedSecret };
   }
 
   /**
@@ -1452,7 +1714,11 @@ export class AccessCredentialsService {
         message: 'Credencial no encontrada',
       });
     }
-    await this.assertCustomerInScope(tenantId, row.customerId, facilityScope);
+    if (row.customerId) {
+      await this.assertCustomerInScope(tenantId, row.customerId, facilityScope);
+    } else {
+      for (const id of row.allowedFacilityIds) assertFacilityAllowed(facilityScope, id);
+    }
     return row as CredentialWithCustomer;
   }
 
@@ -1551,7 +1817,9 @@ export class AccessCredentialsService {
     return {
       id: c.id,
       customerId: c.customerId,
-      customerName: customerDisplay(c.customer),
+      customerName: c.holderName ?? customerDisplay(c.customer),
+      holderKind: c.holderKind,
+      validFrom: c.validFrom?.toISOString() ?? null,
       method: c.method as AccessMethodValue,
       // Lo caducado se enseña como tal aunque el repaso aún no haya pasado.
       status: (c.status === 'active' && c.expiresAt && c.expiresAt <= new Date()

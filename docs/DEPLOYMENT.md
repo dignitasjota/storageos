@@ -1756,3 +1756,11 @@ Sin migración ni variables nuevas. Tarea nueva `access.sweep` (cada 15 min, en 
 - Una credencial limitada a unos locales **ya no abre la cerradura de un trastero** que no tenga en su lista. Las hechas a mano antes que solo tenían locales dejan de abrir esas cerraduras: editarlas y marcar sus trasteros.
 - Las credenciales antiguas creadas sin locales siguen abriéndolo todo hasta que se editen.
 - Los ajustes de accesos adicionales y pase nocturno están ahora en Configuración → Accesos del inquilino.
+
+## 92. Accesos: mejoras (2026-11-05)
+
+Migración `20261220100000_access_features` (se aplica sola), sin variables nuevas. Tarea nueva `access.device-health` (cada 10 min, en el worker).
+
+- **Corte por impago**: sigue igual por defecto (todo, a los 14 días). Cada negocio lo cambia en Configuración → Accesos del inquilino; vale para las facturas que venzan después.
+- **Conexión de los dispositivos**: solo se vigilan los que tienen dirección o mandan latido (`POST /v1/access/heartbeat`). Un teclado que solo llama al entrar alguien no se marca como caído.
+- Con la migración, `access_credentials.customer_id` admite nulo (accesos temporales).

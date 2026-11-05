@@ -154,7 +154,7 @@ function scopePayload(scope: AccessScopeValue): {
 export default function CredentialsPage() {
   const canManage = useHasPermission('access:manage');
   const hasFacial = useHasFeature('facial_access');
-  const [status, setStatus] = useState<AccessCredentialStatusValue | undefined>();
+  const [status, setStatus] = useState<AccessCredentialStatusValue | 'live' | undefined>('live');
   const [method, setMethod] = useState<AccessMethodValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [createOpen, setCreateOpen] = useState(false);
@@ -344,13 +344,14 @@ export default function CredentialsPage() {
         <Select
           value={status ?? 'all'}
           onValueChange={(v) =>
-            setStatus(v === 'all' ? undefined : (v as AccessCredentialStatusValue))
+            setStatus(v === 'all' ? undefined : (v as AccessCredentialStatusValue | 'live'))
           }
         >
           <SelectTrigger className="w-[160px]">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="live">Vigentes</SelectItem>
             <SelectItem value="all">Todos los estados</SelectItem>
             {(Object.keys(STATUS_LABELS) as AccessCredentialStatusValue[]).map((s) => (
               <SelectItem key={s} value={s}>

@@ -14,6 +14,7 @@ import {
   AccessResultEnum,
   type AccessResultValue,
   isStaffAccessLog,
+  type AccessLogCameraDto,
 } from '@storageos/shared';
 
 import {
@@ -24,7 +25,10 @@ import { RequireFeature } from '../../common/decorators/require-feature.decorato
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { resolveFacilityFilter } from '../../common/facility-scope';
 import { zonedDayStart, zonedNextDayStart } from '../../common/format';
+import { tenantHasFeature } from '../../common/tenant-features';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 
 import type { AccessDevice, AccessLog, Customer, CustomerType, Prisma } from '@storageos/database';
 
@@ -39,6 +43,7 @@ function customerDisplay(
 type AccessLogWithIncludes = AccessLog & {
   device?: Pick<AccessDevice, 'name'> | null;
   customer?: Pick<Customer, 'customerType' | 'firstName' | 'lastName' | 'companyName'> | null;
+  credential?: { holderName: string | null } | null;
 };
 
 /** En un PIN solo se enseñan las dos últimas cifras (también en lo ya guardado). */
@@ -55,7 +60,7 @@ function toDto(l: AccessLogWithIncludes, staffNames: Map<string, string>): Acces
     deviceName: l.device?.name ?? null,
     credentialId: l.credentialId,
     customerId: l.customerId,
-    customerName: customerDisplay(l.customer),
+    customerName: customerDisplay(l.customer) ?? l.credential?.holderName ?? null,
     method: l.method as AccessMethodValue,
     result: l.result as AccessResultValue,
     attemptedValue: maskAttempt(l),
@@ -75,6 +80,7 @@ function parseResult(value: string | undefined): AccessResultValue | undefined {
 
 const INCLUDE = {
   device: { select: { name: true } },
+  credential: { select: { holderName: true } },
   customer: {
     select: {
       customerType: true,
@@ -85,11 +91,18 @@ const INCLUDE = {
   },
 } satisfies Prisma.AccessLogInclude;
 
+/** Hasta dónde se busca una foto alrededor de un acceso. */
+const CAMERA_WINDOW_MS = 2 * 60_000;
+
 @RequirePermission('access:read')
 @Controller('access/logs')
 @RequireFeature('access_control')
 export class AccessLogsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
+    private readonly files: FilesService,
+  ) {}
 
   @Get()
   async list(
@@ -100,6 +113,7 @@ export class AccessLogsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('facilityId') facilityId?: string,
+    @Query('unitId') unitId?: string,
     /** Página siguiente: registros anteriores a esta fecha (ISO). */
     @Query('before') before?: string,
   ): Promise<AccessLogDto[]> {
@@ -109,6 +123,7 @@ export class AccessLogsController {
     const where: Prisma.AccessLogWhereInput = ids ? { device: { facilityId: { in: ids } } } : {};
     if (customerId) where.customerId = customerId;
     if (deviceId) where.deviceId = deviceId;
+    if (unitId) where.device = { ...(where.device as object), unitId };
     const parsedResult = parseResult(result);
     if (parsedResult) where.result = parsedResult;
     // Un día suelto (YYYY-MM-DD) es ese día entero en la hora del negocio.
@@ -286,6 +301,44 @@ export class AccessLogsController {
         }))
         .sort((a, b) => b.denied - a.denied)
         .slice(0, 10),
+    };
+  }
+
+  /** La foto de cámara más cercana a un acceso, si la hay. */
+  @Get(':id/camera')
+  async camera(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<AccessLogCameraDto | null> {
+    if (!(await tenantHasFeature(this.admin, user.tenantId, 'cameras'))) return null;
+    const scope = user.facilityScope ?? null;
+    const event = await this.prisma.withTenant(async (tx) => {
+      const log = await tx.accessLog.findFirst({
+        where: { id, ...(scope ? { device: { facilityId: { in: scope } } } : {}) },
+        select: { occurredAt: true, device: { select: { facilityId: true } } },
+      });
+      if (!log?.device) return null;
+      const at = log.occurredAt.getTime();
+      const near = await tx.cameraEvent.findMany({
+        where: {
+          snapshotKey: { not: null },
+          device: { facilityId: log.device.facilityId },
+          occurredAt: {
+            gte: new Date(at - CAMERA_WINDOW_MS),
+            lte: new Date(at + CAMERA_WINDOW_MS),
+          },
+        },
+        include: { device: { select: { name: true } } },
+        take: 50,
+      });
+      const distance = (e: { occurredAt: Date }) => Math.abs(e.occurredAt.getTime() - at);
+      return near.sort((a, b) => distance(a) - distance(b))[0] ?? null;
+    }, user.tenantId);
+    if (!event?.snapshotKey) return null;
+    return {
+      url: await this.files.getPresignedGetUrl('uploads', event.snapshotKey, 300),
+      occurredAt: event.occurredAt.toISOString(),
+      cameraName: event.device.name,
     };
   }
 

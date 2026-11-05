@@ -6,8 +6,8 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { isSafeOutboundUrl } from '../../common/security/safe-outbound-url';
 import { PrismaAdminService } from '../database/prisma-admin.service';
-import { NotificationsService } from '../notifications/notifications.service';
 
+import { AccessAlertsService } from './access-alerts.service';
 import { AccessRateLimitService } from './access-rate-limit.service';
 import { LockProviderRegistry } from './providers/lock-provider.registry';
 
@@ -156,7 +156,7 @@ export class AccessVerifyService {
     private readonly crypto: CryptoService,
     private readonly locks: LockProviderRegistry,
     private readonly rateLimit: AccessRateLimitService,
-    private readonly notifications: NotificationsService,
+    private readonly alerts: AccessAlertsService,
   ) {}
 
   /**
@@ -165,7 +165,7 @@ export class AccessVerifyService {
    */
   private async notifyDeviceLocked(tenantId: string, device: AccessDevice): Promise<void> {
     try {
-      await this.notifications.create(tenantId, {
+      await this.alerts.notify(tenantId, 'repeatedFailures', device.id, {
         type: 'access.device_locked',
         title: `Teclado bloqueado: ${device.name}`,
         body:
@@ -331,6 +331,7 @@ export class AccessVerifyService {
         reason: denied.reason,
         ipAddress,
       });
+      await this.alertDenied(tenantId, device, credentialRow, denied.result);
       // Si esta expired, mover a estado expired (best-effort).
       if (
         denied.result === 'denied_invalid_credential' &&
@@ -394,7 +395,7 @@ export class AccessVerifyService {
           controlSecret: device.controlSecretEncrypted
             ? this.crypto.decryptString(device.controlSecretEncrypted, tenantId)
             : null,
-          customerId: credentialRow.customerId,
+          ...(credentialRow.customerId ? { customerId: credentialRow.customerId } : {}),
         })
       : { dispatched: false, message: controlUrlSafety.message };
 
@@ -668,7 +669,10 @@ export class AccessVerifyService {
         })
         .catch((err) => this.logger.warn(`No se pudo actualizar lastUsedAt: ${String(err)}`));
       await this.admin.accessDevice
-        .update({ where: { id: device.id }, data: { isOnline: true, lastSeenAt: new Date() } })
+        .update({
+          where: { id: device.id },
+          data: { isOnline: true, lastSeenAt: new Date(), offlineNotifiedAt: null },
+        })
         .catch(() => undefined);
       return { opened: true, message: 'Abriendo la puerta…' };
     }
@@ -676,6 +680,50 @@ export class AccessVerifyService {
       opened: false,
       message: 'No se pudo abrir la puerta ahora mismo. Vuelve a intentarlo.',
     };
+  }
+
+  /** Quien está cortado o llega fuera de horario: que lo sepa el equipo. */
+  private async alertDenied(
+    tenantId: string,
+    device: AccessDevice,
+    credential: CredentialWithCustomer,
+    result: AccessResultValue,
+  ): Promise<void> {
+    const who = credential.holderName ?? customerDisplay(credential.customer) ?? 'Alguien';
+    const link = credential.customerId
+      ? `/customers/${credential.customerId}?tab=access`
+      : '/access/logs';
+    if (result === 'denied_dunning') {
+      await this.alerts.notify(tenantId, 'cutAttempt', credential.id, {
+        type: 'access.cut_attempt',
+        title: `${who} ha intentado entrar con el acceso cortado`,
+        body: `En ${device.name}. Tiene el acceso cortado por una factura sin pagar.`,
+        link,
+        facilityId: device.facilityId,
+      });
+    }
+    if (result === 'denied_outside_hours') {
+      await this.alerts.notify(tenantId, 'nightAttempt', credential.id, {
+        type: 'access.night_attempt',
+        title: `${who} ha intentado entrar fuera de horario`,
+        body: `En ${device.name}.`,
+        link,
+        facilityId: device.facilityId,
+      });
+    }
+  }
+
+  /** Latido de un equipo que no se puede consultar desde fuera. */
+  async heartbeat(device: AccessDevice): Promise<void> {
+    await this.admin.accessDevice.update({
+      where: { id: device.id },
+      data: {
+        isOnline: true,
+        lastSeenAt: new Date(),
+        lastHeartbeatAt: new Date(),
+        offlineNotifiedAt: null,
+      },
+    });
   }
 
   /** El equipo acaba de llamar: está vivo (se anota como mucho una vez por minuto). */
@@ -796,6 +844,9 @@ export class AccessVerifyService {
     credential: AccessCredential,
     device: AccessDevice,
   ): { result: AccessResultValue; reason: string } | null {
+    if (credential.validFrom && credential.validFrom.getTime() > Date.now()) {
+      return { result: 'denied_outside_hours', reason: 'Este acceso aún no ha empezado' };
+    }
     if (credential.status === ('suspended' as AccessCredentialStatus)) {
       if (credential.suspendReason?.startsWith('dunning:')) {
         return { result: 'denied_dunning', reason: 'Acceso cortado por impago' };

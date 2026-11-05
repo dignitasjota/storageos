@@ -2,10 +2,11 @@
 
 import { ArrowLeft, BadgeCheck, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { CustomerAccessTab } from './access-tab';
 import { CustomerAccountCard } from './account-card';
 import { AuthorizedPersonsTab } from './authorized-persons-tab';
 import { CustomerChatTab } from './chat-tab';
@@ -35,6 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCustomer, useCustomerUnreadSummary, useSetKycVerified } from '@/lib/customers/hooks';
 
 /** Pestañas de la ficha del inquilino (orden = el de los TabsTrigger). En móvil
@@ -47,6 +49,7 @@ const CUSTOMER_TABS = [
   { value: 'chat', label: 'Mensajes' },
   { value: 'followups', label: 'Seguimientos' },
   { value: 'authorized', label: 'Autorizados' },
+  { value: 'access', label: 'Accesos' },
   { value: 'history', label: 'Historial de pagos' },
   { value: 'payments', label: 'Métodos de pago' },
   { value: 'info', label: 'Datos' },
@@ -56,9 +59,12 @@ export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const customer = useCustomer(id);
+  const hasAccessControl = useHasFeature('access_control');
+  const canReadAccess = useHasPermission('access:read');
+  const canSeeAccess = hasAccessControl && canReadAccess;
   const unreadMessages = useCustomerUnreadSummary().data?.byCustomer[id ?? ''] ?? 0;
   const setKyc = useSetKycVerified();
-  const [tab, setTab] = useState<string>('contracts');
+  const [tab, setTab] = useState<string>(useSearchParams().get('tab') ?? 'contracts');
   // Los avisos enlazan a una pestaña concreta (`?tab=chat`).
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get('tab');
@@ -151,7 +157,7 @@ export default function CustomerDetailPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CUSTOMER_TABS.map((t) => (
+              {CUSTOMER_TABS.filter((t) => t.value !== 'access' || canSeeAccess).map((t) => (
                 <SelectItem key={t.value} value={t.value} textValue={t.label}>
                   <span className="flex items-center gap-1.5">
                     {t.label}
@@ -182,6 +188,7 @@ export default function CustomerDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="followups">Seguimientos</TabsTrigger>
           <TabsTrigger value="authorized">Autorizados</TabsTrigger>
+          {canSeeAccess && <TabsTrigger value="access">Accesos</TabsTrigger>}
           <TabsTrigger value="history">Historial de pagos</TabsTrigger>
           <TabsTrigger value="payments">Métodos de pago</TabsTrigger>
           <TabsTrigger value="info">Datos</TabsTrigger>
@@ -207,6 +214,11 @@ export default function CustomerDetailPage() {
         <TabsContent value="authorized" className="mt-6">
           <AuthorizedPersonsTab customerId={c.id} />
         </TabsContent>
+        {canSeeAccess && (
+          <TabsContent value="access" className="mt-6">
+            <CustomerAccessTab customerId={c.id} />
+          </TabsContent>
+        )}
         <TabsContent value="history" className="mt-6">
           <CustomerPaymentHistoryTab customerId={c.id} />
         </TabsContent>

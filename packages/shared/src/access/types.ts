@@ -8,8 +8,11 @@ import type {
 
 export interface AccessCredentialDto {
   id: string;
-  customerId: string;
+  customerId: string | null;
+  /** Inquilino o titular del acceso temporal. */
   customerName: string;
+  holderKind: string | null;
+  validFrom: string | null;
   method: AccessMethodValue;
   status: AccessCredentialStatusValue;
   label: string | null;
@@ -89,6 +92,37 @@ export interface AccessLogDto {
   occurredAt: string;
   /** Apertura o cierre desde el panel: quién lo hizo. */
   staffName: string | null;
+}
+
+/** Todo el acceso de un inquilino. */
+export interface CustomerAccessSummaryDto {
+  credentials: AccessCredentialDto[];
+  /** Cortado por una factura sin pagar. */
+  cutForDebt: boolean;
+  /** Facturas que tienen el acceso cortado. */
+  debtInvoices: { id: string; invoiceNumber: string | null; amountPending: number }[];
+  lastAllowedAt: string | null;
+  lastDeniedAt: string | null;
+  recent: AccessLogDto[];
+}
+
+/** Cómo va la sincronización de un terminal. */
+export interface AccessSyncDeviceDto {
+  deviceId: string;
+  deviceName: string;
+  facilityName: string;
+  /** Credenciales que deberían estar en el terminal. */
+  expected: number;
+  synced: number;
+  failed: number;
+  errors: { credentialId: string; holderName: string; error: string }[];
+}
+
+/** Foto de cámara más cercana a un acceso. */
+export interface AccessLogCameraDto {
+  url: string;
+  occurredAt: string;
+  cameraName: string;
 }
 
 export interface VerifyAccessResultDto {

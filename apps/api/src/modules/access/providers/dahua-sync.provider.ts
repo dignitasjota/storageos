@@ -154,7 +154,7 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
     cred: SyncCredentialSpec,
     c: { user: string; pass: string },
   ): Promise<{ ref: string }> {
-    const userId = cred.customerId.replace(/-/g, '').slice(0, 20);
+    const userId = (cred.customerId ?? cred.credentialId).replace(/-/g, '').slice(0, 20);
     const params = new URLSearchParams({
       action: 'add',
       // VERIFY firmware: algunos exponen `UserID`, otros `PhotoData.UserID`.
@@ -175,7 +175,7 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
   async pushCredential(device: SyncDevice, cred: SyncCredentialSpec): Promise<{ ref: string }> {
     const c = this.creds(device);
     if (cred.method === 'face') {
-      const userId = cred.customerId.replace(/-/g, '').slice(0, 20);
+      const userId = (cred.customerId ?? cred.credentialId).replace(/-/g, '').slice(0, 20);
       if (!c || !device.controlUrl) return { ref: userId };
       return this.pushFace(device, cred, c);
     }
@@ -188,8 +188,8 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
       name: 'AccessControlCard',
       ...(recno ? { recno } : {}),
       CardNo: cardNo,
-      UserID: cred.customerId.replace(/-/g, '').slice(0, 20),
-      CardName: (cred.label ?? cred.customerId).slice(0, 32),
+      UserID: (cred.customerId ?? cred.credentialId).replace(/-/g, '').slice(0, 20),
+      CardName: (cred.label ?? cred.customerId ?? cred.credentialId).slice(0, 32),
       CardStatus: String(this.cardStatus(cred.state)),
       CardType: '0',
       // El PIN viaja en `Password` (doc v1.0: «the password when unlocking»).
@@ -231,7 +231,7 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
       username: c.user,
       password: c.pass,
     });
-    if (!res.ok) this.logger.warn(`[dahua-sync] push ${device.hardwareId} → ${res.status}`);
+    if (!res.ok) throw new Error(`El terminal respondió ${res.status}`);
     // El insert responde `RecNo=<n>`; el ref persistido sigue siendo el CardNo
     // (es lo que reportan los eventos de acceso y es estable entre re-syncs).
     return { ref: cardNo };
@@ -278,7 +278,7 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
       username: c.user,
       password: c.pass,
     });
-    if (!res.ok) this.logger.warn(`[dahua-sync] setState ${device.hardwareId} → ${res.status}`);
+    if (!res.ok) throw new Error(`El terminal respondió ${res.status}`);
   }
 
   async remove(device: SyncDevice, ref: string): Promise<void> {

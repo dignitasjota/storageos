@@ -17,7 +17,12 @@ import type {
   AccessDeviceDto,
   AccessDeviceTypeValue,
   AccessDeviceWithKeyDto,
+  AccessLogCameraDto,
   AccessLogDto,
+  AccessSyncDeviceDto,
+  CreateTemporaryAccessInput,
+  CustomerAccessSummaryDto,
+  TestDeviceConnectionInput,
   AccessMethodValue,
   AccessResultValue,
   CreateCredentialInput,
@@ -165,6 +170,109 @@ export function useRevokeCredential() {
 }
 
 // ============================================================================
+// Por inquilino y accesos temporales
+// ============================================================================
+
+export function useCustomerAccess(customerId: string) {
+  return useQuery({
+    queryKey: ['access', 'customer', customerId] as const,
+    queryFn: () => apiFetch<CustomerAccessSummaryDto>(`/access/customers/${customerId}`),
+  });
+}
+
+export function useCustomerAccessAction(customerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { action: 'suspend' | 'resume'; reason?: string }) =>
+      apiFetch<{ changed: number }>(`/access/customers/${customerId}/${args.action}`, {
+        method: 'POST',
+        ...(args.reason ? { json: { reason: args.reason } } : {}),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['access', 'customer', customerId] });
+      invalidateCredentials(qc);
+    },
+  });
+}
+
+export function useResendAccessCode(customerId: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ sentTo: string }>(`/access/customers/${customerId}/resend`, { method: 'POST' }),
+  });
+}
+
+export function useTemporaryAccess() {
+  const facilityId = useHeaderFacilityId();
+  const flat = { facilityId };
+  return useQuery({
+    queryKey: ['access', 'credentials', 'temporary', flat] as const,
+    queryFn: () => apiFetch<AccessCredentialDto[]>(`/access/temporary${toQuery(flat)}`),
+  });
+}
+
+export function useCreateTemporaryAccess() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateTemporaryAccessInput) =>
+      apiFetch<AccessCredentialWithSecretDto>('/access/temporary', { method: 'POST', json: input }),
+    onSuccess: () => invalidateCredentials(qc),
+  });
+}
+
+export function useAccessSyncStatus(facilityId: string | undefined) {
+  const flat = { facilityId };
+  return useQuery({
+    queryKey: ['access', 'devices', 'sync', flat] as const,
+    queryFn: () => apiFetch<AccessSyncDeviceDto[]>(`/access/sync-status${toQuery(flat)}`),
+  });
+}
+
+export function useResyncDevice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ sent: number }>(`/access/devices/${id}/resync`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'devices'] }),
+  });
+}
+
+export function useTestDeviceConnection() {
+  return useMutation({
+    mutationFn: (input: TestDeviceConnectionInput) =>
+      apiFetch<{ supported: boolean; online: boolean; message?: string }>(
+        '/access/devices/test-connection',
+        { method: 'POST', json: input },
+      ),
+  });
+}
+
+/** La foto de cámara más cercana a un acceso. */
+export function useAccessLogCamera(logId: string | null) {
+  return useQuery({
+    queryKey: ['access', 'logs', logId, 'camera'] as const,
+    queryFn: () => apiFetch<AccessLogCameraDto | null>(`/access/logs/${logId}/camera`),
+    enabled: !!logId,
+  });
+}
+
+/** Todo el registro con estos filtros, hasta `max` filas (para el CSV). */
+export async function fetchAllAccessLogs(
+  params: Record<string, string | undefined>,
+  max = 5000,
+): Promise<AccessLogDto[]> {
+  const rows: AccessLogDto[] = [];
+  let before: string | undefined;
+  while (rows.length < max) {
+    const page = await apiFetch<AccessLogDto[]>(`/access/logs${toQuery({ ...params, before })}`);
+    rows.push(...page);
+    if (page.length < 200) break;
+    before = page[page.length - 1]!.occurredAt;
+  }
+  return rows;
+}
+
+// ============================================================================
 // Devices
 // ============================================================================
 
@@ -293,6 +401,7 @@ export function useAccessLogs(params?: {
 
 /** Registro de accesos por páginas de 200 (las más recientes primero). */
 export function useAccessLogPages(params?: {
+  customerId?: string;
   deviceId?: string;
   result?: AccessResultValue;
   from?: string;
@@ -301,6 +410,7 @@ export function useAccessLogPages(params?: {
   const facilityId = useHeaderFacilityId();
   const flat: Record<string, string | undefined> = {
     facilityId,
+    customerId: params?.customerId,
     deviceId: params?.deviceId,
     result: params?.result,
     from: params?.from,

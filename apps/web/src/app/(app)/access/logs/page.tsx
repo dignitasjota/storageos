@@ -7,13 +7,18 @@ import {
   isStaffAccessLog,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
+import { Camera, Download } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
+import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -21,7 +26,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAccessLogPages, useDevices } from '@/lib/access/hooks';
+import {
+  fetchAllAccessLogs,
+  useAccessLogCamera,
+  useAccessLogPages,
+  useDevices,
+} from '@/lib/access/hooks';
+import { useHasFeature } from '@/lib/auth/hooks';
+import { downloadCsv } from '@/lib/csv';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDateTime } from '@/lib/format';
 
 const METHOD_LABELS: Record<string, string> = {
@@ -73,8 +86,39 @@ export default function AccessLogsPage() {
   const [deviceId, setDeviceId] = useState<string | undefined>();
   const [from, setFrom] = useState<string | undefined>();
   const [to, setTo] = useState<string | undefined>();
+  const [customerId, setCustomerId] = useState<string | undefined>();
+  const [cameraLog, setCameraLog] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const hasCameras = useHasFeature('cameras');
+  const facilityId = useHeaderFacilityId();
+
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const all = await fetchAllAccessLogs({ facilityId, customerId, deviceId, result, from, to });
+      downloadCsv('registro-accesos.csv', [
+        ['Fecha', 'Quién', 'Dispositivo', 'Método', 'Resultado', 'Código', 'Motivo'],
+        ...all.map((l) => [
+          formatDateTime(l.occurredAt),
+          isStaffAccessLog(l.reason)
+            ? `Equipo ${l.staffName ?? ''}`.trim()
+            : (l.customerName ?? ''),
+          l.deviceName ?? '',
+          METHOD_LABELS[l.method] ?? l.method,
+          RESULT_LABELS[l.result]?.label ?? l.result,
+          l.attemptedValue ?? '',
+          accessReasonLabel(l.reason) ?? '',
+        ]),
+      ]);
+    } catch {
+      toast.error('No se ha podido exportar.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const logs = useAccessLogPages({
+    ...(customerId ? { customerId } : {}),
     ...(result ? { result } : {}),
     ...(deviceId ? { deviceId } : {}),
     ...(from ? { from } : {}),
@@ -161,6 +205,25 @@ export default function AccessLogsPage() {
           '—'
         ),
     },
+    ...(hasCameras
+      ? [
+          {
+            id: 'camera',
+            header: '',
+            cell: ({ row }: { row: { original: AccessLogDto } }) => (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Ver la foto de la cámara"
+                onClick={() => setCameraLog(row.original.id)}
+              >
+                <Camera className="h-4 w-4" />
+              </Button>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -198,6 +261,12 @@ export default function AccessLogsPage() {
             ))}
           </SelectContent>
         </Select>
+        <CustomerSearchSelect
+          value={customerId}
+          onChange={setCustomerId}
+          clearLabel="Todos los inquilinos"
+          className="w-[220px]"
+        />
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Desde</span>
           <DateSelect value={from} onChange={setFrom} />
@@ -221,9 +290,44 @@ export default function AccessLogsPage() {
             onLoadMore: () => void logs.fetchNextPage(),
           }}
           searchPlaceholder="Buscar..."
+          toolbarRight={
+            <Button variant="outline" disabled={exporting} onClick={() => void exportCsv()}>
+              <Download className="mr-1 h-4 w-4" /> {exporting ? 'Exportando...' : 'Exportar CSV'}
+            </Button>
+          }
           emptyText="No hay intentos de acceso registrados todavía."
         />
       )}
+
+      {cameraLog && <CameraDialog logId={cameraLog} onClose={() => setCameraLog(null)} />}
     </div>
+  );
+}
+
+function CameraDialog({ logId, onClose }: { logId: string; onClose: () => void }) {
+  const camera = useAccessLogCamera(logId);
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Foto de la cámara</DialogTitle>
+        </DialogHeader>
+        {camera.isLoading ? (
+          <p className="text-sm text-muted-foreground">Buscando…</p>
+        ) : camera.data ? (
+          <div className="space-y-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={camera.data.url} alt="Foto de la cámara" className="w-full rounded-md" />
+            <p className="text-sm text-muted-foreground">
+              {camera.data.cameraName} · {formatDateTime(camera.data.occurredAt)}
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No hay ninguna foto en los dos minutos alrededor de este acceso.
+          </p>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
