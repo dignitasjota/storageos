@@ -8,12 +8,13 @@ import {
   type FirstPaymentMonths,
   type UnitDto,
 } from '@storageos/shared';
-import { ArrowLeft, Check, ChevronRight, Loader2 } from 'lucide-react';
+import { ArrowLeft, Check, ChevronRight, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { QuickCustomerDialog } from '@/components/customers/quick-customer-dialog';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -215,6 +216,7 @@ export default function NewContractWizardPage() {
 }
 
 function StepCustomer({ onPick }: { onPick: (c: CustomerDto) => void }) {
+  const [creating, setCreating] = useState(false);
   const [search, debounced, setSearch] = useDebouncedSearch();
   const customers = usePagedList<CustomerDto>('customers', '/customers', {
     search: debounced.length >= 2 ? debounced : undefined,
@@ -227,14 +229,25 @@ function StepCustomer({ onPick }: { onPick: (c: CustomerDto) => void }) {
         <CardTitle>Paso 1 · Selecciona el inquilino</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <Input
-          placeholder="Buscar por nombre, email, documento..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="flex flex-wrap gap-2">
+          <Input
+            className="min-w-48 flex-1"
+            placeholder="Buscar por nombre, email, documento..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Button type="button" variant="outline" onClick={() => setCreating(true)}>
+            <Plus className="mr-1 size-4" /> Nuevo inquilino
+          </Button>
+        </div>
+        <QuickCustomerDialog open={creating} onOpenChange={setCreating} onCreated={onPick} />
         <ul className="max-h-96 divide-y overflow-y-auto rounded-md border">
           {list.length === 0 && (
-            <li className="p-3 text-sm text-muted-foreground">No hay inquilinos.</li>
+            <li className="p-3 text-sm text-muted-foreground">
+              {debounced
+                ? 'Nadie coincide con la búsqueda.'
+                : 'Aún no tienes inquilinos: crea el primero con «Nuevo inquilino».'}
+            </li>
           )}
           {list.map((c) => (
             <li
@@ -300,7 +313,10 @@ function StepUnit({ onBack, onPick }: { onBack: () => void; onPick: (u: UnitDto)
           {units.isLoading && <li className="p-3 text-sm text-muted-foreground">Cargando...</li>}
           {units.data?.items.length === 0 && (
             <li className="p-3 text-sm text-muted-foreground">
-              No hay trasteros disponibles que coincidan.
+              No hay trasteros disponibles que coincidan.{' '}
+              <Link href="/units" className="text-primary hover:underline">
+                Ir a Trasteros
+              </Link>
             </li>
           )}
           {units.data?.items.map((u) => (

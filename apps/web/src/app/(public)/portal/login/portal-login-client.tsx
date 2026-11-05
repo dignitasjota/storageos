@@ -231,6 +231,7 @@ export function PortalLoginClient({
                 )}
 
                 <form
+                  method="post"
                   className="space-y-4"
                   onSubmit={mode === 'link' ? submitLink : submitPassword}
                   noValidate

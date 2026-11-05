@@ -16,6 +16,7 @@ import {
   CreateTenantTodaySnoozeSchema,
   DailySummaryPrefsSchema,
   permissionsForRole,
+  SkipOnboardingStepSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -47,6 +48,7 @@ import type { Request } from 'express';
 
 class CreateTodaySnoozeDto extends createZodDto(CreateTenantTodaySnoozeSchema) {}
 class UpdateDailySummaryPrefsDto extends createZodDto(DailySummaryPrefsSchema) {}
+class SkipOnboardingStepDto extends createZodDto(SkipOnboardingStepSchema) {}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -112,10 +114,21 @@ export class DashboardController {
   }
 
   /** Checklist de primeros pasos del operador. */
-  @RequirePermission('settings:read')
+  @RequirePermission('facilities:manage')
   @Get('onboarding')
   async getOnboarding(@CurrentUser() user: AuthenticatedUser): Promise<OnboardingDto> {
     return this.onboarding.getOnboarding(user.tenantId);
+  }
+
+  /** Marca un paso como «no aplica» (o lo devuelve a pendiente). */
+  @RequirePermission('facilities:manage')
+  @Put('onboarding/steps/:key')
+  async skipOnboardingStep(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('key') key: string,
+    @Body() body: SkipOnboardingStepDto,
+  ): Promise<OnboardingDto> {
+    return this.onboarding.setSkipped(user.tenantId, key, body.skipped);
   }
 
   /** Lo que completa la bandeja: avisos, deuda por inquilino, mañana, la semana y lo hecho hoy. */

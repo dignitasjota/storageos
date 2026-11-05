@@ -102,10 +102,32 @@ export interface OnboardingStepDto {
   href: string;
   /** Atajo alternativo (p. ej. importar desde un Excel). */
   secondary?: { label: string; href: string };
+  /** El tenant puede darlo por resuelto («no aplica»). */
+  skippable: boolean;
+  /** Dado por resuelto a mano (cuenta como hecho). */
+  skipped: boolean;
+  /** Texto del botón para darlo por resuelto. */
+  skipLabel?: string;
 }
+
+/** Pasos que el tenant puede dar por resueltos aunque no se deduzcan de sus datos. */
+export const ONBOARDING_SKIPPABLE_STEPS = [
+  'monthly_billing',
+  'customer',
+  'contract',
+  'branding',
+  'contract_template',
+  'team',
+  'verifactu',
+] as const;
+export type OnboardingSkippableStep = (typeof ONBOARDING_SKIPPABLE_STEPS)[number];
+
+export const SkipOnboardingStepSchema = z.object({ skipped: z.boolean() });
 
 /** Checklist de puesta en marcha del operador. */
 export interface OnboardingDto {
+  /** Si la web ya se ve y acepta reservas, y qué le falta para ello. */
+  web: { url: string; published: boolean; bookable: boolean; missing: string[] };
   steps: OnboardingStepDto[];
   /** Pasos imprescindibles completados / total (0-1). */
   progress: number;

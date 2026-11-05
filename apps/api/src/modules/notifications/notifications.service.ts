@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
 import {
+  type BookingCreatedPayload,
   DOMAIN_EVENTS,
   type DomainEventPayload,
   type MoveOutCancelledPayload,
@@ -209,6 +210,18 @@ export class NotificationsService {
       type: 'lead.created',
       title: name ? `Nuevo lead: ${name}` : 'Nuevo lead',
       link: '/leads',
+    });
+  }
+
+  /** Una reserva online retiene el trastero 72 h: el equipo debe enterarse en el panel. */
+  @OnEvent(DOMAIN_EVENTS.booking_created, { async: true, promisify: true })
+  async onBookingCreated(p: BookingCreatedPayload): Promise<void> {
+    await this.safe(p.tenantId, {
+      type: 'booking.created',
+      title: 'Reserva online nueva',
+      body: 'Pendiente de firma y pago; si no se completa en 72 h, el trastero se libera solo.',
+      link: `/contracts/${p.contractId}`,
+      contractId: p.contractId,
     });
   }
 

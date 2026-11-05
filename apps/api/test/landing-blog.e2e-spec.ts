@@ -144,6 +144,8 @@ describe('Blog público de la landing (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'blog-pub-sitemap');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    // Sin ningún local la web no se publica ni va al sitemap.
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
 
     const post = await request(app.getHttpServer())
       .post('/blog-posts')

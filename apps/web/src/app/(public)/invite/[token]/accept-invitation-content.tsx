@@ -112,7 +112,12 @@ export function AcceptInvitationContent({ token }: { token: string }) {
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <form
+              method="post"
+              className="space-y-4"
+              onSubmit={form.handleSubmit(onSubmit)}
+              noValidate
+            >
               <FormField
                 control={form.control}
                 name="fullName"

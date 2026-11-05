@@ -32,9 +32,10 @@ export const RegisterSchema = z.object({
   tenantSlug: z
     .string()
     .trim()
-    .min(3, 'El slug debe tener al menos 3 caracteres')
-    .max(63, 'El slug no puede tener mas de 63 caracteres')
-    .regex(slugRegex, 'Solo letras, digitos y guiones (no al inicio ni al final)')
+    .toLowerCase()
+    .min(3, 'El identificador debe tener al menos 3 caracteres')
+    .max(63, 'El identificador no puede tener más de 63 caracteres')
+    .regex(slugRegex, 'Solo letras, dígitos y guiones (no al inicio ni al final)')
     .optional(),
   fullName: z
     .string()
@@ -84,6 +85,12 @@ export const ForgotPasswordSchema = z.object({
   email: z.string().trim().toLowerCase().email('Email no valido'),
 });
 export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
+
+/** POST /auth/forgot-tenant — body: recuerda por correo el identificador de la empresa. */
+export const ForgotTenantSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Email no valido'),
+});
+export type ForgotTenantInput = z.infer<typeof ForgotTenantSchema>;
 
 /** POST /auth/password/reset — body. */
 export const ResetPasswordSchema = z.object({

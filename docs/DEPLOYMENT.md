@@ -1727,3 +1727,7 @@ Sin migración ni variables nuevas. Tras desplegar, el número de «asuntos para
 ## 85. «Hoy» del panel del tenant: mejoras (2026-11-05)
 
 Migración `20261216100000_tenant_today_features`, sin variables nuevas. El resumen del día se reserva ahora por persona: quien lo reciba el día del despliegue con la versión anterior puede recibirlo una vez más ese día. El aviso en el móvil del resumen necesita las claves `VAPID_*`.
+
+## 86. Alta de un tenant nuevo: arreglos (2026-11-05)
+
+Migración `20261217100000_tenant_onboarding_review`, sin variables nuevas. **Antes de desplegar, revisar**: desde esta versión la web de un tenant solo se publica con la cuenta activada y un local, y las reservas online exigen además razón social, NIF, domicilio y una forma de cobro. Un tenant que hoy reciba reservas sin esos datos dejará de aceptarlas hasta completarlos (le saldrá «Reserva online aún no disponible» al visitante y el motivo en su Puesta en marcha). El cron nuevo `tenant-lifecycle.unverified` (cada hora, API) manda los recordatorios de activar la cuenta y borra las cuentas sin activar a los 30 días, siempre con el último aviso enviado hace al menos 7: las que ya llevan más de 30 días reciben primero ese aviso.

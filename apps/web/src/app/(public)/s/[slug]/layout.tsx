@@ -27,6 +27,9 @@ export default async function TenantWebLayout({
   if (brand?.webUnavailable) {
     return <TenantUnavailable brand={brand} kind="web" />;
   }
+  if (brand?.webPending) {
+    return <TenantUnavailable brand={brand} kind="web-pending" />;
+  }
   return (
     <>
       <AttributionRecorder slug={slug} />

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   ConflictException,
   ForbiddenException,
@@ -8,9 +10,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import {
   DEFAULT_INVOICE_SERIES,
+  DEFAULT_LEGAL_DOCUMENTS,
   effectiveFeaturesFromList,
   permissionsForRole,
   resolvePlanFeatures,
@@ -35,7 +39,7 @@ import { VerificationTokensService } from './verification-tokens.service';
 
 import type { Env } from '../../config/env.schema';
 import type { SubscriptionPlan, Tenant, TenantSubscription, User } from '@storageos/database';
-import type { TenantFeature } from '@storageos/shared';
+import type { ForgotTenantInput, TenantFeature } from '@storageos/shared';
 import type {
   AuthSuccessResponse,
   ForgotPasswordInput,
@@ -70,6 +74,9 @@ export interface AuthFlowResult<TBody> {
   refreshToken: string;
 }
 
+/** Evento interno: el propietario acaba de activar su cuenta. */
+export const TENANT_OWNER_VERIFIED = 'tenant.owner_verified';
+
 const TRIAL_DAYS = 30;
 const TRIAL_PLAN_SLUG = 'starter';
 
@@ -89,6 +96,7 @@ export class AuthService {
     private readonly config: ConfigService<Env, true>,
     private readonly securityEvents: SecurityEventsService,
     private readonly blocks: SecurityBlocksService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // Nota: `login_failed_throttled`, `register_throttled` y
@@ -109,6 +117,16 @@ export class AuthService {
       planSlug: TRIAL_PLAN_SLUG,
       trialDays: TRIAL_DAYS,
       emailVerified: false,
+    });
+    const termsHash = await this.acceptedTermsHash();
+    await this.admin.user.update({
+      where: { id: user.id },
+      data: {
+        termsAcceptedAt: new Date(),
+        termsAcceptedHash: termsHash,
+        termsAcceptedIp: meta.ipAddress ?? null,
+        termsAcceptedUserAgent: meta.userAgent ?? null,
+      },
     });
 
     // Token de verificacion + email. El tenant + usuario YA estan creados
@@ -131,7 +149,7 @@ export class AuthService {
       action: 'auth.register',
       entityType: 'Tenant',
       entityId: tenant.id,
-      changes: { name: tenant.name, slug: tenant.slug, ownerId: user.id },
+      changes: { name: tenant.name, slug: tenant.slug, ownerId: user.id, termsHash },
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });
@@ -460,6 +478,9 @@ export class AuthService {
       where: { id: record.userId },
       data: { emailVerifiedAt: new Date() },
     });
+    if (user.role === 'owner') {
+      this.events.emit(TENANT_OWNER_VERIFIED, { tenantId: record.tenantId });
+    }
 
     await this.audit.write({
       tenantId: record.tenantId,
@@ -671,10 +692,87 @@ export class AuthService {
     return permissionsForRole(user.role);
   }
 
+  /** Huella de los términos y la privacidad vigentes al registrarse. */
+  private async acceptedTermsHash(): Promise<string> {
+    const rows = await this.admin.platformLegalDocument.findMany({
+      where: { slug: { in: ['terms', 'privacy'] } },
+      select: { slug: true, content: true },
+    });
+    const text = (slug: 'terms' | 'privacy') =>
+      rows.find((r) => r.slug === slug)?.content ?? DEFAULT_LEGAL_DOCUMENTS[slug].content;
+    return createHash('sha256')
+      .update(`${text('terms')}\n${text('privacy')}`)
+      .digest('hex');
+  }
+
+  /**
+   * Recuerda por correo el identificador de cada empresa en la que el email
+   * tiene usuario. No dice si existe: el endpoint responde igual.
+   */
+  async sendTenantReminder(input: ForgotTenantInput): Promise<void> {
+    const users = await this.admin.user.findMany({
+      where: { email: input.email, isActive: true, tenant: { deletedAt: null } },
+      select: { tenant: { select: { name: true, slug: true } } },
+    });
+    if (users.length === 0) return;
+    const baseUrl = this.config.get('WEB_BASE_URL', { infer: true });
+    const lines = users.map((u) => ({
+      name: u.tenant.name,
+      slug: u.tenant.slug,
+      url: `${baseUrl}/login?tenant=${encodeURIComponent(u.tenant.slug)}`,
+    }));
+    const esc = (v: string) =>
+      v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    await this.email.sendRendered({
+      to: input.email,
+      kind: 'password_reset',
+      subject: 'Tu identificador de empresa en TrasterOS',
+      text: [
+        'Hola,',
+        '',
+        'Estos son los identificadores de empresa asociados a tu email:',
+        '',
+        ...lines.map((l) => `${l.name}: ${l.slug} — ${l.url}`),
+        '',
+        'Si no lo has pedido tú, puedes ignorar este correo.',
+      ].join('\n'),
+      html:
+        '<div style="font-family:system-ui,-apple-system,sans-serif;font-size:14px;color:#111;line-height:1.6">' +
+        '<p>Hola,</p><p>Estos son los identificadores de empresa asociados a tu email:</p><ul>' +
+        lines
+          .map(
+            (l) =>
+              `<li>${esc(l.name)}: <a href="${esc(l.url)}"><strong>${esc(l.slug)}</strong></a></li>`,
+          )
+          .join('') +
+        '</ul><p>Si no lo has pedido tú, puedes ignorar este correo.</p></div>',
+    });
+  }
+
+  /**
+   * Recordatorio de activar la cuenta, con un enlace nuevo (el anterior caducó
+   * a las 24 h). Lo llama el ciclo de vida del tenant.
+   */
+  async sendVerificationReminder(tenantId: string, userId: string, last: boolean): Promise<void> {
+    const [tenant, user] = await Promise.all([
+      this.admin.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
+      this.admin.user.findUniqueOrThrow({ where: { id: userId } }),
+    ]);
+    await this.sendVerificationEmail(tenant, user, {
+      source: 'reminder',
+      subject: last
+        ? 'Último aviso: activa tu cuenta de TrasterOS'
+        : 'Activa tu cuenta de TrasterOS',
+      note: last
+        ? 'Tu cuenta sigue sin activar. Si no la activas, la borraremos a los 30 días del registro.'
+        : 'Aún no has activado tu cuenta. Tus 30 días de prueba ya están en marcha.',
+    });
+  }
+
   private async sendVerificationEmail(
     tenant: Tenant,
     user: User,
-    extra?: { source?: 'register' | 'resend' },
+    extra?: { source?: 'register' | 'resend' | 'reminder'; subject?: string; note?: string },
   ): Promise<void> {
     const { plaintext } = await this.verificationTokens.issue({
       tenantId: tenant.id,
@@ -686,8 +784,13 @@ export class AuthService {
     await this.email.send({
       to: user.email,
       kind: 'verify_email',
-      subject: 'Verifica tu cuenta de TrasterOS',
-      template: VerificationEmail({ fullName: user.fullName, verifyUrl, tenantSlug: tenant.slug }),
+      subject: extra?.subject ?? 'Verifica tu cuenta de TrasterOS',
+      template: VerificationEmail({
+        fullName: user.fullName,
+        verifyUrl,
+        tenantSlug: tenant.slug,
+        ...(extra?.note ? { note: extra.note } : {}),
+      }),
     });
 
     await this.audit.write({

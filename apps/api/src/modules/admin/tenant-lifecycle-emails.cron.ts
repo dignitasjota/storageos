@@ -38,4 +38,15 @@ export class TenantLifecycleEmailsCron {
       this.logger.error(`tenant-lifecycle.daily fallo: ${(err as Error).message}`);
     }
   }
+
+  /** Cuentas sin activar: cada hora, para que el aviso de las 24 h salga a su hora. */
+  @Cron('20 * * * *', { name: 'tenant-lifecycle.unverified' })
+  async unverified(): Promise<void> {
+    try {
+      await this.lifecycle.runVerificationReminders();
+      await this.lifecycle.purgeUnverifiedAccounts();
+    } catch (err) {
+      this.logger.error(`tenant-lifecycle.unverified fallo: ${(err as Error).message}`);
+    }
+  }
 }

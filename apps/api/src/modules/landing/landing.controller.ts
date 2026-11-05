@@ -102,7 +102,8 @@ export class LandingController {
 
   @Get(':slug')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  get(@Param('slug') slug: string): Promise<PublicLandingDto> {
+  async get(@Param('slug') slug: string): Promise<PublicLandingDto> {
+    await this.landing.assertWebPublished(slug);
     return this.landing.getBySlug(slug);
   }
 
@@ -161,12 +162,13 @@ export class LandingController {
   /** Landing de promoción en vigor (`/promo/<slug>`); 404 si no existe, está apagada o caducó. */
   @Get(':slug/promo/:promoSlug')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  promo(
+  async promo(
     @Param('slug') slug: string,
     @Param('promoSlug') promoSlug: string,
     @Query('preview') preview?: string,
     @Query('via') via?: string,
   ): Promise<PublicPromoPageDto> {
+    if (!preview) await this.landing.assertWebPublished(slug);
     return this.landing.getPromo(slug, promoSlug, preview || undefined, via === 'short');
   }
 
@@ -197,10 +199,11 @@ export class LandingController {
 
   @Get(':slug/:facilitySlug')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  facility(
+  async facility(
     @Param('slug') slug: string,
     @Param('facilitySlug') facilitySlug: string,
   ): Promise<PublicFacilityLandingDto> {
+    await this.landing.assertWebPublished(slug);
     return this.landing.getFacilityBySlug(slug, facilitySlug);
   }
 }

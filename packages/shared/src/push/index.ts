@@ -27,6 +27,7 @@ export interface PushPublicKeyDto {
 export const STAFF_PUSH_TYPES: Record<string, string> = {
   'today.daily_summary': 'Resumen del día',
   'lead.created': 'Contacto nuevo desde la web',
+  'booking.created': 'Reserva online nueva',
   'lead.unattended': 'Un contacto lleva tiempo sin atender',
   'lead.assigned': 'Te han asignado un contacto',
   'customer.message': 'Mensaje de un inquilino',

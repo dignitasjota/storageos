@@ -188,6 +188,7 @@ export function EnrolmentClient({ enrolmentToken }: EnrolmentClientProps) {
             <p className="text-sm text-muted-foreground">{t('verifyBody')}</p>
             <Form {...verifyForm}>
               <form
+                method="post"
                 className="space-y-4"
                 onSubmit={verifyForm.handleSubmit(handleVerify)}
                 noValidate

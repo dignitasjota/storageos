@@ -27,6 +27,9 @@ export default async function TenantWebLayout({
   if (brand?.portalUnavailable) {
     return <TenantUnavailable brand={brand} kind="booking" />;
   }
+  if (brand?.bookingPending) {
+    return <TenantUnavailable brand={brand} kind="booking-pending" />;
+  }
   return (
     <>
       <AttributionRecorder slug={slug} />

@@ -27,6 +27,7 @@ import {
   verifyPromoPreviewToken,
 } from '../../common/marketing/promo-preview-token';
 import { tenantHasFeature, liveOverrideWhere } from '../../common/tenant-features';
+import { bookingReady, tenantReadiness, webPublished } from '../../common/tenant-readiness';
 import { toAreaContent } from '../area-pages/area-page.mapper';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
@@ -709,7 +710,10 @@ export class LandingService {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
     const suspended = tenant.status === 'suspended';
-    const contact = suspended
+    const readiness = await tenantReadiness(this.admin, tenant.id);
+    const bookingPending = !bookingReady(readiness);
+    const showContact = suspended || bookingPending;
+    const contact = showContact
       ? await this.admin.facility.findFirst({
           where: {
             tenantId: tenant.id,
@@ -724,8 +728,10 @@ export class LandingService {
     return {
       portalUnavailable: suspended,
       webUnavailable: suspended && this.webOffline(tenant),
-      contactPhone: suspended ? (tenant.contactPhone ?? contact?.contactPhone ?? null) : null,
-      contactEmail: suspended ? (tenant.contactEmail ?? contact?.contactEmail ?? null) : null,
+      webPending: !webPublished(readiness),
+      bookingPending,
+      contactPhone: showContact ? (tenant.contactPhone ?? contact?.contactPhone ?? null) : null,
+      contactEmail: showContact ? (tenant.contactEmail ?? contact?.contactEmail ?? null) : null,
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
       brandColor: tenant.portalBrandColor,
@@ -867,9 +873,28 @@ export class LandingService {
    * feature al escribirlos; si la pierde después, el edge case de un slug
    * huérfano en el sitemap es menor — el endpoint público 404 igualmente).
    */
+  /**
+   * La web de un negocio sin publicar no existe para el público: da 404 (la
+   * página enseña que está en preparación y no se indexa).
+   */
+  async assertWebPublished(slug: string): Promise<void> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (tenant && !webPublished(await tenantReadiness(this.admin, tenant.id))) {
+      throw new NotFoundException({ code: 'web_not_published', message: 'No encontrado' });
+    }
+  }
+
   async sitemap(): Promise<PublicSitemapDto> {
     const tenants = await this.admin.tenant.findMany({
-      where: { deletedAt: null, status: { in: ['trial', 'active'] } },
+      where: {
+        deletedAt: null,
+        status: { in: ['trial', 'active'] },
+        users: { some: { emailVerifiedAt: { not: null } } },
+        facilities: { some: { deletedAt: null, isActive: true } },
+      },
       select: { slug: true, updatedAt: true, customDomain: true, customDomainVerifiedAt: true },
     });
     if (tenants.length === 0) return { entries: [] };

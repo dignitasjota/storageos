@@ -7,16 +7,24 @@ export interface VerificationEmailProps {
   verifyUrl: string;
   /** Identificador de la empresa: se pide al entrar al panel. */
   tenantSlug?: string;
+  /** Aviso del recordatorio, encima del botón. */
+  note?: string;
 }
 
-export function VerificationEmail({ fullName, verifyUrl, tenantSlug }: VerificationEmailProps) {
+export function VerificationEmail({
+  fullName,
+  verifyUrl,
+  tenantSlug,
+  note,
+}: VerificationEmailProps) {
   return (
     <EmailLayout
       preview="Verifica tu cuenta de TrasterOS"
       heading={`Hola ${fullName}, confirma tu email`}
     >
       <Text style={{ margin: 0, marginBottom: 16 }}>
-        Gracias por crear tu cuenta. Para activar el acceso, confirma tu email pulsando el botón:
+        {note ?? 'Gracias por crear tu cuenta.'} Para activar el acceso, confirma tu email pulsando
+        el botón:
       </Text>
 
       <Button

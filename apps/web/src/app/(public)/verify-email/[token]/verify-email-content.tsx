@@ -55,7 +55,9 @@ export function VerifyEmailContent({ token }: { token: string }) {
                 <XCircle className="size-6" aria-hidden />
               </div>
               <CardTitle className="text-xl">{t('errorTitle')}</CardTitle>
-              <CardDescription>{t('errorBody')}</CardDescription>
+              <CardDescription>
+                {t('errorBody')} Si ya activaste tu cuenta, entra desde aquí.
+              </CardDescription>
             </>
           )}
         </CardHeader>

@@ -1,7 +1,14 @@
 import type { PublicTenantBrandDto } from '@storageos/shared';
 
+const TITLES = {
+  web: 'Web temporalmente no disponible',
+  booking: 'Reserva online no disponible',
+  'web-pending': 'Web en preparación',
+  'booking-pending': 'Reserva online aún no disponible',
+};
+
 /**
- * Web o reserva de un negocio con la cuenta suspendida. No se dice el motivo
+ * Web o reserva de un negocio con la cuenta suspendida o aún sin terminar de preparar. No se dice el motivo
  * (es asunto entre el negocio y TrasterOS); solo cómo contactar con él.
  */
 export function TenantUnavailable({
@@ -9,7 +16,7 @@ export function TenantUnavailable({
   kind,
 }: {
   brand: PublicTenantBrandDto;
-  kind: 'web' | 'booking';
+  kind: 'web' | 'booking' | 'web-pending' | 'booking-pending';
 }) {
   return (
     <div className="flex min-h-[70vh] items-center justify-center px-4 py-16">
@@ -24,14 +31,15 @@ export function TenantUnavailable({
         ) : (
           <p className="text-xl font-semibold">{brand.tenantName}</p>
         )}
-        <h1 className="text-2xl font-semibold">
-          {kind === 'web' ? 'Web temporalmente no disponible' : 'Reserva online no disponible'}
-        </h1>
+        <h1 className="text-2xl font-semibold">{TITLES[kind]}</h1>
         <p className="text-muted-foreground">
-          {kind === 'web'
-            ? `La web de ${brand.tenantName} no está disponible en este momento.`
-            : `Ahora mismo no se puede reservar online en ${brand.tenantName}.`}{' '}
-          Si ya eres cliente, tu acceso a los trasteros sigue funcionando con normalidad.
+          {kind === 'web-pending' && `${brand.tenantName} está preparando su web. Vuelve pronto.`}
+          {kind === 'booking-pending' &&
+            `${brand.tenantName} todavía no acepta reservas online. Puedes contactar con el negocio.`}
+          {kind === 'web' &&
+            `La web de ${brand.tenantName} no está disponible en este momento. Si ya eres cliente, tu acceso a los trasteros sigue funcionando con normalidad.`}
+          {kind === 'booking' &&
+            `Ahora mismo no se puede reservar online en ${brand.tenantName}. Si ya eres cliente, tu acceso a los trasteros sigue funcionando con normalidad.`}
         </p>
         {(brand.contactPhone || brand.contactEmail) && (
           <div className="space-y-1 text-sm">

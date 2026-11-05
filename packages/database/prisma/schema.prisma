@@ -332,6 +332,8 @@ model Tenant {
   contactPhone                 String?               @map("contact_phone")
   contactEmail                 String?               @map("contact_email")
   taxId                        String?               @map("tax_id")
+  /// Puesta en marcha: `{ skipped: string[] }` (pasos marcados como «no aplica»).
+  onboardingState              Json                  @default("{}") @map("onboarding_state")
   /// Datos fiscales del tenant como destinatario de las facturas de suscripción.
   billingLegalName             String?               @map("billing_legal_name")
   billingAddress               String?               @map("billing_address")
@@ -707,6 +709,11 @@ model User {
   /// `role` enum se mantiene como base para los endpoints @Roles. Ver ADR-RBAC.
   tenantRoleId                    String?   @map("tenant_role_id") @db.Uuid
   emailVerifiedAt                 DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  /// Aceptación de los términos y la privacidad al registrarse (huella del texto).
+  termsAcceptedAt                 DateTime? @map("terms_accepted_at") @db.Timestamptz(6)
+  termsAcceptedHash               String?   @map("terms_accepted_hash")
+  termsAcceptedIp                 String?   @map("terms_accepted_ip")
+  termsAcceptedUserAgent          String?   @map("terms_accepted_user_agent")
   /// Cambio de email pendiente de confirmar con el enlace enviado al nuevo.
   pendingEmail                    String?   @map("pending_email")
   emailChangeTokenHash            String?   @map("email_change_token_hash")

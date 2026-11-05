@@ -2,6 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type RegisterInput, RegisterSchema } from '@storageos/shared';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useForm } from 'react-hook-form';
@@ -72,7 +73,7 @@ export function RegisterForm() {
 
   return (
     <Form {...form}>
-      <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+      <form method="post" className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
         <FormField
           control={form.control}
           name="tenantName"
@@ -152,7 +153,24 @@ export function RegisterForm() {
                 />
               </FormControl>
               <div className="space-y-1 leading-none">
-                <FormLabel className="font-normal">{t('acceptTerms')}</FormLabel>
+                <FormLabel className="font-normal">
+                  Acepto los{' '}
+                  <Link
+                    href="/terminos"
+                    target="_blank"
+                    className="text-primary underline underline-offset-2"
+                  >
+                    términos
+                  </Link>{' '}
+                  y la{' '}
+                  <Link
+                    href="/privacidad"
+                    target="_blank"
+                    className="text-primary underline underline-offset-2"
+                  >
+                    política de privacidad
+                  </Link>
+                </FormLabel>
                 <FormMessage />
               </div>
             </FormItem>

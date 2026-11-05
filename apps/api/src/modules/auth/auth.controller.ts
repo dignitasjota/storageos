@@ -22,6 +22,7 @@ import {
   type RefreshSuccessResponse,
   type RegisterPendingResponse,
   RegisterSchema,
+  ForgotTenantSchema,
   ResendVerificationSchema,
   ResetPasswordSchema,
   VerifyEmailSchema,
@@ -56,6 +57,7 @@ class RegisterDto extends createZodDto(RegisterSchema) {}
 class LoginDto extends createZodDto(LoginSchema) {}
 class VerifyEmailDto extends createZodDto(VerifyEmailSchema) {}
 class ResendVerificationDto extends createZodDto(ResendVerificationSchema) {}
+class ForgotTenantDto extends createZodDto(ForgotTenantSchema) {}
 class ForgotPasswordDto extends createZodDto(ForgotPasswordSchema) {}
 class ResetPasswordDto extends createZodDto(ResetPasswordSchema) {}
 
@@ -136,6 +138,14 @@ export class AuthController {
     respondThenRun(this.logger, 'resend-verification', () =>
       this.authService.resendVerification(input),
     );
+  }
+
+  @Public()
+  @ThrottleRegister()
+  @Post('forgot-tenant')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async forgotTenant(@Body() input: ForgotTenantDto): Promise<void> {
+    respondThenRun(this.logger, 'forgot-tenant', () => this.authService.sendTenantReminder(input));
   }
 
   @Public()
