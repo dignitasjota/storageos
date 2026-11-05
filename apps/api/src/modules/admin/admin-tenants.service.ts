@@ -13,6 +13,7 @@ import {
 
 import { TtlCache } from '../../common/cache/ttl-cache';
 import { zonedNextDayStart } from '../../common/format';
+import { attachmentKeysOf } from '../../common/message-attachments';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { anonymizeWhatsappConversations } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
@@ -2377,11 +2378,17 @@ export class AdminTenantsService {
       // Lo que escribieron los inquilinos o se anotó sobre ellos.
       const chatFiles = await tx.customerMessage.findMany({
         where: { tenantId, attachmentKey: { not: null } },
-        select: { attachmentKey: true },
+        select: { attachmentKey: true, extraAttachments: true },
       });
       await tx.customerMessage.updateMany({
         where: { tenantId },
-        data: { body: ANON, attachmentKey: null, attachmentMime: null, attachmentName: null },
+        data: {
+          body: ANON,
+          attachmentKey: null,
+          attachmentMime: null,
+          attachmentName: null,
+          extraAttachments: [],
+        },
       });
       await tx.customerInteraction.updateMany({ where: { tenantId }, data: { content: ANON } });
       await tx.customerFollowup.updateMany({
@@ -2545,7 +2552,7 @@ export class AdminTenantsService {
           ...whatsapp.mediaKeys,
           ...faces.map((f) => f.facePhotoKey!),
           ...photos.map((p) => p.key),
-          ...chatFiles.map((m) => m.attachmentKey!),
+          ...chatFiles.flatMap(attachmentKeysOf),
         ],
       };
     });

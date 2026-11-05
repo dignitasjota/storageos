@@ -1828,3 +1828,18 @@ Migración `20261225100000_messages_review`, se aplica sola. Sin variables nueva
 - **Tickets**: el contador del menú pasa a ser «con respuesta sin leer», por persona. Tras desplegar, las respuestas anteriores a la fecha de alta de cada persona no cuentan; las posteriores salen como sin leer hasta abrir el ticket.
 - **Adjuntos sin enviar**: la limpieza diaria borra lo subido a un chat o ticket que no llegó a enviarse.
 - **Correo entrante** (solo si `EMAIL_INBOUND_SECRET` está puesto): lo que no se sabe de quién es aparece en las notificaciones del super admin.
+
+## 100. Mensajería: mejoras (2026-11-06)
+
+Migración `20261226100000_messages_features`, se aplica sola. Las conversaciones existentes quedan «sin responder» si lo último es del inquilino.
+
+- **Tiempo real**: va por Redis y por conexiones largas al API (`/v1/realtime/stream`, `/v1/portal/me/stream`, `/v1/admin/support/tickets/stream`). En Nginx Proxy Manager no hace falta tocar nada: el API manda `X-Accel-Buffering: no`, igual que el asistente IA. Si el canal cae, las pantallas siguen refrescándose solas.
+- **Horario de atención**: apagado por defecto. Cada negocio lo activa en Configuración → Mensajes.
+- **Tickets que esperan respuesta**: al desplegar, los que llevan más de 5 días esperando al negocio reciben el recordatorio en la siguiente pasada (05:20) y se cierran 5 días después.
+- **Responder por correo dentro del hilo** (opcional). Sin esto todo funciona, pero responder a un correo llega al buzón del negocio y no a la conversación:
+  1. Elige un subdominio solo para esto (por ejemplo `r.trasteros.pro`) y apunta su MX al proveedor de correo entrante.
+  2. Haz que ese proveedor reenvíe cada correo a `POST https://api.trasteros.pro/webhooks/email-inbound` con la cabecera `X-Inbound-Secret` y este JSON: `{from, to, text, dmarc, attachments: [{filename, contentType, contentBase64}]}`. Si el proveedor manda otro formato, hace falta un pequeño adaptador (un Worker de Cloudflare, por ejemplo).
+  3. Pon `INBOUND_EMAIL_DOMAIN=r.trasteros.pro` y `EMAIL_INBOUND_SECRET` en las variables de Portainer y redespliega.
+  4. Prueba: escribe a un inquilino de prueba desde el panel, contesta a ese correo y comprueba que aparece en la conversación.
+
+  **No está probado con un proveedor real**: solo con el webhook simulado en los tests. Solo se aceptan imágenes y PDF de hasta 10 MB.

@@ -3,6 +3,7 @@
 import {
   MESSAGE_ATTACHMENT_MAX_BYTES,
   MESSAGE_ATTACHMENT_MIME_TYPES,
+  MESSAGE_MAX_ATTACHMENTS,
   type MessageAttachmentDto,
   type MessageAttachmentInput,
   type MessageAttachmentUploadDto,
@@ -12,6 +13,7 @@ import { useRef } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { compressImage } from '@/lib/images/compress';
 
 type Mime = MessageAttachmentInput['mimeType'];
 
@@ -21,13 +23,25 @@ type Mime = MessageAttachmentInput['mimeType'];
  * (panel, admin o portal).
  */
 export async function uploadMessageAttachment(
-  file: File,
+  original: File,
   presign: (mimeType: Mime) => Promise<MessageAttachmentUploadDto>,
 ): Promise<MessageAttachmentInput> {
+  // Una foto del móvil pesa varios MB y aquí no hace falta tanto.
+  const file = await compressImage(original);
   const up = await presign(file.type as Mime);
   const put = await fetch(up.uploadUrl, { method: 'PUT', headers: up.requiredHeaders, body: file });
   if (!put.ok) throw new Error('upload_failed');
   return { key: up.key, mimeType: file.type as Mime, filename: file.name.slice(0, 200) };
+}
+
+/** Sube varios adjuntos, uno detrás de otro. */
+export async function uploadMessageAttachments(
+  files: File[],
+  presign: (mimeType: Mime) => Promise<MessageAttachmentUploadDto>,
+): Promise<MessageAttachmentInput[]> {
+  const uploaded: MessageAttachmentInput[] = [];
+  for (const file of files) uploaded.push(await uploadMessageAttachment(file, presign));
+  return uploaded;
 }
 
 /** Comprueba tipo y tamaño antes de subir; avisa y devuelve false si no vale. */
@@ -53,16 +67,16 @@ export function acceptAttachment(file: File, texts: AttachmentTexts = DEFAULT_TE
   return true;
 }
 
-/** Botón de clip + el fichero elegido (sin subir aún). */
+/** Botón de clip + los ficheros elegidos (sin subir aún). */
 export function AttachmentPicker({
-  file,
+  files,
   onChange,
   disabled,
-  label = 'Adjuntar imagen o PDF',
+  label = 'Adjuntar imágenes o PDF',
   texts,
 }: {
-  file: File | null;
-  onChange: (file: File | null) => void;
+  files: File[];
+  onChange: (files: File[]) => void;
   disabled?: boolean;
   label?: string;
   texts?: AttachmentTexts;
@@ -73,11 +87,12 @@ export function AttachmentPicker({
       <input
         ref={input}
         type="file"
+        multiple
         accept={MESSAGE_ATTACHMENT_MIME_TYPES.join(',')}
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0] ?? null;
-          if (f && acceptAttachment(f, texts)) onChange(f);
+          const picked = Array.from(e.target.files ?? []).filter((f) => acceptAttachment(f, texts));
+          onChange([...files, ...picked].slice(0, MESSAGE_MAX_ATTACHMENTS));
           if (input.current) input.current.value = '';
         }}
       />
@@ -85,14 +100,20 @@ export function AttachmentPicker({
         type="button"
         variant="outline"
         size="icon"
-        disabled={disabled}
+        disabled={disabled || files.length >= MESSAGE_MAX_ATTACHMENTS}
         onClick={() => input.current?.click()}
         aria-label={label}
         title={label}
       >
         <Paperclip className="size-4" />
       </Button>
-      {file && <AttachmentChip name={file.name} onRemove={() => onChange(null)} />}
+      {files.map((f, i) => (
+        <AttachmentChip
+          key={`${f.name}-${i}`}
+          name={f.name}
+          onRemove={() => onChange(files.filter((_, n) => n !== i))}
+        />
+      ))}
     </>
   );
 }
@@ -111,6 +132,17 @@ export function AttachmentChip({ name, onRemove }: { name: string; onRemove: () 
         <X className="size-3" />
       </button>
     </span>
+  );
+}
+
+/** Los adjuntos de un mensaje. */
+export function AttachmentList({ attachments }: { attachments: MessageAttachmentDto[] }) {
+  return (
+    <>
+      {attachments.map((a) => (
+        <AttachmentView key={a.url} attachment={a} />
+      ))}
+    </>
   );
 }
 

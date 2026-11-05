@@ -32,6 +32,7 @@ import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
 import { PlanLimitsModule } from '../../api/src/modules/plan-limits/plan-limits.module';
 import { PushModule } from '../../api/src/modules/push/push.module';
 import { QueuesModule } from '../../api/src/modules/queues/queues.module';
+import { RealtimeModule } from '../../api/src/modules/realtime/realtime.module';
 import { RentIncreasesModule } from '../../api/src/modules/rent-increases/rent-increases.module';
 import { ReportsModule } from '../../api/src/modules/reports/reports.module';
 import { RetentionModule } from '../../api/src/modules/retention/retention.module';
@@ -130,6 +131,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     SuspensionHoldsModule,
     EmailModule,
     QueuesModule,
+    RealtimeModule,
     AuthModule,
     PaymentsModule,
     BillingModule,

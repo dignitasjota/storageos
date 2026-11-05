@@ -13,6 +13,7 @@ import {
   Post,
   Put,
   Query,
+  Res,
   Req,
   UnauthorizedException,
   Logger,
@@ -101,6 +102,7 @@ import {
   PortalEmailChangeSchema,
   PortalPreferencesSchema,
   type PortalPreferencesDto,
+  messageAttachmentsOf,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -128,6 +130,7 @@ import { CustomerOffersService } from '../opportunities/customer-offers.service'
 import { OpportunitiesService } from '../opportunities/opportunities.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { PushService } from '../push/push.service';
+import { realtimeChannels, RealtimeService } from '../realtime/realtime.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { RetentionService } from '../retention/retention.service';
 import { UnitChangesService } from '../unit-changes/unit-changes.service';
@@ -141,7 +144,7 @@ import { PortalInvoiceExportService } from './portal-invoice-export.service';
 import { PortalService } from './portal.service';
 
 import type { PreOpeningCancelPreviewDto } from '@storageos/shared';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchema) {}
 class PortalJoinWaitlistDto extends createZodDto(PortalJoinWaitlistSchema) {}
@@ -212,6 +215,7 @@ export class PortalController {
     private readonly notifications: NotificationsService,
     private readonly invoiceExport: PortalInvoiceExportService,
     private readonly generalTerms: GeneralTermsService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   // Envía un email (magic link) — mismo preset que el homólogo de staff
@@ -531,6 +535,17 @@ export class PortalController {
     return this.messages.list(tenantId, customerId, 'customer', undefined, before);
   }
 
+  /** Avisos en vivo del inquilino: solo que hay algo nuevo en su conversación. */
+  @Public()
+  @Get('me/stream')
+  async myStream(
+    @Headers('authorization') auth: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { customerId } = await this.requirePortalSession(auth);
+    await this.realtime.stream(res, [realtimeChannels.customer(customerId)]);
+  }
+
   /** Nº de mensajes del staff sin leer — para el badge de la pestaña «Mensajes». */
   @Public()
   @Get('me/messages/unread-count')
@@ -556,7 +571,7 @@ export class PortalController {
       body.body,
       'portal',
       true,
-      body.attachment,
+      messageAttachmentsOf(body),
     );
   }
 

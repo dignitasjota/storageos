@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
-import { AttachmentPicker, uploadMessageAttachment } from '@/components/messages/attachments';
+import { AttachmentPicker, uploadMessageAttachments } from '@/components/messages/attachments';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -292,7 +292,7 @@ function PlatformMessages() {
 
 function CreateTicketDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateSupportTicket();
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const form = useForm<CreateSupportTicketInput>({
     resolver: zodResolver(CreateSupportTicketSchema),
     defaultValues: { subject: '', body: '', priority: 'normal', category: '' },
@@ -300,13 +300,11 @@ function CreateTicketDialog({ open, onClose }: { open: boolean; onClose: () => v
 
   async function onSubmit(values: CreateSupportTicketInput) {
     try {
-      const attachment = file
-        ? await uploadMessageAttachment(file, presignTicketAttachment)
-        : undefined;
-      await create.mutateAsync({ ...values, ...(attachment ? { attachment } : {}) });
+      const attachments = await uploadMessageAttachments(files, presignTicketAttachment);
+      await create.mutateAsync({ ...values, attachments });
       toast.success('Ticket creado. Te avisaremos cuando respondamos.');
       form.reset({ subject: '', body: '', priority: 'normal', category: '' });
-      setFile(null);
+      setFiles([]);
       onClose();
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.body.message);
@@ -394,11 +392,11 @@ function CreateTicketDialog({ open, onClose }: { open: boolean; onClose: () => v
             />
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <AttachmentPicker
-                file={file}
-                onChange={setFile}
+                files={files}
+                onChange={setFiles}
                 label="Adjuntar una captura o un PDF"
               />
-              {!file && <span>Puedes adjuntar una captura de pantalla o un PDF.</span>}
+              {files.length === 0 && <span>Puedes adjuntar una captura de pantalla o un PDF.</span>}
             </div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={onClose}>

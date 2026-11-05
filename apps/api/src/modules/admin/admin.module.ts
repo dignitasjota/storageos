@@ -261,6 +261,6 @@ import { WeeklyDigestService } from './weekly-digest.service';
     PlatformEmailTemplatesService,
     PlatformNpsService,
   ],
-  exports: [SuperAdminService, SuperAdminAuditService],
+  exports: [SuperAdminService, SuperAdminAuditService, SupportTicketsService],
 })
 export class AdminModule {}

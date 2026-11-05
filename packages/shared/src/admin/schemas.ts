@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { isValidTimeZone } from '../auth/schemas';
 import { TenantFeatures } from '../features';
-import { MessageAttachmentSchema } from '../messages';
+import { MESSAGE_MAX_ATTACHMENTS, MessageAttachmentSchema } from '../messages';
 
 import { AddonPriceTiersSchema } from './catalog';
 
@@ -305,6 +305,7 @@ export const CreateSupportTicketSchema = z.object({
   priority: SupportTicketPriorityEnum.default('normal'),
   category: optionalText(80),
   attachment: MessageAttachmentSchema.optional(),
+  attachments: z.array(MessageAttachmentSchema).max(MESSAGE_MAX_ATTACHMENTS).optional(),
 });
 export type CreateSupportTicketInput = z.infer<typeof CreateSupportTicketSchema>;
 
@@ -313,8 +314,9 @@ export const AddTicketMessageSchema = z
     body: z.string().trim().max(10_000).default(''),
     isInternal: z.boolean().default(false),
     attachment: MessageAttachmentSchema.optional(),
+    attachments: z.array(MessageAttachmentSchema).max(MESSAGE_MAX_ATTACHMENTS).optional(),
   })
-  .refine((v) => v.body.length > 0 || v.attachment, {
+  .refine((v) => v.body.length > 0 || v.attachment || (v.attachments?.length ?? 0) > 0, {
     message: 'Escribe un mensaje o adjunta un archivo',
     path: ['body'],
   });

@@ -694,6 +694,12 @@ model Tenant {
   legalDocAcceptances     LegalDocAcceptance[]
   supportTicketReads        SupportTicketRead[]
   platformMessageReads      TenantPlatformMessageRead[]
+  customerConversations     CustomerConversation[]
+  customerCannedResponses   CustomerCannedResponse[]
+  /// Horario de atención de los mensajes (mismo formato que el de un local).
+  messageHours              Json?    @map("message_hours")
+  messageAutoReplyEnabled   Boolean  @default(false) @map("message_auto_reply_enabled")
+  messageAutoReply          String?  @map("message_auto_reply")
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -821,6 +827,7 @@ model User {
   passkeys             UserPasskey[]
   supportTicketReads        SupportTicketRead[]
   platformMessageRead       TenantPlatformMessageRead?
+  assignedConversations     CustomerConversation[] @relation("ConversationAssignee")
   @@unique([tenantId, email])
   @@index([tenantId])
   webChatMessages WebChatMessage[]
@@ -1448,6 +1455,7 @@ model Customer {
   offers                 CustomerOffer[]
   messageReads         CustomerMessageRead[]
   legalDocAcceptances LegalDocAcceptance[]
+  conversation      CustomerConversation?
   @@index([tenantId])
   @@index([tenantId, deletedAt])
   @@index([tenantId, documentNumber])
@@ -3427,6 +3435,8 @@ model Communication {
   sentAt                   DateTime?              @map("sent_at") @db.Timestamptz(6)
   deliveredAt              DateTime?              @map("delivered_at") @db.Timestamptz(6)
   failedAt                 DateTime?              @map("failed_at") @db.Timestamptz(6)
+  /// Dirección de respuesta propia (respuesta por correo dentro del hilo).
+  replyTo String? @map("reply_to")
   createdAt                DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -4335,6 +4345,14 @@ model SupportTicket {
   /// Lo abrió el super admin al escribir al tenant (no cuenta en los tiempos de respuesta).
   openedByAdmin   Boolean               @default(false) @map("opened_by_admin")
   resolvedAt      DateTime?             @map("resolved_at") @db.Timestamptz(6)
+  /// Valoración del tenant al cerrar (1-5).
+  rating          Int?
+  ratingComment   String?               @map("rating_comment")
+  ratedAt         DateTime?             @map("rated_at") @db.Timestamptz(6)
+  /// Parte variable de la dirección de respuesta por correo.
+  replyToken      String?               @unique @map("reply_token")
+  /// Ya se recordó que esperamos su respuesta.
+  waitingRemindedAt DateTime?           @map("waiting_reminded_at") @db.Timestamptz(6)
   createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -4363,6 +4381,7 @@ model SupportTicketMessage {
   attachmentKey  String? @map("attachment_key")
   attachmentMime String? @map("attachment_mime")
   attachmentName String? @map("attachment_name")
+  extraAttachments Json @default("[]") @map("extra_attachments")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
@@ -4933,6 +4952,43 @@ model TenantPlatformMessageRead {
   @@map("tenant_platform_message_reads")
 }
 
+/// Estado de la conversación con un inquilino (una por inquilino).
+model CustomerConversation {
+  customerId     String    @id @map("customer_id") @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  /// pending | answered | closed
+  status         String    @default("pending")
+  assignedUserId String?   @map("assigned_user_id") @db.Uuid
+  /// Parte variable de la dirección de respuesta por correo.
+  replyToken     String?   @unique @map("reply_token")
+  closedAt       DateTime? @map("closed_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assigned User?    @relation("ConversationAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status], map: "customer_conversations_tenant_status_idx")
+  @@index([tenantId, assignedUserId], map: "customer_conversations_assigned_idx")
+  @@map("customer_conversations")
+}
+
+/// Respuestas guardadas del equipo para el chat con los inquilinos.
+model CustomerCannedResponse {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  title     String
+  body      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "customer_canned_responses_tenant_idx")
+  @@map("customer_canned_responses")
+}
+
 model CustomerMessageRead {
   customerId String   @map("customer_id") @db.Uuid
   userId     String   @map("user_id") @db.Uuid
@@ -4964,6 +5020,12 @@ model CustomerMessage {
   attachmentKey  String? @map("attachment_key")
   attachmentMime String? @map("attachment_mime")
   attachmentName String? @map("attachment_name")
+  /// Más adjuntos del mismo mensaje: [{key, mimeType, filename}].
+  extraAttachments Json  @default("[]") @map("extra_attachments")
+  /// Nota del equipo: el inquilino no la ve.
+  isInternal   Boolean   @default(false) @map("is_internal")
+  /// Respuesta automática fuera de horario (no cuenta como respuesta del equipo).
+  isAuto       Boolean   @default(false) @map("is_auto")
   /// Cuándo lo leyó el destinatario (null = no leído).
   readAt       DateTime? @map("read_at") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -18,8 +18,8 @@ import { toast } from 'sonner';
 import { ResponseTime } from '@/components/admin/support-ticket-list';
 import {
   AttachmentPicker,
-  AttachmentView,
-  uploadMessageAttachment,
+  AttachmentList,
+  uploadMessageAttachments,
 } from '@/components/messages/attachments';
 import { MessageText } from '@/components/messages/message-text';
 import { Badge } from '@/components/ui/badge';
@@ -138,7 +138,11 @@ export default function AdminSupportTicketPage() {
           </Link>{' '}
           · {t.tenantSlug} · {new Date(t.createdAt).toLocaleString('es-ES')} ·{' '}
           <ResponseTime ticket={t} />
+          {t.rating ? ` · Valoración: ${t.rating} de 5` : ''}
         </p>
+        {t.ratingComment && (
+          <p className="mt-1 text-sm text-muted-foreground">«{t.ratingComment}»</p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3 rounded-md border bg-card px-3 py-2">
@@ -237,7 +241,7 @@ function MessageBubble({ message }: { message: SupportTicketMessageDto }) {
         </span>
       </div>
       {message.body && <MessageText text={message.body} className="mt-1" />}
-      {message.attachment && <AttachmentView attachment={message.attachment} />}
+      <AttachmentList attachments={message.attachments} />
     </div>
   );
 }
@@ -255,7 +259,7 @@ function ReplyForm({
 }) {
   const add = useAddAdminTicketMessage();
   const canned = useSupportCannedResponses();
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   // Sin resolver: la respuesta puede ir solo con el adjunto.
   const form = useForm<AddTicketMessageInput>({
     defaultValues: { body: '', isInternal: false },
@@ -263,27 +267,25 @@ function ReplyForm({
 
   async function onSubmit(values: AddTicketMessageInput) {
     const body = values.body.trim();
-    if (!body && !file) {
+    if (!body && files.length === 0) {
       form.setError('body', { message: 'Escribe un mensaje o adjunta un archivo' });
       return;
     }
     try {
-      const attachment = file
-        ? await uploadMessageAttachment(file, (mime) =>
-            presignAdminTicketAttachment(ticketId, mime),
-          )
-        : undefined;
+      const attachments = await uploadMessageAttachments(files, (mime) =>
+        presignAdminTicketAttachment(ticketId, mime),
+      );
       await add.mutateAsync({
         id: ticketId,
         input: {
           ...values,
           isInternal: closed || values.isInternal,
           body,
-          ...(attachment ? { attachment } : {}),
+          attachments,
         },
       });
       form.reset({ body: '', isInternal: false });
-      setFile(null);
+      setFiles([]);
       toast.success('Mensaje añadido.');
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.body.message);
@@ -372,8 +374,8 @@ function ReplyForm({
               />
               <div className="flex items-center gap-2">
                 <AttachmentPicker
-                  file={file}
-                  onChange={setFile}
+                  files={files}
+                  onChange={setFiles}
                   disabled={form.formState.isSubmitting}
                 />
                 <Button type="submit" disabled={form.formState.isSubmitting}>

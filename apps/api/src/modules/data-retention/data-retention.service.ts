@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { attachmentKeysOf } from '../../common/message-attachments';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 
@@ -63,6 +64,19 @@ export class DataRetentionService {
         ...(await this.files.listOlderThan('uploads', `${tenantId}/chat/`, before)),
         ...(await this.files.listOlderThan('uploads', `${tenantId}/support/`, before)),
       ];
+      if (keys.length === 0) continue;
+      // Los que van de segundos en un mensaje no se pueden buscar por columna.
+      const [chatExtras, ticketExtras] = await Promise.all([
+        this.admin.customerMessage.findMany({
+          where: { tenantId, NOT: { extraAttachments: { equals: [] } } },
+          select: { attachmentKey: true, extraAttachments: true },
+        }),
+        this.admin.supportTicketMessage.findMany({
+          where: { ticket: { tenantId }, NOT: { extraAttachments: { equals: [] } } },
+          select: { attachmentKey: true, extraAttachments: true },
+        }),
+      ]);
+      const extras = new Set([...chatExtras, ...ticketExtras].flatMap(attachmentKeysOf));
       for (let i = 0; i < keys.length; i += 500) {
         const batch = keys.slice(i, i + 500);
         const [chat, tickets] = await Promise.all([
@@ -76,7 +90,7 @@ export class DataRetentionService {
           }),
         ]);
         const used = new Set([...chat, ...tickets].map((r) => r.attachmentKey));
-        const orphans = batch.filter((k) => !used.has(k));
+        const orphans = batch.filter((k) => !used.has(k) && !extras.has(k));
         await this.files.deleteObjects('uploads', orphans);
         removed += orphans.length;
       }

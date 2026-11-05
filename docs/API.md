@@ -2666,3 +2666,14 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - `POST /admin/support/tickets/:id/messages` en un ticket cerrado: 400 `ticket_closed` salvo nota interna. Responder en `in_progress` pasa a `waiting_user`.
 - `GET /support/platform-messages*` exigen `platform_messages:manage`; `unread`, `readAt` y `POST …/read` son por persona.
 - Notificaciones nuevas: `customer.message_unanswered` (también al móvil) y, en el super admin, `inbound.unmatched`.
+
+### Mensajería: mejoras (2026-11-06)
+
+- `GET /customer-messages/inbox?channel=all|customers|whatsapp|web&status=&mine=1&search=&facilityId=&cursor=` (`customers:read`) → `{items, nextCursor, counts}`. Con `status`, `mine` o `facilityId` solo salen inquilinos. WhatsApp y chat de la web, solo con su función y permiso. 400 `invalid_filter`.
+- `GET /customers/:id/messages/context` → estado, responsable, si le llega (`reach`) y variables de las respuestas guardadas. `PATCH /customers/:id/messages/conversation {status?, assignedUserId?}` (`customers:write`; 400 `invalid_assignee`).
+- `POST /customers/:id/messages` admite `attachments` (hasta 5) e `isInternal`. Cada mensaje devuelve `attachments`, `isInternal` e `isAuto`; el área de clientes no recibe las notas.
+- `POST /customer-messages/broadcast {customerIds, body}` (`customers:write`) → `{sent, skipped}`.
+- `GET /customer-messages/stats?days=` (`customers:read`). `GET/POST /customer-messages/canned`, `PATCH/DELETE /customer-messages/canned/:id`. `GET/PUT /customer-messages/settings` (400 `message_hours_required`).
+- `POST /support/tickets/:id/close`, `POST /support/tickets/:id/rating {score, comment?}` (400 `ticket_not_finished`, 409 `ticket_already_rated`). `GET /admin/support/stats` gana `avgRating` y `ratedTickets`.
+- `POST /webhooks/email-inbound` admite `to` y `attachments`; `text` puede ir vacío si lleva adjuntos.
+- Canales en vivo (Server-Sent Events, sin contenido, solo `{type, customerId?, ticketId?}`): `GET /realtime/stream`, `GET /portal/me/stream`, `GET /admin/support/tickets/stream`. El servidor corta a los 14 minutos para que el cliente se reconecte con un token vigente.

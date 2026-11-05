@@ -565,7 +565,8 @@ Fases 0 a 4 completas + un subset esencial de la 5 (al menos email transaccional
 ### Mensajería: revisión (2026-11-06)
 
 - ✅ **PR A**: avisos y bandeja según el alcance por local, un aviso por conversación cada 15 minutos y recordatorio a las 24 h, correo al inquilino medido desde el último correo, hilo por páginas, adjuntos sin volver a descargarse, leído por persona en tickets y mensajes de TrasterOS.
-- **PR B** (12 mejoras): estado y responsable por conversación, notas internas, respuestas guardadas, visto y entrega, responder por correo dentro del hilo, bandeja completa y única, tiempos de respuesta, horario de atención, de mensaje a incidencia o tarea, varios adjuntos, cierre y valoración de tickets y tiempo real.
+- ✅ **PR B** (12 mejoras): estado y responsable por conversación, notas internas, respuestas guardadas, visto y entrega, responder por correo dentro del hilo, bandeja completa y única, tiempos de respuesta, horario de atención, de mensaje a incidencia o tarea, varios adjuntos, cierre y valoración de tickets y tiempo real.
+- **Pendiente**: montar el buzón de entrada real para responder por correo (`DEPLOYMENT §100`).
 
 ### Reservas, lista de espera y peticiones de trastero: revisión (2026-11-05)
 

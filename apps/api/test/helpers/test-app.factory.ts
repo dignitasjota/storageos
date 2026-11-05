@@ -1,7 +1,7 @@
 import { VersioningType } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
-import { raw } from 'express';
+import { json, raw } from 'express';
 
 import { AppModule } from '../../src/app.module';
 import { HttpExceptionFilter } from '../../src/common/filters/http-exception.filter';
@@ -54,6 +54,12 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
   // Igual que prod (1 proxy delante): la IP del cliente sale de X-Forwarded-For.
   configureTrustProxy(app, 1);
   // Webhooks firmados sobre el raw body (deben ir antes del parser JSON).
+  // Un correo entrante trae sus adjuntos dentro. Va envuelto porque, si Nest ve
+  // un `jsonParser` ya puesto, no añade el suyo para el resto de rutas.
+  const inboundJson = json({ limit: '30mb' });
+  app.use('/webhooks/email-inbound', (req: Request, res: Response, next: NextFunction) =>
+    inboundJson(req, res, next),
+  );
   app.use('/webhooks/stripe', raw({ type: 'application/json' }));
   app.use('/webhooks/stripe-connect', raw({ type: 'application/json' }));
   app.use('/webhooks/gocardless', raw({ type: 'application/json' }));

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { FirstPaymentMonthsSchema } from '../coupons';
-import { MessageAttachmentSchema } from '../messages';
+import { MESSAGE_MAX_ATTACHMENTS, MessageAttachmentSchema } from '../messages';
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
@@ -486,8 +486,11 @@ export const SendCustomerMessageSchema = z
   .object({
     body: z.string().trim().max(5000).default(''),
     attachment: MessageAttachmentSchema.optional(),
+    attachments: z.array(MessageAttachmentSchema).max(MESSAGE_MAX_ATTACHMENTS).optional(),
+    /** Nota del equipo: el inquilino no la ve (en el portal se ignora). */
+    isInternal: z.boolean().optional(),
   })
-  .refine((v) => v.body.length > 0 || v.attachment, {
+  .refine((v) => v.body.length > 0 || v.attachment || (v.attachments?.length ?? 0) > 0, {
     message: 'Escribe un mensaje o adjunta un archivo',
     path: ['body'],
   });
@@ -512,8 +515,22 @@ export type UpdateCustomerFollowupInput = z.infer<typeof UpdateCustomerFollowupS
 /** Cuerpo del webhook de email entrante (correo del inquilino ya parseado). */
 export const EmailInboundSchema = z.object({
   from: z.string().trim().email().max(320),
-  text: z.string().trim().min(1).max(20000),
+  /** Vacío si el correo solo lleva adjuntos. */
+  text: z.string().trim().max(20000).default(''),
   subject: z.string().trim().max(500).optional(),
+  /** Destinatarios: la dirección de respuesta dice a qué conversación va. */
+  to: z.union([z.string().max(2000), z.array(z.string().max(500)).max(20)]).optional(),
+  /** Imágenes y PDF en base64. Lo demás se ignora. */
+  attachments: z
+    .array(
+      z.object({
+        filename: z.string().trim().min(1).max(200),
+        contentType: z.string().trim().max(100),
+        contentBase64: z.string().max(15_000_000),
+      }),
+    )
+    .max(MESSAGE_MAX_ATTACHMENTS)
+    .optional(),
   /**
    * Veredictos de autenticación del proveedor de email entrante. Sin DMARC
    * `pass` (en `dmarc` o en la cabecera `Authentication-Results` cruda) el

@@ -13,6 +13,7 @@ import {
   AddTicketMessageSchema,
   CreateSupportTicketSchema,
   MessageAttachmentUploadSchema,
+  RateTicketSchema,
   type MessageAttachmentUploadDto,
   type SupportTicketDto,
   type SupportTicketMessageDto,
@@ -31,6 +32,7 @@ import type { Request } from 'express';
 class CreateSupportTicketDto extends createZodDto(CreateSupportTicketSchema) {}
 class AddTicketMessageDto extends createZodDto(AddTicketMessageSchema) {}
 class AttachmentUploadDto extends createZodDto(MessageAttachmentUploadSchema) {}
+class RateTicketDto extends createZodDto(RateTicketSchema) {}
 
 interface ReqMetaInfo {
   ipAddress: string | null;
@@ -109,6 +111,38 @@ export class SupportTicketsTenantController {
       ticketId: id,
       input,
       meta: extractMeta(req),
+    });
+  }
+
+  /** Dar el ticket por terminado. */
+  @Post(':id/close')
+  @HttpCode(HttpStatus.OK)
+  async close(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<SupportTicketDto> {
+    return this.tickets.closeAsTenant({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      ticketId: id,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Valorar la atención recibida (una vez resuelto o cerrado). */
+  @Post(':id/rating')
+  @HttpCode(HttpStatus.OK)
+  async rate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: RateTicketDto,
+  ): Promise<SupportTicketDto> {
+    return this.tickets.rateAsTenant({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      ticketId: id,
+      input,
     });
   }
 }

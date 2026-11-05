@@ -2,21 +2,23 @@
 
 import {
   type AddTicketMessageInput,
+  type SupportTicketDto,
   type SupportTicketMessageDto,
   type SupportTicketStatusValue,
 } from '@storageos/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Star } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { BackLink } from '@/components/layout/back-link';
 import {
   AttachmentPicker,
-  AttachmentView,
-  uploadMessageAttachment,
+  AttachmentList,
+  uploadMessageAttachments,
 } from '@/components/messages/attachments';
 import { MessageText } from '@/components/messages/message-text';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +37,8 @@ import { ApiError } from '@/lib/auth/api';
 import {
   presignTicketAttachment,
   useAddTicketMessage,
+  useCloseTicket,
+  useRateTicket,
   useSupportTicket,
 } from '@/lib/support/hooks';
 
@@ -107,7 +111,100 @@ export default function SupportTicketPage() {
           Lo hemos dado por resuelto. Si el problema sigue, responde aquí y lo reabriremos.
         </p>
       )}
+      {(t.status === 'resolved' || t.status === 'closed') && <RatingCard ticket={t} />}
       {t.status !== 'closed' && <ReplyForm ticketId={t.id} />}
+      {t.status !== 'closed' && <CloseTicketButton ticketId={t.id} />}
+    </div>
+  );
+}
+
+/** ¿Qué tal la atención? Se pide una vez, al terminar. */
+function RatingCard({ ticket }: { ticket: SupportTicketDto }) {
+  const rate = useRateTicket(ticket.id);
+  const [score, setScore] = useState(0);
+  const [comment, setComment] = useState('');
+
+  if (ticket.rating) {
+    return (
+      <p className="flex items-center gap-1 text-sm text-muted-foreground">
+        Tu valoración:
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Star
+            key={n}
+            className={`size-4 ${n <= (ticket.rating ?? 0) ? 'fill-amber-400 text-amber-400' : ''}`}
+          />
+        ))}
+      </p>
+    );
+  }
+
+  async function send() {
+    try {
+      await rate.mutateAsync({ score, ...(comment.trim() ? { comment: comment.trim() } : {}) });
+      toast.success('Gracias por tu valoración.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido enviar.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">¿Qué tal te hemos atendido?</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-1">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setScore(n)}
+              aria-label={`${n} de 5`}
+              className="p-0.5"
+            >
+              <Star className={`size-6 ${n <= score ? 'fill-amber-400 text-amber-400' : ''}`} />
+            </button>
+          ))}
+        </div>
+        {score > 0 && (
+          <>
+            <Textarea
+              rows={2}
+              maxLength={1000}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="¿Algo que quieras contarnos? (opcional)"
+            />
+            <Button size="sm" onClick={send} disabled={rate.isPending}>
+              Enviar valoración
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CloseTicketButton({ ticketId }: { ticketId: string }) {
+  const close = useCloseTicket(ticketId);
+  const confirm = useConfirm();
+  return (
+    <div className="flex justify-end">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={close.isPending}
+        onClick={async () => {
+          const ok = await confirm({
+            title: 'Cerrar el ticket',
+            description: 'Lo das por terminado. Si necesitas algo más, puedes abrir otro.',
+            confirmLabel: 'Cerrar el ticket',
+          });
+          if (ok) close.mutate();
+        }}
+      >
+        Ya está resuelto, cerrar
+      </Button>
     </div>
   );
 }
@@ -124,14 +221,14 @@ function MessageBubble({ message }: { message: SupportTicketMessageDto }) {
         <span>{new Date(message.createdAt).toLocaleString('es-ES')}</span>
       </div>
       {message.body && <MessageText text={message.body} className="mt-1" />}
-      {message.attachment && <AttachmentView attachment={message.attachment} />}
+      <AttachmentList attachments={message.attachments} />
     </div>
   );
 }
 
 function ReplyForm({ ticketId }: { ticketId: string }) {
   const add = useAddTicketMessage();
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   // Sin resolver: el mensaje puede ir solo con el adjunto (que no es un campo del formulario).
   const form = useForm<AddTicketMessageInput>({
     defaultValues: { body: '', isInternal: false },
@@ -139,21 +236,19 @@ function ReplyForm({ ticketId }: { ticketId: string }) {
 
   async function onSubmit(values: AddTicketMessageInput) {
     const body = values.body.trim();
-    if (!body && !file) {
+    if (!body && files.length === 0) {
       form.setError('body', { message: 'Escribe un mensaje o adjunta un archivo' });
       return;
     }
     try {
-      const attachment = file
-        ? await uploadMessageAttachment(file, presignTicketAttachment)
-        : undefined;
+      const attachments = await uploadMessageAttachments(files, presignTicketAttachment);
       // El tenant nunca envia notas internas: forzamos isInternal=false.
       await add.mutateAsync({
         id: ticketId,
-        input: { body, isInternal: false, ...(attachment ? { attachment } : {}) },
+        input: { body, isInternal: false, attachments },
       });
       form.reset({ body: '', isInternal: false });
-      setFile(null);
+      setFiles([]);
       toast.success('Mensaje enviado.');
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.body.message);
@@ -184,8 +279,8 @@ function ReplyForm({ ticketId }: { ticketId: string }) {
             />
             <div className="flex flex-wrap items-center justify-end gap-2">
               <AttachmentPicker
-                file={file}
-                onChange={setFile}
+                files={files}
+                onChange={setFiles}
                 disabled={form.formState.isSubmitting}
               />
               <Button type="submit" disabled={form.formState.isSubmitting}>

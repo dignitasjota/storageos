@@ -4,15 +4,18 @@ import { Prisma } from '@storageos/database';
 import {
   attachmentLabel,
   chatReplyChannel,
+  DEFAULT_AUTO_REPLY,
+  isWithinHours,
   MESSAGE_THREAD_PAGE,
   type MessageAttachmentInput,
   type MessageAttachmentUploadDto,
+  type OpeningHours,
 } from '@storageos/shared';
 
 import { customerScopeSql, customerVisibilityFacilities } from '../../common/customer-scope';
 import {
-  assertAttachment,
-  attachmentDto,
+  assertAttachments,
+  attachmentsDto,
   requestAttachmentUpload,
 } from '../../common/message-attachments';
 import { claimAlert } from '../admin/alert-state';
@@ -22,6 +25,7 @@ import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
+import { realtimeChannels, RealtimeService } from '../realtime/realtime.service';
 
 import type { FacilityScope } from '../../common/facility-scope';
 import type { CustomerConversationDto, CustomerMessageDto } from '@storageos/shared';
@@ -34,6 +38,8 @@ const UNANSWERED_AFTER_HOURS = 24;
 const UNANSWERED_UNTIL_HOURS = 72;
 /** El recordatorio de un mensaje sale una sola vez. */
 const REMINDER_ONCE_MINUTES = 60 * 24 * 365;
+/** La respuesta automática sale una vez por conversación en este tiempo. */
+const AUTO_REPLY_GAP_MINUTES = 12 * 60;
 
 const messageInclude = {
   sender: { select: { fullName: true } },
@@ -41,7 +47,7 @@ const messageInclude = {
 
 type MessageRow = Prisma.CustomerMessageGetPayload<{ include: typeof messageInclude }>;
 
-function toDto(row: MessageRow): Omit<CustomerMessageDto, 'attachment'> {
+function toDto(row: MessageRow): Omit<CustomerMessageDto, 'attachment' | 'attachments'> {
   return {
     id: row.id,
     senderType: row.senderType as CustomerMessageDto['senderType'],
@@ -49,6 +55,8 @@ function toDto(row: MessageRow): Omit<CustomerMessageDto, 'attachment'> {
     senderVerified: row.senderVerified,
     senderName: row.sender?.fullName ?? null,
     body: row.body,
+    isInternal: row.isInternal,
+    isAuto: row.isAuto,
     readAt: row.readAt ? row.readAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   };
@@ -70,10 +78,40 @@ export class CustomerMessagesService {
     private readonly push: PushService,
     private readonly events: EventEmitter2,
     private readonly files: FilesService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   private async dto(row: MessageRow): Promise<CustomerMessageDto> {
-    return { ...toDto(row), attachment: await attachmentDto(this.files, row) };
+    const attachments = await attachmentsDto(this.files, row);
+    return { ...toDto(row), attachment: attachments[0] ?? null, attachments };
+  }
+
+  /** Avisa en vivo al equipo (a quien puede ver al inquilino) y al propio inquilino. */
+  private async publish(tenantId: string, customerId: string, toCustomer = true): Promise<void> {
+    await this.realtime.publish(realtimeChannels.tenant(tenantId), {
+      type: 'customer_message',
+      customerId,
+      facilityIds: await customerVisibilityFacilities(this.admin, tenantId, customerId),
+    });
+    if (toCustomer) {
+      await this.realtime.publish(realtimeChannels.customer(customerId), {
+        type: 'customer_message',
+      });
+    }
+  }
+
+  /** Lo último en la conversación cambia su estado. */
+  private setConversationStatus(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    customerId: string,
+    status: 'pending' | 'answered',
+  ) {
+    return tx.customerConversation.upsert({
+      where: { customerId },
+      create: { customerId, tenantId, status },
+      update: { status, closedAt: null },
+    });
   }
 
   /** URL firmada para subir un adjunto a la conversación con un inquilino. */
@@ -86,12 +124,8 @@ export class CustomerMessagesService {
     return requestAttachmentUpload(this.files, `${tenantId}/chat/${customerId}/`, mimeType);
   }
 
-  private attachmentFields(
-    tenantId: string,
-    customerId: string,
-    att: MessageAttachmentInput | undefined,
-  ) {
-    return att ? assertAttachment(this.files, `${tenantId}/chat/${customerId}/`, att) : {};
+  private attachmentFields(tenantId: string, customerId: string, list: MessageAttachmentInput[]) {
+    return assertAttachments(this.files, `${tenantId}/chat/${customerId}/`, list);
   }
 
   /**
@@ -164,7 +198,7 @@ export class CustomerMessagesService {
           SELECT DISTINCT ON (m.customer_id)
             m.customer_id, m.body, m.sender_type, m.channel, m.created_at, m.attachment_name
           FROM customer_messages m
-          WHERE m.tenant_id = ${tenantId}::uuid
+          WHERE m.tenant_id = ${tenantId}::uuid AND NOT m.is_internal
           ORDER BY m.customer_id, m.created_at DESC
         )
         SELECT l.customer_id, l.body, l.sender_type, l.channel, l.created_at, l.attachment_name,
@@ -221,7 +255,7 @@ export class CustomerMessagesService {
     return this.prisma.withTenant(
       (tx) =>
         tx.customerMessage.count({
-          where: { tenantId, customerId, senderType: 'staff', readAt: null },
+          where: { tenantId, customerId, senderType: 'staff', isInternal: false, readAt: null },
         }),
       tenantId,
     );
@@ -263,10 +297,12 @@ export class CustomerMessagesService {
     const otherSide = viewer === 'staff' ? 'customer' : 'staff';
     const rows = await this.prisma.withTenant(async (tx) => {
       if (!before) {
-        await tx.customerMessage.updateMany({
-          where: { tenantId, customerId, senderType: otherSide, readAt: null },
+        const seen = await tx.customerMessage.updateMany({
+          where: { tenantId, customerId, senderType: otherSide, isInternal: false, readAt: null },
           data: { readAt: new Date() },
         });
+        // El equipo ve el «visto» en cuanto el inquilino lo abre.
+        if (seen.count > 0 && viewer === 'customer') void this.publish(tenantId, customerId, false);
         if (viewer === 'staff' && userId) {
           const now = new Date();
           await tx.customerMessageRead.upsert({
@@ -277,7 +313,7 @@ export class CustomerMessagesService {
         }
       }
       return tx.customerMessage.findMany({
-        where: { tenantId, customerId },
+        where: { tenantId, customerId, ...(viewer === 'customer' ? { isInternal: false } : {}) },
         include: messageInclude,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: MESSAGE_THREAD_PAGE,
@@ -287,18 +323,19 @@ export class CustomerMessagesService {
     return Promise.all(rows.reverse().map((r) => this.dto(r)));
   }
 
-  /** El staff responde al inquilino → push al inquilino. */
+  /** El staff responde al inquilino → push al inquilino. Una nota solo la ve el equipo. */
   async sendFromStaff(
     tenantId: string,
     customerId: string,
     userId: string,
     body: string,
-    attachment?: MessageAttachmentInput,
+    attachments: MessageAttachmentInput[] = [],
+    isInternal = false,
   ): Promise<CustomerMessageDto> {
     await this.assertCustomer(tenantId, customerId);
-    const att = await this.attachmentFields(tenantId, customerId, attachment);
+    const att = await this.attachmentFields(tenantId, customerId, attachments);
     // Lo que se cuenta en avisos y canales cuando el mensaje solo lleva adjunto.
-    const text = body || (attachment ? attachmentLabel(attachment.filename) : '');
+    const text = body || (attachments[0] ? attachmentLabel(attachments[0].filename) : '');
     const { created, lastFromCustomer } = await this.prisma.withTenant(async (tx) => {
       const last = await tx.customerMessage.findFirst({
         where: { tenantId, customerId, senderType: 'customer' },
@@ -306,11 +343,24 @@ export class CustomerMessagesService {
         select: { channel: true, createdAt: true },
       });
       const row = await tx.customerMessage.create({
-        data: { tenantId, customerId, senderType: 'staff', senderUserId: userId, body, ...att },
+        data: {
+          tenantId,
+          customerId,
+          senderType: 'staff',
+          senderUserId: userId,
+          body,
+          isInternal,
+          ...att,
+        },
         include: messageInclude,
       });
+      if (!isInternal) await this.setConversationStatus(tx, tenantId, customerId, 'answered');
       return { created: row, lastFromCustomer: last };
     }, tenantId);
+    if (isInternal) {
+      await this.publish(tenantId, customerId, false);
+      return this.dto(created);
+    }
     // Si escribió por WhatsApp o email, la respuesta sale también por ahí.
     const replyVia = lastFromCustomer
       ? chatReplyChannel([{ senderType: 'customer', ...lastFromCustomer }])
@@ -329,6 +379,7 @@ export class CustomerMessagesService {
       channel: 'portal',
       replyVia,
     } satisfies CustomerMessagePayload);
+    await this.publish(tenantId, customerId);
     return this.dto(created);
   }
 
@@ -340,27 +391,27 @@ export class CustomerMessagesService {
     channel: 'portal' | 'whatsapp' | 'email' = 'portal',
     /** `false` = email entrante sin DMARC `pass` (remitente no autenticado). */
     senderVerified = true,
-    attachment?: MessageAttachmentInput,
+    attachments: MessageAttachmentInput[] = [],
   ): Promise<CustomerMessageDto> {
     const { name } = await this.assertCustomer(tenantId, customerId);
-    const att = await this.attachmentFields(tenantId, customerId, attachment);
-    const text = body || (attachment ? attachmentLabel(attachment.filename) : '');
-    const created = await this.prisma.withTenant(
-      (tx) =>
-        tx.customerMessage.create({
-          data: {
-            tenantId,
-            customerId,
-            senderType: 'customer',
-            body,
-            channel,
-            senderVerified,
-            ...att,
-          },
-          include: messageInclude,
-        }),
-      tenantId,
-    );
+    const att = await this.attachmentFields(tenantId, customerId, attachments);
+    const text = body || (attachments[0] ? attachmentLabel(attachments[0].filename) : '');
+    const created = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.customerMessage.create({
+        data: {
+          tenantId,
+          customerId,
+          senderType: 'customer',
+          body,
+          channel,
+          senderVerified,
+          ...att,
+        },
+        include: messageInclude,
+      });
+      await this.setConversationStatus(tx, tenantId, customerId, 'pending');
+      return row;
+    }, tenantId);
     // Un aviso por conversación cada poco: ni uno por frase ni silencio por no
     // haberla abierto nadie.
     const claimed = await claimAlert(
@@ -389,7 +440,57 @@ export class CustomerMessagesService {
         channel,
       } satisfies CustomerMessagePayload);
     }
+    await this.publish(tenantId, customerId, false);
+    await this.maybeAutoReply(tenantId, customerId, channel);
     return this.dto(created);
+  }
+
+  /** Fuera del horario de atención, el inquilino sabe que se le ha leído. */
+  private async maybeAutoReply(
+    tenantId: string,
+    customerId: string,
+    channel: 'portal' | 'whatsapp' | 'email',
+  ): Promise<void> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        timezone: true,
+        messageHours: true,
+        messageAutoReply: true,
+        messageAutoReplyEnabled: true,
+      },
+    });
+    if (!tenant?.messageAutoReplyEnabled) return;
+    const hours = tenant.messageHours as OpeningHours | null;
+    if (isWithinHours(hours, tenant.timezone)) return;
+    const claimed = await claimAlert(
+      this.admin,
+      'customer_message_auto',
+      customerId,
+      AUTO_REPLY_GAP_MINUTES,
+    );
+    if (!claimed) return;
+    const body = tenant.messageAutoReply || DEFAULT_AUTO_REPLY;
+    const auto = await this.prisma.withTenant(
+      (tx) =>
+        tx.customerMessage.create({
+          data: { tenantId, customerId, senderType: 'staff', body, isAuto: true },
+          select: { id: true },
+        }),
+      tenantId,
+    );
+    // Quien escribió desde el área de clientes lo ve ahí; por otro canal, sale por él.
+    if (channel !== 'portal') {
+      this.events.emit(DOMAIN_EVENTS.customer_message_from_staff, {
+        tenantId,
+        customerId,
+        messageId: auto.id,
+        body,
+        channel: 'portal',
+        replyVia: channel,
+      } satisfies CustomerMessagePayload);
+    }
+    await this.publish(tenantId, customerId);
   }
 
   /**
@@ -413,13 +514,17 @@ export class CustomerMessagesService {
           m.attachment_name, m.created_at
         FROM customer_messages m
         WHERE m.created_at > now() - make_interval(hours => ${UNANSWERED_UNTIL_HOURS}::int)
+          AND NOT m.is_internal
+          AND NOT m.is_auto
         ORDER BY m.customer_id, m.created_at DESC, m.id DESC
       )
       SELECT l.id, l.tenant_id, l.customer_id, l.body, l.channel, l.attachment_name
       FROM last l
       JOIN customers c ON c.id = l.customer_id AND c.deleted_at IS NULL
       JOIN tenants t ON t.id = l.tenant_id
+      LEFT JOIN customer_conversations v ON v.customer_id = l.customer_id
       WHERE l.sender_type = 'customer'
+        AND v.status IS DISTINCT FROM 'closed'
         AND l.created_at < now() - make_interval(hours => ${UNANSWERED_AFTER_HOURS}::int)
         AND t.deleted_at IS NULL
         AND t.status::text IN ('active', 'trial')

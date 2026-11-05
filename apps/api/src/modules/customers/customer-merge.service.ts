@@ -61,6 +61,7 @@ export const CUSTOMER_REFERENCES: readonly (readonly [string, string])[] = [
 /** Con restricción de único por inquilino: solo pasa lo que no choca. */
 export const CUSTOMER_REFERENCES_WITH_UNIQUE: readonly (readonly [string, string])[] = [
   ['customer_message_reads', 'user_id'],
+  ['customer_conversations', 'tenant_id'],
   ['winback_sends', 'step'],
 ];
 

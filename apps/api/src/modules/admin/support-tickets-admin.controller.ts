@@ -10,6 +10,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -29,12 +30,13 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { realtimeChannels, RealtimeService } from '../realtime/realtime.service';
 
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
 import { SupportTicketsService } from './support-tickets.service';
 
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -63,7 +65,16 @@ function extractMeta(req: Request): ReqMetaInfo {
 @UseGuards(AdminGuard)
 @Controller('admin/support/tickets')
 export class SupportTicketsAdminController {
-  constructor(private readonly tickets: SupportTicketsService) {}
+  constructor(
+    private readonly tickets: SupportTicketsService,
+    private readonly realtime: RealtimeService,
+  ) {}
+
+  /** Avisos en vivo del panel admin: un ticket ha cambiado. */
+  @Get('stream')
+  async stream(@Res() res: Response): Promise<void> {
+    await this.realtime.stream(res, [realtimeChannels.admin]);
+  }
 
   @Get()
   async list(

@@ -113,6 +113,7 @@ x-app-env: &app-env
   WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
   # Respuestas por correo que llegan al chat del inquilino.
   EMAIL_INBOUND_SECRET: ${EMAIL_INBOUND_SECRET:-}
+  INBOUND_EMAIL_DOMAIN: ${INBOUND_EMAIL_DOMAIN:-}
   # Avisos push (inquilino, equipo y super admin). Sin claves, desactivados.
   VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
   VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}

@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -14,7 +15,10 @@ import {
   type CustomerMessageDto,
   MessageAttachmentUploadSchema,
   type MessageAttachmentUploadDto,
+  messageAttachmentsOf,
   SendCustomerMessageSchema,
+  type ConversationContextDto,
+  UpdateConversationSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -25,16 +29,21 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { CustomerConversationsService } from './customer-conversations.service';
 import { CustomerMessagesService } from './customer-messages.service';
 
 class SendCustomerMessageDto extends createZodDto(SendCustomerMessageSchema) {}
 class AttachmentUploadDto extends createZodDto(MessageAttachmentUploadSchema) {}
+class UpdateConversationDto extends createZodDto(UpdateConversationSchema) {}
 
 /** Chat del staff con un inquilino (lado panel). */
 @Controller('customers/:customerId/messages')
 @UseGuards(CustomerScopeGuard)
 export class CustomerMessagesController {
-  constructor(private readonly messages: CustomerMessagesService) {}
+  constructor(
+    private readonly messages: CustomerMessagesService,
+    private readonly conversations: CustomerConversationsService,
+  ) {}
 
   @RequirePermission('customers:read')
   @Get()
@@ -58,8 +67,30 @@ export class CustomerMessagesController {
       customerId,
       user.sub,
       body.body,
-      body.attachment,
+      messageAttachmentsOf(body),
+      body.isInternal ?? false,
     );
+  }
+
+  /** Si le llega lo que se escribe, estado de la conversación y datos para las respuestas. */
+  @RequirePermission('customers:read')
+  @Get('context')
+  context(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('customerId', new ParseUUIDPipe()) customerId: string,
+  ): Promise<ConversationContextDto> {
+    return this.conversations.context(user.tenantId, customerId);
+  }
+
+  /** Cierra o reabre la conversación y elige quién la lleva. */
+  @RequirePermission('customers:write')
+  @Patch('conversation')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('customerId', new ParseUUIDPipe()) customerId: string,
+    @Body() body: UpdateConversationDto,
+  ): Promise<ConversationContextDto> {
+    return this.conversations.update(user.tenantId, customerId, body, user.sub);
   }
 
   /** URL firmada para adjuntar una imagen o PDF al mensaje. */

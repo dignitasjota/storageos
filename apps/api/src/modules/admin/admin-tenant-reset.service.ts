@@ -83,6 +83,7 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'incident_comments' },
   { table: 'incidents' },
   { table: 'customer_message_reads' },
+  { table: 'customer_conversations' },
   { table: 'customer_messages' },
   { table: 'customer_interactions' },
   { table: 'customer_followups' },

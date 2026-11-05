@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
+import { customerScopeWhere } from '../../common/customer-scope';
 import {
   invoiceFacilityWhere,
   optionalFacilityWhere,
@@ -12,6 +13,7 @@ import { PaymentPlansService } from '../collections-ops/payment-plans.service';
 import { PrismaService } from '../database/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 
+import type { FacilityScope } from '../../common/facility-scope';
 import type { Prisma } from '@storageos/database';
 import type {
   CreateTenantTodaySnoozeInput,
@@ -211,7 +213,7 @@ export class TodayExtrasService {
               ? this.reservations(tx, now, new Date(now.getTime() + 3 * DAY), facUnit)
               : [],
             can('payments:read') ? this.paymentProblems(tx, dayStart, invWhere) : [],
-            can('communications:read') ? this.chats(tx) : [],
+            this.chats(tx, can, scope),
             can('contracts:read') ? this.tomorrow(tx, tomorrow, facUnit) : [],
           ]);
 
@@ -469,20 +471,59 @@ export class TodayExtrasService {
   }
 
   /** Conversaciones que esperan a una persona del equipo. */
-  private async chats(tx: Prisma.TransactionClient): Promise<TodayAttentionItemDto[]> {
-    const [web, whatsapp] = await Promise.all([
-      tx.webChatConversation.findMany({
-        where: { mode: 'human', staffUnread: { gt: 0 } },
-        orderBy: { lastMessageAt: 'asc' },
-        take: 25,
-      }),
-      tx.whatsappConversation.findMany({
-        where: { assistantEnabled: false, unreadCount: { gt: 0 } },
-        orderBy: { lastMessageAt: 'asc' },
-        take: 25,
-      }),
+  private async chats(
+    tx: Prisma.TransactionClient,
+    can: (permission: Permission) => boolean,
+    scope: FacilityScope,
+  ): Promise<TodayAttentionItemDto[]> {
+    const comms = can('communications:read');
+    const [web, whatsapp, customers] = await Promise.all([
+      comms
+        ? tx.webChatConversation.findMany({
+            where: { mode: 'human', staffUnread: { gt: 0 } },
+            orderBy: { lastMessageAt: 'asc' },
+            take: 25,
+          })
+        : [],
+      comms
+        ? tx.whatsappConversation.findMany({
+            where: { assistantEnabled: false, unreadCount: { gt: 0 } },
+            orderBy: { lastMessageAt: 'asc' },
+            take: 25,
+          })
+        : [],
+      can('customers:read')
+        ? tx.customerConversation.findMany({
+            where: {
+              status: 'pending',
+              updatedAt: { gte: new Date(Date.now() - 14 * DAY) },
+              customer: { deletedAt: null, ...customerScopeWhere(scope) },
+            },
+            include: {
+              customer: {
+                select: { customerType: true, firstName: true, lastName: true, companyName: true },
+              },
+            },
+            orderBy: { updatedAt: 'asc' },
+            take: 25,
+          })
+        : [],
     ]);
     return [
+      ...customers.map(
+        (c): TodayAttentionItemDto => ({
+          kind: 'chat',
+          refId: c.customerId,
+          label:
+            c.customer.customerType === 'business'
+              ? (c.customer.companyName ?? 'Empresa')
+              : [c.customer.firstName, c.customer.lastName].filter(Boolean).join(' ') ||
+                'Inquilino',
+          detail: 'Mensaje sin contestar',
+          date: c.updatedAt.toISOString(),
+          href: `/messages?c=${c.customerId}`,
+        }),
+      ),
       ...web.map(
         (c): TodayAttentionItemDto => ({
           kind: 'chat',

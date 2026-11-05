@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { attachmentKeysOf } from '../../common/message-attachments';
 import { releaseReservedUnit } from '../../common/unit-holds';
 import {
   anonymizeWhatsappConversations,
@@ -267,12 +268,18 @@ export class RgpdService {
       // Los adjuntos del chat (fotos, PDF) también se borran.
       const chatFiles = await tx.customerMessage.findMany({
         where: { customerId, attachmentKey: { not: null } },
-        select: { attachmentKey: true },
+        select: { attachmentKey: true, extraAttachments: true },
       });
-      chatAttachmentKeys.push(...chatFiles.map((m) => m.attachmentKey!));
+      chatAttachmentKeys.push(...chatFiles.flatMap(attachmentKeysOf));
       await tx.customerMessage.updateMany({
         where: { customerId },
-        data: { body: ANON, attachmentKey: null, attachmentMime: null, attachmentName: null },
+        data: {
+          body: ANON,
+          attachmentKey: null,
+          attachmentMime: null,
+          attachmentName: null,
+          extraAttachments: [],
+        },
       });
       await tx.customerInteraction.updateMany({ where: { customerId }, data: { content: ANON } });
       // Las personas autorizadas son datos de terceros: se borran.

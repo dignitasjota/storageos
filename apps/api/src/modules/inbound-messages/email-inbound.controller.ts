@@ -52,13 +52,16 @@ export class EmailInboundController {
     if (!expected || !secret || !safeEqual(secret, expected)) {
       throw new ForbiddenException({ code: 'invalid_inbound_secret' });
     }
+    // El `From` de un email lo falsifica cualquiera: solo se da por bueno si
+    // el proveedor reporta DMARC `pass`. Si no, el mensaje entra marcado.
+    const senderVerified = isInboundEmailSenderVerified(body);
+    const reply = await this.inbound.recordReply(body, senderVerified);
+    if (reply !== null) return { received: reply };
     const received = await this.inbound.record({
       channel: 'email',
       from: body.from,
       body: body.text,
-      // El `From` de un email lo falsifica cualquiera: solo se da por bueno si
-      // el proveedor reporta DMARC `pass`. Si no, el mensaje entra marcado.
-      senderVerified: isInboundEmailSenderVerified(body),
+      senderVerified,
     });
     return { received };
   }
