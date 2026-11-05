@@ -4,6 +4,7 @@ import { customerScopeWhere } from '../../common/customer-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import type { FacilityScope } from '../../common/facility-scope';
 import type { RequestMeta } from '../auth/auth.service';
@@ -25,6 +26,7 @@ export class CustomerDocumentsService {
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async list(tenantId: string, customerId: string): Promise<CustomerDocumentDto[]> {
@@ -116,6 +118,7 @@ export class CustomerDocumentsService {
         }),
       args.tenantId,
     );
+    await this.fulfilRequest(args.tenantId, args.customerId, created, args.userId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -246,6 +249,47 @@ export class CustomerDocumentsService {
       throw new NotFoundException({
         code: 'customer_not_found',
         message: 'Inquilino no encontrado',
+      });
+    }
+  }
+
+  /** Lo pendiente de que suba este inquilino, para su área de clientes. */
+  async pendingRequests(
+    tenantId: string,
+    customerId: string,
+  ): Promise<{ id: string; type: CustomerDocument['type']; note: string | null }[]> {
+    return this.prisma.withTenant(
+      (tx) =>
+        tx.customerDocumentRequest.findMany({
+          where: { customerId, status: 'pending' },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, type: true, note: true },
+        }),
+      tenantId,
+    );
+  }
+
+  /** Subir lo que se pidió cierra la solicitud; si lo sube él, avisa al equipo. */
+  private async fulfilRequest(
+    tenantId: string,
+    customerId: string,
+    document: { id: string; type: CustomerDocument['type'] },
+    userId: string | null,
+  ): Promise<void> {
+    const done = await this.prisma.withTenant(
+      (tx) =>
+        tx.customerDocumentRequest.updateMany({
+          where: { customerId, type: document.type, status: 'pending' },
+          data: { status: 'fulfilled', documentId: document.id, fulfilledAt: new Date() },
+        }),
+      tenantId,
+    );
+    if (done.count > 0 && userId === null) {
+      await this.notifications.create(tenantId, {
+        type: 'customer.document_uploaded',
+        title: 'Documento recibido',
+        body: 'Un inquilino ha subido el documento que le pediste.',
+        link: `/customers/${customerId}?tab=documents`,
       });
     }
   }

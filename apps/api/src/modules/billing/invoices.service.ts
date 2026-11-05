@@ -48,6 +48,7 @@ import {
   type InvoiceRefundedPayload,
 } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
+import { overdueInvoiceWhere } from '../dashboard/today-filters';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { GoCardlessChargeService } from '../payments/gocardless/gocardless-charge.service';
@@ -961,6 +962,31 @@ export class InvoicesService {
    * no pendiente, sin email— no tumba el resto) y reporta en `failed`. Reutiliza la
    * plantilla `invoice_overdue_email` (trigger `invoice_overdue`).
    */
+  /** Recuerda lo vencido a varios inquilinos: una por cada factura vencida. */
+  async remindCustomers(args: {
+    tenantId: string;
+    customerIds: string[];
+    facilityScope?: string[] | null;
+  }): Promise<BulkInvoiceActionResultDto> {
+    const rows = await this.prisma.withTenant(async (tx) => {
+      const tenant = await tx.tenant.findFirst({ select: { timezone: true } });
+      const today = todayInTimezone(tenant?.timezone ?? 'Europe/Madrid');
+      const inScope = invoiceFacilityWhere(args.facilityScope ?? null) as Prisma.InvoiceWhereInput;
+      return tx.invoice.findMany({
+        where: {
+          AND: [overdueInvoiceWhere(today), inScope],
+          customerId: { in: args.customerIds },
+        },
+        select: { id: true },
+      });
+    }, args.tenantId);
+    return this.bulkRemind({
+      tenantId: args.tenantId,
+      ids: rows.map((r) => r.id),
+      ...(args.facilityScope ? { facilityScope: args.facilityScope } : {}),
+    });
+  }
+
   async bulkRemind(args: {
     tenantId: string;
     ids: string[];
@@ -1005,6 +1031,7 @@ export class InvoicesService {
           customer: {
             select: {
               email: true,
+              billingEmail: true,
               firstName: true,
               lastName: true,
               companyName: true,
@@ -1081,7 +1108,7 @@ export class InvoicesService {
     await this.communications.enqueue({
       tenantId,
       channel: 'email',
-      recipient: customer.email,
+      recipient: customer.billingEmail ?? customer.email,
       invoiceId,
       contractId: invoice.contractId,
       templateCode: 'invoice_overdue_email',

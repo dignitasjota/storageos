@@ -24,6 +24,12 @@ import {
 import { ApiError } from '@/lib/auth/api';
 import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
+interface PendingRequest {
+  id: string;
+  type: CustomerDocumentTypeValue;
+  note: string | null;
+}
+
 const ALLOWED_MIME = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
 
 function typeLabels(
@@ -43,11 +49,18 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
   const labels = typeLabels(t);
   const headers = { Authorization: `Bearer ${session.accessToken}` };
   const [docs, setDocs] = useState<CustomerDocumentDto[]>([]);
+  const [pending, setPending] = useState<PendingRequest[]>([]);
   const [type, setType] = useState<CustomerDocumentTypeValue>('id_front');
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function load() {
+    portalApiFetch<PendingRequest[]>('/portal/me/document-requests', {
+      headers,
+      requiresAuth: false,
+    })
+      .then(setPending)
+      .catch(() => undefined);
     try {
       const list = await portalApiFetch<CustomerDocumentDto[]>('/portal/me/documents', {
         headers,
@@ -152,6 +165,20 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
         <CardDescription>{t('subtitle')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {pending.length > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            <p className="font-medium">{t('pendingTitle')}:</p>
+            <ul className="mt-1 list-inside list-disc">
+              {pending.map((r) => (
+                <li key={r.id}>
+                  {labels[r.type]}
+                  {r.note ? ` — ${r.note}` : ''}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1">{t('pendingHint')}</p>
+          </div>
+        )}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Select value={type} onValueChange={(v) => setType(v as CustomerDocumentTypeValue)}>
             <SelectTrigger className="sm:w-56">

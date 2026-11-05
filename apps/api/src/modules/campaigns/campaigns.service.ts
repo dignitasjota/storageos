@@ -210,6 +210,7 @@ export class CampaignsService {
     }
     if (segment.overdueOnly) where.invoices = { some: { status: 'overdue' } };
     if (segment.tag && segment.tag.trim()) where.tags = { has: segment.tag.trim() };
+    if (segment.customerIds) where.id = { in: segment.customerIds };
 
     const customers = await this.prisma.withTenant(
       (tx) =>

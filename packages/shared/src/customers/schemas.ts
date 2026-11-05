@@ -39,6 +39,8 @@ const customerBase = {
   tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
   /** Sin fianza: sus contratos nuevos salen con fianza 0. */
   depositExempt: z.boolean().optional(),
+  /** Empresas: a dónde van las facturas si no es el email de contacto. */
+  billingEmail: z.string().trim().toLowerCase().email().optional().or(z.literal('')),
 };
 
 export const CreateCustomerSchema = z

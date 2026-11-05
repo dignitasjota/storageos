@@ -96,6 +96,7 @@ export class CustomerOverviewService {
         comms,
         interactions,
         messages,
+        paid12m,
         followups,
       ] = await Promise.all([
         tx.customer.findMany({
@@ -163,6 +164,17 @@ export class CustomerOverviewService {
         }),
         tx.customerInteraction.groupBy({ by: ['customerId'], _max: { occurredAt: true } }),
         tx.customerMessage.groupBy({ by: ['customerId'], _max: { createdAt: true } }),
+        tx.payment.groupBy({
+          by: ['customerId'],
+          where: {
+            customerId: { not: null },
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+            paidAt: { gte: new Date(Date.now() - 365 * DAY) },
+            methodType: { notIn: ['credit_note', 'withholding'] },
+            ...(scope ? { invoice: inScope } : {}),
+          },
+          _sum: { amount: true, refundedAmount: true },
+        }),
         tx.customerFollowup.findMany({
           where: { status: 'pending' },
           select: { customerId: true, title: true, dueDate: true },
@@ -183,6 +195,7 @@ export class CustomerOverviewService {
       const mandateSet = new Set(mandates.map((m) => m.customerId));
       const overdueBy = new Map(overdue.map((o) => [o.customerId!, o]));
       const notDueBy = new Map(notDue.map((o) => [o.customerId!, o]));
+      const paidBy = new Map(paid12m.map((o) => [o.customerId!, o]));
       const lastBy = new Map<string, Date>();
       const bump = (id: string | null, d: Date | null | undefined) => {
         if (!id || !d) return;
@@ -260,6 +273,12 @@ export class CustomerOverviewService {
             money && nd
               ? round2(Math.max(0, Number(nd._sum.total ?? 0) - Number(nd._sum.amountPaid ?? 0)))
               : 0,
+          paid12m: money
+            ? round2(
+                Number(paidBy.get(c.id)?._sum.amount ?? 0) -
+                  Number(paidBy.get(c.id)?._sum.refundedAmount ?? 0),
+              )
+            : 0,
           moneyVisible: money,
           lastContactAt: lastBy.get(c.id)?.toISOString() ?? null,
           nextFollowup: f

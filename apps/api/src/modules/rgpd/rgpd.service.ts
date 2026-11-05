@@ -146,6 +146,8 @@ export class RgpdService {
           invoices: { include: { items: true, payments: true } },
           paymentMethods: { select: { id: true, type: true, brand: true, last4: true } },
           consents: true,
+          contacts: true,
+          documentRequests: true,
         },
       });
       const whatsappConversations = await tx.whatsappConversation.findMany({
@@ -215,6 +217,7 @@ export class RgpdService {
           documentNumber: null,
           emergencyContactName: null,
           emergencyContactPhone: null,
+          billingEmail: null,
           notes: null,
           tags: [],
           portalAccessEnabled: false,
@@ -228,6 +231,8 @@ export class RgpdService {
       const customerId = args.customerId;
       // Borrar documentos del cliente (no son obligatorios fiscalmente).
       await tx.customerDocument.deleteMany({ where: { customerId } });
+      await tx.customerDocumentRequest.deleteMany({ where: { customerId } });
+      await tx.customerContact.deleteMany({ where: { customerId } });
       // Borrar metodos de pago.
       await tx.paymentMethod.deleteMany({ where: { customerId } });
 

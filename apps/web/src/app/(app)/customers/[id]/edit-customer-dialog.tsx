@@ -40,6 +40,7 @@ type TextField =
   | 'postalCode'
   | 'emergencyContactName'
   | 'emergencyContactPhone'
+  | 'billingEmail'
   | 'notes';
 
 const TEXT_FIELDS: TextField[] = [
@@ -55,6 +56,7 @@ const TEXT_FIELDS: TextField[] = [
   'postalCode',
   'emergencyContactName',
   'emergencyContactPhone',
+  'billingEmail',
   'notes',
 ];
 
@@ -147,6 +149,7 @@ export function EditCustomerDialog({
             {field('email', 'Email', 'email')}
             {field('phone', 'Teléfono', 'tel')}
           </div>
+          {business && field('billingEmail', 'Email de facturación (si es otro)', 'email')}
           {field('address', 'Dirección')}
           <div className="grid gap-3 sm:grid-cols-3">
             {field('postalCode', 'Código postal')}

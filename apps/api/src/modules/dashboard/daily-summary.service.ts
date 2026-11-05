@@ -95,6 +95,9 @@ export function dailySummaryLines(t: TodayDto): string[] {
   if (t.rgpdRequestsDue.count > 0) {
     lines.push(`Solicitudes de protección de datos: ${t.rgpdRequestsDue.count}`);
   }
+  if (t.customerDocumentsExpiring.count > 0) {
+    lines.push(`Documentos de inquilinos que caducan: ${t.customerDocumentsExpiring.count}`);
+  }
   if (t.facilityDocumentsExpiring.count > 0) {
     lines.push(`Documentos de locales que caducan: ${t.facilityDocumentsExpiring.count}`);
   }

@@ -47,6 +47,8 @@ export interface CustomerDto {
   depositExempt: boolean;
   /** true si el inquilino tiene el acceso por contraseña al portal activado. */
   portalAccessEnabled: boolean;
+  /** Empresas: a dónde van las facturas si no es el email de contacto. */
+  billingEmail: string | null;
   activeContracts: number;
   pendingReservations: number;
   createdAt: string;

@@ -3,3 +3,4 @@ export * from './types';
 export * from './overview';
 export * from './opportunities';
 export * from './extras';
+export * from './features';

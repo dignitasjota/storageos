@@ -1,8 +1,8 @@
 'use client';
 
-import { ArrowLeft, BadgeCheck, Loader2, Pencil } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, Loader2, MoreHorizontal, Pencil, Send } from 'lucide-react';
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -11,24 +11,35 @@ import { CustomerAccountCard } from './account-card';
 import { AuthorizedPersonsTab } from './authorized-persons-tab';
 import { CustomerChatTab } from './chat-tab';
 import { CustomerCommunicationsTab } from './communications-tab';
+import { CustomerContactsTab } from './contacts-tab';
 import { CustomerContractsTab } from './contracts-tab';
 import { DepositExemptCard } from './deposit-exempt-card';
 import { CustomerDocumentsTab } from './documents-tab';
 import { EditCustomerDialog } from './edit-customer-dialog';
 import { EmailStatusCard } from './email-status-card';
 import { FollowupsCard } from './followups-card';
+import { CustomerInsightsStrip } from './insights-strip';
 import { MarketingPreferenceCard } from './marketing-preference-card';
+import { MergeCustomerDialog } from './merge-dialog';
+import { CustomerMessageDialog } from './message-dialog';
 import { CustomerPaymentHistoryTab } from './payment-history-tab';
 import { CustomerPaymentMethodsTab } from './payment-methods-tab';
 import { PortalLinkButton } from './portal-link-button';
 import { QuickContact } from './quick-contact';
 import { CustomerReservationsTab } from './reservations-tab';
+import { CustomerTimelineTab } from './timeline-tab';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -40,17 +51,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCustomer, useCustomerUnreadSummary, useSetKycVerified } from '@/lib/customers/hooks';
+import { useAnonymizeCustomer, useExportCustomerData } from '@/lib/rgpd/hooks';
 
 /** Pestañas de la ficha del inquilino (orden = el de los TabsTrigger). En móvil
  *  se muestran como un desplegable en lugar de una tira de 9 pestañas. */
 const CUSTOMER_TABS = [
   { value: 'contracts', label: 'Contratos' },
+  { value: 'timeline', label: 'Cronología' },
   { value: 'reservations', label: 'Reservas' },
   { value: 'documents', label: 'Documentos' },
   { value: 'communications', label: 'Comunicaciones' },
   { value: 'chat', label: 'Mensajes' },
   { value: 'followups', label: 'Seguimientos' },
   { value: 'authorized', label: 'Autorizados' },
+  { value: 'contacts', label: 'Contactos' },
   { value: 'access', label: 'Accesos' },
   { value: 'history', label: 'Historial de pagos' },
   { value: 'payments', label: 'Métodos de pago' },
@@ -69,7 +83,12 @@ export default function CustomerDetailPage() {
   const ask = useConfirm();
   const canReadInvoices = useHasPermission('invoices:read');
   const canReadPayments = useHasPermission('payments:read');
-  const [editing, setEditing] = useState(false);
+  const canMerge = useHasPermission('customers:delete');
+  const canRgpd = useHasPermission('rgpd:manage');
+  const exportData = useExportCustomerData();
+  const anonymize = useAnonymizeCustomer();
+  const router = useRouter();
+  const [dialog, setDialog] = useState<'edit' | 'message' | 'merge' | null>(null);
   const [tab, setTab] = useState<string>(useSearchParams().get('tab') ?? 'contracts');
   // Los avisos enlazan a una pestaña concreta (`?tab=chat`).
   useEffect(() => {
@@ -97,6 +116,32 @@ export default function CustomerDetailPage() {
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+
+  async function downloadData() {
+    try {
+      await exportData.mutateAsync(id!);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudieron descargar.');
+    }
+  }
+
+  async function anonymizeCustomer() {
+    const ok = await ask({
+      title: '¿Anonimizar a este inquilino?',
+      description:
+        'Se borran sus datos personales, documentos y accesos. Las facturas se conservan por obligación fiscal. No se puede deshacer.',
+      confirmLabel: 'Anonimizar',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await anonymize.mutateAsync({ customerId: id! });
+      toast.success('Inquilino anonimizado.');
+      router.push('/customers');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo anonimizar.');
+    }
   }
 
   async function toggleKyc() {
@@ -173,9 +218,18 @@ export default function CustomerDetailPage() {
             <Button
               variant="outline"
               className="w-full justify-center sm:w-auto"
-              onClick={() => setEditing(true)}
+              onClick={() => setDialog('edit')}
             >
               <Pencil className="mr-1 h-4 w-4" /> Editar datos
+            </Button>
+          </Can>
+          <Can permission="communications:send">
+            <Button
+              variant="outline"
+              className="w-full justify-center sm:w-auto"
+              onClick={() => setDialog('message')}
+            >
+              <Send className="mr-1 h-4 w-4" /> Escribir
             </Button>
           </Can>
           <Can permission="contracts:write">
@@ -194,14 +248,48 @@ export default function CustomerDetailPage() {
               {c.kycVerified ? 'Revocar KYC' : 'Marcar KYC verificado'}
             </Button>
           </Can>
+          {(canMerge || canRgpd) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="w-full justify-center sm:w-auto">
+                  <MoreHorizontal className="mr-1 h-4 w-4" /> Más
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {canMerge && (
+                  <DropdownMenuItem onSelect={() => setDialog('merge')}>
+                    Fusionar con otra ficha
+                  </DropdownMenuItem>
+                )}
+                {canRgpd && (
+                  <>
+                    <DropdownMenuItem onSelect={() => void downloadData()}>
+                      Descargar sus datos
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-destructive"
+                      onSelect={() => void anonymizeCustomer()}
+                    >
+                      Anonimizar
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
         <QuickContact customer={c} />
       </div>
 
+      <CustomerInsightsStrip customerId={c.id} />
       {canReadInvoices && canReadPayments && (
         <CustomerAccountCard customerId={c.id} onGoTo={setTab} />
       )}
-      {editing && <EditCustomerDialog customer={c} onClose={() => setEditing(false)} />}
+      {dialog === 'edit' && <EditCustomerDialog customer={c} onClose={() => setDialog(null)} />}
+      {dialog === 'message' && (
+        <CustomerMessageDialog customer={c} onClose={() => setDialog(null)} />
+      )}
+      {dialog === 'merge' && <MergeCustomerDialog customer={c} onClose={() => setDialog(null)} />}
 
       <Tabs value={tab} onValueChange={setTab}>
         {/* Móvil: desplegable (9 pestañas no caben cómodas en una tira). */}
@@ -211,7 +299,11 @@ export default function CustomerDetailPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CUSTOMER_TABS.filter((t) => t.value !== 'access' || canSeeAccess).map((t) => (
+              {CUSTOMER_TABS.filter(
+                (t) =>
+                  (t.value !== 'access' || canSeeAccess) &&
+                  (t.value !== 'contacts' || c.customerType === 'business'),
+              ).map((t) => (
                 <SelectItem key={t.value} value={t.value} textValue={t.label}>
                   <span className="flex items-center gap-1.5">
                     {t.label}
@@ -227,8 +319,9 @@ export default function CustomerDetailPage() {
           </Select>
         </div>
         {/* Escritorio: pestañas normales. */}
-        <TabsList className="hidden sm:inline-flex">
+        <TabsList className="hidden h-auto flex-wrap sm:inline-flex sm:justify-start">
           <TabsTrigger value="contracts">Contratos</TabsTrigger>
+          <TabsTrigger value="timeline">Cronología</TabsTrigger>
           <TabsTrigger value="reservations">Reservas</TabsTrigger>
           <TabsTrigger value="documents">Documentos</TabsTrigger>
           <TabsTrigger value="communications">Comunicaciones</TabsTrigger>
@@ -242,11 +335,18 @@ export default function CustomerDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="followups">Seguimientos</TabsTrigger>
           <TabsTrigger value="authorized">Autorizados</TabsTrigger>
+          {c.customerType === 'business' && <TabsTrigger value="contacts">Contactos</TabsTrigger>}
           {canSeeAccess && <TabsTrigger value="access">Accesos</TabsTrigger>}
           <TabsTrigger value="history">Historial de pagos</TabsTrigger>
           <TabsTrigger value="payments">Métodos de pago</TabsTrigger>
           <TabsTrigger value="info">Datos</TabsTrigger>
         </TabsList>
+        <TabsContent value="timeline" className="mt-6">
+          <CustomerTimelineTab customerId={c.id} />
+        </TabsContent>
+        <TabsContent value="contacts" className="mt-6">
+          <CustomerContactsTab customerId={c.id} />
+        </TabsContent>
         <TabsContent value="contracts" className="mt-6">
           <CustomerContractsTab customerId={c.id} />
         </TabsContent>

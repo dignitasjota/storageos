@@ -1106,3 +1106,7 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 `contracts.term_months`: meses de cada prórroga automática. Se fija en la primera prórroga (o al renovar a mano) para no recalcularlo desde la fecha de inicio. `deposit_status = held` solo indica que el contrato lleva fianza: lo cobrado se deduce del justificante (`common/deposit-collected.ts`).
 
 `20261222100000_contract_features`: `contracts.scheduled_price/_date/_reason` (cambio de cuota programado), `scheduled_unit_id/_date/_price/_prorate` (traslado programado, con el destino en `reserved`), `deposit_applied_amount`, `deposit_return_method`, `deposit_returned_on`, `deposit_return_reference`. `waitlist_entries.held_unit_id` y `hold_token_hash` (trastero guardado 48 h y huella del enlace del aviso) y `converted_contract_id`.
+
+### Inquilinos (`20261223100000_customer_features`)
+
+`customers.merged_into_customer_id` (fusionado en otro: borrado y sin restaurar) y `billing_email` (facturas, cobros y recordatorios). Con RLS: `customer_contacts` (personas de una empresa), `customer_document_requests` (`pending`, `fulfilled`, `cancelled`; se cierra al subir un documento de ese tipo) y `customer_saved_views` (vistas de la lista, únicas por nombre).

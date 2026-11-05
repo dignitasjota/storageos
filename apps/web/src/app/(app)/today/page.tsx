@@ -357,6 +357,7 @@ export default function TodayPage() {
           (data.preOpeningSoon?.count ?? 0) +
           (data.unitsOutOfService?.count ?? 0) +
           (data.facilityDocumentsExpiring?.count ?? 0) +
+          (data.customerDocumentsExpiring?.count ?? 0) +
           (data.businessRemindersDue?.count ?? 0) +
           (data.rgpdRequestsDue?.count ?? 0),
         sales:
@@ -934,6 +935,17 @@ export default function TodayPage() {
                     items={data.lowStock.items}
                     href="/products"
                     itemHref={() => '/products'}
+                    empty=""
+                  />
+                )}
+                {(data.customerDocumentsExpiring?.count ?? 0) > 0 && (
+                  <SectionCard
+                    title="Documentos de inquilinos que caducan"
+                    icon={FileWarning}
+                    count={data.customerDocumentsExpiring.count}
+                    items={data.customerDocumentsExpiring.items}
+                    href="/customers"
+                    itemHref={(it) => `/customers/${it.linkId}?tab=documents`}
                     empty=""
                   />
                 )}

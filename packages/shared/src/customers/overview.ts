@@ -39,6 +39,8 @@ export interface CustomerOverviewDto {
   overdueSince: string | null;
   /** Emitido y aún no vencido (€). */
   pendingNotDue: number;
+  /** Cobrado en los últimos 12 meses, neto de devoluciones (€). */
+  paid12m: number;
   lastContactAt: string | null;
   nextFollowup: { title: string; dueDate: string } | null;
 }

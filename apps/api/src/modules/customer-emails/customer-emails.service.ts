@@ -60,6 +60,9 @@ type SendOutcome =
   | { status: 'sent'; communicationId: string; recipient: string; subject: string; text: string }
   | { status: 'disabled' | 'automation' | 'no_email' | 'failed' };
 
+/** Van al email de facturación si la empresa tiene uno. */
+const BILLING_KINDS = new Set<string>(['invoice_issued', 'payment_received', 'payment_failed']);
+
 @Injectable()
 export class CustomerEmailsService {
   private readonly logger = new Logger(CustomerEmailsService.name);
@@ -490,7 +493,7 @@ export class CustomerEmailsService {
       return { status: 'automation' };
     }
 
-    const recipient = await this.recipient(tenantId, customerId);
+    const recipient = await this.recipient(tenantId, customerId, BILLING_KINDS.has(kind));
     if (!recipient) return { status: 'no_email' };
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
@@ -548,20 +551,26 @@ export class CustomerEmailsService {
     return rules > 0 && (await tenantHasFeature(this.admin, tenantId, 'automations'));
   }
 
-  private async recipient(tenantId: string, customerId: string): Promise<Recipient | null> {
+  private async recipient(
+    tenantId: string,
+    customerId: string,
+    billing = false,
+  ): Promise<Recipient | null> {
     const c = await this.admin.customer.findFirst({
       where: { id: customerId, tenantId, deletedAt: null },
       select: {
         email: true,
+        billingEmail: true,
         firstName: true,
         companyName: true,
         customerType: true,
         locale: true,
       },
     });
-    if (!c?.email) return null;
+    const email = (billing ? c?.billingEmail : null) ?? c?.email;
+    if (!c || !email) return null;
     const name = (c.customerType === 'business' ? c.companyName : c.firstName) ?? '';
-    return { customerId, email: c.email, name, locale: c.locale };
+    return { customerId, email, name, locale: c.locale };
   }
 
   /**
