@@ -23,6 +23,8 @@ export class ContractAutoEndCron {
         this.logger.log(`Contratos vencidos: ${renewed} prorrogados, ${ending} pasan a baja`);
       const { ended } = await this.contracts.autoEndDue();
       if (ended > 0) this.logger.log(`Contratos finalizados en su fecha de baja: ${ended}`);
+      const { prices, moves } = await this.contracts.applyScheduledChanges();
+      if (prices + moves > 0) this.logger.log(`Programados: ${prices} cuotas, ${moves} traslados`);
     } catch (err) {
       this.logger.error(`contracts.auto-end falló: ${(err as Error).message}`);
     }

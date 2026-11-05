@@ -48,6 +48,8 @@ export type AcceptGeneralTermsInput = z.infer<typeof AcceptGeneralTermsSchema>;
 export const PublicBookingSchema = z.object({
   facilityId: z.string().uuid(),
   unitTypeId: z.string().uuid(),
+  /** Enlace de la lista de espera: reserva el trastero guardado para esta persona. */
+  holdToken: z.string().max(100).optional(),
   startDate: dateOnly,
   customer: z.object({
     firstName: z.string().trim().min(1, 'Obligatorio').max(100),

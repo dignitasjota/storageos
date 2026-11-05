@@ -14,6 +14,9 @@ import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
+  type ContractDepositSettledPayload,
+  type ContractPriceNoticePayload,
+  type ContractRenewedPayload,
   type CustomerMessagePayload,
   type DomainEventPayload,
   type PaymentFailedPayload,
@@ -231,6 +234,64 @@ export class CustomerEmailsService {
           unitCode: c.unit.code,
           facilityName: c.unit.facility.name,
           endDate: c.endDate,
+        },
+        contractId: c.id,
+      });
+    });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.contract_renewed, { async: true, promisify: true })
+  async onContractRenewed(p: ContractRenewedPayload): Promise<void> {
+    await this.safe('contract_renewed', p.tenantId, async () => {
+      const c = await this.contract(p.tenantId, p.contractId);
+      if (!c) return;
+      await this.send(p.tenantId, 'contract_renewed', null, c.customerId, {
+        data: {
+          kind: 'contract_renewed',
+          contractNumber: c.contractNumber,
+          unitCode: c.unit.code,
+          facilityName: c.unit.facility.name,
+          endDate: p.newEndDate,
+        },
+        contractId: c.id,
+      });
+    });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.contract_price_notice, { async: true, promisify: true })
+  async onContractPriceNotice(p: ContractPriceNoticePayload): Promise<void> {
+    await this.safe('contract_price_change', p.tenantId, async () => {
+      const c = await this.contract(p.tenantId, p.contractId);
+      if (!c) return;
+      await this.send(p.tenantId, 'contract_price_change', null, c.customerId, {
+        data: {
+          kind: 'contract_price_change',
+          contractNumber: c.contractNumber,
+          unitCode: c.unit.code,
+          facilityName: c.unit.facility.name,
+          monthlyWithVat: p.monthlyWithVat,
+          effectiveDate: p.effectiveDate,
+        },
+        contractId: c.id,
+      });
+    });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.contract_deposit_settled, { async: true, promisify: true })
+  async onDepositSettled(p: ContractDepositSettledPayload): Promise<void> {
+    await this.safe('deposit_settled', p.tenantId, async () => {
+      const c = await this.contract(p.tenantId, p.contractId);
+      if (!c) return;
+      await this.send(p.tenantId, 'deposit_settled', null, c.customerId, {
+        data: {
+          kind: 'deposit_settled',
+          contractNumber: c.contractNumber,
+          unitCode: c.unit.code,
+          deposit: p.deposit,
+          returned: p.returned,
+          retained: p.retained,
+          applied: p.applied,
+          reason: p.reason,
         },
         contractId: c.id,
       });

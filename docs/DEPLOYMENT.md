@@ -1773,3 +1773,11 @@ Migración `20261221100000_contract_term_months` (se aplica sola), sin variables
 - **Fianza**: una fianza sin cobrar sale como «Pendiente de cobro» y no se puede liquidar. Liquidarla exige registrar antes el cobro; un contrato cerrado sin justificante (anterior a los justificantes) se sigue pudiendo cerrar.
 - **Señal de una reserva**: al cancelar o caducar, una señal sin cobrar se anula y una cobrada deja un abono en borrador con aviso en la campana.
 - «Convertir en contrato» abre el asistente de alta con la reserva cargada.
+
+## 94. Contratos: mejoras (2026-11-05)
+
+Migración `20261222100000_contract_features` (se aplica sola), sin variables nuevas ni tareas nuevas: el cron `contracts.auto-end` aplica además los cambios de cuota y traslados programados. Lo que se nota tras desplegar:
+
+- **Lista de espera**: al liberarse un trastero, ahora queda **reservado 48 h** para quien recibe el aviso, que recibe un enlace para reservarlo. Si no responde, pasa al siguiente. Mientras dura no se puede vender a otra persona desde la web.
+- **Acceso de contratos con entrada futura**: el PIN se emite al firmar pero abre desde la fecha de inicio. El inquilino lo recibe igual por correo.
+- **Correos nuevos al inquilino**, activados por defecto en Configuración → Correo: contrato renovado (también en cada prórroga automática), cambio de cuota y liquidación de la fianza. Los dos últimos solo salen si el equipo marca la casilla de avisar.

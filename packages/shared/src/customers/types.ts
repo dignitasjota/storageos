@@ -160,6 +160,21 @@ export interface ContractDto {
   depositReceipt: { id: string; number: string; status: string } | null;
   /** La fianza se cobró de verdad (`depositStatus` solo dice que el contrato la lleva). */
   depositCollected: boolean;
+  depositAppliedAmount: number;
+  depositReturnMethod: string | null;
+  depositReturnedOn: string | null;
+  depositReturnReference: string | null;
+  /** Cambio de cuota programado. */
+  scheduledPrice: { amount: number; date: string; reason: string | null } | null;
+  /** Traslado programado. */
+  scheduledMove: {
+    unitId: string;
+    unitCode: string | null;
+    date: string;
+    price: number | null;
+  } | null;
+  /** Lo pendiente de cobro del contrato (solo en la lista por páginas). */
+  pendingAmount?: number;
   /**
    * El PDF firmado NO viaja aquí como URL permanente (bucket privado, sin
    * firmar): pedir `GET /contracts/:id/signed-pdf` cuando `true` da una URL
@@ -177,6 +192,29 @@ export interface ContractDto {
   updatedAt: string;
   /** Reserva anticipada en un local por abrir (null si no lo es). */
   preOpening: ContractPreOpeningDto | null;
+}
+
+/** Cobros de un contrato para su ficha. */
+export interface ContractAccountDto {
+  pendingAmount: number;
+  overdueAmount: number;
+  paidAmount: number;
+  nextInvoice: { date: string; amount: number } | null;
+}
+
+/** Lo que hay que resolver para que un inquilino se vaya. */
+export interface ContractMoveOutDto {
+  checkoutPhotos: number;
+  pendingInvoices: { id: string; number: string; pending: number; dueDate: string | null }[];
+  pendingTotal: number;
+  prepaidCredit: { months: number; amount: number } | null;
+  hasLiveAccess: boolean;
+  otherLiveContracts: number;
+}
+
+export interface BulkSignatureResultDto {
+  sent: number;
+  failed: { contractId: string; contractNumber: string | null; reason: string }[];
 }
 
 export interface ContractEventDto {

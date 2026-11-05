@@ -1,4 +1,15 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
+import { BulkContractsSchema } from '@storageos/shared';
+import { createZodDto } from 'nestjs-zod';
 
 import {
   type AuthenticatedUser,
@@ -9,15 +20,33 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { SignaturesService } from './signatures.service';
 
 import type {
+  BulkSignatureResultDto,
   ContractSignatureDto,
   ContractSigningRecordDto,
   RequestSignatureResultDto,
 } from '@storageos/shared';
 
 /** Endpoints de staff para la firma electrónica de contratos. */
+class BulkContractsDto extends createZodDto(BulkContractsSchema) {}
+
 @Controller('contracts')
 export class ContractSignaturesController {
   constructor(private readonly signatures: SignaturesService) {}
+
+  /** Envía el enlace de firma a varios borradores. Antes de `:id`. */
+  @RequirePermission('contracts:write')
+  @Post('bulk/request-signature')
+  @HttpCode(HttpStatus.OK)
+  bulkRequestSignature(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: BulkContractsDto,
+  ): Promise<BulkSignatureResultDto> {
+    return this.signatures.bulkRequestSignature(
+      user.tenantId,
+      body.contractIds,
+      user.facilityScope ?? null,
+    );
+  }
 
   @RequirePermission('contracts:write')
   @Post(':id/request-signature')

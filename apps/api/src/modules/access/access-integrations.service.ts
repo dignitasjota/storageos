@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { todayInTimezone, zonedDayStart } from '../../common/format';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import {
@@ -64,10 +65,8 @@ export class AccessIntegrationsService {
     // no tiene ningún contrato vivo NO se emite: un scope vacío significaría
     // «sin restricción», y un ex-inquilino que paga una deuda antigua recibiría
     // un PIN que abre todas las puertas.
-    const { facilityIds, unitIds, unitCode, facilityName } = await this.resolveCustomerScope(
-      args.tenantId,
-      args.customerId,
-    );
+    const { facilityIds, unitIds, unitCode, facilityName, validFrom } =
+      await this.resolveCustomerScope(args.tenantId, args.customerId);
     if (facilityIds.length === 0) {
       this.logger.warn(
         `${args.source}: el inquilino ${args.customerId} no tiene contratos vivos; no se emite acceso (tenant=${args.tenantId})`,
@@ -87,6 +86,7 @@ export class AccessIntegrationsService {
         bypassCurfew: false,
         metadata: { source: args.source, entityId: args.entityId },
       } as Parameters<AccessCredentialsService['create']>[0]['input'],
+      validFrom,
       meta: {},
     });
     if (!args.recipientEmail || !created.revealedSecret) {
@@ -145,6 +145,8 @@ export class AccessIntegrationsService {
     unitIds: string[];
     unitCode: string | null;
     facilityName: string | null;
+    /** Si todos sus contratos empiezan más adelante, desde cuándo vale el acceso. */
+    validFrom: Date | null;
   }> {
     const contracts = await this.prisma.withTenant(
       (tx) =>
@@ -158,13 +160,25 @@ export class AccessIntegrationsService {
           orderBy: { startDate: 'desc' },
           select: {
             unitId: true,
+            startDate: true,
             unit: {
-              select: { code: true, facilityId: true, facility: { select: { name: true } } },
+              select: {
+                code: true,
+                facilityId: true,
+                facility: { select: { name: true, timezone: true } },
+              },
             },
           },
         }),
       tenantId,
     );
+    // Firmado con entrada futura: el acceso empieza ese día, no al firmar.
+    const earliest = contracts[contracts.length - 1];
+    const tz = earliest?.unit.facility.timezone ?? 'Europe/Madrid';
+    const validFrom =
+      earliest && earliest.startDate > todayInTimezone(tz)
+        ? zonedDayStart(earliest.startDate.toISOString().slice(0, 10), tz)
+        : null;
     const facilityIds = [
       ...new Set(contracts.map((c) => c.unit?.facilityId).filter((x): x is string => !!x)),
     ];
@@ -175,6 +189,7 @@ export class AccessIntegrationsService {
       unitIds,
       unitCode: latest?.code ?? null,
       facilityName: latest?.facility?.name ?? null,
+      validFrom,
     };
   }
 

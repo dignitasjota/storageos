@@ -2,6 +2,7 @@
 
 import { type ColumnDef } from '@tanstack/react-table';
 import { Check, X } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -97,6 +98,18 @@ export default function UnitRequestsPage() {
       cell: ({ row }) =>
         canResolve && row.original.status === 'pending' ? (
           <div className="flex gap-1">
+            <Button asChild size="sm" variant="ghost">
+              <Link
+                href={`/contracts/new?${new URLSearchParams({
+                  customerId: row.original.customerId,
+                  ...(row.original.unitId ? { unitId: row.original.unitId } : {}),
+                  ...(row.original.facilityId ? { facilityId: row.original.facilityId } : {}),
+                  ...(row.original.unitTypeId ? { unitTypeId: row.original.unitTypeId } : {}),
+                }).toString()}`}
+              >
+                Crear contrato
+              </Link>
+            </Button>
             <Button
               variant="outline"
               size="sm"

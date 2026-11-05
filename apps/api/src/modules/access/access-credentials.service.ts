@@ -481,6 +481,8 @@ export class AccessCredentialsService {
     input: CreateCredentialInput;
     meta: RequestMeta;
     facilityScope?: string[] | null;
+    /** Acceso de un contrato que aún no ha empezado. */
+    validFrom?: Date | null;
   }): Promise<AccessCredentialWithSecretDto> {
     const input = args.input;
     await this.assertCustomerInScope(args.tenantId, input.customerId, args.facilityScope);
@@ -541,6 +543,7 @@ export class AccessCredentialsService {
       allowedHours: input.allowedHours as Prisma.InputJsonValue,
       bypassCurfew: input.bypassCurfew,
       maxUses: input.maxUses ?? null,
+      validFrom: args.validFrom ?? null,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       contractId: input.contractId ?? null,
       metadata: input.metadata as Prisma.InputJsonValue,

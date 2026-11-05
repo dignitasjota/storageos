@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { DataTable } from '@/components/data-table';
 import { ReservationStatusBadge } from '@/components/reservation-status-badge';
 import { Button } from '@/components/ui/button';
@@ -42,9 +43,11 @@ import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useCancelReservation,
   useConfirmReservation,
+  useCreateReservation,
   useReservations,
 } from '@/lib/customers/hooks';
-import { useFacilities } from '@/lib/facilities/hooks';
+import { localDateString } from '@/lib/dates';
+import { useFacilities, useUnits } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
 import { useReservationDepositInvoice } from '@/lib/operations/features-hooks';
@@ -81,6 +84,7 @@ export default function ReservationsPage() {
   const router = useRouter();
   const canWrite = useHasPermission('reservations:write');
 
+  const [creating, setCreating] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<ReservationDto | null>(null);
   const [cancelReason, setCancelReason] = useState('');
 
@@ -218,11 +222,14 @@ export default function ReservationsPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Reservas</h1>
-        <p className="text-sm text-muted-foreground">
-          Pre-bloqueos de trastero antes de la firma del contrato.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Reservas</h1>
+          <p className="text-sm text-muted-foreground">
+            Pre-bloqueos de trastero antes de la firma del contrato.
+          </p>
+        </div>
+        {canWrite && <Button onClick={() => setCreating(true)}>Nueva reserva</Button>}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -269,6 +276,10 @@ export default function ReservationsPage() {
           'Aún no hay reservas. Crea una desde un trastero disponible en el plano o en /units.'
         }
       />
+
+      {creating && (
+        <NewReservationDialog facilityId={facilityId} onClose={() => setCreating(false)} />
+      )}
 
       <Dialog open={!!cancelTarget} onOpenChange={(o) => !o && setCancelTarget(null)}>
         <DialogContent>
@@ -317,5 +328,106 @@ export default function ReservationsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Reserva un trastero libre para un inquilino hasta una fecha. */
+function NewReservationDialog({
+  facilityId,
+  onClose,
+}: {
+  facilityId: string | undefined;
+  onClose: () => void;
+}) {
+  const units = useUnits({ status: 'available', ...(facilityId ? { facilityId } : {}) });
+  const create = useCreateReservation();
+  const [unitId, setUnitId] = useState('');
+  const [customerId, setCustomerId] = useState<string | undefined>();
+  const [until, setUntil] = useState('');
+  const [deposit, setDeposit] = useState('');
+
+  async function submit() {
+    try {
+      await create.mutateAsync({
+        unitId,
+        ...(customerId ? { customerId } : {}),
+        validFrom: new Date().toISOString(),
+        validUntil: new Date(`${until}T23:59:59`).toISOString(),
+        depositAmount: Number(deposit) || 0,
+        confirmImmediately: true,
+      });
+      toast.success('Trastero reservado.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo reservar');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Nueva reserva</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Trastero</Label>
+            <select
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+              value={unitId}
+              onChange={(e) => setUnitId(e.target.value)}
+            >
+              <option value="">Elige un trastero…</option>
+              {(units.data?.items ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.code} · {u.facilityName} ({formatEur(u.basePriceMonthly)}/mes)
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label>Inquilino</Label>
+            <CustomerSearchSelect
+              value={customerId}
+              onChange={setCustomerId}
+              clearLabel="Sin inquilino"
+              className="w-full"
+            />
+          </div>
+          <div>
+            <Label htmlFor="res-until">Reservado hasta</Label>
+            <Input
+              id="res-until"
+              type="date"
+              min={localDateString()}
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="res-deposit">Señal (€, opcional)</Label>
+            <Input
+              id="res-deposit"
+              type="number"
+              step="0.01"
+              min={0}
+              value={deposit}
+              onChange={(e) => setDeposit(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Con inquilino, se factura al crearla y se descuenta del primer alquiler.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={() => void submit()} disabled={!unitId || !until || create.isPending}>
+            Reservar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

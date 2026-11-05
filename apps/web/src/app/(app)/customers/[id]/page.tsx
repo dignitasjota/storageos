@@ -132,6 +132,11 @@ export default function CustomerDetailPage() {
               className="w-full justify-center sm:w-auto"
             />
           </Can>
+          <Can permission="contracts:write">
+            <Button asChild variant="outline" className="w-full justify-center sm:w-auto">
+              <Link href={`/contracts/new?customerId=${c.id}`}>Nuevo contrato</Link>
+            </Button>
+          </Can>
           <Can permission="customers:write">
             <Button
               variant="outline"

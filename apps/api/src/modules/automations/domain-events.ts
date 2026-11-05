@@ -12,6 +12,12 @@ export const DOMAIN_EVENTS = {
   customer_created: 'domain.customer_created',
   contract_signed: 'domain.contract_signed',
   contract_ending_soon: 'domain.contract_ending_soon',
+  /** Prórroga o renovación de un contrato (correo al inquilino). */
+  contract_renewed: 'domain.contract_renewed',
+  /** Cambio de cuota que el equipo pide avisar. */
+  contract_price_notice: 'domain.contract_price_notice',
+  /** Fianza liquidada con justificante al inquilino. */
+  contract_deposit_settled: 'domain.contract_deposit_settled',
   contract_ended: 'domain.contract_ended',
   /** El inquilino solicita la baja (move-out) desde el portal. */
   contract_move_out_requested: 'domain.contract_move_out_requested',
@@ -206,4 +212,27 @@ export interface DomainEventPayload {
   leadId?: string | null;
   /** Snapshot listo para Handlebars. */
   scope: Record<string, unknown>;
+}
+
+export interface ContractRenewedPayload {
+  tenantId: string;
+  contractId: string;
+  newEndDate: Date;
+}
+
+export interface ContractPriceNoticePayload {
+  tenantId: string;
+  contractId: string;
+  monthlyWithVat: number;
+  effectiveDate: Date;
+}
+
+export interface ContractDepositSettledPayload {
+  tenantId: string;
+  contractId: string;
+  deposit: number;
+  returned: number;
+  retained: number;
+  applied: number;
+  reason: string | null;
 }

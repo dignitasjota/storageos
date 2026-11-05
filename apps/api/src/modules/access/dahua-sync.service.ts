@@ -160,6 +160,7 @@ export class DahuaSyncService {
             // Caducidad + límite de usos: sin ellos, un pase nocturno synced a un
             // terminal Patrón B validaría offline PARA SIEMPRE.
             validUntil: cred.expiresAt,
+            validFrom: cred.validFrom,
             maxUses: cred.maxUses,
           });
           // Una tarjeta o un QR nuevos son otro registro en el terminal: el

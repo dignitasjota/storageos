@@ -1,8 +1,13 @@
+import { randomBytes } from 'node:crypto';
+
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { rentTax } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
+import { unitHeldByOther } from '../../common/unit-holds';
+import { hashHoldToken } from '../../common/waitlist-hold';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
@@ -10,6 +15,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
+import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma, WaitlistEntry } from '@storageos/database';
 import type {
@@ -25,11 +31,13 @@ import type {
 type WaitlistWithRelations = WaitlistEntry & {
   facility: { name: string };
   unitType: { name: string };
+  heldUnit: { code: string } | null;
 };
 
 const INCLUDE = {
   facility: { select: { name: true } },
   unitType: { select: { name: true } },
+  heldUnit: { select: { code: true } },
 } satisfies Prisma.WaitlistEntryInclude;
 
 function escapeHtml(s: string): string {
@@ -53,6 +61,7 @@ export class WaitlistService {
     private readonly audit: AuditService,
     private readonly communications: CommunicationsService,
     private readonly notifications: NotificationsService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /**
@@ -344,17 +353,26 @@ export class WaitlistService {
     customerId: string,
     entryId: string,
   ): Promise<PortalWaitlistDto> {
+    const entry = await this.prisma.withTenant(
+      (tx) =>
+        tx.waitlistEntry.findFirst({
+          where: { id: entryId, customerId, status: { in: ['waiting', 'notified'] } },
+          select: { heldUnitId: true },
+        }),
+      tenantId,
+    );
     const res = await this.prisma.withTenant(
       (tx) =>
         tx.waitlistEntry.updateMany({
           where: { id: entryId, customerId, status: { in: ['waiting', 'notified'] } },
-          data: { status: 'cancelled' },
+          data: { status: 'cancelled', holdTokenHash: null },
         }),
       tenantId,
     );
     if (res.count === 0) {
       throw new NotFoundException({ code: 'waitlist_entry_not_found', message: 'No encontrado' });
     }
+    await this.releaseHold(tenantId, entry?.heldUnitId ?? null, 'Lista de espera: cancelada');
     return this.portalView(tenantId, customerId);
   }
 
@@ -445,18 +463,21 @@ export class WaitlistService {
     meta: RequestMeta;
     facilityScope?: string[] | null;
   }): Promise<WaitlistEntryDto> {
+    let heldUnitId: string | null = null;
     const updated = await this.prisma.withTenant(async (tx) => {
       const existing = await tx.waitlistEntry.findUnique({ where: { id: args.id } });
       if (!existing) {
         throw new NotFoundException({ code: 'waitlist_entry_not_found', message: 'No encontrada' });
       }
       assertFacilityAllowed(args.facilityScope, existing.facilityId);
+      heldUnitId = existing.status === 'notified' ? existing.heldUnitId : null;
       return tx.waitlistEntry.update({
         where: { id: args.id },
-        data: { status: args.status },
+        data: { status: args.status, holdTokenHash: null },
         include: INCLUDE,
       });
     }, args.tenantId);
+    await this.releaseHold(args.tenantId, heldUnitId, 'Lista de espera: resuelta a mano');
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -496,7 +517,7 @@ export class WaitlistService {
   async expireStaleNotifications(now = new Date()): Promise<{ expired: number }> {
     const stale = await this.admin.waitlistEntry.findMany({
       where: { status: 'notified', notifiedAt: { lt: new Date(now.getTime() - NOTICE_TTL_MS) } },
-      select: { id: true, tenantId: true, facilityId: true, unitTypeId: true },
+      select: { id: true, tenantId: true, facilityId: true, unitTypeId: true, heldUnitId: true },
       take: 500,
     });
     let expired = 0;
@@ -504,10 +525,12 @@ export class WaitlistService {
       // Reclamo atómico: con varias réplicas, una sola lo caduca.
       const { count } = await this.admin.waitlistEntry.updateMany({
         where: { id: e.id, status: 'notified' },
-        data: { status: 'expired' },
+        data: { status: 'expired', holdTokenHash: null },
       });
       if (count === 0) continue;
       expired += 1;
+      // Pasado su turno el trastero se le ofrece al siguiente.
+      await this.freeUnit(e.tenantId, e.heldUnitId, 'Lista de espera: aviso caducado');
       const unit = await this.admin.unit.findFirst({
         where: {
           tenantId: e.tenantId,
@@ -531,10 +554,41 @@ export class WaitlistService {
     return { expired };
   }
 
+  /** Devuelve a la venta un trastero guardado y avisa al siguiente de la cola. */
+  private async releaseHold(
+    tenantId: string,
+    unitId: string | null,
+    reason: string,
+  ): Promise<void> {
+    if (!unitId || !(await this.freeUnit(tenantId, unitId, reason))) return;
+    await this.onUnitAvailable({ tenantId, unitId });
+  }
+
+  private async freeUnit(
+    tenantId: string,
+    unitId: string | null,
+    reason: string,
+  ): Promise<boolean> {
+    if (!unitId) return false;
+    return this.prisma.withTenant(async (tx) => {
+      const { count } = await tx.unit.updateMany({
+        where: { id: unitId, status: 'reserved' },
+        data: { status: 'available' },
+      });
+      if (count === 0) return false;
+      await tx.unitStatusHistory.create({
+        data: { tenantId, unitId, previousStatus: 'reserved', newStatus: 'available', reason },
+      });
+      return true;
+    }, tenantId);
+  }
+
   private async notifyNext(tenantId: string, unitId: string): Promise<void> {
+    const holdToken = randomBytes(24).toString('base64url');
     const entry = await this.prisma.withTenant(async (tx) => {
       const unit = await tx.unit.findUnique({ where: { id: unitId } });
       if (!unit || unit.status !== 'available') return null;
+      if (await unitHeldByOther(tx, { unitId })) return null;
       // Primero de la cola (más antiguo) para ese local + tipo.
       const next = await tx.waitlistEntry.findFirst({
         where: {
@@ -546,14 +600,40 @@ export class WaitlistService {
         include: INCLUDE,
       });
       if (!next) return null;
+      // Se le guarda el trastero mientras dura su turno.
+      await tx.unit.update({ where: { id: unit.id }, data: { status: 'reserved' } });
+      await tx.unitStatusHistory.create({
+        data: {
+          tenantId,
+          unitId: unit.id,
+          previousStatus: 'available',
+          newStatus: 'reserved',
+          reason: 'Lista de espera: guardado 48 h para quien recibe el aviso',
+        },
+      });
       await tx.waitlistEntry.update({
         where: { id: next.id },
-        data: { status: 'notified', notifiedAt: new Date() },
+        data: {
+          status: 'notified',
+          notifiedAt: new Date(),
+          heldUnitId: unit.id,
+          holdTokenHash: hashHoldToken(holdToken),
+        },
       });
       return next;
     }, tenantId);
 
     if (!entry) return;
+
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { slug: true, customDomain: true, customDomainVerifiedAt: true },
+    });
+    const bookBase =
+      tenant?.customDomain && tenant.customDomainVerifiedAt
+        ? `https://${tenant.customDomain}/reservar`
+        : `${this.config.get('WEB_BASE_URL', { infer: true })}/book/${tenant?.slug ?? ''}`;
+    const link = `${bookBase}?facilityId=${entry.facilityId}&unitTypeId=${entry.unitTypeId}&hold=${holdToken}`;
 
     // Email al cliente en espera (best-effort).
     const subject = `Ya hay un ${entry.unitType.name} disponible en ${entry.facility.name}`;
@@ -561,8 +641,8 @@ export class WaitlistService {
       entry.unitType.name,
     )}</strong> en <strong>${escapeHtml(
       entry.facility.name,
-    )}</strong>, que estabas esperando. Contáctanos para reservarlo en las próximas 48 horas; después avisaremos a la siguiente persona de la lista.</p>`;
-    const text = `Hola ${entry.contactName}, se ha liberado un ${entry.unitType.name} en ${entry.facility.name}, que estabas esperando. Contáctanos para reservarlo en las próximas 48 horas; después avisaremos a la siguiente persona de la lista.`;
+    )}</strong>, que estabas esperando. Te lo guardamos 48 horas.</p><p><a href="${escapeHtml(link)}">Reservar mi trastero</a></p><p>Después avisaremos a la siguiente persona de la lista.</p>`;
+    const text = `Hola ${entry.contactName}, se ha liberado un ${entry.unitType.name} en ${entry.facility.name}, que estabas esperando. Te lo guardamos 48 horas: ${link}. Después avisaremos a la siguiente persona de la lista.`;
     // Por el outbox: queda en Comunicaciones (y en la ficha del inquilino).
     await this.communications.enqueue({
       tenantId,
@@ -579,7 +659,7 @@ export class WaitlistService {
     await this.notifications.create(tenantId, {
       type: 'waitlist.match',
       title: 'Lista de espera: hay una coincidencia',
-      body: `${entry.contactName} esperaba un ${entry.unitType.name} en ${entry.facility.name}. Se le ha avisado.`,
+      body: `${entry.contactName} esperaba un ${entry.unitType.name} en ${entry.facility.name}. Se le ha avisado y se le guarda 48 horas.`,
       link: '/waitlist',
       facilityId: entry.facilityId,
     });
@@ -599,6 +679,8 @@ export class WaitlistService {
       status: r.status as WaitlistStatus,
       notifiedAt: r.notifiedAt?.toISOString() ?? null,
       notes: r.notes,
+      heldUnitId: r.status === 'notified' ? r.heldUnitId : null,
+      heldUnitCode: r.status === 'notified' ? (r.heldUnit?.code ?? null) : null,
       createdAt: r.createdAt.toISOString(),
     };
   }
