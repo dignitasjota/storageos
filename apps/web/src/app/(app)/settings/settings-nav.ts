@@ -53,7 +53,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         href: '/settings/getting-started',
         label: 'Puesta en marcha',
         description: 'Lo que hay que configurar para operar y lo recomendado, con su estado.',
-        permission: 'settings:read',
+        permission: 'facilities:manage',
       },
       {
         href: '/settings/company',

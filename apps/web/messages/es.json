@@ -399,7 +399,7 @@
       "haveAccount": "¿Ya tienes cuenta?",
       "loginLink": "Inicia sesión",
       "errors": {
-        "slugTaken": "Ese subdominio ya está en uso. Prueba con otro."
+        "slugTaken": "Ese identificador ya está en uso. Prueba con otro."
       }
     },
     "login": {
@@ -407,6 +407,7 @@
       "subtitle": "Inicia sesión para entrar al panel.",
       "tenantSlug": "Identificador de tu empresa",
       "tenantSlugHint": "El que elegiste al registrarte; viene en el correo de bienvenida.",
+      "forgotTenant": "¿No lo recuerdas?",
       "email": "Email",
       "password": "Contraseña",
       "submit": "Iniciar sesión",

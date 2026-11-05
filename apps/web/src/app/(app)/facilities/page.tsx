@@ -9,6 +9,7 @@ import {
 } from '@storageos/shared';
 import { Building2, Loader2, MapPin, MoreHorizontal, Plus } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -65,6 +66,7 @@ export default function FacilitiesPage() {
   const canManage = useHasPermission('facilities:manage');
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const router = useRouter();
   const create = useCreateFacility();
   const remove = useDeleteFacility();
 
@@ -95,10 +97,11 @@ export default function FacilitiesPage() {
 
   async function onSubmit(values: CreateFacilityInput) {
     try {
-      await create.mutateAsync(values);
-      toast.success('Local creado.');
+      const created = await create.mutateAsync(values);
+      toast.success('Local creado. Completa su horario y sus datos en la ficha.');
       form.reset();
       setOpen(false);
+      router.push(`/facilities/${created.id}?tab=settings`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear.');
     }
@@ -176,6 +179,19 @@ export default function FacilitiesPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Dirección</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value ?? ''} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="contactPhone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Teléfono de contacto</FormLabel>
                         <FormControl>
                           <Input {...field} value={field.value ?? ''} />
                         </FormControl>

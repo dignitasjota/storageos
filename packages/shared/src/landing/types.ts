@@ -290,6 +290,10 @@ export interface ResolveDomainDto {
  * (`/portal/login?slug=`) para verse con el aspecto white-label del tenant.
  */
 export interface PublicTenantBrandDto {
+  /** Web sin publicar: el propietario no ha activado la cuenta o no hay ningún local. */
+  webPending: boolean;
+  /** No acepta reservas online: faltan datos fiscales o una forma de cobro. */
+  bookingPending: boolean;
   tenantName: string;
   tenantSlug: string;
   brandColor: string | null;

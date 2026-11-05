@@ -36,8 +36,8 @@ export function CookieBanner({ analytics = false }: { analytics?: boolean }) {
   if (!visible) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 p-3 sm:p-4">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-xl border border-border bg-background/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+    <div className="fixed inset-x-0 bottom-0 z-50 p-3 sm:p-4 lg:right-auto lg:w-[22rem]">
+      <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-xl border border-border bg-background/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between lg:flex-col lg:items-start">
         <p className="text-sm text-muted-foreground">
           {analytics
             ? 'Usamos cookies necesarias para que la web funcione y, si lo aceptas, cookies de analítica (Google Analytics) para saber cómo se usa y mejorarla. '

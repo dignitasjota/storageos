@@ -78,7 +78,7 @@ function ResetForm() {
   }
 
   return (
-    <form className="space-y-4" onSubmit={submit} noValidate>
+    <form method="post" className="space-y-4" onSubmit={submit} noValidate>
       <div>
         <Label>{t('newPasswordLabel')}</Label>
         <Input

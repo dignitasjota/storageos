@@ -1,6 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import {
   SUSPENSION_NOTICE_DAYS,
   SUSPENSION_WEB_OFFLINE_DAYS,
@@ -9,6 +10,7 @@ import {
 import { Queue } from 'bullmq';
 
 import { AuditService } from '../auth/audit.service';
+import { AuthService, TENANT_OWNER_VERIFIED } from '../auth/auth.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
@@ -18,6 +20,9 @@ import type { Env } from '../../config/env.schema';
 import type { AdminQuoteDto, TenantLifecycleRunResultDto } from '@storageos/shared';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Días tras el registro a los que se borra una cuenta que nunca se activó. */
+const UNVERIFIED_PURGE_DAYS = 30;
 
 /** Hitos del trial: cada uno se manda una vez, en su ventana de 1 día. */
 const TRIAL_MILESTONES = [
@@ -67,6 +72,7 @@ export class TenantLifecycleEmailsService {
     config: ConfigService<Env, true>,
     private readonly audit: AuditService,
     private readonly templates: PlatformEmailTemplatesService,
+    private readonly auth: AuthService,
   ) {
     this.billingUrl = `${config.get('WEB_BASE_URL', { infer: true })}/settings/saas-billing`;
   }
@@ -412,6 +418,7 @@ export class TenantLifecycleEmailsService {
         billingExempt: false,
         status: 'trial',
         createdAt: { lte: new Date(now.getTime() - 3 * day) },
+        users: { some: { role: 'owner', emailVerifiedAt: { not: null } } },
       },
       select: {
         id: true,
@@ -436,7 +443,12 @@ export class TenantLifecycleEmailsService {
     });
     const steps = [
       { type: 'activation_facility', after: 3, missing: (c: Counts) => c.facilities === 0 },
-      { type: 'activation_customer', after: 7, missing: (c: Counts) => c.customers === 0 },
+      {
+        type: 'activation_customer',
+        after: 7,
+        // El texto da por hecho que ya tiene el local.
+        missing: (c: Counts) => c.facilities > 0 && c.customers === 0,
+      },
       { type: 'activation_invoice', after: 12, missing: (c: Counts) => c.invoices === 0 },
     ] as const;
     let count = 0;
@@ -446,7 +458,8 @@ export class TenantLifecycleEmailsService {
       // Solo el paso más avanzado que toca (si va con retraso no le llegan tres seguidos).
       const step = [...steps].reverse().find((s) => days >= s.after && s.missing(t._count));
       if (!step || sent.has(step.type)) continue;
-      if (await this.dispatch(t.id, step.type, this.activationTemplate(t.name, step.type))) {
+      const tmpl = this.activationTemplate(t.name, step.type);
+      if (await this.dispatch(t.id, step.type, tmpl, { verifiedOnly: true })) {
         count += 1;
         if (step.type === 'activation_invoice') {
           await this.admin.tenantFollowup.create({
@@ -505,21 +518,135 @@ export class TenantLifecycleEmailsService {
   }
 
   /** Bienvenida a tenants dados de alta en las últimas 48h, sin email previo. */
+  /** La bienvenida sale al activar la cuenta; el cron recoge lo que quedara pendiente. */
+  @OnEvent(TENANT_OWNER_VERIFIED, { async: true, promisify: true })
+  async onOwnerVerified({ tenantId }: { tenantId: string }): Promise<void> {
+    try {
+      const settings = await this.admin.platformAlertSettings.findFirst();
+      if (!settings?.lifecycleEnabled || !settings.sendWelcome) return;
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, slug: true, billingExempt: true },
+      });
+      if (!tenant || tenant.billingExempt) return;
+      await this.dispatch(
+        tenantId,
+        'welcome',
+        await this.welcomeTemplate(tenant.name, tenant.slug),
+        { verifiedOnly: true },
+      );
+    } catch (err) {
+      this.logger.error(`bienvenida de ${tenantId}: ${(err as Error).message}`);
+    }
+  }
+
   private async runWelcome(): Promise<number> {
-    const since = new Date(Date.now() - 2 * DAY_MS);
+    const since = new Date(Date.now() - 7 * DAY_MS);
     const tenants = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
         billingExempt: false,
         createdAt: { gte: since },
+        users: { some: { role: 'owner', emailVerifiedAt: { not: null } } },
         tenantLifecycleEmails: { none: { type: 'welcome' } },
       },
       select: { id: true, name: true, slug: true },
     });
     let count = 0;
     for (const t of tenants) {
-      if (await this.dispatch(t.id, 'welcome', await this.welcomeTemplate(t.name, t.slug)))
+      const tmpl = await this.welcomeTemplate(t.name, t.slug);
+      if (await this.dispatch(t.id, 'welcome', tmpl, { verifiedOnly: true })) count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * Cuentas sin activar: recordatorio con enlace nuevo a las 24 h y a las 72 h.
+   * Salen siempre (sin ellos la cuenta no llega a usarse); uno por tipo y tenant.
+   */
+  async runVerificationReminders(now = new Date()): Promise<number> {
+    const tenants = await this.admin.tenant.findMany({
+      where: {
+        deletedAt: null,
+        billingExempt: false,
+        status: 'trial',
+        createdAt: { lte: new Date(now.getTime() - DAY_MS) },
+        users: { none: { emailVerifiedAt: { not: null } } },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        tenantLifecycleEmails: { select: { type: true } },
+        users: { where: { role: 'owner', isActive: true }, select: { id: true }, take: 1 },
+      },
+      take: 500,
+    });
+    let count = 0;
+    for (const t of tenants) {
+      const owner = t.users[0];
+      if (!owner) continue;
+      const sent = new Set(t.tenantLifecycleEmails.map((e) => e.type));
+      const hours = (now.getTime() - t.createdAt.getTime()) / (60 * 60 * 1000);
+      const type = hours >= 72 ? 'verify_reminder_2' : 'verify_reminder_1';
+      if (sent.has(type)) continue;
+      try {
+        await this.admin.tenantLifecycleEmail.create({ data: { tenantId: t.id, type } });
+      } catch {
+        continue; // Otra réplica lo reservó.
+      }
+      await this.auth.sendVerificationReminder(t.id, owner.id, type === 'verify_reminder_2');
+      count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * Borra las cuentas que nunca se activaron: libera el identificador y no
+   * guarda datos de quien no llegó a usar el servicio. Solo a partir de los 30
+   * días y con el último aviso enviado hace al menos 7; sin activar no se puede
+   * entrar, así que no hay nada más que conservar. Si aun así tuviera datos, se
+   * deja y se avisa en el registro.
+   */
+  async purgeUnverifiedAccounts(now = new Date()): Promise<number> {
+    const tenants = await this.admin.tenant.findMany({
+      where: {
+        deletedAt: null,
+        billingExempt: false,
+        status: 'trial',
+        createdAt: { lte: new Date(now.getTime() - UNVERIFIED_PURGE_DAYS * DAY_MS) },
+        users: { none: { emailVerifiedAt: { not: null } } },
+        facilities: { none: {} },
+        customers: { none: {} },
+        tenantLifecycleEmails: {
+          some: {
+            type: 'verify_reminder_2',
+            sentAt: { lte: new Date(now.getTime() - 7 * DAY_MS) },
+          },
+        },
+      },
+      select: { id: true, slug: true },
+      take: 100,
+    });
+    let count = 0;
+    for (const { id: tenantId, slug } of tenants) {
+      try {
+        const where = { tenantId };
+        await this.admin.$transaction([
+          this.admin.auditLog.deleteMany({ where }),
+          this.admin.emailVerificationToken.deleteMany({ where }),
+          this.admin.passwordResetToken.deleteMany({ where }),
+          this.admin.session.deleteMany({ where }),
+          this.admin.messageTemplate.deleteMany({ where }),
+          this.admin.invoiceSeries.deleteMany({ where }),
+          this.admin.tenantSubscription.deleteMany({ where }),
+          this.admin.user.deleteMany({ where }),
+          this.admin.tenant.delete({ where: { id: tenantId } }),
+        ]);
+        this.logger.log(`cuenta sin activar borrada: ${slug}`);
         count += 1;
+      } catch (err) {
+        this.logger.error(`no se pudo borrar la cuenta ${slug}: ${(err as Error).message}`);
+      }
     }
     return count;
   }
@@ -577,8 +704,13 @@ export class TenantLifecycleEmailsService {
    * tenga un owner verificado (no perdemos el email de bienvenida por un alta
    * sin verificar aún). Devuelve true si se encoló.
    */
-  private async dispatch(tenantId: string, type: string, tmpl: EmailTemplate): Promise<boolean> {
-    const recipients = await this.recipientsFor(tenantId);
+  private async dispatch(
+    tenantId: string,
+    type: string,
+    tmpl: EmailTemplate,
+    opts: { verifiedOnly?: boolean } = {},
+  ): Promise<boolean> {
+    const recipients = await this.recipientsFor(tenantId, opts.verifiedOnly);
     if (recipients.length === 0) return false;
 
     // Registramos la fila ANTES de encolar: si otra réplica ya la creó, el
@@ -605,14 +737,17 @@ export class TenantLifecycleEmailsService {
     return true;
   }
 
-  /** Emails de destino de un tenant: owners verificados activos o billingEmail. */
-  private async recipientsFor(tenantId: string): Promise<string[]> {
+  /**
+   * Emails de destino de un tenant: owners verificados activos o billingEmail.
+   * Lo que invita a usar el panel (`verifiedOnly`) solo va a quien puede entrar.
+   */
+  private async recipientsFor(tenantId: string, verifiedOnly = false): Promise<string[]> {
     const owners = await this.admin.user.findMany({
       where: { tenantId, role: 'owner', isActive: true, emailVerifiedAt: { not: null } },
       select: { email: true },
     });
     const emails = new Set(owners.map((o) => o.email.toLowerCase()));
-    if (emails.size === 0) {
+    if (emails.size === 0 && !verifiedOnly) {
       const tenant = await this.admin.tenant.findUnique({
         where: { id: tenantId },
         select: { billingEmail: true },

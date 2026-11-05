@@ -42,6 +42,8 @@ process.env.NODE_ENV = 'test';
 // activar puntualmente con LOG_LEVEL=debug pnpm test:e2e).
 process.env.LOG_LEVEL = process.env.LOG_LEVEL ?? 'fatal';
 process.env.LOG_PRETTY = 'false';
+// Casi todos los e2e usan la web y la reserva sin dejar el negocio configurado.
+process.env.E2E_SKIP_READINESS = 'true';
 
 // Inbound de mensajes: secrets de test para los webhooks de WhatsApp/email
 // (el ConfigModule tiene `cache: true`, así que deben estar antes de compilar).

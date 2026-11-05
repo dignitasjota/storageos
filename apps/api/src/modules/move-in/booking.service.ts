@@ -11,6 +11,7 @@ import { isValidSpanishTaxId, normalizeTaxId, rentTax } from '@storageos/shared'
 
 import { todayInTimezone } from '../../common/format';
 import { tenantHasFeature } from '../../common/tenant-features';
+import { bookingReady, tenantReadiness } from '../../common/tenant-readiness';
 import { DOMAIN_EVENTS, type BookingCreatedPayload } from '../automations/domain-events';
 import { ContractsService } from '../contracts/contracts.service';
 import { CouponsService } from '../coupons/coupons.service';
@@ -125,7 +126,7 @@ export class BookingService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
-    assertBookable(tenant.status);
+    await this.assertBookable(tenant);
     const [facilities, unitTypes, grouped] = await Promise.all([
       this.admin.facility.findMany({
         where: { tenantId: tenant.id, deletedAt: null, isActive: true },
@@ -200,7 +201,7 @@ export class BookingService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
-    assertBookable(tenant.status);
+    await this.assertBookable(tenant);
     return this.quoteFor(tenant.id, {
       facilityId: input.facilityId,
       unitTypeId: input.unitTypeId,
@@ -308,7 +309,7 @@ export class BookingService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
-    assertBookable(tenant.status);
+    await this.assertBookable(tenant);
     const tenantId = tenant.id;
     const couponCode = input.couponCode?.trim() || undefined;
     // El cupón se comprueba antes de reservar el trastero: si no vale, no se
@@ -565,17 +566,23 @@ export class BookingService {
     });
     return { contractId: contract.id, signingToken: token, signingLinkSentTo: null };
   }
-}
 
-/**
- * Un negocio suspendido (impago de su suscripción) o dado de baja no acepta
- * reservas online: el equipo no podría gestionarlas.
- */
-function assertBookable(status: string): void {
-  if (status === 'suspended' || status === 'cancelled') {
-    throw new ConflictException({
-      code: 'booking_unavailable',
-      message: 'Las reservas online no están disponibles ahora mismo. Contacta con el negocio.',
-    });
+  /**
+   * Un negocio suspendido (impago de su suscripción) o dado de baja no acepta
+   * reservas online: el equipo no podría gestionarlas. Tampoco uno que aún no
+   * tiene datos fiscales ni forma de cobro: el contrato saldría sin arrendador
+   * identificado y el inquilino no podría pagar.
+   */
+  private async assertBookable(tenant: { id: string; status: string }): Promise<void> {
+    const off =
+      tenant.status === 'suspended' ||
+      tenant.status === 'cancelled' ||
+      !bookingReady(await tenantReadiness(this.admin, tenant.id));
+    if (off) {
+      throw new ConflictException({
+        code: 'booking_unavailable',
+        message: 'Las reservas online no están disponibles ahora mismo. Contacta con el negocio.',
+      });
+    }
   }
 }

@@ -1084,3 +1084,7 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 ### `today_snoozes` (2026-11-05)
 
 Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `created_by_user_id`; único por tenant, tipo y referencia; con RLS. `users.daily_summary_prefs` guarda hora, locales y push del resumen del día y `users.daily_summary_last_date` reserva el envío; `tenants.daily_summary_last_date` queda sin uso.
+
+### Alta del tenant (2026-11-05)
+
+`users.terms_accepted_at/terms_accepted_hash/terms_accepted_ip/terms_accepted_user_agent`: constancia de los términos y la privacidad aceptados al registrarse (huella SHA-256 de los dos textos vigentes). `tenants.onboarding_state` (jsonb): `{ skipped: string[] }`, los pasos de la Puesta en marcha que el tenant ha dado por resueltos. `tenant_lifecycle_emails` gana los tipos `verify_reminder_1` y `verify_reminder_2`.

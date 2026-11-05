@@ -2,6 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type LoginInput, LoginSchema } from '@storageos/shared';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
@@ -140,7 +141,7 @@ export function LoginForm() {
 
   return (
     <Form {...form}>
-      <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+      <form method="post" className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
         <FormField
           control={form.control}
           name="tenantSlug"
@@ -155,7 +156,12 @@ export function LoginForm() {
                   autoCapitalize="off"
                 />
               </FormControl>
-              <FormDescription>{t('tenantSlugHint')}</FormDescription>
+              <FormDescription>
+                {t('tenantSlugHint')}{' '}
+                <Link href="/forgot-tenant" className="text-primary hover:underline">
+                  {t('forgotTenant')}
+                </Link>
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -243,7 +249,7 @@ function ChallengeStep({ pendingToken, onSuccess, onExpired }: ChallengeStepProp
   }
 
   return (
-    <form className="space-y-4" onSubmit={submit} noValidate>
+    <form method="post" className="space-y-4" onSubmit={submit} noValidate>
       <div className="space-y-1">
         <h2 className="text-lg font-medium">{t('title')}</h2>
         <p className="text-sm text-muted-foreground">{t('subtitle')}</p>

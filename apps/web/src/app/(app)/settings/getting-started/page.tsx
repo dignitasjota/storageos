@@ -3,22 +3,24 @@
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
-import { OnboardingStepList, useOnboarding } from '@/components/onboarding/onboarding-steps';
+import {
+  OnboardingStepList,
+  useOnboarding,
+  WebStatusNote,
+} from '@/components/onboarding/onboarding-steps';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useMe } from '@/lib/auth/hooks';
 
 /** Puesta en marcha completa: lo imprescindible y lo recomendado, siempre a mano. */
 export default function GettingStartedPage() {
   const { data, isLoading } = useOnboarding();
-  const slug = useMe().data?.tenant.slug;
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Puesta en marcha</h1>
         <p className="text-sm text-muted-foreground">
-          Lo que hay que configurar para operar y lo que conviene revisar. Se marca solo al hacerlo.
-          ¿Cómo es el día a día?{' '}
+          Lo que hay que configurar para operar y lo que conviene revisar. Se marca solo al hacerlo,
+          y lo que no aplique a tu negocio lo puedes dar por resuelto. ¿Cómo es el día a día?{' '}
           <Link href="/help" className="text-primary hover:underline">
             Cómo funciona
           </Link>
@@ -57,20 +59,7 @@ export default function GettingStartedPage() {
               <OnboardingStepList steps={data.steps.filter((s) => s.group === 'recommended')} />
             </CardContent>
           </Card>
-          {slug && (
-            <p className="text-sm text-muted-foreground">
-              Tu web pública ya está activa:{' '}
-              <a
-                href={`/s/${slug}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary hover:underline"
-              >
-                /s/{slug}
-              </a>
-              . Su aspecto se cambia en Web pública y portal.
-            </p>
-          )}
+          <WebStatusNote web={data.web} />
         </>
       )}
     </div>

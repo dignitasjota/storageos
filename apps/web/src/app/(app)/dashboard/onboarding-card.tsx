@@ -3,10 +3,13 @@
 import { ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 
-import { OnboardingStepList, useOnboarding } from '@/components/onboarding/onboarding-steps';
+import {
+  OnboardingStepList,
+  useOnboarding,
+  WebStatusNote,
+} from '@/components/onboarding/onboarding-steps';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useMe } from '@/lib/auth/hooks';
 
 /**
  * Puesta en marcha en el Resumen: lo imprescindible para empezar a operar.
@@ -14,7 +17,6 @@ import { useMe } from '@/lib/auth/hooks';
  */
 export function OnboardingCard() {
   const { data } = useOnboarding();
-  const slug = useMe().data?.tenant.slug;
 
   if (!data || data.completed) return null;
   const required = data.steps.filter((s) => s.group === 'required');
@@ -31,9 +33,9 @@ export function OnboardingCard() {
               Lo imprescindible para empezar a trabajar con TrasterOS.
             </CardDescription>
           </div>
-          {slug && (
+          {data.web.published && (
             <Button asChild size="sm" variant="outline">
-              <a href={`/s/${slug}`} target="_blank" rel="noreferrer">
+              <a href={data.web.url} target="_blank" rel="noreferrer">
                 <ExternalLink className="mr-1 size-4" /> Ver tu web
               </a>
             </Button>
@@ -48,6 +50,9 @@ export function OnboardingCard() {
       </CardHeader>
       <CardContent className="space-y-2">
         <OnboardingStepList steps={required} />
+        <div className="px-2">
+          <WebStatusNote web={data.web} />
+        </div>
         {data.recommendedTotal > 0 && (
           <p className="px-2 text-xs text-muted-foreground">
             Recomendado: {data.recommendedDone}/{data.recommendedTotal}.{' '}

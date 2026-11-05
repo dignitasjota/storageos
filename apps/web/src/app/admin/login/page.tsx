@@ -101,7 +101,12 @@ export default function AdminLoginPage() {
             />
           ) : (
             <Form {...form}>
-              <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+              <form
+                method="post"
+                className="space-y-4"
+                onSubmit={form.handleSubmit(onSubmit)}
+                noValidate
+              >
                 <FormField
                   control={form.control}
                   name="email"
@@ -216,7 +221,7 @@ function AdminChallengeStep({
   }
 
   return (
-    <form className="space-y-4" onSubmit={submit} noValidate>
+    <form method="post" className="space-y-4" onSubmit={submit} noValidate>
       <div className="space-y-2">
         <label className="text-sm font-medium" htmlFor="admin-2fa-code">
           {method === 'totp' ? 'Código de 6 dígitos' : 'Código de recuperación'}
