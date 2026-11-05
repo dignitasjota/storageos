@@ -9,8 +9,9 @@ import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
 
-const FROM = '2026-08-01T00:00:00.000Z';
-const UNTIL = '2026-08-31T00:00:00.000Z';
+const DAY = 86_400_000;
+const FROM = new Date(Date.now() + 30 * DAY).toISOString();
+const UNTIL = new Date(Date.now() + 60 * DAY).toISOString();
 
 describe('Reservations + EXCLUDE constraint (e2e)', () => {
   let app: INestApplication;
@@ -83,8 +84,8 @@ describe('Reservations + EXCLUDE constraint (e2e)', () => {
       .send({
         unitId: unitIds[0],
         customerId,
-        validFrom: '2026-08-15T00:00:00.000Z',
-        validUntil: '2026-09-15T00:00:00.000Z',
+        validFrom: new Date(Date.now() + 44 * DAY).toISOString(),
+        validUntil: new Date(Date.now() + 70 * DAY).toISOString(),
       });
     expect(r3.status).toBe(409);
 

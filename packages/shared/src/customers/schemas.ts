@@ -243,6 +243,8 @@ export const CreateContractSchema = z.object({
   reservationId: z.string().uuid().optional(),
   /** Entrada de la lista de espera que se convierte en este contrato. */
   waitlistEntryId: z.string().uuid().optional(),
+  /** Solicitud de trastero que se atiende con este contrato. */
+  unitRequestId: z.string().uuid().optional(),
 });
 export type CreateContractInput = z.infer<typeof CreateContractSchema>;
 

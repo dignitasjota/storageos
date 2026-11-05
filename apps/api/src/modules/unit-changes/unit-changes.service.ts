@@ -1,8 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
-import { DOMAIN_EVENTS, type CustomerNotifyPayload } from '../automations/domain-events';
+import { todayInTimezone } from '../../common/format';
+import { noLiveReservationWhere, unitHeldByOther } from '../../common/unit-holds';
+import { DOMAIN_EVENTS, type UnitRequestResolvedPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -44,6 +51,32 @@ export class UnitChangesService {
     input: PortalUnitChangeRequestInput;
   }): Promise<PortalUnitChangeRequestDto> {
     const { tenantId, customerId, input } = args;
+    if (input.desiredDate && input.desiredDate < todayInTimezone().toISOString().slice(0, 10)) {
+      throw new BadRequestException({
+        code: 'invalid_date',
+        message: 'La fecha del cambio no puede ser anterior a hoy',
+      });
+    }
+    // Solo una petición abierta por contrato: la segunda sería el mismo trabajo.
+    const repeated = await this.prisma.withTenant(
+      (tx) =>
+        tx.unitChangeRequest.count({
+          where: {
+            tenantId,
+            customerId,
+            status: 'pending',
+            contractId: input.contractId ?? null,
+            ...(input.contractId ? {} : { note: input.note }),
+          },
+        }),
+      tenantId,
+    );
+    if (repeated > 0) {
+      throw new ConflictException({
+        code: 'unit_change_already_pending',
+        message: 'Ya tienes una solicitud de cambio pendiente: te responderemos pronto',
+      });
+    }
     // Si indica contrato, validamos que es suyo.
     let contractFacilityId: string | null = null;
     if (input.contractId) {
@@ -79,20 +112,20 @@ export class UnitChangesService {
           message: 'Indica qué trastero quieres cambiar',
         });
       }
-      const target = await this.prisma.withTenant(
-        (tx) =>
-          tx.unit.findFirst({
-            where: {
-              id: targetUnitId,
-              tenantId,
-              facilityId: contractFacilityId!,
-              status: 'available',
-            },
-            select: { id: true },
-          }),
-        tenantId,
-      );
-      if (!target) {
+      const free = await this.prisma.withTenant(async (tx) => {
+        const target = await tx.unit.findFirst({
+          where: {
+            id: targetUnitId,
+            tenantId,
+            facilityId: contractFacilityId!,
+            status: 'available',
+            ...noLiveReservationWhere(),
+          },
+          select: { id: true },
+        });
+        return !!target && !(await unitHeldByOther(tx, { unitId: target.id }));
+      }, tenantId);
+      if (!free) {
         throw new BadRequestException({
           code: 'unit_not_available',
           message: 'Ese trastero ya no está disponible',
@@ -157,11 +190,27 @@ export class UnitChangesService {
   // ---- staff ----
 
   /** Nº de solicitudes de cambio de trastero pendientes de atender. */
-  async countPending(tenantId: string): Promise<number> {
+  async countPending(tenantId: string, facilityScope?: string[] | null): Promise<number> {
+    const ids = resolveFacilityFilter(facilityScope, undefined);
+    if (ids === null) return 0;
     return this.prisma.withTenant(
-      (tx) => tx.unitChangeRequest.count({ where: { tenantId, status: 'pending' } }),
+      (tx) =>
+        tx.unitChangeRequest.count({
+          where: { tenantId, status: 'pending', ...this.facilityWhere(ids, undefined) },
+        }),
       tenantId,
     );
+  }
+
+  /** El local es el del trastero del contrato; sin contrato es de toda la empresa. */
+  private facilityWhere(
+    ids: string[] | undefined,
+    facilityId: string | undefined,
+  ): Prisma.UnitChangeRequestWhereInput {
+    if (!ids) return {};
+    return facilityId
+      ? { contract: { unit: { facilityId: { in: ids } } } }
+      : { OR: [{ contract: { unit: { facilityId: { in: ids } } } }, { contractId: null }] };
   }
 
   async list(
@@ -171,12 +220,7 @@ export class UnitChangesService {
   ): Promise<UnitChangeRequestDto[]> {
     const ids = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
     if (ids === null) return [];
-    // El local es el del trastero del contrato; sin contrato indicado es de toda la empresa.
-    const facility: Prisma.UnitChangeRequestWhereInput = !ids
-      ? {}
-      : filters.facilityId
-        ? { contract: { unit: { facilityId: { in: ids } } } }
-        : { OR: [{ contract: { unit: { facilityId: { in: ids } } } }, { contractId: null }] };
+    const facility = this.facilityWhere(ids, filters.facilityId);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.unitChangeRequest.findMany({
@@ -193,7 +237,7 @@ export class UnitChangesService {
                 unit: { select: { code: true } },
               },
             },
-            targetUnit: { select: { id: true, code: true, basePriceMonthly: true } },
+            targetUnit: { select: { id: true, code: true, basePriceMonthly: true, status: true } },
           },
         }),
       tenantId,
@@ -247,6 +291,8 @@ export class UnitChangesService {
     id: string;
     input: ResolveUnitChangeRequestInput;
     facilityScope?: string[] | null;
+    /** El traslado ya está hecho o programado. */
+    moved?: boolean;
   }): Promise<UnitChangeRequestDto> {
     const { tenantId, userId, id, input } = args;
     const existing = await this.prisma.withTenant(
@@ -274,45 +320,48 @@ export class UnitChangesService {
         message: 'La solicitud ya está resuelta',
       });
     }
-    const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.unitChangeRequest.update({
-          where: { id },
-          data: {
-            status: input.status,
-            resolutionNote: input.resolutionNote ?? null,
-            handledByUserId: userId,
-            handledAt: new Date(),
+    const updated = await this.prisma.withTenant(async (tx) => {
+      // Reclamo: de dos respuestas a la vez solo una avisa al inquilino.
+      const { count } = await tx.unitChangeRequest.updateMany({
+        where: { id, status: 'pending' },
+        data: {
+          status: input.status,
+          resolutionNote: input.resolutionNote ?? null,
+          handledByUserId: userId,
+          handledAt: new Date(),
+        },
+      });
+      if (count === 0) {
+        throw new BadRequestException({
+          code: 'already_resolved',
+          message: 'La solicitud ya está resuelta',
+        });
+      }
+      return tx.unitChangeRequest.findUniqueOrThrow({
+        where: { id },
+        include: {
+          customer: {
+            select: { customerType: true, firstName: true, lastName: true, companyName: true },
           },
-          include: {
-            customer: {
-              select: { customerType: true, firstName: true, lastName: true, companyName: true },
+          contract: {
+            select: {
+              contractNumber: true,
+              priceMonthly: true,
+              unit: { select: { code: true } },
             },
-            contract: {
-              select: {
-                contractNumber: true,
-                priceMonthly: true,
-                unit: { select: { code: true } },
-              },
-            },
-            targetUnit: { select: { id: true, code: true, basePriceMonthly: true } },
           },
-        }),
-      tenantId,
-    );
-    // Cierra el loop: avisa al inquilino por push de la resolución (aprobada o
-    // rechazada), con el motivo si lo hay.
-    const approved = input.status === 'handled';
-    const note = input.resolutionNote?.trim();
-    this.events.emit(DOMAIN_EVENTS.unit_change_resolved, {
+          targetUnit: { select: { id: true, code: true, basePriceMonthly: true, status: true } },
+        },
+      });
+    }, tenantId);
+    this.events.emit(DOMAIN_EVENTS.unit_request_resolved, {
       tenantId,
       customerId: updated.customerId,
-      title: approved ? 'Cambio de trastero aprobado' : 'Solicitud de cambio revisada',
-      body: approved
-        ? `Tu solicitud de cambio de trastero se ha gestionado.${note ? ` ${note}` : ''}`
-        : `Tu solicitud de cambio de trastero no se ha podido aprobar.${note ? ` ${note}` : ''}`,
-      url: '/portal/login',
-    } satisfies CustomerNotifyPayload);
+      request: 'change',
+      outcome: args.moved ? 'moved' : input.status,
+      note: input.resolutionNote?.trim() || null,
+      contractId: updated.contractId,
+    } satisfies UnitRequestResolvedPayload);
     return this.toDto(updated);
   }
 
@@ -351,7 +400,7 @@ export class UnitChangesService {
     handledAt: Date | null;
     desiredDate: Date | null;
     targetUnitId: string | null;
-    targetUnit: { id: string; code: string; basePriceMonthly: unknown } | null;
+    targetUnit: { id: string; code: string; basePriceMonthly: unknown; status: string } | null;
     customer: {
       customerType: string;
       firstName: string | null;
@@ -374,6 +423,7 @@ export class UnitChangesService {
       targetUnitId: r.targetUnitId,
       targetUnitCode: r.targetUnit?.code ?? null,
       targetUnitPrice: r.targetUnit ? Number(r.targetUnit.basePriceMonthly) : null,
+      targetUnitFree: r.targetUnit ? r.targetUnit.status === 'available' : null,
       currentPrice: r.contract ? Number(r.contract.priceMonthly) : null,
       desiredDate: r.desiredDate?.toISOString().slice(0, 10) ?? null,
       note: r.note,

@@ -1,12 +1,22 @@
 import { randomBytes } from 'node:crypto';
 
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { rentTax } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
-import { unitHeldByOther } from '../../common/unit-holds';
+import {
+  noLiveReservationWhere,
+  releaseReservedUnit,
+  unitHeldByOther,
+} from '../../common/unit-holds';
 import { hashHoldToken } from '../../common/waitlist-hold';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
@@ -51,6 +61,15 @@ function escapeHtml(s: string): string {
 /** Tiempo que tiene quien recibe el aviso para responder antes de pasar al siguiente. */
 const NOTICE_TTL_MS = 48 * 60 * 60 * 1000;
 
+/** En la lista, primero lo vivo: quien ya tiene un aviso y quien espera turno. */
+const STATUS_ORDER: Record<string, number> = {
+  notified: 0,
+  waiting: 1,
+  converted: 2,
+  expired: 3,
+  cancelled: 4,
+};
+
 @Injectable()
 export class WaitlistService {
   private readonly logger = new Logger(WaitlistService.name);
@@ -65,8 +84,8 @@ export class WaitlistService {
   ) {}
 
   /**
-   * Catálogo público (por slug del tenant) para el alta self-service: todos los
-   * locales con TODOS sus tipos activos + cuántos hay disponibles ahora. A
+   * Catálogo público (por slug del tenant) para el alta self-service: los
+   * locales activos con los tipos que tienen + cuántos hay disponibles ahora. A
    * diferencia de la disponibilidad del booking, NO filtra los tipos a 0 — son
    * justo los que interesan para apuntarse a la cola.
    */
@@ -75,9 +94,9 @@ export class WaitlistService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
-    const [facilities, unitTypes, grouped] = await Promise.all([
+    const [facilities, unitTypes, existing, grouped] = await Promise.all([
       this.admin.facility.findMany({
-        where: { tenantId: tenant.id, deletedAt: null },
+        where: { tenantId: tenant.id, deletedAt: null, isActive: true },
         select: { id: true, name: true, publicSlug: true },
         orderBy: { name: 'asc' },
       }),
@@ -88,10 +107,17 @@ export class WaitlistService {
       }),
       this.admin.unit.groupBy({
         by: ['facilityId', 'unitTypeId'],
-        where: { tenantId: tenant.id, status: 'available' },
+        where: { tenantId: tenant.id },
+        _count: { _all: true },
+      }),
+      this.admin.unit.groupBy({
+        by: ['facilityId', 'unitTypeId'],
+        where: { tenantId: tenant.id, status: 'available', ...noLiveReservationWhere() },
         _count: { _all: true },
       }),
     ]);
+    // Solo los tamaños que ese local tiene: a los demás nunca se avisaría.
+    const existsInFacility = new Set(existing.map((g) => `${g.facilityId}:${g.unitTypeId}`));
     const availByFacilityType = new Map<string, number>();
     for (const g of grouped) {
       availByFacilityType.set(`${g.facilityId}:${g.unitTypeId}`, g._count._all);
@@ -103,12 +129,14 @@ export class WaitlistService {
           id: f.id,
           name: f.name,
           publicSlug: f.publicSlug,
-          unitTypes: unitTypes.map((t) => ({
-            id: t.id,
-            name: t.name,
-            priceMonthly: Number(t.defaultPriceMonthly),
-            available: availByFacilityType.get(`${f.id}:${t.id}`) ?? 0,
-          })),
+          unitTypes: unitTypes
+            .filter((t) => existsInFacility.has(`${f.id}:${t.id}`))
+            .map((t) => ({
+              id: t.id,
+              name: t.name,
+              priceMonthly: Number(t.defaultPriceMonthly),
+              available: availByFacilityType.get(`${f.id}:${t.id}`) ?? 0,
+            })),
         }))
         .filter((f) => f.unitTypes.length > 0),
     };
@@ -116,7 +144,7 @@ export class WaitlistService {
 
   /**
    * Alta pública en la cola (visitante de la web). Honeypot + dedup por
-   * (email, local, tipo) en las últimas 24 h. Best-effort en el sentido de que
+   * (email, local, tipo) mientras siga en la cola. Best-effort en el sentido de que
    * el honeypot/tenant inválido devuelven `{ joined: false }` sin lanzar; los
    * datos incoherentes (local/tipo de otro tenant) sí dan 404.
    */
@@ -127,28 +155,28 @@ export class WaitlistService {
     const tenantId = tenant.id;
 
     const facility = await this.admin.facility.findFirst({
-      where: { id: input.facilityId, tenantId, deletedAt: null },
+      where: { id: input.facilityId, tenantId, deletedAt: null, isActive: true },
       select: { id: true },
     });
     const unitType = await this.admin.unitType.findFirst({
-      where: { id: input.unitTypeId, tenantId },
+      where: { id: input.unitTypeId, tenantId, isActive: true },
       select: { id: true },
     });
-    if (!facility || !unitType) {
+    const inFacility = await this.admin.unit.count({
+      where: { tenantId, facilityId: input.facilityId, unitTypeId: input.unitTypeId },
+    });
+    if (!facility || !unitType || inFacility === 0) {
       throw new NotFoundException({ code: 'not_found', message: 'Local o tipo no encontrado' });
     }
 
     const created = await this.prisma.withTenant(async (tx) => {
-      // Dedup: una entrada `waiting` del mismo email para el mismo (local, tipo)
-      // en las últimas 24 h → no duplicar (el visitante reintenta / doble clic).
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      // Dedup: quien ya está en la cola de ese (local, tipo) no entra dos veces.
       const existing = await tx.waitlistEntry.findFirst({
         where: {
           facilityId: input.facilityId,
           unitTypeId: input.unitTypeId,
-          contactEmail: input.contactEmail,
-          status: 'waiting',
-          createdAt: { gte: since },
+          contactEmail: { equals: input.contactEmail, mode: 'insensitive' },
+          status: { in: ['waiting', 'notified'] },
         },
       });
       if (existing) return null;
@@ -389,12 +417,14 @@ export class WaitlistService {
       (tx) =>
         tx.waitlistEntry.findMany({
           where,
-          orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+          orderBy: { createdAt: 'asc' },
           include: INCLUDE,
         }),
       tenantId,
     );
-    return rows.map((r) => this.toDto(r));
+    return rows
+      .sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9))
+      .map((r) => this.toDto(r));
   }
 
   async create(args: {
@@ -416,6 +446,29 @@ export class WaitlistService {
       const unitType = await tx.unitType.findUnique({ where: { id: input.unitTypeId } });
       if (!unitType) {
         throw new NotFoundException({ code: 'unit_type_not_found', message: 'Tipo no encontrado' });
+      }
+      const inFacility = await tx.unit.count({
+        where: { facilityId: input.facilityId, unitTypeId: input.unitTypeId },
+      });
+      if (inFacility === 0) {
+        throw new BadRequestException({
+          code: 'unit_type_not_in_facility',
+          message: 'Ese local no tiene trasteros de ese tamaño',
+        });
+      }
+      const repeated = await tx.waitlistEntry.count({
+        where: {
+          facilityId: input.facilityId,
+          unitTypeId: input.unitTypeId,
+          contactEmail: { equals: input.contactEmail, mode: 'insensitive' },
+          status: { in: ['waiting', 'notified'] },
+        },
+      });
+      if (repeated > 0) {
+        throw new ConflictException({
+          code: 'waitlist_duplicate',
+          message: 'Esta persona ya está en la cola de ese tamaño',
+        });
       }
       if (input.customerId) {
         const customer = await tx.customer.findFirst({
@@ -463,21 +516,60 @@ export class WaitlistService {
     meta: RequestMeta;
     facilityScope?: string[] | null;
   }): Promise<WaitlistEntryDto> {
-    let heldUnitId: string | null = null;
-    const updated = await this.prisma.withTenant(async (tx) => {
+    const { updated, freedUnitId } = await this.prisma.withTenant(async (tx) => {
       const existing = await tx.waitlistEntry.findUnique({ where: { id: args.id } });
       if (!existing) {
         throw new NotFoundException({ code: 'waitlist_entry_not_found', message: 'No encontrada' });
       }
       assertFacilityAllowed(args.facilityScope, existing.facilityId);
-      heldUnitId = existing.status === 'notified' ? existing.heldUnitId : null;
-      return tx.waitlistEntry.update({
-        where: { id: args.id },
-        data: { status: args.status, holdTokenHash: null },
-        include: INCLUDE,
+      const heldUnitId = existing.status === 'notified' ? existing.heldUnitId : null;
+      // Marcada como convertida con su contrato aún en borrador: el trastero sigue
+      // siendo suyo hasta que firme o se cancele.
+      const draft =
+        args.status === 'converted' && heldUnitId
+          ? await tx.contract.findFirst({
+              where: {
+                unitId: heldUnitId,
+                status: 'draft',
+                deletedAt: null,
+                ...(existing.customerId ? { customerId: existing.customerId } : {}),
+              },
+              select: { id: true },
+            })
+          : null;
+      const { count } = await tx.waitlistEntry.updateMany({
+        where: { id: args.id, status: { in: ['waiting', 'notified'] } },
+        data: {
+          status: args.status,
+          holdTokenHash: null,
+          ...(draft ? { convertedContractId: draft.id } : {}),
+        },
       });
+      if (count === 0) {
+        throw new ConflictException({
+          code: 'waitlist_entry_closed',
+          message: 'Esta entrada ya está cerrada',
+        });
+      }
+      const freed =
+        heldUnitId && !draft
+          ? await releaseReservedUnit(tx, {
+              tenantId: args.tenantId,
+              unitId: heldUnitId,
+              userId: args.userId,
+              waitlistEntryId: args.id,
+              reason: 'Lista de espera: resuelta a mano',
+            })
+          : false;
+      return {
+        updated: await tx.waitlistEntry.findUniqueOrThrow({
+          where: { id: args.id },
+          include: INCLUDE,
+        }),
+        freedUnitId: freed ? heldUnitId : null,
+      };
     }, args.tenantId);
-    await this.releaseHold(args.tenantId, heldUnitId, 'Lista de espera: resuelta a mano');
+    if (freedUnitId) await this.onUnitAvailable({ tenantId: args.tenantId, unitId: freedUnitId });
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -537,6 +629,7 @@ export class WaitlistService {
           facilityId: e.facilityId,
           unitTypeId: e.unitTypeId,
           status: 'available',
+          ...noLiveReservationWhere(),
         },
         select: { id: true },
       });
@@ -570,24 +663,64 @@ export class WaitlistService {
     reason: string,
   ): Promise<boolean> {
     if (!unitId) return false;
-    return this.prisma.withTenant(async (tx) => {
-      const { count } = await tx.unit.updateMany({
-        where: { id: unitId, status: 'reserved' },
-        data: { status: 'available' },
-      });
-      if (count === 0) return false;
-      await tx.unitStatusHistory.create({
-        data: { tenantId, unitId, previousStatus: 'reserved', newStatus: 'available', reason },
-      });
-      return true;
-    }, tenantId);
+    return this.prisma.withTenant(
+      (tx) => releaseReservedUnit(tx, { tenantId, unitId, reason }),
+      tenantId,
+    );
   }
 
-  private async notifyNext(tenantId: string, unitId: string): Promise<void> {
+  /**
+   * Repaso: gente en cola con un trastero de su tamaño libre. El aviso solo salta
+   * cuando se libera uno, así que se quedarían sin él quien se apuntó con hueco
+   * o a quien le llegan trasteros nuevos. Cross-tenant; lo lanza el cron horario.
+   */
+  async notifyWaitingWithFreeUnits(): Promise<{ notified: number }> {
+    const queues = await this.admin.waitlistEntry.findMany({
+      where: {
+        status: 'waiting',
+        tenant: { status: { in: ['active', 'trial'] }, deletedAt: null },
+      },
+      select: { tenantId: true, facilityId: true, unitTypeId: true },
+      distinct: ['tenantId', 'facilityId', 'unitTypeId'],
+    });
+    let notified = 0;
+    for (const q of queues) {
+      const free = await this.admin.unit.findMany({
+        where: {
+          tenantId: q.tenantId,
+          facilityId: q.facilityId,
+          unitTypeId: q.unitTypeId,
+          status: 'available',
+          ...noLiveReservationWhere(),
+        },
+        select: { id: true },
+        orderBy: [{ basePriceMonthly: 'asc' }, { code: 'asc' }],
+      });
+      for (const unit of free) {
+        try {
+          // Se acaba la cola o los trasteros, lo que antes llegue.
+          if (!(await this.notifyNext(q.tenantId, unit.id))) break;
+          notified += 1;
+        } catch (err) {
+          this.logger.warn(
+            `[waitlist] repaso de la cola (unit ${unit.id}): ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+    }
+    return { notified };
+  }
+
+  private async notifyNext(tenantId: string, unitId: string): Promise<boolean> {
     const holdToken = randomBytes(24).toString('base64url');
     const entry = await this.prisma.withTenant(async (tx) => {
       const unit = await tx.unit.findUnique({ where: { id: unitId } });
-      if (!unit || unit.status !== 'available') return null;
+      if (!unit || !unit.unitTypeId) return null;
+      // Una cola, una persona cada vez: si se liberan dos trasteros a la vez, el
+      // segundo tiene que ver ya avisada a la primera persona.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}::text), hashtext(${`waitlist:${unit.facilityId}:${unit.unitTypeId}`}::text))`;
       if (await unitHeldByOther(tx, { unitId })) return null;
       // Primero de la cola (más antiguo) para ese local + tipo.
       const next = await tx.waitlistEntry.findFirst({
@@ -601,7 +734,11 @@ export class WaitlistService {
       });
       if (!next) return null;
       // Se le guarda el trastero mientras dura su turno.
-      await tx.unit.update({ where: { id: unit.id }, data: { status: 'reserved' } });
+      const { count } = await tx.unit.updateMany({
+        where: { id: unit.id, status: 'available' },
+        data: { status: 'reserved' },
+      });
+      if (count === 0) return null;
       await tx.unitStatusHistory.create({
         data: {
           tenantId,
@@ -623,7 +760,7 @@ export class WaitlistService {
       return next;
     }, tenantId);
 
-    if (!entry) return;
+    if (!entry) return false;
 
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
@@ -663,6 +800,7 @@ export class WaitlistService {
       link: '/waitlist',
       facilityId: entry.facilityId,
     });
+    return true;
   }
 
   private toDto(r: WaitlistWithRelations): WaitlistEntryDto {

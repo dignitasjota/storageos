@@ -164,11 +164,4 @@ export class ReservationsController {
       facilityScope: user.facilityScope ?? null,
     });
   }
-
-  @RequirePermission('reservations:write')
-  @Post('expire-due')
-  @HttpCode(HttpStatus.OK)
-  async expireDue(@CurrentUser() user: AuthenticatedUser): Promise<{ expired: number }> {
-    return this.reservations.expireDue(user.tenantId);
-  }
 }

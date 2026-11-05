@@ -235,6 +235,10 @@ export const ConvertLeadSchema = z.object({
       validUntil: z.string().datetime(),
       depositAmount: z.number().nonnegative().finite().default(0),
     })
+    .refine((v) => new Date(v.validUntil).getTime() > new Date(v.validFrom).getTime(), {
+      message: 'La reserva tiene que terminar después de empezar',
+      path: ['validUntil'],
+    })
     .optional(),
 });
 export type ConvertLeadInput = z.infer<typeof ConvertLeadSchema>;

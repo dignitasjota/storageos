@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { ReservationsService } from '../src/modules/contracts/reservations.service';
@@ -70,20 +71,35 @@ describe('Trastero: reserva manual para un cliente (e2e)', () => {
     const unitId = unitIds[0]!;
     const customerId = await createCustomer(app, owner.accessToken);
 
-    // Reserva ya vencida (validUntil en el pasado) → reserved.
     const res = await request(app.getHttpServer())
       .post('/reservations')
       .set(auth)
       .send({
         unitId,
         customerId,
-        validFrom: new Date(Date.now() - 2 * DAY).toISOString(),
-        validUntil: new Date(Date.now() - DAY).toISOString(),
+        validFrom: new Date().toISOString(),
+        validUntil: new Date(Date.now() + DAY).toISOString(),
         confirmImmediately: true,
       });
     expect(res.status).toBe(201);
     const reserved = await request(app.getHttpServer()).get(`/units/${unitId}`).set(auth);
     expect(reserved.body.status).toBe('reserved');
+
+    // Pasa su fecha.
+    const db = new PrismaClient({
+      datasources: {
+        db: {
+          url:
+            process.env.DATABASE_ADMIN_URL ??
+            'postgresql://storageos:storageos@localhost:5433/storageos?schema=public',
+        },
+      },
+    });
+    await db.reservation.update({
+      where: { id: res.body.id as string },
+      data: { validFrom: new Date(Date.now() - 2 * DAY), validUntil: new Date(Date.now() - DAY) },
+    });
+    await db.$disconnect();
 
     // El cron cross-tenant caduca la reserva y libera el trastero.
     const result = await app.get(ReservationsService).expireDueAll();

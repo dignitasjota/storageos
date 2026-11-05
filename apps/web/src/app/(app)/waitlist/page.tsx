@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import type { WaitlistStatus } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,7 +57,10 @@ const STATUS: Record<
 
 export default function WaitlistPage() {
   const headerFacilityId = useHeaderFacilityId();
-  const { data, isLoading } = useWaitlist(headerFacilityId ? { facilityId: headerFacilityId } : {});
+  const ask = useConfirm();
+  const { data, isLoading, isError, refetch } = useWaitlist(
+    headerFacilityId ? { facilityId: headerFacilityId } : {},
+  );
   const facilities = useFacilities();
   const unitTypes = useUnitTypes();
   const create = useCreateWaitlistEntry();
@@ -107,6 +112,22 @@ export default function WaitlistPage() {
   }
 
   async function onUpdate(id: string, status: 'converted' | 'cancelled') {
+    const ok = await ask(
+      status === 'converted'
+        ? {
+            title: 'Marcar como convertido',
+            description:
+              'Sale de la cola. Si tiene un trastero guardado y no hay un contrato en borrador sobre él, se le ofrece al siguiente.',
+            confirmLabel: 'Marcar',
+          }
+        : {
+            title: 'Sacar de la lista de espera',
+            description: 'Si tiene un trastero guardado, se le ofrece al siguiente.',
+            confirmLabel: 'Sacar de la cola',
+            destructive: true,
+          },
+    );
+    if (!ok) return;
     try {
       await update.mutateAsync({ id, input: { status } });
       toast.success(status === 'converted' ? 'Marcado como convertido.' : 'Cancelado.');
@@ -116,6 +137,7 @@ export default function WaitlistPage() {
   }
 
   const rows = data ?? [];
+  const live = rows.filter((e) => e.status === 'waiting' || e.status === 'notified').length;
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -134,10 +156,12 @@ export default function WaitlistPage() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Cola ({rows.length})</CardTitle>
+          <CardTitle className="text-base">Cola ({live})</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isError ? (
+            <SectionError onRetry={() => void refetch()} />
+          ) : isLoading ? (
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           ) : rows.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
@@ -181,19 +205,21 @@ export default function WaitlistPage() {
                     <TableCell className="space-x-2 text-right">
                       {(e.status === 'waiting' || e.status === 'notified') && (
                         <Can permission="reservations:write">
-                          <Button asChild size="sm">
-                            <Link
-                              href={`/contracts/new?${new URLSearchParams({
-                                waitlistEntryId: e.id,
-                                facilityId: e.facilityId,
-                                unitTypeId: e.unitTypeId,
-                                ...(e.customerId ? { customerId: e.customerId } : {}),
-                                ...(e.heldUnitId ? { unitId: e.heldUnitId } : {}),
-                              }).toString()}`}
-                            >
-                              Crear contrato
-                            </Link>
-                          </Button>
+                          <Can permission="contracts:write">
+                            <Button asChild size="sm">
+                              <Link
+                                href={`/contracts/new?${new URLSearchParams({
+                                  waitlistEntryId: e.id,
+                                  facilityId: e.facilityId,
+                                  unitTypeId: e.unitTypeId,
+                                  ...(e.customerId ? { customerId: e.customerId } : {}),
+                                  ...(e.heldUnitId ? { unitId: e.heldUnitId } : {}),
+                                }).toString()}`}
+                              >
+                                Crear contrato
+                              </Link>
+                            </Button>
+                          </Can>
                           <Button
                             variant="outline"
                             size="sm"

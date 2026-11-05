@@ -8,7 +8,10 @@ import {
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { LEAD_SOURCE_SUGGESTIONS, leadScore, leadSourceLabel } from '@storageos/shared';
 
+import { assertFacilityAllowed } from '../../common/facility-scope';
 import { pageArgs, type PageRequest } from '../../common/pagination';
+import { isReservationOverlap } from '../../common/reservation-overlap';
+import { unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
@@ -656,6 +659,7 @@ export class LeadsService {
     id: string;
     input: ConvertLeadInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<LeadDto> {
     const existing = await this.findOrThrow(args.tenantId, args.id);
     if (existing.status === 'won') {
@@ -692,18 +696,52 @@ export class LeadsService {
       }
       let reservationId: string | null = null;
       if (args.input.reservation) {
-        const reservation = await tx.reservation.create({
-          data: {
-            tenantId: args.tenantId,
-            unitId: args.input.reservation.unitId,
-            customerId,
-            status: 'pending',
-            validFrom: new Date(args.input.reservation.validFrom),
-            validUntil: new Date(args.input.reservation.validUntil),
-            depositAmount: args.input.reservation.depositAmount,
-          },
+        const wanted = args.input.reservation;
+        const unit = await tx.unit.findFirst({
+          where: { id: wanted.unitId, facility: { deletedAt: null } },
+          select: { id: true, status: true, facilityId: true },
         });
-        reservationId = reservation.id;
+        if (!unit) {
+          throw new NotFoundException({
+            code: 'unit_not_found',
+            message: 'Trastero no encontrado',
+          });
+        }
+        assertFacilityAllowed(args.facilityScope, unit.facilityId);
+        if (['occupied', 'maintenance', 'blocked'].includes(unit.status)) {
+          throw new ConflictException({
+            code: 'unit_not_reservable',
+            message: 'Ese trastero no se puede reservar ahora',
+          });
+        }
+        if (await unitHeldByOther(tx, { unitId: unit.id, customerId, ignoreReservations: true })) {
+          throw new ConflictException({
+            code: 'unit_held_by_other',
+            message: 'Este trastero está guardado para otra persona',
+          });
+        }
+        try {
+          const reservation = await tx.reservation.create({
+            data: {
+              tenantId: args.tenantId,
+              unitId: wanted.unitId,
+              customerId,
+              status: 'pending',
+              validFrom: new Date(wanted.validFrom),
+              validUntil: new Date(wanted.validUntil),
+              depositAmount: wanted.depositAmount,
+            },
+          });
+          reservationId = reservation.id;
+        } catch (err) {
+          if (isReservationOverlap(err)) {
+            throw new ConflictException({
+              code: 'reservation_overlap',
+              message: 'Ya existe una reserva activa que solapa con esas fechas',
+            });
+          }
+          throw err;
+        }
       }
       return tx.lead.update({
         where: { id: args.id },

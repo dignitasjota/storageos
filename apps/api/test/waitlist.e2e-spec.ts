@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { ReservationsService } from '../src/modules/contracts/reservations.service';
@@ -118,15 +119,14 @@ describe('Waitlist / lista de espera (e2e)', () => {
     const unitId = unitIds[0]!;
     const customerId = await createCustomer(app, owner.accessToken);
 
-    // Reserva ya vencida (validUntil en el pasado) → el trastero queda reserved.
-    await request(app.getHttpServer())
+    const reservation = await request(app.getHttpServer())
       .post('/reservations')
       .set(auth)
       .send({
         unitId,
         customerId,
-        validFrom: new Date(Date.now() - 2 * DAY).toISOString(),
-        validUntil: new Date(Date.now() - DAY).toISOString(),
+        validFrom: new Date().toISOString(),
+        validUntil: new Date(Date.now() + DAY).toISOString(),
         confirmImmediately: true,
       })
       .expect(201);
@@ -140,8 +140,22 @@ describe('Waitlist / lista de espera (e2e)', () => {
     });
     expect(entry.status).toBe(201);
 
-    // El cron de caducidad libera el trastero (reserved → available) y emite
-    // `unit_available` → el listener de la waitlist avisa al primero de la cola.
+    // Pasa su fecha: el cron de caducidad libera el trastero (reserved → available)
+    // y emite `unit_available` → el listener de la waitlist avisa al primero de la cola.
+    const db = new PrismaClient({
+      datasources: {
+        db: {
+          url:
+            process.env.DATABASE_ADMIN_URL ??
+            'postgresql://storageos:storageos@localhost:5433/storageos?schema=public',
+        },
+      },
+    });
+    await db.reservation.update({
+      where: { id: reservation.body.id as string },
+      data: { validFrom: new Date(Date.now() - 2 * DAY), validUntil: new Date(Date.now() - DAY) },
+    });
+    await db.$disconnect();
     await app.get(ReservationsService).expireDueAll();
 
     let notified: { status: string } | undefined;

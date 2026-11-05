@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
+
 // ============================================================================
 // Funcionalidades de la Operativa: entrada y salida, tareas automáticas,
 // asignación en lote, contexto de una incidencia, autorizados, informe de
@@ -97,10 +99,7 @@ export const MoveFromUnitChangeSchema = z.object({
   newPrice: z.number().positive().max(100_000).optional(),
   prorate: z.boolean().optional(),
   /** Fecha del traslado: si es futura, queda programado. */
-  effectiveDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  effectiveDate: calendarDate.optional(),
 });
 export type MoveFromUnitChangeInput = z.infer<typeof MoveFromUnitChangeSchema>;
 

@@ -3,22 +3,32 @@ import { z } from 'zod';
 import { FirstPaymentMonthsSchema } from '../coupons';
 
 /** Solicitud de un trastero adicional desde el portal del inquilino. */
-export const PortalUnitRequestSchema = z.object({
-  /** Local de interés (opcional). */
-  facilityId: z.string().uuid().optional(),
-  /** Tipo de trastero deseado (opcional). */
-  unitTypeId: z.string().uuid().optional(),
-  /** Un trastero concreto que vio disponible (opcional). */
-  unitId: z.string().uuid().optional(),
-  note: z.string().trim().max(1000).optional(),
-});
+export const PortalUnitRequestSchema = z
+  .object({
+    /** Local de interés (opcional). */
+    facilityId: z.string().uuid().optional(),
+    /** Tipo de trastero deseado (opcional). */
+    unitTypeId: z.string().uuid().optional(),
+    /** Un trastero concreto que vio disponible (opcional). */
+    unitId: z.string().uuid().optional(),
+    note: z.string().trim().max(1000).optional(),
+  })
+  .refine((v) => !!v.unitId || !!v.unitTypeId || (v.note ?? '').length >= 5, {
+    message: 'Cuéntanos qué trastero necesitas',
+    path: ['note'],
+  });
 export type PortalUnitRequestInput = z.infer<typeof PortalUnitRequestSchema>;
 
 /** Resolución de la solicitud por el staff. */
-export const ResolveUnitRequestSchema = z.object({
-  status: z.enum(['handled', 'rejected']),
-  resolutionNote: z.string().trim().max(1000).optional(),
-});
+export const ResolveUnitRequestSchema = z
+  .object({
+    status: z.enum(['handled', 'rejected']),
+    resolutionNote: z.string().trim().max(1000).optional(),
+  })
+  .refine((v) => v.status !== 'rejected' || !!v.resolutionNote, {
+    message: 'Explica al inquilino por qué no se puede',
+    path: ['resolutionNote'],
+  });
 export type ResolveUnitRequestInput = z.infer<typeof ResolveUnitRequestSchema>;
 
 export type UnitRequestStatus = 'pending' | 'handled' | 'rejected';

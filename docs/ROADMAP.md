@@ -562,6 +562,10 @@ Arreglos: prórroga por el plazo original, reservas que se convierten por el alt
 
 Fases 0 a 4 completas + un subset esencial de la 5 (al menos email transaccional y recordatorios de pago) + Fase 8 mínima para poder cobrar suscripciones.
 
+### Reservas, lista de espera y peticiones de trastero: revisión (2026-11-05)
+
+- ✅ **PR A (arreglos)**: un trastero guardado para otra persona ya no se reserva ni vuelve a la venta (`unitHeldByOther` + `releaseReservedUnit`); dos trasteros liberados a la vez no van a la misma persona; repaso horario de la cola con trastero libre; correo al inquilino al responder sus peticiones; transiciones atómicas y validaciones.
+
 ### Segundo análisis de correos y notificaciones (2026-10-01/02, #580–#595) ✅
 
 PIN fuera del historial, baja y consentimiento en comunicaciones comerciales (LSSI), lista de supresión por rebotes y quejas de spam, WhatsApp simulado que ya no finge en producción, segundo recordatorio de impago con enlace de pago y formato legible, avisos al equipo por local y leído por usuario, campañas en segundo plano reanudables, automatizaciones que comprueban si siguen aplicando, correo de factura con la forma de pago, recordatorio de reservas sin firmar o sin pagar, constancia del preaviso SEPA, correos con la marca y el idioma del inquilino, responder a un lead, Comunicaciones paginadas, preferencias de aviso por usuario e historial de correos de la plataforma. CI del API en 5 trozos (#596).

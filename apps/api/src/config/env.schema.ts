@@ -260,6 +260,7 @@ const envSchemaBase = z.object({
   /** Conversaciones de WhatsApp Business: 365 días sin movimiento. */
   RETENTION_WHATSAPP_DAYS: z.coerce.number().int().positive().default(365),
   /** Visitas y clics de la web de los tenants: 16 meses (como Search Console). */
+  RETENTION_WAITLIST_DAYS: z.coerce.number().int().positive().default(365),
   RETENTION_WEB_EVENTS_DAYS: z.coerce.number().int().positive().default(480),
   /** Mensajes del formulario de contacto de trasteros.pro: 2 años (la IP se quita a los 90 días). */
   RETENTION_CONTACT_MESSAGES_DAYS: z.coerce.number().int().positive().default(730),
