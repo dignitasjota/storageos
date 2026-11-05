@@ -405,6 +405,7 @@ export default function UnitsPage() {
             data={units.data?.items ?? []}
             isLoading={units.isLoading}
             searchPlaceholder="Buscar por código..."
+            guide="importar"
             emptyText="Aún no hay trasteros. Crea el primero con «Nuevo trastero» o impórtalos desde un Excel."
           />
         </>

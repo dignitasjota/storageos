@@ -329,7 +329,8 @@ export default function CredentialsPage() {
         data={credentials.data ?? []}
         isLoading={credentials.isLoading}
         searchPlaceholder="Buscar por inquilino..."
-        emptyText="No hay credenciales. Crea la primera para empezar."
+        guide="accesos"
+        emptyText="Cada inquilino recibe su código al pagar; aquí aparecen y puedes crear otros."
         toolbarRight={
           canManage ? (
             <div className="flex gap-2">

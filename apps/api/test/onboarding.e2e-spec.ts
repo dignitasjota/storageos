@@ -191,4 +191,51 @@ describe('Puesta en marcha del tenant (e2e)', () => {
     const customers = await http().get('/customers').set(auth).expect(200);
     expect(customers.body.items ?? customers.body).toHaveLength(0);
   });
+
+  it('con lo imprescindible hecho sugiere una cosa cada vez y se puede descartar', async () => {
+    const owner = await registerVerifiedUser(app, 'onboarding-next');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const next = async () =>
+      (await http().get('/dashboard/onboarding/next-step').set(auth).expect(200)).body.step as {
+        key: string;
+      } | null;
+    expect(await next()).toBeNull();
+
+    await ensureDefaultSeries(app, owner.accessToken);
+    const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    await http()
+      .patch(`/facilities/${facilityId}`)
+      .set(auth)
+      .send({ address: 'C/ Mayor 1', city: 'Valencia' })
+      .expect(200);
+    await http()
+      .post('/settings/saas-billing/billing-details')
+      .set(auth)
+      .send({
+        legalName: 'Siguiente SL',
+        taxId: '00000001R',
+        address: 'C/ Mayor 1',
+        city: 'Valencia',
+        postalCode: '46001',
+      })
+      .expect(200);
+    await http()
+      .patch('/settings/tenant/billing')
+      .set(auth)
+      .send({ transferIban: 'ES9121000418450200051332', autoIssueRecurring: true })
+      .expect(200);
+    for (const key of ['customer', 'contract']) {
+      await http()
+        .put(`/dashboard/onboarding/steps/${key}`)
+        .set(auth)
+        .send({ skipped: true })
+        .expect(200);
+    }
+    expect((await next())!.key).toBe('auto_charge');
+    const after = await http()
+      .post('/dashboard/onboarding/next-step/auto_charge/dismiss')
+      .set(auth)
+      .expect(200);
+    expect(after.body.step.key).toBe('late_fees');
+  });
 });

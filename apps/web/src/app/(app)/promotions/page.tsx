@@ -170,7 +170,8 @@ export default function PromotionsPage() {
         data={promotions.data ?? []}
         isLoading={promotions.isLoading}
         searchPlaceholder="Buscar por código o nombre..."
-        emptyText="Aún no has creado ninguna promoción."
+        guide="promociones"
+        emptyText="Una promoción descuenta todas las cuotas del contrato en el que se aplica."
         toolbarRight={canManage ? <CreatePromotionDialog /> : null}
       />
     </div>

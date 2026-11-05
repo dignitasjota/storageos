@@ -143,6 +143,19 @@ export interface OnboardingTestRunDto {
   signingUrl: string | null;
 }
 
+/** Siguiente cosa que conviene aprender cuando ya está en marcha. */
+export interface OnboardingNextStepDto {
+  key: string;
+  /** `week` primera semana, `month` primer mes, `later` más adelante. */
+  stage: 'week' | 'month' | 'later';
+  title: string;
+  text: string;
+  href: string;
+  cta: string;
+  /** Guía de «Cómo funciona» (`/help#tema`). */
+  guide: string;
+}
+
 /** Checklist de puesta en marcha del operador. */
 export interface OnboardingDto {
   /** Si la web ya se ve y acepta reservas, y qué le falta para ello. */

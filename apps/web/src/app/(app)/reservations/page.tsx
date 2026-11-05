@@ -277,6 +277,7 @@ export default function ReservationsPage() {
         columns={columns}
         data={reservations.data ?? []}
         isLoading={reservations.isLoading}
+        guide="alquilar"
         emptyText={
           'Aún no hay reservas. Crea una desde un trastero disponible en el plano o en /units.'
         }

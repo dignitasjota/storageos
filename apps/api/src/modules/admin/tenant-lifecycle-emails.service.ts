@@ -9,6 +9,7 @@ import {
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
+import { tenantReadiness } from '../../common/tenant-readiness';
 import { AuditService } from '../auth/audit.service';
 import { AuthService, TENANT_OWNER_VERIFIED } from '../auth/auth.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -671,7 +672,10 @@ export class TenantLifecycleEmailsService {
         select: { id: true, name: true, trialEndsAt: true },
       });
       for (const t of tenants) {
-        const limits = await this.freePlanLimitsNote(t.id, 'ending').catch(() => []);
+        const limits = [
+          ...(await this.trialPendingNote(t.id).catch(() => [])),
+          ...(await this.freePlanLimitsNote(t.id, 'ending').catch(() => [])),
+        ];
         const tmpl = await this.trialTemplate(t.name, milestone.days, limits);
         if (await this.dispatch(t.id, milestone.type, tmpl)) count += 1;
       }
@@ -758,6 +762,24 @@ export class TenantLifecycleEmailsService {
   }
 
   // --- Plantillas (español, tono cordial de operador SaaS) ---
+
+  /** Lo que aún le falta para sacarle partido, según lo que tiene de verdad. */
+  private async trialPendingNote(tenantId: string): Promise<string[]> {
+    const [ready, units, contracts] = await Promise.all([
+      tenantReadiness(this.admin, tenantId),
+      this.admin.unit.count({ where: { tenantId } }),
+      this.admin.contract.count({ where: { tenantId, deletedAt: null, signedAt: { not: null } } }),
+    ]);
+    const pending = [
+      ...(ready.hasFacility ? [] : ['crear tu primer local']),
+      ...(units > 0 ? [] : ['dar de alta tus trasteros']),
+      ...(ready.hasCompany ? [] : ['completar los datos de tu empresa']),
+      ...(ready.hasPayment ? [] : ['elegir cómo te pagan tus inquilinos']),
+      ...(contracts > 0 ? [] : ['firmar tu primer contrato']),
+    ];
+    if (pending.length === 0) return [];
+    return [`Antes de que termine te falta: ${pending.join(', ')}.`];
+  }
 
   /**
    * Qué pasa con lo que ya tiene al pasar al plan Gratis: si supera alguno de

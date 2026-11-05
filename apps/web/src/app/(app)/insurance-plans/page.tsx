@@ -116,7 +116,8 @@ export default function InsurancePlansPage() {
         data={plans.data ?? []}
         isLoading={plans.isLoading}
         searchPlaceholder="Buscar plan..."
-        emptyText="Aún no has creado planes de seguro."
+        guide="seguros"
+        emptyText="Un plan de protección se suma cada mes a la factura del inquilino: ingresos recurrentes sin más trabajo."
         toolbarRight={canManage ? <PlanDialog /> : null}
       />
 

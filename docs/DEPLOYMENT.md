@@ -1735,3 +1735,7 @@ Migración `20261217100000_tenant_onboarding_review`, sin variables nuevas. **An
 ## 87. Asistente de primer acceso (2026-11-05)
 
 Migración `20261218100000_onboarding_test_customer` (`customers.is_test`), sin variables nuevas. Los tenants ya creados no ven el asistente (solo se ofrece sin locales ni trasteros). El menú corto se aplica a quien aún no tiene un contrato, también a los tenants actuales en esa situación, y se abre con «Ver todo el menú».
+
+## 88. Seguir aprendiendo tras el alta (2026-11-05)
+
+Sin migración ni variables nuevas. Los correos de fin de prueba añaden lo que le falta a cada tenant; si el texto de «La prueba termina pronto» se ha editado en Comunicación → Correos automáticos sin la variable `{limites}`, no saldrá.

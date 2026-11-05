@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ONBOARDING_SKIPPABLE_STEPS } from '@storageos/shared';
 
+import { tenantFeatures } from '../../common/tenant-features';
 import { bookingReady, tenantReadiness, webPublished } from '../../common/tenant-readiness';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -10,9 +11,11 @@ import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
 import type {
   OnboardingDto,
+  OnboardingNextStepDto,
   OnboardingPath,
   OnboardingStepDto,
   OnboardingTestRunDto,
+  TenantFeature,
   UpdateOnboardingStateInput,
 } from '@storageos/shared';
 
@@ -29,6 +32,7 @@ const SKIP_LABELS: Record<string, string> = {
 
 interface OnboardingState {
   skipped?: string[];
+  dismissedTips?: string[];
   path?: OnboardingPath;
   wizard?: 'done' | 'skipped';
   testRunAt?: string;
@@ -352,6 +356,153 @@ export class OnboardingService {
       recommendedDone: recommendedSteps.filter((s) => s.done).length,
       recommendedTotal: recommendedSteps.length,
     };
+  }
+
+  /**
+   * Con lo imprescindible hecho, una sugerencia cada vez: lo que más le ayuda
+   * primero y lo que aún no usa. Solo lo que su plan incluye.
+   */
+  async nextStep(tenantId: string): Promise<OnboardingNextStepDto | null> {
+    const base = await this.getOnboarding(tenantId);
+    if (!base.completed) return null;
+    const where = { tenantId };
+    const [tenant, features, users, promotions, credentials] = await Promise.all([
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          onboardingState: true,
+          autoChargeOnIssue: true,
+          lateFeeEnabled: true,
+          reviewsAutoRequest: true,
+          portalLogoUrl: true,
+          portalBrandColor: true,
+        },
+      }),
+      tenantFeatures(this.admin, tenantId),
+      this.admin.user.count({ where: { ...where, isActive: true } }),
+      this.admin.promotion.count({ where }),
+      this.admin.accessDevice.count({ where }),
+    ]);
+    const has = (f: TenantFeature) => features.includes(f);
+    const sepaOn = await this.admin.sepaSettings.count({ where: { ...where, enabled: true } });
+    const tips: (OnboardingNextStepDto & { pending: boolean })[] = [
+      {
+        key: 'auto_charge',
+        stage: 'week',
+        title: 'Cobra sin perseguir a nadie',
+        text: 'Con el cobro automático, las facturas se cobran solas a quien tiene tarjeta o domiciliación.',
+        href: '/settings/payments#automatico',
+        cta: 'Activar el cobro automático',
+        guide: 'cobrar',
+        pending: !tenant?.autoChargeOnIssue,
+      },
+      {
+        key: 'late_fees',
+        stage: 'week',
+        title: 'Decide qué pasa si alguien no paga',
+        text: 'Revisa los avisos, el recargo por mora y cuándo se suspende el acceso.',
+        href: '/settings/billing',
+        cta: 'Configurar los impagos',
+        guide: 'impagos',
+        pending: !tenant?.lateFeeEnabled,
+      },
+      {
+        key: 'team',
+        stage: 'week',
+        title: 'Trae a tu equipo',
+        text: 'Cada persona con su usuario, sus permisos y, si quieres, solo sus locales.',
+        href: '/settings/users',
+        cta: 'Invitar a alguien',
+        guide: 'equipo',
+        pending: users < 2,
+      },
+      {
+        key: 'branding',
+        stage: 'month',
+        title: 'Ponle tu marca',
+        text: 'Tu logo y tu color en la web, el área de clientes y los correos.',
+        href: '/settings/branding',
+        cta: 'Poner mi marca',
+        guide: 'web',
+        pending: !tenant?.portalLogoUrl && !tenant?.portalBrandColor,
+      },
+      {
+        key: 'reviews',
+        stage: 'month',
+        title: 'Consigue reseñas',
+        text: 'Pide la valoración sola a los nuevos inquilinos y lleva a los contentos a Google.',
+        href: '/reviews',
+        cta: 'Activar las valoraciones',
+        guide: 'promociones',
+        pending: !tenant?.reviewsAutoRequest,
+      },
+      {
+        key: 'promotions',
+        stage: 'month',
+        title: 'Llena los trasteros vacíos',
+        text: 'Crea una promoción o un cupón para tus anuncios y tu web.',
+        href: '/promotions',
+        cta: 'Crear una promoción',
+        guide: 'promociones',
+        pending: promotions === 0,
+      },
+      ...(has('access_control')
+        ? [
+            {
+              key: 'access',
+              stage: 'month' as const,
+              title: 'Conecta tus puertas',
+              text: 'Abre a distancia, registra quién entra y corta el acceso a quien no paga.',
+              href: '/access/devices',
+              cta: 'Añadir una puerta',
+              guide: 'accesos',
+              pending: credentials === 0,
+            },
+          ]
+        : []),
+      {
+        key: 'pricing',
+        stage: 'later',
+        title: 'Revisa tus precios',
+        text: 'Mira las sugerencias por tamaño según tu ocupación y tu competencia.',
+        href: '/analytics',
+        cta: 'Ver las sugerencias',
+        guide: 'precios',
+        pending: true,
+      },
+      ...(has('sepa')
+        ? [
+            {
+              key: 'sepa',
+              stage: 'later' as const,
+              title: 'Domicilia con tu banco',
+              text: 'Remesas SEPA sin comisiones de pasarela.',
+              href: '/settings/payments#domiciliacion',
+              cta: 'Configurar las remesas',
+              guide: 'domiciliacion',
+              pending: sepaOn === 0,
+            },
+          ]
+        : []),
+    ];
+    const dismissed = new Set(
+      ((tenant?.onboardingState ?? {}) as OnboardingState).dismissedTips ?? [],
+    );
+    const next = tips.find((t) => t.pending && !dismissed.has(t.key));
+    if (!next) return null;
+    const { pending: _pending, ...tip } = next;
+    return tip;
+  }
+
+  /** Descarta una sugerencia y devuelve la siguiente. */
+  async dismissNextStep(tenantId: string, key: string): Promise<OnboardingNextStepDto | null> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { onboardingState: true },
+    });
+    const list = ((tenant?.onboardingState ?? {}) as OnboardingState).dismissedTips ?? [];
+    await this.patchState(tenantId, { dismissedTips: [...new Set([...list, key])] });
+    return this.nextStep(tenantId);
   }
 
   /** Punto de partida elegido y si ya pasó por el asistente. */

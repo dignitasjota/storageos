@@ -437,6 +437,7 @@ export default function IncidentsPage() {
         columns={columns}
         data={incidents.rows}
         isLoading={incidents.isLoading}
+        guide="tareas"
         emptyText="No hay incidencias. Cuando un inquilino o tu equipo reporten una, aparecerá aquí."
         serverSearch={{
           value: searchText,

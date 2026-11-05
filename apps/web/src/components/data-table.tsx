@@ -14,6 +14,7 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { ArrowDown, ArrowUp, ChevronRight, ChevronsUpDown } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -69,6 +70,8 @@ interface DataTableProps<TData, TValue> {
   onRowClick?: (row: TData) => void;
   /** Acción bajo el texto vacío cuando no hay nada (p. ej. «Crear el primero»). */
   emptyAction?: React.ReactNode;
+  /** Guía de «Cómo funciona» que se enlaza cuando la lista está vacía (`/help#tema`). */
+  guide?: string;
   /** Hay filtros de la página puestos: el vacío ofrece quitarlos. */
   filtersActive?: boolean;
   onClearFilters?: () => void;
@@ -116,6 +119,7 @@ export function DataTable<TData, TValue>({
   rowHref,
   onRowClick,
   emptyAction,
+  guide,
   filtersActive,
   onClearFilters,
 }: DataTableProps<TData, TValue>) {
@@ -164,7 +168,7 @@ export function DataTable<TData, TValue>({
         />
       );
     }
-    return <EmptyBlock text={emptyText} action={emptyAction} />;
+    return <EmptyBlock text={emptyText} action={emptyAction} guide={guide} />;
   }
 
   function rowProps(row: TData) {
@@ -427,11 +431,24 @@ export function DataTable<TData, TValue>({
   );
 }
 
-function EmptyBlock({ text, action }: { text: string; action?: React.ReactNode }) {
+function EmptyBlock({
+  text,
+  action,
+  guide,
+}: {
+  text: string;
+  action?: React.ReactNode;
+  guide?: string | undefined;
+}) {
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
       <p className="max-w-md text-sm text-muted-foreground">{text}</p>
       {action}
+      {guide && (
+        <Link href={`/help#${guide}`} className="text-sm text-primary hover:underline">
+          Cómo funciona
+        </Link>
+      )}
     </div>
   );
 }

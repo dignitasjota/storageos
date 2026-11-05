@@ -236,7 +236,8 @@ export default function SepaRemittancesPage() {
         data={list.data ?? []}
         isLoading={list.isLoading}
         searchPlaceholder="Buscar remesa..."
-        emptyText="Aún no has generado ninguna remesa."
+        guide="domiciliacion"
+        emptyText="Una remesa cobra de golpe las facturas domiciliadas: generas el fichero y lo subes a tu banco."
         toolbarRight={
           <>
             <Can permission="imports:manage">

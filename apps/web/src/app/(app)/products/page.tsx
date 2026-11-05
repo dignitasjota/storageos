@@ -269,6 +269,7 @@ function CatalogTab() {
         data={products.data ?? []}
         isLoading={products.isLoading}
         searchPlaceholder="Buscar por SKU o nombre..."
+        guide="seguros"
         emptyText="No hay productos. Añade el primero (ej. candado standard)."
         toolbarRight={
           <Can permission="products:manage">

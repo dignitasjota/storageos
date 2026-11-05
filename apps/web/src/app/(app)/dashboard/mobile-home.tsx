@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
+import { NextStepCard } from './next-step-card';
 import { OnboardingCard } from './onboarding-card';
 
 import type { Permission, TenantFeature } from '@storageos/shared';
@@ -118,6 +119,7 @@ export function MobileHome() {
       </div>
 
       <OnboardingCard />
+      <NextStepCard />
 
       {/* Búsqueda grande (lleva a clientes; el ⌘K del header también funciona) */}
       <Link

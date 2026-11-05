@@ -209,7 +209,8 @@ export default function CampaignsPage() {
         data={campaigns.data ?? []}
         isLoading={campaigns.isLoading}
         searchPlaceholder="Buscar campaña..."
-        emptyText="Aún no has creado ninguna campaña."
+        guide="promociones"
+        emptyText="Envía un correo a quien elijas: inquilinos, contactos o antiguos clientes."
         toolbarRight={canSend ? <CreateCampaignDialog /> : null}
       />
     </div>

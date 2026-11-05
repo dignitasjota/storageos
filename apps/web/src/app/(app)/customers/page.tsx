@@ -897,6 +897,7 @@ export default function CustomersPage() {
             </Dialog>
           </>
         }
+        guide="alquilar"
         emptyText={
           activeFilters
             ? 'Ningún inquilino cumple estos filtros.'

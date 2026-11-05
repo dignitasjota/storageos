@@ -2606,3 +2606,5 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 
 - `PUT /dashboard/onboarding/state {path?, wizard?}` (`facilities:manage`): punto de partida (`new`, `opening`, `migrating`) y paso por el asistente. `GET /dashboard/onboarding` añade `path`, `wizardPending` y `testRun`.
 - `POST /dashboard/onboarding/test-run` crea el inquilino de prueba con el email de quien lo pide (400 `no_unit_available`, 409 `test_run_exists`) y `DELETE` lo borra y libera su trastero. No se le factura. `ContractSignViewDto.isTest`.
+
+- `GET /dashboard/onboarding/next-step` (`facilities:manage`) → `{step}`: con lo imprescindible hecho, la siguiente sugerencia (primera semana, primer mes y más adelante) según lo que aún no usa y su plan. `POST /dashboard/onboarding/next-step/:key/dismiss` la descarta y devuelve la siguiente.
