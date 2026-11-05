@@ -217,6 +217,15 @@ export interface FloorOccupantDto {
   overdue: number;
 }
 
+/** Trastero reservado de una planta y para quién. */
+export interface FloorHoldDto {
+  unitId: string;
+  label: string;
+  name: string | null;
+  until: string | null;
+  link: string;
+}
+
 /** Resumen de cada local para comparar. */
 export interface FacilitySummaryDto {
   facilityId: string;

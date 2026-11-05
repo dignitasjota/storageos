@@ -117,6 +117,7 @@ describe('Baja con fecha, cierre automático y turnos de la lista de espera (e2e
         contactEmail: 'ana-wl@example.com',
         status: 'notified',
         notifiedAt: new Date(Date.now() - 49 * 3_600_000),
+        holdExpiresAt: new Date(Date.now() - 3_600_000),
       },
     });
     const second = await request(app.getHttpServer()).post('/waitlist').set(auth).send({

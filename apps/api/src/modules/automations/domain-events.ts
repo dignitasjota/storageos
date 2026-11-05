@@ -42,6 +42,10 @@ export const DOMAIN_EVENTS = {
   review_submitted: 'domain.review_submitted',
   /** Una incidencia del inquilino se resolvió/cerró (push al inquilino). */
   incident_resolved: 'domain.incident_resolved',
+  /** Una reserva confirmada está a punto de caducar (correo al inquilino). */
+  reservation_expiring: 'domain.reservation_expiring',
+  /** Se le ha guardado un trastero a alguien de la cola (WhatsApp si el negocio lo tiene). */
+  waitlist_notified: 'domain.waitlist_notified',
   /** El equipo resolvió una petición de trastero del inquilino (correo y push). */
   unit_request_resolved: 'domain.unit_request_resolved',
   /** Mensaje del chat inquilino ↔ equipo (no son disparadores de automatizaciones). */
@@ -181,6 +185,21 @@ export interface CustomerMessagePayload {
   channel: 'portal' | 'whatsapp' | 'email';
   /** Solo en mensajes del equipo: por dónde sale además (canal del inquilino). */
   replyVia?: 'whatsapp' | 'email' | null;
+}
+
+export interface ReservationExpiringPayload {
+  tenantId: string;
+  reservationId: string;
+}
+
+export interface WaitlistNotifiedPayload {
+  tenantId: string;
+  phone: string | null;
+  contactName: string;
+  unitTypeName: string;
+  facilityName: string;
+  hours: number;
+  link: string;
 }
 
 /** Respuesta a una petición de trastero: cambio o trastero adicional. */

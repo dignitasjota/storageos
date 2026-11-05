@@ -1,11 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { UNIT_HOLD_LABELS } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
+import { describeUnitHold } from '../../common/unit-holds';
 import { PrismaService } from '../database/prisma.service';
 
 import { FacilityFloorsService } from './facility-floors.service';
 
-import type { FacilitySummaryDto, FloorOccupantDto } from '@storageos/shared';
+import type {
+  FacilitySummaryDto,
+  FloorHoldDto,
+  FloorOccupantDto,
+  UnitHoldDto,
+} from '@storageos/shared';
 
 const DAY = 86_400_000;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -114,6 +121,55 @@ export class FacilityInsightsService {
           .length,
       };
     });
+  }
+
+  /** Para quién está guardado cada trastero reservado de una planta. */
+  async holds(
+    tenantId: string,
+    floorId: string,
+    facilityScope?: string[] | null,
+  ): Promise<FloorHoldDto[]> {
+    const floor = await this.floors.findOrThrow(tenantId, floorId);
+    assertFacilityAllowed(facilityScope, floor.facilityId);
+    return this.prisma.withTenant(async (tx) => {
+      const units = await tx.unit.findMany({
+        where: { floorId, status: 'reserved' },
+        select: { id: true },
+      });
+      const rows: FloorHoldDto[] = [];
+      for (const u of units) {
+        const hold = await describeUnitHold(tx, u.id);
+        if (!hold) continue;
+        rows.push({
+          unitId: u.id,
+          label: UNIT_HOLD_LABELS[hold.kind],
+          name: hold.name,
+          until: hold.until?.toISOString() ?? null,
+          link: hold.link,
+        });
+      }
+      return rows;
+    }, tenantId);
+  }
+
+  /** Quién retiene un trastero. */
+  async unitHold(
+    tenantId: string,
+    unitId: string,
+    facilityScope?: string[] | null,
+  ): Promise<UnitHoldDto | null> {
+    return this.prisma.withTenant(async (tx) => {
+      const unit = await tx.unit.findUnique({
+        where: { id: unitId },
+        select: { facilityId: true },
+      });
+      if (!unit) {
+        throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
+      }
+      assertFacilityAllowed(facilityScope, unit.facilityId);
+      const hold = await describeUnitHold(tx, unitId);
+      return hold ? { ...hold, until: hold.until?.toISOString() ?? null } : null;
+    }, tenantId);
   }
 
   /** Inquilino (y su deuda vencida) de cada trastero ocupado de una planta. */

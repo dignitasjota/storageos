@@ -67,6 +67,7 @@ export interface UnitChangeRequestDto {
   note: string;
   status: UnitChangeRequestStatus;
   resolutionNote: string | null;
+  assignedToUserId: string | null;
   createdAt: string;
   handledAt: string | null;
 }

@@ -11,9 +11,9 @@ import { CreateContractSchema, rentTax } from '@storageos/shared';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { toCents } from '../../common/money';
 import { isReservationOverlap } from '../../common/reservation-overlap';
-import { releaseReservedUnit, unitHeldByOther } from '../../common/unit-holds';
+import { describeUnitHold, releaseReservedUnit, unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
-import { DOMAIN_EVENTS } from '../automations/domain-events';
+import { DOMAIN_EVENTS, type ReservationExpiringPayload } from '../automations/domain-events';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -28,8 +28,13 @@ import type {
   ContractDto,
   ConvertReservationInput,
   CreateReservationInput,
+  HeldUnitDto,
   ReservationDto,
+  ReservationSettingsDto,
+  ReservationSignalPolicy,
   ReservationStatusValue,
+  UpdateReservationInput,
+  UpdateReservationSettingsInput,
 } from '@storageos/shared';
 
 type ReservationWithRelations = Reservation & {
@@ -60,6 +65,11 @@ const RESERVATION_INCLUDE = {
     select: { firstName: true, lastName: true, companyName: true, customerType: true },
   },
 } satisfies Prisma.ReservationInclude;
+
+/** El recordatorio sale cuando faltan dos días para que caduque. */
+const REMINDER_WINDOW_MS = 2 * 86_400_000;
+/** A una reserva recién creada no se le recuerda nada. */
+const REMINDER_MIN_AGE_MS = 86_400_000;
 
 /** Día de calendario de una fecha en la zona del local. */
 function dayInZone(date: Date, timeZone: string): string {
@@ -114,6 +124,205 @@ export class ReservationsService {
     facilityScope?: string[] | null,
   ): Promise<ReservationDto> {
     return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
+  }
+
+  async getSettings(tenantId: string): Promise<ReservationSettingsDto> {
+    const t = await this.admin.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: {
+        reservationSignalPolicy: true,
+        waitlistHoldHours: true,
+        waitlistStaleDays: true,
+      },
+    });
+    return {
+      signalPolicy: t.reservationSignalPolicy as ReservationSignalPolicy,
+      waitlistHoldHours: t.waitlistHoldHours,
+      waitlistStaleDays: t.waitlistStaleDays,
+    };
+  }
+
+  async updateSettings(args: {
+    tenantId: string;
+    userId: string;
+    input: UpdateReservationSettingsInput;
+    meta: RequestMeta;
+  }): Promise<ReservationSettingsDto> {
+    const { signalPolicy, waitlistHoldHours, waitlistStaleDays } = args.input;
+    await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: {
+        ...(signalPolicy ? { reservationSignalPolicy: signalPolicy } : {}),
+        ...(waitlistHoldHours !== undefined ? { waitlistHoldHours } : {}),
+        ...(waitlistStaleDays !== undefined ? { waitlistStaleDays } : {}),
+      },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'tenant.reservation_settings_changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: args.input,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.getSettings(args.tenantId);
+  }
+
+  /** Trasteros reservados y quién los retiene, sea cual sea el motivo. */
+  async heldUnits(
+    tenantId: string,
+    filters: { facilityId?: string; facilityScope?: string[] | null },
+  ): Promise<HeldUnitDto[]> {
+    const ids = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (ids === null) return [];
+    return this.prisma.withTenant(async (tx) => {
+      const units = await tx.unit.findMany({
+        where: {
+          status: 'reserved',
+          facility: { deletedAt: null },
+          ...(ids ? { facilityId: { in: ids } } : {}),
+        },
+        orderBy: [{ facilityId: 'asc' }, { code: 'asc' }],
+        take: 500,
+        include: {
+          facility: { select: { name: true } },
+          unitType: { select: { name: true } },
+        },
+      });
+      const rows: HeldUnitDto[] = [];
+      for (const u of units) {
+        const hold = await describeUnitHold(tx, u.id);
+        rows.push({
+          unitId: u.id,
+          unitCode: u.code,
+          facilityId: u.facilityId,
+          facilityName: u.facility.name,
+          unitTypeName: u.unitType?.name ?? null,
+          hold: hold ? { ...hold, until: hold.until?.toISOString() ?? null } : null,
+        });
+      }
+      return rows;
+    }, tenantId);
+  }
+
+  /** Prorrogar, cambiar de inquilino o anotar en una reserva viva. */
+  async update(args: {
+    tenantId: string;
+    userId: string;
+    reservationId: string;
+    input: UpdateReservationInput;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<ReservationDto> {
+    const { input } = args;
+    const existing = await this.findOrThrow(args.tenantId, args.reservationId, args.facilityScope);
+    if (existing.status !== 'pending' && existing.status !== 'confirmed') {
+      throw new BadRequestException({
+        code: 'reservation_not_active',
+        message: 'Solo se cambia una reserva pendiente o confirmada',
+      });
+    }
+    const data: Prisma.ReservationUncheckedUpdateManyInput = {};
+    if (input.validUntil) {
+      const until = new Date(input.validUntil);
+      if (until.getTime() <= Date.now() || until <= existing.validFrom) {
+        throw new BadRequestException({
+          code: 'invalid_valid_until',
+          message: 'La reserva tiene que durar hasta una fecha futura',
+        });
+      }
+      data.validUntil = until;
+      // Con fecha nueva vuelve a tocar recordatorio.
+      data.reminderSentAt = null;
+    }
+    if (input.notes !== undefined) data.notes = input.notes?.trim() || null;
+    if (input.customerId !== undefined && input.customerId !== existing.customerId) {
+      if (existing.depositInvoiceId) {
+        throw new ConflictException({
+          code: 'reservation_has_signal',
+          message: 'La señal ya está facturada a este inquilino: cancela y crea otra reserva',
+        });
+      }
+      if (!input.customerId && Number(existing.depositAmount) > 0) {
+        throw new BadRequestException({
+          code: 'customer_required',
+          message: 'Para cobrar una señal, la reserva necesita un inquilino',
+        });
+      }
+      data.customerId = input.customerId;
+    }
+    const updated = await this.prisma.withTenant(async (tx) => {
+      if (data.customerId) {
+        const customer = await tx.customer.findFirst({
+          where: { id: data.customerId as string, deletedAt: null },
+          select: { id: true },
+        });
+        if (!customer) {
+          throw new NotFoundException({
+            code: 'customer_not_found',
+            message: 'Inquilino no encontrado',
+          });
+        }
+      }
+      try {
+        await this.claimStatus(tx, args.reservationId, existing.status, data);
+      } catch (err) {
+        if (isReservationOverlap(err)) {
+          throw new ConflictException({
+            code: 'reservation_overlap',
+            message: 'Ya existe una reserva activa que solapa con esas fechas',
+          });
+        }
+        throw err;
+      }
+      return tx.reservation.findUniqueOrThrow({
+        where: { id: args.reservationId },
+        include: RESERVATION_INCLUDE,
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'reservation.updated',
+      entityType: 'Reservation',
+      entityId: args.reservationId,
+      changes: { ...input },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
+  /** Avisa a quien tiene una reserva confirmada que caduca en dos días. Una vez. */
+  async sendExpiryReminders(now = new Date()): Promise<number> {
+    const rows = await this.admin.reservation.findMany({
+      where: {
+        status: 'confirmed',
+        customerId: { not: null },
+        reminderSentAt: null,
+        validUntil: { gt: now, lte: new Date(now.getTime() + REMINDER_WINDOW_MS) },
+        createdAt: { lte: new Date(now.getTime() - REMINDER_MIN_AGE_MS) },
+        tenant: { status: { in: ['active', 'trial'] }, deletedAt: null },
+      },
+      select: { id: true, tenantId: true },
+      take: 500,
+    });
+    let sent = 0;
+    for (const r of rows) {
+      const { count } = await this.admin.reservation.updateMany({
+        where: { id: r.id, reminderSentAt: null },
+        data: { reminderSentAt: now },
+      });
+      if (count === 0) continue;
+      sent += 1;
+      this.eventBus.emit(DOMAIN_EVENTS.reservation_expiring, {
+        tenantId: r.tenantId,
+        reservationId: r.id,
+      } satisfies ReservationExpiringPayload);
+    }
+    return sent;
   }
 
   async create(args: {
@@ -614,7 +823,9 @@ export class ReservationsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    await this.settleSignal(args.tenantId, args.userId, updated, 'Reserva cancelada');
+    const keep =
+      args.input.keepSignal ?? (await this.getSettings(args.tenantId)).signalPolicy === 'keep';
+    await this.settleSignal(args.tenantId, args.userId, updated, 'Reserva cancelada', keep);
     if (releasedUnit) {
       this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
         tenantId: args.tenantId,
@@ -626,19 +837,31 @@ export class ReservationsService {
 
   /**
    * La reserva se cae con una señal facturada. Sin cobrar, la factura se anula
-   * (si no, seguiría en impagos). Cobrada, queda un abono en borrador para que
-   * el equipo decida: se revisa, se emite y se devuelve a mano. Best-effort.
+   * (si no, seguiría en impagos). Cobrada, según la política del negocio: se la
+   * queda, o queda un abono en borrador para revisar, emitir y devolver a mano.
+   * Best-effort.
    */
   private async settleSignal(
     tenantId: string,
     userId: string | null,
     r: { id: string; depositInvoiceId: string | null; unit: { code: string; facilityId: string } },
     reason: string,
+    keep: boolean,
   ): Promise<void> {
     if (!r.depositInvoiceId) return;
     try {
       const invoice = await this.invoices.detail(tenantId, r.depositInvoiceId);
-      if (invoice.status === 'paid') {
+      if (invoice.status === 'paid' && keep) {
+        // El negocio se la queda: la factura sigue como está.
+        await this.audit.write({
+          tenantId,
+          userId,
+          action: 'reservation.signal_kept',
+          entityType: 'Reservation',
+          entityId: r.id,
+          changes: { reason, invoiceId: invoice.id },
+        });
+      } else if (invoice.status === 'paid') {
         const credit = await this.invoices.rectify({
           originalInvoiceId: invoice.id,
           tenantId,
@@ -805,7 +1028,10 @@ export class ReservationsService {
       }
       return { expired: due, releasedUnitIds: released };
     }, tenantId);
-    for (const r of expired) await this.settleSignal(tenantId, null, r, 'Reserva caducada');
+    if (expired.some((r) => r.depositInvoiceId)) {
+      const keep = (await this.getSettings(tenantId)).signalPolicy === 'keep';
+      for (const r of expired) await this.settleSignal(tenantId, null, r, 'Reserva caducada', keep);
+    }
     // Tras el commit: el trastero liberado queda disponible → avisar a la lista
     // de espera de su tipo (el listener corre en el worker, donde vive el cron).
     for (const unitId of releasedUnitIds) {
@@ -887,7 +1113,7 @@ export class ReservationsService {
     tx: Prisma.TransactionClient,
     id: string,
     from: ReservationStatus,
-    data: Prisma.ReservationUpdateManyMutationInput,
+    data: Prisma.ReservationUncheckedUpdateManyInput,
   ): Promise<void> {
     const { count } = await tx.reservation.updateMany({ where: { id, status: from }, data });
     if (count === 0) {
@@ -924,6 +1150,7 @@ export class ReservationsService {
       convertedContractId: row.convertedContractId,
       cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
       cancelReason: row.cancelReason,
+      assignedToUserId: row.assignedToUserId,
       createdAt: row.createdAt.toISOString(),
     };
   }

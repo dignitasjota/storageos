@@ -6,7 +6,9 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -15,8 +17,12 @@ import {
   type ContractDto,
   ConvertReservationSchema,
   CreateReservationSchema,
+  type HeldUnitDto,
   type ReservationDto,
+  type ReservationSettingsDto,
   ReservationStatusEnum,
+  UpdateReservationSchema,
+  UpdateReservationSettingsSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -34,6 +40,8 @@ import type { Request } from 'express';
 class CreateReservationDto extends createZodDto(CreateReservationSchema) {}
 class CancelReservationDto extends createZodDto(CancelReservationSchema) {}
 class ConvertReservationDto extends createZodDto(ConvertReservationSchema) {}
+class UpdateReservationDto extends createZodDto(UpdateReservationSchema) {}
+class UpdateReservationSettingsDto extends createZodDto(UpdateReservationSettingsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -47,6 +55,40 @@ function extractMeta(req: Request): RequestMeta {
 @Controller('reservations')
 export class ReservationsController {
   constructor(private readonly reservations: ReservationsService) {}
+
+  @RequirePermission('reservations:read')
+  @Get('settings')
+  settings(@CurrentUser() user: AuthenticatedUser): Promise<ReservationSettingsDto> {
+    return this.reservations.getSettings(user.tenantId);
+  }
+
+  @RequirePermission('settings:manage')
+  @Put('settings')
+  updateSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateReservationSettingsDto,
+    @Req() req: Request,
+  ): Promise<ReservationSettingsDto> {
+    return this.reservations.updateSettings({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Trasteros reservados y quién los retiene. */
+  @RequirePermission('reservations:read')
+  @Get('held-units')
+  heldUnits(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<HeldUnitDto[]> {
+    return this.reservations.heldUnits(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
 
   @RequirePermission('reservations:read')
   @Get()
@@ -89,6 +131,24 @@ export class ReservationsController {
       input,
       facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('reservations:write')
+  @Patch(':id')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateReservationDto,
+    @Req() req: Request,
+  ): Promise<ReservationDto> {
+    return this.reservations.update({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      reservationId: id,
+      input,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

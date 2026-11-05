@@ -1,7 +1,7 @@
 'use client';
 
 import { type ColumnDef } from '@tanstack/react-table';
-import { ArrowRightLeft, Check, X } from 'lucide-react';
+import { ArrowRightLeft, Check, Download, X } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -25,10 +25,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { downloadCsv } from '@/lib/csv';
 import { useUnits } from '@/lib/facilities/hooks';
 import { formatDate, formatEur, formatNumber } from '@/lib/format';
 import { useMoveFromUnitChange } from '@/lib/operations/features-hooks';
 import { useResolveUnitChangeRequest, useUnitChangeRequests } from '@/lib/unit-changes/hooks';
+import { useUnitAlternatives } from '@/lib/unit-ops/hooks';
 
 const STATUS: Record<
   UnitChangeRequestDto['status'],
@@ -76,6 +78,31 @@ export default function UnitChangeRequestsPage() {
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
+  }
+
+  function exportCsv() {
+    downloadCsv('cambios-de-trastero.csv', [
+      [
+        'Fecha',
+        'Cliente',
+        'Trastero actual',
+        'Trastero pedido',
+        'Desde',
+        'Nota',
+        'Estado',
+        'Respuesta',
+      ],
+      ...(list.data ?? []).map((r) => [
+        formatDate(r.createdAt),
+        r.customerName,
+        r.unitCode ?? '',
+        r.targetUnitCode ?? '',
+        r.desiredDate ? formatDate(r.desiredDate) : '',
+        r.note,
+        STATUS[r.status].label,
+        r.resolutionNote ?? '',
+      ]),
+    ]);
   }
 
   const columns: ColumnDef<UnitChangeRequestDto>[] = [
@@ -181,7 +208,7 @@ export default function UnitChangeRequestsPage() {
         </p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {(['pending', 'handled', 'rejected', ''] as const).map((s) => (
           <Button
             key={s || 'all'}
@@ -192,6 +219,14 @@ export default function UnitChangeRequestsPage() {
             {s === '' ? 'Todas' : STATUS[s].label}
           </Button>
         ))}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={exportCsv}
+          disabled={(list.data ?? []).length === 0}
+        >
+          <Download className="mr-1 size-4" /> CSV
+        </Button>
       </div>
 
       {list.isError ? (
@@ -213,6 +248,7 @@ export default function UnitChangeRequestsPage() {
 function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClose: () => void }) {
   const units = useUnits({ status: 'available' });
   const move = useMoveFromUnitChange();
+  const alternatives = useUnitAlternatives(request.id, request.targetUnitFree !== true);
   // Si el inquilino eligió trastero y sigue libre, viene ya puesto (y su precio).
   const [newUnitId, setNewUnitId] = useState(
     request.targetUnitFree ? (request.targetUnitId ?? '') : '',
@@ -256,6 +292,29 @@ function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClo
             <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
               El {request.targetUnitCode} que pidió ya no está libre: elige otro.
             </p>
+          )}
+          {(alternatives.data ?? []).length > 0 && (
+            <div className="space-y-1">
+              <Label>Parecidos y libres</Label>
+              <div className="flex flex-wrap gap-2">
+                {(alternatives.data ?? []).map((a) => (
+                  <Button
+                    key={a.unitId}
+                    type="button"
+                    size="sm"
+                    variant={newUnitId === a.unitId ? 'default' : 'outline'}
+                    onClick={() => {
+                      setNewUnitId(a.unitId);
+                      setNewPrice(String(a.priceMonthly));
+                    }}
+                  >
+                    {a.unitCode}
+                    {a.areaM2 ? ` · ${formatNumber(a.areaM2)} m²` : ''} ·{' '}
+                    {formatEur(a.priceMonthly)}
+                  </Button>
+                ))}
+              </div>
+            </div>
           )}
           <div className="space-y-1">
             <Label>Nuevo trastero (disponible)</Label>

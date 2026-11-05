@@ -252,7 +252,7 @@ describe('Mejoras de Contratos (e2e)', () => {
     expect(ana?.heldUnitId).toBe(unitId);
     await db.waitlistEntry.update({
       where: { id: first.body.id as string },
-      data: { notifiedAt: new Date(Date.now() - 3 * DAY) },
+      data: { holdExpiresAt: new Date(Date.now() - DAY) },
     });
     await app.get(WaitlistService).expireStaleNotifications();
     const entry = await db.waitlistEntry.findUniqueOrThrow({

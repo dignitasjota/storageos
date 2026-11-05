@@ -1,5 +1,21 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { CreateWaitlistEntrySchema, UpdateWaitlistEntrySchema } from '@storageos/shared';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
+import {
+  CreateWaitlistEntrySchema,
+  PreassignWaitlistSchema,
+  UpdateWaitlistEntrySchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -13,6 +29,7 @@ import type { Request } from 'express';
 
 class CreateWaitlistEntryDto extends createZodDto(CreateWaitlistEntrySchema) {}
 class UpdateWaitlistEntryDto extends createZodDto(UpdateWaitlistEntrySchema) {}
+class PreassignWaitlistDto extends createZodDto(PreassignWaitlistSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.get('user-agent');
@@ -23,6 +40,87 @@ function extractMeta(req: Request): RequestMeta {
 @Controller('waitlist')
 export class WaitlistController {
   constructor(private readonly waitlist: WaitlistService) {}
+
+  @RequirePermission('reservations:read')
+  @Get('demand')
+  demand(@CurrentUser() user: AuthenticatedUser, @Query('facilityId') facilityId?: string) {
+    return this.waitlist.demand(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Para el menú: gente con hueco libre y avisos sin respuesta. */
+  @RequirePermission('reservations:read')
+  @Get('pending-count')
+  async pendingCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
+    return { count: await this.waitlist.pendingCount(user.tenantId, user.facilityScope ?? null) };
+  }
+
+  @RequirePermission('reservations:read')
+  @Get(':id/upcoming-units')
+  upcomingUnits(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.waitlist.upcomingUnits({
+      tenantId: user.tenantId,
+      id,
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  @RequirePermission('reservations:write')
+  @Post(':id/notify')
+  @HttpCode(HttpStatus.OK)
+  notify(@CurrentUser() user: AuthenticatedUser, @Param('id', new ParseUUIDPipe()) id: string) {
+    return this.waitlist.notifyNow({
+      tenantId: user.tenantId,
+      id,
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  @RequirePermission('reservations:write')
+  @Post(':id/skip')
+  @HttpCode(HttpStatus.OK)
+  skip(@CurrentUser() user: AuthenticatedUser, @Param('id', new ParseUUIDPipe()) id: string) {
+    return this.waitlist.skipTurn({
+      tenantId: user.tenantId,
+      id,
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  @RequirePermission('reservations:write')
+  @Post(':id/requeue')
+  @HttpCode(HttpStatus.OK)
+  requeue(@CurrentUser() user: AuthenticatedUser, @Param('id', new ParseUUIDPipe()) id: string) {
+    return this.waitlist.requeue({
+      tenantId: user.tenantId,
+      id,
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  @RequirePermission('reservations:write')
+  @Post(':id/preassign')
+  @HttpCode(HttpStatus.OK)
+  preassign(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: PreassignWaitlistDto,
+    @Req() req: Request,
+  ) {
+    return this.waitlist.preassign({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      id,
+      unitId: body.unitId,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
 
   @RequirePermission('reservations:read')
   @Get()
@@ -58,7 +156,7 @@ export class WaitlistController {
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateWaitlistEntryDto,
     @Req() req: Request,
   ) {

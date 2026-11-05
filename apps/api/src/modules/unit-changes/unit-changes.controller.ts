@@ -14,6 +14,7 @@ import {
 import {
   MoveFromUnitChangeSchema,
   ResolveUnitChangeRequestSchema,
+  type UnitAlternativeDto,
   type UnitChangeRequestDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -23,6 +24,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { formatDateLong, formatEur } from '../../common/format';
 import { ContractsService } from '../contracts/contracts.service';
 
 import { UnitChangesService } from './unit-changes.service';
@@ -57,6 +59,16 @@ export class UnitChangesController {
   @Get('pending-count')
   async pendingCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
     return { count: await this.service.countPending(user.tenantId, user.facilityScope ?? null) };
+  }
+
+  /** Trasteros libres parecidos, por si el que pidió ya no está. */
+  @RequirePermission('contracts:read')
+  @Get(':id/alternatives')
+  alternatives(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<UnitAlternativeDto[]> {
+    return this.service.alternatives(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('contracts:write')
@@ -109,9 +121,14 @@ export class UnitChangesController {
       id,
       input: {
         status: 'handled',
-        resolutionNote: moved.scheduledMove
-          ? `Traslado al trastero ${moved.scheduledMove.unitCode ?? ''} programado para el ${moved.scheduledMove.date}`
-          : `Trasladado al trastero ${moved.unitCode}`,
+        resolutionNote: [
+          moved.scheduledMove
+            ? `Traslado al trastero ${moved.scheduledMove.unitCode ?? ''} programado para el ${formatDateLong(new Date(`${moved.scheduledMove.date}T12:00:00Z`))}.`
+            : `Trasladado al trastero ${moved.unitCode}.`,
+          body.newPrice !== undefined ? `Nueva cuota: ${formatEur(body.newPrice)} al mes.` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
       },
       facilityScope: scope,
       moved: true,

@@ -258,6 +258,7 @@ export interface ReservationDto {
   convertedContractId: string | null;
   cancelledAt: string | null;
   cancelReason: string | null;
+  assignedToUserId: string | null;
   createdAt: string;
 }
 

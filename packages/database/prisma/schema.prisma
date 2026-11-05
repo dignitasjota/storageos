@@ -423,6 +423,12 @@ model Tenant {
   /// Qué corta el impago: all, extras (solo los adicionales) o none.
   accessCutMode           String   @default("all") @map("access_cut_mode")
   accessCutDays           Int      @default(14) @map("access_cut_days")
+  /// Horas que se guarda un trastero a quien recibe el aviso de la lista de espera.
+  waitlistHoldHours       Int      @default(48) @map("waitlist_hold_hours")
+  /// Días en cola antes de preguntar «¿Sigues buscando?» (0 = no se pregunta).
+  waitlistStaleDays       Int      @default(90) @map("waitlist_stale_days")
+  /// Señal cobrada de una reserva que se cae: `refund` o `keep`.
+  reservationSignalPolicy String   @default("refund") @map("reservation_signal_policy")
   /// Avisos de seguridad apagados (solo se guarda lo que se quita).
   accessAlerts            Json     @default("{}") @map("access_alerts")
   /// White-label del portal del inquilino: color de marca (hex) y URL del logo.
@@ -771,6 +777,10 @@ model User {
   maintenancePlansAssigned MaintenancePlan[]         @relation("MaintenancePlanAssignee")
   taskCommentsAuthored     TaskComment[]             @relation("TaskCommentAuthor")
   incidentsAssigned        Incident[]                @relation("IncidentAssignedTo")
+  reservationsAssigned     Reservation[]             @relation("ReservationAssignedTo")
+  waitlistAssigned         WaitlistEntry[]           @relation("WaitlistAssignedTo")
+  unitChangesAssigned      UnitChangeRequest[]       @relation("UnitChangeAssignedTo")
+  unitRequestsAssigned     UnitRequest[]             @relation("UnitRequestAssignedTo")
   incidentsReported        Incident[]                @relation("IncidentReportedBy")
   incidentCommentsAuthored IncidentComment[]         @relation("IncidentCommentAuthor")
   productSalesMade         ProductSale[]             @relation("ProductSaleSoldBy")
@@ -1301,6 +1311,7 @@ model Unit {
   reservations     Reservation[]
   scheduledContracts Contract[]   @relation("ContractScheduledUnit")
   waitlistHolds    WaitlistEntry[] @relation("WaitlistHeldUnit")
+  waitlistPreassigned WaitlistEntry[] @relation("WaitlistPreassignedUnit")
   tasks            Task[]              @relation("TaskUnit")
   incidents        Incident[]          @relation("IncidentUnit")
   accessDevices    AccessDevice[]      @relation("DeviceUnit")
@@ -1940,11 +1951,15 @@ model Reservation {
   cancelReason        String?           @map("cancel_reason")
   /// Factura de la señal (se descuenta del contrato al convertirla).
   depositInvoiceId    String?           @map("deposit_invoice_id") @db.Uuid
+  /// Recordatorio al cliente antes de caducar (una vez).
+  reminderSentAt      DateTime?         @map("reminder_sent_at") @db.Timestamptz(6)
+  assignedToUserId    String?           @map("assigned_to_user_id") @db.Uuid
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   unit           Unit      @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  assignedTo     User?     @relation("ReservationAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   customer       Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   leadsConverted Lead[]    @relation("LeadConvertedReservation")
   depositInvoice Invoice?  @relation("ReservationDepositInvoice", fields: [depositInvoiceId], references: [id], onDelete: SetNull)
@@ -2876,6 +2891,7 @@ model UnitChangeRequest {
   status          String    @default("pending")
   resolutionNote  String?   @map("resolution_note")
   handledByUserId String?   @map("handled_by_user_id") @db.Uuid
+  assignedToUserId String?  @map("assigned_to_user_id") @db.Uuid
   handledAt       DateTime? @map("handled_at") @db.Timestamptz(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -2883,6 +2899,7 @@ model UnitChangeRequest {
   customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
   targetUnit Unit?   @relation("UnitChangeTarget", fields: [targetUnitId], references: [id], onDelete: SetNull)
+  assignedTo User?   @relation("UnitChangeAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status])
   @@index([tenantId, customerId])
@@ -2903,6 +2920,7 @@ model UnitRequest {
   status          String    @default("pending")
   resolutionNote  String?   @map("resolution_note")
   handledByUserId String?   @map("handled_by_user_id") @db.Uuid
+  assignedToUserId String?  @map("assigned_to_user_id") @db.Uuid
   handledAt       DateTime? @map("handled_at") @db.Timestamptz(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -2911,6 +2929,7 @@ model UnitRequest {
   facility Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   unitType UnitType? @relation(fields: [unitTypeId], references: [id], onDelete: SetNull)
   unit     Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  assignedTo User?   @relation("UnitRequestAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status])
   @@index([tenantId, customerId])
@@ -2934,9 +2953,23 @@ model WaitlistEntry {
   heldUnitId   String?   @map("held_unit_id") @db.Uuid
   holdTokenHash String?  @unique @map("hold_token_hash")
   convertedContractId String? @map("converted_contract_id") @db.Uuid
+  /// Orden en la cola (al entrar; «Saltar turno» lo cambia).
+  queueDate    DateTime  @default(now()) @map("queue_date") @db.Timestamptz(6)
+  /// Hasta cuándo se le guarda el trastero del aviso.
+  holdExpiresAt DateTime? @map("hold_expires_at") @db.Timestamptz(6)
+  /// Aviso al equipo de que no ha respondido (para llamarle).
+  noReplyAlertedAt DateTime? @map("no_reply_alerted_at") @db.Timestamptz(6)
+  /// Trastero con baja pedida reservado para esta persona cuando se libere.
+  preassignedUnitId String? @map("preassigned_unit_id") @db.Uuid
+  interestAskedAt DateTime? @map("interest_asked_at") @db.Timestamptz(6)
+  interestConfirmedAt DateTime? @map("interest_confirmed_at") @db.Timestamptz(6)
+  interestTokenHash String? @unique @map("interest_token_hash")
+  assignedToUserId String? @map("assigned_to_user_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  preassignedUnit Unit? @relation("WaitlistPreassignedUnit", fields: [preassignedUnitId], references: [id], onDelete: SetNull)
+  assignedTo User? @relation("WaitlistAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   facility Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   unitType UnitType  @relation(fields: [unitTypeId], references: [id], onDelete: Cascade)
@@ -2946,6 +2979,7 @@ model WaitlistEntry {
 
   @@index([tenantId, facilityId, unitTypeId, status, createdAt])
   @@index([tenantId, status])
+  @@index([preassignedUnitId])
   @@map("waitlist_entries")
 }
 

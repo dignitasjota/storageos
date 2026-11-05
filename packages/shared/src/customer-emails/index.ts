@@ -15,6 +15,8 @@ export const CUSTOMER_EMAIL_KINDS = [
   'deposit_settled',
   'move_out_confirmed',
   'unit_request_resolved',
+  'reservation_held',
+  'reservation_expiring',
   'sepa_prenotification',
   'staff_message',
 ] as const;
@@ -64,6 +66,14 @@ export const CUSTOMER_EMAIL_LABELS: Record<
   unit_request_resolved: {
     label: 'Respuesta a sus peticiones de trastero',
     description: 'Aviso cuando atiendes o rechazas un cambio de trastero o un trastero adicional.',
+  },
+  reservation_held: {
+    label: 'Reserva confirmada',
+    description: 'Le decimos qué trastero le guardamos y hasta cuándo, y cómo pagar la señal.',
+  },
+  reservation_expiring: {
+    label: 'Reserva a punto de caducar',
+    description: 'Recordatorio dos días antes de que se libere el trastero.',
   },
   sepa_prenotification: {
     label: 'Preaviso de domiciliación',

@@ -25,6 +25,8 @@ export class ReservationExpiryCron {
     if (result.expired > 0) {
       this.logger.log(`[reservations] ${result.expired} reservas caducadas liberadas`);
     }
+    const reminded = await this.reservations.sendExpiryReminders();
+    if (reminded > 0) this.logger.log(`[reservations] ${reminded} recordatorios de caducidad`);
     return result;
   }
 }

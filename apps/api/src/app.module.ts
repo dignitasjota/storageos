@@ -105,6 +105,7 @@ import { TenantDigestModule } from './modules/tenant-digest/tenant-digest.module
 import { TenantRolesModule } from './modules/tenant-roles/tenant-roles.module';
 import { TwoFactorModule } from './modules/two-factor/two-factor.module';
 import { UnitChangesModule } from './modules/unit-changes/unit-changes.module';
+import { UnitInboxModule } from './modules/unit-inbox/unit-inbox.module';
 import { UnitRequestsModule } from './modules/unit-requests/unit-requests.module';
 import { UsersModule } from './modules/users/users.module';
 import { WaitlistModule } from './modules/waitlist/waitlist.module';
@@ -279,6 +280,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     RetentionModule,
     InventoryModule,
     UnitRequestsModule,
+    UnitInboxModule,
     WaitlistModule,
     CompetitorsModule,
     FiscalModule,

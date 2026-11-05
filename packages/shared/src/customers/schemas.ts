@@ -439,6 +439,8 @@ export type CreateReservationInput = z.infer<typeof CreateReservationSchema>;
 
 export const CancelReservationSchema = z.object({
   reason: optionalText(500),
+  /** Señal cobrada: se la queda el negocio. Sin indicar, lo que diga su ajuste. */
+  keepSignal: z.boolean().optional(),
 });
 export type CancelReservationInput = z.infer<typeof CancelReservationSchema>;
 

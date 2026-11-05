@@ -103,6 +103,14 @@ export type CustomerEmailData =
       endDate: Date;
     }
   | {
+      kind: 'reservation_held' | 'reservation_expiring';
+      unitCode: string;
+      facilityName: string;
+      validUntil: Date;
+      /** Señal pendiente de pagar (0 si no hay o ya está pagada). */
+      signalDue: number;
+    }
+  | {
       kind: 'unit_request_resolved';
       request: 'change' | 'additional';
       outcome: 'moved' | 'handled' | 'rejected';
@@ -401,6 +409,37 @@ function content(data: CustomerEmailData, l: Locale): Content {
             ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };
+    case 'reservation_held':
+    case 'reservation_expiring': {
+      const held = data.kind === 'reservation_held';
+      const until = day(data.validUntil, l);
+      return {
+        subject: held
+          ? en
+            ? `We are holding storage unit ${data.unitCode} for you`
+            : `Te guardamos el trastero ${data.unitCode}`
+          : en
+            ? `Your reservation of unit ${data.unitCode} ends soon`
+            : `Tu reserva del trastero ${data.unitCode} está a punto de caducar`,
+        paragraphs: [
+          held
+            ? en
+              ? `We are holding storage unit ${data.unitCode} at ${data.facilityName} for you until ${until}.`
+              : `Te guardamos el trastero ${data.unitCode} en ${data.facilityName} hasta el ${until}.`
+            : en
+              ? `Your reservation of storage unit ${data.unitCode} at ${data.facilityName} ends on ${until}. After that date it will be available to others.`
+              : `Tu reserva del trastero ${data.unitCode} en ${data.facilityName} termina el ${until}. A partir de esa fecha quedará libre para otras personas.`,
+          data.signalDue > 0
+            ? en
+              ? `To keep it, pay the deposit of ${eur(data.signalDue, l)} from your customer area.`
+              : `Para mantenerla, paga la señal de ${eur(data.signalDue, l)} desde tu área de clientes.`
+            : en
+              ? 'If you have any questions, just reply to this email.'
+              : 'Si tienes cualquier duda, responde a este correo.',
+        ],
+        cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+      };
+    }
     case 'unit_request_resolved': {
       const change = data.request === 'change';
       const what = en

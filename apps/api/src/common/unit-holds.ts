@@ -1,4 +1,5 @@
 import type { Prisma } from '@storageos/database';
+import type { UnitHoldKind } from '@storageos/shared';
 
 /**
  * Filtro de trasteros libres de verdad: sin una reserva viva. Una reserva
@@ -143,4 +144,114 @@ export async function releaseReservedUnit(
     },
   });
   return true;
+}
+
+export interface UnitHold {
+  kind: UnitHoldKind;
+  name: string | null;
+  customerId: string | null;
+  until: Date | null;
+  link: string;
+}
+
+const HOLDER = {
+  select: {
+    id: true,
+    customerType: true,
+    firstName: true,
+    lastName: true,
+    companyName: true,
+  },
+} as const;
+
+function holderName(c: {
+  customerType: string;
+  firstName: string | null;
+  lastName: string | null;
+  companyName: string | null;
+}): string {
+  if (c.customerType === 'business') return c.companyName ?? 'Empresa';
+  return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Sin nombre';
+}
+
+/** Quién retiene un trastero y hasta cuándo; null si nadie. */
+export async function describeUnitHold(
+  tx: Prisma.TransactionClient,
+  unitId: string,
+): Promise<UnitHold | null> {
+  const now = new Date();
+  const reservation = await tx.reservation.findFirst({
+    where: { unitId, status: { in: ['pending', 'confirmed'] }, validUntil: { gt: now } },
+    orderBy: { validUntil: 'asc' },
+    include: { customer: HOLDER },
+  });
+  if (reservation) {
+    return {
+      kind: 'reservation',
+      name: reservation.customer ? holderName(reservation.customer) : null,
+      customerId: reservation.customerId,
+      until: reservation.validUntil,
+      link: '/reservations',
+    };
+  }
+  const contract = await tx.contract.findFirst({
+    where: {
+      unitId,
+      deletedAt: null,
+      OR: [
+        { status: 'draft', firstPaymentDeadline: { gt: now } },
+        { status: 'active', preOpening: true, preOpeningStartedAt: null },
+      ],
+    },
+    include: { customer: HOLDER },
+  });
+  if (contract) {
+    return {
+      kind: contract.status === 'draft' ? 'online_booking' : 'pre_opening',
+      name: holderName(contract.customer),
+      customerId: contract.customerId,
+      until: contract.status === 'draft' ? contract.firstPaymentDeadline : null,
+      link: `/contracts/${contract.id}`,
+    };
+  }
+  const move = await tx.contract.findFirst({
+    where: { scheduledUnitId: unitId, status: { in: ['active', 'ending'] }, deletedAt: null },
+    include: { customer: HOLDER },
+  });
+  if (move) {
+    return {
+      kind: 'scheduled_move',
+      name: holderName(move.customer),
+      customerId: move.customerId,
+      until: move.scheduledUnitDate,
+      link: `/contracts/${move.id}`,
+    };
+  }
+  const entry = await tx.waitlistEntry.findFirst({
+    where: { heldUnitId: unitId, status: 'notified' },
+  });
+  if (entry) {
+    return {
+      kind: 'waitlist',
+      name: entry.contactName,
+      customerId: entry.customerId,
+      until: entry.holdExpiresAt,
+      link: '/waitlist',
+    };
+  }
+  const draft = await tx.contract.findFirst({
+    where: { unitId, status: 'draft', deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+    include: { customer: HOLDER },
+  });
+  if (draft) {
+    return {
+      kind: 'contract_draft',
+      name: holderName(draft.customer),
+      customerId: draft.customerId,
+      until: null,
+      link: `/contracts/${draft.id}`,
+    };
+  }
+  return null;
 }

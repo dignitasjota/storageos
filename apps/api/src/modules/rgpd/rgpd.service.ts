@@ -304,7 +304,12 @@ export class RgpdService {
       });
       await tx.waitlistEntry.updateMany({
         where: { customerId, status: { in: ['waiting', 'notified'] } },
-        data: { status: 'cancelled', holdTokenHash: null },
+        data: {
+          status: 'cancelled',
+          holdTokenHash: null,
+          interestTokenHash: null,
+          preassignedUnitId: null,
+        },
       });
       await tx.waitlistEntry.updateMany({
         where: { customerId },

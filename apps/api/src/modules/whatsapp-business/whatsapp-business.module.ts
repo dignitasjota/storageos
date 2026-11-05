@@ -23,6 +23,7 @@ import {
 import { WhatsappCloudClient } from './whatsapp-cloud.client';
 import { WhatsappInboxService } from './whatsapp-inbox.service';
 import { WhatsappSettingsService } from './whatsapp-settings.service';
+import { WhatsappWaitlistService } from './whatsapp-waitlist.service';
 
 /**
  * Extra «WhatsApp Business»: número de WhatsApp del tenant (Cloud API de
@@ -48,6 +49,7 @@ import { WhatsappSettingsService } from './whatsapp-settings.service';
     WhatsappAiAdminController,
   ],
   providers: [
+    WhatsappWaitlistService,
     WhatsappCloudClient,
     WhatsappAiClient,
     WhatsappSettingsService,

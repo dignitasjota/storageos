@@ -7,9 +7,14 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
-import { ResolveUnitRequestSchema, type UnitRequestDto } from '@storageos/shared';
+import {
+  ResolveUnitRequestSchema,
+  type UnitRequestDto,
+  UnitRequestToWaitlistSchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -21,6 +26,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { UnitRequestsService } from './unit-requests.service';
 
 class ResolveUnitRequestDto extends createZodDto(ResolveUnitRequestSchema) {}
+class UnitRequestToWaitlistDto extends createZodDto(UnitRequestToWaitlistSchema) {}
 
 /** Solicitudes de trastero adicional (portal del inquilino) gestionadas por el staff. */
 @Controller('unit-requests')
@@ -45,6 +51,23 @@ export class UnitRequestsController {
   @Get('pending-count')
   async pendingCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
     return { count: await this.service.countPending(user.tenantId, user.facilityScope ?? null) };
+  }
+
+  @RequirePermission('contracts:write')
+  @Post(':id/to-waitlist')
+  @HttpCode(HttpStatus.OK)
+  toWaitlist(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UnitRequestToWaitlistDto,
+  ): Promise<UnitRequestDto> {
+    return this.service.toWaitlist({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      id,
+      input: body,
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('contracts:write')

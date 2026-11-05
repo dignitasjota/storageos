@@ -21,6 +21,7 @@ import {
   type CustomerMessagePayload,
   type DomainEventPayload,
   type PaymentFailedPayload,
+  type ReservationExpiringPayload,
   type SepaRemittanceCreatedPayload,
   type UnitRequestResolvedPayload,
 } from '../automations/domain-events';
@@ -319,6 +320,47 @@ export class CustomerEmailsService {
         contractId: c.id,
       });
     });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.reservation_confirmed, { async: true, promisify: true })
+  async onReservationConfirmed(p: DomainEventPayload): Promise<void> {
+    await this.safe('reservation_held', p.tenantId, async () => {
+      await this.sendReservation(p.tenantId, p.entityId, 'reservation_held');
+    });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.reservation_expiring, { async: true, promisify: true })
+  async onReservationExpiring(p: ReservationExpiringPayload): Promise<void> {
+    await this.safe('reservation_expiring', p.tenantId, async () => {
+      await this.sendReservation(p.tenantId, p.reservationId, 'reservation_expiring');
+    });
+  }
+
+  private async sendReservation(
+    tenantId: string,
+    reservationId: string,
+    kind: 'reservation_held' | 'reservation_expiring',
+  ): Promise<void> {
+    const r = await this.admin.reservation.findFirst({
+      where: { id: reservationId, tenantId },
+      include: { unit: { select: { code: true, facility: { select: { name: true } } } } },
+    });
+    if (!r?.customerId) return;
+    await this.send(
+      tenantId,
+      kind,
+      kind === 'reservation_held' ? 'reservation_confirmed' : null,
+      r.customerId,
+      {
+        data: {
+          kind,
+          unitCode: r.unit.code,
+          facilityName: r.unit.facility.name,
+          validUntil: r.validUntil,
+          signalDue: r.depositPaid ? 0 : Number(r.depositAmount),
+        },
+      },
+    );
   }
 
   @OnEvent(DOMAIN_EVENTS.unit_request_resolved, { async: true, promisify: true })

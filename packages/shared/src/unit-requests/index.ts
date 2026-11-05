@@ -76,6 +76,7 @@ export interface UnitRequestDto {
   note: string;
   status: UnitRequestStatus;
   resolutionNote: string | null;
+  assignedToUserId: string | null;
   createdAt: string;
   handledAt: string | null;
 }

@@ -13,6 +13,7 @@ import { DOMAIN_EVENTS, type UnitRequestResolvedPayload } from '../automations/d
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { toActiveUnitOffer } from '../promotions/promotions.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
 
 import type {
   AvailableUnitDto,
@@ -20,6 +21,7 @@ import type {
   PortalUnitRequestDto,
   ResolveUnitRequestInput,
   UnitRequestDto,
+  UnitRequestToWaitlistInput,
   UnitRequestStatus,
 } from '@storageos/shared';
 
@@ -44,6 +46,7 @@ export class UnitRequestsService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly events: EventEmitter2,
+    private readonly waitlist: WaitlistService,
   ) {}
 
   // ---- portal ----
@@ -249,6 +252,62 @@ export class UnitRequestsService {
     return rows.map((r) => this.toDto(r));
   }
 
+  /** No hay hueco ahora: le apunta a la cola y da la solicitud por atendida. */
+  async toWaitlist(args: {
+    tenantId: string;
+    userId: string;
+    id: string;
+    input: UnitRequestToWaitlistInput;
+    facilityScope?: string[] | null;
+  }): Promise<UnitRequestDto> {
+    const { tenantId, id, input } = args;
+    const request = await this.prisma.withTenant(
+      (tx) =>
+        tx.unitRequest.findFirst({
+          where: { id, tenantId },
+          select: { status: true, customerId: true, facilityId: true, unitTypeId: true },
+        }),
+      tenantId,
+    );
+    if (!request) {
+      throw new NotFoundException({
+        code: 'request_not_found',
+        message: 'Solicitud no encontrada',
+      });
+    }
+    const facilityId = input.facilityId ?? request.facilityId;
+    const unitTypeId = input.unitTypeId ?? request.unitTypeId;
+    if (!facilityId || !unitTypeId) {
+      throw new BadRequestException({
+        code: 'facility_and_type_required',
+        message: 'Elige el local y el tamaño',
+      });
+    }
+    if (request.status !== 'pending') {
+      throw new BadRequestException({
+        code: 'already_resolved',
+        message: 'La solicitud ya está resuelta',
+      });
+    }
+    const joined = await this.waitlist.joinFromRequest({
+      tenantId,
+      customerId: request.customerId,
+      facilityId,
+      unitTypeId,
+      facilityScope: args.facilityScope ?? null,
+    });
+    return this.resolve({
+      tenantId,
+      userId: args.userId,
+      id,
+      input: {
+        status: 'handled',
+        resolutionNote: `Te hemos apuntado a la lista de espera de ${joined.unitTypeName} en ${joined.facilityName}: te avisaremos en cuanto haya uno libre.`,
+      },
+      facilityScope: args.facilityScope ?? null,
+    });
+  }
+
   async resolve(args: {
     tenantId: string;
     userId: string;
@@ -362,6 +421,7 @@ export class UnitRequestsService {
     resolutionNote: string | null;
     createdAt: Date;
     handledAt: Date | null;
+    assignedToUserId: string | null;
     customer: {
       customerType: string;
       firstName: string | null;
@@ -385,6 +445,7 @@ export class UnitRequestsService {
       note: r.note,
       status: r.status as UnitRequestStatus,
       resolutionNote: r.resolutionNote,
+      assignedToUserId: r.assignedToUserId,
       createdAt: r.createdAt.toISOString(),
       handledAt: r.handledAt?.toISOString() ?? null,
     };
