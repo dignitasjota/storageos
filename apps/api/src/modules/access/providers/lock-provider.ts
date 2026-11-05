@@ -22,6 +22,13 @@ export abstract class LockProvider {
   async close(_args: OpenLockArgs): Promise<OpenLockResult> {
     return { dispatched: false, message: 'close_not_supported' };
   }
+  /**
+   * Comprueba si el equipo responde SIN abrir nada. Por defecto no se puede: en
+   * un abrepuertas simple cualquier orden abre, así que no se le manda ninguna.
+   */
+  async ping(_args: OpenLockArgs): Promise<PingLockResult> {
+    return { supported: false, online: false };
+  }
   /** Conexion inicial. Llamado en onModuleInit. */
   abstract start?(): Promise<void>;
   /** Cierre limpio. Llamado en onModuleDestroy. */
@@ -39,6 +46,12 @@ export interface OpenLockArgs {
   controlSecret?: string | null;
   /** Customer id (para logging del provider, opcional). */
   customerId?: string;
+}
+
+export interface PingLockResult {
+  /** false si este equipo no permite comprobar la conexión sin abrir. */
+  supported: boolean;
+  online: boolean;
 }
 
 export interface OpenLockResult {

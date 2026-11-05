@@ -1747,3 +1747,12 @@ Sin migración ni variables nuevas. Algunas cifras cambian tras desplegar y es l
 ## 90. Resumen del panel: mejoras (2026-11-05)
 
 Migración `20261219100000_dashboard_layout` (`users.dashboard_layout`), sin variables nuevas.
+
+## 91. Accesos: arreglos (2026-11-05)
+
+Sin migración ni variables nuevas. Tarea nueva `access.sweep` (cada 15 min, en el worker). Lo que se nota tras desplegar:
+
+- El primer repaso **revoca lo que les quede a los ex-inquilinos** (quien tuvo contrato y ya no tiene ninguno): tarjetas, caras y credenciales suspendidas que seguían vivas. Y marca como caducado lo vencido.
+- Una credencial limitada a unos locales **ya no abre la cerradura de un trastero** que no tenga en su lista. Las hechas a mano antes que solo tenían locales dejan de abrir esas cerraduras: editarlas y marcar sus trasteros.
+- Las credenciales antiguas creadas sin locales siguen abriéndolo todo hasta que se editen.
+- Los ajustes de accesos adicionales y pase nocturno están ahora en Configuración → Accesos del inquilino.

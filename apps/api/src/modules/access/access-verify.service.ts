@@ -132,7 +132,7 @@ function customerDisplay(
 }
 
 function sanitizeAttempted(method: AccessMethodValue, raw: string): string {
-  if (method === 'pin') return raw.slice(-4).padStart(raw.length, '*');
+  if (method === 'pin') return raw.slice(-2).padStart(raw.length, '*');
   if (method === 'qr') return raw.slice(0, 8);
   return raw; // rfid UID no es secreto
 }
@@ -230,6 +230,7 @@ export class AccessVerifyService {
   async verify(args: VerifyArgs): Promise<VerifyAccessResultDto> {
     const { tenantId, device, method, credential, ipAddress } = args;
     const attemptedValue = sanitizeAttempted(method, credential);
+    await this.markSeen(device);
 
     // Anti-fuerza-bruta: si el dispositivo está bloqueado por demasiados PINs
     // fallidos, deniega SIN mirar credenciales (frena el tecleo masivo).
@@ -316,7 +317,7 @@ export class AccessVerifyService {
       // revocación (`denied_inactive_credential`): esas son estados legítimos
       // (p. ej. impago) que se limpian al pagar → bloquearlas dejaría fuera a
       // quien acaba de regularizar.
-      if (denied.result !== 'denied_inactive_credential') {
+      if (denied.result !== 'denied_inactive_credential' && denied.result !== 'denied_dunning') {
         await this.rateLimit.recordCredentialFailure(credentialRow.id);
       }
       await this.log({
@@ -480,12 +481,18 @@ export class AccessVerifyService {
         ...STARTED_CONTRACT_WHERE,
         deletedAt: null,
       },
-      select: { unit: { select: { facilityId: true } } },
+      select: { unitId: true, unit: { select: { facilityId: true } } },
     });
     const facilityIds = [...new Set(contracts.map((c) => c.unit.facilityId))];
     if (facilityIds.length === 0) return [];
     const devices = await this.admin.accessDevice.findMany({
-      where: { tenantId, facilityId: { in: facilityIds }, isActive: true },
+      where: {
+        tenantId,
+        facilityId: { in: facilityIds },
+        isActive: true,
+        // La cerradura de un trastero solo es una puerta para quien lo alquila.
+        OR: [{ unitId: null }, { unitId: { in: contracts.map((c) => c.unitId) } }],
+      },
       select: { id: true, name: true, facility: { select: { name: true } } },
       orderBy: [{ name: 'asc' }],
     });
@@ -514,7 +521,7 @@ export class AccessVerifyService {
         status: { in: ['active', 'ending'] },
         ...STARTED_CONTRACT_WHERE,
         deletedAt: null,
-        unit: { facilityId: device.facilityId },
+        unit: device.unitId ? { id: device.unitId } : { facilityId: device.facilityId },
       },
     });
     if (hasContract === 0) {
@@ -540,7 +547,6 @@ export class AccessVerifyService {
         tenantId,
         customerId,
         status: 'active' as AccessCredentialStatus,
-        method: { in: ['pin', 'qr'] as AccessMethod[] },
       },
       include: {
         customer: {
@@ -651,6 +657,16 @@ export class AccessVerifyService {
     });
     if (openResult.dispatched) {
       await this.rateLimit.reset(device.id, chosen.id);
+      const spent = chosen.maxUses != null && chosen.usesCount + 1 >= chosen.maxUses;
+      await this.admin.accessCredential
+        .update({
+          where: { id: chosen.id },
+          data: {
+            lastUsedAt: new Date(),
+            ...(spent ? { status: 'expired' as AccessCredentialStatus } : {}),
+          },
+        })
+        .catch((err) => this.logger.warn(`No se pudo actualizar lastUsedAt: ${String(err)}`));
       await this.admin.accessDevice
         .update({ where: { id: device.id }, data: { isOnline: true, lastSeenAt: new Date() } })
         .catch(() => undefined);
@@ -660,6 +676,15 @@ export class AccessVerifyService {
       opened: false,
       message: 'No se pudo abrir la puerta ahora mismo. Vuelve a intentarlo.',
     };
+  }
+
+  /** El equipo acaba de llamar: está vivo (se anota como mucho una vez por minuto). */
+  private async markSeen(device: AccessDevice): Promise<void> {
+    const recent = device.lastSeenAt && Date.now() - device.lastSeenAt.getTime() < 60_000;
+    if (recent && device.isOnline) return;
+    await this.admin.accessDevice
+      .update({ where: { id: device.id }, data: { isOnline: true, lastSeenAt: new Date() } })
+      .catch((err) => this.logger.warn(`No se pudo anotar la conexión: ${String(err)}`));
   }
 
   /**
@@ -705,12 +730,25 @@ export class AccessVerifyService {
       },
     } satisfies Prisma.AccessCredentialInclude;
 
+    // Las vivas primero: un PIN o una tarjeta que se reutilizan tras revocar el
+    // anterior deben dar con la credencial nueva, no con la revocada.
+    const LIVE = ['active', 'suspended', 'pending'] as AccessCredentialStatus[];
+    const byStatus = (a: { status: string }, b: { status: string }) =>
+      Number(LIVE.includes(b.status as AccessCredentialStatus)) -
+      Number(LIVE.includes(a.status as AccessCredentialStatus));
+
     if (method === 'rfid') {
-      const row = await this.admin.accessCredential.findFirst({
-        where: { tenantId, method: 'rfid' as AccessMethod, rfidUid: credential },
+      const rows = await this.admin.accessCredential.findMany({
+        where: {
+          tenantId,
+          method: 'rfid' as AccessMethod,
+          rfidUid: { equals: credential, mode: 'insensitive' },
+        },
         include,
+        orderBy: { createdAt: 'desc' },
+        take: 25,
       });
-      return row as CredentialWithCustomer | null;
+      return (rows.sort(byStatus)[0] ?? null) as CredentialWithCustomer | null;
     }
 
     // pin/qr: prefiltrar por secretPreview. `AccessCredentialsService` limita
@@ -720,16 +758,28 @@ export class AccessVerifyService {
     // condiciones normales), no la protección principal contra el coste de
     // este bucle de verificaciones argon2 por request.
     const preview = method === 'pin' ? credential.slice(-4) : credential.slice(0, 4);
-    const candidates = await this.admin.accessCredential.findMany({
+    const live = await this.admin.accessCredential.findMany({
       where: {
         tenantId,
         method: method as AccessMethod,
         secretPreview: preview,
+        status: { in: LIVE },
       },
       include,
       take: 25,
     });
-    for (const candidate of candidates) {
+    const dead = await this.admin.accessCredential.findMany({
+      where: {
+        tenantId,
+        method: method as AccessMethod,
+        secretPreview: preview,
+        status: { notIn: LIVE },
+      },
+      include,
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+    for (const candidate of [...live, ...dead]) {
       if (!candidate.secretHash) continue;
       try {
         if (await argonVerify(candidate.secretHash, credential)) {
@@ -747,25 +797,25 @@ export class AccessVerifyService {
     device: AccessDevice,
   ): { result: AccessResultValue; reason: string } | null {
     if (credential.status === ('suspended' as AccessCredentialStatus)) {
+      if (credential.suspendReason?.startsWith('dunning:')) {
+        return { result: 'denied_dunning', reason: 'Acceso cortado por impago' };
+      }
       return {
         result: 'denied_inactive_credential',
         reason: 'Credencial suspendida',
       };
     }
-    if (
-      credential.status === ('revoked' as AccessCredentialStatus) ||
-      credential.status === ('expired' as AccessCredentialStatus) ||
-      credential.status === ('pending' as AccessCredentialStatus)
-    ) {
-      return {
-        result: 'denied_inactive_credential',
-        reason: `Credencial ${credential.status}`,
-      };
-    }
+    const inactive: Record<string, string> = {
+      revoked: 'Credencial revocada',
+      expired: 'Credencial caducada',
+      pending: 'Credencial pendiente de activar',
+    };
+    const inactiveReason = inactive[credential.status];
+    if (inactiveReason) return { result: 'denied_inactive_credential', reason: inactiveReason };
     if (credential.expiresAt && credential.expiresAt.getTime() <= Date.now()) {
       return {
         result: 'denied_invalid_credential',
-        reason: 'Credencial expirada',
+        reason: 'Credencial caducada',
       };
     }
     // Single-use ya gastado (pase nocturno).
@@ -781,17 +831,17 @@ export class AccessVerifyService {
     ) {
       return {
         result: 'denied_wrong_facility',
-        reason: 'Facility no permitida',
+        reason: 'No abre este local',
       };
     }
-    if (
-      device.unitId &&
-      credential.allowedUnitIds.length > 0 &&
-      !credential.allowedUnitIds.includes(device.unitId)
-    ) {
+    // Cerradura de un trastero: solo quien lo tiene. Una credencial limitada a
+    // unos locales no abre los trasteros de otros; sin ningún límite, abre todo.
+    const unrestricted =
+      credential.allowedFacilityIds.length === 0 && credential.allowedUnitIds.length === 0;
+    if (device.unitId && !unrestricted && !credential.allowedUnitIds.includes(device.unitId)) {
       return {
         result: 'denied_wrong_facility',
-        reason: 'Unit no permitida',
+        reason: 'No abre este trastero',
       };
     }
     // Las ventanas horarias (allowedHours.windows) se evalúan aparte en

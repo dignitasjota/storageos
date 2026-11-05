@@ -14,6 +14,7 @@ import { AccessDoorController } from './access-door.controller';
 import { AccessIntegrationsService } from './access-integrations.service';
 import { AccessLogsController } from './access-logs.controller';
 import { AccessRateLimitService } from './access-rate-limit.service';
+import { AccessSweepCron } from './access-sweep.cron';
 import { AccessVerifyController } from './access-verify.controller';
 import { AccessVerifyService } from './access-verify.service';
 import { DahuaReconcileCron } from './dahua-reconcile.cron';
@@ -55,7 +56,7 @@ import { SyncProviderRegistry } from './providers/sync-provider.registry';
     DahuaSyncProvider,
     SyncProviderRegistry,
     DahuaSyncService,
-    ...(WORKERS_ENABLED_IN_API ? [DahuaReconcileCron] : []),
+    ...(WORKERS_ENABLED_IN_API ? [DahuaReconcileCron, AccessSweepCron] : []),
   ],
   exports: [
     AccessCredentialsService,

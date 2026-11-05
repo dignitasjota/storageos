@@ -44,7 +44,7 @@ describe('GET /access/verify (adaptador para lectores por URL) (e2e)', () => {
     await request(app.getHttpServer())
       .post('/access/credentials')
       .set(auth)
-      .send({ customerId, method: 'pin', pin: '481902', allowedHours: {} })
+      .send({ allFacilities: true, customerId, method: 'pin', pin: '481902', allowedHours: {} })
       .expect(201);
 
     // PIN correcto (key por query, method inferido de ?pin=).

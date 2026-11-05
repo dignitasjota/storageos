@@ -33,11 +33,11 @@ describe('Fase 7: access credentials + devices + verify (e2e)', () => {
     const cred = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId: customer.body.id, method: 'pin' });
+      .send({ allFacilities: true, customerId: customer.body.id, method: 'pin' });
     expect(cred.status).toBe(201);
     expect(cred.body.method).toBe('pin');
     expect(cred.body.revealedSecret).toMatch(/^\d{6}$/);
-    expect(cred.body.secretPreview).toMatch(/^\d{4}$/);
+    expect(cred.body.secretPreview).toMatch(/^••••\d{2}$/);
 
     const list = await request(app.getHttpServer())
       .get('/access/credentials')
@@ -56,13 +56,13 @@ describe('Fase 7: access credentials + devices + verify (e2e)', () => {
     const bad = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId: cust.body.id, method: 'rfid' });
+      .send({ allFacilities: true, customerId: cust.body.id, method: 'rfid' });
     expect(bad.status).toBe(400);
 
     const ok = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId: cust.body.id, method: 'rfid', rfidUid: 'AB12CD34' });
+      .send({ allFacilities: true, customerId: cust.body.id, method: 'rfid', rfidUid: 'AB12CD34' });
     expect(ok.status).toBe(201);
     expect(ok.body.rfidUid).toBe('AB12CD34');
     expect(ok.body.revealedSecret).toBeNull();
@@ -77,7 +77,7 @@ describe('Fase 7: access credentials + devices + verify (e2e)', () => {
     const cred = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId: cust.body.id, method: 'pin' });
+      .send({ allFacilities: true, customerId: cust.body.id, method: 'pin' });
     expect(cred.body.status).toBe('active');
 
     const sus = await request(app.getHttpServer())
@@ -227,7 +227,7 @@ describe('Fase 7: access credentials + devices + verify (e2e)', () => {
     const cred = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId: cust.body.id, method: 'pin' });
+      .send({ allFacilities: true, customerId: cust.body.id, method: 'pin' });
     const dev = await request(app.getHttpServer())
       .post('/access/devices')
       .set('Authorization', `Bearer ${owner.accessToken}`)
@@ -289,7 +289,7 @@ describe('Fase 7: access credentials + devices + verify (e2e)', () => {
     const cred = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId: cust.body.id, method: 'pin' });
+      .send({ allFacilities: true, customerId: cust.body.id, method: 'pin' });
     const dev = await request(app.getHttpServer())
       .post('/access/devices')
       .set('Authorization', `Bearer ${owner.accessToken}`)

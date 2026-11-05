@@ -13,6 +13,7 @@ import {
   type AccessMethodValue,
   AccessResultEnum,
   type AccessResultValue,
+  isStaffAccessLog,
 } from '@storageos/shared';
 
 import {
@@ -22,6 +23,7 @@ import {
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { resolveFacilityFilter } from '../../common/facility-scope';
+import { zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { PrismaService } from '../database/prisma.service';
 
 import type { AccessDevice, AccessLog, Customer, CustomerType, Prisma } from '@storageos/database';
@@ -39,7 +41,14 @@ type AccessLogWithIncludes = AccessLog & {
   customer?: Pick<Customer, 'customerType' | 'firstName' | 'lastName' | 'companyName'> | null;
 };
 
-function toDto(l: AccessLogWithIncludes): AccessLogDto {
+/** En un PIN solo se enseñan las dos últimas cifras (también en lo ya guardado). */
+function maskAttempt(l: AccessLog): string | null {
+  if (l.method !== 'pin' || !l.attemptedValue) return l.attemptedValue;
+  return l.attemptedValue.slice(-2).padStart(l.attemptedValue.length, '*');
+}
+
+function toDto(l: AccessLogWithIncludes, staffNames: Map<string, string>): AccessLogDto {
+  const staffId = (l.metadata as { userId?: string } | null)?.userId;
   return {
     id: l.id,
     deviceId: l.deviceId,
@@ -49,11 +58,12 @@ function toDto(l: AccessLogWithIncludes): AccessLogDto {
     customerName: customerDisplay(l.customer),
     method: l.method as AccessMethodValue,
     result: l.result as AccessResultValue,
-    attemptedValue: l.attemptedValue,
+    attemptedValue: maskAttempt(l),
     reason: l.reason,
     ipAddress: l.ipAddress,
     metadata: (l.metadata ?? {}) as Record<string, unknown>,
     occurredAt: l.occurredAt.toISOString(),
+    staffName: staffId ? (staffNames.get(staffId) ?? null) : null,
   };
 }
 
@@ -101,23 +111,26 @@ export class AccessLogsController {
     if (deviceId) where.deviceId = deviceId;
     const parsedResult = parseResult(result);
     if (parsedResult) where.result = parsedResult;
-    // Un día suelto (YYYY-MM-DD) en `to` incluye ese día entero.
-    const toDate = to
-      ? /^\d{4}-\d{2}-\d{2}$/.test(to)
-        ? new Date(`${to}T23:59:59.999Z`)
-        : new Date(to)
-      : null;
+    // Un día suelto (YYYY-MM-DD) es ese día entero en la hora del negocio.
+    const tenant = await this.prisma.withTenant(
+      (tx) => tx.tenant.findUnique({ where: { id: user.tenantId }, select: { timezone: true } }),
+      user.tenantId,
+    );
+    const timezone = tenant?.timezone ?? 'Europe/Madrid';
+    const isDay = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const fromDate = from ? (isDay(from) ? zonedDayStart(from, timezone) : new Date(from)) : null;
+    const toDate = to ? (isDay(to) ? zonedNextDayStart(to, timezone) : new Date(to)) : null;
     const beforeDate = before ? new Date(before) : null;
-    for (const d of [from ? new Date(from) : null, toDate, beforeDate]) {
+    for (const d of [fromDate, toDate, beforeDate]) {
       if (d && Number.isNaN(d.getTime())) {
         throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
       }
     }
-    if (from || toDate || beforeDate) {
+    if (fromDate || toDate || beforeDate) {
+      const ends = [toDate, beforeDate].filter((d): d is Date => d !== null);
       where.occurredAt = {
-        ...(from ? { gte: new Date(from) } : {}),
-        ...(toDate ? { lte: toDate } : {}),
-        ...(beforeDate ? { lt: beforeDate } : {}),
+        ...(fromDate ? { gte: fromDate } : {}),
+        ...(ends.length ? { lt: new Date(Math.min(...ends.map((d) => d.getTime()))) } : {}),
       };
     }
     const rows = await this.prisma.withTenant(
@@ -130,7 +143,26 @@ export class AccessLogsController {
         }),
       user.tenantId,
     );
-    return rows.map((r) => toDto(r as AccessLogWithIncludes));
+    const staffNames = await this.staffNames(user.tenantId, rows);
+    return rows.map((r) => toDto(r as AccessLogWithIncludes, staffNames));
+  }
+
+  /** Quién abrió o cerró desde el panel. */
+  private async staffNames(tenantId: string, rows: AccessLog[]): Promise<Map<string, string>> {
+    const ids = [
+      ...new Set(
+        rows
+          .map((r) => (r.metadata as { userId?: string } | null)?.userId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    if (ids.length === 0) return new Map();
+    const users = await this.prisma.withTenant(
+      (tx) =>
+        tx.user.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true } }),
+      tenantId,
+    );
+    return new Map(users.map((u) => [u.id, u.fullName]));
   }
 
   /**
@@ -210,6 +242,8 @@ export class AccessLogsController {
       const day = `${get('year')}-${get('month')}-${get('day')}`;
       const bucket = byDay.get(day);
       const name = customerDisplay(r.customer) ?? 'Sin identificar';
+      // Abrir o cerrar desde el panel no es la entrada de nadie.
+      if (isStaffAccessLog(r.reason)) continue;
       if (r.result === 'allowed') {
         allowed += 1;
         if (bucket) bucket.allowed += 1;
@@ -228,7 +262,7 @@ export class AccessLogsController {
           customerId: r.customerId,
           name,
           denied: 0,
-          reason: r.reason ?? r.result,
+          reason: r.result,
         };
         d.denied += 1;
         denied.set(key, d);
@@ -260,10 +294,11 @@ export class AccessLogsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<AccessLogDto> {
+    const scope = user.facilityScope ?? null;
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.accessLog.findFirst({
-          where: { id },
+          where: { id, ...(scope ? { device: { facilityId: { in: scope } } } : {}) },
           include: INCLUDE,
         }),
       user.tenantId,
@@ -274,6 +309,6 @@ export class AccessLogsController {
         message: 'Registro de acceso no encontrado',
       });
     }
-    return toDto(row as AccessLogWithIncludes);
+    return toDto(row as AccessLogWithIncludes, await this.staffNames(user.tenantId, [row]));
   }
 }

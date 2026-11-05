@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
@@ -9,6 +15,7 @@ import { isSafeOutboundUrl } from '../../common/security/safe-outbound-url';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
+import { DahuaSyncService } from './dahua-sync.service';
 import { LockProviderRegistry } from './providers/lock-provider.registry';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -60,7 +67,32 @@ export class AccessDevicesService {
     private readonly audit: AuditService,
     private readonly crypto: CryptoService,
     private readonly locks: LockProviderRegistry,
+    private readonly sync: DahuaSyncService,
   ) {}
+
+  /** Un terminal nuevo recibe sus credenciales sin hacer esperar a quien lo da de alta. */
+  private syncInBackground(tenantId: string, deviceId: string): void {
+    void this.sync
+      .syncDevice(tenantId, deviceId)
+      .catch((err) => this.logger.warn(`[access-devices] sync ${deviceId}: ${String(err)}`));
+  }
+
+  private async assertUnitInFacility(
+    tenantId: string,
+    unitId: string,
+    facilityId: string,
+  ): Promise<void> {
+    const unit = await this.prisma.withTenant(
+      (tx) => tx.unit.findFirst({ where: { id: unitId, facilityId }, select: { id: true } }),
+      tenantId,
+    );
+    if (!unit) {
+      throw new BadRequestException({
+        code: 'unit_not_in_facility',
+        message: 'Ese trastero no es de este local',
+      });
+    }
+  }
 
   async list(tenantId: string, filters: ListFilters): Promise<AccessDeviceDto[]> {
     const where: Prisma.AccessDeviceWhereInput = {};
@@ -75,7 +107,6 @@ export class AccessDevicesService {
           where,
           include: INCLUDE,
           orderBy: [{ facilityId: 'asc' }, { name: 'asc' }],
-          take: 500,
         }),
       tenantId,
     );
@@ -97,6 +128,9 @@ export class AccessDevicesService {
     meta: RequestMeta;
     facilityScope?: string[] | null;
   }): Promise<AccessDeviceWithKeyDto> {
+    if (args.input.unitId) {
+      await this.assertUnitInFacility(args.tenantId, args.input.unitId, args.input.facilityId);
+    }
     const apiKey = generateApiKey();
     const apiKeyHash = await argonHash(apiKey);
     const apiKeyPreview = apiKey.slice(0, 8);
@@ -134,6 +168,7 @@ export class AccessDevicesService {
       throw err;
     }
     await this.writeAudit('access.device_created', args, created.id);
+    this.syncInBackground(args.tenantId, created.id);
     return { ...this.toDto(created), revealedApiKey: apiKey };
   }
 
@@ -145,9 +180,18 @@ export class AccessDevicesService {
     meta: RequestMeta;
     facilityScope?: string[] | null;
   }): Promise<AccessDeviceDto> {
-    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const data: Prisma.AccessDeviceUncheckedUpdateInput = {};
     const input = args.input;
+    if (input.facilityId !== undefined) assertFacilityAllowed(args.facilityScope, input.facilityId);
+    const unitId = input.unitId === undefined ? existing.unitId : input.unitId;
+    if (unitId) {
+      await this.assertUnitInFacility(
+        args.tenantId,
+        unitId,
+        input.facilityId ?? existing.facilityId,
+      );
+    }
     if (input.name !== undefined) data.name = input.name;
     if (input.facilityId !== undefined) data.facilityId = input.facilityId;
     if (input.unitId !== undefined) data.unitId = input.unitId ?? null;
@@ -173,6 +217,13 @@ export class AccessDevicesService {
       args.tenantId,
     );
     await this.writeAudit('access.device_updated', args, args.id);
+    if (
+      updated.provider !== existing.provider ||
+      updated.facilityId !== existing.facilityId ||
+      (updated.isActive && !existing.isActive)
+    ) {
+      this.syncInBackground(args.tenantId, args.id);
+    }
     return this.toDto(updated);
   }
 
@@ -221,30 +272,32 @@ export class AccessDevicesService {
     id: string;
     meta: RequestMeta;
     facilityScope?: string[] | null;
-  }): Promise<{ online: boolean }> {
+  }): Promise<{ supported: boolean; online: boolean }> {
     const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const safety = await this.assertControlUrlSafe(device);
     const result = safety.safe
-      ? await this.locks.resolve(device.provider).open({
+      ? await this.locks.resolve(device.provider).ping({
           tenantId: args.tenantId,
           deviceId: device.id,
           mqttTopic: device.mqttTopic,
           ...this.controlArgs(device),
-          // sin customerId: es un ping, no una apertura real para un customer.
         })
-      : { dispatched: false, message: safety.message };
-    if (result.dispatched) {
+      : { supported: true, online: false };
+    if (result.supported) {
       await this.prisma.withTenant(
         (tx) =>
           tx.accessDevice.update({
             where: { id: device.id },
-            data: { isOnline: true, lastSeenAt: new Date() },
+            data: {
+              isOnline: result.online,
+              ...(result.online ? { lastSeenAt: new Date() } : {}),
+            },
           }),
         args.tenantId,
       );
     }
     await this.writeAudit('access.device_pinged', args, device.id);
-    return { online: result.dispatched };
+    return result;
   }
 
   /**

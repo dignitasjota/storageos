@@ -181,9 +181,12 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
     }
     const cardNo = this.cardNo(cred);
     if (!c || !device.controlUrl) return { ref: cardNo };
+    // Un cambio de PIN o de caducidad reescribe el registro que ya hay.
+    const recno = await this.findRecno(device, c, cardNo);
     const params = new URLSearchParams({
-      action: 'insert',
+      action: recno ? 'update' : 'insert',
       name: 'AccessControlCard',
+      ...(recno ? { recno } : {}),
       CardNo: cardNo,
       UserID: cred.customerId.replace(/-/g, '').slice(0, 20),
       CardName: (cred.label ?? cred.customerId).slice(0, 32),
@@ -219,7 +222,7 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
     // que puede no estar configurada como «siempre»). Se construyen a mano
     // (no vía `URLSearchParams`) para no arriesgar el encoding de `[]` que
     // no hemos validado con el firmware real.
-    const doorIndex = Math.max(0, device.channel - 1);
+    const doorIndex = this.doorIndexFor(device, cred.state);
     const doorParams = `Doors[0]=${doorIndex}&TimeSections[0]=255`;
     const res = await digestRequest({
       // `URLSearchParams` codifica el espacio como '+'; Dahua espera '%20'

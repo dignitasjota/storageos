@@ -272,12 +272,12 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     const credA = await request(app.getHttpServer())
       .post('/access/credentials')
       .set(ownerAuth)
-      .send({ customerId: custA, method: 'pin' });
+      .send({ allFacilities: true, customerId: custA, method: 'pin' });
     expect(credA.status).toBe(201);
     const credB = await request(app.getHttpServer())
       .post('/access/credentials')
       .set(ownerAuth)
-      .send({ customerId: custB, method: 'pin' });
+      .send({ allFacilities: true, customerId: custB, method: 'pin' });
     expect(credB.status).toBe(201);
 
     // Invitar a un MANAGER (tiene access:manage) y restringirlo al local A.
@@ -348,7 +348,7 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     const createForB = await request(app.getHttpServer())
       .post('/access/credentials')
       .set(mgrAuth)
-      .send({ customerId: custB, method: 'pin' });
+      .send({ allFacilities: true, customerId: custB, method: 'pin' });
     expect(createForB.status).toBe(403);
     expect(createForB.body.code).toBe('facility_not_in_scope');
 

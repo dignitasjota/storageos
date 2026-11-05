@@ -42,7 +42,7 @@ describe('Rate-limit de accesos: lockout por dispositivo (e2e)', () => {
     await request(app.getHttpServer())
       .post('/access/credentials')
       .set(auth)
-      .send({ customerId, method: 'pin', pin: '135790', allowedHours: {} })
+      .send({ allFacilities: true, customerId, method: 'pin', pin: '135790', allowedHours: {} })
       .expect(201);
     return { apiKey, hardwareId, auth };
   }

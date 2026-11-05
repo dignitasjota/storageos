@@ -232,7 +232,7 @@ describe('Permisos finos (e2e)', () => {
     const asStaff = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${staffToken}`)
-      .send({});
+      .send({ allFacilities: true });
     expect(asStaff.status).toBe(403);
     expect(asStaff.body.code).toBe('insufficient_permission');
 
@@ -240,7 +240,7 @@ describe('Permisos finos (e2e)', () => {
     const asManager = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${managerToken}`)
-      .send({});
+      .send({ allFacilities: true });
     expect(asManager.status).not.toBe(403);
   });
 

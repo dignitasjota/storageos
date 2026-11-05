@@ -1,4 +1,10 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  type QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 import { useHeaderFacilityId } from '../facilities/store';
@@ -32,6 +38,11 @@ export const devicesKey = (params?: Record<string, string | undefined>) =>
 export const deviceKey = (id: string) => ['access', 'devices', id] as const;
 export const accessLogsKey = (params?: Record<string, string | undefined>) =>
   ['access', 'logs', params ?? {}] as const;
+
+function invalidateCredentials(qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: ['access', 'credentials'] });
+  void qc.invalidateQueries({ queryKey: ['access-credentials'] });
+}
 
 function toQuery(params?: Record<string, string | undefined>): string {
   if (!params) return '';
@@ -79,7 +90,7 @@ export function useCreateCredential() {
         method: 'POST',
         json: input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'credentials'] }),
+    onSuccess: () => invalidateCredentials(qc),
   });
 }
 
@@ -91,7 +102,7 @@ export function useCreateFacialCredential() {
         method: 'POST',
         json: input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'credentials'] }),
+    onSuccess: () => invalidateCredentials(qc),
   });
 }
 
@@ -103,7 +114,7 @@ export function useUpdateCredential(id: string) {
         method: 'PATCH',
         json: input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'credentials'] }),
+    onSuccess: () => invalidateCredentials(qc),
   });
 }
 
@@ -115,7 +126,7 @@ export function useRotateCredential() {
         method: 'POST',
         json: args.input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'credentials'] }),
+    onSuccess: () => invalidateCredentials(qc),
   });
 }
 
@@ -127,7 +138,7 @@ export function useSuspendCredential() {
         method: 'POST',
         json: args.input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'credentials'] }),
+    onSuccess: () => invalidateCredentials(qc),
   });
 }
 
@@ -138,7 +149,7 @@ export function useResumeCredential() {
       apiFetch<AccessCredentialDto>(`/access/credentials/${id}/resume`, {
         method: 'POST',
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'credentials'] }),
+    onSuccess: () => invalidateCredentials(qc),
   });
 }
 
@@ -149,7 +160,7 @@ export function useRevokeCredential() {
       apiFetch<AccessCredentialDto>(`/access/credentials/${id}/revoke`, {
         method: 'POST',
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'credentials'] }),
+    onSuccess: () => invalidateCredentials(qc),
   });
 }
 
@@ -188,7 +199,7 @@ export function useCreateDevice() {
   });
 }
 
-export function useUpdateDevice(id: string) {
+export function useUpdateDevice(id: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: UpdateDeviceInput) =>
@@ -204,7 +215,7 @@ export function useRegenerateApiKey() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<AccessDeviceWithKeyDto>(`/access/devices/${id}/regenerate-key`, {
+      apiFetch<AccessDeviceWithKeyDto>(`/access/devices/${id}/regenerate-api-key`, {
         method: 'POST',
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'devices'] }),
@@ -220,12 +231,13 @@ export function useDeleteDevice() {
 }
 
 export function usePingDevice() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<{ ok: boolean; isOnline: boolean; lastSeenAt: string | null }>(
-        `/access/devices/${id}/ping`,
-        { method: 'POST' },
-      ),
+      apiFetch<{ supported: boolean; online: boolean }>(`/access/devices/${id}/ping`, {
+        method: 'POST',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'devices'] }),
   });
 }
 
@@ -308,8 +320,10 @@ export function useAccessLogPages(params?: {
 
 /** Pases nocturnos del tenant + ingresos (subpágina de accesos). */
 export function useNightPasses() {
+  const facilityId = useHeaderFacilityId();
+  const flat = { facilityId };
   return useQuery({
-    queryKey: ['access', 'night-passes'] as const,
-    queryFn: () => apiFetch<NightPassListDto>('/access/credentials/night-passes'),
+    queryKey: ['access', 'night-passes', flat] as const,
+    queryFn: () => apiFetch<NightPassListDto>(`/access/credentials/night-passes${toQuery(flat)}`),
   });
 }

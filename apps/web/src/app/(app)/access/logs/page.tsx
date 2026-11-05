@@ -1,10 +1,16 @@
 'use client';
 
-import { type AccessLogDto, type AccessResultValue } from '@storageos/shared';
+import {
+  accessReasonLabel,
+  type AccessLogDto,
+  type AccessResultValue,
+  isStaffAccessLog,
+} from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
 import { useState } from 'react';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
@@ -16,8 +22,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAccessLogPages, useDevices } from '@/lib/access/hooks';
+import { formatDateTime } from '@/lib/format';
 
-const METHOD_LABELS: Record<string, string> = { pin: 'PIN', qr: 'QR', rfid: 'RFID' };
+const METHOD_LABELS: Record<string, string> = {
+  pin: 'PIN',
+  qr: 'QR',
+  rfid: 'Tarjeta',
+  face: 'Facial',
+};
 
 const RESULT_LABELS: Record<AccessResultValue, { label: string; className: string }> = {
   allowed: {
@@ -77,7 +89,7 @@ export default function AccessLogsPage() {
       header: 'Fecha',
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
-          {new Date(row.original.occurredAt).toLocaleString('es-ES')}
+          {formatDateTime(row.original.occurredAt)}
         </span>
       ),
     },
@@ -85,7 +97,11 @@ export default function AccessLogsPage() {
       accessorKey: 'customerName',
       header: 'Inquilino',
       cell: ({ row }) =>
-        row.original.customerId ? (
+        isStaffAccessLog(row.original.reason) ? (
+          <span className="text-sm text-muted-foreground">
+            Equipo{row.original.staffName ? ` · ${row.original.staffName}` : ''}
+          </span>
+        ) : row.original.customerId ? (
           <Link href={`/customers/${row.original.customerId}`} className="text-sm hover:underline">
             {row.original.customerName}
           </Link>
@@ -102,7 +118,11 @@ export default function AccessLogsPage() {
       accessorKey: 'method',
       header: 'Método',
       cell: ({ row }) => (
-        <span className="text-xs">{METHOD_LABELS[row.original.method] ?? row.original.method}</span>
+        <span className="text-xs">
+          {isStaffAccessLog(row.original.reason)
+            ? 'Panel'
+            : (METHOD_LABELS[row.original.method] ?? row.original.method)}
+        </span>
       ),
     },
     {
@@ -135,7 +155,7 @@ export default function AccessLogsPage() {
       cell: ({ row }) =>
         row.original.reason ? (
           <Badge variant="outline" className="text-xs">
-            {row.original.reason}
+            {accessReasonLabel(row.original.reason)}
           </Badge>
         ) : (
           '—'
@@ -188,18 +208,22 @@ export default function AccessLogsPage() {
         </div>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={rows}
-        isLoading={logs.isLoading}
-        loadMore={{
-          hasMore: !!logs.hasNextPage,
-          loading: logs.isFetchingNextPage,
-          onLoadMore: () => void logs.fetchNextPage(),
-        }}
-        searchPlaceholder="Buscar..."
-        emptyText="No hay intentos de acceso registrados todavía."
-      />
+      {logs.isError && rows.length === 0 ? (
+        <SectionError onRetry={() => void logs.refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={rows}
+          isLoading={logs.isLoading}
+          loadMore={{
+            hasMore: !!logs.hasNextPage,
+            loading: logs.isFetchingNextPage,
+            onLoadMore: () => void logs.fetchNextPage(),
+          }}
+          searchPlaceholder="Buscar..."
+          emptyText="No hay intentos de acceso registrados todavía."
+        />
+      )}
     </div>
   );
 }

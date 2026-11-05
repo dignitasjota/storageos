@@ -150,6 +150,8 @@ export interface VisitorPinDto {
   credentialId: string;
   pin: string;
   expiresAt: string;
+  /** El inquilino tiene el acceso cortado por impago: este PIN abre igualmente. */
+  customerCutForDebt: boolean;
 }
 
 /** Vista de la puerta del local (tablet en recepción). */
@@ -172,5 +174,7 @@ export interface DoorViewDto {
     result: string;
     customerName: string | null;
     deviceName: string | null;
+    /** Apertura o cierre desde el panel: no es la entrada de nadie. */
+    fromStaff: boolean;
   }[];
 }
