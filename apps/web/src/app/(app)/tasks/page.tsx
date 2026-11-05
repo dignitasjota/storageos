@@ -66,8 +66,8 @@ import {
   useUpdateChecklistItem,
 } from '@/lib/operations/hooks';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
-import { useUsers } from '@/lib/users/hooks';
 import { useOpenFromUrl } from '@/lib/use-open-from-url';
+import { useUsers } from '@/lib/users/hooks';
 
 const TYPE_LABELS: Record<TaskTypeValue, string> = {
   cleaning: 'Limpieza',

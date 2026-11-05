@@ -14,10 +14,10 @@ import Link from 'next/link';
 
 import type { SuggestedActionCategory } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { SectionError } from '@/components/dashboard/section-state';
 import { useSuggestedActions } from '@/lib/analytics/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 

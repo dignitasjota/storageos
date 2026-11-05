@@ -4,9 +4,9 @@ import { Lock, Loader2, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 
 import { CASE_STATUS_LABELS } from '@/app/(app)/collections/status';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { SectionError } from '@/components/dashboard/section-state';
 import { useHasFeature } from '@/lib/auth/hooks';
 import { useCollectionsSummary } from '@/lib/collections/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
