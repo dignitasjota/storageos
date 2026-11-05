@@ -188,6 +188,24 @@ describe('Revisión de Inquilinos (e2e)', () => {
         .expect(201);
       await http().post(`/contracts/${c.body.id}/sign`).set(auth).send({}).expect(200);
     }
+    // Una factura de un trastero del otro local: su deuda no se ve con alcance.
+    await ensureDefaultSeries(app, owner.accessToken);
+    const otherInv = await http()
+      .post('/invoices')
+      .set(auth)
+      .send({
+        invoiceType: 'F1',
+        customerId: inA,
+        contractId: (await db.contract.findFirstOrThrow({ where: { customerId: inB } })).id,
+        items: [{ description: 'Otro local', quantity: 1, unitPrice: 10, taxRate: 21 }],
+        verifactuMode: 'verifactu',
+      });
+    expect(otherInv.status).toBe(201);
+    await http().post(`/invoices/${otherInv.body.id}/issue`).set(auth).send({}).expect(200);
+    await db.invoice.update({
+      where: { id: otherInv.body.id as string },
+      data: { dueDate: new Date(isoDay(-3)) },
+    });
     const email = `cus-staff-${Date.now()}@e2e.local`;
     await http().post('/invitations').set(auth).send({ email, role: 'staff' }).expect(201);
     const mail = await waitForEmail(email, { subjectIncludes: 'invitado' });
@@ -212,6 +230,15 @@ describe('Revisión de Inquilinos (e2e)', () => {
     const ids = (list.body as { id: string }[]).map((c) => c.id);
     expect(ids).toEqual(expect.arrayContaining([inA, free]));
     expect(ids).not.toContain(inB);
+    const rowA = (list.body as { id: string; overdue: number }[]).find((c) => c.id === inA);
+    expect(rowA?.overdue).toBe(0);
+    const ownerRow = (
+      (await http().get('/customers/overview').set(auth).expect(200)).body as {
+        id: string;
+        overdue: number;
+      }[]
+    ).find((c) => c.id === inA);
+    expect(ownerRow?.overdue).toBe(12.1);
     await http().get(`/customers/${inB}`).set(scoped).expect(404);
     await http().get(`/customers/${inB}/account`).set(scoped).expect(404);
     await http().get(`/customers/${inB}/documents`).set(scoped).expect(404);

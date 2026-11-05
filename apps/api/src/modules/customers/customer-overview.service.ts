@@ -1,7 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { customerScopeWhere } from '../../common/customer-scope';
-import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
+import {
+  type FacilityScope,
+  invoiceFacilityWhere,
+  isFacilityAllowed,
+} from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
 import { nextContractCharge } from '../../common/next-charge';
 import { isPendingPreOpening } from '../../common/pre-opening';
@@ -23,6 +27,10 @@ const STEP_LABEL: Record<string, string> = {
   access_block: 'Corte de acceso',
   legal_notice: 'Aviso legal',
 };
+
+function scopedInvoices(scope: FacilityScope | undefined): Prisma.InvoiceWhereInput {
+  return scope ? { AND: [invoiceFacilityWhere(scope) as Prisma.InvoiceWhereInput] } : {};
+}
 
 /** Vencido: marcado como tal o emitido con el vencimiento ya pasado. */
 function overdueOf(today: Date): Prisma.InvoiceWhereInput {
@@ -76,6 +84,8 @@ export class CustomerOverviewService {
       const today = todayInTimezone(tenant?.timezone ?? 'Europe/Madrid');
       // Como en Deudores: también lo emitido ya vencido que el cron aún no ha marcado.
       const overdueWhere = overdueOf(today);
+      // Con alcance, la deuda de sus locales: la de los demás no le corresponde.
+      const inScope = scopedInvoices(scope);
       const [
         customers,
         contracts,
@@ -135,13 +145,13 @@ export class CustomerOverviewService {
         }),
         tx.invoice.groupBy({
           by: ['customerId'],
-          where: { ...overdueWhere, customerId: { not: null } },
+          where: { ...overdueWhere, ...inScope, customerId: { not: null } },
           _sum: { total: true, amountPaid: true },
           _min: { dueDate: true },
         }),
         tx.invoice.groupBy({
           by: ['customerId'],
-          where: { ...notDueOf(today), customerId: { not: null } },
+          where: { ...notDueOf(today), ...inScope, customerId: { not: null } },
           _sum: { total: true, amountPaid: true },
         }),
         // Solo lo escrito por una persona: las facturas y avisos automáticos no
@@ -263,6 +273,7 @@ export class CustomerOverviewService {
   async account(
     tenantId: string,
     customerId: string,
+    scope: FacilityScope = null,
     now = new Date(),
   ): Promise<CustomerAccountDto> {
     return this.prisma.withTenant(async (tx) => {
@@ -281,9 +292,15 @@ export class CustomerOverviewService {
         select: { autoChargeOnIssue: true, timezone: true },
       });
       const today = todayInTimezone(tenantRow?.timezone ?? 'Europe/Madrid', now);
+      const inScope = scopedInvoices(scope);
       const [contracts, methods, mandate, overdue, notDue, paid, nightPasses] = await Promise.all([
         tx.contract.findMany({
-          where: { customerId, deletedAt: null, status: { in: [...LIVE] } },
+          where: {
+            customerId,
+            deletedAt: null,
+            status: { in: [...LIVE] },
+            ...(scope ? { unit: { facilityId: { in: scope } } } : {}),
+          },
           select: {
             id: true,
             contractNumber: true,
@@ -325,17 +342,18 @@ export class CustomerOverviewService {
           select: { ibanLast4: true },
         }),
         tx.invoice.findMany({
-          where: { ...overdueOf(today), customerId },
+          where: { ...overdueOf(today), ...inScope, customerId },
           select: { id: true, invoiceNumber: true, dueDate: true, total: true, amountPaid: true },
           orderBy: { dueDate: 'asc' },
         }),
         tx.invoice.aggregate({
-          where: { ...notDueOf(today), customerId },
+          where: { ...notDueOf(today), ...inScope, customerId },
           _sum: { total: true, amountPaid: true },
         }),
         tx.payment.aggregate({
           where: {
             customerId,
+            ...(scope ? { invoice: scopedInvoices(scope) } : {}),
             status: { in: ['succeeded', 'partially_refunded'] },
             paidAt: { gte: new Date(now.getTime() - 365 * DAY) },
             methodType: { notIn: ['credit_note', 'withholding'] },

@@ -38,6 +38,6 @@ export class CustomerOverviewController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<CustomerAccountDto> {
-    return this.service.account(user.tenantId, id);
+    return this.service.account(user.tenantId, id, user.facilityScope ?? null);
   }
 }
