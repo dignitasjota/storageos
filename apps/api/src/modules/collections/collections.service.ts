@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { CASE_FILE_MIME_TYPES, CLOSED_CASE_STATUSES } from '@storageos/shared';
 
+import { depositWasCollected } from '../../common/deposit-collected';
 import { resolveFacilityFilter } from '../../common/facility-scope';
 import { toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
@@ -705,8 +706,12 @@ export class CollectionsService {
       where: { id: contractId, tenantId },
       select: { depositAmount: true, depositStatus: true },
     });
-    const depositCents =
-      applyDeposit && contract?.depositStatus === 'held' ? toCents(contract.depositAmount) : 0;
+    // Solo lo que se cobró de verdad se puede aplicar a la deuda.
+    const collected =
+      applyDeposit &&
+      contract?.depositStatus === 'held' &&
+      (await this.prisma.withTenant((tx) => depositWasCollected(tx, contractId), tenantId));
+    const depositCents = collected ? toCents(contract.depositAmount) : 0;
 
     const invoices = await this.prisma.withTenant(
       (tx) =>

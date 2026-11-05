@@ -19,15 +19,18 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { ChecklistCard } from './checklist-card';
-import { DepositCard, depositStatusLabel } from './deposit-card';
+import { ConditionsCard } from './conditions-card';
+import { DepositCard, contractDepositLabel } from './deposit-card';
 import { DepositRegistryCard } from './deposit-registry-card';
 import { EditDraftDialog } from './edit-draft-dialog';
+import { contractEventText } from './event-text';
 import { InspectionPhotosCard } from './inspection-photos-card';
 import { IrpfRetentionCard } from './irpf-retention-card';
 import { contractStartLabel, PreOpeningContractCard } from './pre-opening-card';
 import { RetentionCard } from './retention-card';
 import { SigningCard } from './signing-card';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { ContractStatusBadge } from '@/components/contract-status-badge';
 import { SignaturePad } from '@/components/move-in/signature-pad';
 import { Button } from '@/components/ui/button';
@@ -75,19 +78,6 @@ import { useUnits } from '@/lib/facilities/hooks';
 import { formatDate, formatEur } from '@/lib/format';
 import { useInsurancePlans, useSetContractInsurance } from '@/lib/insurance/hooks';
 
-const EVENT_LABELS: Record<string, string> = {
-  created: 'Creado',
-  signed: 'Firmado',
-  price_changed: 'Precio modificado',
-  unit_changed: 'Cambio de trastero',
-  paused: 'Pausado',
-  resumed: 'Reanudado',
-  ending_requested: 'Baja solicitada',
-  ended: 'Finalizado',
-  cancelled: 'Cancelado',
-  note_added: 'Nota',
-};
-
 export default function ContractDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
@@ -107,6 +97,7 @@ export default function ContractDetailPage() {
   const signedPdfUrl = useContractSignedPdfUrl();
   const canWriteC = useHasPermission('contracts:write');
   const canManageC = useHasPermission('contracts:manage');
+  const ask = useConfirm();
 
   const [priceOpen, setPriceOpen] = useState(false);
   const [priceValue, setPriceValue] = useState(0);
@@ -248,9 +239,17 @@ export default function ContractDetailPage() {
               !pendingPreOpening && (
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    handle(() => end.mutateAsync({ id: c.id }), 'Contrato finalizado.')
-                  }
+                  onClick={async () => {
+                    const ok = await ask({
+                      title: 'Finalizar el contrato',
+                      description:
+                        'El contrato se cierra hoy: el trastero queda libre, se retira el acceso del inquilino si no tiene otro contrato y deja de facturarse. No se puede deshacer.',
+                      confirmLabel: 'Finalizar',
+                      destructive: true,
+                    });
+                    if (ok)
+                      await handle(() => end.mutateAsync({ id: c.id }), 'Contrato finalizado.');
+                  }}
                 >
                   <Square className="mr-1 h-4 w-4" /> Finalizar
                 </Button>
@@ -271,7 +270,8 @@ export default function ContractDetailPage() {
               )}
             {(c.status === 'active' || c.status === 'ending') &&
               canManageC &&
-              !pendingPreOpening && (
+              !pendingPreOpening &&
+              !!c.endDate && (
                 <Button variant="outline" onClick={() => setRenewOpen(true)}>
                   Renovar
                 </Button>
@@ -381,7 +381,7 @@ export default function ContractDetailPage() {
           </CardHeader>
           <CardContent>
             <p className="text-xl font-semibold tabular-nums">{formatEur(c.depositAmount)}</p>
-            <p className="text-xs text-muted-foreground">{depositStatusLabel(c.depositStatus)}</p>
+            <p className="text-xs text-muted-foreground">{contractDepositLabel(c)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -423,6 +423,7 @@ export default function ContractDetailPage() {
           <SigningCard contractId={c.id} />
         </TabsContent>
         <TabsContent value="billing" className="space-y-4">
+          <ConditionsCard contract={c} />
           <InsuranceCard
             contractId={c.id}
             planId={c.insurancePlanId}
@@ -468,41 +469,37 @@ export default function ContractDetailPage() {
               )}
               {events.data && events.data.length > 0 && (
                 <ul className="space-y-3">
-                  {events.data.map((e) => (
-                    <li key={e.id} className="border-l-2 border-muted pl-3">
-                      <p className="text-sm">
-                        <strong>{EVENT_LABELS[e.eventType] ?? e.eventType}</strong>
-                        {e.eventType === 'price_changed' &&
-                          ` · ${formatEur(e.payload.from as number)} → ${formatEur(e.payload.to as number)}`}
-                        {e.eventType === 'note_added' &&
-                        e.payload.event === 'prepay_credit_note' ? (
-                          <span className="block text-muted-foreground">
-                            Abono por baja anticipada ({String(e.payload.unusedMonths)} meses no
-                            consumidos) en borrador ·{' '}
-                            <Link
-                              href={`/invoices/${String(e.payload.invoiceId)}`}
-                              className="text-primary hover:underline"
-                            >
-                              revisar, emitir y reembolsar
-                            </Link>
-                          </span>
-                        ) : e.eventType === 'note_added' ? (
-                          <span className="block whitespace-pre-line text-muted-foreground">
-                            {String(e.payload.note ?? '')}
-                          </span>
-                        ) : null}
-                        {e.eventType === 'cancelled' && e.payload.reason ? (
-                          <span className="block text-muted-foreground">
-                            Motivo: {String(e.payload.reason)}
-                          </span>
-                        ) : null}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(e.occurredAt).toLocaleString('es-ES')}
-                        {e.createdByName && ` · ${e.createdByName}`}
-                      </p>
-                    </li>
-                  ))}
+                  {events.data.map((e) => {
+                    const text = contractEventText(e);
+                    return (
+                      <li key={e.id} className="border-l-2 border-muted pl-3">
+                        <p className="text-sm">
+                          <strong>{text.title}</strong>
+                          {e.eventType === 'note_added' &&
+                          e.payload.event === 'prepay_credit_note' ? (
+                            <span className="block text-muted-foreground">
+                              Abono por baja anticipada ({String(e.payload.unusedMonths)} meses no
+                              consumidos) en borrador ·{' '}
+                              <Link
+                                href={`/invoices/${String(e.payload.invoiceId)}`}
+                                className="text-primary hover:underline"
+                              >
+                                revisar, emitir y reembolsar
+                              </Link>
+                            </span>
+                          ) : text.detail ? (
+                            <span className="block whitespace-pre-line text-muted-foreground">
+                              {text.detail}
+                            </span>
+                          ) : null}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(e.occurredAt).toLocaleString('es-ES')}
+                          {e.createdByName && ` · ${e.createdByName}`}
+                        </p>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </CardContent>
@@ -663,7 +660,11 @@ export default function ContractDetailPage() {
               <select
                 className="h-10 w-full rounded-md border bg-background px-3 text-sm"
                 value={newUnitId}
-                onChange={(e) => setNewUnitId(e.target.value)}
+                onChange={(e) => {
+                  setNewUnitId(e.target.value);
+                  const target = availableUnits.data?.items.find((u) => u.id === e.target.value);
+                  if (target) setNewPrice(String(target.basePriceMonthly));
+                }}
               >
                 <option value="">Elige un trastero…</option>
                 {(availableUnits.data?.items ?? []).map((u) => (
@@ -731,6 +732,11 @@ export default function ContractDetailPage() {
           <DialogHeader>
             <DialogTitle>Cancelar contrato</DialogTitle>
           </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {c.status === 'draft'
+              ? 'El borrador se anula y, si retenía el trastero, vuelve a estar libre.'
+              : 'Cancelar es para un contrato que no debía seguir (error, alta que no llegó a empezar). Si el inquilino se marcha, usa «Finalizar» o «Solicitar baja». Las facturas ya emitidas no se anulan solas.'}
+          </p>
           <div>
             <Label>Motivo (opcional)</Label>
             <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />

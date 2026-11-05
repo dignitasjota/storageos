@@ -101,9 +101,13 @@ export default function RenewalsPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={c.autoRenew ? 'default' : 'outline'}>
-                            {c.autoRenew ? 'Auto' : 'Manual'}
-                          </Badge>
+                          {c.status === 'ending' ? (
+                            <Badge variant="destructive">En baja</Badge>
+                          ) : (
+                            <Badge variant={c.autoRenew ? 'default' : 'outline'}>
+                              {c.autoRenew ? 'Auto' : 'Manual'}
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <Link

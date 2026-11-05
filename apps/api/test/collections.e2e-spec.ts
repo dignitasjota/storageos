@@ -272,6 +272,11 @@ describe('Collections / expedientes de impago (e2e)', () => {
       where: { id: contractId },
       data: { depositAmount: 50, depositStatus: 'held' },
     });
+    await request(app.getHttpServer())
+      .post(`/contracts/${contractId}/deposit/collect`)
+      .set(auth)
+      .send({ methodType: 'cash' })
+      .expect(200);
 
     const open = await request(app.getHttpServer())
       .post('/collections')
@@ -332,6 +337,11 @@ describe('Collections / expedientes de impago (e2e)', () => {
         where: { id: contractId },
         data: { depositAmount: 50, depositStatus: 'held' },
       });
+      await request(app.getHttpServer())
+        .post(`/contracts/${contractId}/deposit/collect`)
+        .set(auth)
+        .send({ methodType: 'cash' })
+        .expect(200);
 
       const open = await request(app.getHttpServer())
         .post('/collections')

@@ -158,6 +158,8 @@ export interface ContractDto {
   depositPaymentMethod: 'online' | 'cash';
   /** Justificante de la fianza y si está cobrado (null = aún no existe). */
   depositReceipt: { id: string; number: string; status: string } | null;
+  /** La fianza se cobró de verdad (`depositStatus` solo dice que el contrato la lleva). */
+  depositCollected: boolean;
   /**
    * El PDF firmado NO viaja aquí como URL permanente (bucket privado, sin
    * firmar): pedir `GET /contracts/:id/signed-pdf` cuando `true` da una URL

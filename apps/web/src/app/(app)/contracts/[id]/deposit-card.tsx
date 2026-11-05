@@ -39,6 +39,12 @@ export function depositStatusLabel(status: string): string {
   return DEPOSIT_STATUS_LABEL[status] ?? status;
 }
 
+/** Estado de la fianza tal como se ha cobrado de verdad. */
+export function contractDepositLabel(c: ContractDto): string {
+  if (c.depositStatus === 'held' && !c.depositCollected) return 'Pendiente de cobro';
+  return depositStatusLabel(c.depositStatus);
+}
+
 /**
  * Ciclo de vida de la fianza: cuando está retenida (`held`) permite liquidarla
  * al finalizar (devolver total/parcial + retener por daños/deuda). Muestra la
@@ -82,12 +88,12 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Importe retenido</span>
+          <span className="text-muted-foreground">Importe</span>
           <span className="font-semibold tabular-nums">{formatEur(contract.depositAmount)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Estado</span>
-          <span>{depositStatusLabel(contract.depositStatus)}</span>
+          <span>{contractDepositLabel(contract)}</span>
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className="text-muted-foreground">Cobro</span>
@@ -171,13 +177,14 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
           </div>
         )}
 
-        {contract.depositStatus === 'held' && (
-          <Can permission="contracts:manage">
-            <Button size="sm" variant="outline" className="mt-1" onClick={() => setOpen(true)}>
-              Liquidar fianza
-            </Button>
-          </Can>
-        )}
+        {contract.depositStatus === 'held' &&
+          (contract.depositCollected || (!live && !receipt)) && (
+            <Can permission="contracts:manage">
+              <Button size="sm" variant="outline" className="mt-1" onClick={() => setOpen(true)}>
+                Liquidar fianza
+              </Button>
+            </Can>
+          )}
       </CardContent>
 
       <SettleDepositDialog contract={contract} open={open} onClose={() => setOpen(false)} />

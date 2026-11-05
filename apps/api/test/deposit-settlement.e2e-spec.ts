@@ -49,6 +49,11 @@ describe('Liquidación de fianza (e2e)', () => {
       .post(`/contracts/${contractId}/sign`)
       .set(auth)
       .expect(200);
+    await request(app.getHttpServer())
+      .post(`/contracts/${contractId}/deposit/collect`)
+      .set(auth)
+      .send({ methodType: 'cash' })
+      .expect(200);
     expect(signed.body.depositStatus).toBe('held');
 
     // Liquidar sin motivo reteniendo → 400 (motivo obligatorio).
@@ -102,6 +107,11 @@ describe('Liquidación de fianza (e2e)', () => {
     });
     const contractId = create.body.id as string;
     await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
+    await request(app.getHttpServer())
+      .post(`/contracts/${contractId}/deposit/collect`)
+      .set(auth)
+      .send({ methodType: 'cash' })
+      .expect(200);
 
     const settled = await request(app.getHttpServer())
       .post(`/contracts/${contractId}/settle-deposit`)
@@ -128,6 +138,11 @@ describe('Liquidación de fianza (e2e)', () => {
     });
     const contractId = create.body.id as string;
     await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
+    await request(app.getHttpServer())
+      .post(`/contracts/${contractId}/deposit/collect`)
+      .set(auth)
+      .send({ methodType: 'cash' })
+      .expect(200);
 
     // Doble clic: dos liquidaciones simultáneas con importes DISTINTOS.
     const [first, second] = await Promise.all([
