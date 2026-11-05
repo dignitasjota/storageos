@@ -103,6 +103,7 @@ export class BillingJobsService {
         tenantId,
         status: { in: ['active', 'ending'] },
         deletedAt: null,
+        customer: { isTest: false },
         // Reservas anticipadas: no se factura hasta que abre el local.
         ...STARTED_CONTRACT_WHERE,
       },

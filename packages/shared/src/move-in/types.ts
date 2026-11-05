@@ -3,6 +3,8 @@ import type { FirstPaymentQuoteDto } from '../coupons';
 
 /** Vista pública de un contrato a punto de firmarse (página /sign/[token]). */
 export interface ContractSignViewDto {
+  /** Inquilino de prueba de la puesta en marcha: no se factura. */
+  isTest: boolean;
   contractNumber: string;
   customerName: string;
   unitCode: string;

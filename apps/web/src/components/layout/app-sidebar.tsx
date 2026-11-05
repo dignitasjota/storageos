@@ -63,6 +63,7 @@ import { useEffect, useState } from 'react';
 
 import type { Permission, TenantFeature } from '@storageos/shared';
 
+import { useOnboarding } from '@/components/onboarding/onboarding-steps';
 import {
   Sidebar,
   SidebarContent,
@@ -451,6 +452,18 @@ const GROUPS: NavGroup[] = [
 
 const COLLAPSE_KEY = 'storageos:sidebar-collapsed';
 
+/** Lo que se enseña hasta el primer contrato: el resto se abre con «Ver todo el menú». */
+const ESSENTIAL_ITEMS = new Set([
+  '/customers',
+  'ops-contracting',
+  '/contracts',
+  '/reservations',
+  '/facilities',
+  '/units',
+  '/invoices',
+]);
+const FULL_MENU_KEY = 'storageos.sidebar.full';
+
 export function AppSidebar() {
   const pathname = usePathname();
   const t = useTranslations('sidebar');
@@ -459,6 +472,28 @@ export function AppSidebar() {
   const panelBrand = usePanelBrand();
   const can = (p?: Permission) => !p || permissions.includes(p);
   const hasFeature = (f?: TenantFeature) => !f || features.includes(f);
+
+  // Tenant recién creado: menú corto y progreso de la puesta en marcha.
+  const onboarding = useOnboarding().data;
+  const [fullMenu, setFullMenu] = useState(false);
+  useEffect(() => {
+    try {
+      setFullMenu(localStorage.getItem(FULL_MENU_KEY) === '1');
+    } catch {
+      // Sin almacenamiento se queda el menú corto.
+    }
+  }, []);
+  const contractDone = onboarding?.steps.find((s) => s.key === 'contract')?.done ?? true;
+  const reducedMenu = !!onboarding && !contractDone && !fullMenu;
+  const showFullMenu = () => {
+    setFullMenu(true);
+    try {
+      localStorage.setItem(FULL_MENU_KEY, '1');
+    } catch {
+      // Vale para esta visita.
+    }
+  };
+  const shown = (href: string) => !reducedMenu || ESSENTIAL_ITEMS.has(href);
 
   // Badge de cambios de trastero pendientes (solo si el usuario ve esa sección).
   const unitChangePending =
@@ -686,14 +721,35 @@ export function AppSidebar() {
         </Link>
         {/* Hoy y Resumen, fijos arriba: no se desplazan con el resto del menú. */}
         <SidebarMenu>{PRIMARY_ITEMS.map((item) => renderItem(item))}</SidebarMenu>
+        {onboarding && !onboarding.completed && (
+          <Link
+            href="/settings/getting-started"
+            className="block rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:hidden"
+          >
+            <span className="flex justify-between">
+              <span>Puesta en marcha</span>
+              <span className="tabular-nums">
+                {onboarding.requiredDone}/{onboarding.requiredTotal}
+              </span>
+            </span>
+            <span className="mt-1 block h-1 overflow-hidden rounded-full bg-sidebar-accent">
+              <span
+                className="block h-full rounded-full bg-primary"
+                style={{ width: `${Math.round(onboarding.progress * 100)}%` }}
+              />
+            </span>
+          </Link>
+        )}
       </SidebarHeader>
       <SidebarContent className="scrollbar-subtle gap-0 border-y border-sidebar-border">
         {GROUPS.map((group) => {
-          const items = group.items.filter((item) =>
-            // Un submenú solo cuenta si le queda algún hijo visible.
-            item.children
-              ? item.children.some((c) => can(c.permission) && hasFeature(c.feature))
-              : can(item.permission) && hasFeature(item.feature),
+          const items = group.items.filter(
+            (item) =>
+              shown(item.href) &&
+              // Un submenú solo cuenta si le queda algún hijo visible.
+              (item.children
+                ? item.children.some((c) => can(c.permission) && hasFeature(c.feature))
+                : can(item.permission) && hasFeature(item.feature)),
           );
           if (items.length === 0) return null;
           const isCollapsed = collapsed.has(group.labelKey);
@@ -720,6 +776,15 @@ export function AppSidebar() {
             </SidebarGroup>
           );
         })}
+        {reducedMenu && (
+          <button
+            type="button"
+            onClick={showFullMenu}
+            className="px-4 py-2 text-left text-xs text-sidebar-foreground/70 underline underline-offset-2 hover:text-sidebar-foreground"
+          >
+            Ver todo el menú
+          </button>
+        )}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

@@ -8,6 +8,7 @@ import {
   useOnboarding,
   WebStatusNote,
 } from '@/components/onboarding/onboarding-steps';
+import { TestRunCard } from '@/components/onboarding/test-run-card';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 /** Puesta en marcha completa: lo imprescindible y lo recomendado, siempre a mano. */
@@ -60,6 +61,10 @@ export default function GettingStartedPage() {
             </CardContent>
           </Card>
           <WebStatusNote web={data.web} />
+          <TestRunCard
+            testRun={data.testRun}
+            canStart={data.steps.some((s) => s.key === 'test_run')}
+          />
         </>
       )}
     </div>

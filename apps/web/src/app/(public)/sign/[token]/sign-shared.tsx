@@ -233,6 +233,12 @@ export function SignPageBody({
                 ? t('signedBody', { contractNumber: view.contractNumber, unitCode: view.unitCode })
                 : t('signedDoneBody', { contractNumber: view.contractNumber })}
             </p>
+            {view.isTest && (
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                Es una prueba: no hay nada que pagar. Un cliente real pagaría aquí la primera
+                factura y recibiría su acceso. Ya puedes volver a tu panel.
+              </p>
+            )}
             {pending.length > 0 && portalToken ? (
               <BookingPayment portalToken={portalToken} invoice={pending[0]!} locale={locale} />
             ) : !result && view.paymentPending ? (

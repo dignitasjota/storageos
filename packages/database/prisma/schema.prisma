@@ -1370,6 +1370,8 @@ model Customer {
   /// En el tenant propio: el tenant de la plataforma al que representa (facturas de suscripción).
   platformTenantId      String?      @map("platform_tenant_id") @db.Uuid
   deletedAt             DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  /// Inquilino de prueba de la puesta en marcha: no factura ni cuenta como cliente.
+  isTest                Boolean      @default(false) @map("is_test")
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 

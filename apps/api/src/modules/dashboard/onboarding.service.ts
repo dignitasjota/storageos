@@ -8,7 +8,13 @@ import { PrismaService } from '../database/prisma.service';
 
 import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
-import type { OnboardingDto, OnboardingStepDto } from '@storageos/shared';
+import type {
+  OnboardingDto,
+  OnboardingPath,
+  OnboardingStepDto,
+  OnboardingTestRunDto,
+  UpdateOnboardingStateInput,
+} from '@storageos/shared';
 
 /** Texto del botón de los pasos que se pueden dar por resueltos. */
 const SKIP_LABELS: Record<string, string> = {
@@ -20,6 +26,13 @@ const SKIP_LABELS: Record<string, string> = {
   team: 'Trabajo solo',
   verifactu: 'Más adelante',
 };
+
+interface OnboardingState {
+  skipped?: string[];
+  path?: OnboardingPath;
+  wizard?: 'done' | 'skipped';
+  testRunAt?: string;
+}
 
 function skippedSteps(state: unknown): string[] {
   const list = (state as { skipped?: unknown } | null)?.skipped;
@@ -99,11 +112,17 @@ export class OnboardingService {
         tx.customer.count({
           where: {
             deletedAt: null,
+            isTest: false,
             NOT: { contracts: { some: { firstPaymentDeadline: { not: null } } } },
           },
         }),
         tx.contract.count({
-          where: { deletedAt: null, status: { not: 'cancelled' }, firstPaymentDeadline: null },
+          where: {
+            deletedAt: null,
+            status: { not: 'cancelled' },
+            firstPaymentDeadline: null,
+            customer: { isTest: false },
+          },
         }),
         tx.user.count({ where: { isActive: true } }),
         tx.tenantAeatCredential.count({ where: { ownerId: null, revokedAt: null } }),
@@ -112,7 +131,15 @@ export class OnboardingService {
         tx.sepaSettings.count({ where: { enabled: true } }),
         tx.tenantStripeAccount.count({ where: { chargesEnabled: true } }),
       ]);
+      const testContract = await tx.contract.findFirst({
+        where: { deletedAt: null, status: { not: 'cancelled' }, customer: { isTest: true } },
+        select: { id: true, customerId: true, status: true },
+      });
+      const testRun: OnboardingTestRunDto | null = testContract
+        ? { customerId: testContract.customerId, contractId: testContract.id, signingUrl: null }
+        : null;
       return {
+        testRun,
         tenant,
         firstFacility,
         unitTypes,
@@ -127,6 +154,8 @@ export class OnboardingService {
     }, tenantId);
     const t = d.tenant;
     const skipped = new Set(skippedSteps(t?.onboardingState));
+    const state = (t?.onboardingState ?? {}) as OnboardingState;
+    const migrating = state.path === 'migrating';
     const facilityDone = !!(d.firstFacility?.address && d.firstFacility.city);
 
     const required: Step[] = [
@@ -148,12 +177,16 @@ export class OnboardingService {
       },
       {
         key: 'unit',
-        label: 'Da de alta tus trasteros',
-        hint: 'Uno a uno o todos de golpe desde un Excel o CSV.',
+        label: migrating ? 'Importa tus trasteros' : 'Da de alta tus trasteros',
+        hint: migrating
+          ? 'Súbelos desde un Excel o CSV de tu programa actual.'
+          : 'Uno a uno o todos de golpe desde un Excel o CSV.',
         done: d.units > 0,
         group: 'required',
-        href: '/units',
-        secondary: { label: 'Importar', href: '/units/import' },
+        href: migrating ? '/units/import' : '/units',
+        secondary: migrating
+          ? { label: 'Dar de alta a mano', href: '/units' }
+          : { label: 'Importar', href: '/units/import' },
       },
       {
         key: 'company',
@@ -199,21 +232,29 @@ export class OnboardingService {
       },
       {
         key: 'customer',
-        label: 'Da de alta a tus inquilinos',
-        hint: 'Si vienes de otro programa, impórtalos con sus contratos.',
+        label: migrating ? 'Importa a tus inquilinos' : 'Da de alta a tus inquilinos',
+        hint: migrating
+          ? 'Con sus datos de contacto, sin volver a escribirlos.'
+          : 'Si vienes de otro programa, impórtalos con sus contratos.',
         done: d.customers > 0,
-        group: 'required',
-        href: '/customers',
-        secondary: { label: 'Importar', href: '/customers/import' },
+        group: state.path === 'opening' ? 'recommended' : 'required',
+        href: migrating ? '/customers/import' : '/customers',
+        secondary: migrating
+          ? { label: 'Dar de alta a mano', href: '/customers' }
+          : { label: 'Importar', href: '/customers/import' },
       },
       {
         key: 'contract',
-        label: 'Crea tu primer contrato',
-        hint: 'El inquilino lo firma en el móvil o en el local y recibe su acceso al pagar.',
+        label: migrating ? 'Importa tus contratos' : 'Crea tu primer contrato',
+        hint: migrating
+          ? 'Después los activas en bloque, sin volver a firmarlos.'
+          : 'El inquilino lo firma en el móvil o en el local y recibe su acceso al pagar.',
         done: d.contracts > 0,
-        group: 'required',
-        href: '/contracts/new',
-        secondary: { label: 'Importar', href: '/contracts/import' },
+        group: state.path === 'opening' ? 'recommended' : 'required',
+        href: migrating ? '/contracts/import' : '/contracts/new',
+        secondary: migrating
+          ? { label: 'Crear uno a mano', href: '/contracts/new' }
+          : { label: 'Importar', href: '/contracts/import' },
       },
     ];
 
@@ -257,6 +298,19 @@ export class OnboardingService {
           ]),
     ];
 
+    // Con «abro pronto» aún no hay inquilinos: esos pasos pasan a recomendados.
+    const moved = required.filter((s) => s.group === 'recommended');
+    const requiredOnly = required.filter((s) => s.group === 'required');
+    if (d.units > 0) {
+      recommended.push({
+        key: 'test_run',
+        label: 'Prueba tu recorrido',
+        hint: 'Un inquilino de prueba con tu email: firma y área de clientes, sin facturas.',
+        done: !!state.testRunAt,
+        group: 'recommended',
+        href: '/settings/getting-started#prueba',
+      });
+    }
     const resolve = (s: Step): OnboardingStepDto => {
       const skippable = (ONBOARDING_SKIPPABLE_STEPS as readonly string[]).includes(s.key);
       const isSkipped = skippable && !s.done && skipped.has(s.key);
@@ -268,8 +322,8 @@ export class OnboardingService {
         ...(skippable ? { skipLabel: SKIP_LABELS[s.key] ?? 'No aplica' } : {}),
       };
     };
-    const requiredSteps = required.map(resolve);
-    const recommendedSteps = recommended.map(resolve);
+    const requiredSteps = requiredOnly.map(resolve);
+    const recommendedSteps = [...moved, ...recommended].map(resolve);
     const requiredDone = requiredSteps.filter((s) => s.done).length;
     const readiness = await tenantReadiness(this.admin, tenantId);
     const missing = [
@@ -287,6 +341,9 @@ export class OnboardingService {
         bookable: bookingReady(readiness),
         missing,
       },
+      path: state.path ?? null,
+      wizardPending: !state.wizard && !d.firstFacility && d.units === 0,
+      testRun: d.testRun,
       steps: [...requiredSteps, ...recommendedSteps],
       progress: requiredSteps.length ? requiredDone / requiredSteps.length : 1,
       completed: requiredDone === requiredSteps.length,
@@ -297,6 +354,29 @@ export class OnboardingService {
     };
   }
 
+  /** Punto de partida elegido y si ya pasó por el asistente. */
+  async setState(tenantId: string, input: UpdateOnboardingStateInput): Promise<OnboardingDto> {
+    await this.patchState(tenantId, {
+      ...(input.path ? { path: input.path } : {}),
+      ...(input.wizard ? { wizard: input.wizard } : {}),
+    });
+    return this.getOnboarding(tenantId);
+  }
+
+  async patchState(tenantId: string, patch: Partial<OnboardingState>): Promise<void> {
+    await this.prisma.withTenant(async (tx) => {
+      const tenant = await tx.tenant.findUnique({
+        where: { id: tenantId },
+        select: { onboardingState: true },
+      });
+      const state = (tenant?.onboardingState ?? {}) as Record<string, unknown>;
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: { onboardingState: { ...state, ...patch } as Prisma.InputJsonValue },
+      });
+    }, tenantId);
+  }
+
   /** Da un paso por resuelto (o lo devuelve a pendiente). */
   async setSkipped(tenantId: string, key: string, skip: boolean): Promise<OnboardingDto> {
     if (!(ONBOARDING_SKIPPABLE_STEPS as readonly string[]).includes(key)) {
@@ -305,20 +385,14 @@ export class OnboardingService {
         message: 'Este paso no se puede omitir',
       });
     }
-    await this.prisma.withTenant(async (tx) => {
-      const tenant = await tx.tenant.findUnique({
-        where: { id: tenantId },
-        select: { onboardingState: true },
-      });
-      const state = (tenant?.onboardingState ?? {}) as Record<string, unknown>;
-      const list = new Set(skippedSteps(state));
-      if (skip) list.add(key);
-      else list.delete(key);
-      await tx.tenant.update({
-        where: { id: tenantId },
-        data: { onboardingState: { ...state, skipped: [...list] } as Prisma.InputJsonValue },
-      });
-    }, tenantId);
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { onboardingState: true },
+    });
+    const list = new Set(skippedSteps(tenant?.onboardingState));
+    if (skip) list.add(key);
+    else list.delete(key);
+    await this.patchState(tenantId, { skipped: [...list] });
     return this.getOnboarding(tenantId);
   }
 }

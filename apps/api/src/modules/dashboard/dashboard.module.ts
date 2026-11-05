@@ -4,12 +4,15 @@ import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
 import { AuthModule } from '../auth/auth.module';
 import { CollectionsOpsModule } from '../collections-ops/collections-ops.module';
+import { ContractsModule } from '../contracts/contracts.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { MoveInModule } from '../move-in/move-in.module';
 import { PushModule } from '../push/push.module';
 import { QUEUE_EMAIL } from '../queues/queue-names';
 
 import { DailySummaryService } from './daily-summary.service';
 import { DashboardController } from './dashboard.controller';
+import { OnboardingTestRunService } from './onboarding-test-run.service';
 import { OnboardingService } from './onboarding.service';
 import { TodayExtrasService } from './today-extras.service';
 import { TodaySummaryService } from './today-summary.service';
@@ -21,7 +24,9 @@ import { TodayService } from './today.service';
     AccessModule,
     AuthModule,
     CollectionsOpsModule,
+    ContractsModule,
     InventoryModule,
+    MoveInModule,
     PushModule,
   ],
   controllers: [DashboardController],
@@ -31,6 +36,7 @@ import { TodayService } from './today.service';
     TodayService,
     TodayExtrasService,
     OnboardingService,
+    OnboardingTestRunService,
     TodaySummaryService,
     DailySummaryService,
   ],

@@ -126,4 +126,69 @@ describe('Puesta en marcha del tenant (e2e)', () => {
     };
     expect(notes.items.some((n) => n.type === 'booking.created')).toBe(true);
   });
+
+  it('el punto de partida cambia los pasos y el asistente solo se ofrece al empezar', async () => {
+    const owner = await registerVerifiedUser(app, 'onboarding-path');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const start = (await http().get('/dashboard/onboarding').set(auth).expect(200))
+      .body as OnboardingDto;
+    expect(start.wizardPending).toBe(true);
+
+    const state = async (body: object) =>
+      (await http().put('/dashboard/onboarding/state').set(auth).send(body).expect(200))
+        .body as OnboardingDto;
+    const migrating = await state({ path: 'migrating' });
+    expect(migrating.steps.find((s) => s.key === 'unit')).toMatchObject({
+      href: '/units/import',
+      label: 'Importa tus trasteros',
+    });
+    const opening = await state({ path: 'opening' });
+    expect(opening.steps.find((s) => s.key === 'customer')!.group).toBe('recommended');
+    expect(opening.requiredTotal).toBe(migrating.requiredTotal - 2);
+    expect((await state({ wizard: 'skipped' })).wizardPending).toBe(false);
+  });
+
+  it('el inquilino de prueba firma sin factura y se borra sin rastro', async () => {
+    const owner = await registerVerifiedUser(app, 'onboarding-test');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+
+    await http().post('/dashboard/onboarding/test-run').set(auth).expect(400);
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const run = await http().post('/dashboard/onboarding/test-run').set(auth).expect(201);
+    expect(run.body.signingUrl).toContain('/sign/');
+    await http().post('/dashboard/onboarding/test-run').set(auth).expect(409);
+
+    const token = (run.body.signingUrl as string).split('/sign/')[1]!;
+    const view = await http().get(`/public/move-in/sign/${token}`).expect(200);
+    expect(view.body.isTest).toBe(true);
+    await http()
+      .post(`/public/move-in/sign/${token}`)
+      .send({
+        signerName: 'Prueba',
+        method: 'typed',
+        typedSignature: 'Prueba',
+        accept: true,
+        termsHash: view.body.termsHash,
+        generalTermsHash: view.body.generalTerms.hash,
+      })
+      .expect(201);
+    const invoices = await http().get('/invoices').set(auth).expect(200);
+    expect(invoices.body.items ?? invoices.body).toHaveLength(0);
+
+    const dto = (await http().get('/dashboard/onboarding').set(auth).expect(200))
+      .body as OnboardingDto;
+    expect(dto.testRun!.contractId).toBe(run.body.contractId);
+    expect(dto.steps.find((s) => s.key === 'contract')!.done).toBe(false);
+    expect(dto.steps.find((s) => s.key === 'test_run')!.done).toBe(true);
+
+    await http().delete('/dashboard/onboarding/test-run').set(auth).expect(204);
+    const units = await http().get('/units').set(auth).expect(200);
+    expect(units.body.items[0].status).toBe('available');
+    const after = (await http().get('/dashboard/onboarding').set(auth).expect(200))
+      .body as OnboardingDto;
+    expect(after.testRun).toBeNull();
+    const customers = await http().get('/customers').set(auth).expect(200);
+    expect(customers.body.items ?? customers.body).toHaveLength(0);
+  });
 });

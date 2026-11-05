@@ -17,6 +17,7 @@ import {
   DailySummaryPrefsSchema,
   permissionsForRole,
   SkipOnboardingStepSchema,
+  UpdateOnboardingStateSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -30,6 +31,7 @@ import { AccessCredentialsService } from '../access/access-credentials.service';
 import { AuditService } from '../auth/audit.service';
 
 import { DailySummaryService } from './daily-summary.service';
+import { OnboardingTestRunService } from './onboarding-test-run.service';
 import { OnboardingService } from './onboarding.service';
 import { TodayExtrasService } from './today-extras.service';
 import { TodaySummaryService } from './today-summary.service';
@@ -38,6 +40,7 @@ import { TodayService } from './today.service';
 import type {
   DailySummaryPrefs,
   OnboardingDto,
+  OnboardingTestRunDto,
   TenantTodaySnoozeDto,
   TodayDeskAccessDto,
   TodayDto,
@@ -49,6 +52,14 @@ import type { Request } from 'express';
 class CreateTodaySnoozeDto extends createZodDto(CreateTenantTodaySnoozeSchema) {}
 class UpdateDailySummaryPrefsDto extends createZodDto(DailySummaryPrefsSchema) {}
 class SkipOnboardingStepDto extends createZodDto(SkipOnboardingStepSchema) {}
+class UpdateOnboardingStateDto extends createZodDto(UpdateOnboardingStateSchema) {}
+
+function testRunMeta(req: Request) {
+  return {
+    ...(req.ip ? { ipAddress: req.ip } : {}),
+    ...(req.headers['user-agent'] ? { userAgent: req.headers['user-agent'] } : {}),
+  };
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -58,6 +69,7 @@ export class DashboardController {
   constructor(
     private readonly today: TodayService,
     private readonly onboarding: OnboardingService,
+    private readonly testRun: OnboardingTestRunService,
     private readonly summary: TodaySummaryService,
     private readonly dailySummary: DailySummaryService,
     private readonly extras: TodayExtrasService,
@@ -118,6 +130,34 @@ export class DashboardController {
   @Get('onboarding')
   async getOnboarding(@CurrentUser() user: AuthenticatedUser): Promise<OnboardingDto> {
     return this.onboarding.getOnboarding(user.tenantId);
+  }
+
+  /** Punto de partida y paso por el asistente de primer acceso. */
+  @RequirePermission('facilities:manage')
+  @Put('onboarding/state')
+  async updateOnboardingState(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: UpdateOnboardingStateDto,
+  ): Promise<OnboardingDto> {
+    return this.onboarding.setState(user.tenantId, body);
+  }
+
+  /** Crea el inquilino de prueba con el email de quien lo pide. */
+  @RequirePermission('facilities:manage')
+  @Post('onboarding/test-run')
+  async startTestRun(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<OnboardingTestRunDto> {
+    return this.testRun.start(user.tenantId, user.sub, testRunMeta(req));
+  }
+
+  /** Borra el inquilino de prueba y libera su trastero. */
+  @RequirePermission('facilities:manage')
+  @Delete('onboarding/test-run')
+  @HttpCode(204)
+  async removeTestRun(@CurrentUser() user: AuthenticatedUser, @Req() req: Request): Promise<void> {
+    await this.testRun.remove(user.tenantId, user.sub, testRunMeta(req));
   }
 
   /** Marca un paso como «no aplica» (o lo devuelve a pendiente). */
