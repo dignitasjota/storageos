@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import {
+  parseDailySummaryPrefs,
   permissionsForRole,
   resolveStaffEmailSettings,
   resolveUserEmailNotices,
@@ -12,20 +13,20 @@ import { Queue } from 'bullmq';
 import { formatEur, todayInTimezone } from '../../common/format';
 import { escapeHtml } from '../customer-emails/customer-emails.templates';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { PushService } from '../push/push.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
+import { TodayExtrasService } from './today-extras.service';
 import { TodayService } from './today.service';
 
 import type { Env } from '../../config/env.schema';
-import type { Permission, TodayDto } from '@storageos/shared';
+import type { DailySummaryPrefs, Permission, TodayDto, TodayExtrasDto } from '@storageos/shared';
 
-/** Hora local del negocio a la que sale el resumen. */
-const SEND_HOUR = 8;
 /**
- * Si el API estaba parado a esa hora (un despliegue), sale en la siguiente
- * pasada de la mañana: el día se reserva, así que nunca sale dos veces.
+ * Si el API estaba parado a la hora elegida (un despliegue), sale en la
+ * siguiente pasada: el día se reserva, así que nunca sale dos veces.
  */
-const LAST_SEND_HOUR = 11;
+const SEND_WINDOW_HOURS = 3;
 
 function localHour(timeZone: string, now: Date): number {
   try {
@@ -100,12 +101,27 @@ export function dailySummaryLines(t: TodayDto): string[] {
   return lines;
 }
 
+/** Lo de los apartados que completan «Hoy» y cuentan como asunto del día. */
+export function dailySummaryExtraLines(e: TodayExtrasDto): string[] {
+  const lines: string[] = [];
+  if (e.chatsWaiting.count > 0)
+    lines.push(`Chats esperando a una persona: ${e.chatsWaiting.count}`);
+  if (e.paymentProblems.count > 0) {
+    lines.push(`Cobros rechazados o devueltos hoy: ${e.paymentProblems.count}`);
+  }
+  if (e.draftsAttention.count > 0) {
+    lines.push(`Contratos sin firmar que ya deberían estarlo: ${e.draftsAttention.count}`);
+  }
+  if (e.plansLate.count > 0) lines.push(`Planes de pago con cuota vencida: ${e.plansLate.count}`);
+  return lines;
+}
+
 /**
- * Resumen del día por correo (a las 8:00 en la hora del negocio) a cada
- * usuario que lo active en su perfil: lo que toca hoy, con su alcance por
- * local. Corre en el API sin gatear: cada hora mira qué negocios están en su
- * hora y reserva el día con un `updateMany` condicionado (sin duplicados entre
- * réplicas). Solo se envía si hay algo.
+ * Resumen del día a cada usuario que lo active en su perfil: por correo, por
+ * push o por los dos, a la hora y de los locales que elija (por defecto a las
+ * 8:00 del negocio y de todo lo que ve). Corre en el API sin gatear: cada hora
+ * mira quién está en su hora y le reserva el día con un `updateMany`
+ * condicionado (sin duplicados entre réplicas). Solo se envía si hay algo.
  */
 @Injectable()
 export class DailySummaryService {
@@ -114,6 +130,8 @@ export class DailySummaryService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly today: TodayService,
+    private readonly extras: TodayExtrasService,
+    private readonly push: PushService,
     private readonly config: ConfigService<Env, true>,
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
@@ -127,7 +145,27 @@ export class DailySummaryService {
     }
   }
 
-  /** Negocios en su hora de envío que aún no lo han recibido hoy. */
+  async getPrefs(tenantId: string, userId: string): Promise<DailySummaryPrefs> {
+    const user = await this.admin.user.findFirst({
+      where: { id: userId, tenantId },
+      select: { dailySummaryPrefs: true },
+    });
+    return parseDailySummaryPrefs(user?.dailySummaryPrefs);
+  }
+
+  async setPrefs(
+    tenantId: string,
+    userId: string,
+    prefs: DailySummaryPrefs,
+  ): Promise<DailySummaryPrefs> {
+    await this.admin.user.updateMany({
+      where: { id: userId, tenantId },
+      data: { dailySummaryPrefs: prefs },
+    });
+    return prefs;
+  }
+
+  /** Personas en su hora de envío que aún no lo han recibido hoy. */
   async sendDue(now = new Date()): Promise<number> {
     const tenants = await this.admin.tenant.findMany({
       where: { deletedAt: null, status: { in: ['active', 'trial'] } },
@@ -135,20 +173,29 @@ export class DailySummaryService {
     });
     let sent = 0;
     for (const t of tenants) {
-      const hour = localHour(t.timezone, now);
-      if (hour < SEND_HOUR || hour > LAST_SEND_HOUR) continue;
-      const day = todayInTimezone(t.timezone, now);
-      const claimed = await this.admin.tenant.updateMany({
-        where: {
-          id: t.id,
-          OR: [{ dailySummaryLastDate: null }, { dailySummaryLastDate: { lt: day } }],
-        },
-        data: { dailySummaryLastDate: day },
+      sent += await this.sendForTenant(t.id, undefined, {
+        hour: localHour(t.timezone, now),
+        day: todayInTimezone(t.timezone, now),
       });
-      if (claimed.count === 0) continue;
-      sent += await this.sendForTenant(t.id);
     }
     return sent;
+  }
+
+  /** Si está en su hora, reserva el día de esa persona. */
+  private async claimUser(
+    userId: string,
+    prefs: DailySummaryPrefs,
+    slot: { hour: number; day: Date },
+  ): Promise<boolean> {
+    if (slot.hour < prefs.hour || slot.hour > prefs.hour + SEND_WINDOW_HOURS) return false;
+    const claimed = await this.admin.user.updateMany({
+      where: {
+        id: userId,
+        OR: [{ dailySummaryLastDate: null }, { dailySummaryLastDate: { lt: slot.day } }],
+      },
+      data: { dailySummaryLastDate: slot.day },
+    });
+    return claimed.count > 0;
   }
 
   /**
@@ -156,15 +203,18 @@ export class DailySummaryService {
    * a `onlyUserId`, para la prueba desde el perfil, aunque no lo tenga).
    * Devuelve cuántos correos se encolaron.
    */
-  async sendForTenant(tenantId: string, onlyUserId?: string): Promise<number> {
+  async sendForTenant(
+    tenantId: string,
+    onlyUserId?: string,
+    slot?: { hour: number; day: Date },
+  ): Promise<number> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: { name: true, staffEmailSettings: true },
     });
     if (!tenant) return 0;
-    if (!onlyUserId && !resolveStaffEmailSettings(tenant.staffEmailSettings).daily_summary) {
-      return 0;
-    }
+    const companyEmail =
+      !!onlyUserId || resolveStaffEmailSettings(tenant.staffEmailSettings).daily_summary;
     const users = await this.admin.user.findMany({
       where: {
         tenantId,
@@ -179,17 +229,26 @@ export class DailySummaryService {
         role: true,
         tenantRole: { select: { permissions: true } },
         emailNoticePrefs: true,
+        dailySummaryPrefs: true,
         facilities: { select: { facilityId: true } },
       },
     });
     const base = this.config.get('WEB_BASE_URL', { infer: true });
     let queued = 0;
     for (const u of users) {
-      if (!onlyUserId && !resolveUserEmailNotices(u.emailNoticePrefs, u.role).daily_summary) {
-        continue;
-      }
+      const prefs = parseDailySummaryPrefs(u.dailySummaryPrefs);
+      const wantsEmail =
+        !!onlyUserId ||
+        (companyEmail && resolveUserEmailNotices(u.emailNoticePrefs, u.role).daily_summary);
+      if (!wantsEmail && !prefs.push) continue;
       try {
-        const scope = u.facilities.length > 0 ? u.facilities.map((f) => f.facilityId) : null;
+        if (slot && !(await this.claimUser(u.id, prefs, slot))) continue;
+        const allowed = u.facilities.map((f) => f.facilityId);
+        // Los locales elegidos, sin salirse de los que la persona puede ver.
+        const chosen = prefs.facilityIds.filter(
+          (id) => allowed.length === 0 || allowed.includes(id),
+        );
+        const scope = chosen.length > 0 ? chosen : allowed.length > 0 ? allowed : null;
         // Como en el panel: un rol a medida (nunca el del propietario) manda.
         const permissions =
           u.role !== 'owner' && u.tenantRole
@@ -201,13 +260,29 @@ export class DailySummaryService {
           userId: u.id,
           permissions,
         });
-        const lines = dailySummaryLines(data);
+        const extra = await this.extras.extras(tenantId, {
+          facilityScope: scope,
+          userId: u.id,
+          permissions,
+        });
+        const lines = [...dailySummaryLines(data), ...dailySummaryExtraLines(extra)];
         if (lines.length === 0 && !onlyUserId) continue;
+        const urgent = data.urgentCount + extra.urgentCount;
         const body = lines.length > 0 ? lines : ['Hoy no hay nada pendiente.'];
         const subject =
-          data.urgentCount > 0
-            ? `Hoy en ${tenant.name}: ${data.urgentCount} ${data.urgentCount === 1 ? 'cosa urgente' : 'cosas urgentes'}`
+          urgent > 0
+            ? `Hoy en ${tenant.name}: ${urgent} ${urgent === 1 ? 'asunto' : 'asuntos'}`
             : `Hoy en ${tenant.name}`;
+        if (prefs.push && !onlyUserId) {
+          await this.push.sendToStaff(tenantId, {
+            type: 'today.daily_summary',
+            title: subject,
+            body: body.slice(0, 3).join(' · '),
+            link: '/today',
+            userId: u.id,
+          });
+        }
+        if (!wantsEmail) continue;
         const url = `${base}/today`;
         const text = [
           `Buenos días, ${u.fullName}.`,

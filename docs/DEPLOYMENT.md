@@ -1723,3 +1723,7 @@ Migración `20261215100000_admin_today_features` (sin variables nuevas). Tras de
 ## 84. «Hoy» del panel del tenant: arreglos (2026-11-05)
 
 Sin migración ni variables nuevas. Tras desplegar, el número de «asuntos para hoy» bajará: la deuda cuenta una vez por inquilino y ya no cuentan las ofertas de retención ni lo que no vence hoy. «Cobrado este mes» también puede bajar, porque ya no incluye las fianzas y resta las devoluciones.
+
+## 85. «Hoy» del panel del tenant: mejoras (2026-11-05)
+
+Migración `20261216100000_tenant_today_features`, sin variables nuevas. El resumen del día se reserva ahora por persona: quien lo reciba el día del despliegue con la versión anterior puede recibirlo una vez más ese día. El aviso en el móvil del resumen necesita las claves `VAPID_*`.

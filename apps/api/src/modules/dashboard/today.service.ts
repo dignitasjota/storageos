@@ -16,7 +16,7 @@ import { PrismaService } from '../database/prisma.service';
 import { overdueInvoiceWhere } from './today-filters';
 
 import type { Prisma } from '@storageos/database';
-import type { Permission, TodayDto, TodayItemDto } from '@storageos/shared';
+import type { Permission, TodayDto, TodayItemDto, TenantTodaySnoozeKind } from '@storageos/shared';
 
 /** Días en mantenimiento o bloqueado a partir de los que se avisa. */
 const OUT_OF_SERVICE_DAYS = 7;
@@ -117,8 +117,31 @@ export class TodayService {
     const leaving = { OR: [{ status: 'ending' as const }, { autoRenew: false }] };
     const overdueInvoice = overdueInvoiceWhere(startOfToday);
     const customerSelect = {
-      select: { customerType: true, firstName: true, lastName: true, companyName: true },
+      select: {
+        customerType: true,
+        firstName: true,
+        lastName: true,
+        companyName: true,
+        phone: true,
+      },
     } as const;
+
+    // Lo que el equipo ha apartado no sale ni cuenta hasta su fecha.
+    const snoozes = await this.prisma.withTenant(
+      (tx) =>
+        tx.todaySnooze.findMany({
+          where: { until: { gt: now } },
+          select: { kind: true, refId: true },
+        }),
+      tenantId,
+    );
+    const snoozedIds = (kind: TenantTodaySnoozeKind) =>
+      snoozes.filter((x) => x.kind === kind).map((x) => x.refId);
+    const notSnoozed = (kind: TenantTodaySnoozeKind) => {
+      const ids = snoozedIds(kind);
+      return ids.length > 0 ? { id: { notIn: ids } } : {};
+    };
+    const debtSnoozed = new Set(snoozedIds('customer_debt'));
 
     // Filtro por local: las secciones ancladas a un local (entradas/salidas,
     // firmas, contratos, reservas, facturas, tareas, incidencias) se acotan al
@@ -140,6 +163,7 @@ export class TodayService {
       total: true,
       amountPaid: true,
       dueDate: true,
+      customerId: true,
       // Cobro en marcha: no se reclama ni se vuelve a cobrar.
       payments: {
         where: { status: { in: ['pending', 'processing'] } },
@@ -153,6 +177,7 @@ export class TodayService {
           firstName: true,
           lastName: true,
           companyName: true,
+          phone: true,
           // Tarjeta o domiciliación guardada: se puede cobrar desde aquí.
           paymentMethods: {
             where: { deletedAt: null, type: { in: chargeableTypes } },
@@ -167,13 +192,20 @@ export class TodayService {
       id: { in: [] },
     }) as Prisma.InvoiceWhereInput;
     const dueTodayWhere: Prisma.InvoiceWhereInput = {
-      AND: [{ kind: 'invoice', deletedAt: null, status: 'issued', dueDate: today }, facInvoice],
+      AND: [
+        { kind: 'invoice', deletedAt: null, status: 'issued', dueDate: today },
+        notSnoozed('invoice'),
+        facInvoice,
+      ],
     };
-    const overdueScoped: Prisma.InvoiceWhereInput = { AND: [overdueInvoice, facInvoice] };
+    const overdueScoped: Prisma.InvoiceWhereInput = {
+      AND: [overdueInvoice, notSnoozed('invoice'), facInvoice],
+    };
     const taskWhere: Prisma.TaskWhereInput = {
       status: { in: ['open', 'in_progress'] },
       deletedAt: null,
       dueDate: { not: null, lt: startOfTomorrow },
+      ...notSnoozed('task'),
       ...facTaskIncident,
     };
     const moveInWhere: Prisma.ContractWhereInput = {
@@ -213,6 +245,7 @@ export class TodayService {
       deletedAt: null,
       depositStatus: 'held',
       depositAmount: { gt: 0 },
+      ...notSnoozed('deposit'),
       ...facContract,
       OR: [
         {
@@ -354,17 +387,27 @@ export class TodayService {
           tx.contract.count({ where: moveOutWhere }),
           // Seguimientos CRM vencidos o para hoy.
           tx.customerFollowup.findMany({
-            where: { status: 'pending', dueDate: { lt: startOfTomorrow }, ...mineFollowup },
+            where: {
+              status: 'pending',
+              dueDate: { lt: startOfTomorrow },
+              ...notSnoozed('customer_followup'),
+              ...mineFollowup,
+            },
             orderBy: [{ dueDate: 'asc' }],
             take: TAKE_LIST,
             include: { customer: customerSelect },
           }),
           tx.customerFollowup.count({
-            where: { status: 'pending', dueDate: { lt: startOfTomorrow }, ...mineFollowup },
+            where: {
+              status: 'pending',
+              dueDate: { lt: startOfTomorrow },
+              ...notSnoozed('customer_followup'),
+              ...mineFollowup,
+            },
           }),
           // Leads nuevos sin contactar.
           tx.lead.findMany({
-            where: { status: 'new', deletedAt: null, ...mineLead },
+            where: { status: 'new', deletedAt: null, ...notSnoozed('lead'), ...mineLead },
             orderBy: [{ createdAt: 'desc' }],
             take: TAKE,
             select: {
@@ -372,11 +415,14 @@ export class TodayService {
               firstName: true,
               lastName: true,
               companyName: true,
+              phone: true,
               source: true,
               createdAt: true,
             },
           }),
-          tx.lead.count({ where: { status: 'new', deletedAt: null, ...mineLead } }),
+          tx.lead.count({
+            where: { status: 'new', deletedAt: null, ...notSnoozed('lead'), ...mineLead },
+          }),
           // Firmas pendientes: token de firma vigente sin firmar.
           tx.contract.findMany({
             where: signatureWhere,
@@ -549,13 +595,16 @@ export class TodayService {
         // La deuda vencida es un asunto por inquilino, no por factura; lo que ya
         // se está cobrando o va en un plan de pagos no pide nada hoy.
         const planInvoiceIds = new Set(activePlans.flatMap((p) => p.invoiceIds));
-        const overdueCustomers = await tx.invoice.groupBy({
+        const overdueGroups = await tx.invoice.groupBy({
           by: ['customerId'],
           where: {
             AND: [overdueScoped, NO_PAYMENT_IN_FLIGHT, { id: { notIn: [...planInvoiceIds] } }],
           },
         });
 
+        const overdueCustomers = overdueGroups.filter(
+          (g) => !g.customerId || !debtSnoozed.has(g.customerId),
+        );
         const invoiceItem = (i: (typeof overdueRows)[number], overdue: boolean): TodayItemDto => {
           const note =
             i.payments.length > 0 || i.sepaRemittanceItems.length > 0
@@ -572,6 +621,8 @@ export class TodayService {
             amount: Math.max(0, Math.round((Number(i.total) - Number(i.amountPaid)) * 100) / 100),
             chargeable: !note && (i.customer?.paymentMethods.length ?? 0) > 0,
             note,
+            phone: i.customer?.phone ?? null,
+            customerId: i.customerId,
           };
         };
 
@@ -582,9 +633,10 @@ export class TodayService {
 
         const contractItem = (c: {
           id: string;
+          customerId: string;
           endDate: Date | null;
           startDate?: Date | undefined;
-          customer: Parameters<typeof customerName>[0];
+          customer: Parameters<typeof customerName>[0] & { phone: string | null };
           unit: { code: string } | null;
         }): TodayItemDto => ({
           id: c.id,
@@ -592,6 +644,8 @@ export class TodayService {
           detail: c.unit?.code ?? null,
           date: (c.startDate ?? c.endDate ?? null)?.toISOString() ?? null,
           overdue: !c.startDate && !!c.endDate && c.endDate < startOfToday,
+          phone: c.customer.phone,
+          customerId: c.customerId,
         });
 
         const taskItems: TodayItemDto[] = tasks.map((t) => ({
@@ -608,12 +662,15 @@ export class TodayService {
           date: f.dueDate.toISOString(),
           overdue: f.dueDate < startOfToday,
           linkId: f.customerId,
+          phone: f.customer.phone,
+          customerId: f.customerId,
         }));
         const leadItems: TodayItemDto[] = leads.map((l) => ({
           id: l.id,
           label: customerName({ ...l, customerType: l.companyName ? 'business' : 'individual' }),
           detail: leadSourceLabel(l.source),
           date: l.createdAt.toISOString(),
+          phone: l.phone,
         }));
         const signatureItems: TodayItemDto[] = signatures.map((c) => ({
           id: c.id,
@@ -625,6 +682,7 @@ export class TodayService {
         const responseHours = tenantRow?.leadResponseHours ?? 4;
         const unattendedWhere = {
           status: 'new' as const,
+          ...notSnoozed('lead'),
           contactedAt: null,
           deletedAt: null,
           createdAt: { lte: new Date(Date.now() - responseHours * 3_600_000) },
@@ -635,6 +693,7 @@ export class TodayService {
             where: {
               status: 'pending',
               dueDate: { lt: startOfTomorrow },
+              ...notSnoozed('lead_followup'),
               lead: { deletedAt: null, ...mineLead },
             },
             orderBy: [{ dueDate: 'asc' }],
@@ -645,6 +704,7 @@ export class TodayService {
             where: {
               status: 'pending',
               dueDate: { lt: startOfTomorrow },
+              ...notSnoozed('lead_followup'),
               lead: { deletedAt: null, ...mineLead },
             },
           }),
@@ -657,6 +717,7 @@ export class TodayService {
               firstName: true,
               lastName: true,
               companyName: true,
+              phone: true,
               source: true,
               createdAt: true,
             },
@@ -878,6 +939,7 @@ export class TodayService {
                 detail: leadSourceLabel(l.source),
                 date: l.createdAt.toISOString(),
                 overdue: true,
+                phone: l.phone,
                 linkId: l.id,
               })),
             },
@@ -941,6 +1003,8 @@ export class TodayService {
               label: customerName(c.customer),
               detail: c.unit?.code ?? null,
               date: (c.endedAt ?? c.cancelledAt ?? null)?.toISOString() ?? null,
+              amount: Number(c.depositAmount),
+              phone: c.customer.phone,
             })),
           },
           depositsToCollect: {

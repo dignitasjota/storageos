@@ -672,6 +672,7 @@ model Tenant {
   whatsappSettings               TenantWhatsappSettings?
   stripeAccount                  TenantStripeAccount?
   whatsappConversations          WhatsappConversation[]
+  todaySnoozes                   TodaySnooze[]
   whatsappMessages               WhatsappMessage[]
   customerOffers          CustomerOffer[]
   customerMessageReads CustomerMessageRead[]
@@ -721,6 +722,9 @@ model User {
   lastLoginAt                     DateTime? @map("last_login_at") @db.Timestamptz(6)
   /// Avisos por correo al equipo que el usuario cambió ({tipo: bool}); el resto, por rol.
   emailNoticePrefs                Json      @default("{}") @map("email_notice_prefs")
+  /// Resumen del día a medida: {hour, facilityIds, push}.
+  dailySummaryPrefs               Json      @default("{}") @map("daily_summary_prefs")
+  dailySummaryLastDate            DateTime? @map("daily_summary_last_date") @db.Date
   /// PIN de respaldo para desbloquear la app del panel en el móvil (argon2id).
   appPinHash                      String?   @map("app_pin_hash")
   appPinFailedAttempts            Int       @default(0) @map("app_pin_failed_attempts")
@@ -743,6 +747,7 @@ model User {
   unitStatusChanges        UnitStatusHistory[]       @relation("UnitStatusChangedBy")
   customerDocsUploaded     CustomerDocument[]        @relation("DocUploadedBy")
   contractEvents           ContractEvent[]           @relation("ContractEventCreatedBy")
+  todaySnoozes             TodaySnooze[]             @relation("TodaySnoozeUser")
   dataRequestsHandled      DataSubjectRequest[]      @relation("DataRequestHandledBy")
   leadsAssigned            Lead[]                    @relation("LeadAssignedTo")
   tasksAssigned            Task[]                    @relation("TaskAssignedTo")
@@ -6134,6 +6139,26 @@ model SecurityAlertState {
 }
 
 /// Aviso de «Hoy» apartado unos días por el equipo.
+/// Aviso de «Hoy» apartado por el equipo hasta una fecha.
+model TodaySnooze {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  kind            String
+  refId           String   @map("ref_id") @db.Uuid
+  /// Qué se apartó, para poder enseñarlo.
+  label           String?
+  until           DateTime @db.Timestamptz(6)
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("TodaySnoozeUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, kind, refId])
+  @@index([tenantId, until])
+  @@map("today_snoozes")
+}
+
 model AdminTodaySnooze {
   id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   kind        String

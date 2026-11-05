@@ -439,3 +439,52 @@ Las direcciones «bonitas» (`/reservar/<centro>`, `/precios`, `/contacto`, `/<l
 - Solo super admin, con el identificador del tenant escrito y la exportación confirmada. Bloquea si hay facturas aceptadas por la AEAT (en producción, cualquiera enviada) o emitidas en Holded.
 - Antes de borrar, quita los accesos de los inquilinos de los terminales de las puertas (Dahua): si queda alguno, no borra nada (409).
 - Borra en una transacción, en un orden que respeta las claves ajenas (`PURGE_STEPS`), y después los ficheros por prefijo (la misma lista sirve para la vista previa). Conserva locales, trasteros, productos, contactos, usuarios y configuración; las series vuelven a 1. Aviso en el panel admin y resumen al email de alertas.
+
+## Chat con IA en la web del tenant (2026-10-29, #872–#874)
+
+- **Solo información pública**: el contexto sale de `landing/public-business-context.ts` (el mismo que usa WhatsApp), las preguntas frecuentes y las indicaciones del tenant. No tiene herramientas ni acceso a datos de inquilinos.
+- **Cuota aparte de la del panel**: `AiQuotaService.reserveWeb`, con modelo y límites propios en `platform_ai_settings`, tope por visitante y día, y 10 mensajes por minuto e IP. Al gastarla sigue con la clave del tenant o responde sin IA (`fallback`), y esas respuestas no cuentan como del asistente.
+- **Acciones con marcas de texto**, como en WhatsApp: `[[CONTACTO …]]`, `[[RESERVA …]]`, `[[ESPERA …]]`, `[[HUMANO]]` y `[[SIN_RESPUESTA]]`. El servidor las valida y las quita; en streaming, `MarkerStreamFilter` retiene el texto desde `[[`.
+- **Paso a una persona**: `mode=human` calla a la IA y el widget sondea cada 10 s.
+- **Caché de prompts de Anthropic** en los tres asistentes: `AiSystemPrompt = {stable, dynamic}` (reglas y negocio con `cache_control`, la fecha aparte).
+
+## Asistente del panel con todo el negocio (2026-10-29, #872)
+
+`AiBusinessTools` da búsqueda, ficha y listas de 19 tipos de registro. Cada tipo exige su permiso: el enum del esquema solo lista los permitidos. Respeta el alcance por local y todo va con `withTenant`.
+
+## Métricas del negocio con una sola definición (2026-10-29, #861–#862)
+
+`common/saas-metrics.ts` fija quién está vivo, quién paga, qué es una baja y el cobrado neto (`LIVE_TENANT_WHERE`, `PAYING_SUBSCRIPTION_WHERE`, `churnedBetweenWhere`, `netPaid`). Métricas, Finanzas, LTV y snapshots usan estas definiciones: no redefinirlas en cada consulta. `tenants.trial_ended_at` lo pone un disparador de Postgres, para que cualquier salida de la prueba quede registrada.
+
+## Cobros de la suscripción: fechas y deuda (2026-10-30, #879–#880)
+
+`billing-saas/platform-due.ts` calcula la fecha debida (`subscriptionDueDate`), las cuotas vencidas (`periodsOwed`) y los meses sin saltos a fin de mes (`addMonthsUtc`). Lo usan el escalado, Cobros pendientes y el estado de cuenta. Lo que va en una remesa SEPA no suma como pendiente, y un cobro de Redsys `charging` no escala.
+
+## Web del tenant: cabecera común, landings y blog (2026-10-30 → 11-03, #876, #883–#884, #890–#891)
+
+- **`TenantSiteChrome`**: blog, fichas de local, ciudades, legales y landings llevan la cabecera y el pie de la portada. `TenantWebChrome` queda como respaldo.
+- **Landings de promoción**: el contenido va en `promo_landings.content` (jsonb) y `parsePromoLandingContent` completa lo que falte. Los botones tienen acción tipada, nunca una dirección. Se piden sin caché porque Next solo cachea respuestas 200 y apagar una landing no se notaría.
+- **Blog**: enlaces `web:<destino>` y bloques en línea propia (`[[boton]]`, `[[calculadora]]`, `[[tamanos]]`, `[[locales]]`, `[[comparativa]]`), que parte `splitBlogContent`. Un bloque mal escrito queda como texto.
+
+## Comunicación de la plataforma (2026-11-02/03, #885–#888)
+
+- `renderAdminEmail` (shared) escapa siempre el texto y aplica la marca de TrasterOS. El nombre de un tenant nunca entra sin escapar en un correo.
+- `AdminSegmentService` resuelve a quién va un anuncio. `deliverAnnouncement` rellena las variables por destinatario y respeta la baja en los comerciales.
+- Si el correo directo no sale, no se guarda nada (502 `email_send_failed`): el tenant no ve un mensaje que no recibió.
+
+## Seguridad del panel admin (2026-11-04, #892–#893)
+
+- **Cerrar sesión de verdad**: `tokens_valid_after` lo comprueba `AdminGuard` en cada petición, porque el access token dura 8 h.
+- **Rastro**: los fallos de entrada y de 2FA son eventos de seguridad y cuentan para la fuerza bruta.
+- **Avisos sin repetir**: `claimAlert` (`admin/alert-state.ts`) reserva cada aviso en BD, así que no se duplica entre réplicas ni al reiniciar. Lo comparten las alertas de seguridad, del sistema y de «Hoy».
+- **Bloqueos**: `SecurityBlocksService.assertAllowed` da el mismo error que una contraseña mala. Nunca se bloquea la IP propia ni a un super admin.
+- **Impersonación**: `ImpersonationContextInterceptor` marca cada acción auditada con su sesión.
+
+## Bandejas «Hoy» (2026-11-04/05, #895–#898)
+
+- **Urgente = lo que vence hoy o está atrasado y se puede hacer hoy**. Lo que tiene días por delante va a «Esta semana». La deuda cuenta una vez por inquilino y no cuenta con un cobro en curso ni con plan de pagos.
+- **Un solo criterio de vencido**: `overdueInvoiceWhere` (`dashboard/today-filters.ts`) en la bandeja y en las cifras; en el admin, `AdminBillingOpsService.receivables`.
+- **Permisos por apartado**: `TodayService.getToday` recibe `permissions` y cada bloque exige su lectura, también en el correo del resumen.
+- **Extras aparte**: `TodayExtrasService` (`GET /dashboard/today/extras`) para no frenar la bandeja principal.
+- **Apartar** (`today_snoozes`, `admin_today_snoozes`): lo apartado no sale ni cuenta, y se comparte con todo el equipo.
+- **Resumen del día**: se reserva por persona (`users.daily_summary_last_date`).

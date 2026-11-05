@@ -1,19 +1,38 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 
+import { AccessModule } from '../access/access.module';
+import { AuthModule } from '../auth/auth.module';
+import { CollectionsOpsModule } from '../collections-ops/collections-ops.module';
+import { InventoryModule } from '../inventory/inventory.module';
+import { PushModule } from '../push/push.module';
 import { QUEUE_EMAIL } from '../queues/queue-names';
 
 import { DailySummaryService } from './daily-summary.service';
 import { DashboardController } from './dashboard.controller';
 import { OnboardingService } from './onboarding.service';
+import { TodayExtrasService } from './today-extras.service';
 import { TodaySummaryService } from './today-summary.service';
 import { TodayService } from './today.service';
 
 @Module({
-  imports: [BullModule.registerQueue({ name: QUEUE_EMAIL })],
+  imports: [
+    BullModule.registerQueue({ name: QUEUE_EMAIL }),
+    AccessModule,
+    AuthModule,
+    CollectionsOpsModule,
+    InventoryModule,
+    PushModule,
+  ],
   controllers: [DashboardController],
   // El resumen del día corre en el API sin gatear: es ligero (encola correos)
   // y reserva el día por negocio con un `updateMany` condicionado.
-  providers: [TodayService, OnboardingService, TodaySummaryService, DailySummaryService],
+  providers: [
+    TodayService,
+    TodayExtrasService,
+    OnboardingService,
+    TodaySummaryService,
+    DailySummaryService,
+  ],
 })
 export class DashboardModule {}

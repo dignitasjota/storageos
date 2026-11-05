@@ -12,6 +12,6 @@ import { PaymentPlansService } from './payment-plans.service';
   imports: [AuthModule, CommunicationsModule, NotificationsModule],
   controllers: [CollectionsOpsController],
   providers: [CollectionsOpsService, PaymentPlansService],
-  exports: [PaymentPlansService],
+  exports: [CollectionsOpsService, PaymentPlansService],
 })
 export class CollectionsOpsModule {}

@@ -2593,3 +2593,5 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 ### «Hoy» del panel del tenant (2026-11-05)
 
 `GET /dashboard/today` acepta `full=1` (listas enteras, modo mostrador). Cada apartado sale solo con su permiso de lectura; sin él llega vacío y no cuenta en `urgentCount`. `TodayItemDto.note` marca las facturas con cobro en curso o en plan de pagos. `GET /dashboard/today/summary` añade `kpis.moneyVisible`. `POST /invoices/bulk/remind` devuelve en `failed` los códigos `payment_in_progress` e `invoice_in_payment_plan`.
+
+`GET /dashboard/today/extras?facilityId=&mine=` devuelve los avisos que completan la bandeja, la deuda por inquilino, mañana, la semana, lo hecho hoy y lo apartado. `POST /dashboard/today/snoozes {kind, refId, days, label?}` y `DELETE /dashboard/today/snoozes/:id` apartan un aviso (`tasks:write`). `GET /dashboard/today/desk/customers/:customerId/access` da el código de acceso (`access:manage`, queda registrado). `GET/PUT /dashboard/me/daily-summary {hour, facilityIds, push}` guarda el resumen del día de cada persona.

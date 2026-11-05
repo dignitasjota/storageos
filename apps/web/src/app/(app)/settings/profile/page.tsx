@@ -14,6 +14,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { AppLockPanel } from './app-lock-panel';
+import { DailySummaryCard } from './daily-summary-card';
 import { EmailChange } from './email-change';
 import { EmailNoticesForm } from './email-notices-form';
 import { SessionsPanel } from './sessions-panel';
@@ -99,6 +100,7 @@ export default function ProfileSettingsPage() {
             scopeNote="Solo de los locales que tienes asignados."
           />
           <EmailNoticesForm />
+          <DailySummaryCard />
         </TabsContent>
       </Tabs>
     </div>
