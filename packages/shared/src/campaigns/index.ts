@@ -21,6 +21,8 @@ export const CustomerSegmentSchema = z.object({
   contractStatus: z.enum(['active', 'none', 'any', 'former']).default('any'),
   /** Solo clientes con facturas vencidas (morosos). */
   overdueOnly: z.boolean().default(false),
+  /** Selección hecha en la lista de inquilinos. */
+  customerIds: z.array(z.string().uuid()).min(1).max(5000).optional(),
   /** Solo clientes con este tag. */
   tag: z.string().trim().max(60).optional().or(z.literal('')),
   /** Solo clientes de este local (por sus contratos). */

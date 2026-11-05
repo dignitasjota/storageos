@@ -553,6 +553,11 @@ Apuntar lo que no se puede pasar (dominio, hosting, alquiler del local, seguros,
 
 Arreglos: prórroga por el plazo original, reservas que se convierten por el alta normal, trasteros retenidos por otro inquilino, fianza sin cobrar, condiciones editables tras firmar, historial legible. Mejoras: pestaña Facturas, asistente con primer pago y condiciones, lista con deuda, filtros, CSV y firma en lote, fianza aplicada a facturas con justificante, acceso desde la fecha de inicio, cuota y traslado programados, pantalla de salida, nueva reserva, contrato desde la lista de espera con trastero guardado 48 h, y renovar desde la lista con cuota propuesta.
 
+### Revisión de Inquilinos del panel del tenant (2026-11-05)
+
+- ✅ **PR A (arreglos)**: editar datos, abrir documentos, buscador completo, mandatos sin firmar, avisos de error, borrado con reservas o deuda, alcance por local, deuda y próximo cargo coherentes, envío masivo, duplicados y validación de documentos.
+- ✅ **PR B (mejoras)**: fusionar duplicados, cronología, resumen con riesgos, caducidad y petición de documentos, acciones en lote, CSV, vistas del equipo, escribir desde la ficha, borrados recuperables, campañas con la selección, contactos y email de facturación de empresas.
+
 ## Criterio de "MVP listo para vender"
 
 Fases 0 a 4 completas + un subset esencial de la 5 (al menos email transaccional y recordatorios de pago) + Fase 8 mínima para poder cobrar suscripciones.

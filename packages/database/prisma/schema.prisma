@@ -697,6 +697,9 @@ model Tenant {
   storageUsage        TenantStorageUsage?
   featureInterestEvents FeatureInterestEvent[]
   customerAuthorizedPersons CustomerAuthorizedPerson[]
+  customerContacts          CustomerContact[]
+  customerDocumentRequests  CustomerDocumentRequest[]
+  customerSavedViews        CustomerSavedView[]
   platformLegalAcceptances  PlatformLegalAcceptance[]
 }
 
@@ -811,6 +814,8 @@ model User {
   featureInterestEvents FeatureInterestEvent[]
   directNotifications Notification[] @relation("NotificationUser")
   authorizedPersonsCreated CustomerAuthorizedPerson[] @relation("AuthorizedPersonCreatedBy")
+  documentRequestsMade     CustomerDocumentRequest[] @relation("DocumentRequestedBy")
+  customerViewsCreated     CustomerSavedView[]       @relation("CustomerViewCreatedBy")
   createdBusinessReminders   BusinessReminder[]           @relation("BusinessReminderCreatedBy")
   completedBusinessReminders BusinessReminderCompletion[] @relation("BusinessReminderCompletedBy")
   /// Baja de los anuncios comerciales de TrasterOS.
@@ -1380,11 +1385,19 @@ model Customer {
   deletedAt             DateTime?    @map("deleted_at") @db.Timestamptz(6)
   /// Inquilino de prueba de la puesta en marcha: no factura ni cuenta como cliente.
   isTest                Boolean      @default(false) @map("is_test")
+  /// Fusionado en otro inquilino: queda borrado y no se puede restaurar.
+  mergedIntoCustomerId  String?      @map("merged_into_customer_id") @db.Uuid
+  /// Empresas: a dónde van las facturas si no es el email de contacto.
+  billingEmail          String?      @map("billing_email")
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   platformTenant     Tenant?               @relation("CustomerPlatformTenant", fields: [platformTenantId], references: [id], onDelete: SetNull)
+  mergedInto         Customer?             @relation("CustomerMergedInto", fields: [mergedIntoCustomerId], references: [id], onDelete: SetNull)
+  mergedCustomers    Customer[]            @relation("CustomerMergedInto")
+  contacts           CustomerContact[]
+  documentRequests   CustomerDocumentRequest[]
   documents          CustomerDocument[]
   contracts          Contract[]
   reservations       Reservation[]
@@ -1430,6 +1443,63 @@ model Customer {
 
 /// Documentos de un inquilino subidos a MinIO. Cada uno con su tipo
 /// (DNI front/back, comprobante de domicilio, otros) y metadatos.
+/// Persona de contacto de una empresa.
+model CustomerContact {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  name       String
+  role       String?
+  email      String?
+  phone      String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, customerId], map: "customer_contacts_customer_idx")
+  @@map("customer_contacts")
+}
+
+/// Documento que el equipo pide y el inquilino sube desde su área de clientes.
+model CustomerDocumentRequest {
+  id                String               @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId          String               @map("tenant_id") @db.Uuid
+  customerId        String               @map("customer_id") @db.Uuid
+  type              CustomerDocumentType
+  note              String?
+  /// pending | fulfilled | cancelled
+  status            String               @default("pending")
+  documentId        String?              @map("document_id") @db.Uuid
+  requestedByUserId String?              @map("requested_by_user_id") @db.Uuid
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  fulfilledAt       DateTime?            @map("fulfilled_at") @db.Timestamptz(6)
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer    Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  document    CustomerDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  requestedBy User?             @relation("DocumentRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, customerId, status], map: "customer_document_requests_customer_idx")
+  @@map("customer_document_requests")
+}
+
+/// Vista de la lista de inquilinos, compartida por el equipo.
+model CustomerSavedView {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  name            String
+  filters         Json
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("CustomerViewCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, name])
+  @@map("customer_saved_views")
+}
+
 model CustomerDocument {
   id               String               @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId         String               @map("tenant_id") @db.Uuid
@@ -1446,6 +1516,7 @@ model CustomerDocument {
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   uploadedBy User?    @relation("DocUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  requests   CustomerDocumentRequest[]
 
   @@index([tenantId])
   @@index([customerId])

@@ -518,6 +518,8 @@
         "attachSize": "El adjunto no puede pasar de 10 MB."
       },
       "documents": {
+        "pendingTitle": "Te hemos pedido",
+        "pendingHint": "Sube aquí cada documento: se enviará al equipo.",
         "title": "Mis documentos",
         "subtitle": "Sube tu documentación (DNI, justificante de domicilio…) para agilizar tu gestión.",
         "typeIdFront": "DNI / NIE (anverso)",

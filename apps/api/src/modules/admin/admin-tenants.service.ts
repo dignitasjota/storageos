@@ -2340,6 +2340,7 @@ export class AdminTenantsService {
           documentNumber: null,
           emergencyContactName: null,
           emergencyContactPhone: null,
+          billingEmail: null,
           notes: null,
           tags: [],
           portalAccessEnabled: false,
@@ -2416,6 +2417,8 @@ export class AdminTenantsService {
       });
 
       await tx.customerDocument.deleteMany({ where: { tenantId } });
+      await tx.customerDocumentRequest.deleteMany({ where: { tenantId } });
+      await tx.customerContact.deleteMany({ where: { tenantId } });
       await tx.customerAuthorizedPerson.deleteMany({ where: { tenantId } });
       // Firmas y condiciones aceptadas: se conservan como prueba, sin IP,
       // navegador ni email de quien firmó.

@@ -1791,3 +1791,11 @@ Sin migración ni variables nuevas. Lo que se nota tras desplegar:
 - **Deuda de la lista**: incluye lo emitido ya vencido que el proceso nocturno aún no ha marcado, como Deudores.
 - **DNI, NIE y CIF** se validan al crear o editar. Los datos ya guardados no cambian hasta que alguien los edite.
 - **Borrar un inquilino**: con reserva o lista de espera se bloquea; con deuda pide confirmación.
+
+## 96. Inquilinos: mejoras (2026-11-05)
+
+Migración `20261223100000_customer_features`, se aplica sola. Sin variables nuevas.
+
+- Las vistas guardadas en el navegador se suben al servidor la primera vez que alguien con permiso abre Inquilinos y pasan a verlas todos.
+- **Fusionar inquilinos no se puede deshacer**: solo la tienen quienes pueden borrar inquilinos.
+- Una empresa con email de facturación recibe en él facturas, cobros y recordatorios.

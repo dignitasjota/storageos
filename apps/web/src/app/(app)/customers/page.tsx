@@ -7,11 +7,13 @@ import {
   type CustomerOverviewDto,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Columns3, MoreHorizontal, Plus, Save, Trash2, Upload } from 'lucide-react';
+import { Columns3, Download, MoreHorizontal, Plus, Save, Trash2, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
+
+import { CustomersBulkBar } from './bulk-bar';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
@@ -59,6 +61,12 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { downloadCsv } from '@/lib/csv';
+import {
+  useCustomerViews,
+  useDeleteCustomerView,
+  useSaveCustomerView,
+} from '@/lib/customers/features-hooks';
 import {
   useCreateCustomer,
   useCustomersOverview,
@@ -91,6 +99,9 @@ const COLUMN_LABELS = [
   ['lastContact', 'Último contacto'],
   ['followup', 'Seguimiento'],
   ['kyc', 'KYC'],
+  ['tags', 'Etiquetas'],
+  ['since', 'Antigüedad'],
+  ['paid12m', 'Pagado 12 m'],
 ] as const;
 type ColumnKey = (typeof COLUMN_LABELS)[number][0];
 const DEFAULT_COLUMNS: ColumnKey[] = [
@@ -106,6 +117,7 @@ const DEFAULT_COLUMNS: ColumnKey[] = [
 
 interface Filters {
   facilityId: string;
+  tag: string;
   overdue: boolean;
   noPayVia: boolean;
   noInsurance: boolean;
@@ -117,6 +129,7 @@ interface Filters {
 }
 const EMPTY: Filters = {
   facilityId: 'all',
+  tag: 'all',
   overdue: false,
   noPayVia: false,
   noInsurance: false,
@@ -126,7 +139,7 @@ const EMPTY: Filters = {
   noContract: false,
   noPortal: false,
 };
-const TOGGLES: { key: Exclude<keyof Filters, 'facilityId'>; label: string }[] = [
+const TOGGLES: { key: Exclude<keyof Filters, 'facilityId' | 'tag'>; label: string }[] = [
   { key: 'overdue', label: 'Con deuda' },
   { key: 'noPayVia', label: 'Sin método de pago' },
   { key: 'noInsurance', label: 'Sin seguro' },
@@ -176,6 +189,7 @@ function daysUntil(isoDate: string): number {
 function matches(c: Row, f: Filters): boolean {
   const live = c.contractStatus !== 'none';
   if (f.facilityId !== 'all' && !c.facilityIds.includes(f.facilityId)) return false;
+  if (f.tag !== 'all' && !c.tags.includes(f.tag)) return false;
   if (f.overdue && c.overdue <= 0) return false;
   if (f.noPayVia && (c.payVia || !live)) return false;
   if (f.noInsurance && (c.contractStatus !== 'active' || c.insurance.length > 0)) return false;
@@ -205,7 +219,10 @@ export default function CustomersPage() {
     setFilters((f) => ({ ...f, facilityId: headerFacilityId ?? 'all' }));
   }, [headerFacilityId]);
   const [columnsOn, setColumnsOn] = useState<ColumnKey[]>(DEFAULT_COLUMNS);
-  const [views, setViews] = useState<View[]>([]);
+  const views = useCustomerViews();
+  const saveViewMutation = useSaveCustomerView();
+  const deleteViewMutation = useDeleteCustomerView();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   useEffect(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('f');
     if (fromUrl) {
@@ -214,13 +231,25 @@ export default function CustomersPage() {
         .filter((k): k is (typeof TOGGLES)[number]['key'] => TOGGLES.some((t) => t.key === k));
       if (keys.length) setFilters({ ...EMPTY, ...Object.fromEntries(keys.map((k) => [k, true])) });
     }
-    setViews(readStorage<View[]>(VIEWS_KEY, []));
     setColumnsOn(readStorage<ColumnKey[]>(COLUMNS_KEY, DEFAULT_COLUMNS));
   }, []);
   const rows = useMemo(
     () => (overview.data ?? []).filter((c) => matches(c, filters)),
     [overview.data, filters],
   );
+  const allTags = useMemo(
+    () => [...new Set((overview.data ?? []).flatMap((c) => c.tags))].sort(),
+    [overview.data],
+  );
+  // Las vistas que había en este navegador pasan al equipo la primera vez.
+  useEffect(() => {
+    const local = readStorage<View[]>(VIEWS_KEY, []);
+    if (local.length === 0) return;
+    void Promise.all(
+      local.map((v) => saveViewMutation.mutateAsync({ name: v.name, filters: { ...v.filters } })),
+    ).then(() => localStorage.removeItem(VIEWS_KEY));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const unreadByCustomer = useCustomerUnreadSummary().data?.byCustomer ?? {};
   const create = useCreateCustomer();
   const remove = useDeleteCustomer();
@@ -335,7 +364,35 @@ export default function CustomersPage() {
   }
 
   const show = (k: ColumnKey) => columnsOn.includes(k);
+  // Solo lo que se ve: al cambiar de filtro no se actúa sobre filas ocultas.
+  const selectedIds = rows.filter((r) => selected.has(r.id)).map((r) => r.id);
+  const toggleRow = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const allColumns: (ColumnDef<CustomerOverviewDto> & { key?: ColumnKey })[] = [
+    {
+      id: 'select',
+      enableSorting: false,
+      meta: { mobileHidden: true },
+      header: () => (
+        <Checkbox
+          aria-label="Seleccionar todos"
+          checked={rows.length > 0 && selectedIds.length === rows.length}
+          onCheckedChange={(v) => setSelected(v ? new Set(rows.map((r) => r.id)) : new Set())}
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          aria-label={`Seleccionar a ${row.original.displayName}`}
+          checked={selected.has(row.original.id)}
+          onCheckedChange={() => toggleRow(row.original.id)}
+        />
+      ),
+    },
     {
       id: 'name',
       accessorFn: (c) => c.displayName,
@@ -552,6 +609,40 @@ export default function CustomersPage() {
       ),
     },
     {
+      key: 'tags',
+      id: 'tags',
+      accessorFn: (c) => c.tags.join(', '),
+      header: 'Etiquetas',
+      cell: ({ row }) =>
+        row.original.tags.length === 0 ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : (
+          <span className="flex flex-wrap gap-1">
+            {row.original.tags.map((t) => (
+              <Badge key={t} variant="outline">
+                {t}
+              </Badge>
+            ))}
+          </span>
+        ),
+    },
+    {
+      key: 'since',
+      id: 'since',
+      accessorFn: (c) => c.createdAt,
+      header: 'Antigüedad',
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">{day(row.original.createdAt)}</span>
+      ),
+    },
+    {
+      key: 'paid12m',
+      id: 'paid12m',
+      accessorFn: (c) => c.paid12m,
+      header: 'Pagado 12 m',
+      cell: ({ row }) => <span className="tabular-nums">{eur(row.original.paid12m)}</span>,
+    },
+    {
       id: 'actions',
       header: '',
       enableSorting: false,
@@ -594,21 +685,41 @@ export default function CustomersPage() {
   async function saveView() {
     const res = await ask({
       title: 'Guardar vista',
-      description: 'Se guarda en este navegador con los filtros actuales.',
+      description: 'La verá todo el equipo, con los filtros actuales.',
       input: { label: 'Nombre de la vista', placeholder: 'p. ej. Morosos del local Norte' },
       confirmLabel: 'Guardar',
     });
     const name = res ? res.value.trim() : '';
     if (!name) return;
-    const next = [...views.filter((v) => v.name !== name), { name, filters }];
-    setViews(next);
-    writeStorage(VIEWS_KEY, next);
-    toast.success('Vista guardada en este navegador.');
+    try {
+      await saveViewMutation.mutateAsync({ name, filters: { ...filters } });
+      toast.success('Vista guardada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
   }
-  function deleteView(name: string) {
-    const next = views.filter((v) => v.name !== name);
-    setViews(next);
-    writeStorage(VIEWS_KEY, next);
+  function exportCsv() {
+    const money = rows.every((c) => c.moneyVisible);
+    downloadCsv('inquilinos.csv', [
+      [
+        'Inquilino',
+        'Email',
+        'Teléfono',
+        'Trasteros',
+        'Etiquetas',
+        ...(money ? ['Cuota/mes', 'Deuda', 'Pagado 12 meses'] : []),
+        'Alta',
+      ],
+      ...rows.map((c) => [
+        c.displayName,
+        c.email ?? '',
+        c.phone ?? '',
+        c.units.map((u) => u.code).join(', '),
+        c.tags.join(', '),
+        ...(money ? [c.monthly, c.overdue, c.paid12m] : []),
+        day(c.createdAt),
+      ]),
+    ]);
   }
 
   return (
@@ -643,6 +754,21 @@ export default function CustomersPage() {
               {(facilities.data ?? []).map((f) => (
                 <SelectItem key={f.id} value={f.id}>
                   {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {allTags.length > 0 && (
+          <Select value={filters.tag} onValueChange={(v) => set('tag', v)}>
+            <SelectTrigger className="h-9 w-[200px]" aria-label="Etiqueta">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las etiquetas</SelectItem>
+              {allTags.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -683,6 +809,9 @@ export default function CustomersPage() {
       </div>
 
       {overview.isError && <SectionError onRetry={() => void overview.refetch()} />}
+      {selectedIds.length > 0 && (
+        <CustomersBulkBar ids={selectedIds} onClear={() => setSelected(new Set())} />
+      )}
 
       <DataTable
         rowHref={(c) => `/customers/${c.id}`}
@@ -708,6 +837,12 @@ export default function CustomersPage() {
             <Button variant="outline" asChild>
               <Link href="/customers/extras">Extras</Link>
             </Button>
+            <Button variant="outline" asChild>
+              <Link href="/customers/deleted">Borrados</Link>
+            </Button>
+            <Button variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
+              <Download className="mr-1 h-4 w-4" /> CSV
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline">Vistas</Button>
@@ -719,14 +854,16 @@ export default function CustomersPage() {
                     {v.name}
                   </DropdownMenuItem>
                 ))}
-                {views.length > 0 && (
+                {(views.data?.length ?? 0) > 0 && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuLabel>Mis vistas</DropdownMenuLabel>
-                    {views.map((v) => (
+                    <DropdownMenuLabel>Vistas del equipo</DropdownMenuLabel>
+                    {(views.data ?? []).map((v) => (
                       <DropdownMenuItem
-                        key={v.name}
-                        onSelect={() => setFilters({ ...EMPTY, ...v.filters })}
+                        key={v.id}
+                        onSelect={() =>
+                          setFilters({ ...EMPTY, ...(v.filters as Partial<Filters>) })
+                        }
                         className="justify-between"
                       >
                         <span className="truncate">{v.name}</span>
@@ -736,7 +873,7 @@ export default function CustomersPage() {
                           className="text-muted-foreground hover:text-destructive"
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteView(v.name);
+                            deleteViewMutation.mutate(v.id);
                           }}
                         >
                           <Trash2 className="size-3.5" />

@@ -260,6 +260,7 @@ export class DunningService {
         customer: {
           select: {
             email: true,
+            billingEmail: true,
             firstName: true,
             lastName: true,
             companyName: true,
@@ -393,6 +394,7 @@ export class DunningService {
       contractId: string | null;
       customer: {
         email: string | null;
+        billingEmail?: string | null;
         firstName: string | null;
         lastName: string | null;
         companyName: string | null;
@@ -432,7 +434,7 @@ export class DunningService {
     await this.communications.enqueue({
       tenantId,
       channel: 'email',
-      recipient: customer.email,
+      recipient: customer.billingEmail ?? customer.email,
       invoiceId,
       contractId: invoice.contractId,
       templateCode: stage === 'final' ? 'invoice_overdue_final_email' : 'invoice_overdue_email',

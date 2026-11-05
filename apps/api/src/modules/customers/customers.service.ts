@@ -139,6 +139,7 @@ export class CustomersService {
       country: args.input.country,
       emergencyContactName: args.input.emergencyContactName?.trim() || null,
       emergencyContactPhone: args.input.emergencyContactPhone?.trim() || null,
+      billingEmail: args.input.billingEmail?.trim() || null,
       notes: args.input.notes?.trim() || null,
       tags: args.input.tags,
       depositExempt: args.input.depositExempt ?? false,
@@ -231,6 +232,7 @@ export class CustomersService {
     set('country');
     set('emergencyContactName');
     set('emergencyContactPhone');
+    set('billingEmail');
     set('notes');
     if (args.input.depositExempt !== undefined) {
       data.depositExempt = args.input.depositExempt;
@@ -549,6 +551,7 @@ export class CustomersService {
       country: row.country,
       emergencyContactName: row.emergencyContactName,
       emergencyContactPhone: row.emergencyContactPhone,
+      billingEmail: row.billingEmail,
       notes: row.notes,
       tags: row.tags,
       kycVerified: row.kycVerified,

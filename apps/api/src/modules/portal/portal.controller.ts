@@ -896,6 +896,14 @@ export class PortalController {
     });
   }
 
+  /** Documentos que el equipo le ha pedido y aún no ha subido. */
+  @Public()
+  @Get('me/document-requests')
+  async myDocumentRequests(@Headers('authorization') auth: string | undefined) {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.documents.pendingRequests(tenantId, customerId);
+  }
+
   /** Borra un documento que subió él mismo. */
   @Public()
   @ThrottleLogin()

@@ -750,7 +750,7 @@ export class TodayService {
               },
             })
           : [];
-        const [stocks, parked, docs, preOpeningFacilities] = await Promise.all([
+        const [stocks, parked, docs, preOpeningFacilities, customerDocs] = await Promise.all([
           tx.productStock.findMany({
             where: {
               product: { deletedAt: null, isActive: true, minStock: { not: null } },
@@ -823,6 +823,33 @@ export class TodayService {
                       },
                     },
                   },
+                },
+              },
+            },
+          }),
+          // Solo de quien sigue de inquilino: el DNI caducado de un ex no urge.
+          tx.customerDocument.findMany({
+            where: {
+              expiresAt: { not: null, lte: docsLimit },
+              customer: {
+                deletedAt: null,
+                contracts: {
+                  some: { status: { in: ['active', 'ending'] }, deletedAt: null, ...facContract },
+                },
+              },
+            },
+            orderBy: { expiresAt: 'asc' },
+            select: {
+              id: true,
+              customerId: true,
+              fileName: true,
+              expiresAt: true,
+              customer: {
+                select: {
+                  customerType: true,
+                  firstName: true,
+                  lastName: true,
+                  companyName: true,
                 },
               },
             },
@@ -1137,6 +1164,21 @@ export class TodayService {
                     .join(' · ') || null,
                 date: r.dueDate.toISOString(),
                 overdue: r.dueDate < startOfToday,
+              })),
+            },
+            none,
+          ),
+          customerDocumentsExpiring: section(
+            'customers:read',
+            {
+              count: customerDocs.length,
+              items: customerDocs.slice(0, TAKE).map((d) => ({
+                id: d.id,
+                label: customerName(d.customer),
+                detail: d.fileName,
+                date: d.expiresAt!.toISOString(),
+                overdue: d.expiresAt! < startOfToday,
+                linkId: d.customerId,
               })),
             },
             none,

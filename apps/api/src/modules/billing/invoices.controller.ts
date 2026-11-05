@@ -14,6 +14,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   BulkInvoiceActionSchema,
+  BulkRemindCustomersSchema,
   type BulkInvoiceActionResultDto,
   CancelInvoiceSchema,
   CreateInvoiceSchema,
@@ -48,6 +49,7 @@ class UpdateInvoiceDto extends createZodDto(UpdateInvoiceSchema) {}
 class CancelInvoiceDto extends createZodDto(CancelInvoiceSchema) {}
 class RefundInvoiceDto extends createZodDto(RefundInvoiceSchema) {}
 class MarkPaidManuallyDto extends createZodDto(MarkPaidManuallySchema) {}
+class BulkRemindCustomersDto extends createZodDto(BulkRemindCustomersSchema) {}
 class BulkInvoiceActionDto extends createZodDto(BulkInvoiceActionSchema) {}
 class LinkHoldedCreditNoteDto extends createZodDto(LinkHoldedCreditNoteSchema) {}
 class RectifyInvoiceDto extends createZodDto(RectifyInvoiceSchema) {}
@@ -188,6 +190,21 @@ export class InvoicesController {
       userId: user.sub,
       ids: body.ids,
       meta: extractMeta(req),
+    });
+  }
+
+  /** Recuerda su deuda a los inquilinos elegidos. ANTES de `:id/issue`. */
+  @RequirePermission('communications:send')
+  @Post('bulk/remind-customers')
+  @HttpCode(HttpStatus.OK)
+  async remindCustomers(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: BulkRemindCustomersDto,
+  ): Promise<BulkInvoiceActionResultDto> {
+    return this.invoices.remindCustomers({
+      tenantId: user.tenantId,
+      customerIds: body.customerIds,
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

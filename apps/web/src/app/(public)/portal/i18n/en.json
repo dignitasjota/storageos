@@ -518,6 +518,8 @@
         "attachSize": "Attachments can't be larger than 10 MB."
       },
       "documents": {
+        "pendingTitle": "We have asked you for",
+        "pendingHint": "Upload each document here and it will reach the team.",
         "title": "My documents",
         "subtitle": "Upload your documentation (ID, proof of address…) to speed up your process.",
         "typeIdFront": "ID (front)",

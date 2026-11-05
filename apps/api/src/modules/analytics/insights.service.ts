@@ -132,11 +132,14 @@ export class InsightsService {
   async getChurnRisk(
     tenantId: string,
     scope: AnalyticsScope = ALL_FACILITIES,
+    customerId?: string,
   ): Promise<ChurnRiskKpiDto> {
     return this.prisma.withTenant(async (tx) => {
       const startOfToday = todayInTimezone(await tenantTimezone(tx, tenantId));
       const contracts = await tx.contract.findMany({
-        where: { AND: [LIVE_CONTRACT_WHERE, contractWhere(scope)] },
+        where: {
+          AND: [LIVE_CONTRACT_WHERE, contractWhere(scope), customerId ? { customerId } : {}],
+        },
         select: {
           id: true,
           contractNumber: true,
@@ -196,7 +199,6 @@ export class InsightsService {
             where: {
               customerId: { in: customerIds },
               ...CHARGEABLE_MANDATE_WHERE,
-              signatureStatus: { in: ['signed', 'external'] },
             },
             select: { customerId: true },
           }),

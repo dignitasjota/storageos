@@ -8,7 +8,7 @@ import {
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Plus, Send, Users } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import {
@@ -57,6 +57,7 @@ import {
   useUpdateWinbackSettings,
   useWinbackSettings,
 } from '@/lib/campaigns/hooks';
+import { CAMPAIGN_SELECTION_KEY } from '@/lib/customers/features-hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { formatDate, formatDateTime } from '@/lib/format';
 
@@ -235,6 +236,21 @@ function CreateCampaignDialog() {
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleHour, setScheduleHour] = useState('10');
   const [count, setCount] = useState<number | null>(null);
+  const [customerIds, setCustomerIds] = useState<string[]>([]);
+  // Selección hecha en la lista de inquilinos.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('fromCustomers')) return;
+    try {
+      const ids = JSON.parse(sessionStorage.getItem(CAMPAIGN_SELECTION_KEY) ?? '[]') as string[];
+      sessionStorage.removeItem(CAMPAIGN_SELECTION_KEY);
+      if (ids.length) {
+        setCustomerIds(ids);
+        setOpen(true);
+      }
+    } catch {
+      /* sin selección */
+    }
+  }, []);
   const facilities = useFacilities();
   const facilityList = facilities.data ?? [];
 
@@ -252,6 +268,7 @@ function CreateCampaignDialog() {
       overdueOnly,
       ...(tag.trim() ? { tag: tag.trim() } : {}),
       ...(facilityId !== 'all' ? { facilityId } : {}),
+      ...(customerIds.length ? { customerIds } : {}),
     };
   }
 
@@ -313,6 +330,15 @@ function CreateCampaignDialog() {
           <DialogTitle>Nueva campaña por email</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
+          {customerIds.length > 0 && (
+            <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              Para los {customerIds.length} inquilinos elegidos en la lista, sin quienes se dieron
+              de baja de las comunicaciones comerciales.{' '}
+              <button type="button" className="underline" onClick={() => setCustomerIds([])}>
+                Quitar
+              </button>
+            </p>
+          )}
           <div className="space-y-1">
             <Label>Nombre</Label>
             <Input
