@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
+import { customerScopeWhere } from '../../common/customer-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
+import type { FacilityScope } from '../../common/facility-scope';
 import type { RequestMeta } from '../auth/auth.service';
 import type { CustomerDocument } from '@storageos/database';
 import type {
@@ -131,10 +133,14 @@ export class CustomerDocumentsService {
     tenantId: string;
     userId: string;
     documentId: string;
+    facilityScope?: FacilityScope;
     meta: RequestMeta;
   }): Promise<void> {
     const row = await this.prisma.withTenant(
-      (tx) => tx.customerDocument.findUnique({ where: { id: args.documentId } }),
+      (tx) =>
+        tx.customerDocument.findFirst({
+          where: { id: args.documentId, customer: customerScopeWhere(args.facilityScope) },
+        }),
       args.tenantId,
     );
     if (!row) {
@@ -147,6 +153,9 @@ export class CustomerDocumentsService {
       (tx) => tx.customerDocument.delete({ where: { id: args.documentId } }),
       args.tenantId,
     );
+    // El fichero también: es un DNI o un justificante, no debe quedarse guardado.
+    const key = this.files.keyFromPublicUrl('uploads', row.fileUrl);
+    if (key) await this.files.deleteObjects('uploads', [key]).catch(() => undefined);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

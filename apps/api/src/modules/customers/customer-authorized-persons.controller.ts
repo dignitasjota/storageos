@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import {
   type CustomerAuthorizedPersonDto,
@@ -16,6 +17,7 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -27,6 +29,7 @@ import { CustomerAuthorizedPersonsService } from './customer-authorized-persons.
 class AuthorizedPersonDto extends createZodDto(CustomerAuthorizedPersonSchema) {}
 
 @Controller('customers/:customerId/authorized-persons')
+@UseGuards(CustomerScopeGuard)
 export class CustomerAuthorizedPersonsController {
   constructor(private readonly service: CustomerAuthorizedPersonsService) {}
 

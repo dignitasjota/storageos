@@ -28,6 +28,7 @@ import {
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
+import { customerScopeWhere } from '../../common/customer-scope';
 import { emailLocale } from '../../common/format';
 import { escapeHtml, tenantEmailShell } from '../../common/tenant-email-layout';
 import { tenantHasFeature } from '../../common/tenant-features';
@@ -46,6 +47,7 @@ import { ProductSalesService } from '../products/product-sales.service';
 import { ProductsService } from '../products/products.service';
 import { QUEUE_EMAIL } from '../queues/queues.module';
 
+import type { FacilityScope } from '../../common/facility-scope';
 import type { Env } from '../../config/env.schema';
 import type {
   GoCardlessMandateStartDto,
@@ -274,6 +276,19 @@ export class PortalService {
    * alta, o reenvío desde su ficha): enlace de un solo uso válido 7 días, con
    * el remitente del tenant.
    */
+  /** De esos inquilinos, los que el usuario puede ver por su alcance. */
+  async visibleCustomerIds(
+    tenantId: string,
+    ids: string[],
+    facilityScope: FacilityScope,
+  ): Promise<string[]> {
+    const rows = await this.admin.customer.findMany({
+      where: { tenantId, id: { in: ids }, deletedAt: null, ...customerScopeWhere(facilityScope) },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
   async sendAccessEmail(
     tenantId: string,
     customerId: string,

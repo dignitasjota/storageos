@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import {
   type CustomerMessageDto,
@@ -16,6 +17,7 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -29,6 +31,7 @@ class AttachmentUploadDto extends createZodDto(MessageAttachmentUploadSchema) {}
 
 /** Chat del staff con un inquilino (lado panel). */
 @Controller('customers/:customerId/messages')
+@UseGuards(CustomerScopeGuard)
 export class CustomerMessagesController {
   constructor(private readonly messages: CustomerMessagesService) {}
 

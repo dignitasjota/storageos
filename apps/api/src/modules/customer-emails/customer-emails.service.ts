@@ -10,6 +10,7 @@ import {
 } from '@storageos/shared';
 
 import { tenantPortalLoginUrl } from '../../common/portal-url';
+import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import {
@@ -585,7 +586,7 @@ export class CustomerEmailsService {
         select: { type: true, brand: true, last4: true },
       }),
       this.admin.sepaMandate.findFirst({
-        where: { tenantId, customerId, status: 'active' },
+        where: { tenantId, customerId, ...CHARGEABLE_MANDATE_WHERE },
         select: { ibanLast4: true },
       }),
     ]);

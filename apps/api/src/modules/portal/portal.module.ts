@@ -31,7 +31,7 @@ import { NightPassService } from './night-pass.service';
 import { OfflinePaymentsService } from './offline-payments.service';
 import { PortalAccountService } from './portal-account.service';
 import { PortalInvoiceExportService } from './portal-invoice-export.service';
-import { PortalLinkController } from './portal-link.controller';
+import { PortalBulkController, PortalLinkController } from './portal-link.controller';
 import { PortalController } from './portal.controller';
 import { PortalService } from './portal.service';
 
@@ -79,7 +79,7 @@ import { PortalService } from './portal.service';
     SepaModule,
     NotificationsModule,
   ],
-  controllers: [PortalController, PortalLinkController],
+  controllers: [PortalController, PortalLinkController, PortalBulkController],
   // CustomerDocumentsService se PROVEE aquí (sus deps —Prisma/Files globales,
   // AuditService de AuthModule— ya están disponibles) en vez de importar
   // CustomersModule entero: importarlo reintroducía el JwtModule de AuthModule

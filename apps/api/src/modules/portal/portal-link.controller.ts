@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   HttpCode,
@@ -7,8 +8,12 @@ import {
   ParseUUIDPipe,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
+import { BulkPortalAccessSchema } from '@storageos/shared';
+import { createZodDto } from 'nestjs-zod';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -20,8 +25,41 @@ import { PortalService } from './portal.service';
 import type { PortalMagicLinkDto } from '@storageos/shared';
 import type { Request } from 'express';
 
+class BulkPortalAccessDto extends createZodDto(BulkPortalAccessSchema) {}
+
 function meta(req: Request): { ipAddress: string | null; userAgent: string | null } {
   return { ipAddress: req.ip ?? null, userAgent: req.header('user-agent') ?? null };
+}
+
+/** Acceso al portal a varios inquilinos de una vez, sin topar con el límite de peticiones. */
+@Controller('customers/bulk')
+export class PortalBulkController {
+  constructor(private readonly portal: PortalService) {}
+
+  @RequirePermission('customers:write')
+  @Post('portal-access')
+  @HttpCode(HttpStatus.OK)
+  async sendAccess(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: BulkPortalAccessDto,
+    @Req() req: Request,
+  ): Promise<{ sent: number; failed: number }> {
+    const ids = await this.portal.visibleCustomerIds(
+      user.tenantId,
+      body.customerIds,
+      user.facilityScope ?? null,
+    );
+    let sent = 0;
+    for (const customerId of ids) {
+      try {
+        await this.portal.sendAccessEmail(user.tenantId, customerId, user.sub, meta(req));
+        sent += 1;
+      } catch {
+        /* sin email o bloqueado: sigue con los demás */
+      }
+    }
+    return { sent, failed: body.customerIds.length - sent };
+  }
 }
 
 /**
@@ -30,6 +68,7 @@ function meta(req: Request): { ipAddress: string | null; userAgent: string | nul
  * público `/portal/login/*`.
  */
 @Controller('customers/:customerId/portal-link')
+@UseGuards(CustomerScopeGuard)
 export class PortalLinkController {
   constructor(private readonly portal: PortalService) {}
 

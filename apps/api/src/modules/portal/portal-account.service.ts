@@ -7,8 +7,9 @@ import {
 } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
+import { nextContractCharge } from '../../common/next-charge';
 import { isPendingPreOpening } from '../../common/pre-opening';
-import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
+import { CHARGEABLE_MANDATE_WHERE, NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Prisma } from '@storageos/database';
@@ -91,7 +92,7 @@ export class PortalAccountService {
         select: { type: true, isDefault: true, last4: true, brand: true },
       }),
       this.admin.sepaMandate.findFirst({
-        where: { tenantId, customerId, status: 'active' },
+        where: { tenantId, customerId, ...CHARGEABLE_MANDATE_WHERE },
         select: { ibanLast4: true },
       }),
       // Facturas abiertas sin un cobro en marcha: lo que de verdad tiene que pagar.
@@ -133,39 +134,16 @@ export class PortalAccountService {
     // tarde; prepagado → el día siguiente al fin del último periodo. Una
     // reserva antes de la apertura aún no tiene cargos.
     const today = todayInTimezone('Europe/Madrid', now);
-    const firstOfNextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
-    const startOfMonth = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
     const charges = contracts
       .map((c, i) => ({ c, line: lines[i]! }))
       .filter(({ c }) => c.status === 'active' && !isPendingPreOpening(c))
-      .map(({ c, line }) => {
-        const coveredUntil = c.invoices[0]?.periodEnd ?? null;
-        const nextUncovered = coveredUntil ? new Date(coveredUntil.getTime() + DAY) : null;
-        // Meses gratis: el alquiler sale a 0 (la protección se sigue cobrando).
-        const rent = c.freeMonthsRemaining > 0 ? 0 : line.rent;
-        if (c.billingIntervalMonths > 1) {
-          const pct = Number(c.prepayDiscountPct) / 100;
-          const amount = (rent * (1 - pct) + line.insurance) * c.billingIntervalMonths;
-          const date = nextUncovered ?? c.billingStartsOn ?? firstOfNextMonth;
-          return { date, amount };
-        }
-        let date = firstOfNextMonth;
-        for (const d of [nextUncovered, c.billingStartsOn]) {
-          if (d && startOfMonth(d) > date) date = startOfMonth(d);
-        }
-        // Si la facturación empieza a mitad de ese mes, se cobra la parte.
-        let share = 1;
-        const from = [nextUncovered, c.billingStartsOn]
-          .filter((d): d is Date => !!d && startOfMonth(d).getTime() === date.getTime())
-          .sort((a, b) => b.getTime() - a.getTime())[0];
-        if (from && from.getUTCDate() > 1) {
-          const days = new Date(
-            Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
-          ).getUTCDate();
-          share = (days - from.getUTCDate() + 1) / days;
-        }
-        return { date, amount: (rent + line.insurance) * share };
-      })
+      .map(({ c, line }) =>
+        nextContractCharge(
+          { ...c, coveredUntil: c.invoices[0]?.periodEnd ?? null },
+          { rent: line.rent, insurance: line.insurance },
+          today,
+        ),
+      )
       .sort((a, b) => a.date.getTime() - b.date.getTime());
     let nextCharge: PortalAccountDto['nextCharge'] = null;
     if (charges.length) {

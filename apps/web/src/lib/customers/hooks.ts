@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 
 import { apiFetch } from '../auth/api';
 
 import type {
+  CustomerDuplicateDto,
   BulkSignatureResultDto,
   ContractAccountDto,
   ContractMoveOutDto,
@@ -112,10 +114,38 @@ export function useUpdateCustomer() {
   });
 }
 
+/** Posibles duplicados, con una pausa para no consultar en cada tecla. */
+export function useCustomerDuplicates(q: {
+  email?: string | null | undefined;
+  phone?: string | null | undefined;
+  documentNumber?: string | null | undefined;
+  excludeId?: string | undefined;
+}) {
+  const params = new URLSearchParams();
+  if (q.email?.includes('@')) params.set('email', q.email);
+  if ((q.phone?.replace(/\D/g, '').length ?? 0) >= 9) params.set('phone', q.phone!);
+  if ((q.documentNumber?.trim().length ?? 0) >= 5) params.set('documentNumber', q.documentNumber!);
+  const typed = params.toString();
+  const [debounced, setDebounced] = useState(typed);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(typed), 400);
+    return () => clearTimeout(t);
+  }, [typed]);
+  const exclude = q.excludeId ? `&excludeId=${q.excludeId}` : '';
+  return useQuery({
+    queryKey: ['customers', 'duplicates', debounced, q.excludeId],
+    queryFn: () => apiFetch<CustomerDuplicateDto[]>(`/customers/duplicates?${debounced}${exclude}`),
+    enabled: debounced.length > 0,
+  });
+}
+
 export function useDeleteCustomer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiFetch<void>(`/customers/${id}`, { method: 'DELETE' }),
+    mutationFn: (args: { id: string; confirmDebt?: boolean }) =>
+      apiFetch<void>(`/customers/${args.id}${args.confirmDebt ? '?confirmDebt=1' : ''}`, {
+        method: 'DELETE',
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['customers'] });
     },
@@ -198,6 +228,14 @@ export function useRegisterCustomerDocument() {
     onSuccess: (_data, args) => {
       void qc.invalidateQueries({ queryKey: customerDocsKey(args.id) });
     },
+  });
+}
+
+/** El almacén es privado: el documento se abre con una dirección firmada. */
+export function useCustomerDocumentDownload() {
+  return useMutation({
+    mutationFn: (args: { customerId: string; id: string }) =>
+      apiFetch<{ url: string }>(`/customers/${args.customerId}/documents/${args.id}/download`),
   });
 }
 
@@ -648,6 +686,16 @@ export function useSendPortalAccessEmail() {
     mutationFn: (customerId: string) =>
       apiFetch<{ sentTo: string }>(`/customers/${customerId}/portal-link/send-email`, {
         method: 'POST',
+      }),
+  });
+}
+
+export function useBulkPortalAccess() {
+  return useMutation({
+    mutationFn: (customerIds: string[]) =>
+      apiFetch<{ sent: number; failed: number }>('/customers/bulk/portal-access', {
+        method: 'POST',
+        json: { customerIds },
       }),
   });
 }

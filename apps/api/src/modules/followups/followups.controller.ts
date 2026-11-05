@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import {
   CreateCustomerFollowupSchema,
@@ -17,6 +18,7 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -41,6 +43,7 @@ export class FollowupsController {
   }
 
   @RequirePermission('customers:read')
+  @UseGuards(CustomerScopeGuard)
   @Get('customers/:customerId/followups')
   listForCustomer(
     @CurrentUser() user: AuthenticatedUser,
@@ -50,6 +53,7 @@ export class FollowupsController {
   }
 
   @RequirePermission('customers:write')
+  @UseGuards(CustomerScopeGuard)
   @Post('customers/:customerId/followups')
   create(
     @CurrentUser() user: AuthenticatedUser,

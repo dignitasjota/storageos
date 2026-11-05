@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   CreateSetupIntentSchema,
@@ -18,6 +19,7 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -53,6 +55,7 @@ export class PaymentMethodsController {
   }
 
   @RequirePermission('payments:read')
+  @UseGuards(CustomerScopeGuard)
   @Get('customers/:customerId/payment-methods')
   async list(
     @CurrentUser() user: AuthenticatedUser,

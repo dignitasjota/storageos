@@ -1781,3 +1781,13 @@ Migración `20261222100000_contract_features` (se aplica sola), sin variables nu
 - **Lista de espera**: al liberarse un trastero, ahora queda **reservado 48 h** para quien recibe el aviso, que recibe un enlace para reservarlo. Si no responde, pasa al siguiente. Mientras dura no se puede vender a otra persona desde la web.
 - **Acceso de contratos con entrada futura**: el PIN se emite al firmar pero abre desde la fecha de inicio. El inquilino lo recibe igual por correo.
 - **Correos nuevos al inquilino**, activados por defecto en Configuración → Correo: contrato renovado (también en cada prórroga automática), cambio de cuota y liquidación de la fianza. Los dos últimos solo salen si el equipo marca la casilla de avisar.
+
+## 95. Inquilinos: arreglos (2026-11-05)
+
+Sin migración ni variables nuevas. Lo que se nota tras desplegar:
+
+- **Alcance por local**: quien solo ve unos locales ve los inquilinos con contrato en ellos y los que no tienen contrato; los demás le dan 404 en la lista, la ficha y sus pestañas.
+- **Mandatos SEPA sin firmar**: dejan de contar como forma de pago en la lista, el estado de cuenta, Extras, el área de clientes y los correos.
+- **Deuda de la lista**: incluye lo emitido ya vencido que el proceso nocturno aún no ha marcado, como Deudores.
+- **DNI, NIE y CIF** se validan al crear o editar. Los datos ya guardados no cambian hasta que alguien los edite.
+- **Borrar un inquilino**: con reserva o lista de espera se bloquea; con deuda pide confirmación.

@@ -71,6 +71,12 @@ export const UpdateCustomerSchema = z
   });
 export type UpdateCustomerInput = z.infer<typeof UpdateCustomerSchema>;
 
+/** Enviar el acceso al portal a varios inquilinos. */
+export const BulkPortalAccessSchema = z.object({
+  customerIds: z.array(z.string().uuid()).min(1).max(100),
+});
+export type BulkPortalAccessInput = z.infer<typeof BulkPortalAccessSchema>;
+
 /**
  * Comunicaciones comerciales de un cliente. `subscribed: false` = se da de baja.
  * Volver a darle de alta solo si el cliente lo pide (consentimiento).

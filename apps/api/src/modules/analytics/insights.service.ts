@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 
 import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
 import { formatEur, todayInTimezone } from '../../common/format';
+import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { AuditService } from '../auth/audit.service';
 import { overdueInvoiceWhere } from '../dashboard/today-filters';
 import { PrismaService } from '../database/prisma.service';
@@ -194,7 +195,7 @@ export class InsightsService {
           tx.sepaMandate.findMany({
             where: {
               customerId: { in: customerIds },
-              status: 'active',
+              ...CHARGEABLE_MANDATE_WHERE,
               signatureStatus: { in: ['signed', 'external'] },
             },
             select: { customerId: true },

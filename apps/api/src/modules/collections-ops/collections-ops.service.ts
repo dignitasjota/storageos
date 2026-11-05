@@ -11,6 +11,7 @@ import {
 
 import { type FacilityScope, invoiceFacilityWhere } from '../../common/facility-scope';
 import { todayInTimezone, zonedDayStart } from '../../common/format';
+import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -183,7 +184,7 @@ export class CollectionsOpsService {
           select: { customerId: true },
         }),
         tx.sepaMandate.findMany({
-          where: { customerId: { in: customerIds }, status: 'active' },
+          where: { customerId: { in: customerIds }, ...CHARGEABLE_MANDATE_WHERE },
           select: { customerId: true },
         }),
       ]);
@@ -346,7 +347,7 @@ export class CollectionsOpsService {
           select: { customerId: true },
         }),
         tx.sepaMandate.findMany({
-          where: { customerId: { in: customerIds }, status: 'active' },
+          where: { customerId: { in: customerIds }, ...CHARGEABLE_MANDATE_WHERE },
           select: { customerId: true },
         }),
         tx.paymentPlan.findMany({

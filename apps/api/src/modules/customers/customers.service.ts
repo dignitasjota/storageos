@@ -1,6 +1,14 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { isValidSpanishTaxId, normalizeTaxId } from '@storageos/shared';
 
+import { customerScopeWhere } from '../../common/customer-scope';
+import { subtractAmounts } from '../../common/money';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
@@ -8,16 +16,31 @@ import { PrismaService } from '../database/prisma.service';
 import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { ReferralsService } from '../referrals/referrals.service';
 
+import type { FacilityScope } from '../../common/facility-scope';
 import type { RequestMeta } from '../auth/auth.service';
 import type { DomainEventPayload } from '../automations/domain-events';
 import type { Customer, Prisma } from '@storageos/database';
 import type {
   CreateCustomerInput,
   CustomerDto,
+  CustomerDuplicateDto,
   EmailSuppressionDto,
   SetKycVerifiedInput,
   UpdateCustomerInput,
 } from '@storageos/shared';
+
+/** Lo vivo del inquilino: contratos en marcha y reservas pendientes. */
+const CUSTOMER_COUNTS = {
+  _count: {
+    select: {
+      contracts: { where: { status: { in: ['active', 'ending'] }, deletedAt: null } },
+      reservations: { where: { status: { in: ['pending', 'confirmed'] } } },
+    },
+  },
+} satisfies Prisma.CustomerInclude;
+
+/** Tipos de documento que se comprueban (un pasaporte no tiene letra de control). */
+const SPANISH_DOCUMENTS = ['dni', 'nie', 'nif', 'cif'];
 
 type CustomerWithCounts = Customer & {
   _count?: { contracts: number; reservations: number };
@@ -32,6 +55,20 @@ interface ListFilters {
   search?: string;
   includeDeleted?: boolean;
   page?: PageRequest;
+  facilityScope?: FacilityScope;
+}
+
+/** DNI, NIE o CIF normalizado; 400 si no es válido. El resto, tal cual. */
+function checkedDocument(type: string | null | undefined, number: string | null | undefined) {
+  const value = number?.trim();
+  if (!value || !SPANISH_DOCUMENTS.includes((type ?? '').trim().toLowerCase())) return value;
+  if (!isValidSpanishTaxId(value)) {
+    throw new BadRequestException({
+      code: 'invalid_tax_id',
+      message: 'El DNI, NIE o CIF no es válido. Revisa la letra y los números.',
+    });
+  }
+  return normalizeTaxId(value);
 }
 
 @Injectable()
@@ -45,7 +82,7 @@ export class CustomersService {
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<CustomerDto[]> {
-    const where: Prisma.CustomerWhereInput = {};
+    const where: Prisma.CustomerWhereInput = { ...customerScopeWhere(filters.facilityScope) };
     if (!filters.includeDeleted) where.deletedAt = null;
     if (filters.search) {
       // Por palabras: «Juan García» encuentra a quien tiene «Juan» en un campo y
@@ -68,14 +105,7 @@ export class CustomersService {
           where,
           orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
           ...pageArgs(filters.page),
-          include: {
-            _count: {
-              select: {
-                contracts: { where: { status: { in: ['active', 'ending'] } } },
-                reservations: { where: { status: { in: ['pending', 'confirmed'] } } },
-              },
-            },
-          },
+          include: CUSTOMER_COUNTS,
         }),
       tenantId,
     );
@@ -100,7 +130,7 @@ export class CustomersService {
       lastName: args.input.lastName?.trim() || null,
       companyName: args.input.companyName?.trim() || null,
       documentType: args.input.documentType?.trim() || null,
-      documentNumber: args.input.documentNumber?.trim() || null,
+      documentNumber: checkedDocument(args.input.documentType, args.input.documentNumber) || null,
       email: args.input.email?.trim() || null,
       phone: args.input.phone?.trim() || null,
       address: args.input.address?.trim() || null,
@@ -116,7 +146,7 @@ export class CustomersService {
     const created = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.create({
         data,
-        include: { _count: { select: { contracts: true, reservations: true } } },
+        include: CUSTOMER_COUNTS,
       });
       if (args.input.referralCode) {
         await this.referrals.registerInTx(tx, args.tenantId, args.input.referralCode, customer.id);
@@ -161,11 +191,27 @@ export class CustomersService {
     input: UpdateCustomerInput;
     meta: RequestMeta;
   }): Promise<CustomerDto> {
-    await this.findOrThrow(args.tenantId, args.customerId);
+    const existing = await this.findOrThrow(args.tenantId, args.customerId);
+    const merged = { ...existing, ...args.input };
+    const missingName =
+      merged.customerType === 'business'
+        ? !merged.companyName?.trim()
+        : !merged.firstName?.trim() || !merged.lastName?.trim();
+    if (missingName) {
+      throw new BadRequestException({
+        code: 'customer_name_required',
+        message: 'Los particulares necesitan nombre y apellidos; las empresas, la razón social',
+      });
+    }
+    const input = { ...args.input };
+    if (input.documentNumber !== undefined || input.documentType !== undefined) {
+      const document = checkedDocument(merged.documentType, merged.documentNumber);
+      if (input.documentNumber !== undefined) input.documentNumber = document ?? '';
+    }
     const data: Prisma.CustomerUpdateInput = {};
     const changes: Record<string, unknown> = {};
     const set = <K extends keyof UpdateCustomerInput>(key: K) => {
-      const value = args.input[key];
+      const value = input[key];
       if (value === undefined) return;
       const cleaned = typeof value === 'string' && (value as string).trim() === '' ? null : value;
       (data as Record<string, unknown>)[key] = cleaned;
@@ -200,7 +246,7 @@ export class CustomersService {
         tx.customer.update({
           where: { id: args.customerId },
           data,
-          include: { _count: { select: { contracts: true, reservations: true } } },
+          include: CUSTOMER_COUNTS,
         }),
       args.tenantId,
     );
@@ -221,6 +267,8 @@ export class CustomersService {
     tenantId: string;
     userId: string;
     customerId: string;
+    /** Ya sabe que debe dinero y quiere borrarlo igual. */
+    confirmDebt?: boolean;
     meta: RequestMeta;
   }): Promise<void> {
     const existing = await this.findOrThrow(args.tenantId, args.customerId);
@@ -240,6 +288,43 @@ export class CustomersService {
       throw new ConflictException({
         code: 'customer_has_live_contracts',
         message: `Tiene ${live} contrato(s) sin cerrar: finalízalos o cancélalos antes de borrarlo.`,
+      });
+    }
+    const [reservations, waiting, debt] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.reservation.count({
+            where: { customerId: args.customerId, status: { in: ['pending', 'confirmed'] } },
+          }),
+          tx.waitlistEntry.count({
+            where: { customerId: args.customerId, status: { in: ['waiting', 'notified'] } },
+          }),
+          tx.invoice.aggregate({
+            where: {
+              customerId: args.customerId,
+              status: { in: ['issued', 'overdue'] },
+              deletedAt: null,
+            },
+            _sum: { total: true, amountPaid: true },
+          }),
+        ]),
+      args.tenantId,
+    );
+    if (reservations + waiting > 0) {
+      throw new ConflictException({
+        code: 'customer_has_reservations',
+        message: 'Tiene una reserva o está en lista de espera: cancélalas antes de borrarlo.',
+      });
+    }
+    const pending = subtractAmounts(
+      Number(debt._sum.total ?? 0),
+      Number(debt._sum.amountPaid ?? 0),
+    );
+    if (pending > 0 && !args.confirmDebt) {
+      throw new ConflictException({
+        code: 'customer_has_debt',
+        message: 'Tiene facturas pendientes de cobro.',
+        details: { amount: pending },
       });
     }
     // Sin contratos vivos: el borrado es lógico y conserva el historial.
@@ -279,7 +364,7 @@ export class CustomersService {
             kycVerified: args.input.verified,
             kycVerifiedAt: args.input.verified ? new Date() : null,
           },
-          include: { _count: { select: { contracts: true, reservations: true } } },
+          include: CUSTOMER_COUNTS,
         }),
       args.tenantId,
     );
@@ -313,7 +398,7 @@ export class CustomersService {
         tx.customer.update({
           where: { id: args.customerId },
           data: { marketingOptOutAt: args.subscribed ? null : new Date() },
-          include: { _count: { select: { contracts: true, reservations: true } } },
+          include: CUSTOMER_COUNTS,
         }),
       args.tenantId,
     );
@@ -327,6 +412,71 @@ export class CustomersService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(updated);
+  }
+
+  /**
+   * Inquilinos con el mismo email, teléfono o documento. Solo avisa: un email
+   * compartido en una familia es legítimo.
+   */
+  async duplicates(
+    tenantId: string,
+    q: { email?: string; phone?: string; documentNumber?: string; excludeId?: string },
+    facilityScope?: FacilityScope,
+  ): Promise<CustomerDuplicateDto[]> {
+    const email = q.email?.trim().toLowerCase();
+    const document = q.documentNumber?.trim().toUpperCase().replace(/[\s-]/g, '');
+    const phone = q.phone?.replace(/\D/g, '').slice(-9);
+    const usablePhone = phone && phone.length === 9 ? phone : null;
+    if (!email && !document && !usablePhone) return [];
+    return this.prisma.withTenant(async (tx) => {
+      const byPhone = usablePhone
+        ? await tx.$queryRaw<{ id: string }[]>`
+            SELECT id FROM customers
+            WHERE deleted_at IS NULL
+              AND right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 9) = ${usablePhone}`
+        : [];
+      const rows = await tx.customer.findMany({
+        where: {
+          deletedAt: null,
+          ...(q.excludeId ? { id: { not: q.excludeId } } : {}),
+          AND: [
+            customerScopeWhere(facilityScope),
+            {
+              OR: [
+                ...(email ? [{ email: { equals: email, mode: 'insensitive' as const } }] : []),
+                ...(document
+                  ? [{ documentNumber: { equals: document, mode: 'insensitive' as const } }]
+                  : []),
+                ...(byPhone.length ? [{ id: { in: byPhone.map((r) => r.id) } }] : []),
+              ],
+            },
+          ],
+        },
+        take: 5,
+        select: {
+          id: true,
+          customerType: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
+          email: true,
+          phone: true,
+          documentNumber: true,
+        },
+      });
+      const phoneIds = new Set(byPhone.map((r) => r.id));
+      return rows.map((r) => ({
+        id: r.id,
+        displayName: displayName(r),
+        matches: [
+          ...(email && r.email?.toLowerCase() === email ? (['email'] as const) : []),
+          ...(phoneIds.has(r.id) ? (['phone'] as const) : []),
+          ...(document && r.documentNumber?.toUpperCase() === document
+            ? (['document'] as const)
+            : []),
+        ],
+      }));
+    }, tenantId);
   }
 
   /** Bloqueos de correo que afectan al email del inquilino (rebote, spam). */
@@ -367,14 +517,7 @@ export class CustomersService {
       (tx) =>
         tx.customer.findFirst({
           where: { id: customerId, deletedAt: null },
-          include: {
-            _count: {
-              select: {
-                contracts: { where: { status: { in: ['active', 'ending'] } } },
-                reservations: { where: { status: { in: ['pending', 'confirmed'] } } },
-              },
-            },
-          },
+          include: CUSTOMER_COUNTS,
         }),
       tenantId,
     );
@@ -410,6 +553,7 @@ export class CustomersService {
       tags: row.tags,
       kycVerified: row.kycVerified,
       depositExempt: row.depositExempt,
+      isTest: row.isTest,
       kycVerifiedAt: row.kycVerifiedAt ? row.kycVerifiedAt.toISOString() : null,
       portalAccessEnabled: row.portalAccessEnabled,
       activeContracts: row._count?.contracts ?? 0,

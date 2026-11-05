@@ -10,6 +10,7 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   CreateDataSubjectRequestSchema,
@@ -18,6 +19,7 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -84,6 +86,7 @@ export class RgpdController {
   }
 
   @RequirePermission('rgpd:manage')
+  @UseGuards(CustomerScopeGuard)
   @Get('customers/:id/export')
   async exportCustomer(
     @CurrentUser() user: AuthenticatedUser,
@@ -93,6 +96,7 @@ export class RgpdController {
   }
 
   @RequirePermission('rgpd:manage')
+  @UseGuards(CustomerScopeGuard)
   @Post('customers/:id/anonymize')
   @HttpCode(HttpStatus.NO_CONTENT)
   async anonymize(

@@ -8,10 +8,12 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import { CreateCustomerInteractionSchema, type CustomerInteractionDto } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -23,6 +25,7 @@ import { CustomerInteractionsService } from './customer-interactions.service';
 class CreateInteractionDto extends createZodDto(CreateCustomerInteractionSchema) {}
 
 @Controller('customers/:customerId/interactions')
+@UseGuards(CustomerScopeGuard)
 export class CustomerInteractionsController {
   constructor(private readonly interactions: CustomerInteractionsService) {}
 
@@ -58,6 +61,6 @@ export class CustomerInteractionsController {
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
-    await this.interactions.remove(user.tenantId, customerId, id);
+    await this.interactions.remove(user.tenantId, customerId, id, user.sub);
   }
 }
