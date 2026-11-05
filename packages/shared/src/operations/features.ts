@@ -96,6 +96,11 @@ export const MoveFromUnitChangeSchema = z.object({
   newUnitId: z.string().uuid(),
   newPrice: z.number().positive().max(100_000).optional(),
   prorate: z.boolean().optional(),
+  /** Fecha del traslado: si es futura, queda programado. */
+  effectiveDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 export type MoveFromUnitChangeInput = z.infer<typeof MoveFromUnitChangeSchema>;
 

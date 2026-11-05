@@ -237,6 +237,8 @@ export interface FirstPaymentQuoteDto {
 export const BookingQuoteSchema = z.object({
   facilityId: z.string().uuid(),
   unitTypeId: z.string().uuid(),
+  /** Enlace de la lista de espera: el trastero guardado para esta persona. */
+  holdToken: z.string().max(100).optional(),
   months: FirstPaymentMonthsSchema.default(1),
   /** Fecha de entrada (YYYY-MM-DD): el primer pago mensual sale exacto. */
   startDate: z

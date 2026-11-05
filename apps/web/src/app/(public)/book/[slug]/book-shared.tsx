@@ -101,13 +101,25 @@ export function BookPageBody({
     {},
   );
 
+  // Enlace del aviso de la lista de espera: el trastero guardado cuenta como libre.
+  const [holdToken, setHoldToken] = useState<string | null>(null);
+  const [holdReady, setHoldReady] = useState(false);
   useEffect(() => {
+    const hold = new URLSearchParams(window.location.search).get('hold');
     // Ya resuelto en servidor (caso normal) — no repetir el fetch en cliente.
-    if (initialData || initialError) return;
-    apiFetch<BookingAvailabilityDto>(`/public/move-in/book/${slug}/availability`, {
-      requiresAuth: false,
-    })
-      .then(setData)
+    if ((initialData || initialError) && !hold) {
+      setHoldReady(true);
+      return;
+    }
+    if (hold) setHoldToken(hold);
+    apiFetch<BookingAvailabilityDto>(
+      `/public/move-in/book/${slug}/availability${hold ? `?hold=${encodeURIComponent(hold)}` : ''}`,
+      { requiresAuth: false },
+    )
+      .then((d) => {
+        setData(d);
+        setHoldReady(true);
+      })
       .catch((err) =>
         setLoadError(err instanceof ApiError ? err.body.message : t('notAvailableFallback')),
       );
@@ -120,7 +132,7 @@ export function BookPageBody({
   // datos llegan precargados del servidor (`initialData`) y el fetch no corre.
   const preselected = useRef(false);
   useEffect(() => {
-    if (!data || preselected.current) return;
+    if (!data || !holdReady || preselected.current) return;
     preselected.current = true;
     const sp = new URLSearchParams(window.location.search);
     if (sp.get('waitlist') === '1') return; // la elección va a la lista de espera
@@ -130,7 +142,7 @@ export function BookPageBody({
       const utid = sp.get('unitTypeId');
       if (utid && facility.unitTypes.some((t) => t.id === utid)) setUnitTypeId(utid);
     }
-  }, [data]);
+  }, [data, holdReady]);
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
@@ -172,6 +184,7 @@ export function BookPageBody({
         unitTypeId,
         months: preOpening ? 1 : months,
         ...(couponCode ? { couponCode } : {}),
+        ...(holdToken ? { holdToken } : {}),
         ...(!preOpening && /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? { startDate } : {}),
       },
     })
@@ -184,7 +197,7 @@ export function BookPageBody({
     return () => {
       cancelled = true;
     };
-  }, [slug, facilityId, unitTypeId, months, couponCode, startDate, preOpening]);
+  }, [slug, facilityId, unitTypeId, months, couponCode, startDate, preOpening, holdToken]);
   const couponValid = !!(couponCode && quote?.coupon?.valid);
   const [showErrors, setShowErrors] = useState(false);
   const [leadCaptured, setLeadCaptured] = useState(false);
@@ -228,6 +241,7 @@ export function BookPageBody({
           ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
           months: preOpening ? 1 : months,
           ...(couponValid && couponCode ? { couponCode } : {}),
+          ...(holdToken ? { holdToken } : {}),
           website,
           // Enlaza la reserva con la conversación del chat de la web (si chateó).
           visitorId: visitorId(),

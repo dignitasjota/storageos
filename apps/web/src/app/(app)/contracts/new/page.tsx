@@ -1,7 +1,9 @@
 'use client';
 
 import {
+  buildFirstPaymentQuote,
   FIRST_PAYMENT_MONTHS,
+  rentTax,
   type CouponQuoteDto,
   type CreateContractInput,
   type CustomerDto,
@@ -18,6 +20,7 @@ import { QuickCustomerDialog } from '@/components/customers/quick-customer-dialo
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -27,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useValidateCoupon } from '@/lib/coupons/hooks';
 import { useCreateContract, useCustomer, useReservation } from '@/lib/customers/hooks';
@@ -57,16 +61,24 @@ export default function NewContractWizardPage() {
   const [firstPaymentMonths, setFirstPaymentMonths] = useState<FirstPaymentMonths>(1);
   const [coupon, setCoupon] = useState<CouponQuoteDto | null>(null);
   const [prepayDiscountPct, setPrepayDiscountPct] = useState(0);
+  const [autoRenew, setAutoRenew] = useState(true);
+  const [cancellationNoticeDays, setCancellationNoticeDays] = useState(15);
+  const [irpfRetentionPct, setIrpfRetentionPct] = useState(0);
+  const [notes, setNotes] = useState('');
 
   const create = useCreateContract();
   const unitTypes = useUnitTypes();
   const facilities = useFacilities();
+  const insurancePlans = useInsurancePlans(true);
 
   // Entrada con datos: desde el plano, un inquilino o una reserva a convertir.
   const [prefill, setPrefill] = useState<{
     customerId?: string;
     unitId?: string;
     reservationId?: string;
+    facilityId?: string;
+    unitTypeId?: string;
+    waitlistEntryId?: string;
   }>({});
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -74,6 +86,9 @@ export default function NewContractWizardPage() {
       ...(q.get('customerId') ? { customerId: q.get('customerId')! } : {}),
       ...(q.get('unitId') ? { unitId: q.get('unitId')! } : {}),
       ...(q.get('reservationId') ? { reservationId: q.get('reservationId')! } : {}),
+      ...(q.get('facilityId') ? { facilityId: q.get('facilityId')! } : {}),
+      ...(q.get('unitTypeId') ? { unitTypeId: q.get('unitTypeId')! } : {}),
+      ...(q.get('waitlistEntryId') ? { waitlistEntryId: q.get('waitlistEntryId')! } : {}),
     });
   }, []);
   const reservation = useReservation(prefill.reservationId);
@@ -132,9 +147,12 @@ export default function NewContractWizardPage() {
       depositAmount: customer.depositExempt ? 0 : depositAmount,
       depositPaymentMethod,
       ...(insurancePlanId ? { insurancePlanId } : {}),
-      autoRenew: true,
-      cancellationNoticeDays: 15,
+      autoRenew,
+      cancellationNoticeDays,
+      ...(irpfRetentionPct > 0 ? { irpfRetentionPct } : {}),
+      ...(notes.trim() ? { notes: notes.trim() } : {}),
       ...(prefill.reservationId ? { reservationId: prefill.reservationId } : {}),
+      ...(prefill.waitlistEntryId ? { waitlistEntryId: prefill.waitlistEntryId } : {}),
     };
     try {
       const created = await create.mutateAsync(input);
@@ -192,6 +210,8 @@ export default function NewContractWizardPage() {
       )}
       {step === 2 && customer && (
         <StepUnit
+          initialFacilityId={prefill.facilityId}
+          unitTypeId={prefill.unitTypeId}
           onBack={() => setStep(1)}
           onPick={(u) => {
             applyUnit(u);
@@ -234,6 +254,11 @@ export default function NewContractWizardPage() {
           insurancePlanId={insurancePlanId}
           billingIntervalMonths={billingIntervalMonths}
           prepayDiscountPct={prepayDiscountPct}
+          autoRenew={autoRenew}
+          cancellationNoticeDays={cancellationNoticeDays}
+          irpfRetentionPct={irpfRetentionPct}
+          notes={notes}
+          isBusiness={customer?.customerType === 'business'}
           onChange={(p) => {
             if (p.startDate !== undefined) setStartDate(p.startDate);
             if (p.endDate !== undefined) setEndDate(p.endDate);
@@ -249,6 +274,11 @@ export default function NewContractWizardPage() {
               setBillingIntervalMonths(p.billingIntervalMonths);
             if (p.prepayDiscountPct !== undefined) setPrepayDiscountPct(p.prepayDiscountPct);
             if (p.firstPaymentMonths !== undefined) setFirstPaymentMonths(p.firstPaymentMonths);
+            if (p.autoRenew !== undefined) setAutoRenew(p.autoRenew);
+            if (p.cancellationNoticeDays !== undefined)
+              setCancellationNoticeDays(p.cancellationNoticeDays);
+            if (p.irpfRetentionPct !== undefined) setIrpfRetentionPct(p.irpfRetentionPct);
+            if (p.notes !== undefined) setNotes(p.notes);
           }}
           onBack={() => setStep(2)}
           onNext={() => setStep(4)}
@@ -270,6 +300,12 @@ export default function NewContractWizardPage() {
             billingIntervalMonths === 1 ? firstPaymentMonths : billingIntervalMonths
           }
           coupon={coupon?.valid ? coupon : null}
+          vatRate={
+            rentTax(unitTypes.data?.find((t) => t.id === unit.unitTypeId)?.propertyKind).taxRate
+          }
+          insuranceMonthly={insurancePlans.data?.find((p) => p.id === insurancePlanId) ?? null}
+          autoRenew={autoRenew}
+          cancellationNoticeDays={cancellationNoticeDays}
           submitting={create.isPending}
           onBack={() => setStep(3)}
           onSubmit={submit}
@@ -344,11 +380,22 @@ function StepCustomer({ onPick }: { onPick: (c: CustomerDto) => void }) {
   );
 }
 
-function StepUnit({ onBack, onPick }: { onBack: () => void; onPick: (u: UnitDto) => void }) {
+function StepUnit({
+  initialFacilityId,
+  unitTypeId,
+  onBack,
+  onPick,
+}: {
+  initialFacilityId?: string | undefined;
+  unitTypeId?: string | undefined;
+  onBack: () => void;
+  onPick: (u: UnitDto) => void;
+}) {
   const facilities = useFacilities();
-  const [facilityId, setFacilityId] = useState<string | undefined>();
+  const [facilityId, setFacilityId] = useState<string | undefined>(initialFacilityId);
   const units = useUnits({
     ...(facilityId ? { facilityId } : {}),
+    ...(unitTypeId ? { unitTypeId } : {}),
     status: 'available',
   });
 
@@ -428,8 +475,17 @@ function StepEconomics(props: {
   insurancePlanId: string;
   billingIntervalMonths: 1 | 6 | 12;
   prepayDiscountPct: number;
+  autoRenew: boolean;
+  cancellationNoticeDays: number;
+  irpfRetentionPct: number;
+  notes: string;
+  isBusiness: boolean;
   onChange: (
     p: Partial<{
+      autoRenew: boolean;
+      cancellationNoticeDays: number;
+      irpfRetentionPct: number;
+      notes: string;
       startDate: string;
       endDate: string;
       priceMonthly: number;
@@ -749,6 +805,45 @@ function StepEconomics(props: {
               ))}
           </div>
         </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <Label>Preaviso de baja (días)</Label>
+            <Input
+              type="number"
+              min={0}
+              max={365}
+              value={props.cancellationNoticeDays}
+              onChange={(e) => props.onChange({ cancellationNoticeDays: Number(e.target.value) })}
+            />
+          </div>
+          {props.isBusiness && (
+            <div>
+              <Label>Retención de IRPF (%)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={50}
+                value={props.irpfRetentionPct}
+                onChange={(e) => props.onChange({ irpfRetentionPct: Number(e.target.value) })}
+              />
+            </div>
+          )}
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={props.autoRenew}
+            onCheckedChange={(v) => props.onChange({ autoRenew: v === true })}
+          />
+          Renovar solo al llegar a la fecha de fin, por el mismo plazo
+        </label>
+        <div>
+          <Label>Notas internas</Label>
+          <Textarea
+            rows={2}
+            value={props.notes}
+            onChange={(e) => props.onChange({ notes: e.target.value })}
+          />
+        </div>
         {/* Prepago: facturar de una vez varios meses con descuento. */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
@@ -841,7 +936,14 @@ function StepEconomics(props: {
           <Button variant="outline" onClick={props.onBack}>
             Atrás
           </Button>
-          <Button onClick={props.onNext} disabled={props.priceMonthly <= 0}>
+          <Button
+            onClick={props.onNext}
+            disabled={
+              props.priceMonthly <= 0 ||
+              props.discountAmount > props.priceMonthly ||
+              (!!props.endDate && props.endDate < props.startDate)
+            }
+          >
             Siguiente
           </Button>
         </div>
@@ -863,6 +965,10 @@ function StepReview(props: {
   prepayDiscountPct: number;
   firstPaymentMonths: number;
   coupon: CouponQuoteDto | null;
+  vatRate: number;
+  insuranceMonthly: { monthlyPrice: number; taxRate: number } | null;
+  autoRenew: boolean;
+  cancellationNoticeDays: number;
   submitting: boolean;
   onBack: () => void;
   onSubmit: () => void;
@@ -890,7 +996,14 @@ function StepReview(props: {
           </div>
           <div>
             <dt className="text-muted-foreground">Fin</dt>
-            <dd>{props.endDate ?? 'Sin fecha'}</dd>
+            <dd>{props.endDate ? formatDate(props.endDate) : 'Sin fecha'}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Renovación y preaviso</dt>
+            <dd>
+              {props.autoRenew ? 'Se renueva sola' : 'Sin renovación automática'} ·{' '}
+              {props.cancellationNoticeDays} días de preaviso
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Cuota mensual</dt>
@@ -943,6 +1056,7 @@ function StepReview(props: {
             </dd>
           </div>
         </dl>
+        <FirstPaymentBox {...props} />
         <div className="rounded-md border border-yellow-300/40 bg-yellow-50 p-3 text-sm dark:bg-yellow-950/30">
           El contrato se creará en estado <strong>borrador</strong>. El precio quedará{' '}
           <em>congelado</em> al firmar y solo se podrá cambiar con un evento dedicado.
@@ -980,6 +1094,76 @@ function InsuranceSelect({ value, onChange }: { value: string; onChange: (v: str
           ))}
         </SelectContent>
       </Select>
+    </div>
+  );
+}
+
+/** Lo que paga el inquilino al empezar, con IVA (como en la reserva online). */
+function FirstPaymentBox(props: {
+  startDate: string;
+  priceMonthly: number;
+  discountAmount: number;
+  depositAmount: number;
+  depositPaymentMethod: 'online' | 'cash';
+  billingIntervalMonths: 1 | 6 | 12;
+  prepayDiscountPct: number;
+  firstPaymentMonths: number;
+  coupon: CouponQuoteDto | null;
+  vatRate: number;
+  insuranceMonthly: { monthlyPrice: number; taxRate: number } | null;
+}) {
+  const months = props.firstPaymentMonths;
+  const monthly = Math.max(0, props.priceMonthly - props.discountAmount);
+  const prepay =
+    props.billingIntervalMonths > 1 ? (monthly * months * props.prepayDiscountPct) / 100 : 0;
+  const insuranceWithVat = props.insuranceMonthly
+    ? props.insuranceMonthly.monthlyPrice * (1 + props.insuranceMonthly.taxRate / 100) * months
+    : 0;
+  const quote = buildFirstPaymentQuote({
+    monthlyPrice: monthly,
+    months,
+    vatRate: props.vatRate,
+    discountAmount: props.coupon?.valid ? props.coupon.discountAmount : prepay,
+    freeMonths: props.coupon?.valid ? props.coupon.freeMonths : 0,
+    deposit: props.depositPaymentMethod === 'online' ? props.depositAmount : 0,
+    insuranceWithVat,
+    prorated: !props.coupon?.valid && props.billingIntervalMonths === 1 && months === 1,
+    coupon: null,
+  });
+  return (
+    <div className="rounded-md border bg-muted/30 p-3 text-sm">
+      <p className="font-medium">Primer pago</p>
+      <dl className="mt-1 space-y-0.5">
+        <div className="flex justify-between">
+          <dt className="text-muted-foreground">
+            Alquiler de {months} {months === 1 ? 'mes' : 'meses'} (IVA incl.)
+          </dt>
+          <dd className="tabular-nums">{formatEur(quote.rentTotalWithVat)}</dd>
+        </div>
+        {insuranceWithVat > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Seguro (IVA incl.)</dt>
+            <dd className="tabular-nums">{formatEur(insuranceWithVat)}</dd>
+          </div>
+        )}
+        {props.depositAmount > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">
+              Fianza{props.depositPaymentMethod === 'cash' ? ' (se paga en el local)' : ''}
+            </dt>
+            <dd className="tabular-nums">{formatEur(props.depositAmount)}</dd>
+          </div>
+        )}
+        <div className="flex justify-between border-t pt-1 font-medium">
+          <dt>Total al empezar</dt>
+          <dd className="tabular-nums">{formatEur(quote.totalToPay)}</dd>
+        </div>
+      </dl>
+      {quote.prorated && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Con un mes, la primera factura se ajusta a los días que quedan del mes de entrada.
+        </p>
+      )}
     </div>
   );
 }

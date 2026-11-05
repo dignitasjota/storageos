@@ -96,6 +96,7 @@ export class UnitChangesController {
       newUnitId: body.newUnitId,
       ...(body.newPrice !== undefined ? { newPrice: body.newPrice } : {}),
       ...(body.prorate !== undefined ? { prorate: body.prorate } : {}),
+      ...(body.effectiveDate ? { effectiveDate: body.effectiveDate } : {}),
       facilityScope: scope,
       meta: {
         ...(typeof ua === 'string' ? { userAgent: ua } : {}),
@@ -106,7 +107,12 @@ export class UnitChangesController {
       tenantId: user.tenantId,
       userId: user.sub,
       id,
-      input: { status: 'handled', resolutionNote: `Trasladado al trastero ${moved.unitCode}` },
+      input: {
+        status: 'handled',
+        resolutionNote: moved.scheduledMove
+          ? `Traslado al trastero ${moved.scheduledMove.unitCode ?? ''} programado para el ${moved.scheduledMove.date}`
+          : `Trasladado al trastero ${moved.unitCode}`,
+      },
       facilityScope: scope,
     });
   }

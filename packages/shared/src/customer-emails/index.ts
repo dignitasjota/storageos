@@ -10,6 +10,9 @@ export const CUSTOMER_EMAIL_KINDS = [
   'payment_failed',
   'contract_signed',
   'contract_ending_soon',
+  'contract_renewed',
+  'contract_price_change',
+  'deposit_settled',
   'move_out_confirmed',
   'sepa_prenotification',
   'staff_message',
@@ -40,6 +43,18 @@ export const CUSTOMER_EMAIL_LABELS: Record<
   contract_ending_soon: {
     label: 'Fin de contrato',
     description: 'Aviso 30 días antes de que termine un contrato sin renovación automática.',
+  },
+  contract_renewed: {
+    label: 'Contrato renovado',
+    description: 'Aviso con la nueva fecha de fin cuando un contrato se prorroga o se renueva.',
+  },
+  contract_price_change: {
+    label: 'Cambio de cuota',
+    description: 'Solo cuando marcas «Avisar al inquilino» al cambiar la cuota de un contrato.',
+  },
+  deposit_settled: {
+    label: 'Liquidación de la fianza',
+    description: 'Justificante de lo devuelto y retenido, si lo pides al liquidarla.',
   },
   move_out_confirmed: {
     label: 'Baja solicitada',

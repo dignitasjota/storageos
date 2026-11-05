@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   AcceptGeneralTermsSchema,
@@ -56,8 +66,11 @@ export class MoveInPublicController {
 
   @Get('book/:slug/availability')
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
-  availability(@Param('slug') slug: string): Promise<BookingAvailabilityDto> {
-    return this.booking.availability(slug);
+  availability(
+    @Param('slug') slug: string,
+    @Query('hold') hold?: string,
+  ): Promise<BookingAvailabilityDto> {
+    return this.booking.availability(slug, hold);
   }
 
   @Post('book/:slug')

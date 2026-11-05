@@ -683,6 +683,8 @@ reason }`.
 
 `POST /contracts` admite `reservationId` (convierte esa reserva: mismo trastero e inquilino; 400 `reservation_not_convertible`/`reservation_mismatch`) y responde 400 `invalid_end_date`/`discount_too_high`. `PATCH /contracts/:id`: 400 `contract_closed`, `ending_requires_date`, `promotion_price_locked`. Firmar o trasladar sobre un trastero retenido por otro inquilino: 409 `unit_reserved_for_other`. `POST /contracts/:id/settle-deposit`: 400 `deposit_not_collected`. `ContractDto.depositCollected` dice si la fianza se cobró de verdad.
 
+Mejoras (2026-11-05): `GET /contracts/page?view=unsigned|first_payment|ending|expiring` (cada fila con `pendingAmount`), `GET /contracts/:id/account`, `GET /contracts/:id/move-out`, `POST /contracts/bulk/request-signature {contractIds}`. `POST /contracts/:id/change-price` admite `effectiveDate` y `notifyCustomer` (fecha futura = programado; `DELETE /contracts/:id/scheduled-price` lo anula). `POST /contracts/:id/change-unit` admite `effectiveDate` (reserva el destino; `DELETE /contracts/:id/scheduled-move`; 409 `move_already_scheduled`); también `POST /unit-change-requests/:id/move`. `POST /contracts/:id/renew` admite `newPrice`. `POST /contracts/:id/settle-deposit` admite `applyToInvoices`, `returnMethod`, `returnedOn`, `returnReference` y `notifyCustomer`. `POST /contracts` admite `waitlistEntryId`. Reserva pública: `holdToken` en `POST /public/move-in/book/:slug` y `…/quote`, y `?hold=` en `…/availability`.
+
 ### Endpoints — Reservations
 
 | Metodo | Ruta                                    | Auth | Roles                 | Descripcion                                        |

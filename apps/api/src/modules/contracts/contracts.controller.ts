@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -49,7 +50,12 @@ import { GeneralTermsService } from '../landing/general-terms.service';
 import { ContractsService } from './contracts.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { GeneralTermsToAcceptDto, PageDto } from '@storageos/shared';
+import type {
+  ContractAccountDto,
+  ContractMoveOutDto,
+  GeneralTermsToAcceptDto,
+  PageDto,
+} from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateContractDto extends createZodDto(CreateContractSchema) {}
@@ -92,6 +98,7 @@ export class ContractsController {
     @Query('customerId') customerId?: string,
     @Query('facilityId') facilityId?: string,
     @Query('unitId') unitId?: string,
+    @Query('view') view?: string,
     @Query('search') search?: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
@@ -100,6 +107,12 @@ export class ContractsController {
     const page = parsePageRequest(cursor, limit);
     const rows = await this.contracts.list(user.tenantId, {
       ...(search ? { search } : {}),
+      ...(view === 'unsigned' ||
+      view === 'first_payment' ||
+      view === 'ending' ||
+      view === 'expiring'
+        ? { view }
+        : {}),
       page,
       ...(parsedStatus ? { status: parsedStatus } : {}),
       ...(customerId ? { customerId } : {}),
@@ -152,6 +165,24 @@ export class ContractsController {
   }
 
   /** URL firmada de corta duración para descargar el PDF firmado (bucket privado). */
+  @RequirePermission('contracts:read')
+  @Get(':id/account')
+  account(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ContractAccountDto> {
+    return this.contracts.account(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  @RequirePermission('contracts:read')
+  @Get(':id/move-out')
+  moveOut(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ContractMoveOutDto> {
+    return this.contracts.moveOutSummary(user.tenantId, id, user.facilityScope ?? null);
+  }
+
   @RequirePermission('contracts:read')
   @Get(':id/signed-pdf')
   async signedPdf(
@@ -408,6 +439,7 @@ export class ContractsController {
       userId: user.sub,
       contractId: id,
       months: body.months,
+      ...(body.newPrice != null ? { newPrice: body.newPrice } : {}),
       facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
@@ -428,6 +460,7 @@ export class ContractsController {
       contractId: id,
       newUnitId: body.newUnitId,
       ...(body.newPrice != null ? { newPrice: body.newPrice } : {}),
+      ...(body.effectiveDate ? { effectiveDate: body.effectiveDate } : {}),
       ...(body.prorate ? { prorate: true } : {}),
       facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
@@ -449,6 +482,38 @@ export class ContractsController {
       contractId: id,
       facilityScope: user.facilityScope ?? null,
       input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('contracts:manage')
+  @Delete(':id/scheduled-price')
+  cancelScheduledPrice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<ContractDto> {
+    return this.contracts.cancelScheduledPrice({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      contractId: id,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('contracts:manage')
+  @Delete(':id/scheduled-move')
+  cancelScheduledMove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<ContractDto> {
+    return this.contracts.cancelScheduledMove({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      contractId: id,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }

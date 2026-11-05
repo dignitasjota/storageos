@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 
 import { ChecklistCard } from './checklist-card';
 import { ConditionsCard } from './conditions-card';
+import { ContractBillingTab } from './contract-billing-tab';
 import { DepositCard, contractDepositLabel } from './deposit-card';
 import { DepositRegistryCard } from './deposit-registry-card';
 import { EditDraftDialog } from './edit-draft-dialog';
@@ -62,6 +63,7 @@ import {
   useCancelContract,
   useChangeContractPrice,
   useChangeUnit,
+  useCancelScheduled,
   useContract,
   useContractEvents,
   useContractSignedPdfUrl,
@@ -102,6 +104,9 @@ export default function ContractDetailPage() {
   const [priceOpen, setPriceOpen] = useState(false);
   const [priceValue, setPriceValue] = useState(0);
   const [priceReason, setPriceReason] = useState('');
+  const [priceDate, setPriceDate] = useState('');
+  const [priceNotify, setPriceNotify] = useState(false);
+  const cancelScheduled = useCancelScheduled();
   const [endOpen, setEndOpen] = useState(false);
   const [endDate, setEndDate] = useState('');
   const [renewOpen, setRenewOpen] = useState(false);
@@ -110,6 +115,7 @@ export default function ContractDetailPage() {
   const [newUnitId, setNewUnitId] = useState('');
   const [newPrice, setNewPrice] = useState('');
   const [prorate, setProrate] = useState(false);
+  const [moveDate, setMoveDate] = useState('');
   const availableUnits = useUnits({ status: 'available' });
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -166,7 +172,7 @@ export default function ContractDetailPage() {
         <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h1 className="font-mono text-2xl font-semibold tracking-tight">
+              <h1 className="whitespace-nowrap font-mono text-2xl font-semibold tracking-tight">
                 {c.contractNumber}
               </h1>
               <ContractStatusBadge status={c.status} />
@@ -237,6 +243,13 @@ export default function ContractDetailPage() {
             {(c.status === 'active' || c.status === 'ending') &&
               canManageC &&
               !pendingPreOpening && (
+                <Button asChild>
+                  <Link href={`/contracts/${c.id}/move-out`}>Gestionar la salida</Link>
+                </Button>
+              )}
+            {(c.status === 'active' || c.status === 'ending') &&
+              canManageC &&
+              !pendingPreOpening && (
                 <Button
                   variant="outline"
                   onClick={async () => {
@@ -262,6 +275,8 @@ export default function ContractDetailPage() {
                   onClick={() => {
                     setPriceValue(c.priceMonthly);
                     setPriceReason('');
+                    setPriceDate('');
+                    setPriceNotify(false);
                     setPriceOpen(true);
                   }}
                 >
@@ -283,6 +298,7 @@ export default function ContractDetailPage() {
                   setNewUnitId('');
                   setNewPrice('');
                   setProrate(false);
+                  setMoveDate('');
                   setMoveOpen(true);
                 }}
               >
@@ -332,6 +348,30 @@ export default function ContractDetailPage() {
       </div>
 
       <OverlockBanner contractId={c.id} />
+      {c.scheduledPrice && (
+        <ScheduledNotice
+          text={`La cuota pasa a ${formatEur(c.scheduledPrice.amount)} el ${formatDate(c.scheduledPrice.date)}.`}
+          canCancel={canManageC}
+          onCancel={() =>
+            handle(
+              () => cancelScheduled.mutateAsync({ id: c.id, what: 'price' }),
+              'Cambio de cuota anulado.',
+            )
+          }
+        />
+      )}
+      {c.scheduledMove && (
+        <ScheduledNotice
+          text={`Traslado al trastero ${c.scheduledMove.unitCode ?? ''} el ${formatDate(c.scheduledMove.date)}${c.scheduledMove.price != null ? `, con cuota de ${formatEur(c.scheduledMove.price)}` : ''}. El trastero queda reservado hasta entonces.`}
+          canCancel={canManageC}
+          onCancel={() =>
+            handle(
+              () => cancelScheduled.mutateAsync({ id: c.id, what: 'move' }),
+              'Traslado anulado.',
+            )
+          }
+        />
+      )}
       <PreOpeningContractCard contract={c} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:grid-cols-4">
@@ -416,6 +456,7 @@ export default function ContractDetailPage() {
         <TabsList className="flex-wrap">
           <TabsTrigger value="signing">Firma</TabsTrigger>
           <TabsTrigger value="billing">Cobro y condiciones</TabsTrigger>
+          <TabsTrigger value="invoices">Facturas</TabsTrigger>
           <TabsTrigger value="photos">Fotos de entrada y salida</TabsTrigger>
           <TabsTrigger value="history">Historial</TabsTrigger>
         </TabsList>
@@ -434,6 +475,9 @@ export default function ContractDetailPage() {
           <DepositCard contract={c} />
           <DepositRegistryCard contract={c} />
           <IrpfRetentionCard contract={c} />
+        </TabsContent>
+        <TabsContent value="invoices">
+          <ContractBillingTab contractId={c.id} />
         </TabsContent>
         <TabsContent value="photos" className="space-y-4">
           <InspectionPhotosCard contractId={c.id} kind="checkin" />
@@ -530,6 +574,22 @@ export default function ContractDetailPage() {
                 placeholder="Revisión anual, descuento fidelidad..."
               />
             </div>
+            <div>
+              <Label>Desde (opcional)</Label>
+              <Input
+                type="date"
+                min={localDateString()}
+                value={priceDate}
+                onChange={(e) => setPriceDate(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Vacío: se aplica ahora. Con una fecha futura queda programado y lo puedes anular.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox checked={priceNotify} onCheckedChange={(v) => setPriceNotify(v === true)} />
+              Avisar al inquilino por correo
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPriceOpen(false)}>
@@ -540,7 +600,12 @@ export default function ContractDetailPage() {
                 handle(async () => {
                   await changePrice.mutateAsync({
                     id: c.id,
-                    body: { priceMonthly: priceValue, reason: priceReason },
+                    body: {
+                      priceMonthly: priceValue,
+                      reason: priceReason,
+                      ...(priceDate ? { effectiveDate: priceDate } : {}),
+                      ...(priceNotify ? { notifyCustomer: true } : {}),
+                    },
                   });
                   setPriceOpen(false);
                 }, 'Precio actualizado.')
@@ -696,9 +761,19 @@ export default function ContractDetailPage() {
                 diferencia por los días que restan del mes).
               </span>
             </label>
+            <div>
+              <Label>Fecha del traslado (opcional)</Label>
+              <Input
+                type="date"
+                min={localDateString()}
+                value={moveDate}
+                onChange={(e) => setMoveDate(e.target.value)}
+              />
+            </div>
             <p className="text-xs text-muted-foreground">
-              Libera el trastero actual y ocupa el nuevo. La próxima factura sale con el trastero (y
-              precio) nuevos.
+              Vacío: libera el trastero actual y ocupa el nuevo ahora. Con una fecha futura, el
+              trastero nuevo queda reservado y el cambio se hace ese día. La próxima factura sale
+              con el trastero (y precio) nuevos.
             </p>
           </div>
           <DialogFooter>
@@ -714,6 +789,7 @@ export default function ContractDetailPage() {
                       newUnitId,
                       ...(newPrice.trim() ? { newPrice: Number(newPrice) } : {}),
                       ...(prorate ? { prorate: true } : {}),
+                      ...(moveDate ? { effectiveDate: moveDate } : {}),
                     },
                   });
                   setMoveOpen(false);
@@ -846,6 +922,27 @@ export default function ContractDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function ScheduledNotice({
+  text,
+  canCancel,
+  onCancel,
+}: {
+  text: string;
+  canCancel: boolean;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+      <span>{text}</span>
+      {canCancel && (
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Anular
+        </Button>
+      )}
     </div>
   );
 }

@@ -37,6 +37,8 @@ export interface SyncCredentialSpec {
   state: SyncState;
   /** Caducidad de la credencial (pase nocturno, accesos temporales) o null. */
   validUntil: Date | null;
+  /** Desde cuándo abre (contrato que aún no ha empezado). */
+  validFrom?: Date | null;
   /** Límite de usos (pase single-use) o null = ilimitado. */
   maxUses: number | null;
 }

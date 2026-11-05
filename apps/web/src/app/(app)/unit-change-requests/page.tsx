@@ -185,6 +185,7 @@ function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClo
     request.targetUnitPrice != null ? String(request.targetUnitPrice) : '',
   );
   const [prorate, setProrate] = useState(false);
+  const [date, setDate] = useState(request.desiredDate?.slice(0, 10) ?? '');
 
   async function submit() {
     try {
@@ -193,6 +194,7 @@ function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClo
         newUnitId,
         ...(newPrice.trim() ? { newPrice: Number(newPrice) } : {}),
         ...(prorate ? { prorate: true } : {}),
+        ...(date ? { effectiveDate: date } : {}),
       });
       toast.success('Contrato trasladado y solicitud gestionada.');
       onClose();
@@ -241,6 +243,13 @@ function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClo
               onChange={(e) => setNewPrice(e.target.value)}
               placeholder="Vacío: se mantiene la actual"
             />
+          </div>
+          <div className="space-y-1">
+            <Label>Fecha del traslado (opcional)</Label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <p className="text-xs text-muted-foreground">
+              Con una fecha futura, el trastero queda reservado y el cambio se hace ese día.
+            </p>
           </div>
           <label className="flex items-start gap-2 text-xs text-muted-foreground">
             <input

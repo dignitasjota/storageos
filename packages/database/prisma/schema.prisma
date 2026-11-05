@@ -1294,6 +1294,8 @@ model Unit {
   unitRequests     UnitRequest[]
   unitChangeTargets UnitChangeRequest[] @relation("UnitChangeTarget")
   reservations     Reservation[]
+  scheduledContracts Contract[]   @relation("ContractScheduledUnit")
+  waitlistHolds    WaitlistEntry[] @relation("WaitlistHeldUnit")
   tasks            Task[]              @relation("TaskUnit")
   incidents        Incident[]          @relation("IncidentUnit")
   accessDevices    AccessDevice[]      @relation("DeviceUnit")
@@ -1547,6 +1549,20 @@ model Contract {
   autoRenew              Boolean               @default(true) @map("auto_renew")
   /// Meses de cada prórroga automática (se fija en la primera).
   termMonths             Int?                  @map("term_months")
+  /// Cambio de cuota programado (se aplica en su fecha).
+  scheduledPrice         Decimal?              @map("scheduled_price") @db.Decimal(10, 2)
+  scheduledPriceDate     DateTime?             @map("scheduled_price_date") @db.Date
+  scheduledPriceReason   String?               @map("scheduled_price_reason")
+  /// Traslado programado: el trastero de destino queda reservado hasta su fecha.
+  scheduledUnitId        String?               @map("scheduled_unit_id") @db.Uuid
+  scheduledUnitDate      DateTime?             @map("scheduled_unit_date") @db.Date
+  scheduledUnitPrice     Decimal?              @map("scheduled_unit_price") @db.Decimal(10, 2)
+  scheduledUnitProrate   Boolean               @default(false) @map("scheduled_unit_prorate")
+  /// Parte de la fianza retenida que se aplicó a facturas pendientes.
+  depositAppliedAmount   Decimal               @default(0) @map("deposit_applied_amount") @db.Decimal(10, 2)
+  depositReturnMethod    String?               @map("deposit_return_method")
+  depositReturnedOn      DateTime?             @map("deposit_returned_on") @db.Date
+  depositReturnReference String?               @map("deposit_return_reference")
   cancellationNoticeDays Int                   @default(15) @map("cancellation_notice_days")
   /// Seguro/protección opcional: plan asignado + prima mensual congelada al asignar.
   insurancePlanId        String?               @map("insurance_plan_id") @db.Uuid
@@ -1581,6 +1597,9 @@ model Contract {
   whatsappConversations WhatsappConversation[]
   couponRedemptions CouponRedemption[]
   legalDocAcceptances LegalDocAcceptance[]
+  scheduledUnit Unit? @relation("ContractScheduledUnit", fields: [scheduledUnitId], references: [id], onDelete: SetNull)
+  waitlistConversions WaitlistEntry[] @relation("WaitlistConvertedContract")
+
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
   @@index([tenantId, status])
@@ -2840,6 +2859,10 @@ model WaitlistEntry {
   status       String    @default("waiting")
   notifiedAt   DateTime? @map("notified_at") @db.Timestamptz(6)
   notes        String?
+  /// Trastero guardado para quien recibió el aviso (48 h).
+  heldUnitId   String?   @map("held_unit_id") @db.Uuid
+  holdTokenHash String?  @unique @map("hold_token_hash")
+  convertedContractId String? @map("converted_contract_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2847,6 +2870,8 @@ model WaitlistEntry {
   facility Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   unitType UnitType  @relation(fields: [unitTypeId], references: [id], onDelete: Cascade)
   customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  heldUnit Unit?     @relation("WaitlistHeldUnit", fields: [heldUnitId], references: [id], onDelete: SetNull)
+  convertedContract Contract? @relation("WaitlistConvertedContract", fields: [convertedContractId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, facilityId, unitTypeId, status, createdAt])
   @@index([tenantId, status])

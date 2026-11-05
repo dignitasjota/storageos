@@ -203,7 +203,9 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
       // pero en la práctica hacen falta los DOS siempre. Sin caducidad se usa
       // el mismo rango "sin restricción" que trae de fábrica la cuenta admin
       // (`1970-01-01` .. `2037-12-31`, visto en un `recordFinder` real).
-      ValidDateStart: '19700101 000000',
+      ValidDateStart: cred.validFrom
+        ? DahuaSyncProvider.formatDahuaDate(cred.validFrom, device.timezone)
+        : '19700101 000000',
       ValidDateEnd: cred.validUntil
         ? DahuaSyncProvider.formatDahuaDate(cred.validUntil, device.timezone)
         : '20371231 235959',

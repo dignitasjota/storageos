@@ -36,6 +36,7 @@ import { toActiveUnitOffer } from '../promotions/promotions.service';
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
+  BulkSignatureResultDto,
   ContractSignViewDto,
   ContractSignatureDto,
   ContractSigningRecordDto,
@@ -125,6 +126,33 @@ export class SignaturesService {
    * también el token (la reserva online lo usa para seguir en la misma
    * pantalla). Con `bestEffortEmail`, un fallo al encolar el correo no rompe.
    */
+  /** Cada borrador va por separado: uno que falla no impide los demás. */
+  async bulkRequestSignature(
+    tenantId: string,
+    contractIds: string[],
+    facilityScope: string[] | null,
+  ): Promise<BulkSignatureResultDto> {
+    const failed: BulkSignatureResultDto['failed'] = [];
+    let sent = 0;
+    for (const contractId of contractIds) {
+      try {
+        const res = await this.requestSignature(tenantId, contractId, { facilityScope });
+        if (res.emailed) {
+          sent += 1;
+        } else {
+          failed.push({ contractId, contractNumber: null, reason: 'El inquilino no tiene email' });
+        }
+      } catch (err) {
+        failed.push({
+          contractId,
+          contractNumber: null,
+          reason: err instanceof Error ? err.message : 'No se pudo enviar',
+        });
+      }
+    }
+    return { sent, failed };
+  }
+
   async sendSigningLink(
     tenantId: string,
     contractId: string,

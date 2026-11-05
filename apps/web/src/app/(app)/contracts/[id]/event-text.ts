@@ -105,6 +105,16 @@ function noteText(p: Record<string, unknown>): { title: string; detail: string |
           .filter(Boolean)
           .join(' · '),
       };
+    case 'price_scheduled':
+      return {
+        title: 'Cambio de cuota programado',
+        detail: `${formatEur(num(p.to))} desde el ${day(p.date)}${str(p.reason) ? ` · ${str(p.reason)}` : ''}`,
+      };
+    case 'move_scheduled':
+      return {
+        title: 'Traslado programado',
+        detail: `Al trastero ${str(p.toUnitCode)} el ${day(p.date)}`,
+      };
     case 'conditions_updated':
       return {
         title: 'Condiciones cambiadas',

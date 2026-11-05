@@ -18,7 +18,7 @@ import {
 import { depositWasCollected } from '../../common/deposit-collected';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
-import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
+import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { endDateAfterCancellingMoveOut } from '../../common/move-out';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
@@ -39,6 +39,9 @@ import { PricingService } from './pricing.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
+  ContractDepositSettledPayload,
+  ContractPriceNoticePayload,
+  ContractRenewedPayload,
   DomainEventPayload,
   MoveOutCancelledPayload,
   ContractUnitChangedPayload,
@@ -51,7 +54,9 @@ import type {
   AddContractNoteInput,
   CancelContractInput,
   ChangeContractPriceInput,
+  ContractAccountDto,
   ContractDto,
+  ContractMoveOutDto,
   ContractChecklistDto,
   ContractChecklistStepDto,
   ContractEventDto,
@@ -63,6 +68,17 @@ import type {
   SignedDownloadDto,
   UpdateContractInput,
 } from '@storageos/shared';
+
+/** Un contrato cerrado deja sin efecto lo que tuviera programado. */
+const NO_SCHEDULED_CHANGES = {
+  scheduledPrice: null,
+  scheduledPriceDate: null,
+  scheduledPriceReason: null,
+  scheduledUnitId: null,
+  scheduledUnitDate: null,
+  scheduledUnitPrice: null,
+  scheduledUnitProrate: false,
+} as const;
 
 /** Meses del plazo de un contrato (mínimo 1), para prorrogarlo por lo mismo. */
 export function termMonths(start: Date, end: Date): number {
@@ -127,6 +143,8 @@ const COUPON_SELECT = {
 } satisfies Prisma.Contract$couponRedemptionsArgs;
 
 interface ListFilters {
+  /** Atajos de la lista de contratos. */
+  view?: 'unsigned' | 'first_payment' | 'ending' | 'expiring' | undefined;
   status?: ContractStatusValue;
   customerId?: string;
   facilityId?: string;
@@ -164,6 +182,18 @@ export class ContractsService {
     if (filters.status) where.status = filters.status as ContractStatus;
     if (filters.customerId) where.customerId = filters.customerId;
     if (filters.unitId) where.unitId = filters.unitId;
+    if (filters.view === 'unsigned') {
+      where.status = 'draft';
+    } else if (filters.view === 'first_payment') {
+      where.status = { in: ['draft', 'active'] };
+      where.firstPaymentDeadline = { not: null };
+    } else if (filters.view === 'ending') {
+      where.status = 'ending';
+    } else if (filters.view === 'expiring') {
+      const today = todayInTimezone();
+      where.status = 'active';
+      where.endDate = { gte: today, lte: new Date(today.getTime() + 30 * 86_400_000) };
+    }
     const facFilter = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
     if (facFilter === null) return []; // local pedido fuera del scope del usuario
     if (facFilter) where.unit = { facilityId: { in: facFilter } };
@@ -214,7 +244,30 @@ export class ContractsService {
         }),
       tenantId,
     );
-    return rows.map((r) => this.toDto(r));
+    const dtos = rows.map((r) => this.toDto(r));
+    if (!filters.page || dtos.length === 0) return dtos;
+    // La lista enseña la deuda de cada contrato.
+    const debts = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.groupBy({
+          by: ['contractId'],
+          where: {
+            contractId: { in: dtos.map((d) => d.id) },
+            status: { in: ['issued', 'overdue'] },
+            deletedAt: null,
+          },
+          _sum: { total: true, amountPaid: true },
+        }),
+      tenantId,
+    );
+    const pending = new Map(
+      debts.map((d) => [
+        d.contractId,
+        subtractAmounts(Number(d._sum.total ?? 0), Number(d._sum.amountPaid ?? 0)),
+      ]),
+    );
+    for (const d of dtos) d.pendingAmount = pending.get(d.id) ?? 0;
+    return dtos;
   }
 
   /** Contratos activos/en baja que vencen en los próximos `days` (renovación). */
@@ -268,7 +321,183 @@ export class ContractsService {
         tenantId,
       );
     }
+    if (dto.scheduledMove) {
+      const target = await this.prisma.withTenant(
+        (tx) =>
+          tx.unit.findUnique({
+            where: { id: dto.scheduledMove!.unitId },
+            select: { code: true },
+          }),
+        tenantId,
+      );
+      dto.scheduledMove.unitCode = target?.code ?? null;
+    }
     return dto;
+  }
+
+  /** Cobros del contrato para su ficha: deuda y próxima factura. */
+  async account(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<ContractAccountDto> {
+    const c = await this.findOrThrow(tenantId, id, facilityScope);
+    const [open, paid, last] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.invoice.findMany({
+            where: { contractId: id, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+            select: { status: true, total: true, amountPaid: true },
+          }),
+          tx.payment.aggregate({
+            where: {
+              invoice: { contractId: id },
+              status: { in: ['succeeded', 'partially_refunded'] },
+              methodType: { notIn: ['credit_note', 'withholding'] },
+            },
+            _sum: { amount: true, refundedAmount: true },
+          }),
+          tx.invoice.findFirst({
+            where: {
+              contractId: id,
+              kind: 'invoice',
+              deletedAt: null,
+              periodEnd: { not: null },
+              status: { notIn: ['draft', 'cancelled'] },
+            },
+            orderBy: { periodEnd: 'desc' },
+            select: { periodEnd: true },
+          }),
+        ]),
+      tenantId,
+    );
+    const pendingOf = (i: { total: unknown; amountPaid: unknown }) =>
+      subtractAmounts(Number(i.total), Number(i.amountPaid));
+    const sum = (rows: typeof open) => rows.reduce((acc, i) => addAmounts(acc, pendingOf(i)), 0);
+    // La siguiente factura empieza donde acaba lo facturado, salvo que el contrato acabe antes.
+    let nextInvoice: ContractAccountDto['nextInvoice'] = null;
+    if ((c.status === 'active' || c.status === 'ending') && !isPendingPreOpening(c)) {
+      const today = await this.todayAtUnit(tenantId, c.unitId);
+      const after = last?.periodEnd ? new Date(last.periodEnd.getTime() + 86_400_000) : null;
+      const firstOfNext = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
+      const date =
+        c.billingIntervalMonths > 1
+          ? (after ?? c.billingStartsOn ?? c.startDate)
+          : after && after > firstOfNext
+            ? after
+            : firstOfNext;
+      if (!c.endDate || date <= c.endDate) {
+        const monthly = subtractAmounts(Number(c.priceMonthly), Number(c.discountAmount));
+        const rent = monthly * c.billingIntervalMonths * (1 - Number(c.prepayDiscountPct) / 100);
+        const insurance = Number(c.insurancePrice ?? 0) * c.billingIntervalMonths;
+        nextInvoice = {
+          date: date.toISOString().slice(0, 10),
+          amount: Math.round((rent + insurance) * 100) / 100,
+        };
+      }
+    }
+    return {
+      pendingAmount: sum(open),
+      overdueAmount: sum(open.filter((i) => i.status === 'overdue')),
+      paidAmount: subtractAmounts(
+        Number(paid._sum.amount ?? 0),
+        Number(paid._sum.refundedAmount ?? 0),
+      ),
+      nextInvoice,
+    };
+  }
+
+  /** Todo lo que hay que resolver para que el inquilino se vaya. */
+  async moveOutSummary(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<ContractMoveOutDto> {
+    const c = await this.findOrThrow(tenantId, id, facilityScope);
+    const [photos, invoices, credentials, others] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.contractInspectionPhoto.count({ where: { contractId: id, kind: 'checkout' } }),
+          tx.invoice.findMany({
+            where: { contractId: id, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+            orderBy: { issueDate: 'asc' },
+            select: {
+              id: true,
+              invoiceNumber: true,
+              dueDate: true,
+              total: true,
+              amountPaid: true,
+            },
+          }),
+          tx.accessCredential.count({
+            where: { customerId: c.customerId, status: { in: ['active', 'suspended'] } },
+          }),
+          tx.contract.count({
+            where: {
+              customerId: c.customerId,
+              id: { not: id },
+              status: { in: ['active', 'ending'] },
+              deletedAt: null,
+            },
+          }),
+        ]),
+      tenantId,
+    );
+    const pendingInvoices = invoices.map((i) => ({
+      id: i.id,
+      number: i.invoiceNumber,
+      pending: subtractAmounts(Number(i.total), Number(i.amountPaid)),
+      dueDate: i.dueDate?.toISOString().slice(0, 10) ?? null,
+    }));
+    const today = await this.todayAtUnit(tenantId, c.unitId);
+    return {
+      checkoutPhotos: photos,
+      pendingInvoices,
+      pendingTotal: pendingInvoices.reduce((acc, i) => addAmounts(acc, i.pending), 0),
+      prepaidCredit: await this.prepaidCreditPreview(
+        tenantId,
+        id,
+        c.billingIntervalMonths,
+        c.endDate ?? today,
+      ),
+      hasLiveAccess: credentials > 0,
+      otherLiveContracts: others,
+    };
+  }
+
+  /** Factura prepagada que cubre la fecha de baja, con lo que se abonaría. */
+  private async prepaidCreditPreview(
+    tenantId: string,
+    contractId: string,
+    interval: number,
+    endDate: Date,
+  ): Promise<ContractMoveOutDto['prepaidCredit']> {
+    if (interval <= 1) return null;
+    const invoice = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findFirst({
+          where: {
+            contractId,
+            invoiceType: 'F1',
+            status: { in: ['paid', 'partially_refunded'] },
+            periodStart: { lte: endDate },
+            periodEnd: { gte: endDate },
+          },
+          include: { items: true },
+          orderBy: { periodStart: 'desc' },
+        }),
+      tenantId,
+    );
+    if (!invoice?.periodStart) return null;
+    const months = unusedPrepaidMonths(invoice.periodStart, interval, endDate);
+    if (months === 0) return null;
+    const amount = invoice.items
+      .filter((i) => i.periodStart && i.periodEnd)
+      .reduce((acc, i) => {
+        const base = creditForLine(Number(i.unitPrice) * Number(i.quantity), interval, months);
+        return acc + base * (1 + Number(i.taxRate) / 100);
+      }, 0);
+    return { months, amount: Math.round(amount * 100) / 100 };
   }
 
   /** Hoy en la zona del local del trastero. */
@@ -721,6 +950,13 @@ export class ContractsService {
           customerId: input.customerId,
           contractId: row.id,
           invoiceId: null,
+        });
+      }
+      if (input.waitlistEntryId) {
+        // El trastero guardado sigue reservado hasta firmar: lo retiene este contrato.
+        await tx.waitlistEntry.updateMany({
+          where: { id: input.waitlistEntryId, status: { in: ['waiting', 'notified'] } },
+          data: { status: 'converted', convertedContractId: row.id, holdTokenHash: null },
         });
       }
       if (reservation) {
@@ -1859,7 +2095,12 @@ export class ContractsService {
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
-        data: { status: 'ended', endedAt: new Date(), endDate: effectiveEnd },
+        data: {
+          status: 'ended',
+          endedAt: new Date(),
+          endDate: effectiveEnd,
+          ...NO_SCHEDULED_CHANGES,
+        },
         include: {
           customer: {
             select: {
@@ -1904,6 +2145,12 @@ export class ContractsService {
           `Contrato ${row.contractNumber} finalizado`,
         );
       }
+      await this.releaseScheduledUnit(
+        tx,
+        args,
+        existing,
+        `Contrato ${row.contractNumber} finalizado`,
+      );
       // Cancelar el dunning pendiente de las facturas de este contrato: un
       // contrato finalizado no debe seguir recibiendo recordatorios de impago
       // programados (la deuda real se gestiona por Cartera/overlock).
@@ -1921,7 +2168,177 @@ export class ContractsService {
     });
     await this.creditPrepaidMonths(args, existing.billingIntervalMonths, effectiveEnd);
     await this.emitContractEnded(args.tenantId, updated);
+    this.emitScheduledUnitFreed(args.tenantId, existing);
     return this.toDto(updated);
+  }
+
+  /** Devuelve a la venta el trastero de un traslado programado que no se hará. */
+  private async releaseScheduledUnit(
+    tx: Prisma.TransactionClient,
+    ctx: { tenantId: string; userId: string | null; meta: RequestMeta },
+    contract: { scheduledUnitId: string | null },
+    reason: string,
+  ): Promise<void> {
+    if (!contract.scheduledUnitId) return;
+    const unit = await tx.unit.findUnique({ where: { id: contract.scheduledUnitId } });
+    if (unit?.status === 'reserved') {
+      await this.syncUnitStatus(tx, ctx, unit.id, 'reserved', 'available', reason);
+    }
+  }
+
+  private emitScheduledUnitFreed(
+    tenantId: string,
+    contract: { scheduledUnitId: string | null },
+  ): void {
+    if (!contract.scheduledUnitId) return;
+    this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
+      tenantId,
+      unitId: contract.scheduledUnitId,
+    } satisfies UnitAvailablePayload);
+  }
+
+  /**
+   * Cambios de cuota y traslados que llegan a su fecha. Los programó una persona:
+   * aquí solo se aplican. Cada uno va por separado. Lo lanza el cron diario.
+   */
+  async applyScheduledChanges(now = new Date()): Promise<{ prices: number; moves: number }> {
+    const today = todayInTimezone('Europe/Madrid', now);
+    const live = { status: { in: ['active', 'ending'] as ContractStatus[] }, deletedAt: null };
+    const [prices, moves] = await Promise.all([
+      this.admin.contract.findMany({
+        where: { ...live, scheduledPriceDate: { lte: today } },
+        select: {
+          id: true,
+          tenantId: true,
+          scheduledPrice: true,
+          scheduledPriceReason: true,
+        },
+        take: 500,
+      }),
+      this.admin.contract.findMany({
+        where: { ...live, scheduledUnitDate: { lte: today } },
+        select: {
+          id: true,
+          tenantId: true,
+          scheduledUnitId: true,
+          scheduledUnitPrice: true,
+          scheduledUnitProrate: true,
+        },
+        take: 500,
+      }),
+    ]);
+    let appliedPrices = 0;
+    for (const c of prices) {
+      try {
+        await this.changePrice({
+          tenantId: c.tenantId,
+          userId: null,
+          contractId: c.id,
+          input: {
+            priceMonthly: Number(c.scheduledPrice),
+            reason: c.scheduledPriceReason ?? 'Cambio de cuota programado',
+          },
+          meta: {},
+        });
+        appliedPrices += 1;
+      } catch (err) {
+        this.logger.warn(`[scheduled-price] contrato ${c.id}: ${String(err)}`);
+      }
+    }
+    let appliedMoves = 0;
+    for (const c of moves) {
+      if (!c.scheduledUnitId) continue;
+      try {
+        await this.changeUnit({
+          tenantId: c.tenantId,
+          userId: null,
+          contractId: c.id,
+          newUnitId: c.scheduledUnitId,
+          ...(c.scheduledUnitPrice != null ? { newPrice: Number(c.scheduledUnitPrice) } : {}),
+          prorate: c.scheduledUnitProrate,
+          meta: {},
+        });
+        appliedMoves += 1;
+      } catch (err) {
+        // Sin aplicar, alguien tiene que mirarlo: el trastero sigue reservado.
+        this.logger.warn(`[scheduled-move] contrato ${c.id}: ${String(err)}`);
+        await this.admin.notification
+          .create({
+            data: {
+              tenantId: c.tenantId,
+              type: 'contract.scheduled_move_failed',
+              title: 'Un traslado programado no se ha podido hacer',
+              body: 'Revísalo en la ficha del contrato: puedes anularlo o hacerlo a mano.',
+              link: `/contracts/${c.id}`,
+            },
+          })
+          .catch(() => undefined);
+      }
+    }
+    return { prices: appliedPrices, moves: appliedMoves };
+  }
+
+  /** Anula el cambio de cuota programado. */
+  async cancelScheduledPrice(args: {
+    tenantId: string;
+    userId: string;
+    contractId: string;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<ContractDto> {
+    await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.update({
+          where: { id: args.contractId },
+          data: { scheduledPrice: null, scheduledPriceDate: null, scheduledPriceReason: null },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'contract.scheduled_price_cancelled',
+      entityType: 'Contract',
+      entityId: args.contractId,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.detail(args.tenantId, args.contractId, args.facilityScope);
+  }
+
+  /** Anula el traslado programado y devuelve a la venta el trastero de destino. */
+  async cancelScheduledMove(args: {
+    tenantId: string;
+    userId: string;
+    contractId: string;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<ContractDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    await this.prisma.withTenant(async (tx) => {
+      await this.releaseScheduledUnit(tx, args, existing, 'Traslado programado anulado');
+      await tx.contract.update({
+        where: { id: args.contractId },
+        data: {
+          scheduledUnitId: null,
+          scheduledUnitDate: null,
+          scheduledUnitPrice: null,
+          scheduledUnitProrate: false,
+        },
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'contract.scheduled_move_cancelled',
+      entityType: 'Contract',
+      entityId: args.contractId,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    this.emitScheduledUnitFreed(args.tenantId, existing);
+    return this.detail(args.tenantId, args.contractId, args.facilityScope);
   }
 
   /**
@@ -2013,6 +2430,11 @@ export class ContractsService {
               },
             });
           }, c.tenantId);
+          this.eventBus.emit(DOMAIN_EVENTS.contract_renewed, {
+            tenantId: c.tenantId,
+            contractId: c.id,
+            newEndDate: newEnd,
+          } satisfies ContractRenewedPayload);
           renewed += 1;
         } else {
           await this.prisma.withTenant(async (tx) => {
@@ -2447,6 +2869,11 @@ export class ContractsService {
           depositRetentionReason: isGreaterThan(retained, 0)
             ? (args.input.retentionReason?.trim() ?? null)
             : null,
+          depositReturnMethod: args.input.returnMethod ?? null,
+          depositReturnedOn: args.input.returnedOn
+            ? new Date(`${args.input.returnedOn}T00:00:00Z`)
+            : null,
+          depositReturnReference: args.input.returnReference?.trim() || null,
         },
       });
       if (claim.count === 0) {
@@ -2508,7 +2935,86 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return this.toDto(updated);
+    const applied = args.input.applyToInvoices
+      ? await this.applyRetainedDeposit(args, retained)
+      : 0;
+    if (args.input.notifyCustomer) {
+      this.eventBus.emit(DOMAIN_EVENTS.contract_deposit_settled, {
+        tenantId: args.tenantId,
+        contractId: args.contractId,
+        deposit,
+        returned,
+        retained,
+        applied,
+        reason: args.input.retentionReason?.trim() || null,
+      } satisfies ContractDepositSettledPayload);
+    }
+    return applied > 0
+      ? this.detail(args.tenantId, args.contractId, args.facilityScope)
+      : this.toDto(updated);
+  }
+
+  /**
+   * Lo retenido salda las facturas pendientes del contrato, de la más antigua a
+   * la más reciente. Devuelve lo aplicado: el resto sigue retenido.
+   */
+  private async applyRetainedDeposit(
+    args: {
+      tenantId: string;
+      userId: string | null;
+      contractId: string;
+      meta: RequestMeta;
+    },
+    retained: number,
+  ): Promise<number> {
+    const invoices = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findMany({
+          where: {
+            contractId: args.contractId,
+            kind: 'invoice',
+            status: { in: ['issued', 'overdue'] },
+            deletedAt: null,
+          },
+          orderBy: { issueDate: 'asc' },
+          select: { id: true, total: true, amountPaid: true },
+        }),
+      args.tenantId,
+    );
+    let funds = toCents(retained);
+    let appliedCents = 0;
+    for (const inv of invoices) {
+      if (funds <= 0) break;
+      const pay = Math.min(toCents(Number(inv.total) - Number(inv.amountPaid)), funds);
+      if (pay <= 0) continue;
+      await this.invoices.markPaidManually({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        invoiceId: inv.id,
+        input: {
+          amount: pay / 100,
+          methodType: 'other',
+          notes: 'Aplicado de la fianza retenida',
+          allowPartialNonCash: true,
+          overridePaymentInFlight: true,
+          allowInSepaRemittance: true,
+        },
+        meta: args.meta,
+      });
+      funds -= pay;
+      appliedCents += pay;
+    }
+    if (appliedCents > 0) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.contract.update({
+            where: { id: args.contractId },
+            data: { depositAppliedAmount: appliedCents / 100 },
+          }),
+        args.tenantId,
+      );
+    }
+    return appliedCents / 100;
   }
 
   async cancel(args: {
@@ -2529,7 +3035,7 @@ export class ContractsService {
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
-        data: { status: 'cancelled', cancelledAt: new Date() },
+        data: { status: 'cancelled', cancelledAt: new Date(), ...NO_SCHEDULED_CHANGES },
         include: {
           customer: {
             select: {
@@ -2574,7 +3080,8 @@ export class ContractsService {
         wasLive ||
         !!existing.firstPaymentDeadline ||
         existing.preOpening ||
-        (await tx.reservation.count({ where: { convertedContractId: existing.id } })) > 0;
+        (await tx.reservation.count({ where: { convertedContractId: existing.id } })) > 0 ||
+        (await tx.waitlistEntry.count({ where: { convertedContractId: existing.id } })) > 0;
       const releasable =
         (unit.status === 'reserved' &&
           held &&
@@ -2591,6 +3098,12 @@ export class ContractsService {
           `Contrato ${row.contractNumber} cancelado`,
         );
       }
+      await this.releaseScheduledUnit(
+        tx,
+        args,
+        existing,
+        `Contrato ${row.contractNumber} cancelado`,
+      );
       // Cancelar el dunning pendiente de las facturas de este contrato (ver end()).
       await this.cancelScheduledDunning(tx, args.tenantId, args.contractId, 'Contrato cancelado');
       // Un cupón de un contrato que no llegó a pagarse vuelve a quedar libre.
@@ -2620,12 +3133,13 @@ export class ContractsService {
         unitId: existing.unitId,
       } satisfies UnitAvailablePayload);
     }
+    this.emitScheduledUnitFreed(args.tenantId, existing);
     return this.toDto(updated);
   }
 
   async changePrice(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     contractId: string;
     facilityScope?: string[] | null;
     input: ChangeContractPriceInput;
@@ -2650,11 +3164,70 @@ export class ContractsService {
         message: 'La cuota no puede ser menor que el descuento del contrato',
       });
     }
+    const today = await this.todayAtUnit(args.tenantId, existing.unitId);
+    const effective = args.input.effectiveDate
+      ? new Date(`${args.input.effectiveDate}T00:00:00Z`)
+      : today;
+    const notice = (): void => {
+      if (!args.input.notifyCustomer) return;
+      const monthly = subtractAmounts(args.input.priceMonthly, Number(existing.discountAmount));
+      const { taxRate } = rentTax(existing.unit.unitType?.propertyKind);
+      this.eventBus.emit(DOMAIN_EVENTS.contract_price_notice, {
+        tenantId: args.tenantId,
+        contractId: args.contractId,
+        monthlyWithVat: Math.round(monthly * (100 + taxRate)) / 100,
+        effectiveDate: effective,
+      } satisfies ContractPriceNoticePayload);
+    };
+    // Con fecha futura solo queda anotado: lo aplica el proceso diario.
+    if (effective > today) {
+      await this.prisma.withTenant(async (tx) => {
+        await tx.contract.update({
+          where: { id: args.contractId },
+          data: {
+            scheduledPrice: args.input.priceMonthly,
+            scheduledPriceDate: effective,
+            scheduledPriceReason: args.input.reason,
+          },
+        });
+        await tx.contractEvent.create({
+          data: {
+            tenantId: args.tenantId,
+            contractId: args.contractId,
+            eventType: 'note_added',
+            payload: {
+              event: 'price_scheduled',
+              to: args.input.priceMonthly,
+              date: args.input.effectiveDate ?? null,
+              reason: args.input.reason,
+            },
+            createdByUserId: args.userId,
+          },
+        });
+      }, args.tenantId);
+      await this.audit.write({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        action: 'contract.price_scheduled',
+        entityType: 'Contract',
+        entityId: args.contractId,
+        changes: { to: args.input.priceMonthly, date: args.input.effectiveDate ?? null },
+        ipAddress: args.meta.ipAddress ?? null,
+        userAgent: args.meta.userAgent ?? null,
+      });
+      notice();
+      return this.detail(args.tenantId, args.contractId, args.facilityScope);
+    }
     const previousPrice = Number(existing.priceMonthly);
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
-        data: { priceMonthly: args.input.priceMonthly },
+        data: {
+          priceMonthly: args.input.priceMonthly,
+          scheduledPrice: null,
+          scheduledPriceDate: null,
+          scheduledPriceReason: null,
+        },
         include: {
           customer: {
             select: {
@@ -2707,6 +3280,7 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    notice();
     return this.toDto(updated);
   }
 
@@ -2757,6 +3331,8 @@ export class ContractsService {
     userId: string;
     contractId: string;
     months: number;
+    /** Cuota del nuevo periodo. */
+    newPrice?: number;
     facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ContractDto> {
@@ -2812,6 +3388,28 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    this.eventBus.emit(DOMAIN_EVENTS.contract_renewed, {
+      tenantId: args.tenantId,
+      contractId: args.contractId,
+      newEndDate,
+    } satisfies ContractRenewedPayload);
+    // La cuota nueva vale desde el día siguiente al fin que tenía.
+    if (args.newPrice != null && args.newPrice !== Number(existing.priceMonthly)) {
+      const from = new Date(base.getTime() + 86_400_000).toISOString().slice(0, 10);
+      return this.changePrice({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        contractId: args.contractId,
+        facilityScope: args.facilityScope ?? null,
+        input: {
+          priceMonthly: args.newPrice,
+          reason: 'Renovación del contrato',
+          effectiveDate: from,
+          notifyCustomer: true,
+        },
+        meta: args.meta,
+      });
+    }
     return this.toDto(updated);
   }
 
@@ -2824,11 +3422,13 @@ export class ContractsService {
    */
   async changeUnit(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     contractId: string;
     newUnitId: string;
     newPrice?: number;
     prorate?: boolean;
+    /** Fecha futura: queda programado y el trastero de destino, reservado. */
+    effectiveDate?: string;
     facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ContractDto> {
@@ -2856,6 +3456,18 @@ export class ContractsService {
         message: 'En una reserva antes de la apertura el precio no cambia',
       });
     }
+    // El que llega a su fecha encuentra su destino reservado por él mismo.
+    const fromSchedule = existing.scheduledUnitId === args.newUnitId;
+    const moveDate = args.effectiveDate ? new Date(`${args.effectiveDate}T00:00:00Z`) : null;
+    if (moveDate && moveDate > (await this.todayAtUnit(args.tenantId, existing.unitId))) {
+      if (pendingPreOpening) {
+        throw new BadRequestException({
+          code: 'pre_opening_same_price',
+          message: 'Antes de la apertura el cambio de trastero es inmediato',
+        });
+      }
+      return this.scheduleMove(args, existing, moveDate);
+    }
     const updated = await this.prisma
       .withTenant(async (tx) => {
         // Anti-doble-ocupación: serializa por el trastero de DESTINO (dos traslados
@@ -2870,14 +3482,18 @@ export class ContractsService {
         }
         // El scope aplica también al trastero de DESTINO.
         assertFacilityAllowed(args.facilityScope, newUnit.facilityId);
-        if (newUnit.status !== 'available') {
+        if (newUnit.status !== 'available' && !(fromSchedule && newUnit.status === 'reserved')) {
           throw new BadRequestException({
             code: 'unit_not_available',
             message: 'El trastero de destino no está disponible',
           });
         }
         if (
-          await unitHeldByOther(tx, { unitId: args.newUnitId, customerId: existing.customerId })
+          await unitHeldByOther(tx, {
+            unitId: args.newUnitId,
+            contractId: existing.id,
+            customerId: existing.customerId,
+          })
         ) {
           throw new ConflictException({
             code: 'unit_reserved_for_other',
@@ -2937,6 +3553,10 @@ export class ContractsService {
             unitId: args.newUnitId,
             ...ownerChange,
             ...(args.newPrice != null ? { priceMonthly: args.newPrice } : {}),
+            scheduledUnitId: null,
+            scheduledUnitDate: null,
+            scheduledUnitPrice: null,
+            scheduledUnitProrate: false,
           },
           include: this.contractInclude(),
         });
@@ -3061,6 +3681,97 @@ export class ContractsService {
     }
 
     return this.toDto(updated);
+  }
+
+  /** Deja el traslado para su fecha, con el trastero de destino reservado. */
+  private async scheduleMove(
+    args: {
+      tenantId: string;
+      userId: string | null;
+      contractId: string;
+      newUnitId: string;
+      newPrice?: number;
+      prorate?: boolean;
+      effectiveDate?: string;
+      facilityScope?: string[] | null;
+      meta: RequestMeta;
+    },
+    existing: { id: string; customerId: string; scheduledUnitId: string | null },
+    date: Date,
+  ): Promise<ContractDto> {
+    if (existing.scheduledUnitId) {
+      throw new ConflictException({
+        code: 'move_already_scheduled',
+        message: 'Este contrato ya tiene un traslado programado: anúlalo antes',
+      });
+    }
+    await this.prisma.withTenant(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${args.newUnitId}::text))`;
+      const unit = await tx.unit.findFirst({ where: { id: args.newUnitId } });
+      if (!unit) {
+        throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
+      }
+      assertFacilityAllowed(args.facilityScope, unit.facilityId);
+      if (unit.status !== 'available') {
+        throw new BadRequestException({
+          code: 'unit_not_available',
+          message: 'El trastero de destino no está disponible',
+        });
+      }
+      if (
+        await unitHeldByOther(tx, {
+          unitId: unit.id,
+          contractId: existing.id,
+          customerId: existing.customerId,
+        })
+      ) {
+        throw new ConflictException({
+          code: 'unit_reserved_for_other',
+          message: 'El trastero de destino está reservado para otro inquilino',
+        });
+      }
+      await this.syncUnitStatus(
+        tx,
+        args,
+        unit.id,
+        'available',
+        'reserved',
+        'Reservado para un traslado programado',
+      );
+      await tx.contract.update({
+        where: { id: args.contractId },
+        data: {
+          scheduledUnitId: unit.id,
+          scheduledUnitDate: date,
+          scheduledUnitPrice: args.newPrice ?? null,
+          scheduledUnitProrate: args.prorate ?? false,
+        },
+      });
+      await tx.contractEvent.create({
+        data: {
+          tenantId: args.tenantId,
+          contractId: args.contractId,
+          eventType: 'note_added',
+          payload: {
+            event: 'move_scheduled',
+            toUnitCode: unit.code,
+            date: args.effectiveDate ?? null,
+          },
+          createdByUserId: args.userId,
+        },
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'contract.move_scheduled',
+      entityType: 'Contract',
+      entityId: args.contractId,
+      changes: { toUnitId: args.newUnitId, date: args.effectiveDate ?? null },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.detail(args.tenantId, args.contractId, args.facilityScope);
   }
 
   /** Asigna o quita (planId null) el seguro de un contrato; congela la prima. */
@@ -3438,6 +4149,27 @@ export class ContractsService {
       },
       depositPaymentMethod: row.depositPaymentMethod === 'cash' ? 'cash' : 'online',
       depositCollected: row.invoices?.[0]?.status === 'paid',
+      depositAppliedAmount: Number(row.depositAppliedAmount),
+      depositReturnMethod: row.depositReturnMethod,
+      depositReturnedOn: row.depositReturnedOn?.toISOString().slice(0, 10) ?? null,
+      depositReturnReference: row.depositReturnReference,
+      scheduledPrice:
+        row.scheduledPrice != null && row.scheduledPriceDate
+          ? {
+              amount: Number(row.scheduledPrice),
+              date: row.scheduledPriceDate.toISOString().slice(0, 10),
+              reason: row.scheduledPriceReason,
+            }
+          : null,
+      scheduledMove:
+        row.scheduledUnitId && row.scheduledUnitDate
+          ? {
+              unitId: row.scheduledUnitId,
+              unitCode: null,
+              date: row.scheduledUnitDate.toISOString().slice(0, 10),
+              price: row.scheduledUnitPrice != null ? Number(row.scheduledUnitPrice) : null,
+            }
+          : null,
       depositReceipt: row.invoices?.[0]
         ? {
             id: row.invoices[0].id,

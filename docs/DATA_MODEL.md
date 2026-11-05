@@ -1104,3 +1104,5 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 ### Contratos (`20261221100000_contract_term_months`)
 
 `contracts.term_months`: meses de cada prórroga automática. Se fija en la primera prórroga (o al renovar a mano) para no recalcularlo desde la fecha de inicio. `deposit_status = held` solo indica que el contrato lleva fianza: lo cobrado se deduce del justificante (`common/deposit-collected.ts`).
+
+`20261222100000_contract_features`: `contracts.scheduled_price/_date/_reason` (cambio de cuota programado), `scheduled_unit_id/_date/_price/_prorate` (traslado programado, con el destino en `reserved`), `deposit_applied_amount`, `deposit_return_method`, `deposit_returned_on`, `deposit_return_reference`. `waitlist_entries.held_unit_id` y `hold_token_hash` (trastero guardado 48 h y huella del enlace del aviso) y `converted_contract_id`.

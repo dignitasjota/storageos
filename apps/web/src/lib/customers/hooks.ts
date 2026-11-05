@@ -3,6 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  BulkSignatureResultDto,
+  ContractAccountDto,
+  ContractMoveOutDto,
   GeneralTermsToAcceptDto,
   LegalDocVersionDto,
   PreOpeningCancelPreviewDto,
@@ -356,6 +359,48 @@ export const useChangeContractPrice = makeContractAction<ChangeContractPriceInpu
 export const useRenewContract = makeContractAction<RenewContractInput>('renew');
 export const useChangeUnit = makeContractAction<ChangeUnitInput>('change-unit');
 export const useSettleDeposit = makeContractAction<SettleDepositInput>('settle-deposit');
+
+export function useContractAccount(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? [...contractKey(id), 'account'] : ['contract-account', 'none'],
+    queryFn: () => apiFetch<ContractAccountDto>(`/contracts/${id}/account`),
+    enabled: !!id,
+  });
+}
+
+export function useContractMoveOut(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? [...contractKey(id), 'move-out'] : ['contract-move-out', 'none'],
+    queryFn: () => apiFetch<ContractMoveOutDto>(`/contracts/${id}/move-out`),
+    enabled: !!id,
+  });
+}
+
+/** Anula un cambio de cuota o un traslado programado. */
+export function useCancelScheduled() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; what: 'price' | 'move' }) =>
+      apiFetch<ContractDto>(`/contracts/${args.id}/scheduled-${args.what}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+    },
+  });
+}
+
+export function useBulkRequestSignature() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (contractIds: string[]) =>
+      apiFetch<BulkSignatureResultDto>('/contracts/bulk/request-signature', {
+        method: 'POST',
+        json: { contractIds },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+    },
+  });
+}
 export const useCollectDeposit = makeContractAction<CollectDepositInput>('deposit/collect');
 
 /** Fianza online o en efectivo (solo antes de firmar). */

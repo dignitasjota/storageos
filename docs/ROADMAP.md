@@ -549,6 +549,10 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 Apuntar lo que no se puede pasar (dominio, hosting, alquiler del local, seguros, revisiones, licencias, impuestos…) y recibir avisos antes: días a elegir, correo, campana y móvil, a propietarios y gestores, a personas concretas o a correos de fuera (asesoría). Repeticiones, marcar hecho con importe, gasto y justificante, posponer, historial, plantillas (calendario fiscal de la AEAT, revisándolo con la asesoría, y las típicas del negocio), plazos que el sistema ya conoce (certificado de la AEAT, documentos de los locales, suscripción), «Hoy», calendario, resumen semanal y enlace ICS para Google o Apple Calendar. Solo en los planes de pago. **Fuera**: avisos por Telegram o Slack para los tenants (solo existen para el super admin).
 
+### Revisión de Contratos (#907 y PR B, 2026-11-05)
+
+Arreglos: prórroga por el plazo original, reservas que se convierten por el alta normal, trasteros retenidos por otro inquilino, fianza sin cobrar, condiciones editables tras firmar, historial legible. Mejoras: pestaña Facturas, asistente con primer pago y condiciones, lista con deuda, filtros, CSV y firma en lote, fianza aplicada a facturas con justificante, acceso desde la fecha de inicio, cuota y traslado programados, pantalla de salida, nueva reserva, contrato desde la lista de espera con trastero guardado 48 h, y renovar desde la lista con cuota propuesta.
+
 ## Criterio de "MVP listo para vender"
 
 Fases 0 a 4 completas + un subset esencial de la 5 (al menos email transaccional y recordatorios de pago) + Fase 8 mínima para poder cobrar suscripciones.

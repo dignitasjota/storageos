@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -168,6 +169,11 @@ export default function WaitlistPage() {
                     <TableCell>{e.unitTypeName}</TableCell>
                     <TableCell>
                       <Badge variant={STATUS[e.status].variant}>{STATUS[e.status].label}</Badge>
+                      {e.heldUnitCode && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          Guardado: {e.heldUnitCode}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {formatDate(e.createdAt)}
@@ -175,6 +181,19 @@ export default function WaitlistPage() {
                     <TableCell className="space-x-2 text-right">
                       {(e.status === 'waiting' || e.status === 'notified') && (
                         <Can permission="reservations:write">
+                          <Button asChild size="sm">
+                            <Link
+                              href={`/contracts/new?${new URLSearchParams({
+                                waitlistEntryId: e.id,
+                                facilityId: e.facilityId,
+                                unitTypeId: e.unitTypeId,
+                                ...(e.customerId ? { customerId: e.customerId } : {}),
+                                ...(e.heldUnitId ? { unitId: e.heldUnitId } : {}),
+                              }).toString()}`}
+                            >
+                              Crear contrato
+                            </Link>
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"

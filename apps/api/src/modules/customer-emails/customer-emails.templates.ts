@@ -61,6 +61,31 @@ export type CustomerEmailData =
       endDate: Date;
     }
   | {
+      kind: 'contract_renewed';
+      contractNumber: string;
+      unitCode: string;
+      facilityName: string;
+      endDate: Date;
+    }
+  | {
+      kind: 'contract_price_change';
+      contractNumber: string;
+      unitCode: string;
+      facilityName: string;
+      monthlyWithVat: number;
+      effectiveDate: Date;
+    }
+  | {
+      kind: 'deposit_settled';
+      contractNumber: string;
+      unitCode: string;
+      deposit: number;
+      returned: number;
+      retained: number;
+      applied: number;
+      reason: string | null;
+    }
+  | {
       kind: 'sepa_prenotification';
       invoiceNumber: string;
       amount: number;
@@ -275,6 +300,65 @@ function content(data: CustomerEmailData, l: Locale): Content {
               `Te recordamos que tu contrato del trastero ${data.unitCode} en ${data.facilityName} termina el ${day(data.endDate, l)}.`,
               'Si quieres seguir, contacta con nosotros para renovarlo. Si no, recuerda dejar el trastero vacío antes de esa fecha.',
             ],
+        cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+      };
+    case 'contract_renewed':
+      return {
+        subject: en
+          ? `Your contract ${data.contractNumber} has been renewed`
+          : `Tu contrato ${data.contractNumber} se ha renovado`,
+        paragraphs: en
+          ? [
+              `Your contract for storage unit ${data.unitCode} at ${data.facilityName} has been renewed until ${day(data.endDate, l)}.`,
+              'Nothing else changes: you can keep using your unit as usual.',
+            ]
+          : [
+              `Tu contrato del trastero ${data.unitCode} en ${data.facilityName} se ha renovado hasta el ${day(data.endDate, l)}.`,
+              'No tienes que hacer nada: sigues usando tu trastero como hasta ahora.',
+            ],
+        cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+      };
+    case 'contract_price_change':
+      return {
+        subject: en
+          ? `New monthly fee for contract ${data.contractNumber}`
+          : `Nueva cuota de tu contrato ${data.contractNumber}`,
+        paragraphs: en
+          ? [
+              `From ${day(data.effectiveDate, l)}, the monthly fee for storage unit ${data.unitCode} at ${data.facilityName} will be ${eur(data.monthlyWithVat, l)} (VAT included).`,
+              'If you have any questions, get in touch with us.',
+            ]
+          : [
+              `Desde el ${day(data.effectiveDate, l)}, la cuota mensual del trastero ${data.unitCode} en ${data.facilityName} será de ${eur(data.monthlyWithVat, l)} (IVA incluido).`,
+              'Si tienes cualquier duda, contacta con nosotros.',
+            ],
+        cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+      };
+    case 'deposit_settled':
+      return {
+        subject: en
+          ? `Deposit settlement — contract ${data.contractNumber}`
+          : `Liquidación de la fianza — contrato ${data.contractNumber}`,
+        paragraphs: [
+          en
+            ? `This is the settlement of the ${eur(data.deposit, l)} deposit for storage unit ${data.unitCode}.`
+            : `Esta es la liquidación de la fianza de ${eur(data.deposit, l)} del trastero ${data.unitCode}.`,
+          en ? `Returned: ${eur(data.returned, l)}.` : `Devuelto: ${eur(data.returned, l)}.`,
+          ...(data.retained > 0
+            ? [
+                en
+                  ? `Retained: ${eur(data.retained, l)}${data.reason ? ` (${data.reason})` : ''}.`
+                  : `Retenido: ${eur(data.retained, l)}${data.reason ? ` (${data.reason})` : ''}.`,
+              ]
+            : []),
+          ...(data.applied > 0
+            ? [
+                en
+                  ? `${eur(data.applied, l)} of it has been applied to your pending invoices.`
+                  : `De ello, ${eur(data.applied, l)} se han aplicado a tus facturas pendientes.`,
+              ]
+            : []),
+        ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };
     case 'sepa_prenotification':

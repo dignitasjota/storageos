@@ -8,6 +8,7 @@ import type { ContractDto } from '@storageos/shared';
 import { Can } from '@/components/auth/can';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,15 @@ import {
   useSetDepositPaymentMethod,
   useSettleDeposit,
 } from '@/lib/customers/hooks';
+import { localDateString } from '@/lib/dates';
 import { formatDate, formatEur } from '@/lib/format';
+
+const RETURN_METHOD_LABEL: Record<string, string> = {
+  bank_transfer: 'transferencia',
+  cash: 'efectivo',
+  card: 'tarjeta',
+  other: 'otro medio',
+};
 
 const DEPOSIT_STATUS_LABEL: Record<string, string> = {
   none: 'Sin fianza',
@@ -171,6 +180,16 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
             {contract.depositRetentionReason && (
               <div>Motivo: {contract.depositRetentionReason}</div>
             )}
+            {contract.depositAppliedAmount > 0 && (
+              <div>Aplicado a facturas: {formatEur(contract.depositAppliedAmount)}</div>
+            )}
+            {contract.depositReturnMethod && (
+              <div>
+                Devuelta por {RETURN_METHOD_LABEL[contract.depositReturnMethod] ?? 'otro medio'}
+                {contract.depositReturnedOn && ` el ${formatDate(contract.depositReturnedOn)}`}
+                {contract.depositReturnReference && ` · ${contract.depositReturnReference}`}
+              </div>
+            )}
             {contract.depositSettledAt && (
               <div>Liquidada el {formatDate(contract.depositSettledAt)}</div>
             )}
@@ -192,7 +211,7 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
   );
 }
 
-function SettleDepositDialog({
+export function SettleDepositDialog({
   contract,
   open,
   onClose,
@@ -204,6 +223,13 @@ function SettleDepositDialog({
   const settle = useSettleDeposit();
   const [returnedAmount, setReturnedAmount] = useState(contract.depositAmount);
   const [reason, setReason] = useState('');
+  const [applyToInvoices, setApplyToInvoices] = useState(false);
+  const [returnMethod, setReturnMethod] = useState<'bank_transfer' | 'cash' | 'card' | 'other'>(
+    'bank_transfer',
+  );
+  const [returnedOn, setReturnedOn] = useState(localDateString());
+  const [returnReference, setReturnReference] = useState('');
+  const [notifyCustomer, setNotifyCustomer] = useState(true);
 
   // Deuda pendiente del contrato (para decidir cuánto retener).
   const invoices = useInvoices({ contractId: contract.id });
@@ -217,7 +243,19 @@ function SettleDepositDialog({
     try {
       await settle.mutateAsync({
         id: contract.id,
-        body: { returnedAmount, ...(reason.trim() ? { retentionReason: reason.trim() } : {}) },
+        body: {
+          returnedAmount,
+          ...(reason.trim() ? { retentionReason: reason.trim() } : {}),
+          ...(applyToInvoices ? { applyToInvoices } : {}),
+          ...(returnedAmount > 0
+            ? {
+                returnMethod,
+                returnedOn,
+                ...(returnReference.trim() ? { returnReference: returnReference.trim() } : {}),
+              }
+            : {}),
+          ...(notifyCustomer ? { notifyCustomer } : {}),
+        },
       });
       toast.success('Fianza liquidada.');
       onClose();
@@ -241,6 +279,17 @@ function SettleDepositDialog({
             <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
               Este contrato tiene <strong>{formatEur(pending)}</strong> de facturas pendientes.
               Puedes retener ese importe de la fianza.
+              <button
+                type="button"
+                className="ml-1 underline"
+                onClick={() => {
+                  setReturnedAmount(Math.max(0, contract.depositAmount - pending));
+                  setReason('Facturas pendientes');
+                  setApplyToInvoices(true);
+                }}
+              >
+                Retener lo pendiente
+              </button>
             </div>
           )}
           <div>
@@ -266,6 +315,59 @@ function SettleDepositDialog({
               />
             </div>
           )}
+          {retained > 0 && pending > 0 && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={applyToInvoices}
+                onCheckedChange={(v) => setApplyToInvoices(v === true)}
+              />
+              <span>
+                Aplicar lo retenido a las facturas pendientes, de la más antigua a la última
+              </span>
+            </label>
+          )}
+          {returnedAmount > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Cómo se devuelve</Label>
+                <select
+                  className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  value={returnMethod}
+                  onChange={(e) =>
+                    setReturnMethod(e.target.value as 'bank_transfer' | 'cash' | 'card' | 'other')
+                  }
+                >
+                  <option value="bank_transfer">Transferencia</option>
+                  <option value="cash">Efectivo</option>
+                  <option value="card">Tarjeta</option>
+                  <option value="other">Otro</option>
+                </select>
+              </div>
+              <div>
+                <Label>Fecha</Label>
+                <Input
+                  type="date"
+                  value={returnedOn}
+                  onChange={(e) => setReturnedOn(e.target.value)}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Label>Referencia (opcional)</Label>
+                <Input
+                  value={returnReference}
+                  onChange={(e) => setReturnReference(e.target.value)}
+                  placeholder="Nº de transferencia…"
+                />
+              </div>
+            </div>
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={notifyCustomer}
+              onCheckedChange={(v) => setNotifyCustomer(v === true)}
+            />
+            Enviar el justificante al inquilino por correo
+          </label>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>

@@ -233,6 +233,8 @@ export const CreateContractSchema = z.object({
   notes: optionalText(2000),
   /** Reserva que se convierte en este contrato (mismo trastero e inquilino). */
   reservationId: z.string().uuid().optional(),
+  /** Entrada de la lista de espera que se convierte en este contrato. */
+  waitlistEntryId: z.string().uuid().optional(),
 });
 export type CreateContractInput = z.infer<typeof CreateContractSchema>;
 
@@ -281,6 +283,10 @@ export type SignContractInput = z.infer<typeof SignContractSchema>;
 export const ChangeContractPriceSchema = z.object({
   priceMonthly: positiveDecimal,
   reason: z.string().trim().min(1).max(500),
+  /** Desde cuándo vale. Una fecha futura lo deja programado; sin ella, ahora. */
+  effectiveDate: dateOnly.optional(),
+  /** Avisar al inquilino por correo. */
+  notifyCustomer: z.boolean().optional(),
 });
 export type ChangeContractPriceInput = z.infer<typeof ChangeContractPriceSchema>;
 
@@ -339,12 +345,22 @@ export type SetIrpfRetentionInput = z.infer<typeof SetIrpfRetentionSchema>;
 export const SettleDepositSchema = z.object({
   returnedAmount: z.number().min(0),
   retentionReason: z.string().trim().max(500).optional(),
+  /** Aplica lo retenido a las facturas pendientes del contrato, de la más antigua a la última. */
+  applyToInvoices: z.boolean().optional(),
+  /** Cómo y cuándo se devolvió (constancia). */
+  returnMethod: z.enum(['bank_transfer', 'cash', 'card', 'other']).optional(),
+  returnedOn: dateOnly.optional(),
+  returnReference: z.string().trim().max(120).optional(),
+  /** Envía al inquilino el justificante por correo. */
+  notifyCustomer: z.boolean().optional(),
 });
 export type SettleDepositInput = z.infer<typeof SettleDepositSchema>;
 
 /** Renovación de contrato: extiende el fin N meses. */
 export const RenewContractSchema = z.object({
   months: z.number().int().min(1).max(60),
+  /** Cuota del nuevo periodo: se programa para el día siguiente al fin actual. */
+  newPrice: positiveDecimal.optional(),
 });
 export type RenewContractInput = z.infer<typeof RenewContractSchema>;
 
@@ -358,6 +374,8 @@ export const ChangeUnitSchema = z.object({
    * es menor o igual, no se genera factura (el ahorro se refleja el mes siguiente).
    */
   prorate: z.boolean().optional(),
+  /** Una fecha futura deja el traslado programado y reserva el trastero de destino. */
+  effectiveDate: dateOnly.optional(),
 });
 export type ChangeUnitInput = z.infer<typeof ChangeUnitSchema>;
 
@@ -366,6 +384,12 @@ export const RequestContractEndSchema = z.object({
   endDate: dateOnly.optional(),
 });
 export type RequestContractEndInput = z.infer<typeof RequestContractEndSchema>;
+
+/** Enviar el enlace de firma a varios borradores. */
+export const BulkContractsSchema = z.object({
+  contractIds: z.array(z.string().uuid()).min(1).max(100),
+});
+export type BulkContractsInput = z.infer<typeof BulkContractsSchema>;
 
 export const CancelContractSchema = z.object({
   reason: optionalText(500),

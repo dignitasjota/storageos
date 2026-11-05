@@ -22,7 +22,7 @@ export async function unitHeldByOther(
 ): Promise<boolean> {
   const now = new Date();
   const notSameCustomer = args.customerId ? { customerId: { not: args.customerId } } : {};
-  const [reservations, contracts] = await Promise.all([
+  const [reservations, contracts, moves, waitlist] = await Promise.all([
     tx.reservation.count({
       where: {
         unitId: args.unitId,
@@ -43,6 +43,25 @@ export async function unitHeldByOther(
         ],
       },
     }),
+    // Traslado programado hacia este trastero.
+    tx.contract.count({
+      where: {
+        scheduledUnitId: args.unitId,
+        status: { in: ['active', 'ending'] },
+        deletedAt: null,
+        ...(args.contractId ? { id: { not: args.contractId } } : {}),
+      },
+    }),
+    // Guardado para quien recibió el aviso de la lista de espera.
+    tx.waitlistEntry.count({
+      where: {
+        heldUnitId: args.unitId,
+        status: 'notified',
+        ...(args.customerId
+          ? { OR: [{ customerId: null }, { customerId: { not: args.customerId } }] }
+          : {}),
+      },
+    }),
   ]);
-  return reservations + contracts > 0;
+  return reservations + contracts + moves + waitlist > 0;
 }

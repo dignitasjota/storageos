@@ -70,6 +70,9 @@ export interface WaitlistEntryDto {
   status: WaitlistStatus;
   notifiedAt: string | null;
   notes: string | null;
+  /** Trastero guardado para esta persona mientras dura el aviso. */
+  heldUnitId: string | null;
+  heldUnitCode: string | null;
   createdAt: string;
 }
 

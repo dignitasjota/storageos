@@ -13,6 +13,7 @@ import { todayInTimezone } from '../../common/format';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { bookingReady, tenantReadiness } from '../../common/tenant-readiness';
 import { noLiveReservationWhere } from '../../common/unit-holds';
+import { hashHoldToken } from '../../common/waitlist-hold';
 import { DOMAIN_EVENTS, type BookingCreatedPayload } from '../automations/domain-events';
 import { ContractsService } from '../contracts/contracts.service';
 import { CouponsService } from '../coupons/coupons.service';
@@ -122,7 +123,7 @@ export class BookingService {
   }
 
   /** Disponibilidad pública por local y tipo (move-in). */
-  async availability(slug: string): Promise<BookingAvailabilityDto> {
+  async availability(slug: string, holdToken?: string): Promise<BookingAvailabilityDto> {
     const tenant = await this.admin.tenant.findUnique({ where: { slug } });
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
@@ -156,6 +157,15 @@ export class BookingService {
           Number(g._min.basePriceMonthly),
         );
       }
+    }
+
+    // El enlace de la lista de espera cuenta el trastero guardado para esa persona.
+    const hold = holdToken ? await this.findHold(tenant.id, holdToken) : null;
+    if (hold?.heldUnit) {
+      const key = `${hold.facilityId}:${hold.unitTypeId}`;
+      availByFacilityType.set(key, (availByFacilityType.get(key) ?? 0) + 1);
+      const price = Number(hold.heldUnit.basePriceMonthly);
+      minPriceByFacilityType.set(key, Math.min(minPriceByFacilityType.get(key) ?? price, price));
     }
 
     return {
@@ -193,6 +203,25 @@ export class BookingService {
     };
   }
 
+  /** Aviso de la lista de espera en vigor al que pertenece el enlace. */
+  private findHold(tenantId: string, token: string) {
+    return this.admin.waitlistEntry.findFirst({
+      where: {
+        tenantId,
+        status: 'notified',
+        holdTokenHash: hashHoldToken(token),
+        heldUnitId: { not: null },
+      },
+      select: {
+        id: true,
+        facilityId: true,
+        unitTypeId: true,
+        heldUnitId: true,
+        heldUnit: { select: { basePriceMonthly: true } },
+      },
+    });
+  }
+
   /**
    * Público: resumen de lo que se paga al reservar (meses elegidos, cupón,
    * IVA y fianza) con el trastero que se asignaría.
@@ -209,6 +238,7 @@ export class BookingService {
       months: input.months,
       ...(input.couponCode ? { couponCode: input.couponCode } : {}),
       ...(input.startDate ? { startDate: input.startDate } : {}),
+      ...(input.holdToken ? { holdToken: input.holdToken } : {}),
     });
   }
 
@@ -222,15 +252,20 @@ export class BookingService {
       /** Solo al reservar (no en el resumen público: diría si un email es cliente). */
       email?: string | undefined;
       startDate?: string | undefined;
+      holdToken?: string | undefined;
     },
   ): Promise<FirstPaymentQuoteDto> {
+    const hold = input.holdToken ? await this.findHold(tenantId, input.holdToken) : null;
+    const held =
+      hold?.facilityId === input.facilityId && hold.unitTypeId === input.unitTypeId ? hold : null;
     const unit = await this.admin.unit.findFirst({
       where: {
         tenantId,
         facilityId: input.facilityId,
         unitTypeId: input.unitTypeId,
-        status: 'available',
-        ...noLiveReservationWhere(),
+        ...(held
+          ? { id: held.heldUnitId! }
+          : { status: 'available' as const, ...noLiveReservationWhere() }),
         // Un local o un tipo desactivado no se reserva (la web ya no lo enseña).
         facility: { deletedAt: null, isActive: true },
         unitType: { isActive: true },
@@ -323,6 +358,7 @@ export class BookingService {
         months: input.months,
         couponCode,
         email: input.customer.email,
+        holdToken: input.holdToken,
       });
       if (quote.coupon && !quote.coupon.valid) {
         throw new BadRequestException({
@@ -332,6 +368,11 @@ export class BookingService {
       }
     }
 
+    const holdEntry = input.holdToken ? await this.findHold(tenantId, input.holdToken) : null;
+    const hold =
+      holdEntry?.facilityId === input.facilityId && holdEntry.unitTypeId === input.unitTypeId
+        ? holdEntry
+        : null;
     const { unitId, customerId, customerCreated, priceMonthly, depositAmount } =
       await this.prisma.withTenant(async (tx) => {
         // Hold de la unidad: dos bookings simultáneos sobre el último trastero
@@ -364,8 +405,9 @@ export class BookingService {
           where: {
             facilityId: input.facilityId,
             unitTypeId: input.unitTypeId,
-            status: 'available',
-            ...noLiveReservationWhere(),
+            ...(hold
+              ? { id: hold.heldUnitId!, status: 'reserved' as const }
+              : { status: 'available' as const, ...noLiveReservationWhere() }),
           },
           // El más barato disponible (el precio que anuncia la web y el resumen).
           orderBy: [{ basePriceMonthly: 'asc' }, { code: 'asc' }],
@@ -379,17 +421,19 @@ export class BookingService {
         // Reserva la unidad (available → reserved): queda fuera de la
         // disponibilidad hasta que se firme (→ occupied) o expire el plazo de
         // pago (el BookingExpiryCron cancela y libera → available).
-        await tx.unit.update({ where: { id: unit.id }, data: { status: 'reserved' } });
-        await tx.unitStatusHistory.create({
-          data: {
-            tenantId,
-            unitId: unit.id,
-            previousStatus: 'available',
-            newStatus: 'reserved',
-            changedByUserId: null,
-            reason: 'Reserva online (booking self-service)',
-          },
-        });
+        if (!hold) {
+          await tx.unit.update({ where: { id: unit.id }, data: { status: 'reserved' } });
+          await tx.unitStatusHistory.create({
+            data: {
+              tenantId,
+              unitId: unit.id,
+              previousStatus: 'available',
+              newStatus: 'reserved',
+              changedByUserId: null,
+              reason: 'Reserva online (booking self-service)',
+            },
+          });
+        }
         // Reutiliza el cliente por email si ya existe; si no, lo crea.
         // Sin distinguir mayúsculas: «Ana@…» es el mismo inquilino que «ana@…».
         const existing = await tx.customer.findFirst({
@@ -446,14 +490,17 @@ export class BookingService {
           depositPaymentMethod: 'online',
           autoRenew: true,
           cancellationNoticeDays: 15,
+          ...(hold ? { waitlistEntryId: hold.id } : {}),
         },
       });
     } catch (err) {
       // Sin contrato (p. ej. el cupón se agotó entretanto): el trastero vuelve
-      // a estar disponible.
-      await this.admin.unit
-        .updateMany({ where: { id: unitId, status: 'reserved' }, data: { status: 'available' } })
-        .catch(() => undefined);
+      // a estar disponible, salvo el guardado para la lista de espera.
+      if (!hold) {
+        await this.admin.unit
+          .updateMany({ where: { id: unitId, status: 'reserved' }, data: { status: 'available' } })
+          .catch(() => undefined);
+      }
       // El cliente recién creado para esta reserva no se queda suelto.
       if (customerCreated) {
         await this.admin.referral
