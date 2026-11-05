@@ -138,8 +138,13 @@ describe('Contrato: renovar + trasladar (e2e)', () => {
     );
     expect(facilityStep!.done).toBe(false);
 
-    // Tras crear un local, el paso `facility` pasa a done.
-    await createFacilityWithUnits(app, fresh.accessToken, { unitsCount: 1 });
+    // Con el local creado y su dirección puesta, el paso `facility` pasa a done.
+    const { facilityId } = await createFacilityWithUnits(app, fresh.accessToken, { unitsCount: 1 });
+    await request(app.getHttpServer())
+      .patch(`/facilities/${facilityId}`)
+      .set(freshAuth)
+      .send({ address: 'Calle Mayor 1' })
+      .expect(200);
     const after = await request(app.getHttpServer()).get('/dashboard/onboarding').set(freshAuth);
     const facilityAfter = (after.body.steps as { key: string; done: boolean }[]).find(
       (s) => s.key === 'facility',
