@@ -699,7 +699,6 @@ Mejoras (2026-11-05): `GET /contracts/page?view=unsigned|first_payment|ending|ex
 | POST   | `/reservations/:id/confirm`             | SI   | owner, manager, staff | Pasa a confirmed + unit.status = reserved          |
 | POST   | `/reservations/:id/cancel`              | SI   | owner, manager, staff | Cancela + libera unit si era ultima activa         |
 | POST   | `/reservations/:id/convert-to-contract` | SI   | owner, manager        | Crea contrato draft y marca reserva converted      |
-| POST   | `/reservations/expire-due`              | SI   | owner, manager        | Marca como expired las pending/confirmed caducadas |
 
 ### Codigos `code` (Fase 3)
 
@@ -2031,6 +2030,16 @@ Páginas propias por promoción en la web del tenant, con el estilo de su planti
 
 - `GET /portal/me/incidents` (`@Public` + sesión de portal): incidencias del inquilino.
 - `POST /portal/me/incidents` (`@Public` + sesión de portal, throttle): body `{ title, description? }` → crea la incidencia (severity medium) y notifica al staff.
+
+### Reservas, lista de espera y peticiones de trastero: revisión (2026-11-05)
+
+- `POST /reservations`, `POST /reservations/:id/confirm`, `POST /leads/:id/convert`: 409 `unit_held_by_other` si el trastero está guardado para otra persona. `POST /units/:id/change-status` de `reserved` a `available`, igual.
+- `POST /reservations`: 400 `invalid_valid_until` (fecha pasada) y 400 `customer_required` (señal sin inquilino). `POST /reservations/:id/confirm`: 400 `reservation_expired`. Confirmar o cancelar dos veces a la vez: 409 `reservation_changed`.
+- `POST /waitlist`: 409 `waitlist_duplicate`, 400 `unit_type_not_in_facility`. `PATCH /waitlist/:id`: 409 `waitlist_entry_closed`. `GET /public/waitlist/:slug/options` solo lista locales activos y los tamaños que tienen; `POST /public/waitlist/:slug` da 404 con los demás.
+- `POST /contracts`: `waitlistEntryId` sobre otro trastero suelta el guardado; `unitRequestId` cierra la solicitud.
+- `PATCH /unit-change-requests/:id` y `PATCH /unit-requests/:id`: rechazar exige `resolutionNote` (400). Avisan por correo (`unit_request_resolved`) y push.
+- `POST /portal/me/unit-change-requests`: fecha real y no pasada (400), 409 `unit_change_already_pending`. `POST /portal/me/unit-requests`: necesita trastero, tamaño o una nota de 5 caracteres (400), 409 `unit_request_already_pending`, 400 `unit_not_available`.
+- `UnitChangeRequestDto.targetUnitFree`. Los `pending-count` respetan el alcance por local.
 
 ### Cambio de trastero (`/portal/me/unit-change-requests`, `/unit-change-requests`)
 

@@ -87,7 +87,7 @@ export function UnitReservationCard({
       return;
     }
     try {
-      await create.mutateAsync({
+      const created = await create.mutateAsync({
         unitId,
         customerId,
         validFrom: new Date().toISOString(),
@@ -96,11 +96,15 @@ export function UnitReservationCard({
         notes: notes.trim() || undefined,
         confirmImmediately: true,
       });
-      toast.success(
-        Number(signal) > 0
-          ? 'Trastero reservado. La factura de la señal ya está emitida.'
-          : 'Trastero reservado para el cliente.',
-      );
+      if (Number(signal) > 0 && !created.depositInvoiceId) {
+        toast.warning('Trastero reservado, pero la señal no se ha podido facturar.');
+      } else {
+        toast.success(
+          Number(signal) > 0
+            ? 'Trastero reservado. La factura de la señal ya está emitida.'
+            : 'Trastero reservado para el cliente.',
+        );
+      }
       setOpen(false);
       setCustomerId('');
       setUntil('');
@@ -176,6 +180,11 @@ export function UnitReservationCard({
               </Button>
             )}
           </div>
+        ) : unitStatus === 'reserved' ? (
+          <p className="text-sm text-muted-foreground">
+            Este trastero ya está guardado para alguien: una reserva online, un aviso de la lista de
+            espera o un traslado.
+          </p>
         ) : (
           <>
             <p className="text-sm text-muted-foreground">

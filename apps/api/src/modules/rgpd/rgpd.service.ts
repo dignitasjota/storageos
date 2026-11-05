@@ -1,10 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { releaseReservedUnit } from '../../common/unit-holds';
 import {
   anonymizeWhatsappConversations,
   customerWhatsappWhere,
 } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
@@ -38,6 +41,7 @@ export class RgpdService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly files: FilesService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async list(tenantId: string): Promise<DataSubjectRequestDto[]> {
@@ -184,6 +188,7 @@ export class RgpdService {
     meta: RequestMeta;
   }): Promise<void> {
     const chatAttachmentKeys: string[] = [];
+    const freedUnitIds: string[] = [];
     const filesToDelete = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findUnique({
         where: { id: args.customerId },
@@ -288,10 +293,36 @@ export class RgpdService {
         where: { customerId },
         data: { note: ANON, resolutionNote: null },
       });
+      await tx.reservation.updateMany({
+        where: { customerId },
+        data: { notes: null, cancelReason: null },
+      });
+      // Fuera de la cola: si le tocara, se guardaría un trastero para nadie.
+      const held = await tx.waitlistEntry.findMany({
+        where: { customerId, status: 'notified', heldUnitId: { not: null } },
+        select: { heldUnitId: true },
+      });
+      await tx.waitlistEntry.updateMany({
+        where: { customerId, status: { in: ['waiting', 'notified'] } },
+        data: { status: 'cancelled', holdTokenHash: null },
+      });
       await tx.waitlistEntry.updateMany({
         where: { customerId },
         data: { contactName: ANON, contactEmail: ANON, contactPhone: null, notes: null },
       });
+      for (const { heldUnitId } of held) {
+        if (
+          heldUnitId &&
+          (await releaseReservedUnit(tx, {
+            tenantId: args.tenantId,
+            unitId: heldUnitId,
+            userId: args.userId,
+            reason: 'Lista de espera: inquilino anonimizado',
+          }))
+        ) {
+          freedUnitIds.push(heldUnitId);
+        }
+      }
 
       // Correos y mensajes que se le enviaron (el texto lleva sus datos).
       await tx.communication.updateMany({
@@ -370,6 +401,12 @@ export class RgpdService {
       return [...whatsapp.mediaKeys, ...fileKeys];
     }, args.tenantId);
     await this.files.deleteObjects('uploads', [...filesToDelete, ...chatAttachmentKeys]);
+    for (const unitId of freedUnitIds) {
+      this.events.emit(DOMAIN_EVENTS.unit_available, {
+        tenantId: args.tenantId,
+        unitId,
+      } satisfies UnitAvailablePayload);
+    }
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

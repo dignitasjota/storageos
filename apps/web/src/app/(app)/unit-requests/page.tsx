@@ -9,11 +9,13 @@ import { toast } from 'sonner';
 import type { UnitRequestDto } from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { formatDate } from '@/lib/format';
 import { useResolveUnitRequest, useUnitRequests } from '@/lib/unit-requests/hooks';
 
 const STATUS: Record<
@@ -21,7 +23,7 @@ const STATUS: Record<
   { label: string; variant: 'default' | 'secondary' | 'outline' }
 > = {
   pending: { label: 'Pendiente', variant: 'secondary' },
-  handled: { label: 'Gestionada', variant: 'default' },
+  handled: { label: 'Atendida', variant: 'default' },
   rejected: { label: 'Rechazada', variant: 'outline' },
 };
 
@@ -33,22 +35,30 @@ export default function UnitRequestsPage() {
   const canResolve = useHasPermission('contracts:write');
 
   async function doResolve(id: string, status: 'handled' | 'rejected') {
-    let resolutionNote: string | undefined;
-    if (status === 'handled') {
-      const res = await ask({
-        title: 'Marcar como gestionada',
-        input: { label: 'Nota de resolución (opcional)' },
-        confirmLabel: 'Gestionada',
-      });
-      if (!res) return;
-      resolutionNote = res.value || undefined;
-    }
+    const res = await ask(
+      status === 'handled'
+        ? {
+            title: 'Marcar como atendida',
+            description: 'Le avisamos por correo.',
+            input: { label: 'Mensaje para el inquilino (opcional)' },
+            confirmLabel: 'Atendida',
+          }
+        : {
+            title: 'Rechazar la solicitud',
+            description: 'Le avisamos por correo con el motivo.',
+            input: { label: 'Motivo', required: true },
+            confirmLabel: 'Rechazar',
+            destructive: true,
+          },
+    );
+    if (!res) return;
+    const resolutionNote = res.value.trim() || undefined;
     try {
       await resolve.mutateAsync({
         id,
         input: { status, ...(resolutionNote ? { resolutionNote } : {}) },
       });
-      toast.success(status === 'handled' ? 'Solicitud gestionada.' : 'Solicitud rechazada.');
+      toast.success(status === 'handled' ? 'Solicitud atendida.' : 'Solicitud rechazada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -58,7 +68,17 @@ export default function UnitRequestsPage() {
     {
       accessorKey: 'customerName',
       header: 'Cliente',
-      cell: ({ row }) => <span className="font-medium">{row.original.customerName}</span>,
+      cell: ({ row }) => (
+        <div>
+          <Link
+            href={`/customers/${row.original.customerId}`}
+            className="font-medium hover:underline"
+          >
+            {row.original.customerName}
+          </Link>
+          <p className="text-xs text-muted-foreground">{formatDate(row.original.createdAt)}</p>
+        </div>
+      ),
     },
     {
       id: 'wanted',
@@ -68,7 +88,13 @@ export default function UnitRequestsPage() {
         const label = r.unitCode ?? r.unitTypeName ?? '—';
         return (
           <div className="text-sm">
-            <span>{label}</span>
+            {r.unitId ? (
+              <Link href={`/units/${r.unitId}`} className="hover:underline">
+                {label}
+              </Link>
+            ) : (
+              <span>{label}</span>
+            )}
             {r.facilityName && <span className="text-muted-foreground"> · {r.facilityName}</span>}
           </div>
         );
@@ -101,6 +127,7 @@ export default function UnitRequestsPage() {
             <Button asChild size="sm" variant="ghost">
               <Link
                 href={`/contracts/new?${new URLSearchParams({
+                  unitRequestId: row.original.id,
                   customerId: row.original.customerId,
                   ...(row.original.unitId ? { unitId: row.original.unitId } : {}),
                   ...(row.original.facilityId ? { facilityId: row.original.facilityId } : {}),
@@ -115,7 +142,7 @@ export default function UnitRequestsPage() {
               size="sm"
               onClick={() => doResolve(row.original.id, 'handled')}
             >
-              <Check className="mr-1 h-4 w-4" /> Gestionar
+              <Check className="mr-1 h-4 w-4" /> Atendida
             </Button>
             <Button
               variant="ghost"
@@ -153,12 +180,16 @@ export default function UnitRequestsPage() {
         ))}
       </div>
 
-      <DataTable
-        columns={columns}
-        data={list.data ?? []}
-        isLoading={list.isLoading}
-        emptyText="No hay solicitudes."
-      />
+      {list.isError ? (
+        <SectionError onRetry={() => void list.refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={list.data ?? []}
+          isLoading={list.isLoading}
+          emptyText="No hay solicitudes."
+        />
+      )}
     </div>
   );
 }

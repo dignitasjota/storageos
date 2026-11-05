@@ -14,6 +14,7 @@ export const CUSTOMER_EMAIL_KINDS = [
   'contract_price_change',
   'deposit_settled',
   'move_out_confirmed',
+  'unit_request_resolved',
   'sepa_prenotification',
   'staff_message',
 ] as const;
@@ -59,6 +60,10 @@ export const CUSTOMER_EMAIL_LABELS: Record<
   move_out_confirmed: {
     label: 'Baja solicitada',
     description: 'Confirmación de la fecha de baja que ha pedido el inquilino.',
+  },
+  unit_request_resolved: {
+    label: 'Respuesta a sus peticiones de trastero',
+    description: 'Aviso cuando atiendes o rechazas un cambio de trastero o un trastero adicional.',
   },
   sepa_prenotification: {
     label: 'Preaviso de domiciliación',

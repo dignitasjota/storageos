@@ -229,7 +229,7 @@ export function AdditionalUnitCard({ session }: { session: PortalSessionDto }) {
           <Button
             variant="outline"
             size="sm"
-            disabled={genericBusy || note.trim().length === 0}
+            disabled={genericBusy || note.trim().length < 5}
             onClick={requestGeneric}
           >
             {t('sendRequest')}

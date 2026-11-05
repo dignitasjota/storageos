@@ -22,7 +22,7 @@ import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '
 import { endDateAfterCancellingMoveOut } from '../../common/move-out';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
-import { unitHeldByOther } from '../../common/unit-holds';
+import { releaseReservedUnit, unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
@@ -46,6 +46,7 @@ import type {
   MoveOutCancelledPayload,
   ContractUnitChangedPayload,
   UnitAvailablePayload,
+  UnitRequestResolvedPayload,
 } from '../automations/domain-events';
 import type { Contract, ContractStatus, Prisma, UnitStatus } from '@storageos/database';
 import type {
@@ -722,6 +723,8 @@ export class ContractsService {
       });
     }
     const result = await this.prisma.withTenant(async (tx) => {
+      let freedUnitId: string | null = null;
+      let requestClosed = false;
       // Validar customer y unit pertenecientes a este tenant.
       const customer = await tx.customer.findFirst({
         where: { id: input.customerId, deletedAt: null },
@@ -953,11 +956,46 @@ export class ContractsService {
         });
       }
       if (input.waitlistEntryId) {
+        const entry = await tx.waitlistEntry.findFirst({
+          where: { id: input.waitlistEntryId, status: { in: ['waiting', 'notified'] } },
+          select: { heldUnitId: true },
+        });
+        const otherUnit =
+          entry?.heldUnitId && entry.heldUnitId !== input.unitId ? entry.heldUnitId : null;
         // El trastero guardado sigue reservado hasta firmar: lo retiene este contrato.
         await tx.waitlistEntry.updateMany({
           where: { id: input.waitlistEntryId, status: { in: ['waiting', 'notified'] } },
-          data: { status: 'converted', convertedContractId: row.id, holdTokenHash: null },
+          data: {
+            status: 'converted',
+            convertedContractId: row.id,
+            holdTokenHash: null,
+            ...(otherUnit ? { heldUnitId: null } : {}),
+          },
         });
+        // Se ha quedado con otro trastero: el guardado vuelve a la venta.
+        if (
+          otherUnit &&
+          (await releaseReservedUnit(tx, {
+            tenantId,
+            unitId: otherUnit,
+            userId: args.userId,
+            reason: `Lista de espera: contrato ${row.contractNumber} sobre otro trastero`,
+          }))
+        ) {
+          freedUnitId = otherUnit;
+        }
+      }
+      if (input.unitRequestId) {
+        const closed = await tx.unitRequest.updateMany({
+          where: { id: input.unitRequestId, customerId: input.customerId, status: 'pending' },
+          data: {
+            status: 'handled',
+            resolutionNote: `Contrato ${row.contractNumber} creado`,
+            handledByUserId: args.userId,
+            handledAt: new Date(),
+          },
+        });
+        requestClosed = closed.count > 0;
       }
       if (reservation) {
         await tx.reservation.update({
@@ -973,9 +1011,24 @@ export class ContractsService {
           });
         }
       }
-      return { row, redeemed };
+      return { row, redeemed, freedUnitId, requestClosed };
     }, tenantId);
     const created = result.row;
+    if (result.freedUnitId) {
+      this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
+        tenantId,
+        unitId: result.freedUnitId,
+      } satisfies UnitAvailablePayload);
+    }
+    if (result.requestClosed) {
+      this.eventBus.emit(DOMAIN_EVENTS.unit_request_resolved, {
+        tenantId,
+        customerId: created.customerId,
+        request: 'additional',
+        outcome: 'handled',
+        note: `Te hemos preparado el contrato ${created.contractNumber}.`,
+      } satisfies UnitRequestResolvedPayload);
+    }
 
     await this.audit.write({
       tenantId,
@@ -1246,9 +1299,8 @@ export class ContractsService {
           where: { unitId: existing.unitId, status: { in: ['pending', 'confirmed'] } },
           select: { id: true, customerId: true },
         });
-        const foreign = liveReservations.find(
-          (r) => r.customerId && r.customerId !== existing.customerId,
-        );
+        // Una reserva sin inquilino también retiene el trastero.
+        const foreign = liveReservations.find((r) => r.customerId !== existing.customerId);
         if (foreign) {
           throw new ConflictException({
             code: 'unit_reserved_for_other',
@@ -2176,14 +2228,17 @@ export class ContractsService {
   private async releaseScheduledUnit(
     tx: Prisma.TransactionClient,
     ctx: { tenantId: string; userId: string | null; meta: RequestMeta },
-    contract: { scheduledUnitId: string | null },
+    contract: { id: string; scheduledUnitId: string | null },
     reason: string,
   ): Promise<void> {
     if (!contract.scheduledUnitId) return;
-    const unit = await tx.unit.findUnique({ where: { id: contract.scheduledUnitId } });
-    if (unit?.status === 'reserved') {
-      await this.syncUnitStatus(tx, ctx, unit.id, 'reserved', 'available', reason);
-    }
+    await releaseReservedUnit(tx, {
+      tenantId: ctx.tenantId,
+      unitId: contract.scheduledUnitId,
+      userId: ctx.userId,
+      contractId: contract.id,
+      reason,
+    });
   }
 
   private emitScheduledUnitFreed(
@@ -2663,6 +2718,19 @@ export class ContractsService {
       },
     };
     this.eventBus.emit(DOMAIN_EVENTS.contract_ended, payload);
+    // Lo pedido sobre un contrato que ya no existe no se puede atender.
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.unitChangeRequest.updateMany({
+          where: { contractId: contract.id, status: 'pending' },
+          data: {
+            status: 'rejected',
+            resolutionNote: 'El contrato ha terminado',
+            handledAt: new Date(),
+          },
+        }),
+      tenantId,
+    );
     // El trastero queda libre → avisar a la lista de espera de su tipo.
     this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
       tenantId,

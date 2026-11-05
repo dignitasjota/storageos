@@ -42,8 +42,8 @@ export const DOMAIN_EVENTS = {
   review_submitted: 'domain.review_submitted',
   /** Una incidencia del inquilino se resolvió/cerró (push al inquilino). */
   incident_resolved: 'domain.incident_resolved',
-  /** El staff resolvió una solicitud de cambio de trastero (push al inquilino). */
-  unit_change_resolved: 'domain.unit_change_resolved',
+  /** El equipo resolvió una petición de trastero del inquilino (correo y push). */
+  unit_request_resolved: 'domain.unit_request_resolved',
   /** Mensaje del chat inquilino ↔ equipo (no son disparadores de automatizaciones). */
   customer_message_from_staff: 'domain.customer_message_from_staff',
   customer_message_from_customer: 'domain.customer_message_from_customer',
@@ -181,6 +181,17 @@ export interface CustomerMessagePayload {
   channel: 'portal' | 'whatsapp' | 'email';
   /** Solo en mensajes del equipo: por dónde sale además (canal del inquilino). */
   replyVia?: 'whatsapp' | 'email' | null;
+}
+
+/** Respuesta a una petición de trastero: cambio o trastero adicional. */
+export interface UnitRequestResolvedPayload {
+  tenantId: string;
+  customerId: string;
+  request: 'change' | 'additional';
+  /** `moved` = el traslado ya está hecho o programado. */
+  outcome: 'moved' | 'handled' | 'rejected';
+  note: string | null;
+  contractId?: string | null;
 }
 
 export interface CustomerNotifyPayload {

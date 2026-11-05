@@ -56,7 +56,7 @@ export class UnitChangesController {
   @RequirePermission('contracts:read')
   @Get('pending-count')
   async pendingCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
-    return { count: await this.service.countPending(user.tenantId) };
+    return { count: await this.service.countPending(user.tenantId, user.facilityScope ?? null) };
   }
 
   @RequirePermission('contracts:write')
@@ -114,6 +114,7 @@ export class UnitChangesController {
           : `Trasladado al trastero ${moved.unitCode}`,
       },
       facilityScope: scope,
+      moved: true,
     });
   }
 }

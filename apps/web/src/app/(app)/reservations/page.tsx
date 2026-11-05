@@ -13,7 +13,9 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { CustomerSearchSelect } from '@/components/customer-search-select';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
+import { DateSelect } from '@/components/month-year-select';
 import { ReservationStatusBadge } from '@/components/reservation-status-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -46,7 +48,6 @@ import {
   useCreateReservation,
   useReservations,
 } from '@/lib/customers/hooks';
-import { localDateString } from '@/lib/dates';
 import { useFacilities, useUnits } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
@@ -83,6 +84,7 @@ export default function ReservationsPage() {
   const cancel = useCancelReservation();
   const router = useRouter();
   const canWrite = useHasPermission('reservations:write');
+  const canContract = useHasPermission('contracts:write');
 
   const [creating, setCreating] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<ReservationDto | null>(null);
@@ -115,6 +117,16 @@ export default function ReservationsPage() {
         ) : (
           (row.original.customerName ?? '—')
         ),
+    },
+    {
+      id: 'notes',
+      header: 'Notas',
+      cell: ({ row }) => {
+        const text = row.original.cancelReason ?? row.original.notes;
+        return text ? (
+          <span className="line-clamp-2 max-w-xs text-xs text-muted-foreground">{text}</span>
+        ) : null;
+      },
     },
     {
       accessorKey: 'validFrom',
@@ -195,7 +207,7 @@ export default function ReservationsPage() {
                     Facturar la señal
                   </DropdownMenuItem>
                 )}
-              {(r.status === 'pending' || r.status === 'confirmed') && (
+              {(r.status === 'pending' || r.status === 'confirmed') && canContract && (
                 <DropdownMenuItem
                   onClick={() => router.push(`/contracts/new?reservationId=${r.id}`)}
                 >
@@ -267,15 +279,17 @@ export default function ReservationsPage() {
         </Select>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={reservations.data ?? []}
-        isLoading={reservations.isLoading}
-        guide="alquilar"
-        emptyText={
-          'Aún no hay reservas. Crea una desde un trastero disponible en el plano o en /units.'
-        }
-      />
+      {reservations.isError ? (
+        <SectionError onRetry={() => void reservations.refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={reservations.data ?? []}
+          isLoading={reservations.isLoading}
+          guide="alquilar"
+          emptyText="Aún no hay reservas. Crea una aquí o desde la ficha de un trastero libre."
+        />
+      )}
 
       {creating && (
         <NewReservationDialog facilityId={facilityId} onClose={() => setCreating(false)} />
@@ -348,7 +362,7 @@ function NewReservationDialog({
 
   async function submit() {
     try {
-      await create.mutateAsync({
+      const created = await create.mutateAsync({
         unitId,
         ...(customerId ? { customerId } : {}),
         validFrom: new Date().toISOString(),
@@ -356,7 +370,11 @@ function NewReservationDialog({
         depositAmount: Number(deposit) || 0,
         confirmImmediately: true,
       });
-      toast.success('Trastero reservado.');
+      if (Number(deposit) > 0 && !created.depositInvoiceId) {
+        toast.warning('Trastero reservado, pero la señal no se ha podido facturar.');
+      } else {
+        toast.success('Trastero reservado.');
+      }
       onClose();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo reservar');
@@ -395,13 +413,12 @@ function NewReservationDialog({
             />
           </div>
           <div>
-            <Label htmlFor="res-until">Reservado hasta</Label>
-            <Input
-              id="res-until"
-              type="date"
-              min={localDateString()}
-              value={until}
-              onChange={(e) => setUntil(e.target.value)}
+            <Label>Reservado hasta</Label>
+            <DateSelect
+              years={2}
+              future
+              value={until || undefined}
+              onChange={(v) => setUntil(v ?? '')}
             />
           </div>
           <div>
@@ -415,7 +432,7 @@ function NewReservationDialog({
               onChange={(e) => setDeposit(e.target.value)}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Con inquilino, se factura al crearla y se descuenta del primer alquiler.
+              Necesita inquilino: se factura al crearla y se descuenta del primer alquiler.
             </p>
           </div>
         </div>
@@ -423,7 +440,10 @@ function NewReservationDialog({
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={() => void submit()} disabled={!unitId || !until || create.isPending}>
+          <Button
+            onClick={() => void submit()}
+            disabled={!unitId || !until || create.isPending || (Number(deposit) > 0 && !customerId)}
+          >
             Reservar
           </Button>
         </DialogFooter>

@@ -31,6 +31,7 @@ function build() {
     impersonationLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     superAdminAuditLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     webChatConversation: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    waitlistEntry: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     platformContactMessage: {
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -90,6 +91,7 @@ describe('DataRetentionService', () => {
       whatsappMessages: 7,
       webEvents: 8,
       webChatConversations: 2,
+      waitlistEntries: 1,
       contactMessages: 1,
       adminSessions: 9,
       impersonationLogs: 1,

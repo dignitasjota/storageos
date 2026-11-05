@@ -102,6 +102,12 @@ export type CustomerEmailData =
       facilityName: string;
       endDate: Date;
     }
+  | {
+      kind: 'unit_request_resolved';
+      request: 'change' | 'additional';
+      outcome: 'moved' | 'handled' | 'rejected';
+      note: string | null;
+    }
   | { kind: 'staff_message'; tenantName: string; body: string };
 
 export interface RenderedEmail {
@@ -395,6 +401,33 @@ function content(data: CustomerEmailData, l: Locale): Content {
             ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };
+    case 'unit_request_resolved': {
+      const change = data.request === 'change';
+      const what = en
+        ? change
+          ? 'storage unit change'
+          : 'storage unit'
+        : change
+          ? 'cambio de trastero'
+          : 'trastero';
+      const lead =
+        data.outcome === 'moved'
+          ? en
+            ? 'Your storage unit change is arranged.'
+            : 'Tu cambio de trastero ya está gestionado.'
+          : data.outcome === 'handled'
+            ? en
+              ? `We have dealt with your ${what} request.`
+              : `Hemos atendido tu solicitud de ${what}.`
+            : en
+              ? `We have not been able to accept your ${what} request.`
+              : `No hemos podido atender tu solicitud de ${what}.`;
+      return {
+        subject: en ? `About your ${what} request` : `Sobre tu solicitud de ${what}`,
+        paragraphs: [lead, data.note ?? ''],
+        cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+      };
+    }
     case 'staff_message':
       return {
         subject: en

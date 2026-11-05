@@ -10,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UNIT_STATUS_TRANSITIONS } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
+import { unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -650,6 +651,17 @@ export class UnitsService {
     }
 
     const updated = await this.prisma.withTenant(async (tx) => {
+      // A la venta no vuelve lo que sigue guardado para alguien.
+      if (
+        from === 'reserved' &&
+        to === 'available' &&
+        (await unitHeldByOther(tx, { unitId: args.unitId }))
+      ) {
+        throw new ConflictException({
+          code: 'unit_held_by_other',
+          message: 'Este trastero sigue guardado para alguien: cancela antes lo que lo retiene',
+        });
+      }
       const row = await tx.unit.update({
         where: { id: args.unitId },
         data: {

@@ -22,6 +22,7 @@ import {
   type DomainEventPayload,
   type PaymentFailedPayload,
   type SepaRemittanceCreatedPayload,
+  type UnitRequestResolvedPayload,
 } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -316,6 +317,21 @@ export class CustomerEmailsService {
           endDate: c.endDate,
         },
         contractId: c.id,
+      });
+    });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.unit_request_resolved, { async: true, promisify: true })
+  async onUnitRequestResolved(p: UnitRequestResolvedPayload): Promise<void> {
+    await this.safe('unit_request_resolved', p.tenantId, async () => {
+      await this.send(p.tenantId, 'unit_request_resolved', null, p.customerId, {
+        data: {
+          kind: 'unit_request_resolved',
+          request: p.request,
+          outcome: p.outcome,
+          note: p.note,
+        },
+        ...(p.contractId ? { contractId: p.contractId } : {}),
       });
     });
   }

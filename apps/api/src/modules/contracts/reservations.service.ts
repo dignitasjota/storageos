@@ -10,6 +10,8 @@ import { CreateContractSchema, rentTax } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { toCents } from '../../common/money';
+import { isReservationOverlap } from '../../common/reservation-overlap';
+import { releaseReservedUnit, unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { InvoicesService } from '../billing/invoices.service';
@@ -35,7 +37,7 @@ type ReservationWithRelations = Reservation & {
     code: string;
     facilityId: string;
     basePriceMonthly: Prisma.Decimal;
-    facility: { name: string };
+    facility: { name: string; timezone: string };
   };
   customer: {
     firstName: string | null;
@@ -44,6 +46,25 @@ type ReservationWithRelations = Reservation & {
     customerType: 'individual' | 'business';
   } | null;
 };
+
+const RESERVATION_INCLUDE = {
+  unit: {
+    select: {
+      code: true,
+      facilityId: true,
+      basePriceMonthly: true,
+      facility: { select: { name: true, timezone: true } },
+    },
+  },
+  customer: {
+    select: { firstName: true, lastName: true, companyName: true, customerType: true },
+  },
+} satisfies Prisma.ReservationInclude;
+
+/** Día de calendario de una fecha en la zona del local. */
+function dayInZone(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date);
+}
 
 interface ListFilters {
   unitId?: string;
@@ -80,24 +101,7 @@ export class ReservationsService {
         tx.reservation.findMany({
           where,
           orderBy: [{ createdAt: 'desc' }],
-          include: {
-            unit: {
-              select: {
-                code: true,
-                facilityId: true,
-                basePriceMonthly: true,
-                facility: { select: { name: true } },
-              },
-            },
-            customer: {
-              select: {
-                firstName: true,
-                lastName: true,
-                companyName: true,
-                customerType: true,
-              },
-            },
-          },
+          include: RESERVATION_INCLUDE,
         }),
       tenantId,
     );
@@ -121,9 +125,23 @@ export class ReservationsService {
   }): Promise<ReservationDto> {
     const validFrom = new Date(args.input.validFrom);
     const validUntil = new Date(args.input.validUntil);
+    if (validUntil.getTime() <= Date.now()) {
+      throw new BadRequestException({
+        code: 'invalid_valid_until',
+        message: 'La reserva tiene que durar hasta una fecha futura',
+      });
+    }
+    if (args.input.depositAmount > 0 && !args.input.customerId) {
+      throw new BadRequestException({
+        code: 'customer_required',
+        message: 'Para cobrar una señal, la reserva necesita un inquilino',
+      });
+    }
 
     const created = await this.prisma.withTenant(async (tx) => {
-      const unit = await tx.unit.findUnique({ where: { id: args.input.unitId } });
+      const unit = await tx.unit.findFirst({
+        where: { id: args.input.unitId, facility: { deletedAt: null } },
+      });
       if (!unit) {
         throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
       }
@@ -138,6 +156,16 @@ export class ReservationsService {
           code: 'unit_not_reservable',
           message: `El trastero esta en estado ${unit.status}`,
         });
+      }
+      // Las reservas entre sí las separa la restricción de solape.
+      if (
+        await unitHeldByOther(tx, {
+          unitId: unit.id,
+          ignoreReservations: true,
+          ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
+        })
+      ) {
+        throw this.unitHeld();
       }
       if (args.input.customerId) {
         const customer = await tx.customer.findFirst({
@@ -165,24 +193,7 @@ export class ReservationsService {
             depositAmount: args.input.depositAmount,
             notes: args.input.notes?.trim() || null,
           },
-          include: {
-            unit: {
-              select: {
-                code: true,
-                facilityId: true,
-                basePriceMonthly: true,
-                facility: { select: { name: true } },
-              },
-            },
-            customer: {
-              select: {
-                firstName: true,
-                lastName: true,
-                companyName: true,
-                customerType: true,
-              },
-            },
-          },
+          include: RESERVATION_INCLUDE,
         });
         if (immediate && unit.status === 'available') {
           await this.reserveUnitInTx(
@@ -195,7 +206,7 @@ export class ReservationsService {
         }
         return row;
       } catch (err) {
-        if (this.isExcludeViolation(err)) {
+        if (isReservationOverlap(err)) {
           throw new ConflictException({
             code: 'reservation_overlap',
             message: 'Ya existe una reserva activa que solapa con este rango',
@@ -235,7 +246,7 @@ export class ReservationsService {
       customerId: string | null;
       validFrom: Date;
       validUntil: Date;
-      unit: { code: string; facility: { name: string } };
+      unit: { code: string; facility: { name: string; timezone: string } };
     },
   ): void {
     if (!r.customerId) return;
@@ -247,8 +258,8 @@ export class ReservationsService {
       recipientEmail: null,
       scope: {
         reservation: {
-          validFrom: r.validFrom.toISOString().slice(0, 10),
-          validUntil: r.validUntil.toISOString().slice(0, 10),
+          validFrom: dayInZone(r.validFrom, r.unit.facility.timezone),
+          validUntil: dayInZone(r.validUntil, r.unit.facility.timezone),
         },
         unit: { code: r.unit.code },
         facility: { name: r.unit.facility.name },
@@ -266,6 +277,12 @@ export class ReservationsService {
   }): Promise<ReservationDto> {
     const existing = await this.findOrThrow(args.tenantId, args.reservationId, args.facilityScope);
     this.assertTransition(existing.status, 'confirmed');
+    if (existing.validUntil.getTime() <= Date.now()) {
+      throw new BadRequestException({
+        code: 'reservation_expired',
+        message: 'Esta reserva ya ha vencido: crea una nueva',
+      });
+    }
 
     const updated = await this.prisma.withTenant(async (tx) => {
       // Desde que se creó pudo alquilarse o quedar fuera de servicio.
@@ -280,29 +297,22 @@ export class ReservationsService {
           message: `El trastero está en estado ${current.status}: no se puede confirmar la reserva`,
         });
       }
+      if (
+        await unitHeldByOther(tx, {
+          unitId: existing.unitId,
+          ignoreReservations: true,
+          ...(existing.customerId ? { customerId: existing.customerId } : {}),
+        })
+      ) {
+        throw this.unitHeld();
+      }
       let row;
       try {
-        row = await tx.reservation.update({
+        // Reclamo: de dos confirmaciones a la vez solo una sigue adelante.
+        await this.claimStatus(tx, args.reservationId, existing.status, { status: 'confirmed' });
+        row = await tx.reservation.findUniqueOrThrow({
           where: { id: args.reservationId },
-          data: { status: 'confirmed' },
-          include: {
-            unit: {
-              select: {
-                code: true,
-                facilityId: true,
-                basePriceMonthly: true,
-                facility: { select: { name: true } },
-              },
-            },
-            customer: {
-              select: {
-                firstName: true,
-                lastName: true,
-                companyName: true,
-                customerType: true,
-              },
-            },
-          },
+          include: RESERVATION_INCLUDE,
         });
       } catch (err) {
         // El EXCLUDE gist de `reservations_no_overlap_exclude` (pending/
@@ -312,7 +322,7 @@ export class ReservationsService {
         // solaparse desde que se crearon), pero si alguna vez lo hiciera
         // (p. ej. una fila creada por otra vía que sortee `create()`), que
         // dé el mismo 409 claro en vez de un 500 crudo.
-        if (this.isExcludeViolation(err)) {
+        if (isReservationOverlap(err)) {
           throw new ConflictException({
             code: 'reservation_overlap',
             message: 'Ya existe una reserva activa que solapa con este rango',
@@ -374,6 +384,17 @@ export class ReservationsService {
       return await this.issueDepositInvoice({ tenantId, userId, reservationId, meta: {} });
     } catch (err) {
       this.logger.warn(`Señal de la reserva ${reservationId} sin emitir: ${String(err)}`);
+      await this.admin.notification
+        .create({
+          data: {
+            tenantId,
+            type: 'reservation.signal_not_issued',
+            title: 'Señal sin facturar',
+            body: 'No se ha podido emitir la factura de la señal de una reserva. Puedes volver a intentarlo desde Reservas.',
+            link: '/reservations',
+          },
+        })
+        .catch(() => undefined);
       return null;
     }
   }
@@ -391,7 +412,19 @@ export class ReservationsService {
     meta: RequestMeta;
   }): Promise<ReservationDto> {
     const existing = await this.findOrThrow(args.tenantId, args.reservationId, args.facilityScope);
-    if (existing.depositInvoiceId) return this.detail(args.tenantId, args.reservationId);
+    if (existing.depositInvoiceId) {
+      // Quedó en borrador por un fallo anterior: se termina de emitir.
+      const invoice = await this.invoices.detail(args.tenantId, existing.depositInvoiceId);
+      if (invoice.status === 'draft') {
+        await this.invoices.issue({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          invoiceId: invoice.id,
+          meta: args.meta,
+        });
+      }
+      return this.detail(args.tenantId, args.reservationId);
+    }
     if (existing.status !== 'pending' && existing.status !== 'confirmed') {
       throw new BadRequestException({
         code: 'reservation_not_active',
@@ -459,12 +492,34 @@ export class ReservationsService {
         .catch(() => undefined);
       return this.detail(args.tenantId, args.reservationId);
     }
-    await this.invoices.issue({
-      tenantId: args.tenantId,
-      userId: args.userId,
-      invoiceId: draft.id,
-      meta: args.meta,
-    });
+    try {
+      await this.invoices.issue({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        invoiceId: draft.id,
+        meta: args.meta,
+      });
+    } catch (err) {
+      // Sin emitir no es una señal: se suelta para poder intentarlo de nuevo.
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.reservation.updateMany({
+            where: { id: args.reservationId, depositInvoiceId: draft.id },
+            data: { depositInvoiceId: null },
+          }),
+        args.tenantId,
+      );
+      await this.invoices
+        .cancel({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          invoiceId: draft.id,
+          input: { reason: 'Señal sin emitir' },
+          meta: args.meta,
+        })
+        .catch(() => undefined);
+      throw err;
+    }
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -528,64 +583,23 @@ export class ReservationsService {
     this.assertTransition(existing.status, 'cancelled');
     let releasedUnit = false;
     const updated = await this.prisma.withTenant(async (tx) => {
-      const row = await tx.reservation.update({
-        where: { id: args.reservationId },
-        data: {
-          status: 'cancelled',
-          cancelledAt: new Date(),
-          cancelReason: args.input.reason?.trim() || null,
-        },
-        include: {
-          unit: {
-            select: {
-              code: true,
-              facilityId: true,
-              basePriceMonthly: true,
-              facility: { select: { name: true } },
-            },
-          },
-          customer: {
-            select: {
-              firstName: true,
-              lastName: true,
-              companyName: true,
-              customerType: true,
-            },
-          },
-        },
+      await this.claimStatus(tx, args.reservationId, existing.status, {
+        status: 'cancelled',
+        cancelledAt: new Date(),
+        cancelReason: args.input.reason?.trim() || null,
       });
-      // Si la unit estaba reserved por esta reserva (no hay otra activa),
-      // devolverla a available.
+      const row = await tx.reservation.findUniqueOrThrow({
+        where: { id: args.reservationId },
+        include: RESERVATION_INCLUDE,
+      });
       if (existing.status === 'confirmed') {
-        const stillReserved = await tx.reservation.findFirst({
-          where: {
-            unitId: existing.unitId,
-            status: { in: ['pending', 'confirmed'] },
-            id: { not: existing.id },
-          },
+        releasedUnit = await releaseReservedUnit(tx, {
+          tenantId: args.tenantId,
+          unitId: existing.unitId,
+          userId: args.userId,
+          reservationId: existing.id,
+          reason: `Reserva ${row.id} cancelada`,
         });
-        if (!stillReserved) {
-          const unit = await tx.unit.findUniqueOrThrow({
-            where: { id: existing.unitId },
-          });
-          if (unit.status === 'reserved') {
-            await tx.unit.update({
-              where: { id: unit.id },
-              data: { status: 'available' },
-            });
-            await tx.unitStatusHistory.create({
-              data: {
-                tenantId: args.tenantId,
-                unitId: unit.id,
-                previousStatus: 'reserved',
-                newStatus: 'available',
-                changedByUserId: args.userId,
-                reason: `Reserva ${row.id} cancelada`,
-              },
-            });
-            releasedUnit = true;
-          }
-        }
       }
       return row;
     }, args.tenantId);
@@ -650,6 +664,18 @@ export class ReservationsService {
             title: `Señal por devolver — trastero ${r.unit.code}`,
             body: `${reason}. La señal estaba cobrada: revisa el abono en borrador, emítelo y devuelve el importe si corresponde.`,
             link: `/invoices/${credit.id}`,
+            facilityId: r.unit.facilityId,
+          },
+        });
+      } else if (invoice.amountPaid > 0) {
+        // Cobrada en parte no se puede anular: lo decide el equipo.
+        await this.admin.notification.create({
+          data: {
+            tenantId,
+            type: 'reservation.signal_partially_paid',
+            title: `Señal cobrada en parte — trastero ${r.unit.code}`,
+            body: `${reason}. La factura de la señal tiene un cobro parcial: revísala y devuelve lo cobrado si corresponde.`,
+            link: `/invoices/${invoice.id}`,
             facilityId: r.unit.facilityId,
           },
         });
@@ -746,40 +772,6 @@ export class ReservationsService {
     });
   }
 
-  /** Devuelve el trastero a `available` SOLO si ya no le queda ninguna reserva
-   * viva (pending/confirmed) — evita liberar una unidad con otra reserva activa. */
-  private async releaseUnitIfOrphanInTx(
-    tx: Prisma.TransactionClient,
-    tenantId: string,
-    unitId: string,
-    userId: string | null,
-    reason: string,
-    excludeReservationId?: string,
-  ): Promise<boolean> {
-    const stillReserved = await tx.reservation.findFirst({
-      where: {
-        unitId,
-        status: { in: ['pending', 'confirmed'] },
-        ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
-      },
-    });
-    if (stillReserved) return false;
-    const unit = await tx.unit.findUniqueOrThrow({ where: { id: unitId } });
-    if (unit.status !== 'reserved') return false;
-    await tx.unit.update({ where: { id: unitId }, data: { status: 'available' } });
-    await tx.unitStatusHistory.create({
-      data: {
-        tenantId,
-        unitId,
-        previousStatus: 'reserved',
-        newStatus: 'available',
-        changedByUserId: userId,
-        reason,
-      },
-    });
-    return true;
-  }
-
   /**
    * Marca como `expired` las reservas pending/confirmed cuyo `valid_until` ya
    * pasó Y **libera el trastero** (reserved → available) si la reserva lo tenía
@@ -802,14 +794,12 @@ export class ReservationsService {
       for (const r of due) {
         await tx.reservation.update({ where: { id: r.id }, data: { status: 'expired' } });
         if (r.status === 'confirmed') {
-          const didRelease = await this.releaseUnitIfOrphanInTx(
-            tx,
+          const didRelease = await releaseReservedUnit(tx, {
             tenantId,
-            r.unitId,
-            null,
-            `Reserva ${r.id} caducada`,
-            r.id,
-          );
+            unitId: r.unitId,
+            reservationId: r.id,
+            reason: `Reserva ${r.id} caducada`,
+          });
           if (didRelease) released.push(r.unitId);
         }
       }
@@ -855,24 +845,7 @@ export class ReservationsService {
       (tx) =>
         tx.reservation.findUnique({
           where: { id: reservationId },
-          include: {
-            unit: {
-              select: {
-                code: true,
-                facilityId: true,
-                basePriceMonthly: true,
-                facility: { select: { name: true } },
-              },
-            },
-            customer: {
-              select: {
-                firstName: true,
-                lastName: true,
-                companyName: true,
-                customerType: true,
-              },
-            },
-          },
+          include: RESERVATION_INCLUDE,
         }),
       tenantId,
     );
@@ -902,23 +875,27 @@ export class ReservationsService {
     }
   }
 
-  private isExcludeViolation(err: unknown): boolean {
-    if (typeof err !== 'object' || err === null) return false;
-    const e = err as {
-      code?: string;
-      message?: string;
-      meta?: { constraint?: string; cause?: string };
-    };
-    const constraintName = typeof e.meta?.constraint === 'string' ? e.meta.constraint : '';
-    const cause = typeof e.meta?.cause === 'string' ? e.meta.cause : '';
-    const message = typeof e.message === 'string' ? e.message : '';
-    // Postgres lanza SQLSTATE 23P01 (exclusion_violation). Prisma puede
-    // mapearlo a varios codigos segun la version. Cubrimos los conocidos.
-    if (e.code === 'P2010') return true;
-    if (constraintName.includes('overlap') || constraintName.includes('no_overlap')) return true;
-    if (cause.includes('23P01') || message.includes('23P01')) return true;
-    if (message.includes('reservations_no_overlap_exclude')) return true;
-    return false;
+  private unitHeld(): ConflictException {
+    return new ConflictException({
+      code: 'unit_held_by_other',
+      message: 'Este trastero está guardado para otra persona: elige otro o espera a que se libere',
+    });
+  }
+
+  /** Cambia el estado solo si sigue como se leyó: dos clics no hacen la acción dos veces. */
+  private async claimStatus(
+    tx: Prisma.TransactionClient,
+    id: string,
+    from: ReservationStatus,
+    data: Prisma.ReservationUpdateManyMutationInput,
+  ): Promise<void> {
+    const { count } = await tx.reservation.updateMany({ where: { id, status: from }, data });
+    if (count === 0) {
+      throw new ConflictException({
+        code: 'reservation_changed',
+        message: 'Esta reserva acaba de cambiar: recarga la página',
+      });
+    }
   }
 
   private toDto(row: ReservationWithRelations): ReservationDto {

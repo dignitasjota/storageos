@@ -8,6 +8,7 @@ import {
   DOMAIN_EVENTS,
   type CustomerNotifyPayload,
   type DomainEventPayload,
+  type UnitRequestResolvedPayload,
 } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
@@ -293,12 +294,21 @@ export class PushService {
     });
   }
 
-  @OnEvent(DOMAIN_EVENTS.unit_change_resolved, { async: true, promisify: true })
-  async onUnitChangeResolved(p: CustomerNotifyPayload): Promise<void> {
+  @OnEvent(DOMAIN_EVENTS.unit_request_resolved, { async: true, promisify: true })
+  async onUnitRequestResolved(p: UnitRequestResolvedPayload): Promise<void> {
+    const what = p.request === 'change' ? 'cambio de trastero' : 'trastero';
+    const title =
+      p.outcome === 'moved'
+        ? 'Cambio de trastero hecho'
+        : p.outcome === 'handled'
+          ? `Hemos atendido tu solicitud de ${what}`
+          : `Hemos revisado tu solicitud de ${what}`;
+    const lead = p.outcome === 'rejected' ? 'No hemos podido atenderla.' : '';
     await this.sendToCustomer(p.tenantId, p.customerId, {
-      title: p.title,
-      body: p.body,
-      url: p.url ?? '/portal/login',
+      title,
+      body:
+        [lead, p.note].filter(Boolean).join(' ') || 'Tienes los detalles en tu área de clientes.',
+      url: '/portal/login',
     });
   }
 }

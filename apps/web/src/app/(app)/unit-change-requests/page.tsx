@@ -2,13 +2,16 @@
 
 import { type ColumnDef } from '@tanstack/react-table';
 import { ArrowRightLeft, Check, X } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import type { UnitChangeRequestDto } from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,7 +35,7 @@ const STATUS: Record<
   { label: string; variant: 'default' | 'secondary' | 'outline' }
 > = {
   pending: { label: 'Pendiente', variant: 'secondary' },
-  handled: { label: 'Gestionada', variant: 'default' },
+  handled: { label: 'Atendida', variant: 'default' },
   rejected: { label: 'Rechazada', variant: 'outline' },
 };
 
@@ -46,22 +49,30 @@ export default function UnitChangeRequestsPage() {
   const [moving, setMoving] = useState<UnitChangeRequestDto | null>(null);
 
   async function doResolve(id: string, status: 'handled' | 'rejected') {
-    let resolutionNote: string | undefined;
-    if (status === 'handled') {
-      const res = await ask({
-        title: 'Marcar como gestionada',
-        input: { label: 'Nota de resolución (opcional)' },
-        confirmLabel: 'Gestionada',
-      });
-      if (!res) return;
-      resolutionNote = res.value || undefined;
-    }
+    const res = await ask(
+      status === 'handled'
+        ? {
+            title: 'Marcar como atendida',
+            description: 'Le avisamos por correo. Para hacer el cambio, usa «Trasladar».',
+            input: { label: 'Mensaje para el inquilino (opcional)' },
+            confirmLabel: 'Atendida',
+          }
+        : {
+            title: 'Rechazar la solicitud',
+            description: 'Le avisamos por correo con el motivo.',
+            input: { label: 'Motivo', required: true },
+            confirmLabel: 'Rechazar',
+            destructive: true,
+          },
+    );
+    if (!res) return;
+    const resolutionNote = res.value.trim() || undefined;
     try {
       await resolve.mutateAsync({
         id,
         input: { status, ...(resolutionNote ? { resolutionNote } : {}) },
       });
-      toast.success(status === 'handled' ? 'Solicitud gestionada.' : 'Solicitud rechazada.');
+      toast.success(status === 'handled' ? 'Solicitud atendida.' : 'Solicitud rechazada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -71,14 +82,30 @@ export default function UnitChangeRequestsPage() {
     {
       accessorKey: 'customerName',
       header: 'Cliente',
-      cell: ({ row }) => <span className="font-medium">{row.original.customerName}</span>,
+      cell: ({ row }) => (
+        <div>
+          <Link
+            href={`/customers/${row.original.customerId}`}
+            className="font-medium hover:underline"
+          >
+            {row.original.customerName}
+          </Link>
+          <p className="text-xs text-muted-foreground">{formatDate(row.original.createdAt)}</p>
+        </div>
+      ),
     },
     {
       id: 'unit',
       header: 'Trastero actual',
       cell: ({ row }) =>
         row.original.unitCode ? (
-          <span>{row.original.unitCode}</span>
+          row.original.contractId ? (
+            <Link href={`/contracts/${row.original.contractId}`} className="hover:underline">
+              {row.original.unitCode}
+            </Link>
+          ) : (
+            <span>{row.original.unitCode}</span>
+          )
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
@@ -96,6 +123,9 @@ export default function UnitChangeRequestsPage() {
                 ? ` (${formatEur(row.original.targetUnitPrice)} frente a ${formatEur(row.original.currentPrice)} sin IVA)`
                 : ''}
             </p>
+          )}
+          {row.original.status === 'pending' && row.original.targetUnitFree === false && (
+            <p className="text-xs text-amber-600">Ese trastero ya no está libre.</p>
           )}
           {row.original.note && <p className="line-clamp-2">{row.original.note}</p>}
         </div>
@@ -120,7 +150,7 @@ export default function UnitChangeRequestsPage() {
               size="sm"
               onClick={() => doResolve(row.original.id, 'handled')}
             >
-              <Check className="mr-1 h-4 w-4" /> Gestionar
+              <Check className="mr-1 h-4 w-4" /> Atendida
             </Button>
             {row.original.contractId && canMove && (
               <Button variant="ghost" size="sm" onClick={() => setMoving(row.original)}>
@@ -164,12 +194,16 @@ export default function UnitChangeRequestsPage() {
         ))}
       </div>
 
-      <DataTable
-        columns={columns}
-        data={list.data ?? []}
-        isLoading={list.isLoading}
-        emptyText="No hay solicitudes."
-      />
+      {list.isError ? (
+        <SectionError onRetry={() => void list.refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={list.data ?? []}
+          isLoading={list.isLoading}
+          emptyText="No hay solicitudes."
+        />
+      )}
       {moving && <MoveDialog request={moving} onClose={() => setMoving(null)} />}
     </div>
   );
@@ -179,8 +213,10 @@ export default function UnitChangeRequestsPage() {
 function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClose: () => void }) {
   const units = useUnits({ status: 'available' });
   const move = useMoveFromUnitChange();
-  // Si el inquilino eligió trastero, viene ya puesto (y su precio).
-  const [newUnitId, setNewUnitId] = useState(request.targetUnitId ?? '');
+  // Si el inquilino eligió trastero y sigue libre, viene ya puesto (y su precio).
+  const [newUnitId, setNewUnitId] = useState(
+    request.targetUnitFree ? (request.targetUnitId ?? '') : '',
+  );
   const [newPrice, setNewPrice] = useState(
     request.targetUnitPrice != null ? String(request.targetUnitPrice) : '',
   );
@@ -216,6 +252,11 @@ function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClo
               Lo quiere desde el {formatDate(request.desiredDate)}.
             </p>
           )}
+          {request.targetUnitFree === false && (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              El {request.targetUnitCode} que pidió ya no está libre: elige otro.
+            </p>
+          )}
           <div className="space-y-1">
             <Label>Nuevo trastero (disponible)</Label>
             <select
@@ -246,7 +287,12 @@ function MoveDialog({ request, onClose }: { request: UnitChangeRequestDto; onClo
           </div>
           <div className="space-y-1">
             <Label>Fecha del traslado (opcional)</Label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <DateSelect
+              years={2}
+              future
+              value={date || undefined}
+              onChange={(v) => setDate(v ?? '')}
+            />
             <p className="text-xs text-muted-foreground">
               Con una fecha futura, el trastero queda reservado y el cambio se hace ese día.
             </p>

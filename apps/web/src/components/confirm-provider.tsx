@@ -21,7 +21,7 @@ export interface ConfirmOptions {
   /** Botón rojo (borrar, devolver, limpiar…). */
   destructive?: boolean;
   /** Pide además un texto opcional (p. ej. el motivo). */
-  input?: { label: string; placeholder?: string };
+  input?: { label: string; placeholder?: string; required?: boolean };
 }
 
 /** `false` si se cancela; si no, `{ value }` con el texto escrito (o ''). */
@@ -80,6 +80,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             </Button>
             <Button
               variant={options?.destructive ? 'destructive' : 'default'}
+              disabled={!!options?.input?.required && !value.trim()}
               onClick={() => close({ value: value.trim() })}
             >
               {options?.confirmLabel ?? 'Confirmar'}

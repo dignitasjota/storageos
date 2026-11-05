@@ -1,7 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { rentTax } from '@storageos/shared';
 
 import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
+import { noLiveReservationWhere } from '../../common/unit-holds';
+import { DOMAIN_EVENTS, type UnitRequestResolvedPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { toActiveUnitOffer } from '../promotions/promotions.service';
@@ -35,6 +43,7 @@ export class UnitRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // ---- portal ----
@@ -59,6 +68,7 @@ export class UnitRequestsService {
             status: 'available',
             facility: { deletedAt: null, isActive: true },
             unitType: { isActive: true },
+            ...noLiveReservationWhere(),
           },
           orderBy: [{ facilityId: 'asc' }, { code: 'asc' }],
           include: {
@@ -116,16 +126,50 @@ export class UnitRequestsService {
     if (facilityOk === 0 || typeOk === 0) {
       throw new NotFoundException({ code: 'not_found', message: 'Local o tipo no encontrado' });
     }
-    // Si indica un trastero concreto, validamos que existe y está disponible.
+    // Si indica un trastero concreto, validamos que existe, está libre y es del local.
     if (input.unitId) {
       const unitId = input.unitId;
       const unit = await this.prisma.withTenant(
-        (tx) => tx.unit.findFirst({ where: { id: unitId, tenantId }, select: { status: true } }),
+        (tx) =>
+          tx.unit.findFirst({
+            where: { id: unitId, tenantId },
+            select: { status: true, facilityId: true },
+          }),
         tenantId,
       );
       if (!unit) {
         throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
       }
+      if (
+        unit.status !== 'available' ||
+        (input.facilityId && unit.facilityId !== input.facilityId)
+      ) {
+        throw new BadRequestException({
+          code: 'unit_not_available',
+          message: 'Ese trastero ya no está disponible',
+        });
+      }
+    }
+    const repeated = await this.prisma.withTenant(
+      (tx) =>
+        tx.unitRequest.count({
+          where: {
+            tenantId,
+            customerId,
+            status: 'pending',
+            facilityId: input.facilityId ?? null,
+            unitTypeId: input.unitTypeId ?? null,
+            unitId: input.unitId ?? null,
+            note: input.note ?? '',
+          },
+        }),
+      tenantId,
+    );
+    if (repeated > 0) {
+      throw new ConflictException({
+        code: 'unit_request_already_pending',
+        message: 'Ya nos has pedido esto: te responderemos pronto',
+      });
     }
     const created = await this.prisma.withTenant(
       (tx) =>
@@ -177,9 +221,11 @@ export class UnitRequestsService {
 
   // ---- staff ----
 
-  async countPending(tenantId: string): Promise<number> {
+  async countPending(tenantId: string, facilityScope?: string[] | null): Promise<number> {
+    const facility = optionalFacilityWhere(facilityScope, undefined);
+    if (!facility) return 0;
     return this.prisma.withTenant(
-      (tx) => tx.unitRequest.count({ where: { tenantId, status: 'pending' } }),
+      (tx) => tx.unitRequest.count({ where: { tenantId, status: 'pending', ...facility } }),
       tenantId,
     );
   }
@@ -233,20 +279,32 @@ export class UnitRequestsService {
         message: 'La solicitud ya está resuelta',
       });
     }
-    const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.unitRequest.update({
-          where: { id },
-          data: {
-            status: input.status,
-            resolutionNote: input.resolutionNote ?? null,
-            handledByUserId: userId,
-            handledAt: new Date(),
-          },
-          include: this.staffInclude(),
-        }),
+    const updated = await this.prisma.withTenant(async (tx) => {
+      // Reclamo: de dos respuestas a la vez solo una avisa al inquilino.
+      const { count } = await tx.unitRequest.updateMany({
+        where: { id, status: 'pending' },
+        data: {
+          status: input.status,
+          resolutionNote: input.resolutionNote ?? null,
+          handledByUserId: userId,
+          handledAt: new Date(),
+        },
+      });
+      if (count === 0) {
+        throw new BadRequestException({
+          code: 'already_resolved',
+          message: 'La solicitud ya está resuelta',
+        });
+      }
+      return tx.unitRequest.findUniqueOrThrow({ where: { id }, include: this.staffInclude() });
+    }, tenantId);
+    this.events.emit(DOMAIN_EVENTS.unit_request_resolved, {
       tenantId,
-    );
+      customerId: updated.customerId,
+      request: 'additional',
+      outcome: input.status,
+      note: input.resolutionNote?.trim() || null,
+    } satisfies UnitRequestResolvedPayload);
     return this.toDto(updated);
   }
 

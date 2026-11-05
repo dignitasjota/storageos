@@ -89,6 +89,7 @@ export class DataRetentionService {
     whatsappMessages: number;
     webEvents: number;
     webChatConversations: number;
+    waitlistEntries: number;
     adminSessions: number;
     impersonationLogs: number;
     superAdminAuditLogs: number;
@@ -102,6 +103,7 @@ export class DataRetentionService {
     const notifDays = this.config.get('RETENTION_NOTIFICATIONS_DAYS', { infer: true });
     const whatsappDays = this.config.get('RETENTION_WHATSAPP_DAYS', { infer: true });
     const webEventsDays = this.config.get('RETENTION_WEB_EVENTS_DAYS', { infer: true });
+    const waitlistDays = this.config.get('RETENTION_WAITLIST_DAYS', { infer: true });
     const contactDays = this.config.get('RETENTION_CONTACT_MESSAGES_DAYS', { infer: true });
     const adminSessionDays = this.config.get('RETENTION_ADMIN_SESSIONS_DAYS', { infer: true });
     const impersonationDays = this.config.get('RETENTION_IMPERSONATION_LOGS_DAYS', { infer: true });
@@ -134,6 +136,7 @@ export class DataRetentionService {
       whatsappMessages,
       webEvents,
       webChatConversations,
+      waitlistEntries,
       contactMessages,
       adminSessions,
       impersonationLogs,
@@ -168,6 +171,14 @@ export class DataRetentionService {
       this.admin.webChatConversation.deleteMany({
         where: { lastMessageAt: { lt: cutoff(WEB_CHAT_RETENTION_DAYS) } },
       }),
+      // Lista de espera: contactos sin ficha cuya entrada ya está cerrada.
+      this.admin.waitlistEntry.deleteMany({
+        where: {
+          customerId: null,
+          status: { in: ['converted', 'cancelled', 'expired'] },
+          updatedAt: { lt: cutoff(waitlistDays) },
+        },
+      }),
       // Formulario de contacto de trasteros.pro: datos de visitantes.
       this.admin.platformContactMessage.deleteMany({
         where: { createdAt: { lt: cutoff(contactDays) } },
@@ -201,6 +212,7 @@ export class DataRetentionService {
       whatsappMessages: whatsappMessages.count,
       webEvents: webEvents.count,
       webChatConversations: webChatConversations.count,
+      waitlistEntries: waitlistEntries.count,
       contactMessages: contactMessages.count,
       adminSessions: adminSessions.count,
       impersonationLogs: impersonationLogs.count,
@@ -216,6 +228,7 @@ export class DataRetentionService {
       result.whatsappMessages +
       result.webEvents +
       result.webChatConversations +
+      result.waitlistEntries +
       result.contactMessages +
       result.adminSessions +
       result.impersonationLogs +
@@ -227,7 +240,7 @@ export class DataRetentionService {
           `comms=${result.communications}, notif=${result.notifications}, ` +
           `platform_emails=${result.platformEmails}, ` +
           `whatsapp=${result.whatsappConversations}/${result.whatsappMessages}, ` +
-          `web_events=${result.webEvents}, web_chat=${result.webChatConversations}, contacto=${result.contactMessages}, ` +
+          `web_events=${result.webEvents}, web_chat=${result.webChatConversations}, lista_espera=${result.waitlistEntries}, contacto=${result.contactMessages}, ` +
           `admin_sessions=${result.adminSessions}, impersonations=${result.impersonationLogs}, ` +
           `admin_audit=${result.superAdminAuditLogs})`,
       );

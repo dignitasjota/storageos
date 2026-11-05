@@ -79,6 +79,7 @@ export default function NewContractWizardPage() {
     facilityId?: string;
     unitTypeId?: string;
     waitlistEntryId?: string;
+    unitRequestId?: string;
   }>({});
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -89,6 +90,7 @@ export default function NewContractWizardPage() {
       ...(q.get('facilityId') ? { facilityId: q.get('facilityId')! } : {}),
       ...(q.get('unitTypeId') ? { unitTypeId: q.get('unitTypeId')! } : {}),
       ...(q.get('waitlistEntryId') ? { waitlistEntryId: q.get('waitlistEntryId')! } : {}),
+      ...(q.get('unitRequestId') ? { unitRequestId: q.get('unitRequestId')! } : {}),
     });
   }, []);
   const reservation = useReservation(prefill.reservationId);
@@ -153,6 +155,7 @@ export default function NewContractWizardPage() {
       ...(notes.trim() ? { notes: notes.trim() } : {}),
       ...(prefill.reservationId ? { reservationId: prefill.reservationId } : {}),
       ...(prefill.waitlistEntryId ? { waitlistEntryId: prefill.waitlistEntryId } : {}),
+      ...(prefill.unitRequestId ? { unitRequestId: prefill.unitRequestId } : {}),
     };
     try {
       const created = await create.mutateAsync(input);

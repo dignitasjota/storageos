@@ -252,6 +252,7 @@ export class LeadsController {
       id,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

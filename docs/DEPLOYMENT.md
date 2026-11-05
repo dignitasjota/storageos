@@ -1799,3 +1799,13 @@ Migración `20261223100000_customer_features`, se aplica sola. Sin variables nue
 - Las vistas guardadas en el navegador se suben al servidor la primera vez que alguien con permiso abre Inquilinos y pasan a verlas todos.
 - **Fusionar inquilinos no se puede deshacer**: solo la tienen quienes pueden borrar inquilinos.
 - Una empresa con email de facturación recibe en él facturas, cobros y recordatorios.
+
+## 97. Reservas, lista de espera, cambios y solicitudes: arreglos (2026-11-05)
+
+Sin migración. Variable opcional `RETENTION_WAITLIST_DAYS` (365).
+
+- **Un trastero guardado para otra persona** (reserva online, aviso de la lista de espera, traslado programado, reserva anticipada) ya no se reserva a mano ni se pone a la venta: 409 `unit_held_by_other`. Lo que suelta un trastero mira a todos los dueños (`releaseReservedUnit`).
+- **Lista de espera**: el repaso horario avisa también a quien está en cola con un trastero libre. Al desplegar, quien ya esté en esa situación recibirá el aviso en la primera hora y su trastero quedará guardado 48 h.
+- **Respuesta a las peticiones**: el inquilino recibe un correo nuevo al atender o rechazar un cambio o una solicitud de trastero. Se apaga en Configuración → Correo. Rechazar exige un motivo.
+- **Reservas**: `POST /reservations/expire-due` desaparece (nadie lo usaba; lo hace el cron). Una señal necesita inquilino y `validUntil` tiene que ser futura.
+- **RGPD**: anonimizar a un inquilino lo saca de la cola y suelta su trastero guardado. Los contactos de la cola sin ficha y ya cerrados se borran al año.

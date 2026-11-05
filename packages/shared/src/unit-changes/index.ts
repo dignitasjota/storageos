@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
+
 /** Solicitud de cambio/upgrade de trastero desde el portal del inquilino. */
 export const PortalUnitChangeRequestSchema = z
   .object({
@@ -8,10 +10,7 @@ export const PortalUnitChangeRequestSchema = z
     /** Trastero libre del mismo local al que quiere cambiarse (autoservicio). */
     targetUnitId: z.string().uuid().optional(),
     /** Desde cuándo quiere el cambio (YYYY-MM-DD). */
-    desiredDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional(),
+    desiredDate: calendarDate.optional(),
     note: z.string().trim().max(1000).default(''),
   })
   .refine((v) => !!v.targetUnitId || v.note.length >= 5, {
@@ -21,10 +20,15 @@ export const PortalUnitChangeRequestSchema = z
 export type PortalUnitChangeRequestInput = z.infer<typeof PortalUnitChangeRequestSchema>;
 
 /** Resolución de la solicitud por parte del staff. */
-export const ResolveUnitChangeRequestSchema = z.object({
-  status: z.enum(['handled', 'rejected']),
-  resolutionNote: z.string().trim().max(1000).optional(),
-});
+export const ResolveUnitChangeRequestSchema = z
+  .object({
+    status: z.enum(['handled', 'rejected']),
+    resolutionNote: z.string().trim().max(1000).optional(),
+  })
+  .refine((v) => v.status !== 'rejected' || !!v.resolutionNote, {
+    message: 'Explica al inquilino por qué no se puede',
+    path: ['resolutionNote'],
+  });
 export type ResolveUnitChangeRequestInput = z.infer<typeof ResolveUnitChangeRequestSchema>;
 
 export type UnitChangeRequestStatus = 'pending' | 'handled' | 'rejected';
@@ -56,6 +60,8 @@ export interface UnitChangeRequestDto {
   targetUnitCode: string | null;
   /** Precio del trastero elegido (sin IVA) frente al actual. */
   targetUnitPrice: number | null;
+  /** ¿Sigue libre el trastero que eligió? */
+  targetUnitFree: boolean | null;
   currentPrice: number | null;
   desiredDate: string | null;
   note: string;
