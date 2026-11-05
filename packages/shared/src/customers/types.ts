@@ -11,8 +11,17 @@ import type {
   ReservationStatusValue,
 } from './schemas';
 
+/** Otro inquilino con el mismo email, teléfono o documento. */
+export interface CustomerDuplicateDto {
+  id: string;
+  displayName: string;
+  matches: ('email' | 'phone' | 'document')[];
+}
+
 export interface CustomerDto {
   id: string;
+  /** Inquilino de prueba de la puesta en marcha: no cuenta en las cifras. */
+  isTest: boolean;
   /** Se dio de baja de las comunicaciones comerciales (null = las recibe). */
   marketingOptOutAt: string | null;
   customerType: CustomerTypeValue;

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
 
+import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { CreateCustomerInteractionInput, CustomerInteractionDto } from '@storageos/shared';
@@ -26,7 +27,10 @@ function toDto(row: InteractionRow): CustomerInteractionDto {
 
 @Injectable()
 export class CustomerInteractionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async list(tenantId: string, customerId: string): Promise<CustomerInteractionDto[]> {
     const rows = await this.prisma.withTenant(
@@ -74,8 +78,13 @@ export class CustomerInteractionsService {
     return toDto(created);
   }
 
-  async remove(tenantId: string, customerId: string, id: string): Promise<void> {
-    await this.prisma.withTenant(async (tx) => {
+  async remove(
+    tenantId: string,
+    customerId: string,
+    id: string,
+    userId: string | null,
+  ): Promise<void> {
+    const removed = await this.prisma.withTenant(async (tx) => {
       const row = await tx.customerInteraction.findFirst({ where: { id, customerId } });
       if (!row) {
         throw new NotFoundException({
@@ -84,6 +93,15 @@ export class CustomerInteractionsService {
         });
       }
       await tx.customerInteraction.delete({ where: { id } });
+      return row;
     }, tenantId);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'customer.interaction_deleted',
+      entityType: 'Customer',
+      entityId: customerId,
+      changes: { type: removed.type, occurredAt: removed.occurredAt.toISOString() },
+    });
   }
 }

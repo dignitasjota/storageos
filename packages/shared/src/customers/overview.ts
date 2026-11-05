@@ -9,6 +9,10 @@ export type CustomerPayVia = 'card' | 'sepa_debit' | 'sepa_mandate' | null;
 
 export interface CustomerOverviewDto {
   id: string;
+  /** Inquilino de prueba de la puesta en marcha: no cuenta en las cifras. */
+  isTest: boolean;
+  /** Sin permiso sobre facturas y cobros, las cifras llegan a 0. */
+  moneyVisible: boolean;
   displayName: string;
   customerType: 'individual' | 'business';
   email: string | null;

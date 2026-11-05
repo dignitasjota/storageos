@@ -15,6 +15,7 @@ import {
 import { type FacilityScope } from '../../common/facility-scope';
 import { formatEur } from '../../common/format';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
+import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -185,7 +186,10 @@ export class OpportunitiesService {
           where: { deletedAt: null, type: { in: ['card', 'sepa_debit'] } },
           select: { customerId: true },
         }),
-        tx.sepaMandate.findMany({ where: { status: 'active' }, select: { customerId: true } }),
+        tx.sepaMandate.findMany({
+          where: CHARGEABLE_MANDATE_WHERE,
+          select: { customerId: true },
+        }),
         tx.unitChangeRequest.findMany({
           where: { status: 'pending' },
           select: { customerId: true },

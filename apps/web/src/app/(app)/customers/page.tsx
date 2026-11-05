@@ -15,6 +15,8 @@ import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
+import { DuplicateWarning } from '@/components/customers/duplicate-warning';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,6 +56,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
@@ -61,9 +64,11 @@ import {
   useCustomersOverview,
   useCustomerUnreadSummary,
   useDeleteCustomer,
+  useBulkPortalAccess,
   useSendPortalAccessEmail,
 } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate } from '@/lib/format';
 import { useOpenFromUrl } from '@/lib/use-open-from-url';
 
@@ -194,6 +199,11 @@ export default function CustomersPage() {
   const overview = useCustomersOverview();
   const facilities = useFacilities();
   const [filters, setFilters] = useState<Filters>(EMPTY);
+  const headerFacilityId = useHeaderFacilityId();
+  // Sigue al local elegido en la cabecera.
+  useEffect(() => {
+    setFilters((f) => ({ ...f, facilityId: headerFacilityId ?? 'all' }));
+  }, [headerFacilityId]);
   const [columnsOn, setColumnsOn] = useState<ColumnKey[]>(DEFAULT_COLUMNS);
   const [views, setViews] = useState<View[]>([]);
   useEffect(() => {
@@ -215,6 +225,7 @@ export default function CustomersPage() {
   const create = useCreateCustomer();
   const remove = useDeleteCustomer();
   const sendAccess = useSendPortalAccessEmail();
+  const bulkAccess = useBulkPortalAccess();
   const [sendingAll, setSendingAll] = useState(false);
   /** Envía por email el enlace de acceso a todos los inquilinos filtrados que tienen email. */
   async function sendAccessToAll() {
@@ -228,16 +239,18 @@ export default function CustomersPage() {
     if (!ok) return;
     setSendingAll(true);
     let sent = 0;
-    for (const r of target) {
-      try {
-        await sendAccess.mutateAsync(r.id);
-        sent += 1;
-      } catch {
-        /* sigue con los demás */
+    try {
+      // De 100 en 100: cada tanda es una sola petición.
+      for (let i = 0; i < target.length; i += 100) {
+        const res = await bulkAccess.mutateAsync(target.slice(i, i + 100).map((r) => r.id));
+        sent += res.sent;
       }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Se ha cortado el envío.');
     }
     setSendingAll(false);
-    toast.success(`Enviado a ${sent} de ${target.length}.`);
+    if (sent < target.length) toast.warning(`Enviado a ${sent} de ${target.length}.`);
+    else toast.success(`Enviado a ${sent}.`);
   }
   // Marcada por defecto: al crear, el inquilino recibe por email su acceso al portal.
   const [sendAccessEmail, setSendAccessEmail] = useState(true);
@@ -289,15 +302,34 @@ export default function CustomersPage() {
   async function handleDelete(id: string) {
     if (
       !(await ask({
-        title: '¿Borrar este inquilino? Es un soft delete: el histórico se mantiene.',
+        title: '¿Borrar este inquilino?',
+        description: 'Desaparece de la lista; sus contratos y facturas se conservan.',
         destructive: true,
       }))
     )
       return;
     try {
-      await remove.mutateAsync(id);
+      await remove.mutateAsync({ id });
       toast.success('Inquilino borrado.');
     } catch (err) {
+      if (err instanceof ApiError && err.body.code === 'customer_has_debt') {
+        const amount = (err.body.details as { amount?: number } | undefined)?.amount ?? 0;
+        const sure = await ask({
+          title: `Debe ${eur(amount)}`,
+          description:
+            'Tiene facturas pendientes de cobro. Si lo borras, siguen pendientes, pero dejará de salir en Inquilinos.',
+          confirmLabel: 'Borrar igualmente',
+          destructive: true,
+        });
+        if (!sure) return;
+        try {
+          await remove.mutateAsync({ id, confirmDebt: true });
+          toast.success('Inquilino borrado.');
+        } catch (again) {
+          toast.error(again instanceof ApiError ? again.body.message : 'Error');
+        }
+        return;
+      }
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
   }
@@ -317,6 +349,7 @@ export default function CustomersPage() {
               <Link href={`/customers/${c.id}`} className="font-medium hover:underline">
                 {c.displayName}
               </Link>
+              {c.isTest && <Badge variant="secondary">Prueba</Badge>}
               {unread > 0 && (
                 <span
                   title={`${unread} mensaje(s) sin leer`}
@@ -547,8 +580,11 @@ export default function CustomersPage() {
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) =>
     setFilters((f) => ({ ...f, [k]: v }));
   const activeFilters = JSON.stringify(filters) !== JSON.stringify(EMPTY);
-  const debtTotal = rows.reduce((sum, c) => sum + c.overdue, 0);
-  const monthlyTotal = rows.reduce((sum, c) => sum + c.monthly, 0);
+  // El inquilino de prueba no cuenta en las cifras.
+  const real = rows.filter((c) => !c.isTest);
+  const debtTotal = real.reduce((sum, c) => sum + c.overdue, 0);
+  const monthlyTotal = real.reduce((sum, c) => sum + c.monthly, 0);
+  const moneyVisible = rows.every((c) => c.moneyVisible);
 
   function toggleColumn(k: ColumnKey) {
     const next = show(k) ? columnsOn.filter((c) => c !== k) : [...columnsOn, k];
@@ -580,8 +616,13 @@ export default function CustomersPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Inquilinos</h1>
         <p className="text-sm text-muted-foreground">
-          {rows.length} {rows.length === 1 ? 'inquilino' : 'inquilinos'} · cuotas{' '}
-          <span className="font-medium text-foreground">{eur(monthlyTotal)}/mes</span>
+          {real.length} {real.length === 1 ? 'inquilino' : 'inquilinos'}
+          {moneyVisible && (
+            <>
+              {' '}
+              · cuotas <span className="font-medium text-foreground">{eur(monthlyTotal)}/mes</span>
+            </>
+          )}
           {debtTotal > 0 && (
             <>
               {' '}
@@ -641,12 +682,26 @@ export default function CustomersPage() {
         )}
       </div>
 
+      {overview.isError && <SectionError onRetry={() => void overview.refetch()} />}
+
       <DataTable
         rowHref={(c) => `/customers/${c.id}`}
         columns={columns}
         data={rows}
         isLoading={overview.isLoading}
         searchPlaceholder="Buscar por nombre, email, teléfono, trastero o etiqueta…"
+        searchText={(c) =>
+          [
+            c.displayName,
+            c.email,
+            c.phone,
+            c.phone?.replace(/\D/g, ''),
+            ...c.tags,
+            ...c.units.map((u) => `${u.code} ${u.facilityName}`),
+          ]
+            .filter(Boolean)
+            .join(' ')
+        }
         pageSize={50}
         toolbarRight={
           <>
@@ -855,6 +910,44 @@ export default function CustomersPage() {
                         )}
                       />
                     </div>
+                    <details className="rounded-md border px-3 py-2 text-sm">
+                      <summary className="cursor-pointer text-muted-foreground">
+                        Dirección y otros datos
+                      </summary>
+                      <div className="mt-3 space-y-3">
+                        <div className="space-y-1">
+                          <Label htmlFor="new-address">Dirección</Label>
+                          <Input id="new-address" {...form.register('address')} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label htmlFor="new-postal">Código postal</Label>
+                            <Input id="new-postal" {...form.register('postalCode')} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="new-city">Ciudad</Label>
+                            <Input id="new-city" {...form.register('city')} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="new-em-name">Contacto de emergencia</Label>
+                            <Input id="new-em-name" {...form.register('emergencyContactName')} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="new-em-phone">Teléfono de emergencia</Label>
+                            <Input id="new-em-phone" {...form.register('emergencyContactPhone')} />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="new-notes">Notas</Label>
+                          <Textarea id="new-notes" rows={2} {...form.register('notes')} />
+                        </div>
+                      </div>
+                    </details>
+                    <DuplicateWarning
+                      email={form.watch('email')}
+                      phone={form.watch('phone')}
+                      documentNumber={form.watch('documentNumber')}
+                    />
                     <FormField
                       control={form.control}
                       name="referralCode"

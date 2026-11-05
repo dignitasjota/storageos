@@ -11,6 +11,7 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   CreateCustomerSchema,
@@ -22,6 +23,7 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -32,7 +34,7 @@ import { parsePageRequest, toPage } from '../../common/pagination';
 import { CustomersService } from './customers.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { PageDto } from '@storageos/shared';
+import type { CustomerDuplicateDto, PageDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class CreateCustomerDto extends createZodDto(CreateCustomerSchema) {}
@@ -50,6 +52,7 @@ function extractMeta(req: Request): RequestMeta {
 }
 
 @Controller('customers')
+@UseGuards(CustomerScopeGuard)
 export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
 
@@ -66,8 +69,31 @@ export class CustomersController {
     const rows = await this.customers.list(user.tenantId, {
       page,
       ...(search ? { search } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
     return toPage(rows, page);
+  }
+
+  /** Posibles duplicados al dar de alta o editar. Antes de `:id`. */
+  @RequirePermission('customers:read')
+  @Get('duplicates')
+  duplicates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('email') email?: string,
+    @Query('phone') phone?: string,
+    @Query('documentNumber') documentNumber?: string,
+    @Query('excludeId') excludeId?: string,
+  ): Promise<CustomerDuplicateDto[]> {
+    return this.customers.duplicates(
+      user.tenantId,
+      {
+        ...(email ? { email } : {}),
+        ...(phone ? { phone } : {}),
+        ...(documentNumber ? { documentNumber } : {}),
+        ...(excludeId ? { excludeId } : {}),
+      },
+      user.facilityScope ?? null,
+    );
   }
 
   @RequirePermission('customers:read')
@@ -76,7 +102,10 @@ export class CustomersController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('search') search?: string,
   ): Promise<CustomerDto[]> {
-    return this.customers.list(user.tenantId, { ...(search ? { search } : {}) });
+    return this.customers.list(user.tenantId, {
+      ...(search ? { search } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('customers:read')
@@ -127,11 +156,13 @@ export class CustomersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Req() req: Request,
+    @Query('confirmDebt') confirmDebt?: string,
   ): Promise<void> {
     await this.customers.softDelete({
       tenantId: user.tenantId,
       userId: user.sub,
       customerId: id,
+      confirmDebt: confirmDebt === '1',
       meta: extractMeta(req),
     });
   }

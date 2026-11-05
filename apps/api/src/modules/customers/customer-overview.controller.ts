@@ -1,5 +1,7 @@
-import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import { permissionsForRole } from '@storageos/shared';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -22,11 +24,16 @@ export class CustomerOverviewController {
   @Get('overview')
   @RequirePermission('customers:read')
   overview(@CurrentUser() user: AuthenticatedUser): Promise<CustomerOverviewDto[]> {
-    return this.service.overview(user.tenantId);
+    const permissions = user.permissions ?? permissionsForRole(user.role);
+    return this.service.overview(user.tenantId, {
+      facilityScope: user.facilityScope ?? null,
+      moneyVisible: permissions.includes('invoices:read') && permissions.includes('payments:read'),
+    });
   }
 
   @Get(':id/account')
-  @RequirePermission('customers:read')
+  @RequirePermission('customers:read', 'invoices:read', 'payments:read')
+  @UseGuards(CustomerScopeGuard)
   account(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,

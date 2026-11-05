@@ -43,3 +43,12 @@ export async function hasPaymentInFlight(
   const settled = await db.invoice.count({ where: { id: invoiceId, ...NO_PAYMENT_IN_FLIGHT } });
   return settled === 0;
 }
+
+/**
+ * Mandato con el que de verdad se puede cobrar: uno pendiente de firma no entra
+ * en ninguna remesa.
+ */
+export const CHARGEABLE_MANDATE_WHERE = {
+  status: 'active',
+  signatureStatus: { in: ['signed', 'external'] },
+};

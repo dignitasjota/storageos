@@ -3,6 +3,7 @@
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type Row,
   type RowData,
   type SortingState,
   type VisibilityState,
@@ -46,6 +47,11 @@ interface DataTableProps<TData, TValue> {
   data: TData[];
   /** Activa input de búsqueda global (filtra todas las columnas). */
   searchPlaceholder?: string;
+  /**
+   * Texto en el que busca el campo de búsqueda, si hay datos que no salen en
+   * las columnas visibles (email, teléfono, etiquetas…).
+   */
+  searchText?: (row: TData) => string;
   /** Componente extra arriba a la derecha (botón "Crear", etc.). */
   toolbarRight?: React.ReactNode;
   /** Filas por página. Default 25. */
@@ -110,6 +116,7 @@ export function DataTable<TData, TValue>({
   columns,
   data,
   searchPlaceholder,
+  searchText,
   toolbarRight,
   pageSize = 25,
   emptyText = 'No hay datos para mostrar.',
@@ -218,6 +225,19 @@ export function DataTable<TData, TValue>({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    ...(searchText
+      ? {
+          globalFilterFn: (row: Row<TData>, _columnId: string, value: string) => {
+            const text = searchText(row.original).toLowerCase();
+            return value
+              .toLowerCase()
+              .split(/\s+/)
+              .filter(Boolean)
+              .every((word) => text.includes(word));
+          },
+          getColumnCanGlobalFilter: () => true,
+        }
+      : {}),
     getPaginationRowModel: getPaginationRowModel(),
     // Con paginación en el servidor se ven todas las filas cargadas.
     initialState: { pagination: { pageSize: loadMore ? 100_000 : pageSize } },

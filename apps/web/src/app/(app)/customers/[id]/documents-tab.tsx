@@ -15,8 +15,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ApiError } from '@/lib/auth/api';
 import {
   useCustomerDocuments,
+  useCustomerDocumentDownload,
   useDeleteCustomerDocument,
   useRegisterCustomerDocument,
   useRequestCustomerDocumentUpload,
@@ -35,8 +37,22 @@ export function CustomerDocumentsTab({ customerId }: { customerId: string }) {
   const requestUpload = useRequestCustomerDocumentUpload();
   const register = useRegisterCustomerDocument();
   const remove = useDeleteCustomerDocument();
+  const download = useCustomerDocumentDownload();
   const fileInput = useRef<HTMLInputElement>(null);
   const typeRef = useRef<CustomerDocumentTypeValue>('id_front');
+
+  async function openDocument(id: string) {
+    // Se abre antes de pedir la dirección: si no, el navegador lo toma por una ventana emergente.
+    const tab = window.open('', '_blank');
+    try {
+      const { url } = await download.mutateAsync({ customerId, id });
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+    } catch (err) {
+      tab?.close();
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo abrir el documento.');
+    }
+  }
 
   async function handleFile(file: File) {
     if (file.size > 10 * 1024 * 1024) {
@@ -153,18 +169,17 @@ export function CustomerDocumentsTab({ customerId }: { customerId: string }) {
           <ul className="divide-y rounded-md border">
             {docs.data.map((d) => (
               <li key={d.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                <a
-                  href={d.fileUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 hover:underline"
+                <button
+                  type="button"
+                  onClick={() => void openDocument(d.id)}
+                  className="flex items-center gap-2 text-left hover:underline"
                 >
                   <File className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm">{d.fileName}</span>
                   <span className="text-xs text-muted-foreground">
                     {DOC_TYPES.find((t) => t.value === d.type)?.label}
                   </span>
-                </a>
+                </button>
                 <Button
                   variant="ghost"
                   size="icon"

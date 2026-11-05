@@ -1,7 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
+import { customerScopeWhere } from '../../common/customer-scope';
+import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
+import { todayInTimezone } from '../../common/format';
+import { nextContractCharge } from '../../common/next-charge';
+import { isPendingPreOpening } from '../../common/pre-opening';
+import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { PrismaService } from '../database/prisma.service';
 
+import type { Prisma } from '@storageos/database';
 import type { CustomerAccountDto, CustomerOverviewDto, CustomerPayVia } from '@storageos/shared';
 
 const DAY = 86_400_000;
@@ -16,6 +23,24 @@ const STEP_LABEL: Record<string, string> = {
   access_block: 'Corte de acceso',
   legal_notice: 'Aviso legal',
 };
+
+/** Vencido: marcado como tal o emitido con el vencimiento ya pasado. */
+function overdueOf(today: Date): Prisma.InvoiceWhereInput {
+  return {
+    deletedAt: null,
+    kind: 'invoice',
+    OR: [{ status: 'overdue' }, { status: 'issued', dueDate: { lt: today } }],
+  };
+}
+
+function notDueOf(today: Date): Prisma.InvoiceWhereInput {
+  return {
+    deletedAt: null,
+    kind: 'invoice',
+    status: 'issued',
+    OR: [{ dueDate: null }, { dueDate: { gte: today } }],
+  };
+}
 
 /** Cuota mensual de un contrato: alquiler − descuento + seguro (sin IVA). */
 function contractMonthly(c: {
@@ -37,8 +62,20 @@ function contractMonthly(c: {
 export class CustomerOverviewService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async overview(tenantId: string): Promise<CustomerOverviewDto[]> {
+  async overview(
+    tenantId: string,
+    options: { facilityScope?: FacilityScope; moneyVisible?: boolean } = {},
+  ): Promise<CustomerOverviewDto[]> {
+    const scope = options.facilityScope;
+    const money = options.moneyVisible ?? true;
     return this.prisma.withTenant(async (tx) => {
+      const tenant = await tx.tenant.findFirst({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      const today = todayInTimezone(tenant?.timezone ?? 'Europe/Madrid');
+      // Como en Deudores: también lo emitido ya vencido que el cron aún no ha marcado.
+      const overdueWhere = overdueOf(today);
       const [
         customers,
         contracts,
@@ -52,9 +89,10 @@ export class CustomerOverviewService {
         followups,
       ] = await Promise.all([
         tx.customer.findMany({
-          where: { deletedAt: null },
+          where: { deletedAt: null, ...customerScopeWhere(scope) },
           select: {
             id: true,
+            isTest: true,
             customerType: true,
             firstName: true,
             lastName: true,
@@ -79,6 +117,8 @@ export class CustomerOverviewService {
             priceMonthly: true,
             discountAmount: true,
             insurancePrice: true,
+            preOpening: true,
+            preOpeningStartedAt: true,
             insurancePlan: { select: { name: true } },
             unit: {
               select: { code: true, facilityId: true, facility: { select: { name: true } } },
@@ -90,23 +130,25 @@ export class CustomerOverviewService {
           select: { customerId: true, type: true, isDefault: true },
         }),
         tx.sepaMandate.findMany({
-          where: { status: 'active' },
+          where: CHARGEABLE_MANDATE_WHERE,
           select: { customerId: true },
         }),
         tx.invoice.groupBy({
           by: ['customerId'],
-          where: { deletedAt: null, kind: 'invoice', status: 'overdue', customerId: { not: null } },
+          where: { ...overdueWhere, customerId: { not: null } },
           _sum: { total: true, amountPaid: true },
           _min: { dueDate: true },
         }),
         tx.invoice.groupBy({
           by: ['customerId'],
-          where: { deletedAt: null, kind: 'invoice', status: 'issued', customerId: { not: null } },
+          where: { ...notDueOf(today), customerId: { not: null } },
           _sum: { total: true, amountPaid: true },
         }),
+        // Solo lo escrito por una persona: las facturas y avisos automáticos no
+        // son un contacto.
         tx.communication.groupBy({
           by: ['customerId'],
-          where: { customerId: { not: null }, sentAt: { not: null } },
+          where: { customerId: { not: null }, sentAt: { not: null }, source: 'manual' },
           _max: { sentAt: true },
         }),
         tx.customerInteraction.groupBy({ by: ['customerId'], _max: { occurredAt: true } }),
@@ -144,7 +186,10 @@ export class CustomerOverviewService {
       for (const f of followups) if (!followupBy.has(f.customerId)) followupBy.set(f.customerId, f);
 
       return customers.map((c) => {
-        const live = contractsBy.get(c.id) ?? [];
+        // Con alcance, solo lo de sus locales.
+        const live = (contractsBy.get(c.id) ?? []).filter(
+          (l) => !scope || isFacilityAllowed(scope, l.unit.facilityId),
+        );
         const ms = methodsBy.get(c.id) ?? [];
         const preferred = ms.find((m) => m.isDefault) ?? ms[0];
         const payVia: CustomerPayVia = preferred
@@ -162,6 +207,7 @@ export class CustomerOverviewService {
             : [c.firstName, c.lastName].filter(Boolean).join(' ') || '—';
         return {
           id: c.id,
+          isTest: c.isTest,
           displayName,
           customerType: c.customerType as 'individual' | 'business',
           email: c.email,
@@ -173,7 +219,14 @@ export class CustomerOverviewService {
           createdAt: c.createdAt.toISOString(),
           units: live.map((l) => ({ code: l.unit.code, facilityName: l.unit.facility.name })),
           facilityIds: [...new Set(live.map((l) => l.unit.facilityId))],
-          monthly: round2(live.reduce((s, l) => s + contractMonthly(l), 0)),
+          // Una reserva anticipada aún no paga cuota.
+          monthly: money
+            ? round2(
+                live
+                  .filter((l) => !isPendingPreOpening(l))
+                  .reduce((s, l) => s + contractMonthly(l), 0),
+              )
+            : 0,
           contractStatus:
             live.length === 0
               ? 'none'
@@ -187,13 +240,17 @@ export class CustomerOverviewService {
           insurance: [
             ...new Set(live.map((l) => l.insurancePlan?.name).filter((n): n is string => !!n)),
           ],
-          overdue: od
-            ? round2(Math.max(0, Number(od._sum.total ?? 0) - Number(od._sum.amountPaid ?? 0)))
-            : 0,
-          overdueSince: od?._min.dueDate ? od._min.dueDate.toISOString().slice(0, 10) : null,
-          pendingNotDue: nd
-            ? round2(Math.max(0, Number(nd._sum.total ?? 0) - Number(nd._sum.amountPaid ?? 0)))
-            : 0,
+          overdue:
+            money && od
+              ? round2(Math.max(0, Number(od._sum.total ?? 0) - Number(od._sum.amountPaid ?? 0)))
+              : 0,
+          overdueSince:
+            money && od?._min.dueDate ? od._min.dueDate.toISOString().slice(0, 10) : null,
+          pendingNotDue:
+            money && nd
+              ? round2(Math.max(0, Number(nd._sum.total ?? 0) - Number(nd._sum.amountPaid ?? 0)))
+              : 0,
+          moneyVisible: money,
           lastContactAt: lastBy.get(c.id)?.toISOString() ?? null,
           nextFollowup: f
             ? { title: f.title, dueDate: f.dueDate.toISOString().slice(0, 10) }
@@ -219,67 +276,80 @@ export class CustomerOverviewService {
           message: 'Inquilino no encontrado',
         });
       }
-      const [tenant, contracts, methods, mandate, overdue, notDue, paid, nightPasses] =
-        await Promise.all([
-          tx.tenant.findUnique({ where: { id: tenantId }, select: { autoChargeOnIssue: true } }),
-          tx.contract.findMany({
-            where: { customerId, deletedAt: null, status: { in: [...LIVE] } },
-            select: {
-              id: true,
-              contractNumber: true,
-              status: true,
-              endDate: true,
-              priceMonthly: true,
-              discountAmount: true,
-              insurancePrice: true,
-              billingIntervalMonths: true,
-              depositAmount: true,
-              depositStatus: true,
-              insurancePlan: { select: { name: true } },
-              unit: { select: { code: true, facility: { select: { name: true } } } },
-              invoices: {
-                where: { deletedAt: null, kind: 'invoice', periodEnd: { not: null } },
-                select: { periodEnd: true },
-                orderBy: { periodEnd: 'desc' },
-                take: 1,
+      const tenantRow = await tx.tenant.findUnique({
+        where: { id: tenantId },
+        select: { autoChargeOnIssue: true, timezone: true },
+      });
+      const today = todayInTimezone(tenantRow?.timezone ?? 'Europe/Madrid', now);
+      const [contracts, methods, mandate, overdue, notDue, paid, nightPasses] = await Promise.all([
+        tx.contract.findMany({
+          where: { customerId, deletedAt: null, status: { in: [...LIVE] } },
+          select: {
+            id: true,
+            contractNumber: true,
+            status: true,
+            endDate: true,
+            priceMonthly: true,
+            discountAmount: true,
+            insurancePrice: true,
+            billingIntervalMonths: true,
+            billingStartsOn: true,
+            freeMonthsRemaining: true,
+            prepayDiscountPct: true,
+            preOpening: true,
+            preOpeningStartedAt: true,
+            depositAmount: true,
+            depositStatus: true,
+            insurancePlan: { select: { name: true } },
+            unit: { select: { code: true, facility: { select: { name: true } } } },
+            invoices: {
+              where: {
+                deletedAt: null,
+                kind: 'invoice',
+                periodEnd: { not: null },
+                status: { notIn: ['draft', 'cancelled', 'rectified'] },
               },
+              select: { periodEnd: true },
+              orderBy: { periodEnd: 'desc' },
+              take: 1,
             },
-            orderBy: { createdAt: 'asc' },
-          }),
-          tx.paymentMethod.findMany({
-            where: { customerId, deletedAt: null, type: { in: ['card', 'sepa_debit'] } },
-            select: { type: true, isDefault: true, last4: true, brand: true },
-          }),
-          tx.sepaMandate.findFirst({
-            where: { customerId, status: 'active' },
-            select: { ibanLast4: true },
-          }),
-          tx.invoice.findMany({
-            where: { customerId, deletedAt: null, kind: 'invoice', status: 'overdue' },
-            select: { id: true, invoiceNumber: true, dueDate: true, total: true, amountPaid: true },
-            orderBy: { dueDate: 'asc' },
-          }),
-          tx.invoice.aggregate({
-            where: { customerId, deletedAt: null, kind: 'invoice', status: 'issued' },
-            _sum: { total: true, amountPaid: true },
-          }),
-          tx.payment.aggregate({
-            where: {
-              customerId,
-              status: { in: ['succeeded', 'partially_refunded'] },
-              paidAt: { gte: new Date(now.getTime() - 365 * DAY) },
-              methodType: { notIn: ['credit_note', 'withholding'] },
-            },
-            _sum: { amount: true, refundedAmount: true },
-          }),
-          tx.accessCredential.count({
-            where: {
-              customerId,
-              createdAt: { gte: new Date(now.getTime() - 30 * DAY) },
-              metadata: { path: ['source'], equals: 'night_pass' },
-            },
-          }),
-        ]);
+          },
+          orderBy: { createdAt: 'asc' },
+        }),
+        tx.paymentMethod.findMany({
+          where: { customerId, deletedAt: null, type: { in: ['card', 'sepa_debit'] } },
+          select: { type: true, isDefault: true, last4: true, brand: true },
+        }),
+        tx.sepaMandate.findFirst({
+          where: { customerId, ...CHARGEABLE_MANDATE_WHERE },
+          select: { ibanLast4: true },
+        }),
+        tx.invoice.findMany({
+          where: { ...overdueOf(today), customerId },
+          select: { id: true, invoiceNumber: true, dueDate: true, total: true, amountPaid: true },
+          orderBy: { dueDate: 'asc' },
+        }),
+        tx.invoice.aggregate({
+          where: { ...notDueOf(today), customerId },
+          _sum: { total: true, amountPaid: true },
+        }),
+        tx.payment.aggregate({
+          where: {
+            customerId,
+            status: { in: ['succeeded', 'partially_refunded'] },
+            paidAt: { gte: new Date(now.getTime() - 365 * DAY) },
+            methodType: { notIn: ['credit_note', 'withholding'] },
+          },
+          _sum: { amount: true, refundedAmount: true },
+        }),
+        tx.accessCredential.count({
+          where: {
+            customerId,
+            createdAt: { gte: new Date(now.getTime() - 30 * DAY) },
+            metadata: { path: ['source'], equals: 'night_pass' },
+          },
+        }),
+      ]);
 
       const lines = contracts.map((c) => {
         const rent = Number(c.priceMonthly);
@@ -318,21 +388,20 @@ export class CustomerOverviewService {
           ? `Remesa SEPA ··${mandate.ibanLast4}`
           : null;
 
-      // Próxima factura: mensual → día 1 del mes siguiente; prepagado → día
-      // siguiente al fin del último periodo facturado.
+      // Próxima factura: el mismo cálculo que ve el inquilino en su área de clientes.
       let nextCharge: CustomerAccountDto['nextCharge'] = null;
       const charges = contracts
-        .filter((c) => c.status === 'active')
-        .map((c) => {
-          const total = contractMonthly(c) * c.billingIntervalMonths;
-          if (c.billingIntervalMonths > 1 && c.invoices[0]?.periodEnd) {
-            return { date: new Date(c.invoices[0].periodEnd.getTime() + DAY), amount: total };
-          }
-          return {
-            date: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)),
-            amount: total,
-          };
-        })
+        .filter((c) => c.status === 'active' && !isPendingPreOpening(c))
+        .map((c) =>
+          nextContractCharge(
+            { ...c, coveredUntil: c.invoices[0]?.periodEnd ?? null },
+            {
+              rent: Math.max(0, Number(c.priceMonthly) - Number(c.discountAmount)),
+              insurance: Number(c.insurancePrice ?? 0),
+            },
+            today,
+          ),
+        )
         .sort((a, b) => a.date.getTime() - b.date.getTime());
       if (charges.length) {
         const first = charges[0]!.date;
@@ -379,7 +448,7 @@ export class CustomerOverviewService {
         lines,
         payVia,
         payViaLabel,
-        autoCharge: !!tenant?.autoChargeOnIssue && !!pm,
+        autoCharge: !!tenantRow?.autoChargeOnIssue && !!pm,
         nextCharge,
         overdue: overdueDto,
         pendingNotDue: round2(

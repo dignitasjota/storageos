@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
+import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { PrismaService } from '../database/prisma.service';
 
 import type { CustomerExtrasDto, CustomerExtrasRowDto } from '@storageos/shared';
@@ -22,6 +24,7 @@ export class CustomerExtrasService {
         where: {
           deletedAt: null,
           status: { in: ['active', 'ending'] },
+          ...STARTED_CONTRACT_WHERE,
           ...(scope ? { unit: { facilityId: { in: scope } } } : {}),
         },
         select: {
@@ -50,7 +53,7 @@ export class CustomerExtrasService {
           select: { customerId: true },
         }),
         tx.sepaMandate.findMany({
-          where: { customerId: { in: ids }, status: 'active' },
+          where: { customerId: { in: ids }, ...CHARGEABLE_MANDATE_WHERE },
           select: { customerId: true },
         }),
         tx.accessCredential.findMany({

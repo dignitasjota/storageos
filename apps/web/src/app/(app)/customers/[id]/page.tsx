@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, BadgeCheck, Loader2 } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, Loader2, Pencil } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -14,6 +14,7 @@ import { CustomerCommunicationsTab } from './communications-tab';
 import { CustomerContractsTab } from './contracts-tab';
 import { DepositExemptCard } from './deposit-exempt-card';
 import { CustomerDocumentsTab } from './documents-tab';
+import { EditCustomerDialog } from './edit-customer-dialog';
 import { EmailStatusCard } from './email-status-card';
 import { FollowupsCard } from './followups-card';
 import { MarketingPreferenceCard } from './marketing-preference-card';
@@ -24,6 +25,7 @@ import { QuickContact } from './quick-contact';
 import { CustomerReservationsTab } from './reservations-tab';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -64,6 +66,10 @@ export default function CustomerDetailPage() {
   const canSeeAccess = hasAccessControl && canReadAccess;
   const unreadMessages = useCustomerUnreadSummary().data?.byCustomer[id ?? ''] ?? 0;
   const setKyc = useSetKycVerified();
+  const ask = useConfirm();
+  const canReadInvoices = useHasPermission('invoices:read');
+  const canReadPayments = useHasPermission('payments:read');
+  const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState<string>(useSearchParams().get('tab') ?? 'contracts');
   // Los avisos enlazan a una pestaña concreta (`?tab=chat`).
   useEffect(() => {
@@ -71,6 +77,20 @@ export default function CustomerDetailPage() {
     if (wanted) setTab(wanted);
   }, []);
 
+  if (customer.isError) {
+    return (
+      <div className="space-y-3 px-4 py-12 text-center sm:px-6">
+        <p className="text-sm text-muted-foreground">
+          {customer.error instanceof ApiError && customer.error.statusCode === 404
+            ? 'Este inquilino no existe o se ha borrado.'
+            : 'No se ha podido cargar el inquilino.'}
+        </p>
+        <Button variant="outline" asChild>
+          <Link href="/customers">Volver a Inquilinos</Link>
+        </Button>
+      </div>
+    );
+  }
   if (customer.isLoading || !customer.data) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -81,6 +101,17 @@ export default function CustomerDetailPage() {
 
   async function toggleKyc() {
     if (!customer.data) return;
+    if (
+      customer.data.kycVerified &&
+      !(await ask({
+        title: 'Revocar la verificación',
+        description: 'El inquilino volverá a figurar con el KYC pendiente.',
+        confirmLabel: 'Revocar',
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
     try {
       await setKyc.mutateAsync({
         id: customer.data.id,
@@ -114,6 +145,12 @@ export default function CustomerDetailPage() {
               {c.kycVerified ? 'KYC verificado' : 'KYC pendiente'}
             </Badge>
             {c.depositExempt && <Badge variant="secondary">Sin fianza</Badge>}
+            {c.isTest && <Badge variant="secondary">Prueba</Badge>}
+            {c.tags.map((t) => (
+              <Badge key={t} variant="outline">
+                {t}
+              </Badge>
+            ))}
           </div>
           <p className="mt-2 break-words text-sm text-muted-foreground">
             {c.email ?? '—'} · {c.phone ?? 'Sin teléfono'}
@@ -131,6 +168,15 @@ export default function CustomerDetailPage() {
               portalAccessEnabled={c.portalAccessEnabled}
               className="w-full justify-center sm:w-auto"
             />
+          </Can>
+          <Can permission="customers:write">
+            <Button
+              variant="outline"
+              className="w-full justify-center sm:w-auto"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil className="mr-1 h-4 w-4" /> Editar datos
+            </Button>
           </Can>
           <Can permission="contracts:write">
             <Button asChild variant="outline" className="w-full justify-center sm:w-auto">
@@ -152,7 +198,10 @@ export default function CustomerDetailPage() {
         <QuickContact customer={c} />
       </div>
 
-      <CustomerAccountCard customerId={c.id} onGoTo={setTab} />
+      {canReadInvoices && canReadPayments && (
+        <CustomerAccountCard customerId={c.id} onGoTo={setTab} />
+      )}
+      {editing && <EditCustomerDialog customer={c} onClose={() => setEditing(false)} />}
 
       <Tabs value={tab} onValueChange={setTab}>
         {/* Móvil: desplegable (9 pestañas no caben cómodas en una tira). */}
@@ -247,7 +296,10 @@ export default function CustomerDetailPage() {
               <div>
                 <p className="text-muted-foreground">Dirección</p>
                 <p>
-                  {c.address ?? '—'}, {c.postalCode ?? ''} {c.city ?? ''} ({c.country})
+                  {[c.address, [c.postalCode, c.city].filter(Boolean).join(' ')]
+                    .filter(Boolean)
+                    .join(', ') || '—'}{' '}
+                  ({c.country})
                 </p>
               </div>
               <div>

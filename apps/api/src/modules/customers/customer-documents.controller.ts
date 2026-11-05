@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   type CustomerDocumentDto,
@@ -18,6 +19,7 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { CustomerScopeGuard } from '../../common/customer-scope';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -46,6 +48,18 @@ export class CustomerDocumentsController {
   constructor(private readonly docs: CustomerDocumentsService) {}
 
   @RequirePermission('customers:read')
+  @UseGuards(CustomerScopeGuard)
+  @Get('customers/:customerId/documents/:id/download')
+  download(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('customerId', new ParseUUIDPipe()) customerId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ url: string }> {
+    return this.docs.getDownloadUrl(user.tenantId, customerId, id);
+  }
+
+  @RequirePermission('customers:read')
+  @UseGuards(CustomerScopeGuard)
   @Get('customers/:customerId/documents')
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -55,6 +69,7 @@ export class CustomerDocumentsController {
   }
 
   @RequirePermission('customers:write')
+  @UseGuards(CustomerScopeGuard)
   @Post('customers/:customerId/documents/upload-url')
   @HttpCode(HttpStatus.OK)
   async requestUploadUrl(
@@ -66,6 +81,7 @@ export class CustomerDocumentsController {
   }
 
   @RequirePermission('customers:write')
+  @UseGuards(CustomerScopeGuard)
   @Post('customers/:customerId/documents')
   async register(
     @CurrentUser() user: AuthenticatedUser,
@@ -94,6 +110,7 @@ export class CustomerDocumentsController {
       tenantId: user.tenantId,
       userId: user.sub,
       documentId: id,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
