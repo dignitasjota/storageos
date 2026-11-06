@@ -16,16 +16,17 @@ import type {
 } from '@storageos/shared';
 
 import {
+  AttachmentList,
   AttachmentPicker,
-  AttachmentView,
-  uploadMessageAttachment,
+  uploadMessageAttachments,
 } from '@/components/messages/attachments';
 import { MessageText } from '@/components/messages/message-text';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { ApiError } from '@/lib/auth/api';
+import { ApiError, apiFetchResponse } from '@/lib/auth/api';
 import { portalApiFetch } from '@/lib/portal/portal-fetch';
+import { listenRealtime } from '@/lib/realtime/stream';
 
 export function ChatCard({ session }: { session: PortalSessionDto }) {
   const t = useTranslations('portal.consume.chat');
@@ -37,7 +38,7 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -76,12 +77,27 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
     }
   }
 
-  // Carga inicial + sondeo cada 20 s para recibir respuestas del staff.
+  // Las respuestas llegan por el canal en vivo; el sondeo queda de respaldo.
   useEffect(() => {
     void load();
-    const id = setInterval(() => void load(), 20_000);
-    return () => clearInterval(id);
-  }, [load]);
+    const id = setInterval(() => void load(), 60_000);
+    const abort = new AbortController();
+    void listenRealtime(
+      (signal) =>
+        apiFetchResponse('/portal/me/stream', {
+          signal,
+          headers: { Authorization: `Bearer ${session.accessToken}` },
+          requiresAuth: false,
+        }),
+      () => void load(),
+      () => undefined,
+      abort.signal,
+    );
+    return () => {
+      clearInterval(id);
+      abort.abort();
+    };
+  }, [load, session.accessToken]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -89,29 +105,27 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
 
   async function send() {
     const body = text.trim();
-    if (!body && !file) return;
+    if (!body && files.length === 0) return;
     setSending(true);
     try {
       const headers = { Authorization: `Bearer ${session.accessToken}` };
-      const attachment = file
-        ? await uploadMessageAttachment(file, (mimeType) =>
-            portalApiFetch<MessageAttachmentUploadDto>('/portal/me/messages/upload-url', {
-              method: 'POST',
-              json: { mimeType },
-              headers,
-              requiresAuth: false,
-            }),
-          )
-        : undefined;
+      const attachments = await uploadMessageAttachments(files, (mimeType) =>
+        portalApiFetch<MessageAttachmentUploadDto>('/portal/me/messages/upload-url', {
+          method: 'POST',
+          json: { mimeType },
+          headers,
+          requiresAuth: false,
+        }),
+      );
       const created = await portalApiFetch<CustomerMessageDto>('/portal/me/messages', {
         method: 'POST',
-        json: { body, ...(attachment ? { attachment } : {}) },
+        json: { body, attachments },
         headers,
         requiresAuth: false,
       });
       setLatest((m) => [...m, created]);
       setText('');
-      setFile(null);
+      setFiles([]);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : t('sendError'));
     } finally {
@@ -165,11 +179,16 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
                       : 'bg-muted text-foreground'
                   }`}
                 >
+                  {m.isAuto && (
+                    <p className="text-[10px] font-medium uppercase tracking-wide opacity-60">
+                      {t('auto')}
+                    </p>
+                  )}
                   {m.senderType === 'staff' && m.senderName && (
                     <p className="text-xs font-medium opacity-70">{m.senderName}</p>
                   )}
                   {m.body && <MessageText text={m.body} />}
-                  {m.attachment && <AttachmentView attachment={m.attachment} />}
+                  <AttachmentList attachments={m.attachments} />
                   <p className="mt-0.5 text-[10px] opacity-60">
                     {new Date(m.createdAt).toLocaleString(intlLocaleForPortal(locale), {
                       day: '2-digit',
@@ -200,15 +219,15 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
             className="min-h-10 resize-none"
           />
           <AttachmentPicker
-            file={file}
-            onChange={setFile}
+            files={files}
+            onChange={setFiles}
             disabled={sending}
             label={t('attach')}
             texts={{ wrongType: t('attachType'), tooBig: t('attachSize') }}
           />
           <Button
             onClick={send}
-            disabled={sending || (!text.trim() && !file)}
+            disabled={sending || (!text.trim() && files.length === 0)}
             aria-label={t('send')}
           >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

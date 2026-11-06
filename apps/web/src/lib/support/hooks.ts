@@ -1,9 +1,11 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { liveRefetchInterval } from '../realtime/store';
 
 import type {
   AddTicketMessageInput,
+  RateTicketInput,
   CreateSupportTicketInput,
   SupportTicketDto,
   MessageAttachmentUploadDto,
@@ -38,8 +40,27 @@ export function useSupportTicket(id: string | undefined) {
     queryKey: ['support', 'tickets', id] as const,
     queryFn: () => apiFetch<SupportTicketDto>(`/support/tickets/${id}`),
     enabled: Boolean(id),
-    refetchInterval: 20_000,
+    refetchInterval: liveRefetchInterval(),
     refetchIntervalInBackground: false,
+  });
+}
+
+/** El tenant da el ticket por terminado. */
+export function useCloseTicket(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SupportTicketDto>(`/support/tickets/${id}/close`, { method: 'POST' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: supportTicketsKey }),
+  });
+}
+
+export function useRateTicket(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RateTicketInput) =>
+      apiFetch<SupportTicketDto>(`/support/tickets/${id}/rating`, { method: 'POST', json: input }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: supportTicketsKey }),
   });
 }
 

@@ -1,5 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { liveRefetchInterval } from '../realtime/store';
+
 import { adminApiFetch, adminApiFetchBlob } from './api';
 import { useAdminAuthStore } from './auth-store';
 
@@ -972,7 +974,7 @@ export function useAdminSupportTicket(id: string | undefined) {
     queryKey: ['admin', 'support', 'tickets', id] as const,
     queryFn: () => adminApiFetch<SupportTicketDto>(`/admin/support/tickets/${id}`),
     enabled: Boolean(id),
-    refetchInterval: 20_000,
+    refetchInterval: liveRefetchInterval(),
     refetchIntervalInBackground: false,
   });
 }

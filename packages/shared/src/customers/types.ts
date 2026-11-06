@@ -338,6 +338,12 @@ export interface CustomerMessageDto {
   body: string;
   /** Imagen o PDF adjunto (URL firmada), o null. */
   attachment: MessageAttachmentDto | null;
+  /** Todos los adjuntos del mensaje. */
+  attachments: MessageAttachmentDto[];
+  /** Nota del equipo: el inquilino no la ve. */
+  isInternal: boolean;
+  /** Respuesta automática fuera de horario. */
+  isAuto: boolean;
   readAt: string | null;
   createdAt: string;
 }

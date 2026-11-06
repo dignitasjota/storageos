@@ -90,6 +90,7 @@ import { PromoLandingsModule } from './modules/promo-landings/promo-landings.mod
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { PushModule } from './modules/push/push.module';
 import { QueuesModule } from './modules/queues/queues.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ReferralsModule } from './modules/referrals/referrals.module';
 import { RentIncreasesModule } from './modules/rent-increases/rent-increases.module';
 import { ReportsModule } from './modules/reports/reports.module';
@@ -206,6 +207,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     FilesModule,
     FacilitiesModule,
     CustomersModule,
+    RealtimeModule,
     CustomerMessagesModule,
     InboundMessagesModule,
     CollectionsModule,

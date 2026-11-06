@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import { apiFetch } from '../auth/api';
+import { liveRefetchInterval } from '../realtime/store';
 
 import type {
   CustomerDuplicateDto,
@@ -45,7 +46,6 @@ import type {
   CustomerDto,
   EmailSuppressionDto,
   CustomerInteractionDto,
-  CustomerConversationDto,
   MessageAttachmentInput,
   MessageAttachmentUploadDto,
   CustomerMessageDto,
@@ -730,26 +730,12 @@ export function useRevokePortalSessions(customerId: string) {
 
 // --- Chat con el inquilino ---------------------------------------------------
 
-/** Bandeja «Mensajes»: conversaciones por último mensaje, con los no leídos de quien mira. */
-export function useCustomerConversations(facilityId: string | undefined, enabled = true) {
-  return useQuery({
-    queryKey: ['customers', 'conversations', facilityId ?? 'all'] as const,
-    queryFn: () =>
-      apiFetch<CustomerConversationDto[]>(
-        `/customer-messages/conversations${facilityId ? `?facilityId=${facilityId}` : ''}`,
-      ),
-    enabled,
-    refetchInterval: 20_000,
-    refetchIntervalInBackground: false,
-  });
-}
-
 export function useCustomerMessages(id: string | undefined, enabled = true) {
   return useQuery({
     queryKey: ['customers', id, 'messages'],
     queryFn: () => apiFetch<CustomerMessageDto[]>(`/customers/${id}/messages`),
     enabled: !!id && enabled,
-    refetchInterval: 20_000,
+    refetchInterval: liveRefetchInterval(),
   });
 }
 
@@ -769,12 +755,20 @@ export function presignCustomerMessageAttachment(customerId: string, mimeType: s
 export function useSendCustomerMessage(customerId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { body: string; attachment?: MessageAttachmentInput }) =>
+    mutationFn: (input: {
+      body: string;
+      attachments?: MessageAttachmentInput[];
+      isInternal?: boolean;
+    }) =>
       apiFetch<CustomerMessageDto>(`/customers/${customerId}/messages`, {
         method: 'POST',
         json: input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['customers', customerId, 'messages'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['customers', customerId, 'messages'] });
+      void qc.invalidateQueries({ queryKey: ['messages', 'inbox'] });
+      void qc.invalidateQueries({ queryKey: ['messages', 'context', customerId] });
+    },
   });
 }
 

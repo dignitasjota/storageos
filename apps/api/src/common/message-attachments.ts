@@ -9,12 +9,19 @@ import {
 } from '@storageos/shared';
 
 import type { FilesService } from '../modules/files/files.service';
+import type { Prisma } from '@storageos/database';
 
 /**
  * Adjuntos de los mensajes (tickets y chat): bucket privado `uploads`, una
  * carpeta por conversación (`prefix`), bytes comprobados al guardar y URL
  * firmada al leer.
  */
+export interface StoredAttachment {
+  key: string;
+  mimeType: string;
+  filename: string;
+}
+
 const EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -58,6 +65,43 @@ export async function assertAttachment(
   };
 }
 
+/** Lo que se guarda de los adjuntos de un mensaje: el primero, en sus columnas. */
+export async function assertAttachments(
+  files: FilesService,
+  prefix: string,
+  list: MessageAttachmentInput[],
+): Promise<{
+  attachmentKey?: string;
+  attachmentMime?: string;
+  attachmentName?: string;
+  extraAttachments?: Prisma.InputJsonValue;
+}> {
+  const checked = await Promise.all(list.map((att) => assertAttachment(files, prefix, att)));
+  const [first, ...rest] = checked;
+  if (!first) return {};
+  return {
+    ...first,
+    extraAttachments: rest.map(
+      (a): StoredAttachment => ({
+        key: a.attachmentKey,
+        mimeType: a.attachmentMime,
+        filename: a.attachmentName,
+      }),
+    ) as unknown as Prisma.InputJsonValue,
+  };
+}
+
+/** Claves de todos los adjuntos de un mensaje guardado (para borrarlos). */
+export function attachmentKeysOf(row: {
+  attachmentKey: string | null;
+  extraAttachments?: unknown;
+}): string[] {
+  return [
+    ...(row.attachmentKey ? [row.attachmentKey] : []),
+    ...((row.extraAttachments as StoredAttachment[] | null) ?? []).map((a) => a.key),
+  ];
+}
+
 /** La URL de un adjunto no cambia en este tiempo: el hilo se refresca solo y sin esto
  * cada refresco volvería a descargar todas las fotos. */
 const STABLE_URL_MS = 5 * 60 * 1000;
@@ -82,4 +126,28 @@ export async function attachmentDto(
     new Date(Math.floor(Date.now() / STABLE_URL_MS) * STABLE_URL_MS),
   );
   return { url, mimeType: row.attachmentMime ?? 'application/octet-stream', filename: name };
+}
+
+/** Todos los adjuntos de un mensaje con su URL firmada. */
+export async function attachmentsDto(
+  files: FilesService,
+  row: {
+    attachmentKey: string | null;
+    attachmentMime: string | null;
+    attachmentName: string | null;
+    extraAttachments?: unknown;
+  },
+): Promise<MessageAttachmentDto[]> {
+  const extras = (row.extraAttachments as StoredAttachment[] | null) ?? [];
+  const all = await Promise.all([
+    attachmentDto(files, row),
+    ...extras.map((a) =>
+      attachmentDto(files, {
+        attachmentKey: a.key,
+        attachmentMime: a.mimeType,
+        attachmentName: a.filename,
+      }),
+    ),
+  ]);
+  return all.filter((a): a is MessageAttachmentDto => a !== null);
 }

@@ -127,6 +127,10 @@ function SupportStats() {
     },
     { label: 'Tickets abiertos (30 días)', value: String(d.ticketsOpened) },
     {
+      label: 'Valoración media',
+      value: d.avgRating === null ? '—' : `${d.avgRating} de 5 (${d.ratedTickets})`,
+    },
+    {
       label: 'Esperando primera respuesta',
       value:
         d.awaitingFirstResponse === 0

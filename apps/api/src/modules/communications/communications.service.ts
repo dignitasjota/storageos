@@ -91,6 +91,8 @@ export interface SendArgs {
   /** Si no se pasa template, debe venir bodyText (y opcional bodyHtml/subject). */
   subject?: string;
   bodyText?: string;
+  /** Dirección de respuesta propia (respuesta por correo dentro del hilo). */
+  replyTo?: string;
   bodyHtml?: string;
   variables?: Record<string, unknown>;
   customerId?: string;
@@ -321,6 +323,7 @@ export class CommunicationsService {
         : {}),
       provider,
       source: args.source ?? null,
+      replyTo: args.replyTo ?? null,
       scheduledFor: args.scheduledFor ?? null,
       isMarketing: args.marketing ?? false,
     };
@@ -472,6 +475,7 @@ export class CommunicationsService {
           html,
           text,
           ...(headers ? { headers } : {}),
+          ...(comm.replyTo ? { replyTo: { email: comm.replyTo } } : {}),
           tags: { tenantId, communicationId },
         });
         if (res.suppressed) {

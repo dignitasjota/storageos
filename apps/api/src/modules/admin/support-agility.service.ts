@@ -62,7 +62,7 @@ export class SupportAgilityService {
   async stats(days = 30, now = new Date()): Promise<AdminSupportStatsDto> {
     const period = Math.min(Math.max(Math.trunc(days) || 30, 1), 365);
     const since = new Date(now.getTime() - period * DAY_MS);
-    const [opened, awaiting] = await Promise.all([
+    const [opened, awaiting, ratings] = await Promise.all([
       this.admin.supportTicket.findMany({
         // Los mensajes que abre el admin no son consultas: no cuentan.
         where: { createdAt: { gte: since }, openedByAdmin: false },
@@ -76,6 +76,11 @@ export class SupportAgilityService {
         },
         select: { createdAt: true },
         orderBy: { createdAt: 'asc' },
+      }),
+      this.admin.supportTicket.aggregate({
+        where: { ratedAt: { gte: since } },
+        _avg: { rating: true },
+        _count: { rating: true },
       }),
     ]);
     const minutes = opened
@@ -96,6 +101,8 @@ export class SupportAgilityService {
       ticketsAnswered: minutes.length,
       avgFirstResponseMinutes: avg === null ? null : Math.round(avg),
       medianFirstResponseMinutes: median === null ? null : Math.round(median),
+      avgRating: ratings._avg.rating === null ? null : Math.round(ratings._avg.rating * 10) / 10,
+      ratedTickets: ratings._count.rating,
       answeredWithinDayPct: minutes.length ? Math.round((withinDay / minutes.length) * 100) : null,
       awaitingFirstResponse: awaiting.length,
       oldestAwaitingHours: oldest

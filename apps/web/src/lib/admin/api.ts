@@ -163,6 +163,16 @@ export async function adminApiFetch<T = unknown>(
  * cuerpo como `Blob` — para descargas autenticadas (p. ej. el CSV contable),
  * cuyo endpoint exige `Authorization: Bearer` y no se puede abrir con `<a>`.
  */
+/** Canal en vivo de los tickets (la respuesta sin leer, para ir leyendo los avisos). */
+export function adminRealtimeResponse(signal: AbortSignal): Promise<Response> {
+  const token = useAdminAuthStore.getState().superAdminToken;
+  return fetch(`${env.apiUrl}${withVersion('/admin/support/tickets/stream')}`, {
+    signal,
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
+
 export async function adminApiFetchBlob(
   path: string,
   options: AdminFetchOptions = {},

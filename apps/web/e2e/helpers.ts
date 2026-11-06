@@ -12,6 +12,8 @@
  */
 import { Secret, TOTP } from 'otpauth';
 
+import type { Page, Request } from '@playwright/test';
+
 export const API_URL = process.env.PLAYWRIGHT_API_URL ?? 'http://localhost:3001';
 export const WEB_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000';
 export const MAILPIT_API = process.env.MAILPIT_API_URL ?? 'http://localhost:8026/api/v1';
@@ -303,4 +305,30 @@ export async function apiCreateDraftInvoice(
     throw new Error(`/invoices/:id/issue devolvió ${issueRes.status}: ${await issueRes.text()}`);
   }
   return (await issueRes.json()) as { id: string; status: string; invoiceNumber: string | null };
+}
+
+/**
+ * Como `networkidle`, pero sin contar los canales en vivo (`…/stream`): siguen
+ * abiertos mientras dura la página y con ellos la red nunca queda en reposo.
+ * Hay que llamarlo antes de navegar; `idle()` espera a que no quede ninguna
+ * otra petición en curso durante medio segundo.
+ */
+export function trackRequests(page: Page): { idle: () => Promise<void> } {
+  const pending = new Set<Request>();
+  const done = (r: Request) => void pending.delete(r);
+  page.on('request', (r) => {
+    if (!/\/stream(\?|$)/.test(r.url())) pending.add(r);
+  });
+  page.on('requestfinished', done);
+  page.on('requestfailed', done);
+  return {
+    async idle() {
+      let quietSince = Date.now();
+      for (;;) {
+        if (pending.size > 0) quietSince = Date.now();
+        else if (Date.now() - quietSince >= 500) return;
+        await page.waitForTimeout(100);
+      }
+    },
+  };
 }

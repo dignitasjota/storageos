@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
-import { raw } from 'express';
+import { json, raw, type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
@@ -40,6 +40,12 @@ async function bootstrap() {
   // Raw body para la verificacion de firma de webhooks Stripe.
   // DEBE ir antes de cualquier parser JSON; las demas rutas pasan a JSON
   // via el parser que aplica NestJS internamente.
+  // Un correo entrante trae sus adjuntos dentro. Va envuelto porque, si Nest ve
+  // un `jsonParser` ya puesto, no añade el suyo para el resto de rutas.
+  const inboundJson = json({ limit: '30mb' });
+  app.use('/webhooks/email-inbound', (req: Request, res: Response, next: NextFunction) =>
+    inboundJson(req, res, next),
+  );
   app.use('/webhooks/stripe', raw({ type: 'application/json' }));
   app.use('/webhooks/stripe-connect', raw({ type: 'application/json' }));
   // GoCardless firma el raw body; la URL lleva el :tenantId.

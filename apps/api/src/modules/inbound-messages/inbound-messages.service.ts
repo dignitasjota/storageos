@@ -1,10 +1,25 @@
+import { randomUUID } from 'node:crypto';
+
 import { Injectable, Logger } from '@nestjs/common';
-import { stripQuotedReply } from '@storageos/shared';
+import { ConfigService } from '@nestjs/config';
+import {
+  MESSAGE_ATTACHMENT_MAX_BYTES,
+  MESSAGE_ATTACHMENT_MIME_TYPES,
+  MESSAGE_MAX_ATTACHMENTS,
+  parseReplyAddress,
+  stripQuotedReply,
+  type EmailInboundInput,
+  type MessageAttachmentInput,
+} from '@storageos/shared';
 
 import { claimAlert } from '../admin/alert-state';
+import { SupportTicketsService } from '../admin/support-tickets.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { FilesService } from '../files/files.service';
 import { PlatformService } from '../platform/platform.service';
+
+import type { Env } from '../../config/env.schema';
 
 type InboundChannel = 'whatsapp' | 'email';
 
@@ -24,6 +39,9 @@ export class InboundMessagesService {
     private readonly admin: PrismaAdminService,
     private readonly messages: CustomerMessagesService,
     private readonly platform: PlatformService,
+    private readonly tickets: SupportTicketsService,
+    private readonly files: FilesService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /** Últimos 9 dígitos (número nacional español) para casar formatos variados. */
@@ -84,6 +102,79 @@ export class InboundMessagesService {
       take: 25,
     });
     return this.disambiguate('email', candidates);
+  }
+
+  /** Guarda los adjuntos válidos de un correo en la carpeta de su conversación. */
+  private async storeAttachments(
+    prefix: string,
+    list: EmailInboundInput['attachments'],
+  ): Promise<MessageAttachmentInput[]> {
+    const stored: MessageAttachmentInput[] = [];
+    for (const att of (list ?? []).slice(0, MESSAGE_MAX_ATTACHMENTS)) {
+      const mimeType = MESSAGE_ATTACHMENT_MIME_TYPES.find(
+        (m) => m === att.contentType.split(';')[0]?.trim().toLowerCase(),
+      );
+      if (!mimeType) continue;
+      const body = Buffer.from(att.contentBase64, 'base64');
+      if (body.length === 0 || body.length > MESSAGE_ATTACHMENT_MAX_BYTES) continue;
+      const key = `${prefix}${randomUUID()}.${mimeType.split('/')[1]}`;
+      await this.files.putObject({ bucket: 'uploads', key, body, contentType: mimeType });
+      stored.push({ key, mimeType, filename: att.filename });
+    }
+    return stored;
+  }
+
+  /**
+   * Respuesta a un correo nuestro: su dirección dice a qué conversación o ticket
+   * pertenece, sin adivinar por el remitente. Devuelve null si no lleva dirección
+   * propia y hay que seguir por el remitente.
+   */
+  async recordReply(input: EmailInboundInput, senderVerified: boolean): Promise<boolean | null> {
+    const domain = this.config.get('INBOUND_EMAIL_DOMAIN', { infer: true });
+    const target = parseReplyAddress(input.to, domain);
+    if (!target) return null;
+    const body = stripQuotedReply(input.text).slice(0, 5000);
+    if (target.kind === 't') {
+      const ticket = await this.admin.supportTicket.findUnique({
+        where: { replyToken: target.token },
+        select: { tenantId: true },
+      });
+      if (!ticket) return false;
+      const attachments = await this.storeAttachments(
+        `${ticket.tenantId}/support/`,
+        input.attachments,
+      );
+      if (!body && attachments.length === 0) return false;
+      return this.tickets.addEmailReply({
+        token: target.token,
+        from: input.from,
+        body,
+        attachments,
+      });
+    }
+    const conversation = await this.admin.customerConversation.findUnique({
+      where: { replyToken: target.token },
+      select: { tenantId: true, customerId: true, customer: { select: { email: true } } },
+    });
+    if (!conversation) return false;
+    const { tenantId, customerId } = conversation;
+    const attachments = await this.storeAttachments(
+      `${tenantId}/chat/${customerId}/`,
+      input.attachments,
+    );
+    if (!body && attachments.length === 0) return false;
+    // La dirección de respuesta no se adivina, pero se puede reenviar: si escribe
+    // otra persona, el equipo lo ve marcado.
+    const sameSender = conversation.customer.email?.toLowerCase() === input.from.toLowerCase();
+    await this.messages.sendFromCustomer(
+      tenantId,
+      customerId,
+      body,
+      'email',
+      senderVerified && sameSender,
+      attachments,
+    );
+    return true;
   }
 
   /**

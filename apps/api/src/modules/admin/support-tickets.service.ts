@@ -1,5 +1,8 @@
+import { randomBytes } from 'node:crypto';
+
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -8,21 +11,29 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   attachmentLabel,
+  messageAttachmentsOf,
+  replyAddressOf,
+  TICKET_WAITING_CLOSE_DAYS,
+  TICKET_WAITING_REMINDER_DAYS,
+  type MessageAttachmentDto,
   type MessageAttachmentInput,
   type MessageAttachmentUploadDto,
+  type RateTicketInput,
 } from '@storageos/shared';
 
 import {
-  assertAttachment,
-  attachmentDto,
+  assertAttachments,
+  attachmentsDto,
   requestAttachmentUpload,
 } from '../../common/message-attachments';
+import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PlatformService } from '../platform/platform.service';
+import { realtimeChannels, RealtimeService } from '../realtime/realtime.service';
 
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 
@@ -75,6 +86,9 @@ type TicketWithRelations = {
   resolvedAt: Date | null;
   closedAt: Date | null;
   firstResponseAt: Date | null;
+  rating: number | null;
+  ratingComment: string | null;
+  replyToken: string | null;
   createdAt: Date;
   updatedAt: Date;
   tenant: { name: string; slug: string };
@@ -92,6 +106,7 @@ type MessageRow = {
   attachmentKey: string | null;
   attachmentMime: string | null;
   attachmentName: string | null;
+  extraAttachments: unknown;
   createdAt: Date;
   authorUser: { fullName: string } | null;
   authorAdmin: { fullName: string } | null;
@@ -118,6 +133,7 @@ const VALID_TRANSITIONS: Record<SupportTicketStatusValue, SupportTicketStatusVal
 export class SupportTicketsService {
   private readonly logger = new Logger(SupportTicketsService.name);
   private readonly webBaseUrl: string;
+  private readonly inboundDomain: string | undefined;
 
   constructor(
     private readonly admin: PrismaAdminService,
@@ -127,9 +143,20 @@ export class SupportTicketsService {
     private readonly notifications: NotificationsService,
     private readonly email: EmailService,
     private readonly files: FilesService,
+    private readonly realtime: RealtimeService,
     config: ConfigService<Env, true>,
   ) {
     this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true });
+    this.inboundDomain = config.get('INBOUND_EMAIL_DOMAIN', { infer: true });
+  }
+
+  /** Avisa en vivo al panel del negocio y al del admin de que algo ha cambiado. */
+  private async publish(tenantId: string, ticketId: string): Promise<void> {
+    const event = { type: 'ticket' as const, ticketId };
+    await Promise.all([
+      this.realtime.publish(realtimeChannels.tenant(tenantId), event),
+      this.realtime.publish(realtimeChannels.admin, event),
+    ]);
   }
 
   // =========================== tenant facade ===============================
@@ -205,7 +232,7 @@ export class SupportTicketsService {
   async createForTenant(
     args: TenantContext & { input: CreateSupportTicketInput },
   ): Promise<SupportTicketDto> {
-    const attachment = await this.attachmentFields(args.tenantId, args.input.attachment);
+    const attachment = await this.attachmentFields(args.tenantId, args.input);
     const created = await this.admin.supportTicket.create({
       data: {
         tenantId: args.tenantId,
@@ -284,7 +311,7 @@ export class SupportTicketsService {
         message: 'Solo los administradores pueden crear notas internas',
       });
     }
-    const attachment = await this.attachmentFields(args.tenantId, args.input.attachment);
+    const attachment = await this.attachmentFields(args.tenantId, args.input);
     const message = await this.admin.supportTicketMessage.create({
       data: {
         ticketId: args.ticketId,
@@ -348,7 +375,132 @@ export class SupportTicketsService {
       body: `${ticket.subject}: ${this.preview(args.input)}`,
       link: `/admin/support/${args.ticketId}`,
     });
+    await this.publish(args.tenantId, args.ticketId);
     return await this.toMessageDto(message);
+  }
+
+  /** El tenant da el ticket por terminado. */
+  async closeAsTenant(args: TenantContext & { ticketId: string }): Promise<SupportTicketDto> {
+    const ticket = await this.findForTenant(args.tenantId, args.ticketId);
+    if (ticket.status === 'closed') return this.toDto(ticket);
+    const updated = await this.admin.supportTicket.update({
+      where: { id: args.ticketId },
+      data: { status: 'closed', closedAt: new Date() },
+      include: {
+        tenant: { select: { name: true, slug: true } },
+        createdBy: { select: { fullName: true } },
+        assignedAdmin: { select: { fullName: true } },
+      },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'support_ticket.closed_by_tenant',
+      entityType: 'SupportTicket',
+      entityId: args.ticketId,
+      changes: { from: ticket.status },
+      ipAddress: args.meta?.ipAddress ?? null,
+      userAgent: args.meta?.userAgent ?? null,
+    });
+    await this.platform.notify({
+      type: 'support_ticket',
+      title: `${ticket.tenant.name} ha cerrado un ticket`,
+      body: ticket.subject,
+      link: `/admin/support/${args.ticketId}`,
+    });
+    await this.publish(args.tenantId, args.ticketId);
+    return this.toDto(updated as TicketWithRelations);
+  }
+
+  /** Valoración del tenant, una vez resuelto o cerrado. */
+  async rateAsTenant(
+    args: TenantContext & { ticketId: string; input: RateTicketInput },
+  ): Promise<SupportTicketDto> {
+    const ticket = await this.findForTenant(args.tenantId, args.ticketId);
+    if (ticket.status !== 'resolved' && ticket.status !== 'closed') {
+      throw new BadRequestException({
+        code: 'ticket_not_finished',
+        message: 'Se puede valorar cuando el ticket esté resuelto',
+      });
+    }
+    if (ticket.rating !== null) {
+      throw new ConflictException({ code: 'ticket_already_rated', message: 'Ya lo has valorado' });
+    }
+    const updated = await this.admin.supportTicket.update({
+      where: { id: args.ticketId },
+      data: {
+        rating: args.input.score,
+        ratingComment: args.input.comment?.trim() || null,
+        ratedAt: new Date(),
+      },
+      include: {
+        tenant: { select: { name: true, slug: true } },
+        createdBy: { select: { fullName: true } },
+        assignedAdmin: { select: { fullName: true } },
+      },
+    });
+    if (args.input.score <= 2) {
+      await this.platform.notify({
+        type: 'support_ticket.low_rating',
+        title: `${ticket.tenant.name} ha valorado un ticket con ${args.input.score} de 5`,
+        body: args.input.comment?.slice(0, 200) ?? ticket.subject,
+        link: `/admin/support/${args.ticketId}`,
+      });
+    }
+    return this.toDto(updated as TicketWithRelations);
+  }
+
+  /**
+   * Tickets que esperan al tenant: a los días se le recuerda y, si sigue sin
+   * contestar, se cierran. Los avisos del admin sin contestar van por su lado.
+   */
+  async remindWaiting(now = new Date()): Promise<{ reminded: number; closed: number }> {
+    const include = {
+      tenant: { select: { name: true, slug: true } },
+      createdBy: { select: { fullName: true } },
+      assignedAdmin: { select: { fullName: true } },
+    };
+    const day = 86_400_000;
+    const stale = await this.admin.supportTicket.findMany({
+      where: {
+        status: 'waiting_user',
+        NOT: UNANSWERED_ADMIN_MESSAGE,
+        updatedAt: { lt: new Date(now.getTime() - TICKET_WAITING_REMINDER_DAYS * day) },
+      },
+      include,
+      take: 500,
+    });
+    let reminded = 0;
+    let closed = 0;
+    for (const ticket of stale as (TicketWithRelations & { waitingRemindedAt: Date | null })[]) {
+      if (!ticket.waitingRemindedAt) {
+        const claimed = await this.admin.supportTicket.updateMany({
+          where: { id: ticket.id, waitingRemindedAt: null },
+          data: { waitingRemindedAt: now, updatedAt: ticket.updatedAt },
+        });
+        if (claimed.count === 0) continue;
+        await this.noticeTenant(ticket, {
+          title: 'Seguimos esperando tu respuesta',
+          body: `Si no nos contestas, cerraremos el ticket en ${
+            TICKET_WAITING_CLOSE_DAYS - TICKET_WAITING_REMINDER_DAYS
+          } días.`,
+        });
+        reminded += 1;
+        continue;
+      }
+      if (ticket.updatedAt.getTime() > now.getTime() - TICKET_WAITING_CLOSE_DAYS * day) continue;
+      const done = await this.admin.supportTicket.updateMany({
+        where: { id: ticket.id, status: 'waiting_user' },
+        data: { status: 'closed', closedAt: now },
+      });
+      if (done.count === 0) continue;
+      await this.noticeTenant(ticket, {
+        title: 'Hemos cerrado tu ticket de soporte',
+        body: 'Como no hemos tenido respuesta, lo damos por terminado. Si lo necesitas, abre uno nuevo desde Soporte.',
+      });
+      closed += 1;
+    }
+    return { reminded, closed };
   }
 
   // ============================ admin facade ===============================
@@ -424,7 +576,7 @@ export class SupportTicketsService {
         message: 'Reabre el ticket para responder: el cliente no puede contestar en uno cerrado',
       });
     }
-    const attachment = await this.attachmentFields(ticket.tenantId, args.input.attachment);
+    const attachment = await this.attachmentFields(ticket.tenantId, args.input);
     const message = await this.admin.supportTicketMessage.create({
       data: {
         ticketId: args.ticketId,
@@ -444,8 +596,11 @@ export class SupportTicketsService {
       status?: SupportTicketStatusValue;
       updatedAt?: Date;
       firstResponseAt?: Date;
+      waitingRemindedAt?: null;
     } = {
       updatedAt: new Date(),
+      // Una respuesta nueva vuelve a contar los días de espera.
+      ...(args.input.isInternal ? {} : { waitingRemindedAt: null }),
     };
     if (!args.input.isInternal && (ticket.status === 'open' || ticket.status === 'in_progress')) {
       updates.status = 'waiting_user';
@@ -475,6 +630,7 @@ export class SupportTicketsService {
         title: 'Soporte de TrasterOS te ha respondido',
         body: this.preview(args.input),
       });
+      await this.publish(ticket.tenantId, args.ticketId);
     }
     return await this.toMessageDto(message);
   }
@@ -605,18 +761,24 @@ export class SupportTicketsService {
     return requestAttachmentUpload(this.files, `${ticket.tenantId}/support/`, mimeType);
   }
 
-  private async attachmentFields(tenantId: string, att: MessageAttachmentInput | undefined) {
-    return att ? assertAttachment(this.files, `${tenantId}/support/`, att) : {};
+  private async attachmentFields(
+    tenantId: string,
+    input: {
+      attachment?: MessageAttachmentInput | undefined;
+      attachments?: MessageAttachmentInput[] | undefined;
+    },
+  ) {
+    return assertAttachments(this.files, `${tenantId}/support/`, messageAttachmentsOf(input));
   }
 
   /** Texto del aviso: el mensaje o, si solo lleva adjunto, su nombre. */
   private preview(input: {
     body: string;
     attachment?: MessageAttachmentInput | undefined;
+    attachments?: MessageAttachmentInput[] | undefined;
   }): string {
-    return (
-      input.body || (input.attachment ? attachmentLabel(input.attachment.filename) : '')
-    ).slice(0, 140);
+    const first = messageAttachmentsOf(input)[0];
+    return (input.body || (first ? attachmentLabel(first.filename) : '')).slice(0, 140);
   }
 
   // ============================== helpers ==================================
@@ -648,6 +810,7 @@ export class SupportTicketsService {
     });
     if (!author) return;
     const url = `${this.webBaseUrl}${link}`;
+    const replyTo = await this.replyAddress(ticket);
     const escape = (v: string) =>
       v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const text = [
@@ -657,14 +820,16 @@ export class SupportTicketsService {
       '',
       msg.body,
       '',
-      `Ver el ticket y responder: ${url}`,
+      replyTo
+        ? `Puedes responder a este correo o entrar al ticket: ${url}`
+        : `Ver el ticket y responder: ${url}`,
     ].join('\n');
     const html =
       `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:14px;color:#111;line-height:1.6">` +
       `<p>Hola ${escape(author.fullName)},</p>` +
       `<p>${escape(msg.title)} (ticket «${escape(ticket.subject)}»):</p>` +
       `<blockquote style="margin:0;padding:8px 12px;border-left:3px solid #2563eb;background:#f8fafc">${escape(msg.body).replace(/\n/g, '<br>')}</blockquote>` +
-      `<p><a href="${url}" style="color:#2563eb">Ver el ticket y responder</a></p></div>`;
+      `<p>${replyTo ? 'Puedes responder a este correo o ' : ''}<a href="${url}" style="color:#2563eb">${replyTo ? 'entrar al ticket' : 'Ver el ticket y responder'}</a></p></div>`;
     void this.email
       .sendRendered({
         to: author.email,
@@ -672,8 +837,53 @@ export class SupportTicketsService {
         subject: `${msg.title}: ${ticket.subject}`,
         html,
         text,
+        ...(replyTo ? { replyTo: { email: replyTo } } : {}),
       })
       .catch((err) => this.logger.warn(`[support] correo: ${(err as Error).message}`));
+  }
+
+  /** Dirección propia del ticket: lo que se conteste al correo vuelve a él. */
+  private async replyAddress(ticket: TicketWithRelations): Promise<string | null> {
+    if (!this.inboundDomain) return null;
+    let token = ticket.replyToken;
+    if (!token) {
+      token = randomBytes(16).toString('hex');
+      await this.admin.supportTicket.update({
+        where: { id: ticket.id },
+        data: { replyToken: token },
+      });
+    }
+    return replyAddressOf('t', token, this.inboundDomain);
+  }
+
+  /** Quien contesta por correo: un usuario activo del negocio con ese email. */
+  async addEmailReply(args: {
+    token: string;
+    from: string;
+    body: string;
+    attachments: MessageAttachmentInput[];
+  }): Promise<boolean> {
+    const ticket = await this.admin.supportTicket.findUnique({
+      where: { replyToken: args.token },
+      select: { id: true, tenantId: true },
+    });
+    if (!ticket) return false;
+    const user = await this.admin.user.findFirst({
+      where: {
+        tenantId: ticket.tenantId,
+        isActive: true,
+        email: { equals: args.from, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    if (!user) return false;
+    await this.addMessageAsTenant({
+      tenantId: ticket.tenantId,
+      userId: user.id,
+      ticketId: ticket.id,
+      input: { body: args.body, isInternal: false, attachments: args.attachments },
+    });
+    return true;
   }
 
   private async findForTenant(tenantId: string, ticketId: string): Promise<TicketWithRelations> {
@@ -747,12 +957,15 @@ export class SupportTicketsService {
       resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
       closedAt: row.closedAt ? row.closedAt.toISOString() : null,
       firstResponseAt: row.firstResponseAt ? row.firstResponseAt.toISOString() : null,
+      rating: row.rating,
+      ratingComment: row.ratingComment,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
   }
 
   private async toMessageDto(row: MessageRow): Promise<SupportTicketMessageDto> {
+    const attachments: MessageAttachmentDto[] = await attachmentsDto(this.files, row);
     return {
       id: row.id,
       ticketId: row.ticketId,
@@ -762,7 +975,8 @@ export class SupportTicketsService {
       authorUserName: row.authorUser?.fullName ?? null,
       authorAdminId: row.authorAdminId,
       authorAdminName: row.authorAdmin?.fullName ?? null,
-      attachment: await attachmentDto(this.files, row),
+      attachment: attachments[0] ?? null,
+      attachments,
       createdAt: row.createdAt.toISOString(),
     };
   }

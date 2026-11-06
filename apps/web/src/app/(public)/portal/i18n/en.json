@@ -518,7 +518,8 @@
         "attachSize": "Attachments can't be larger than 10 MB.",
         "loadError": "We could not load the messages.",
         "retry": "Try again",
-        "older": "See earlier messages"
+        "older": "See earlier messages",
+        "auto": "Automatic reply"
       },
       "documents": {
         "pendingTitle": "We have asked you for",

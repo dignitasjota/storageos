@@ -193,6 +193,8 @@ const envSchemaBase = z.object({
   WHATSAPP_APP_SECRET: z.string().default(''),
   // Inbound de email: secret compartido con el proveedor de routing entrante.
   EMAIL_INBOUND_SECRET: z.string().default(''),
+  /** Dominio de las direcciones de respuesta (`c-…@dominio`). Sin él, no hay respuesta por correo. */
+  INBOUND_EMAIL_DOMAIN: z.string().optional(),
 
   // --- Lock provider (Fase 7) ---
   /** Selecciona la implementacion del control de accesos. `stub` registra

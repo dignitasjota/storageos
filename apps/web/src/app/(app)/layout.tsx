@@ -13,6 +13,7 @@ import { LegalAcceptanceBanner } from '@/components/layout/legal-acceptance-bann
 import { PaymentAlertBanner } from '@/components/layout/payment-alert-banner';
 import { PlatformBanner } from '@/components/layout/platform-banner';
 import { TrialBanner } from '@/components/layout/trial-banner';
+import { RealtimeListener } from '@/components/messages/realtime-listener';
 import { PanelAppHead } from '@/components/pwa/panel-app-head';
 import { PwaRegister } from '@/components/pwa/pwa-register';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
@@ -40,6 +41,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <AuthBootstrap>
         <ConfirmProvider>
           <PanelAppHead />
+          <RealtimeListener />
           <AppLockGate>
             <SidebarProvider>
               <AppSidebar />

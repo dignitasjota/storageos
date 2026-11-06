@@ -642,6 +642,9 @@ export interface SupportTicketDto {
   /** Pre-cargado en detail. */
   messages?: SupportTicketMessageDto[];
   unreadCount?: number;
+  /** Valoración del tenant (1-5). */
+  rating?: number | null;
+  ratingComment?: string | null;
 }
 
 export interface SupportTicketMessageDto {
@@ -655,6 +658,8 @@ export interface SupportTicketMessageDto {
   authorAdminName: string | null;
   /** Imagen o PDF adjunto (URL firmada), o null. */
   attachment: MessageAttachmentDto | null;
+  /** Todos los adjuntos del mensaje. */
+  attachments: MessageAttachmentDto[];
   createdAt: string;
 }
 
@@ -1986,6 +1991,9 @@ export interface AdminSupportStatsDto {
   /** Media y mediana en minutos hasta la primera respuesta (null sin datos). */
   avgFirstResponseMinutes: number | null;
   medianFirstResponseMinutes: number | null;
+  /** Media de las valoraciones del periodo y cuántas hay. */
+  avgRating: number | null;
+  ratedTickets: number;
   /** % de tickets respondidos en menos de 24 h. */
   answeredWithinDayPct: number | null;
   /** Tickets abiertos que siguen sin ninguna respuesta. */

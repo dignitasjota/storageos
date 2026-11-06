@@ -49,6 +49,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { SuperAdminDto, SuperAdminRefreshResponse } from '@storageos/shared';
 
 import { AdminCommandPalette } from '@/components/admin/admin-command-palette';
+import { AdminRealtimeListener } from '@/components/admin/admin-realtime-listener';
 import { ConfirmProvider } from '@/components/confirm-provider';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { InstallPwaButton } from '@/components/pwa/install-pwa-button';
@@ -211,6 +212,7 @@ export function AdminLayoutClient({ children }: { children: ReactNode }) {
           <div className="min-h-screen bg-background">{children}</div>
         ) : (
           <AdminGuard>
+            <AdminRealtimeListener />
             <AdminShell>{children}</AdminShell>
           </AdminGuard>
         )}

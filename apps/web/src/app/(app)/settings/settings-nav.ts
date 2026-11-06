@@ -218,6 +218,13 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         permission: 'settings:manage',
       },
       {
+        href: '/settings/messages',
+        label: 'Mensajes',
+        description:
+          'Respuestas guardadas, horario de atención y respuesta automática fuera de horas.',
+        permission: 'settings:manage',
+      },
+      {
         href: '/settings/whatsapp',
         label: 'WhatsApp',
         description:

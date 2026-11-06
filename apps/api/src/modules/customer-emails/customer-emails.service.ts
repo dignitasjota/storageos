@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -7,6 +9,7 @@ import {
   type CustomerEmailKind,
   type CustomerEmailSettingsDto,
   type UpdateCustomerEmailSettingsInput,
+  replyAddressOf,
 } from '@storageos/shared';
 
 import { tenantPortalLoginUrl } from '../../common/portal-url';
@@ -396,9 +399,16 @@ export class CustomerEmailsService {
           select: { name: true },
         });
         if (!tenant) return;
+        const replyTo = await this.conversationReplyAddress(p.tenantId, p.customerId);
         await this.send(p.tenantId, 'staff_message', null, p.customerId, {
-          data: { kind: 'staff_message', tenantName: tenant.name, body: p.body, viaEmail: true },
+          data: {
+            kind: 'staff_message',
+            tenantName: tenant.name,
+            body: p.body,
+            viaEmail: replyTo !== null,
+          },
           ignoreSettings: true,
+          ...(replyTo ? { replyTo } : {}),
         });
         return;
       }
@@ -415,10 +425,45 @@ export class CustomerEmailsService {
         select: { name: true },
       });
       if (!tenant) return;
+      const replyTo = await this.conversationReplyAddress(p.tenantId, p.customerId);
       await this.send(p.tenantId, 'staff_message', null, p.customerId, {
-        data: { kind: 'staff_message', tenantName: tenant.name, body: p.body },
+        data: {
+          kind: 'staff_message',
+          tenantName: tenant.name,
+          body: p.body,
+          viaEmail: replyTo !== null,
+        },
+        ...(replyTo ? { replyTo } : {}),
       });
     });
+  }
+
+  /** Dirección propia de la conversación: lo que se conteste al correo vuelve al hilo. */
+  private async conversationReplyAddress(
+    tenantId: string,
+    customerId: string,
+  ): Promise<string | null> {
+    const domain = this.config.get('INBOUND_EMAIL_DOMAIN', { infer: true });
+    if (!domain) return null;
+    const row = await this.admin.customerConversation.upsert({
+      where: { customerId },
+      create: {
+        customerId,
+        tenantId,
+        status: 'answered',
+        replyToken: randomBytes(16).toString('hex'),
+      },
+      update: {},
+    });
+    const token =
+      row.replyToken ??
+      (
+        await this.admin.customerConversation.update({
+          where: { customerId },
+          data: { replyToken: randomBytes(16).toString('hex') },
+        })
+      ).replyToken!;
+    return replyAddressOf('c', token, domain);
   }
 
   /** Respuesta por el WhatsApp de la plataforma. `false` si no se puede (sigue el correo). */
@@ -542,6 +587,8 @@ export class CustomerEmailsService {
       contractId?: string | null;
       /** La respuesta a quien escribió por email sale aunque las copias estén apagadas. */
       ignoreSettings?: boolean;
+      /** Lo que se conteste a este correo vuelve a la conversación. */
+      replyTo?: string;
     },
   ): Promise<SendOutcome> {
     const settings = await this.getSettings(tenantId);
@@ -587,6 +634,7 @@ export class CustomerEmailsService {
       ...(args.invoiceId ? { invoiceId: args.invoiceId } : {}),
       ...(args.contractId ? { contractId: args.contractId } : {}),
       source: `customer_email.${kind}`,
+      ...(args.replyTo ? { replyTo: args.replyTo } : {}),
     });
     return {
       status: 'sent',

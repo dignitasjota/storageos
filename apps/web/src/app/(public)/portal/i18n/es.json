@@ -518,7 +518,8 @@
         "attachSize": "El adjunto no puede pasar de 10 MB.",
         "loadError": "No se han podido cargar los mensajes.",
         "retry": "Reintentar",
-        "older": "Ver mensajes anteriores"
+        "older": "Ver mensajes anteriores",
+        "auto": "Respuesta automática"
       },
       "documents": {
         "pendingTitle": "Te hemos pedido",
