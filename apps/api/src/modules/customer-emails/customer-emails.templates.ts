@@ -52,6 +52,8 @@ export type CustomerEmailData =
       startDate: Date;
       /** Reserva antes de la apertura (null si no lo es o ya empezó). */
       preOpening?: { openingDate: Date | null } | null;
+      /** Cómo llegar al local (indicaciones del negocio). */
+      directions?: string | null;
     }
   | {
       kind: 'contract_ending_soon';
@@ -289,6 +291,7 @@ function content(data: CustomerEmailData, l: Locale): Content {
               data.preOpening
                 ? `Your rental starts the day the facility opens${data.preOpening.openingDate ? ` (expected on ${day(data.preOpening.openingDate, l)})` : ' (date to be confirmed; we will let you know)'}. Monthly fee: ${eur(data.priceMonthly, l)}.`
                 : `Start date: ${day(data.startDate, l)}. Monthly fee: ${eur(data.priceMonthly, l)}.`,
+              ...(data.directions ? [`How to get there: ${data.directions}`] : []),
               'You can download a copy of the signed contract from your customer area.',
             ]
           : [
@@ -296,6 +299,7 @@ function content(data: CustomerEmailData, l: Locale): Content {
               data.preOpening
                 ? `Tu alquiler empieza el día de apertura del local${data.preOpening.openingDate ? ` (prevista para el ${day(data.preOpening.openingDate, l)})` : ' (fecha por confirmar; te avisaremos)'}. Cuota mensual: ${eur(data.priceMonthly, l)}.`
                 : `Fecha de inicio: ${day(data.startDate, l)}. Cuota mensual: ${eur(data.priceMonthly, l)}.`,
+              ...(data.directions ? [`Cómo llegar: ${data.directions}`] : []),
               'Puedes descargar una copia del contrato firmado en tu área de clientes.',
             ],
         cta: en ? 'View my contract' : 'Ver mi contrato',

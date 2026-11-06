@@ -5,7 +5,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CITY_PAGE_PREFIX, RESERVED_FACILITY_SLUGS } from '@storageos/shared';
+import { Prisma } from '@storageos/database';
+import {
+  CITY_PAGE_PREFIX,
+  coordinatesFromMapsUrl,
+  FACILITY_RESTORE_DAYS,
+  RESERVED_FACILITY_SLUGS,
+} from '@storageos/shared';
+
 
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
@@ -15,12 +22,15 @@ import { FilesService } from '../files/files.service';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { ContractStatus, Facility, Prisma } from '@storageos/database';
+import type { ContractStatus, Facility } from '@storageos/database';
 import type {
   CreateFacilityInput,
+  DeletedFacilityDto,
   FacilityDeleteBlockerDto,
   FacilityDeletePreviewDto,
   FacilityDto,
+  FacilityRestoreResultDto,
+  OpeningException,
   OpeningHours,
   UpdateFacilityInput,
 } from '@storageos/shared';
@@ -58,6 +68,18 @@ const RESERVED_PUBLIC_SLUGS = RESERVED_FACILITY_SLUGS;
 
 /** Tamaño máximo de una foto del local (`RequestFacilityImageUploadSchema`). */
 const FACILITY_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+const DAY_MS = 86_400_000;
+
+/** Lo que había antes de borrar un local, para poder restaurarlo. */
+interface DeletedSnapshot {
+  publicSlug: string | null;
+  isActive: boolean;
+  maintenancePlanIds: string[];
+  recurringExpenseIds: string[];
+  accessDeviceIds: string[];
+  cameraDeviceIds: string[];
+}
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -185,6 +207,16 @@ export class FacilitiesService {
     });
     if (!owner) {
       throw new BadRequestException({ code: 'owner_not_found', message: 'Propietario no válido' });
+    }
+  }
+
+  /** Un propietario dado de baja o sin el plan no pasa al local copiado. */
+  private async ownerForCopy(tenantId: string, ownerId: string | null): Promise<string | null> {
+    try {
+      await this.assertOwner(tenantId, ownerId);
+      return ownerId;
+    } catch {
+      return null;
     }
   }
 
@@ -343,6 +375,11 @@ export class FacilitiesService {
         ...(args.input.openingHours !== undefined
           ? { openingHours: args.input.openingHours as Prisma.InputJsonValue }
           : {}),
+        ...(args.input.openingExceptions !== undefined
+          ? { openingExceptions: args.input.openingExceptions as Prisma.InputJsonValue }
+          : {}),
+        directions: args.input.directions?.trim() || null,
+        mapsUrl: args.input.mapsUrl?.trim() || null,
         ...(args.input.accessCurfewEnabled !== undefined
           ? { accessCurfewEnabled: args.input.accessCurfewEnabled }
           : {}),
@@ -359,12 +396,7 @@ export class FacilitiesService {
         ownerId: args.input.ownerId ?? null,
       };
       const created = await tx.facility.create({ data, include: FACILITY_INCLUDE });
-      // Quien solo ve unos locales tiene que ver el que acaba de crear.
-      if (args.facilityScope) {
-        await tx.userFacility.create({
-          data: { tenantId: args.tenantId, userId: args.userId, facilityId: created.id },
-        });
-      }
+      await this.afterCreate(tx, args, created);
       return created;
     }, args.tenantId);
     await this.audit.write({
@@ -378,6 +410,23 @@ export class FacilitiesService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(facility);
+  }
+
+  private async afterCreate(
+    tx: Prisma.TransactionClient,
+    args: { tenantId: string; userId: string; facilityScope?: string[] | null },
+    created: { id: string; publicSlug: string | null },
+  ): Promise<void> {
+    // Quien solo ve unos locales tiene que ver el que acaba de crear.
+    if (args.facilityScope) {
+      await tx.userFacility.create({
+        data: { tenantId: args.tenantId, userId: args.userId, facilityId: created.id },
+      });
+    }
+    // Su dirección ya no redirige al local que la usó antes.
+    if (created.publicSlug) {
+      await tx.facilitySlugRedirect.deleteMany({ where: { oldSlug: created.publicSlug } });
+    }
   }
 
   async update(args: UpdateArgs): Promise<FacilityDto> {
@@ -408,6 +457,28 @@ export class FacilitiesService {
     set('longitude');
     set('timezone');
     set('openingHours');
+    if (args.input.openingExceptions !== undefined) {
+      const exceptions = [...args.input.openingExceptions].sort((a, b) =>
+        a.date.localeCompare(b.date),
+      );
+      data.openingExceptions = exceptions as Prisma.InputJsonValue;
+      changes.openingExceptions = exceptions;
+    }
+    set('directions');
+    set('mapsUrl');
+    // Un enlace largo de Google Maps ya trae dónde está: sirve de ubicación del mapa.
+    const fromLink = args.input.mapsUrl ? coordinatesFromMapsUrl(args.input.mapsUrl) : null;
+    if (
+      fromLink &&
+      args.input.latitude === undefined &&
+      args.input.longitude === undefined &&
+      existing.latitude == null
+    ) {
+      data.latitude = fromLink.latitude;
+      data.longitude = fromLink.longitude;
+      changes.latitude = fromLink.latitude;
+      changes.longitude = fromLink.longitude;
+    }
     set('accessCurfewEnabled');
     set('accessCurfewStart');
     set('accessCurfewEnd');
@@ -472,6 +543,21 @@ export class FacilitiesService {
           }
           data.publicSlug = slug;
           changes.publicSlug = slug;
+          // La dirección antigua sigue llevando al local; la nueva ya no redirige a nadie.
+          await tx.facilitySlugRedirect.deleteMany({ where: { oldSlug: slug } });
+          if (existing.publicSlug) {
+            await tx.facilitySlugRedirect.upsert({
+              where: {
+                tenantId_oldSlug: { tenantId: args.tenantId, oldSlug: existing.publicSlug },
+              },
+              create: {
+                tenantId: args.tenantId,
+                facilityId: args.facilityId,
+                oldSlug: existing.publicSlug,
+              },
+              update: { facilityId: args.facilityId },
+            });
+          }
         }
       }
       return tx.facility.update({
@@ -601,7 +687,7 @@ export class FacilitiesService {
     const result = await this.prisma.withTenant(async (tx) => {
       const existing = await tx.facility.findFirst({
         where: { id: args.facilityId, deletedAt: null },
-        select: { _count: { select: { units: true } } },
+        select: { publicSlug: true, isActive: true, _count: { select: { units: true } } },
       });
       if (!existing) {
         throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
@@ -620,35 +706,56 @@ export class FacilitiesService {
       // Sin el local no hay nada que revisar ni cobrar, y sus puertas y cámaras
       // dejan de funcionar con el panel.
       const facilityId = args.facilityId;
+      const select = { id: true } as const;
       const [plans, expenses, devices, cameras] = await Promise.all([
+        tx.maintenancePlan.findMany({ where: { facilityId, isActive: true }, select }),
+        tx.recurringExpense.findMany({ where: { facilityId, active: true }, select }),
+        tx.accessDevice.findMany({ where: { facilityId, isActive: true }, select }),
+        tx.cameraDevice.findMany({ where: { facilityId, isActive: true }, select }),
+      ]);
+      const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
+      const snapshot: DeletedSnapshot = {
+        publicSlug: existing.publicSlug,
+        isActive: existing.isActive,
+        maintenancePlanIds: ids(plans),
+        recurringExpenseIds: ids(expenses),
+        accessDeviceIds: ids(devices),
+        cameraDeviceIds: ids(cameras),
+      };
+      await Promise.all([
         tx.maintenancePlan.updateMany({
-          where: { facilityId, isActive: true },
+          where: { id: { in: snapshot.maintenancePlanIds } },
           data: { isActive: false },
         }),
         tx.recurringExpense.updateMany({
-          where: { facilityId, active: true },
+          where: { id: { in: snapshot.recurringExpenseIds } },
           data: { active: false },
         }),
         tx.accessDevice.updateMany({
-          where: { facilityId, isActive: true },
+          where: { id: { in: snapshot.accessDeviceIds } },
           data: { isActive: false },
         }),
         tx.cameraDevice.updateMany({
-          where: { facilityId, isActive: true },
+          where: { id: { in: snapshot.cameraDeviceIds } },
           data: { isActive: false },
         }),
       ]);
       await tx.facility.update({
         where: { id: facilityId },
         // Libera su dirección pública: un local nuevo con el mismo nombre la usa.
-        data: { deletedAt: new Date(), isActive: false, publicSlug: null },
+        data: {
+          deletedAt: new Date(),
+          isActive: false,
+          publicSlug: null,
+          deletedSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        },
       });
       return {
         unitsCount: existing._count.units,
-        maintenancePlans: plans.count,
-        recurringExpenses: expenses.count,
-        accessDevices: devices.count,
-        cameraDevices: cameras.count,
+        maintenancePlans: plans.length,
+        recurringExpenses: expenses.length,
+        accessDevices: devices.length,
+        cameraDevices: cameras.length,
       };
     }, args.tenantId);
     await this.audit.write({
@@ -661,6 +768,194 @@ export class FacilitiesService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+  }
+
+  /** La papelera: lo borrado que aún se puede restaurar. */
+  async listDeleted(
+    tenantId: string,
+    facilityScope: string[] | null,
+  ): Promise<DeletedFacilityDto[]> {
+    const limit = new Date(Date.now() - FACILITY_RESTORE_DAYS * DAY_MS);
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findMany({
+          where: {
+            deletedAt: { gte: limit },
+            ...(facilityScope ? { id: { in: facilityScope } } : {}),
+          },
+          orderBy: { deletedAt: 'desc' },
+          select: {
+            id: true,
+            name: true,
+            city: true,
+            deletedAt: true,
+            _count: { select: { units: true } },
+          },
+        }),
+      tenantId,
+    );
+    return rows.map((f) => ({
+      id: f.id,
+      name: f.name,
+      city: f.city,
+      deletedAt: f.deletedAt!.toISOString(),
+      daysLeft: Math.max(
+        0,
+        FACILITY_RESTORE_DAYS - Math.floor((Date.now() - f.deletedAt!.getTime()) / DAY_MS),
+      ),
+      unitsCount: f._count.units,
+    }));
+  }
+
+  /** Vuelve a dejar el local como estaba: dirección, puertas, planes y gastos. */
+  async restore(args: DeleteArgs): Promise<FacilityRestoreResultDto> {
+    const { facility, restored } = await this.prisma.withTenant(async (tx) => {
+      await this.limits.lockForCreate(tx, args.tenantId, 'facilities');
+      const deleted = await tx.facility.findFirst({
+        where: { id: args.facilityId, deletedAt: { not: null } },
+      });
+      if (!deleted) {
+        throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+      }
+      if (deleted.deletedAt!.getTime() < Date.now() - FACILITY_RESTORE_DAYS * DAY_MS) {
+        throw new ConflictException({
+          code: 'facility_restore_expired',
+          message: `Este local se borró hace más de ${FACILITY_RESTORE_DAYS} días: ya no se puede restaurar.`,
+        });
+      }
+      const live = await tx.facility.count({ where: { deletedAt: null } });
+      await this.limits.assertCanCreate(args.tenantId, 'facilities', live);
+      await this.assertNameFree(tx, deleted.name, args.facilityId);
+
+      const snapshot = (deleted.deletedSnapshot ?? {}) as Partial<DeletedSnapshot>;
+      const wanted = snapshot.publicSlug ?? slugify(deleted.name);
+      // Si otro local tomó su dirección entretanto, se queda con una libre.
+      const slug = (await this.slugTaken(tx, args.tenantId, wanted, args.facilityId))
+        ? await this.freeSlug(tx, args.tenantId, wanted, args.facilityId)
+        : wanted;
+      const [plans, expenses, devices, cameras] = await Promise.all([
+        tx.maintenancePlan.updateMany({
+          where: { id: { in: snapshot.maintenancePlanIds ?? [] } },
+          data: { isActive: true },
+        }),
+        tx.recurringExpense.updateMany({
+          where: { id: { in: snapshot.recurringExpenseIds ?? [] } },
+          data: { active: true },
+        }),
+        tx.accessDevice.updateMany({
+          where: { id: { in: snapshot.accessDeviceIds ?? [] } },
+          data: { isActive: true },
+        }),
+        tx.cameraDevice.updateMany({
+          where: { id: { in: snapshot.cameraDeviceIds ?? [] } },
+          data: { isActive: true },
+        }),
+      ]);
+      if (slug) await tx.facilitySlugRedirect.deleteMany({ where: { oldSlug: slug } });
+      const updated = await tx.facility.update({
+        where: { id: args.facilityId },
+        data: {
+          deletedAt: null,
+          deletedSnapshot: Prisma.DbNull,
+          isActive: snapshot.isActive ?? true,
+          publicSlug: slug,
+        },
+        include: FACILITY_INCLUDE,
+      });
+      return {
+        facility: updated,
+        restored: {
+          maintenancePlans: plans.count,
+          recurringExpenses: expenses.count,
+          accessDevices: devices.count,
+          cameraDevices: cameras.count,
+        },
+      };
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'facility.restored',
+      entityType: 'Facility',
+      entityId: args.facilityId,
+      changes: restored,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return { facility: this.toDto(facility), restored };
+  }
+
+  /**
+   * Otro local con la misma forma de trabajar: horario, toque de queda,
+   * características, contacto, propietario y plantas. No copia lo que es de cada
+   * sitio: dirección, fotos, planos ni trasteros.
+   */
+  async duplicate(args: {
+    tenantId: string;
+    userId: string;
+    facilityId: string;
+    name: string;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<FacilityDto> {
+    const facility = await this.prisma.withTenant(async (tx) => {
+      await this.limits.lockForCreate(tx, args.tenantId, 'facilities');
+      const source = await tx.facility.findFirst({
+        where: { id: args.facilityId, deletedAt: null },
+        include: { floors: { select: { name: true, floorNumber: true, isDefault: true } } },
+      });
+      if (!source) {
+        throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+      }
+      const live = await tx.facility.count({ where: { deletedAt: null } });
+      await this.limits.assertCanCreate(args.tenantId, 'facilities', live);
+      const name = args.name.trim();
+      await this.assertNameFree(tx, name);
+      const created = await tx.facility.create({
+        data: {
+          tenantId: args.tenantId,
+          name,
+          publicSlug: await this.freeSlug(tx, args.tenantId, slugify(name)),
+          city: source.city,
+          country: source.country,
+          timezone: source.timezone,
+          openingHours: source.openingHours as Prisma.InputJsonValue,
+          openingExceptions: source.openingExceptions as Prisma.InputJsonValue,
+          accessCurfewEnabled: source.accessCurfewEnabled,
+          accessCurfewStart: source.accessCurfewStart,
+          accessCurfewEnd: source.accessCurfewEnd,
+          pricingPositioningPct: source.pricingPositioningPct,
+          features: source.features,
+          contactPhone: source.contactPhone,
+          contactEmail: source.contactEmail,
+          ownerId: await this.ownerForCopy(args.tenantId, source.ownerId),
+        },
+        include: FACILITY_INCLUDE,
+      });
+      if (source.floors.length > 0) {
+        await tx.facilityFloor.createMany({
+          data: source.floors.map((f) => ({
+            facilityId: created.id,
+            name: f.name,
+            floorNumber: f.floorNumber,
+            isDefault: f.isDefault,
+          })),
+        });
+      }
+      await this.afterCreate(tx, args, created);
+      return created;
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'facility.duplicated',
+      entityType: 'Facility',
+      entityId: facility.id,
+      changes: { name: facility.name, duplicatedFrom: args.facilityId },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(facility);
   }
 
   // -------------------------------------------------------------------
@@ -690,13 +985,14 @@ export class FacilitiesService {
     userId: string;
     facilityId: string;
     images: string[];
+    alts?: Record<string, string> | undefined;
     meta: RequestMeta;
   }): Promise<FacilityDto> {
     const before = await this.prisma.withTenant(
       (tx) =>
         tx.facility.findFirst({
           where: { id: args.facilityId, deletedAt: null },
-          select: { images: true },
+          select: { images: true, imageAlts: true },
         }),
       args.tenantId,
     );
@@ -725,11 +1021,16 @@ export class FacilitiesService {
         { mustExist: true },
       );
     }
+    // Sin `alts` se conservan los que había; de las quitadas no queda nada.
+    const source = args.alts ?? ((before.imageAlts ?? {}) as Record<string, string>);
+    const imageAlts = Object.fromEntries(
+      args.images.flatMap((key) => (source[key]?.trim() ? [[key, source[key].trim()]] : [])),
+    );
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.facility.update({
           where: { id: args.facilityId },
-          data: { images: args.images },
+          data: { images: args.images, imageAlts },
           include: FACILITY_INCLUDE,
         }),
       args.tenantId,
@@ -779,6 +1080,9 @@ export class FacilitiesService {
       longitude: f.longitude !== null && f.longitude !== undefined ? Number(f.longitude) : null,
       timezone: f.timezone,
       openingHours: (f.openingHours as OpeningHours) ?? {},
+      openingExceptions: (f.openingExceptions as OpeningException[]) ?? [],
+      directions: f.directions,
+      mapsUrl: f.mapsUrl,
       accessCurfewEnabled: f.accessCurfewEnabled,
       accessCurfewStart: f.accessCurfewStart,
       accessCurfewEnd: f.accessCurfewEnd,
@@ -788,6 +1092,7 @@ export class FacilitiesService {
       images: (f.images ?? []).map((key) => ({
         key,
         url: this.files.buildPublicUrl('public', key),
+        alt: ((f.imageAlts ?? {}) as Record<string, string>)[key] ?? null,
       })),
       videoUrl: f.videoUrl,
       isActive: f.isActive,

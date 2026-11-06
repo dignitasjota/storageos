@@ -29,16 +29,25 @@ import { ApiUnavailableError, SERVER_API_URL, internalApiHeaders } from '@/lib/s
 
 const API_URL = SERVER_API_URL;
 
-export async function getFacility(
+/** `movedTo`: dirección antigua de un local, que ahora está en otra. */
+async function lookupFacility(
   slug: string,
   facility: string,
-): Promise<PublicFacilityLandingDto | null> {
+): Promise<PublicFacilityLandingDto | { movedTo: string } | null> {
   try {
     const res = await fetch(
       `${API_URL}/public/landing/${encodeURIComponent(slug)}/${encodeURIComponent(facility)}`,
       { headers: internalApiHeaders(), next: { revalidate: 60 } },
     );
-    if (res.status === 404) return null;
+    if (res.status === 404) {
+      const body = (await res.json().catch(() => null)) as {
+        code?: string;
+        details?: { slug?: string };
+      } | null;
+      return body?.code === 'facility_moved' && body.details?.slug
+        ? { movedTo: body.details.slug }
+        : null;
+    }
     if (!res.ok) throw new ApiUnavailableError(res.status);
     return (await res.json()) as PublicFacilityLandingDto;
   } catch (err) {
@@ -46,6 +55,14 @@ export async function getFacility(
     // buscadores no den de baja la web por una caída.
     throw err instanceof ApiUnavailableError ? err : new ApiUnavailableError(0);
   }
+}
+
+export async function getFacility(
+  slug: string,
+  facility: string,
+): Promise<PublicFacilityLandingDto | null> {
+  const found = await lookupFacility(slug, facility);
+  return found && 'movedTo' in found ? null : found;
 }
 
 /**
@@ -155,7 +172,9 @@ export async function buildFacilityMetadata(
   /** Visto desde el dominio propio (la página lo sabe por la cabecera del middleware). */
   onCustomDomain = false,
 ): Promise<Metadata> {
-  const data = await getFacility(slug, facilitySlug);
+  const found = await lookupFacility(slug, facilitySlug);
+  if (found && 'movedTo' in found) return { robots: { index: false, follow: true } };
+  const data = found;
   if (!data) {
     // `trasteros-en-<ciudad>`: página de la ciudad (si el negocio la tiene).
     const city = await buildCityMetadata(slug, facilitySlug, locale);
@@ -231,7 +250,17 @@ export async function FacilityPageBody({
   /** Visto desde el dominio propio: habilita la dirección corta de las landings. */
   onCustomDomain?: boolean;
 }) {
-  const raw = await getFacility(slug, facilitySlug);
+  const raw = await lookupFacility(slug, facilitySlug);
+  if (raw && 'movedTo' in raw) {
+    const segment = encodeURIComponent(raw.movedTo);
+    permanentRedirect(
+      !onCustomDomain
+        ? facilityHref(slug, raw.movedTo, locale)
+        : locale === 'es'
+          ? `/${segment}`
+          : `/l/${locale}/${segment}`,
+    );
+  }
   if (!raw) {
     if (cityFromPageSlug(facilitySlug)) {
       return <CityPageBody slug={slug} pageSlug={facilitySlug} locale={locale} />;

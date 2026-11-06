@@ -1032,6 +1032,19 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 - `POST /leads/:id/quote/preview`: 409 `facility_inactive` si el local está desactivado.
 - `GET /search`: encuentra locales (`type: 'facility'`) por nombre o ciudad y no enseña trasteros de locales borrados.
 
+**Mejoras de Locales (2026-11-06).** Migración `20261230100000_facilities_features`.
+
+- `GET /facilities/:id/overview` (`facilities:read`): `byType` (total, ocupados, reservados, libres, fuera de servicio y precio medio), `moveIns`/`moveOuts` de 30 días, `waitlist`, `tenantsReachable`, `openIncidents`, `expiringDocuments`, `offlineDevices` y `publicUrl`. `mrr` y `overdue` llegan a null sin `invoices:read` y `payments:read`.
+- `GET /facilities/summary`: gana `overdue`, `moveIns` y `moveOuts` (del mes).
+- `GET /facilities/deleted` y `POST /facilities/:id/restore` (`facilities:manage`): la papelera, durante 30 días (`FACILITY_RESTORE_DAYS`). Restaurar vuelve a encender solo lo que apagó el borrado y devuelve `{facility, restored}`. 409 `facility_restore_expired` y `facility_name_taken`; respeta el límite del plan. Si otro local tomó su dirección, recibe una libre.
+- `POST /facilities/:id/duplicate {name}` (`facilities:manage`): copia horario, días especiales, toque de queda, características, contacto, propietario y plantas. No copia dirección, fotos, planos ni trasteros.
+- `GET /facilities/:id/team` (`users:read`): `access` = `assigned` o `all`. `GET /facilities/:id/history?cursor=` (`facilities:manage`): lo auditado del local y de sus plantas, también de las ya borradas.
+- `POST /customers/by-facility/:facilityId/message {subject, bodyText}` (`communications:send`) → `{sent}`: aviso de servicio a los inquilinos en vigor del local, también a quien se dio de baja de las ofertas.
+- `POST/PATCH /facilities`: `openingHours` admite `open2`/`close2` (segundo turno) y `00:00–00:00` (24 horas); nuevos `openingExceptions` (`[{date, label?, hours|null}]`, hasta 60), `directions` y `mapsUrl`. Un enlace largo de Google Maps rellena las coordenadas si el local no tiene.
+- `PUT /facilities/:id/images`: `alts` opcional (`{key: texto}`); sin él se conservan los que había. `FacilityDto.images[].alt`.
+- `PATCH /facilities/:id` con otro `publicSlug`: la dirección antigua queda en `facility_slug_redirects`. `GET /public/landing/:slug/:facilitySlug` responde 404 `facility_moved` con `details.slug` y la web redirige con un 308. Deja de redirigir si otro local o una landing con dirección corta se la queda.
+- Web y área de clientes: `PublicLandingFacilityDto` gana `openingExceptions`, `features`, `directions`, `mapsUrl` e `imageAlts`; `PortalFacilityDto`, `openingExceptions` (los próximos 30 días) y `directions`, y `directionsUrl` usa `mapsUrl` si lo hay.
+
 ## Operativa, productos, analytics y reports (Fase 6)
 
 **Funcionalidades de la Operativa (2026-10-25, PR B).** Migración `20261114100000_operations_features`.

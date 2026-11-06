@@ -8,6 +8,8 @@ import { useRef } from 'react';
 import { FacilityCamerasTab } from './cameras-tab';
 import { FacilityDocumentsTab } from './documents-tab';
 import { FacilityFloorsTab } from './floors-tab';
+import { FacilityHistoryTab } from './history-tab';
+import { FacilityOverviewTab } from './overview-tab';
 import { FacilitySettingsTab } from './settings-tab';
 import { FacilityUnitTypesTab } from './unit-types-tab';
 import { FacilityUnitsTab } from './units-tab';
@@ -42,15 +44,16 @@ export default function FacilityDetailPage() {
 
   // Una pestaña que el usuario no puede ver (o mal escrita) no deja la página en blanco.
   const tabs = [
+    'overview',
     'units',
     'floors',
     'unit-types',
     'documents',
     ...(canSeeCameras ? ['cameras'] : []),
-    ...(canManage ? ['settings'] : []),
+    ...(canManage ? ['settings', 'history'] : []),
   ];
-  const requestedTab = searchParams.get('tab') ?? 'units';
-  const tab = tabs.includes(requestedTab) ? requestedTab : 'units';
+  const requestedTab = searchParams.get('tab') ?? 'overview';
+  const tab = tabs.includes(requestedTab) ? requestedTab : 'overview';
 
   async function changeTab(next: string) {
     if (
@@ -155,13 +158,18 @@ export default function FacilityDetailPage() {
 
       <Tabs value={tab} onValueChange={(v) => void changeTab(v)}>
         <TabsList>
+          <TabsTrigger value="overview">Resumen</TabsTrigger>
           <TabsTrigger value="units">Trasteros</TabsTrigger>
           <TabsTrigger value="floors">Plantas y plano</TabsTrigger>
           <TabsTrigger value="unit-types">Tipos</TabsTrigger>
           <TabsTrigger value="documents">Documentos</TabsTrigger>
           {canSeeCameras && <TabsTrigger value="cameras">Cámaras</TabsTrigger>}
           {canManage && <TabsTrigger value="settings">Ajustes</TabsTrigger>}
+          {canManage && <TabsTrigger value="history">Historial</TabsTrigger>}
         </TabsList>
+        <TabsContent value="overview" className="mt-6">
+          <FacilityOverviewTab facility={facility.data} onOpenTab={(t) => void changeTab(t)} />
+        </TabsContent>
         <TabsContent value="units" className="mt-6">
           <FacilityUnitsTab facilityId={facility.data.id} />
         </TabsContent>
@@ -174,7 +182,7 @@ export default function FacilityDetailPage() {
           />
         </TabsContent>
         <TabsContent value="unit-types" className="mt-6">
-          <FacilityUnitTypesTab />
+          <FacilityUnitTypesTab facilityId={facility.data.id} />
         </TabsContent>
         <TabsContent value="documents" className="mt-6">
           <FacilityDocumentsTab facilityId={facility.data.id} />
@@ -187,6 +195,11 @@ export default function FacilityDetailPage() {
         {canManage && (
           <TabsContent value="settings" className="mt-6">
             <FacilitySettingsTab facility={facility.data} />
+          </TabsContent>
+        )}
+        {canManage && (
+          <TabsContent value="history" className="mt-6">
+            <FacilityHistoryTab facilityId={facility.data.id} />
           </TabsContent>
         )}
       </Tabs>

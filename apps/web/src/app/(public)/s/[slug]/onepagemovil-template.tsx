@@ -39,6 +39,7 @@ import {
   cities,
   formatPrice,
   GoogleReviewBadge,
+  FacilityExtras,
   OpeningHoursInfo,
   PromoBanner,
   useHeadlineFallback,
@@ -108,6 +109,7 @@ export function OnePageMovilTemplate({
     ? buildBlogHref(data.tenantSlug, locale, data.customDomain)
     : undefined;
   const images = data.facilities.flatMap((f) => f.imageUrls);
+  const imageAlts = data.facilities.flatMap((f) => f.imageUrls.map((_, i) => f.imageAlts?.[i]));
   const heroImage = images[0] ?? null;
   const phone = data.facilities.find((f) => f.contactPhone)?.contactPhone ?? null;
   const email = data.facilities.find((f) => f.contactEmail)?.contactEmail ?? null;
@@ -452,7 +454,7 @@ export function OnePageMovilTemplate({
                           >
                             <Image
                               src={src}
-                              alt={`${data.tenantName} ${i + 1}`}
+                              alt={imageAlts[i] ?? `${data.tenantName} ${i + 1}`}
                               fill
                               loading="lazy"
                               sizes="(min-width: 1024px) 31vw, (min-width: 640px) 45vw, 85vw"
@@ -590,9 +592,11 @@ export function OnePageMovilTemplate({
                           <OpeningHoursInfo
                             hours={f.openingHours}
                             timezone={f.timezone}
+                            exceptions={f.openingExceptions}
                             preOpening={f}
                           />
                         </div>
+                        <FacilityExtras f={f} className="mt-2" />
                       </div>
                     ))}
                   </div>

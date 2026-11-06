@@ -1,7 +1,11 @@
 'use client';
 
+import { dayHoursText } from '@storageos/shared';
 import { MapPin, MessageCircle, Navigation, Phone } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+
+import { intlLocaleForPortal } from '../i18n/messages';
+import { usePortalLocale } from '../i18n/provider';
 
 import type { PortalFacilityDto, PortalFacilityPlanDto } from '@storageos/shared';
 
@@ -13,8 +17,11 @@ const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 /** Un local del inquilino: fotos, cómo llegar, contacto, horarios y su trastero en el plano. */
 export function FacilityInfoCard({ facility: f }: { facility: PortalFacilityDto }) {
   const t = useTranslations('portal.consume.facility');
+  const { locale } = usePortalLocale();
   const hours = f.openingHours ?? {};
   const hasHours = DAYS.some((d) => hours[d]);
+  const specialDays = f.openingExceptions ?? [];
+  const labels = { closed: t('closed'), allDay: t('allDay'), and: t('and') };
 
   return (
     <Card>
@@ -76,6 +83,13 @@ export function FacilityInfoCard({ facility: f }: { facility: PortalFacilityDto 
           )}
         </div>
 
+        {f.directions && (
+          <div className="space-y-1">
+            <p className="font-medium">{t('directions')}</p>
+            <p className="whitespace-pre-line text-muted-foreground">{f.directions}</p>
+          </div>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
             <p className="font-medium">{t('accessTitle')}</p>
@@ -97,12 +111,28 @@ export function FacilityInfoCard({ facility: f }: { facility: PortalFacilityDto 
                 {DAYS.map((d) => (
                   <li key={d} className="flex justify-between gap-3">
                     <span>{t(`day.${d}`)}</span>
-                    <span className="tabular-nums">
-                      {hours[d] ? `${hours[d]!.open}–${hours[d]!.close}` : t('closed')}
+                    <span className="text-right tabular-nums">
+                      {dayHoursText(hours[d], labels)}
                     </span>
                   </li>
                 ))}
               </ul>
+              {specialDays.length > 0 && (
+                <>
+                  <p className="pt-1 font-medium">{t('specialDays')}</p>
+                  <ul className="text-muted-foreground">
+                    {specialDays.map((e) => (
+                      <li key={e.date}>
+                        {new Date(`${e.date}T12:00:00Z`).toLocaleDateString(
+                          intlLocaleForPortal(locale),
+                          { day: 'numeric', month: 'long', timeZone: 'UTC' },
+                        )}
+                        {e.label ? ` (${e.label})` : ''}: {dayHoursText(e.hours, labels)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </div>
           )}
         </div>

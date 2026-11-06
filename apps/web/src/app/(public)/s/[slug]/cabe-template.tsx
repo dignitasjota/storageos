@@ -1,6 +1,6 @@
 'use client';
 
-import { mapEmbedUrl, WEEKDAYS } from '@storageos/shared';
+import { isOpenNow, mapEmbedUrl, WEEKDAYS } from '@storageos/shared';
 import {
   ArrowRight,
   Bell,
@@ -35,7 +35,15 @@ import {
 import { grossPrice } from './price-format';
 import { goToSection, goToTop } from './site-sections';
 import { StorageCalculator } from './storage-calculator';
-import { cities, formatPrice, isOpenNow, PreOpeningBadge, useHeadlineFallback } from './templates';
+import {
+  cities,
+  FacilityExtras,
+  formatPrice,
+  PreOpeningBadge,
+  SpecialDays,
+  useDayHoursText,
+  useHeadlineFallback,
+} from './templates';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
@@ -65,7 +73,9 @@ function heroCardFacts(data: PublicLandingDto): { open: boolean | null; fromPric
   const withHours = data.facilities.find(
     (f) => !f.preOpening && Object.values(f.openingHours ?? {}).some(Boolean),
   );
-  const open = withHours ? isOpenNow(withHours.openingHours, withHours.timezone) : null;
+  const open = withHours
+    ? isOpenNow(withHours.openingHours, withHours.timezone, withHours.openingExceptions ?? [])
+    : null;
   const types = data.facilities.flatMap((f) => f.unitTypes);
   const pool = types.some((u) => u.available > 0) ? types.filter((u) => u.available > 0) : types;
   const prices = pool.map((u) => grossPrice(u)).filter((p) => p > 0);
@@ -963,6 +973,7 @@ function FacilityCard({
   const t = useTranslations('publicWeb.cabe');
   const tHours = useTranslations('publicWeb.hours');
   const tCommon = useTranslations('publicWeb.common');
+  const dayText = useDayHoursText();
   const hasHours = WEEKDAYS.some((d) => f.openingHours[d]);
   const map = mapEmbedUrl(f);
   const image = f.imageUrls[0] ?? null;
@@ -1023,13 +1034,19 @@ function FacilityCard({
                         <span className="inline-block w-24 text-slate-500 dark:text-muted-foreground">
                           {tHours(day)}
                         </span>
-                        <span>{h ? `${h.open}–${h.close}` : tHours('closed')}</span>
+                        <span>{dayText(h)}</span>
                       </li>
                     );
                   })}
                 </ul>
+                <SpecialDays
+                  exceptions={f.openingExceptions}
+                  timezone={f.timezone}
+                  className="mt-2 text-xs"
+                />
               </div>
             )}
+            <FacilityExtras f={f} className="border-t border-slate-100 pt-3 dark:border-border" />
           </div>
           <div className="flex flex-wrap gap-2 pt-6">
             <button
@@ -1063,7 +1080,7 @@ function FacilityCard({
           ) : image ? (
             <Image
               src={image}
-              alt={f.name}
+              alt={f.imageAlts?.[0] ?? f.name}
               fill
               loading="lazy"
               sizes="(min-width: 1024px) 58vw, 100vw"

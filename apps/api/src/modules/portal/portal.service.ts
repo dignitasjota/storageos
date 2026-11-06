@@ -18,7 +18,9 @@ import { Prisma } from '@storageos/database';
 import {
   isValidSpanishTaxId,
   mapEmbedUrl,
+  upcomingExceptions,
   waMeNumber,
+  type OpeningException,
   type OpeningHours,
   type PortalFacilityPlanDto,
   normalizeTaxId,
@@ -1421,6 +1423,11 @@ export class PortalService {
         accessCurfewEnd: f.accessCurfewEnd,
         imageUrls: (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key)),
         openingHours: (f.openingHours ?? {}) as OpeningHours,
+        openingExceptions: upcomingExceptions(
+          (f.openingExceptions ?? []) as OpeningException[],
+          f.timezone,
+        ),
+        directions: f.directions,
         mapEmbedUrl: mapEmbedUrl({
           address: f.address,
           city: f.city,
@@ -1428,9 +1435,11 @@ export class PortalService {
           latitude,
           longitude,
         }),
-        directionsUrl: place
-          ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place)}`
-          : null,
+        directionsUrl:
+          f.mapsUrl ??
+          (place
+            ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place)}`
+            : null),
         whatsappNumber,
         myUnitCodes: contracts.filter((c) => c.unit.facilityId === f.id).map((c) => c.unit.code),
         plans: plansByFacility.get(f.id) ?? [],

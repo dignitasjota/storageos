@@ -15,6 +15,9 @@ import process from 'node:process';
  * silenciosamente → fugas cross-tenant en los listados.
  */
 const envPath = resolve(__dirname, '..', '..', '.env');
+// `REDIS_DB` de la línea de comandos sí manda: separa la cola de un API de
+// desarrollo que esté corriendo, que si no se lleva los jobs de los tests.
+const shellRedisDb = process.env.REDIS_DB;
 if (existsSync(envPath)) {
   const content = readFileSync(envPath, 'utf8');
   for (const rawLine of content.split('\n')) {
@@ -33,6 +36,7 @@ if (existsSync(envPath)) {
     process.env[key] = value;
   }
 }
+if (shellRedisDb) process.env.REDIS_DB = shellRedisDb;
 
 // Marcar como test para que ThrottlerModule aplique skipIf y el resto del
 // codigo pueda comprobar `process.env.NODE_ENV === 'test'`.

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 import { meQueryKey } from '../auth/hooks';
@@ -13,10 +13,16 @@ import type {
   CreateFloorInput,
   CreateUnitInput,
   CreateUnitTypeInput,
+  DeletedFacilityDto,
   FacilityDeletePreviewDto,
   FacilityDto,
+  FacilityHistoryDto,
   FacilityImageUploadResponseDto,
   FacilityFloorDto,
+  FacilityMessageInput,
+  FacilityOverviewDto,
+  FacilityRestoreResultDto,
+  FacilityTeamMemberDto,
   OccupancyDashboardDto,
   PlanUploadResponseDto,
   RequestPlanUploadInput,
@@ -114,10 +120,10 @@ export function useApplyOwnerToContracts() {
 export function useSetFacilityImages() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: string; images: string[] }) =>
+    mutationFn: (args: { id: string; images: string[]; alts?: Record<string, string> }) =>
       apiFetch<FacilityDto>(`/facilities/${args.id}/images`, {
         method: 'PUT',
-        json: { images: args.images },
+        json: { images: args.images, ...(args.alts ? { alts: args.alts } : {}) },
       }),
     onSuccess: (data) => {
       void qc.invalidateQueries({ queryKey: facilitiesKey });
@@ -164,6 +170,88 @@ export function useDeleteFacility() {
       for (const queryKey of [facilitiesKey, ['units'], ['dashboard'], ['inventory'], meQueryKey]) {
         void qc.invalidateQueries({ queryKey });
       }
+    },
+  });
+}
+
+/** Lo que pasa en el local, de un vistazo. */
+export function useFacilityOverview(id: string) {
+  return useQuery({
+    queryKey: ['facilities', id, 'overview'],
+    queryFn: () => apiFetch<FacilityOverviewDto>(`/facilities/${id}/overview`),
+    staleTime: 30_000,
+  });
+}
+
+export function useFacilityTeam(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['facilities', id, 'team'],
+    queryFn: () => apiFetch<FacilityTeamMemberDto[]>(`/facilities/${id}/team`),
+    enabled,
+  });
+}
+
+export function useFacilityHistory(id: string) {
+  return useInfiniteQuery({
+    queryKey: ['facilities', id, 'history'],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      apiFetch<FacilityHistoryDto>(
+        `/facilities/${id}/history${pageParam ? `?cursor=${pageParam}` : ''}`,
+      ),
+    getNextPageParam: (last) => last.nextCursor,
+  });
+}
+
+const deletedFacilitiesKey = ['facilities', 'deleted'] as const;
+
+/** La papelera: lo borrado en los últimos 30 días. */
+export function useDeletedFacilities() {
+  return useQuery({
+    queryKey: deletedFacilitiesKey,
+    queryFn: () => apiFetch<DeletedFacilityDto[]>('/facilities/deleted'),
+  });
+}
+
+export function useRestoreFacility() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<FacilityRestoreResultDto>(`/facilities/${id}/restore`, { method: 'POST' }),
+    onSuccess: () => {
+      for (const queryKey of [facilitiesKey, ['units'], ['dashboard'], ['inventory'], meQueryKey]) {
+        void qc.invalidateQueries({ queryKey });
+      }
+    },
+  });
+}
+
+export function useDuplicateFacility() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; name: string }) =>
+      apiFetch<FacilityDto>(`/facilities/${args.id}/duplicate`, {
+        method: 'POST',
+        json: { name: args.name },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: facilitiesKey });
+      void qc.invalidateQueries({ queryKey: meQueryKey });
+    },
+  });
+}
+
+/** Aviso a los inquilinos en vigor del local. */
+export function useMessageFacilityTenants() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: FacilityMessageInput }) =>
+      apiFetch<{ sent: number }>(`/customers/by-facility/${args.id}/message`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['communications'] });
     },
   });
 }

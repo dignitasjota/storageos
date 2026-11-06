@@ -20,6 +20,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -53,14 +54,117 @@ import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import {
   useCreateUnitType,
   useDeleteUnitType,
+  useFacilityOverview,
+  useUnits,
   useUnitTypes,
   useUpdateUnitType,
 } from '@/lib/facilities/hooks';
+import { useBulkUnits } from '@/lib/facilities/inventory-hooks';
 import { formatEur } from '@/lib/format';
 
-export function FacilityUnitTypesTab() {
+/** `POST /units/bulk` admite hasta 500 trasteros por petición. */
+const BULK_LIMIT = 500;
+
+/** Lleva el precio del tipo a los trasteros de este local, viendo antes qué cambia. */
+function ApplyTypePriceDialog({
+  facilityId,
+  type,
+  onClose,
+}: {
+  facilityId: string;
+  type: UnitTypeDto | null;
+  onClose: () => void;
+}) {
+  const units = useUnits({ facilityId, unitTypeId: type?.id ?? '' }, { enabled: !!type });
+  const bulk = useBulkUnits();
+  const price = type?.defaultPriceMonthly ?? 0;
+  const all = units.data?.items ?? [];
+  const changing = all.filter((u) => u.basePriceMonthly !== price);
+  const prices = changing.map((u) => u.basePriceMonthly);
+  const from = Math.min(...prices);
+  const to = Math.max(...prices);
+  const rented = changing.filter((u) => u.status === 'occupied').length;
+
+  async function apply() {
+    let updated = 0;
+    let failed = 0;
+    try {
+      for (let i = 0; i < changing.length; i += BULK_LIMIT) {
+        const res = await bulk.mutateAsync({
+          action: 'price',
+          unitIds: changing.slice(i, i + BULK_LIMIT).map((u) => u.id),
+          mode: 'set',
+          value: price,
+          round: 'none',
+        });
+        updated += res.updated;
+        failed += res.failed.length;
+      }
+      if (failed > 0) toast.warning(`${updated} actualizados, ${failed} sin cambiar.`);
+      else
+        toast.success(
+          `Precio aplicado a ${updated === 1 ? '1 trastero' : `${updated} trasteros`}.`,
+        );
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo aplicar.');
+    }
+  }
+
+  return (
+    <Dialog open={!!type} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Aplicar el precio de {type?.name}</DialogTitle>
+          <DialogDescription>
+            Pone {formatEur(price)} al mes (sin IVA) a los trasteros de este tamaño en este local.
+          </DialogDescription>
+        </DialogHeader>
+        {units.isLoading ? (
+          <p className="text-sm text-muted-foreground">Calculando…</p>
+        ) : changing.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {all.length === 0
+              ? 'Este local no tiene trasteros de este tamaño.'
+              : 'Todos sus trasteros ya tienen este precio.'}
+          </p>
+        ) : (
+          <div className="space-y-1 text-sm">
+            <p>
+              {changing.length === 1 ? 'Cambia' : 'Cambian'} <strong>{changing.length}</strong> de{' '}
+              {all.length} {all.length === 1 ? 'trastero' : 'trasteros'}: ahora{' '}
+              {from === to ? `a ${formatEur(from)}` : `de ${formatEur(from)} a ${formatEur(to)}`}.
+            </p>
+            {rented > 0 && (
+              <p className="text-muted-foreground">
+                {rented === 1 ? '1 está alquilado' : `${rented} están alquilados`}: su inquilino
+                sigue con su cuota; el precio nuevo vale para el próximo contrato.
+              </p>
+            )}
+          </div>
+        )}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={() => void apply()}
+            disabled={bulk.isPending || changing.length === 0 || price <= 0}
+          >
+            {bulk.isPending ? 'Aplicando...' : 'Aplicar'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function FacilityUnitTypesTab({ facilityId }: { facilityId: string }) {
   const ask = useConfirm();
   const types = useUnitTypes();
+  const overview = useFacilityOverview(facilityId);
+  const here = new Map((overview.data?.byType ?? []).map((t) => [t.unitTypeId, t]));
+  const [applying, setApplying] = useState<UnitTypeDto | null>(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<UnitTypeDto | null>(null);
   const create = useCreateUnitType();
@@ -81,6 +185,7 @@ export function FacilityUnitTypesTab() {
   });
   const hasHousing = useHasFeature('housing');
   const canManage = useHasPermission('units:manage');
+  const canWriteUnits = useHasPermission('units:write');
   const [active, setActive] = useState(true);
 
   useEffect(() => {
@@ -172,7 +277,25 @@ export function FacilityUnitTypesTab() {
     },
     {
       accessorKey: 'unitsCount',
-      header: 'Trasteros',
+      header: 'Trasteros (todos)',
+    },
+    {
+      id: 'here',
+      header: 'En este local',
+      accessorFn: (type) => here.get(type.id)?.total ?? 0,
+      cell: ({ row }) => {
+        const t = here.get(row.original.id);
+        return t ? `${t.occupied} de ${t.total} ocupados` : '—';
+      },
+    },
+    {
+      id: 'avgHere',
+      header: 'Precio medio aquí',
+      accessorFn: (type) => here.get(type.id)?.avgPrice ?? 0,
+      cell: ({ row }) => {
+        const t = here.get(row.original.id);
+        return t ? formatEur(t.avgPrice) : '—';
+      },
     },
     {
       accessorKey: 'stackable',
@@ -193,7 +316,7 @@ export function FacilityUnitTypesTab() {
       id: 'actions',
       header: '',
       cell: ({ row }) =>
-        canManage ? (
+        canManage || canWriteUnits ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" aria-label="Acciones">
@@ -201,20 +324,29 @@ export function FacilityUnitTypesTab() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => {
-                  setEditing(row.original);
-                  setOpen(true);
-                }}
-              >
-                Editar
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => void handleDelete(row.original)}
-              >
-                {row.original.unitsCount > 0 ? 'Desactivar' : 'Borrar'}
-              </DropdownMenuItem>
+              {canWriteUnits && here.has(row.original.id) && (
+                <DropdownMenuItem onClick={() => setApplying(row.original)}>
+                  Aplicar su precio en este local
+                </DropdownMenuItem>
+              )}
+              {canManage && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setEditing(row.original);
+                    setOpen(true);
+                  }}
+                >
+                  Editar
+                </DropdownMenuItem>
+              )}
+              {canManage && (
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={() => void handleDelete(row.original)}
+                >
+                  {row.original.unitsCount > 0 ? 'Desactivar' : 'Borrar'}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null,
@@ -226,6 +358,11 @@ export function FacilityUnitTypesTab() {
       <p className="text-sm text-muted-foreground">
         Los tipos son comunes a todos tus locales: lo que cambies aquí se ve en todos.
       </p>
+      <ApplyTypePriceDialog
+        facilityId={facilityId}
+        type={applying}
+        onClose={() => setApplying(null)}
+      />
       <DataTable
         columns={columns}
         data={types.data ?? []}

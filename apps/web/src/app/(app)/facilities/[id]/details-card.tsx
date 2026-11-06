@@ -73,6 +73,11 @@ export function FacilityDetailsCard({ facility }: { facility: FacilityDto }) {
   const [form, setForm] = useState<Form>(() => fromFacility(facility));
   // Se rellena al cambiar de local, no al refrescar (no pisa lo que se escribe).
   useEffect(() => setForm(fromFacility(facility)), [facility.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // La ubicación también puede llegar del enlace de Google Maps de «Cómo llegar».
+  useEffect(() => {
+    const { latitude, longitude } = fromFacility(facility);
+    setForm((f) => ({ ...f, latitude, longitude }));
+  }, [facility.latitude, facility.longitude]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((f) => ({ ...f, [key]: value }));

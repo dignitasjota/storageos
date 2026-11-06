@@ -141,3 +141,29 @@ describe('DataRetentionService.cleanupExpiredFiles', () => {
     expect(filter('t/aging/r1.pdf')).toBe(false);
   });
 });
+
+describe('DataRetentionService.cleanupDeletedFacilityImages', () => {
+  it('pasada la papelera quita las fotos públicas del local y sus descripciones', async () => {
+    const facility = {
+      findMany: jest.fn().mockResolvedValue([{ id: 'f1', images: ['t/f1/images/a.jpg'] }]),
+      update: jest.fn().mockResolvedValue({}),
+    };
+    const files = { deleteObjects: jest.fn().mockResolvedValue(undefined) };
+    const service = new DataRetentionService(
+      { facility } as unknown as PrismaAdminService,
+      {} as never,
+      files as never,
+    );
+    const before = Date.now();
+
+    expect(await service.cleanupDeletedFacilityImages()).toBe(1);
+
+    const limit = facility.findMany.mock.calls[0]![0].where.deletedAt.lt as Date;
+    expect(limit.getTime()).toBeLessThanOrEqual(before - 30 * 24 * 60 * 60 * 1000);
+    expect(files.deleteObjects).toHaveBeenCalledWith('public', ['t/f1/images/a.jpg']);
+    expect(facility.update).toHaveBeenCalledWith({
+      where: { id: 'f1' },
+      data: { images: [], imageAlts: {} },
+    });
+  });
+});

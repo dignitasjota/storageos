@@ -1869,3 +1869,13 @@ Migración `20261229100000_facilities_review`, se aplica sola. Sin variables nue
 - **Alcance por local**: se lee en cada petición, no del token. Quitarle un local a alguien surte efecto al momento, sin esperar a que caduque su sesión.
 - **Nombres repetidos**: los locales que ya tengan el mismo nombre se quedan como están. Solo se impide crear otro o renombrar a uno que exista. Al importar, la fila que nombre uno de esos locales falla con un mensaje claro: conviene cambiarle el nombre a uno.
 - **Quien use la API**: `PATCH /facilities/:id` ya no añade un número a una dirección ocupada: responde 409 `slug_taken` con una propuesta. `PUT /facilities/:id/images` y `PATCH /floors/:id/plan` dan 400 `file_not_uploaded` si el fichero no se llegó a subir.
+
+## 104. Locales: mejoras (2026-11-06)
+
+Migración `20261230100000_facilities_features`, se aplica sola. Sin variables nuevas.
+
+- **Locales borrados antes de este cambio**: salen en la papelera si llevan menos de 30 días, pero no guardan lo que se apagó, así que al restaurarlos sus puertas, planes y gastos se quedan apagados. Hay que encenderlos a mano.
+- **Fotos de locales borrados**: las públicas se quitan a los 30 días del borrado, cuando ya no se puede restaurar (cron `data-retention.cleanup`, en el worker). Al primer paso del cron se van las de los locales borrados hace más de 30 días.
+- **Direcciones antiguas**: solo redirigen las que se cambien a partir de ahora. Las que se cambiaron antes ya no existen en ningún sitio.
+- **Cartel con QR**: lleva a la página del local en la web, con el dominio propio si está verificado. Con web externa, a la reserva de ese local (`/reservar/<local>`), porque `/<local>` es de esa web. Si después cambia el dominio, hay que imprimirlo de nuevo.
+- **Datos estructurados**: el horario partido y los días especiales salen ya en lo que lee Google. Google tarda días en reflejarlo.

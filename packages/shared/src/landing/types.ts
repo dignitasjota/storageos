@@ -3,7 +3,7 @@
  * negocio y de cada local + disponibilidad, para una página SEO indexable.
  */
 import type { PromotionDiscountTypeValue } from '../billing';
-import type { OpeningHours } from '../facilities';
+import type { OpeningException, OpeningHours } from '../facilities';
 import type { WebContent, WebSeo } from '../web';
 import type { AreaPageLinkDto, PublicAreaPageContentDto } from '../web/area-pages';
 export interface PublicLandingUnitTypeDto {
@@ -32,6 +32,8 @@ export interface PublicLandingFacilityDto {
   contactPhone: string | null;
   contactEmail: string | null;
   openingHours: OpeningHours;
+  /** Festivos y días con otro horario. */
+  openingExceptions: OpeningException[];
   /** Zona horaria del local (para calcular "abierto ahora" en la web pública). */
   timezone: string;
   /** Coordenadas (para el mapa embebido); null si no están configuradas. */
@@ -39,6 +41,13 @@ export interface PublicLandingFacilityDto {
   longitude: number | null;
   /** URLs públicas de las imágenes del local. */
   imageUrls: string[];
+  /** Texto alternativo de cada imagen (mismo orden), o null para usar el nombre del local. */
+  imageAlts: (string | null)[];
+  /** Características (24 h, climatizado…): claves de `CompetitorFeatureEnum`. */
+  features: string[];
+  /** Cómo llegar: indicaciones y enlace de Google Maps. */
+  directions: string | null;
+  mapsUrl: string | null;
   /** Vídeo (YouTube/Vimeo) del local, o null. */
   videoUrl: string | null;
   unitTypes: PublicLandingUnitTypeDto[];

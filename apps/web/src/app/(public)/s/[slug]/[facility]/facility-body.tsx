@@ -121,7 +121,9 @@ export function FacilityBody({
             >
               <Image
                 src={url}
-                alt={t('facility.photoAlt', { index: index + 1, name: f.name })}
+                alt={
+                  f.imageAlts?.[index] ?? t('facility.photoAlt', { index: index + 1, name: f.name })
+                }
                 fill
                 {...(index === 0 ? { priority: true } : { loading: 'lazy' as const })}
                 sizes="(min-width: 640px) 33vw, 50vw"

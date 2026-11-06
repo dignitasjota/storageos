@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { FACILITY_RESTORE_DAYS } from '@storageos/shared';
 
 import { attachmentKeysOf } from '../../common/message-attachments';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -127,6 +128,29 @@ export class DataRetentionService {
       );
     }
     return { reports: expired.length, exports };
+  }
+
+  /**
+   * Las fotos de un local son públicas: pasado el plazo de la papelera, ya no se
+   * puede restaurar y no hay por qué seguir sirviéndolas.
+   */
+  async cleanupDeletedFacilityImages(): Promise<number> {
+    const rows = await this.admin.facility.findMany({
+      where: {
+        deletedAt: { lt: new Date(Date.now() - FACILITY_RESTORE_DAYS * 24 * 60 * 60 * 1000) },
+        NOT: { images: { isEmpty: true } },
+      },
+      select: { id: true, images: true },
+      take: 200,
+    });
+    for (const facility of rows) {
+      await this.files.deleteObjects('public', facility.images);
+      await this.admin.facility.update({
+        where: { id: facility.id },
+        data: { images: [], imageAlts: {} },
+      });
+    }
+    return rows.length;
   }
 
   /** Borra las filas más antiguas que el plazo de retención de cada tabla. */

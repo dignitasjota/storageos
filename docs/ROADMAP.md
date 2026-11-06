@@ -936,3 +936,5 @@ Mejoras (PR B): lista con inquilino, cuota, deuda y días libre, columnas a eleg
 ### Locales del panel del tenant: revisión (2026-11-06)
 
 Arreglos (PR A): borrar un local dice qué falta (borradores, reservas, traslados, lista de espera), avisa de lo que se apaga y de quién se queda sin locales, y un local borrado deja de generar tareas y gastos y de abrir puertas. Quien solo ve unos locales ve el que crea, al momento. Las cifras de cada local son las del Resumen y el dinero se oculta sin permiso. El plano ya no mezcla plantas ni pierde cambios en silencio. Dirección pública sin cambios ocultos, nombres sin repetir, errores que dicen qué campo falla y botones según permiso.
+
+Mejoras (PR B): resumen de cada local como pestaña inicial, comparar locales en tabla con filtros y CSV, papelera con 30 días para restaurar, horario partido con 24 horas y festivos, cómo llegar en la web, el área de clientes y el correo, características en la web, fotos que se arrastran y con descripción, ficha completa, direcciones antiguas que redirigen, cartel con QR, cifras y precio del tipo por local, equipo del local, aviso a sus inquilinos, duplicar e historial.

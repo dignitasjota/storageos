@@ -4,19 +4,33 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   type CreateFacilityInput,
   CreateFacilitySchema,
+  facilityCompleteness,
   type FacilityDto,
   type FacilitySummaryDto,
 } from '@storageos/shared';
-import { Building2, Loader2, MapPin, MoreHorizontal, Plus } from 'lucide-react';
+import { type ColumnDef } from '@tanstack/react-table';
+import {
+  Building2,
+  Download,
+  LayoutGrid,
+  List,
+  Loader2,
+  MapPin,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { DeleteFacilityDialog } from './delete-facility-dialog';
+import { DuplicateFacilityDialog } from './duplicate-facility-dialog';
 
 import { SectionError } from '@/components/dashboard/section-state';
+import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,8 +57,16 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
+import { downloadCsv } from '@/lib/csv';
 import { useCreateFacility, useFacilities } from '@/lib/facilities/hooks';
 import { useFacilitySummary } from '@/lib/facilities/inventory-hooks';
 import { formatDate, formatEur, formatNumber } from '@/lib/format';
@@ -54,6 +76,100 @@ function barColor(pct: number): string {
   if (pct >= 60) return '#2563eb';
   if (pct >= 35) return '#eab308';
   return '#ef4444';
+}
+
+type StatusFilter = 'all' | 'active' | 'opening' | 'inactive';
+type View = 'cards' | 'table';
+
+const VIEW_KEY = 'storageos.facilities.view';
+
+const STATUS_LABELS: Record<StatusFilter, string> = {
+  all: 'Todos',
+  active: 'Abiertos',
+  opening: 'Por abrir',
+  inactive: 'Inactivos',
+};
+
+function matchesStatus(f: FacilityDto, status: StatusFilter): boolean {
+  if (status === 'inactive') return !f.isActive;
+  if (status === 'opening') return f.isActive && f.preOpening;
+  if (status === 'active') return f.isActive && !f.preOpening;
+  return true;
+}
+
+/** Una fila de la comparación. */
+interface CompareRow {
+  facility: FacilityDto;
+  total: number;
+  occupied: number;
+  pct: number;
+  summary: FacilitySummaryDto | null;
+}
+
+const money = (value: number | null | undefined) => (value == null ? '—' : formatEur(value));
+
+function compareColumns(showMoney: boolean): ColumnDef<CompareRow>[] {
+  return [
+    {
+      id: 'name',
+      header: 'Local',
+      accessorFn: (r) => r.facility.name,
+      cell: ({ row }) => (
+        <span className="min-w-0">
+          <span className="block font-medium">{row.original.facility.name}</span>
+          {row.original.facility.city && (
+            <span className="text-xs text-muted-foreground">{row.original.facility.city}</span>
+          )}
+        </span>
+      ),
+    },
+    { id: 'total', header: 'Trasteros', accessorFn: (r) => r.total },
+    {
+      id: 'pct',
+      header: 'Ocupación',
+      accessorFn: (r) => r.pct,
+      cell: ({ row }) => `${row.original.pct}%`,
+    },
+    ...(showMoney
+      ? ([
+          {
+            id: 'mrr',
+            header: 'Cuotas al mes',
+            accessorFn: (r) => r.summary?.mrr ?? 0,
+            cell: ({ row }) => money(row.original.summary?.mrr),
+          },
+          {
+            id: 'avgPrice',
+            header: 'Cuota media',
+            accessorFn: (r) => r.summary?.avgPrice ?? 0,
+            cell: ({ row }) => money(row.original.summary?.avgPrice),
+          },
+          {
+            id: 'invoiced',
+            header: 'Facturado este mes',
+            accessorFn: (r) => r.summary?.invoicedMonth ?? 0,
+            cell: ({ row }) => money(row.original.summary?.invoicedMonth),
+          },
+          {
+            id: 'overdue',
+            header: 'Vencido',
+            accessorFn: (r) => r.summary?.overdue ?? 0,
+            cell: ({ row }) => money(row.original.summary?.overdue),
+          },
+        ] satisfies ColumnDef<CompareRow>[])
+      : []),
+    { id: 'moveIns', header: 'Altas del mes', accessorFn: (r) => r.summary?.moveIns ?? 0 },
+    { id: 'moveOuts', header: 'Bajas del mes', accessorFn: (r) => r.summary?.moveOuts ?? 0 },
+    {
+      id: 'vacant',
+      header: 'Más tiempo libre',
+      accessorFn: (r) => r.summary?.longestVacantDays ?? 0,
+      cell: ({ row }) => {
+        const days = row.original.summary?.longestVacantDays;
+        return days == null ? '—' : `${days} días`;
+      },
+    },
+  ];
 }
 
 export default function FacilitiesPage() {
@@ -67,7 +183,10 @@ export default function FacilitiesPage() {
   const canManage = useHasPermission('facilities:manage');
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<StatusFilter>('all');
+  const [view, setView] = useState<View>('cards');
   const [deleting, setDeleting] = useState<FacilityDto | null>(null);
+  const [duplicating, setDuplicating] = useState<FacilityDto | null>(null);
   const router = useRouter();
   const create = useCreateFacility();
 
@@ -79,11 +198,86 @@ export default function FacilitiesPage() {
   const all = useMemo(() => facilities.data ?? [], [facilities.data]);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return all;
     return all.filter(
-      (f) => f.name.toLowerCase().includes(q) || (f.city ?? '').toLowerCase().includes(q),
+      (f) =>
+        matchesStatus(f, status) &&
+        (!q || f.name.toLowerCase().includes(q) || (f.city ?? '').toLowerCase().includes(q)),
     );
-  }, [all, search]);
+  }, [all, search, status]);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(VIEW_KEY) === 'table') setView('table');
+    } catch {
+      // Sin almacenamiento se queda en tarjetas.
+    }
+  }, []);
+
+  function changeView(next: View) {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // Sin almacenamiento solo se pierde para la próxima visita.
+    }
+  }
+
+  const rows = useMemo<CompareRow[]>(
+    () =>
+      filtered.map((f) => {
+        const summary = summaryOf.get(f.id) ?? null;
+        const total = summary?.totalUnits ?? f.unitsTotal;
+        const occupied = summary?.occupiedUnits ?? f.unitsOccupied;
+        return {
+          facility: f,
+          total,
+          occupied,
+          pct: total > 0 ? Math.round((occupied / total) * 100) : 0,
+          summary,
+        };
+      }),
+    [filtered, summaryOf],
+  );
+  // El API manda null sin permiso para ver el dinero.
+  const showMoney = (summaries.data ?? []).some((x) => x.mrr !== null);
+  const columns = useMemo(() => compareColumns(showMoney), [showMoney]);
+
+  function exportCsv() {
+    const moneyHeader = showMoney
+      ? ['Cuotas al mes', 'Cuota media', 'Facturado este mes', 'Vencido']
+      : [];
+    downloadCsv('locales.csv', [
+      [
+        'Local',
+        'Ciudad',
+        'Trasteros',
+        'Ocupados',
+        'Ocupación %',
+        ...moneyHeader,
+        'Altas del mes',
+        'Bajas del mes',
+        'Más tiempo libre (días)',
+      ],
+      ...rows.map((r) => [
+        r.facility.name,
+        r.facility.city ?? '',
+        r.total,
+        r.occupied,
+        r.pct,
+        ...(showMoney
+          ? [
+              r.summary?.mrr ?? 0,
+              r.summary?.avgPrice ?? 0,
+              r.summary?.invoicedMonth ?? 0,
+              r.summary?.overdue ?? 0,
+            ]
+          : []),
+        r.summary?.moveIns ?? 0,
+        r.summary?.moveOuts ?? 0,
+        r.summary?.longestVacantDays ?? '',
+      ]),
+    ]);
+  }
 
   const totals = useMemo(() => {
     const units = all.reduce((s, f) => s + (summaryOf.get(f.id)?.totalUnits ?? f.unitsTotal), 0);
@@ -209,12 +403,64 @@ export default function FacilitiesPage() {
         </div>
       )}
 
-      <Input
-        placeholder="Buscar local por nombre o ciudad…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="max-w-sm"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          placeholder="Buscar local por nombre o ciudad…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-sm"
+        />
+        <Select value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
+          <SelectTrigger className="w-36" aria-label="Estado del local">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(STATUS_LABELS) as StatusFilter[]).map((key) => (
+              <SelectItem key={key} value={key}>
+                {STATUS_LABELS[key]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex rounded-md border p-0.5">
+          <Button
+            variant={view === 'cards' ? 'secondary' : 'ghost'}
+            size="icon"
+            className="size-8"
+            aria-label="Ver en tarjetas"
+            aria-pressed={view === 'cards'}
+            onClick={() => changeView('cards')}
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={view === 'table' ? 'secondary' : 'ghost'}
+            size="icon"
+            className="size-8"
+            aria-label="Comparar en tabla"
+            aria-pressed={view === 'table'}
+            onClick={() => changeView('table')}
+          >
+            <List className="h-4 w-4" />
+          </Button>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={exportCsv}
+          disabled={rows.length === 0}
+          className="sm:ml-auto"
+        >
+          <Download className="mr-1 h-4 w-4" /> CSV
+        </Button>
+        {canManage && (
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/facilities/deleted">
+              <Trash2 className="mr-1 h-4 w-4" /> Borrados
+            </Link>
+          </Button>
+        )}
+      </div>
 
       {facilities.isLoading ? (
         <div className="flex h-48 items-center justify-center">
@@ -230,6 +476,13 @@ export default function FacilitiesPage() {
               : 'Ningún local coincide con la búsqueda.'}
           </CardContent>
         </Card>
+      ) : view === 'table' ? (
+        <DataTable
+          columns={columns}
+          data={rows}
+          rowHref={(r) => `/facilities/${r.facility.id}`}
+          pageSize={50}
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((f) => (
@@ -240,11 +493,13 @@ export default function FacilitiesPage() {
               showOwner={hasOwners}
               canManage={canManage}
               onDelete={() => setDeleting(f)}
+              onDuplicate={() => setDuplicating(f)}
             />
           ))}
         </div>
       )}
       <DeleteFacilityDialog facility={deleting} onClose={() => setDeleting(null)} />
+      <DuplicateFacilityDialog facility={duplicating} onClose={() => setDuplicating(null)} />
     </div>
   );
 }
@@ -266,13 +521,16 @@ function FacilityCard({
   showOwner,
   canManage,
   onDelete,
+  onDuplicate,
 }: {
   facility: FacilityDto;
   summary: FacilitySummaryDto | null;
   showOwner: boolean;
   canManage: boolean;
   onDelete: () => void;
+  onDuplicate: () => void;
 }) {
+  const completeness = facilityCompleteness(f);
   const cover = f.images[0]?.url ?? null;
   const total = summary?.totalUnits ?? f.unitsTotal;
   const occupied = summary?.occupiedUnits ?? f.unitsOccupied;
@@ -335,6 +593,7 @@ function FacilityCard({
               <DropdownMenuItem asChild>
                 <Link href={`/facilities/${f.id}`}>Abrir</Link>
               </DropdownMenuItem>
+              {canManage && <DropdownMenuItem onClick={onDuplicate}>Duplicar</DropdownMenuItem>}
               {canManage && (
                 <DropdownMenuItem className="text-destructive" onClick={onDelete}>
                   Borrar
@@ -374,6 +633,14 @@ function FacilityCard({
                 </dd>
                 <dt className="text-muted-foreground">Facturado este mes</dt>
                 <dd className="text-right tabular-nums">{formatEur(summary.invoicedMonth ?? 0)}</dd>
+                {(summary.overdue ?? 0) > 0 && (
+                  <>
+                    <dt className="text-muted-foreground">Vencido</dt>
+                    <dd className="text-right tabular-nums text-red-600 dark:text-red-400">
+                      {formatEur(summary.overdue ?? 0)}
+                    </dd>
+                  </>
+                )}
               </>
             )}
             <dt className="text-muted-foreground">m² alquilados</dt>
@@ -393,6 +660,9 @@ function FacilityCard({
               </>
             )}
           </dl>
+        )}
+        {completeness.percent < 100 && (
+          <p className="text-xs text-muted-foreground">Ficha al {completeness.percent}%</p>
         )}
       </CardContent>
     </Card>

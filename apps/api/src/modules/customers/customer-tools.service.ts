@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { customerScopeWhere } from '../../common/customer-scope';
+import { assertFacilityAllowed } from '../../common/facility-scope';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { AuditService } from '../auth/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -25,6 +26,7 @@ import type {
   CustomerMessageInput,
   CustomerSavedViewDto,
   DeletedCustomerDto,
+  FacilityMessageInput,
   SaveCustomerViewInput,
   UpsertCustomerContactInput,
 } from '@storageos/shared';
@@ -422,6 +424,60 @@ export class CustomerToolsService {
       sent += 1;
     }
     return { sent, skipped: input.customerIds.length - sent };
+  }
+
+  /**
+   * Aviso a los inquilinos en vigor de un local (obras, corte de agua…). Es de
+   * servicio: llega también a quien se dio de baja de las ofertas.
+   */
+  async messageFacility(
+    tenantId: string,
+    userId: string,
+    facilityId: string,
+    input: FacilityMessageInput,
+    scope: FacilityScope,
+  ): Promise<{ sent: number }> {
+    assertFacilityAllowed(scope, facilityId);
+    const rows = await this.prisma.withTenant(async (tx) => {
+      const facility = await tx.facility.findFirst({
+        where: { id: facilityId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!facility) {
+        throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+      }
+      return tx.customer.findMany({
+        where: {
+          deletedAt: null,
+          isTest: false,
+          email: { not: null },
+          contracts: {
+            some: {
+              status: { in: ['active', 'ending'] },
+              deletedAt: null,
+              unit: { facilityId },
+            },
+          },
+        },
+        select: { id: true },
+      });
+    }, tenantId);
+    for (const row of rows) {
+      await this.sendMessage(tenantId, row.id, {
+        channel: 'email',
+        subject: input.subject,
+        bodyText: input.bodyText,
+      });
+    }
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'facility.tenants_messaged',
+      entityType: 'Facility',
+      entityId: facilityId,
+      changes: { subject: input.subject, sent: rows.length },
+    });
+    return { sent: rows.length };
   }
 
   private async messageContext(tenantId: string, customerId: string) {

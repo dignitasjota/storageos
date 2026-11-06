@@ -23,6 +23,7 @@ import {
   formatPrice,
   GoogleReviewBadge,
   isUrgentStock,
+  FacilityExtras,
   OpeningHoursInfo,
   PromoBanner,
   useHeadlineFallback,
@@ -87,7 +88,7 @@ function FacilityBlock({ f, locale }: { f: PublicLandingFacilityDto; locale: Pub
         <div className="relative aspect-[16/9] w-full bg-muted">
           <Image
             src={f.imageUrls[0]}
-            alt={f.name}
+            alt={f.imageAlts?.[0] ?? f.name}
             fill
             loading="lazy"
             sizes="(min-width: 768px) 50vw, 100vw"
@@ -439,9 +440,11 @@ export function OnePageTemplate({
                         <OpeningHoursInfo
                           hours={f.openingHours}
                           timezone={f.timezone}
+                          exceptions={f.openingExceptions}
                           preOpening={f}
                         />
                       </div>
+                      <FacilityExtras f={f} className="mt-2" />
                       <div className="mt-2">
                         <FacilityMap f={f} />
                       </div>
