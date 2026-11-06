@@ -89,34 +89,34 @@ export class PromoLandingsService {
 
   async create(tenantId: string, input: CreatePromoLandingInput): Promise<PromoLandingDto> {
     await this.assertRefs(tenantId, input);
-    if (input.shortPath) await this.claimShortPath(tenantId, input.slug);
+    if (input.shortPath) await this.assertShortPathFree(tenantId, input.slug);
     try {
-      const row = await this.prisma.withTenant(
-        (tx) =>
-          tx.promoLanding.create({
-            data: {
-              tenantId,
-              name: input.name,
-              slug: input.slug,
-              isActive: input.isActive,
-              startsAt: input.startsAt ? new Date(input.startsAt) : null,
-              endsAt: input.endsAt ? new Date(input.endsAt) : null,
-              headline: input.headline,
-              subheadline: input.subheadline,
-              couponId: input.couponId,
-              facilityIds: input.facilityIds,
-              unitTypeIds: input.unitTypeIds,
-              showCountdown: input.showCountdown,
-              shortPath: input.shortPath,
-              content: input.content as Prisma.InputJsonValue,
-              seoTitle: input.seoTitle,
-              seoDescription: input.seoDescription,
-              indexable: input.indexable,
-            },
-            include: INCLUDE,
-          }),
-        tenantId,
-      );
+      const row = await this.prisma.withTenant(async (tx) => {
+        const created = await tx.promoLanding.create({
+          data: {
+            tenantId,
+            name: input.name,
+            slug: input.slug,
+            isActive: input.isActive,
+            startsAt: input.startsAt ? new Date(input.startsAt) : null,
+            endsAt: input.endsAt ? new Date(input.endsAt) : null,
+            headline: input.headline,
+            subheadline: input.subheadline,
+            couponId: input.couponId,
+            facilityIds: input.facilityIds,
+            unitTypeIds: input.unitTypeIds,
+            showCountdown: input.showCountdown,
+            shortPath: input.shortPath,
+            content: input.content as Prisma.InputJsonValue,
+            seoTitle: input.seoTitle,
+            seoDescription: input.seoDescription,
+            indexable: input.indexable,
+          },
+          include: INCLUDE,
+        });
+        if (created.shortPath) await this.forgetFacilityRedirect(tx, created.slug);
+        return created;
+      }, tenantId);
       return this.toDto(row);
     } catch (err) {
       throw this.slugTaken(err);
@@ -142,7 +142,7 @@ export class PromoLandingsService {
     });
     const shortPath = input.shortPath ?? current.shortPath;
     if (shortPath && (input.shortPath || (input.slug && input.slug !== current.slug))) {
-      await this.claimShortPath(tenantId, input.slug ?? current.slug);
+      await this.assertShortPathFree(tenantId, input.slug ?? current.slug);
     }
 
     const data: Prisma.PromoLandingUpdateInput = {};
@@ -167,10 +167,11 @@ export class PromoLandingsService {
     if (input.seoDescription !== undefined) data.seoDescription = text(input.seoDescription);
     if (input.indexable !== undefined) data.indexable = input.indexable;
     try {
-      const row = await this.prisma.withTenant(
-        (tx) => tx.promoLanding.update({ where: { id }, data, include: INCLUDE }),
-        tenantId,
-      );
+      const row = await this.prisma.withTenant(async (tx) => {
+        const updated = await tx.promoLanding.update({ where: { id }, data, include: INCLUDE });
+        if (updated.shortPath) await this.forgetFacilityRedirect(tx, updated.slug);
+        return updated;
+      }, tenantId);
       return this.toDto(row);
     } catch (err) {
       throw this.slugTaken(err);
@@ -392,7 +393,7 @@ export class PromoLandingsService {
    * La dirección corta `/<nombre>` no puede coincidir con una página fija de la
    * web, una página de ciudad ni un local del negocio (el local ganaría).
    */
-  private async claimShortPath(tenantId: string, slug: string): Promise<void> {
+  private async assertShortPathFree(tenantId: string, slug: string): Promise<void> {
     const facility = promoShortPathReserved(slug)
       ? null
       : await this.prisma.withTenant(
@@ -411,11 +412,11 @@ export class PromoLandingsService {
           : 'Esa dirección corta está reservada para otra página de la web. Cambia el nombre de la landing.',
       });
     }
-    // Si fue la dirección de un local, deja de redirigir: ahora es de esta landing.
-    await this.prisma.withTenant(
-      (tx) => tx.facilitySlugRedirect.deleteMany({ where: { oldSlug: slug } }),
-      tenantId,
-    );
+  }
+
+  /** Si fue la dirección de un local, deja de redirigir: ahora es de esta landing. */
+  private async forgetFacilityRedirect(tx: Prisma.TransactionClient, slug: string): Promise<void> {
+    await tx.facilitySlugRedirect.deleteMany({ where: { oldSlug: slug } });
   }
 
   /** El cupón, los locales y los tamaños deben ser del tenant. */

@@ -14,7 +14,13 @@ import { useLocale, useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
 import { trackEvent } from './google-analytics';
-import { bookHrefFor, facilityHref, type BookSite, type PublicWebLocale } from './i18n/messages';
+import {
+  bookHrefFor,
+  facilityHref,
+  intlLocaleFor,
+  type BookSite,
+  type PublicWebLocale,
+} from './i18n/messages';
 import { grossPrice, formatPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 
@@ -151,12 +157,10 @@ export function PreOpeningBadge({
   const locale = useLocale();
   if (!f.preOpening) return null;
   const date = f.openingDate
-    ? new Date(`${f.openingDate}T12:00:00Z`).toLocaleDateString(locale, {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        timeZone: 'UTC',
-      })
+    ? new Date(`${f.openingDate}T12:00:00Z`).toLocaleDateString(
+        intlLocaleFor(locale as PublicWebLocale),
+        { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' },
+      )
     : null;
   return (
     <span
@@ -240,11 +244,10 @@ export function SpecialDays({
       <ul className="space-y-0.5">
         {days.map((e) => (
           <li key={e.date}>
-            {new Date(`${e.date}T12:00:00Z`).toLocaleDateString(locale, {
-              day: 'numeric',
-              month: 'long',
-              timeZone: 'UTC',
-            })}
+            {new Date(`${e.date}T12:00:00Z`).toLocaleDateString(
+              intlLocaleFor(locale as PublicWebLocale),
+              { day: 'numeric', month: 'long', timeZone: 'UTC' },
+            )}
             {e.label ? ` (${e.label})` : ''}: {dayText(e.hours)}
           </li>
         ))}

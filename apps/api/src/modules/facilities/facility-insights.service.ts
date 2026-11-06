@@ -4,6 +4,7 @@ import { UNIT_HOLD_LABELS } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone, zonedDayStart } from '../../common/format';
+import { assertUuid } from '../../common/pagination';
 import { describeUnitHold } from '../../common/unit-holds';
 import {
   contractWhere,
@@ -192,101 +193,114 @@ export class FacilityInsightsService {
     options: { moneyVisible: boolean },
   ): Promise<FacilityOverviewDto> {
     const one: AnalyticsScope = { ids: [facilityId], explicit: true };
-    const data = await this.prisma.withTenant(async (tx) => {
-      const facility = await tx.facility.findFirst({
-        where: { id: facilityId, deletedAt: null },
-        select: { publicSlug: true, isActive: true },
-      });
-      if (!facility) {
-        throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
-      }
-      const timezone = await tenantTimezone(tx, tenantId);
-      const now = new Date();
-      const today = todayInTimezone(timezone, now);
-      const liveContract = {
-        status: { in: ['active', 'ending'] as ('active' | 'ending')[] },
-        deletedAt: null,
-        unit: { facilityId },
-      };
-      const [
-        tenant,
-        units,
-        testUnits,
-        mrr,
-        debt,
-        moves,
-        waitlist,
-        tenantsReachable,
-        openIncidents,
-        documents,
-        offlineDevices,
-      ] = await Promise.all([
-        tx.tenant.findFirstOrThrow({
-          where: { id: tenantId },
-          select: { slug: true, customDomain: true, customDomainVerifiedAt: true },
-        }),
-        tx.unit.findMany({
-          where: { facilityId },
-          select: {
-            id: true,
-            status: true,
-            basePriceMonthly: true,
-            unitTypeId: true,
-            unitType: { select: { name: true, color: true, defaultPriceMonthly: true } },
-          },
-        }),
-        testRunUnits(tx, unitWhere(one)),
-        options.moneyVisible ? liveMrr(tx, one) : null,
-        options.moneyVisible ? receivables(tx, one, today) : null,
-        contractMoves(tx, one, new Date(now.getTime() - 30 * DAY), now),
-        tx.waitlistEntry.count({ where: { facilityId, status: 'waiting' } }),
-        tx.customer.count({
-          where: {
-            deletedAt: null,
-            isTest: false,
-            email: { not: null },
-            contracts: { some: liveContract },
-          },
-        }),
-        tx.incident.count({
-          where: { facilityId, deletedAt: null, status: { in: ['reported', 'investigating'] } },
-        }),
-        tx.facilityDocument.findMany({
-          where: {
-            facilityId,
-            expiresOn: { not: null, lte: new Date(today.getTime() + DOCUMENT_NOTICE_DAYS * DAY) },
-          },
-          orderBy: { expiresOn: 'asc' },
-          select: { id: true, name: true, expiresOn: true },
-        }),
-        tx.accessDevice.findMany({
-          where: {
-            facilityId,
-            isActive: true,
-            isOnline: false,
-            // Del que no se puede consultar ni manda latido no se sabe nada.
-            OR: [{ controlUrl: { not: null } }, { lastHeartbeatAt: { not: null } }],
-          },
-          orderBy: { name: 'asc' },
-          select: { id: true, name: true },
-        }),
-      ]);
-      return {
-        facility,
-        tenant,
-        units,
-        testUnits,
-        mrr,
-        debt,
-        moves,
-        waitlist,
-        tenantsReachable,
-        openIncidents,
-        documents,
-        offlineDevices,
-        today,
-      };
-    }, tenantId);
+    const data = await this.prisma.withTenant(
+      async (tx) => {
+        const facility = await tx.facility.findFirst({
+          where: { id: facilityId, deletedAt: null },
+          select: { publicSlug: true, isActive: true },
+        });
+        if (!facility) {
+          throw new NotFoundException({
+            code: 'facility_not_found',
+            message: 'Local no encontrado',
+          });
+        }
+        const timezone = await tenantTimezone(tx, tenantId);
+        const now = new Date();
+        const today = todayInTimezone(timezone, now);
+        const liveContract = {
+          status: { in: ['active', 'ending'] as ('active' | 'ending')[] },
+          deletedAt: null,
+          unit: { facilityId },
+        };
+        const [
+          tenant,
+          units,
+          testUnits,
+          mrr,
+          debt,
+          moves,
+          waitlist,
+          tenantsReachable,
+          openIncidents,
+          documents,
+          offlineDevices,
+        ] = await Promise.all([
+          tx.tenant.findFirstOrThrow({
+            where: { id: tenantId },
+            select: {
+              slug: true,
+              customDomain: true,
+              customDomainVerifiedAt: true,
+              externalSiteUrl: true,
+            },
+          }),
+          tx.unit.findMany({
+            where: { facilityId },
+            select: {
+              id: true,
+              status: true,
+              basePriceMonthly: true,
+              unitTypeId: true,
+              unitType: { select: { name: true, color: true, defaultPriceMonthly: true } },
+            },
+          }),
+          testRunUnits(tx, unitWhere(one)),
+          options.moneyVisible ? liveMrr(tx, one) : null,
+          options.moneyVisible ? receivables(tx, one, today) : null,
+          contractMoves(tx, one, new Date(now.getTime() - 30 * DAY), now),
+          tx.waitlistEntry.count({ where: { facilityId, status: 'waiting' } }),
+          tx.customer.count({
+            where: {
+              deletedAt: null,
+              isTest: false,
+              email: { not: null },
+              contracts: { some: liveContract },
+            },
+          }),
+          tx.incident.count({
+            where: { facilityId, deletedAt: null, status: { in: ['reported', 'investigating'] } },
+          }),
+          tx.facilityDocument.findMany({
+            where: {
+              facilityId,
+              expiresOn: { not: null, lte: new Date(today.getTime() + DOCUMENT_NOTICE_DAYS * DAY) },
+            },
+            orderBy: { expiresOn: 'asc' },
+            select: { id: true, name: true, expiresOn: true },
+          }),
+          tx.accessDevice.findMany({
+            where: {
+              facilityId,
+              isActive: true,
+              isOnline: false,
+              // Del que no se puede consultar ni manda latido no se sabe nada.
+              OR: [{ controlUrl: { not: null } }, { lastHeartbeatAt: { not: null } }],
+            },
+            orderBy: { name: 'asc' },
+            select: { id: true, name: true },
+          }),
+        ]);
+        return {
+          facility,
+          tenant,
+          units,
+          testUnits,
+          mrr,
+          debt,
+          moves,
+          waitlist,
+          tenantsReachable,
+          openIncidents,
+          documents,
+          offlineDevices,
+          today,
+        };
+      },
+      tenantId,
+      // Una docena de consultas: en un local grande no debe saltar el plazo de la transacción.
+      { timeout: 20_000 },
+    );
 
     const onTest = new Set(data.testUnits.map((u) => u.id));
     const byType = new Map<string, FacilityOverviewDto['byType'][number]>();
@@ -337,12 +351,19 @@ export class FacilityInsightsService {
 
   /** Su página en la web, con el dominio propio si está activo. */
   private publicUrl(
-    tenant: { slug: string; customDomain: string | null; customDomainVerifiedAt: Date | null },
+    tenant: {
+      slug: string;
+      customDomain: string | null;
+      customDomainVerifiedAt: Date | null;
+      externalSiteUrl: string | null;
+    },
     facility: { publicSlug: string | null; isActive: boolean },
   ): string | null {
     if (!facility.publicSlug || !facility.isActive) return null;
     if (tenant.customDomain && tenant.customDomainVerifiedAt) {
-      return `https://${tenant.customDomain}/${facility.publicSlug}`;
+      // Con web externa, `/<local>` es de esa web: lo nuestro en ese dominio es la reserva.
+      const path = tenant.externalSiteUrl ? `reservar/${facility.publicSlug}` : facility.publicSlug;
+      return `https://${tenant.customDomain}/${path}`;
     }
     const base = this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/$/, '');
     return `${base}/s/${tenant.slug}/${facility.publicSlug}`;
@@ -380,6 +401,7 @@ export class FacilityInsightsService {
     facilityId: string,
     cursor?: string,
   ): Promise<FacilityHistoryDto> {
+    assertUuid(cursor);
     const rows = await this.prisma.withTenant(async (tx) => {
       const floors = await tx.facilityFloor.findMany({
         where: { facilityId },

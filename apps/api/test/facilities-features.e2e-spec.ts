@@ -174,6 +174,25 @@ describe('Mejoras de Locales (e2e)', () => {
     ]);
     expect(overview.body.publicUrl).toContain(`/s/${s.owner.slug}/`);
 
+    // Con dominio propio, su dirección allí; con web externa, `/<local>` no es
+    // nuestro y el enlace lleva a la reserva del local.
+    const domain = `${s.owner.slug}.example.test`;
+    await db.tenant.update({
+      where: { id: s.tenantId },
+      data: { customDomain: domain, customDomainVerifiedAt: new Date() },
+    });
+    const own = await http().get(`/facilities/${s.facilityId}/overview`).set(s.auth).expect(200);
+    expect(own.body.publicUrl).toMatch(new RegExp(`^https://${domain}/[^/]+$`));
+    await db.tenant.update({
+      where: { id: s.tenantId },
+      data: { externalSiteUrl: 'https://example.com' },
+    });
+    const external = await http()
+      .get(`/facilities/${s.facilityId}/overview`)
+      .set(s.auth)
+      .expect(200);
+    expect(external.body.publicUrl).toMatch(new RegExp(`^https://${domain}/reservar/[^/]+$`));
+
     // La comparación entre locales lleva las mismas cifras.
     const summary = await http().get('/facilities/summary').set(s.auth).expect(200);
     const row = (summary.body as { facilityId: string }[]).find(
@@ -460,7 +479,7 @@ describe('Mejoras de Locales (e2e)', () => {
     const taken = await http().get(`/public/landing/${s.owner.slug}/nueva`).expect(200);
     expect(taken.body.facility.id).toBe(other.facilityId);
 
-    // Una landing con dirección corta también se la queda.
+    // Una landing con dirección corta también se la queda, si llega a guardarse.
     await http()
       .patch(`/facilities/${other.facilityId}`)
       .set(s.auth)
@@ -470,12 +489,38 @@ describe('Mejoras de Locales (e2e)', () => {
       'facility_moved',
     );
     await setTenantFeatureOverride(s.owner.slug, 'web_premium', true);
+    const landing = await http()
+      .post('/promo-landings')
+      .set(s.auth)
+      .send({ name: 'Nueva', slug: 'nueva', headline: 'Oferta' })
+      .expect(201);
     await http()
       .post('/promo-landings')
       .set(s.auth)
-      .send({ name: 'Nueva', slug: 'nueva', headline: 'Oferta', shortPath: true })
-      .expect(201);
+      .send({ name: 'Repetida', slug: 'nueva', headline: 'Oferta', shortPath: true })
+      .expect(409);
     expect((await http().get(`/public/landing/${s.owner.slug}/nueva`)).body.code).toBe(
+      'facility_moved',
+    );
+    await http()
+      .patch(`/promo-landings/${landing.body.id}`)
+      .set(s.auth)
+      .send({ shortPath: true })
+      .expect(200);
+    expect((await http().get(`/public/landing/${s.owner.slug}/nueva`)).body.code).toBe(
+      'facility_not_found',
+    );
+    await http()
+      .patch(`/facilities/${other.facilityId}`)
+      .set(s.auth)
+      .send({ publicSlug: 'cuarta' })
+      .expect(200);
+    await http()
+      .post('/promo-landings')
+      .set(s.auth)
+      .send({ name: 'Tercera', slug: 'tercera', headline: 'Oferta', shortPath: true })
+      .expect(201);
+    expect((await http().get(`/public/landing/${s.owner.slug}/tercera`)).body.code).toBe(
       'facility_not_found',
     );
 
@@ -654,6 +699,7 @@ describe('Mejoras de Locales (e2e)', () => {
     // También lo de una planta que ya no existe.
     expect(actions).toEqual(expect.arrayContaining(['floor.created', 'floor.deleted']));
     expect(history.body.items[0]).toMatchObject({ userName: expect.any(String) });
+    await http().get(`/facilities/${s.facilityId}/history?cursor=nope`).set(s.auth).expect(400);
     await http().get(`/facilities/${s.facilityId}/history`).set(staff.auth).expect(403);
   });
 });

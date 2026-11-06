@@ -2,7 +2,10 @@
 
 import { dayHoursText } from '@storageos/shared';
 import { MapPin, MessageCircle, Navigation, Phone } from 'lucide-react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
+
+import { intlLocaleForPortal } from '../i18n/messages';
+import { usePortalLocale } from '../i18n/provider';
 
 import type { PortalFacilityDto, PortalFacilityPlanDto } from '@storageos/shared';
 
@@ -14,7 +17,7 @@ const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 /** Un local del inquilino: fotos, cómo llegar, contacto, horarios y su trastero en el plano. */
 export function FacilityInfoCard({ facility: f }: { facility: PortalFacilityDto }) {
   const t = useTranslations('portal.consume.facility');
-  const locale = useLocale();
+  const { locale } = usePortalLocale();
   const hours = f.openingHours ?? {};
   const hasHours = DAYS.some((d) => hours[d]);
   const specialDays = f.openingExceptions ?? [];
@@ -120,11 +123,10 @@ export function FacilityInfoCard({ facility: f }: { facility: PortalFacilityDto 
                   <ul className="text-muted-foreground">
                     {specialDays.map((e) => (
                       <li key={e.date}>
-                        {new Date(`${e.date}T12:00:00Z`).toLocaleDateString(locale, {
-                          day: 'numeric',
-                          month: 'long',
-                          timeZone: 'UTC',
-                        })}
+                        {new Date(`${e.date}T12:00:00Z`).toLocaleDateString(
+                          intlLocaleForPortal(locale),
+                          { day: 'numeric', month: 'long', timeZone: 'UTC' },
+                        )}
                         {e.label ? ` (${e.label})` : ''}: {dayHoursText(e.hours, labels)}
                       </li>
                     ))}
