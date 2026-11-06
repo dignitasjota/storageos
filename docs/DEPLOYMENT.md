@@ -1877,5 +1877,5 @@ Migración `20261230100000_facilities_features`, se aplica sola. Sin variables n
 - **Locales borrados antes de este cambio**: salen en la papelera si llevan menos de 30 días, pero no guardan lo que se apagó, así que al restaurarlos sus puertas, planes y gastos se quedan apagados. Hay que encenderlos a mano.
 - **Fotos de locales borrados**: las públicas se quitan a los 30 días del borrado, cuando ya no se puede restaurar (cron `data-retention.cleanup`, en el worker). Al primer paso del cron se van las de los locales borrados hace más de 30 días.
 - **Direcciones antiguas**: solo redirigen las que se cambien a partir de ahora. Las que se cambiaron antes ya no existen en ningún sitio.
-- **Cartel con QR**: lleva a la página del local en la web, con el dominio propio si está verificado. Si después cambia el dominio, hay que imprimirlo de nuevo.
+- **Cartel con QR**: lleva a la página del local en la web, con el dominio propio si está verificado. Con web externa, a la reserva de ese local (`/reservar/<local>`), porque `/<local>` es de esa web. Si después cambia el dominio, hay que imprimirlo de nuevo.
 - **Datos estructurados**: el horario partido y los días especiales salen ya en lo que lee Google. Google tarda días en reflejarlo.
