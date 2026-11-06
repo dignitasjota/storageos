@@ -66,6 +66,17 @@ export class CameraDevicesService {
     facilityScope?: string[] | null;
   }): Promise<CameraDeviceWithTokenDto> {
     assertFacilityAllowed(args.facilityScope, args.input.facilityId);
+    const facility = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findFirst({
+          where: { id: args.input.facilityId, deletedAt: null },
+          select: { id: true },
+        }),
+      args.tenantId,
+    );
+    if (!facility) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
     const token = randomBytes(24).toString('base64url');
     const created = await this.prisma.withTenant(
       (tx) =>

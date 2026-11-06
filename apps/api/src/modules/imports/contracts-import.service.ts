@@ -13,6 +13,7 @@ import { PrismaService } from '../database/prisma.service';
 
 import {
   buildPreview,
+  facilitiesByName,
   flattenZodErrors,
   normalizeDate,
   parseDecimal,
@@ -100,6 +101,7 @@ interface ContractsCtx {
   customerByDoc: Map<string, string>;
   unitsByCode: Map<string, { id: string; facilityId: string }[]>;
   facilityByName: Map<string, string>;
+  ambiguousFacilities: Set<string>;
   tenantId: string;
   userId: string;
   meta: RequestMeta;
@@ -179,9 +181,18 @@ export class ContractsImportService {
       arr.push({ id: u.id, facilityId: u.facilityId });
       unitsByCode.set(key, arr);
     }
-    const facilityByName = new Map(facilities.map((f) => [f.name.trim().toLowerCase(), f.id]));
+    const { byName: facilityByName, ambiguous: ambiguousFacilities } = facilitiesByName(facilities);
 
-    return { customerByEmail, customerByDoc, unitsByCode, facilityByName, tenantId, userId, meta };
+    return {
+      customerByEmail,
+      customerByDoc,
+      unitsByCode,
+      facilityByName,
+      ambiguousFacilities,
+      tenantId,
+      userId,
+      meta,
+    };
   }
 
   private makeEvaluator(columns: string[], ctx: ContractsCtx): RowEvaluator {
@@ -216,6 +227,10 @@ export class ContractsImportService {
           errors.push(`unitCode: trastero no encontrado "${get('unitCode')}"`);
         } else if (matches.length === 1) {
           unitId = matches[0]!.id;
+        } else if (ctx.ambiguousFacilities.has(facilityName.toLowerCase())) {
+          errors.push(
+            `facility: hay varios locales llamados "${facilityName}", cambia uno de nombre`,
+          );
         } else if (facilityName) {
           const facilityId = ctx.facilityByName.get(facilityName.toLowerCase());
           unitId = matches.find((m) => m.facilityId === facilityId)?.id;

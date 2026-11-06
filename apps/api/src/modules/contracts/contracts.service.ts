@@ -1283,9 +1283,18 @@ export class ContractsService {
         // Verificar que el unit este disponible. Permitimos reserved si la
         // reserva pertenece al mismo customer (la conversion de reserva
         // pasa por aqui despues de convertirla).
-        const unit = await tx.unit.findUnique({ where: { id: existing.unitId } });
+        const unit = await tx.unit.findUnique({
+          where: { id: existing.unitId },
+          include: { facility: { select: { deletedAt: true } } },
+        });
         if (!unit) {
           throw new NotFoundException({ code: 'unit_not_found', message: 'Unit perdida' });
+        }
+        if (unit.facility.deletedAt) {
+          throw new ConflictException({
+            code: 'facility_deleted',
+            message: 'No se puede firmar: el local de este trastero se ha borrado.',
+          });
         }
         if (unit.status !== 'available' && unit.status !== 'reserved') {
           throw new ConflictException({
@@ -3541,7 +3550,9 @@ export class ContractsService {
         // Anti-doble-ocupación: serializa por el trastero de DESTINO (dos traslados
         // o un traslado + una firma sobre la misma unidad no se pisan).
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${args.newUnitId}::text))`;
-        const newUnit = await tx.unit.findFirst({ where: { id: args.newUnitId } });
+        const newUnit = await tx.unit.findFirst({
+          where: { id: args.newUnitId, facility: { deletedAt: null } },
+        });
         if (!newUnit) {
           throw new NotFoundException({
             code: 'unit_not_found',
@@ -3775,7 +3786,9 @@ export class ContractsService {
     }
     await this.prisma.withTenant(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${args.newUnitId}::text))`;
-      const unit = await tx.unit.findFirst({ where: { id: args.newUnitId } });
+      const unit = await tx.unit.findFirst({
+        where: { id: args.newUnitId, facility: { deletedAt: null } },
+      });
       if (!unit) {
         throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
       }

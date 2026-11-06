@@ -8,7 +8,7 @@ import {
   type CompetitorFeature,
 } from '@storageos/shared';
 import { ChevronLeft, ChevronRight, ImagePlus, Loader2, Trash2 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { FacilityDetailsCard } from './details-card';
@@ -79,9 +79,9 @@ function VideoCard({ facility }: { facility: FacilityDto }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex items-end gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
           <div className="flex-1 space-y-1">
-            <Label htmlFor="video-url">URL del vídeo</Label>
+            <Label htmlFor="video-url">Enlace del vídeo</Label>
             <Input
               id="video-url"
               value={videoUrl}
@@ -296,8 +296,8 @@ function CurfewCard({ facility }: { facility: FacilityDto }) {
         <CardTitle className="text-base">Toque de queda de acceso</CardTitle>
         <CardDescription>
           Bloquea el acceso en una franja (zona horaria del local:{' '}
-          <span className="font-mono">{facility.timezone}</span>). Las credenciales con &quot;acceso
-          24h&quot; (staff) lo saltan.
+          <span className="font-mono">{facility.timezone}</span>). Las credenciales con «acceso 24
+          h» (las del equipo, por ejemplo) lo saltan.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -438,29 +438,39 @@ function OwnerCard({ facility }: { facility: FacilityDto }) {
 function SlugCard({ facility }: { facility: FacilityDto }) {
   const update = useUpdateFacility();
   const [slug, setSlug] = useState(facility.publicSlug ?? '');
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  useEffect(() => setSlug(facility.publicSlug ?? ''), [facility.publicSlug]);
 
-  async function save() {
+  async function save(value: string) {
+    setSuggestion(null);
     try {
-      await update.mutateAsync({ id: facility.id, input: { publicSlug: slug.trim() } });
-      toast.success('Slug actualizado.');
+      await update.mutateAsync({ id: facility.id, input: { publicSlug: value } });
+      toast.success('Dirección actualizada.');
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+      if (!(err instanceof ApiError)) {
+        toast.error('No se pudo guardar.');
+        return;
+      }
+      const details = err.body.details as { suggestion?: string } | undefined;
+      setSuggestion(details?.suggestion ?? null);
+      toast.error(err.body.message);
     }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Slug público (SEO)</CardTitle>
+        <CardTitle className="text-base">Dirección en tu web</CardTitle>
         <CardDescription>
-          Identificador del local en su página pública:{' '}
-          <span className="font-mono">/s/&lt;empresa&gt;/{slug || '…'}</span>
+          Lo que va en la dirección de la página de este local:{' '}
+          <span className="font-mono">/s/&lt;empresa&gt;/{slug || '…'}</span>. Si la cambias, los
+          enlaces antiguos dejan de funcionar.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="flex items-end gap-2">
+      <CardContent className="space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
           <div className="flex-1 space-y-1">
-            <Label htmlFor="slug">Slug</Label>
+            <Label htmlFor="slug">Dirección web</Label>
             <Input
               id="slug"
               value={slug}
@@ -476,12 +486,25 @@ function SlugCard({ facility }: { facility: FacilityDto }) {
             />
           </div>
           <Button
-            onClick={save}
-            disabled={update.isPending || slug === (facility.publicSlug ?? '')}
+            onClick={() => void save(slug.trim())}
+            disabled={update.isPending || !slug.trim() || slug === (facility.publicSlug ?? '')}
           >
             {update.isPending ? 'Guardando...' : 'Guardar'}
           </Button>
         </div>
+        {suggestion && (
+          <Button
+            type="button"
+            variant="link"
+            className="h-auto p-0"
+            onClick={() => {
+              setSlug(suggestion);
+              void save(suggestion);
+            }}
+          >
+            Usar «{suggestion}»
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

@@ -154,6 +154,7 @@ export class FacilityDocumentsService {
                   expiresOn: i.expiresOn ? new Date(`${i.expiresOn}T00:00:00Z`) : null,
                   // Otra fecha: se vuelve a avisar antes de que caduque.
                   expiryNotifiedAt: null,
+                  expiredNotifiedAt: null,
                 }
               : {}),
           },
@@ -161,6 +162,14 @@ export class FacilityDocumentsService {
         }),
       args.tenantId,
     );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'facility.document_updated',
+      entityType: 'Facility',
+      entityId: args.facilityId,
+      changes: { documentId: row.id, ...i },
+    });
     return this.toDto(row, row.uploadedBy?.fullName ?? null);
   }
 

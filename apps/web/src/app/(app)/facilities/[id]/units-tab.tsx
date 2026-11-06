@@ -33,6 +33,7 @@ export function FacilityUnitsTab({ facilityId }: Props) {
   const pathname = usePathname();
   const deleteUnit = useDeleteUnitAction();
   const canDelete = useHasPermission('units:manage');
+  const canCreate = useHasPermission('units:write');
 
   const columns: ColumnDef<UnitDto>[] = [
     {
@@ -111,13 +112,15 @@ export function FacilityUnitsTab({ facilityId }: Props) {
       isLoading={units.isLoading}
       searchPlaceholder="Buscar por código..."
       toolbarRight={
-        <div className="flex flex-wrap gap-2">
-          <BulkCreateUnitsDialog facilityId={facilityId} />
-          <CreateUnitDialog
-            facilityId={facilityId}
-            onGoToTypes={() => router.replace(`${pathname}?tab=unit-types`, { scroll: false })}
-          />
-        </div>
+        canCreate ? (
+          <div className="flex flex-wrap gap-2">
+            <BulkCreateUnitsDialog facilityId={facilityId} />
+            <CreateUnitDialog
+              facilityId={facilityId}
+              onGoToTypes={() => router.replace(`${pathname}?tab=unit-types`, { scroll: false })}
+            />
+          </div>
+        ) : undefined
       }
       emptyText={
         activeTypes.length === 0

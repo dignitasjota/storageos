@@ -136,7 +136,7 @@ export class DashboardOverviewService {
           : Promise.resolve(null),
       ),
       section('byFacility', () =>
-        inTx((tx) => this.facilityRows(tx, scope, range, timezone, startOfToday)),
+        inTx((tx) => this.facilityRows(tx, scope, range, timezone, startOfToday, moneyVisible)),
       ),
       section('result', () =>
         permissions.includes('expenses:read')
@@ -417,6 +417,7 @@ export class DashboardOverviewService {
     range: DashboardPeriodRange,
     timezone: string,
     startOfToday: Date,
+    moneyVisible: boolean,
   ): Promise<DashboardFacilityRowDto[]> {
     const facilities = await tx.facility.findMany({
       where: { deletedAt: null, ...(scope.ids ? { id: { in: scope.ids } } : {}) },
@@ -440,8 +441,8 @@ export class DashboardOverviewService {
           totalUnits: units.total,
           occupiedUnits: units.occupied,
           occupancyPct: units.total ? Math.round((units.occupied / units.total) * 1000) / 10 : 0,
-          mrr: live.mrr,
-          overdue: debt.overdue,
+          mrr: moneyVisible ? live.mrr : null,
+          overdue: moneyVisible ? debt.overdue : null,
           moveIns: moves.moveIns,
           moveOuts: moves.moveOuts,
         };

@@ -74,7 +74,13 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     // con menos permisos seguía usando el que tenía hasta que caducara.
     const user = await this.admin.user.findUnique({
       where: { id: payload.sub },
-      select: { tenantId: true, isActive: true, role: true, tenantRoleId: true },
+      select: {
+        tenantId: true,
+        isActive: true,
+        role: true,
+        tenantRoleId: true,
+        facilities: { select: { facilityId: true } },
+      },
     });
     if (!user || !user.isActive || user.tenantId !== payload.tenantId) {
       throw new UnauthorizedException({
@@ -99,7 +105,13 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       tenantId: payload.tenantId,
       role: payload.role,
       ...(payload.permissions ? { permissions: payload.permissions } : {}),
-      facilityScope: payload.facilityScope ?? null,
+      // De la base de datos, no del token: quien crea un local lo ve al momento
+      // y quitarle uno a alguien no espera a que le caduque el token. El
+      // propietario ve siempre todos; sin locales asignados, también.
+      facilityScope:
+        user.role === 'owner' || user.facilities.length === 0
+          ? null
+          : user.facilities.map((f) => f.facilityId),
       ...(impersonation ? { impersonation } : {}),
     };
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import { CreditCard, FileText, Search, Users, Warehouse } from 'lucide-react';
+import { Building2, CreditCard, FileText, Search, Users, Warehouse } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
@@ -13,6 +13,7 @@ import { useGlobalSearch } from '@/lib/search/hooks';
 const TYPE_ICON: Record<SearchResultType, typeof Users> = {
   customer: Users,
   contract: FileText,
+  facility: Building2,
   unit: Warehouse,
   invoice: CreditCard,
 };
@@ -20,6 +21,7 @@ const TYPE_ICON: Record<SearchResultType, typeof Users> = {
 const TYPE_LABEL: Record<SearchResultType, string> = {
   customer: 'Inquilino',
   contract: 'Contrato',
+  facility: 'Local',
   unit: 'Trastero',
   invoice: 'Factura',
 };

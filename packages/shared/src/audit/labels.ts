@@ -130,7 +130,39 @@ const VERBS: Record<string, string> = {
   bulk_assigned: 'asignadas en bloque',
   transitioned: 'estado cambiado',
   message_added: 'mensaje añadido',
+  deactivated: 'desactivado',
+  images_updated: 'fotos cambiadas',
+  document_added: 'documento añadido',
+  document_updated: 'documento cambiado',
+  document_removed: 'documento quitado',
+  owner_applied_to_contracts: 'propietario puesto en sus contratos',
+  plan_uploaded: 'plano subido',
+  plan_removed: 'plano quitado',
+  layout_updated: 'plano reorganizado',
+  opening_changed: 'apertura cambiada',
 };
+
+/** Entidades en femenino: «Planta · creada», no «Planta · creado». */
+const FEMININE = new Set([
+  'Serie de facturación',
+  'Plantilla de mensaje',
+  'Plantilla de contrato',
+  'Marca',
+  'Venta',
+  'Factura',
+  'Planta',
+  'Reserva',
+  'Oportunidad',
+  'Invitación',
+  'Tarea',
+  'Empresa',
+  'Suscripción',
+  'Cuenta de Stripe',
+]);
+
+function agree(entity: string, verb: string): string {
+  return FEMININE.has(entity) && /^[a-záéíóúñ]+[ai]do$/.test(verb) ? `${verb.slice(0, -1)}a` : verb;
+}
 
 function humanize(s: string): string {
   return s.replace(/[._]/g, ' ');
@@ -143,5 +175,5 @@ export function auditActionLabel(action: string): string {
   if (!entity) return humanize(action);
   const rest = action.slice(entity[0].length + 1);
   if (!rest) return entity[1];
-  return `${entity[1]} · ${VERBS[rest] ?? humanize(rest)}`;
+  return `${entity[1]} · ${agree(entity[1], VERBS[rest] ?? humanize(rest))}`;
 }

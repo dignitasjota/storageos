@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { isValidTimeZone } from '../auth/schemas';
 import { PropertyKindEnum } from '../billing/tax-category';
 import { CompetitorFeatureEnum } from '../competitors';
 
@@ -26,7 +27,11 @@ const unitHeight = positiveDecimal.max(50, 'Máximo 50 m');
 export const UNIT_MAX_PRICE = 999_999;
 const unitPrice = nonNegativeDecimal.max(UNIT_MAX_PRICE, 'Máximo 999.999 €');
 
-const facilityName = z.string().trim().min(2, 'Minimo 2 caracteres').max(120);
+const facilityName = z
+  .string()
+  .trim()
+  .min(2, 'Mínimo 2 caracteres')
+  .max(120, 'Máximo 120 caracteres');
 const optionalShortText = z.string().trim().max(200).optional().or(z.literal(''));
 
 // ============================================================================
@@ -75,24 +80,52 @@ export const CreateFacilitySchema = z.object({
   country: z
     .string()
     .trim()
-    .length(2, 'Codigo de pais ISO 3166-1 alfa-2 (2 letras)')
+    .length(2, 'Usa el código de 2 letras del país (ES, PT…)')
     .toUpperCase()
     .default('ES'),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
-  timezone: z.string().trim().min(1).default('Europe/Madrid'),
+  /** `null` quita la ubicación: se guardan las dos o ninguna. */
+  latitude: z
+    .number({ invalid_type_error: 'Tiene que ser un número' })
+    .min(-90, 'Entre -90 y 90')
+    .max(90, 'Entre -90 y 90')
+    .nullable()
+    .optional(),
+  longitude: z
+    .number({ invalid_type_error: 'Tiene que ser un número' })
+    .min(-180, 'Entre -180 y 180')
+    .max(180, 'Entre -180 y 180')
+    .nullable()
+    .optional(),
+  timezone: z
+    .string()
+    .trim()
+    .refine(isValidTimeZone, 'Zona horaria no válida')
+    .default('Europe/Madrid'),
   /** Horario de apertura semanal, para la web pública del local. */
   openingHours: OpeningHoursSchema.optional(),
   /** Vídeo (YouTube/Vimeo) para la web pública del local. */
-  videoUrl: z.string().trim().url('URL no válida').max(500).optional().or(z.literal('')),
+  videoUrl: z
+    .string()
+    .trim()
+    .max(500, 'Máximo 500 caracteres')
+    .url('Enlace no válido')
+    .regex(/^https?:\/\//i, 'El enlace tiene que empezar por https://')
+    .optional()
+    .or(z.literal('')),
   contactPhone: z
     .string()
     .trim()
-    .max(40)
-    .regex(/^[+\d\s().-]+$/, 'Telefono no valido')
+    .max(40, 'Máximo 40 caracteres')
+    .regex(/^[+\d\s().-]+$/, 'Teléfono no válido')
     .optional()
     .or(z.literal('')),
-  contactEmail: z.string().trim().toLowerCase().email().optional().or(z.literal('')),
+  contactEmail: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email('Email no válido')
+    .optional()
+    .or(z.literal('')),
   /** Toque de queda de acceso: bloquea el acceso en la franja (zona horaria del local). */
   accessCurfewEnabled: z.boolean().optional(),
   accessCurfewStart: z
@@ -124,8 +157,8 @@ export type UpdateFacilityInput = z.infer<typeof UpdateFacilitySchema>;
 export const CreateUnitTypeSchema = z.object({
   name: z.string().trim().min(1, 'Obligatorio').max(80),
   description: z.string().trim().max(500).optional().or(z.literal('')),
-  defaultPriceMonthly: nonNegativeDecimal,
-  defaultDepositAmount: nonNegativeDecimal.default(0),
+  defaultPriceMonthly: unitPrice,
+  defaultDepositAmount: unitPrice.default(0),
   color: hexColor.default('#888888'),
   features: z.record(z.unknown()).default({}),
   /** Taquillas apilables de dos en dos (mismo hueco del plano). */
@@ -230,8 +263,13 @@ export type StackUnitsInput = z.infer<typeof StackUnitsSchema>;
 // ============================================================================
 
 export const CreateFloorSchema = z.object({
-  name: z.string().trim().min(1).max(80),
-  floorNumber: z.number().int().min(-10).max(50).default(0),
+  name: z.string().trim().min(1, 'Ponle un nombre').max(80, 'Máximo 80 caracteres'),
+  floorNumber: z
+    .number()
+    .int()
+    .min(-10, 'Número de planta entre -10 y 50')
+    .max(50, 'Número de planta entre -10 y 50')
+    .default(0),
 });
 export type CreateFloorInput = z.infer<typeof CreateFloorSchema>;
 

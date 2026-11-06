@@ -49,9 +49,13 @@ export function LeadQuote({ lead }: { lead: LeadDto }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
 
+  // Un local desactivado no admite reservas: el enlace del presupuesto no iría a ningún lado.
+  const activeFacilities = (facilities.data ?? []).filter((f) => f.isActive);
+  const onlyFacility = activeFacilities.length === 1 ? activeFacilities[0]?.id : undefined;
+
   useEffect(() => {
-    if (!facilityId && facilities.data?.length === 1) setFacilityId(facilities.data[0]!.id);
-  }, [facilities.data, facilityId]);
+    if (!facilityId && onlyFacility) setFacilityId(onlyFacility);
+  }, [onlyFacility, facilityId]);
 
   const input = {
     facilityId,
@@ -110,7 +114,7 @@ export function LeadQuote({ lead }: { lead: LeadDto }) {
             <SelectValue placeholder="Local" />
           </SelectTrigger>
           <SelectContent>
-            {(facilities.data ?? []).map((f) => (
+            {activeFacilities.map((f) => (
               <SelectItem key={f.id} value={f.id}>
                 {f.name}
               </SelectItem>

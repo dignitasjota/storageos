@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
+import { localDateString } from '@/lib/dates';
 import { useFacilityOpening, useUpdateFacilityOpening } from '@/lib/facilities/hooks';
 import { formatDate } from '@/lib/format';
 
@@ -55,7 +56,7 @@ export function PreOpeningCard({ facility }: { facility: FacilityDto }) {
   async function save() {
     const reservations = current.reservations;
     if (reservations > 0) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateString();
       const opensNow = !preOpening || (nextDate !== null && nextDate <= today);
       if (opensNow) {
         const ok = await confirm({

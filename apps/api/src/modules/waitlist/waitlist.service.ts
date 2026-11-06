@@ -549,11 +549,18 @@ export class WaitlistService {
     facilityScope?: string[] | null;
   }): Promise<WaitlistEntryDto> {
     const { updated, freedUnitId } = await this.prisma.withTenant(async (tx) => {
-      const existing = await tx.waitlistEntry.findUnique({ where: { id: args.id } });
-      if (!existing) {
+      const queue = await tx.waitlistEntry.findUnique({
+        where: { id: args.id },
+        select: { facilityId: true, unitTypeId: true },
+      });
+      if (!queue) {
         throw new NotFoundException({ code: 'waitlist_entry_not_found', message: 'No encontrada' });
       }
-      assertFacilityAllowed(args.facilityScope, existing.facilityId);
+      assertFacilityAllowed(args.facilityScope, queue.facilityId);
+      // El mismo candado que `notifyNext`: si no, un aviso en marcha devolvería a
+      // la cola a quien se acaba de cancelar y le guardaría el trastero.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${`waitlist:${queue.facilityId}:${queue.unitTypeId}`}::text))`;
+      const existing = await tx.waitlistEntry.findUniqueOrThrow({ where: { id: args.id } });
       const heldUnitId = existing.status === 'notified' ? existing.heldUnitId : null;
       // Marcada como convertida con su contrato aún en borrador: el trastero sigue
       // siendo suyo hasta que firme o se cancele.
@@ -871,7 +878,12 @@ export class WaitlistService {
   private async freeUnitQueues(tenantId: string): Promise<Map<string, number>> {
     const free = await this.admin.unit.groupBy({
       by: ['facilityId', 'unitTypeId'],
-      where: { tenantId, status: 'available', ...noLiveReservationWhere() },
+      where: {
+        tenantId,
+        status: 'available',
+        facility: { deletedAt: null },
+        ...noLiveReservationWhere(),
+      },
       _count: { _all: true },
     });
     return new Map(free.map((f) => [`${f.facilityId}:${f.unitTypeId}`, f._count._all]));
@@ -1221,7 +1233,12 @@ export class WaitlistService {
       this.prisma.withTenant(
         (tx) =>
           tx.waitlistEntry.count({
-            where: { status: 'notified', noReplyAlertedAt: { not: null }, ...facility },
+            where: {
+              status: 'notified',
+              noReplyAlertedAt: { not: null },
+              facility: { deletedAt: null },
+              ...facility,
+            },
           }),
         tenantId,
       ),

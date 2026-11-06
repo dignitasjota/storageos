@@ -11,6 +11,8 @@ import { ZodError } from 'zod';
 
 import { sanitizeUrl } from '../logging/sanitize';
 
+import { GENERIC_VALIDATION_MESSAGES, readableValidationMessage } from './validation-message';
+
 import type { Request, Response } from 'express';
 
 const STATUS_TEXT: Record<number, string> = {
@@ -45,7 +47,7 @@ interface NormalizedError {
  *   {
  *     "statusCode": 400,
  *     "error": "Bad Request",
- *     "message": "Validation failed",
+ *     "message": "Email: no es válido",
  *     "details": [...],
  *     "code": "email_not_verified"   // opcional
  *   }
@@ -87,7 +89,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return {
         statusCode: HttpStatus.BAD_REQUEST,
         error: 'Bad Request',
-        message: 'Validacion fallida',
+        message: readableValidationMessage(exception.issues) ?? 'Revisa los datos del formulario',
         details: exception.issues.map((i) => ({
           path: i.path.join('.'),
           message: i.message,
@@ -114,10 +116,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
       };
       // nestjs-zod expone los issues en `errors`; los normalizamos a `details`.
       const details = obj.details ?? obj.errors;
+      const message = Array.isArray(obj.message)
+        ? obj.message.join('; ')
+        : (obj.message ?? 'Error');
       return {
         statusCode: status,
         error: obj.error ?? statusText(status),
-        message: Array.isArray(obj.message) ? obj.message.join('; ') : (obj.message ?? 'Error'),
+        message: GENERIC_VALIDATION_MESSAGES.has(message)
+          ? (readableValidationMessage(details) ?? 'Revisa los datos del formulario')
+          : message,
         ...(details ? { details } : {}),
         ...(obj.code ? { code: obj.code } : {}),
       };

@@ -151,8 +151,9 @@ export interface DashboardFacilityRowDto {
   totalUnits: number;
   occupiedUnits: number;
   occupancyPct: number;
-  mrr: number;
-  overdue: number;
+  /** Null si el usuario no ve el dinero. */
+  mrr: number | null;
+  overdue: number | null;
   moveIns: number;
   moveOuts: number;
 }

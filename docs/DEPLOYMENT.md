@@ -1860,3 +1860,12 @@ Migración `20261228100000_units_features`, se aplica sola. Sin variables nuevas
 - **Trasteros ya parados**: la migración les pone como motivo y fecha los de su último paso a mantenimiento o bloqueado. Si no hay historial, la fecha es la de su última actualización, así que los días y el dinero sin ingresar pueden salir cortos.
 - **Fotos**: van al bucket público, igual que las de los locales. Se ven en el panel; todavía no salen en la web ni en el área de clientes.
 - **Etiquetas de puerta**: el QR lleva la dirección del panel, así que hay que iniciar sesión para abrirla. Sirven para el equipo, no para los inquilinos.
+
+## 103. Locales: arreglos (2026-11-06)
+
+Migración `20261229100000_facilities_review`, se aplica sola. Sin variables nuevas.
+
+- **Locales ya borrados**: la migración apaga sus planes de mantenimiento, gastos recurrentes, puertas y cámaras, que seguían activos. Los contratos que quedaran a medias en ellos ya no se pueden firmar: hay que cancelarlos.
+- **Alcance por local**: se lee en cada petición, no del token. Quitarle un local a alguien surte efecto al momento, sin esperar a que caduque su sesión.
+- **Nombres repetidos**: los locales que ya tengan el mismo nombre se quedan como están. Solo se impide crear otro o renombrar a uno que exista. Al importar, la fila que nombre uno de esos locales falla con un mensaje claro: conviene cambiarle el nombre a uno.
+- **Quien use la API**: `PATCH /facilities/:id` ya no añade un número a una dirección ocupada: responde 409 `slug_taken` con una propuesta. `PUT /facilities/:id/images` y `PATCH /floors/:id/plan` dan 400 `file_not_uploaded` si el fichero no se llegó a subir.

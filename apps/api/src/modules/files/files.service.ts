@@ -411,13 +411,16 @@ export class FilesService implements OnModuleInit {
    * subir), no es el escenario que esto defiende (no hay contenido falseado
    * que validar: sin bytes, no hay nada que servir tampoco) — se deja pasar
    * en vez de reventar con un error de S3 sin relación. El caso real que
-   * cierra este check es "hay bytes, y no son del tipo que dicen ser".
+   * cierra este check es "hay bytes, y no son del tipo que dicen ser". Con
+   * `mustExist`, en cambio, es un 400 `file_not_uploaded`: lo que se registra
+   * se va a enseñar y una imagen que no existe saldría rota.
    */
   async assertObjectMimeType(
     bucket: PresignArgs['bucket'],
     key: string,
     allowedMimeTypes: readonly string[],
     maxBytes: number = MAX_UPLOAD_BYTES,
+    options: { mustExist?: boolean } = {},
   ): Promise<void> {
     let bytes: Buffer;
     let totalBytes: number | null = null;
@@ -431,7 +434,13 @@ export class FilesService implements OnModuleInit {
       totalBytes = total ? Number(total) : (res.ContentLength ?? null);
     } catch (err) {
       const code = (err as { name?: string })?.name;
-      if (code === 'NoSuchKey' || code === 'NotFound') return;
+      if (code === 'NoSuchKey' || code === 'NotFound') {
+        if (!options.mustExist) return;
+        throw new BadRequestException({
+          code: 'file_not_uploaded',
+          message: 'El fichero no ha llegado a subirse. Inténtalo de nuevo.',
+        });
+      }
       throw err;
     }
     // La URL presignada PUT no puede limitar el tamaño (MinIO no admite

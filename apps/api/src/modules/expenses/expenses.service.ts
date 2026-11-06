@@ -360,7 +360,11 @@ export class ExpensesService {
         where: {
           active: true,
           dayOfMonth: { lte: day },
-          OR: [{ lastGeneratedMonth: null }, { lastGeneratedMonth: { lt: monthStart } }],
+          AND: [
+            { OR: [{ lastGeneratedMonth: null }, { lastGeneratedMonth: { lt: monthStart } }] },
+            // Los gastos de un local borrado no siguen generándose.
+            { OR: [{ facilityId: null }, { facility: { deletedAt: null } }] },
+          ],
         },
       });
       let created = 0;

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { verify as argonVerify } from '@node-rs/argon2';
-import { accessWindowsFrom, isWithinAccessWindows } from '@storageos/shared';
+import { accessWindowsFrom, isValidTimeZone, isWithinAccessWindows } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
@@ -31,10 +31,18 @@ import type {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-7][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/**
+ * Una zona que el sistema no reconoce no puede dejar a nadie en la puerta: un
+ * error aquí tumba la verificación entera. Se usa la de España.
+ */
+function knownTimeZone(timezone: string): string {
+  return isValidTimeZone(timezone) ? timezone : 'Europe/Madrid';
+}
+
 /** Minutos desde medianoche "ahora" en una zona horaria dada. */
 function nowMinutesInTz(timezone: string): number {
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: timezone,
+    timeZone: knownTimeZone(timezone),
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
@@ -51,9 +59,10 @@ function hhmmToMinutes(hhmm: string): number {
 
 /** Día de la semana "ahora" (0=domingo … 6=sábado) en una zona horaria. */
 function nowWeekdayInTz(timezone: string): number {
-  const short = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' }).format(
-    new Date(),
-  );
+  const short = new Intl.DateTimeFormat('en-US', {
+    timeZone: knownTimeZone(timezone),
+    weekday: 'short',
+  }).format(new Date());
   const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   return map[short] ?? new Date().getDay();
 }
@@ -192,7 +201,7 @@ export class AccessVerifyService {
     let device: AccessDevice | null = null;
     if (UUID_REGEX.test(args.deviceRef)) {
       device = await this.admin.accessDevice.findFirst({
-        where: { id: args.deviceRef, isActive: true },
+        where: { id: args.deviceRef, isActive: true, facility: { deletedAt: null } },
       });
     }
     // 2) fallback por hardwareId (puede haber varios tenants distintos). El
@@ -200,7 +209,7 @@ export class AccessVerifyService {
     // devices (de varios tenants) llegaran a compartir el mismo hardwareId.
     if (!device) {
       const candidates = await this.admin.accessDevice.findMany({
-        where: { hardwareId: args.deviceRef, isActive: true },
+        where: { hardwareId: args.deviceRef, isActive: true, facility: { deletedAt: null } },
         take: 20,
       });
       for (const candidate of candidates) {

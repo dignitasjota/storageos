@@ -1,5 +1,5 @@
 /** Tipo de entidad de un resultado de la búsqueda global. */
-export type SearchResultType = 'customer' | 'contract' | 'unit' | 'invoice';
+export type SearchResultType = 'customer' | 'contract' | 'unit' | 'invoice' | 'facility';
 
 /** Un resultado de la búsqueda global del panel. */
 export interface SearchResultDto {

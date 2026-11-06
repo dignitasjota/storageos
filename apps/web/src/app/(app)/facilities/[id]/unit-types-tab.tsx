@@ -49,7 +49,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useHasFeature } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import {
   useCreateUnitType,
   useDeleteUnitType,
@@ -80,6 +80,7 @@ export function FacilityUnitTypesTab() {
     },
   });
   const hasHousing = useHasFeature('housing');
+  const canManage = useHasPermission('units:manage');
   const [active, setActive] = useState(true);
 
   useEffect(() => {
@@ -191,199 +192,207 @@ export function FacilityUnitTypesTab() {
     {
       id: 'actions',
       header: '',
-      cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Acciones">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => {
-                setEditing(row.original);
-                setOpen(true);
-              }}
-            >
-              Editar
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() => void handleDelete(row.original)}
-            >
-              {row.original.unitsCount > 0 ? 'Desactivar' : 'Borrar'}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+      cell: ({ row }) =>
+        canManage ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Acciones">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => {
+                  setEditing(row.original);
+                  setOpen(true);
+                }}
+              >
+                Editar
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => void handleDelete(row.original)}
+              >
+                {row.original.unitsCount > 0 ? 'Desactivar' : 'Borrar'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null,
     },
   ];
 
   return (
-    <DataTable
-      columns={columns}
-      data={types.data ?? []}
-      isLoading={types.isLoading}
-      toolbarRight={
-        <Dialog
-          open={open}
-          onOpenChange={(o) => {
-            setOpen(o);
-            if (!o) {
-              setEditing(null);
-              form.reset();
-            }
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-1 h-4 w-4" /> Nuevo tipo
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editing ? 'Editar tipo' : 'Nuevo tipo'}</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nombre</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="defaultPriceMonthly"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Precio mensual sin IVA (€)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="defaultDepositAmount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Fianza / depósito (€)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          {...field}
-                          value={field.value ?? 0}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Se cobra junto a la 1ª mensualidad en la reserva online. 0 = sin fianza.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="color"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Color</FormLabel>
-                      <FormControl>
-                        <Input type="color" {...field} className="h-10 w-20" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {(hasHousing || editing?.propertyKind === 'housing') && (
-                  <FormField
-                    control={form.control}
-                    name="propertyKind"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Tipo de inmueble</FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Los tipos son comunes a todos tus locales: lo que cambies aquí se ve en todos.
+      </p>
+      <DataTable
+        columns={columns}
+        data={types.data ?? []}
+        isLoading={types.isLoading}
+        toolbarRight={
+          !canManage ? undefined : (
+            <Dialog
+              open={open}
+              onOpenChange={(o) => {
+                setOpen(o);
+                if (!o) {
+                  setEditing(null);
+                  form.reset();
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-1 h-4 w-4" /> Nuevo tipo
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editing ? 'Editar tipo' : 'Nuevo tipo'}</DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+                    <FormField
+                      control={form.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Nombre</FormLabel>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
+                            <Input {...field} />
                           </FormControl>
-                          <SelectContent>
-                            <SelectItem value="storage">Trastero</SelectItem>
-                            <SelectItem value="housing">Vivienda</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          El alquiler de una vivienda se factura exento de IVA (art. 20.1.23.º de la
-                          Ley del IVA); el de un trastero, al 21 %.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="defaultPriceMonthly"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Precio mensual sin IVA (€)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              {...field}
+                              onChange={(e) => field.onChange(Number(e.target.value))}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="defaultDepositAmount"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Fianza / depósito (€)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              {...field}
+                              value={field.value ?? 0}
+                              onChange={(e) => field.onChange(Number(e.target.value))}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Se cobra junto a la 1ª mensualidad en la reserva online. 0 = sin fianza.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="color"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Color</FormLabel>
+                          <FormControl>
+                            <Input type="color" {...field} className="h-10 w-20" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    {(hasHousing || editing?.propertyKind === 'housing') && (
+                      <FormField
+                        control={form.control}
+                        name="propertyKind"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Tipo de inmueble</FormLabel>
+                            <Select value={field.value} onValueChange={field.onChange}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="storage">Trastero</SelectItem>
+                                <SelectItem value="housing">Vivienda</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormDescription>
+                              El alquiler de una vivienda se factura exento de IVA (art. 20.1.23.º
+                              de la Ley del IVA); el de un trastero, al 21 %.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     )}
-                  />
-                )}
-                <FormField
-                  control={form.control}
-                  name="stackable"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start gap-2 space-y-0 rounded-md border p-3">
-                      <FormControl>
-                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                      </FormControl>
-                      <div className="space-y-0.5 leading-none">
-                        <FormLabel className="font-normal">Taquilla apilable</FormLabel>
-                        <FormDescription>
-                          Dos trasteros de este tipo se pueden apilar en el mismo hueco del plano
-                          (uno arriba, otro abajo) — por ejemplo, taquillas de 1 m².
-                        </FormDescription>
-                      </div>
-                    </FormItem>
-                  )}
-                />
-                {editing && (
-                  <label className="flex items-center gap-2 rounded-md border p-3 text-sm">
-                    <Checkbox checked={active} onCheckedChange={(v) => setActive(v === true)} />
-                    Activo (se ofrece en la web y al crear trasteros)
-                  </label>
-                )}
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setOpen(false);
-                      setEditing(null);
-                    }}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button type="submit" disabled={form.formState.isSubmitting}>
-                    {form.formState.isSubmitting ? 'Guardando...' : 'Guardar'}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      }
-      emptyText="Aún no has creado ningún tipo. Por ejemplo: S (1×1×2 m), M (2×2×2.5 m), L (3×3×2.5 m)."
-    />
+                    <FormField
+                      control={form.control}
+                      name="stackable"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start gap-2 space-y-0 rounded-md border p-3">
+                          <FormControl>
+                            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                          <div className="space-y-0.5 leading-none">
+                            <FormLabel className="font-normal">Taquilla apilable</FormLabel>
+                            <FormDescription>
+                              Dos trasteros de este tipo se pueden apilar en el mismo hueco del
+                              plano (uno arriba, otro abajo) — por ejemplo, taquillas de 1 m².
+                            </FormDescription>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                    {editing && (
+                      <label className="flex items-center gap-2 rounded-md border p-3 text-sm">
+                        <Checkbox checked={active} onCheckedChange={(v) => setActive(v === true)} />
+                        Activo (se ofrece en la web y al crear trasteros)
+                      </label>
+                    )}
+                    <DialogFooter>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setOpen(false);
+                          setEditing(null);
+                        }}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={form.formState.isSubmitting}>
+                        {form.formState.isSubmitting ? 'Guardando...' : 'Guardar'}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          )
+        }
+        emptyText="Aún no has creado ningún tipo. Por ejemplo: S (1×1×2 m), M (2×2×2.5 m), L (3×3×2.5 m)."
+      />
+    </div>
   );
 }

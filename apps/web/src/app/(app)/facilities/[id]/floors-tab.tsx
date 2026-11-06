@@ -2,7 +2,7 @@
 
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
@@ -38,11 +38,13 @@ const PlanEditor = dynamic(() => import('./plan-editor').then((m) => m.PlanEdito
 
 interface Props {
   facilityId: string;
+  /** Avisa de que hay cambios del plano sin guardar. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 type Editing = { mode: 'new' } | { mode: 'edit'; id: string; name: string; floorNumber: number };
 
-export function FacilityFloorsTab({ facilityId }: Props) {
+export function FacilityFloorsTab({ facilityId, onDirtyChange }: Props) {
   const ask = useConfirm();
   const floors = useFloors(facilityId);
   const canManage = useHasPermission('facilities:manage');
@@ -53,6 +55,27 @@ export function FacilityFloorsTab({ facilityId }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [name, setName] = useState('');
   const [floorNumber, setFloorNumber] = useState('0');
+  const planDirty = useRef(false);
+
+  function trackDirty(dirty: boolean) {
+    planDirty.current = dirty;
+    onDirtyChange?.(dirty);
+  }
+
+  async function selectFloor(id: string) {
+    if (
+      planDirty.current &&
+      !(await ask({
+        title: '¿Cambiar de planta sin guardar?',
+        description: 'Has movido trasteros en el plano y aún no has guardado la distribución.',
+        confirmLabel: 'Cambiar sin guardar',
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    setSelectedFloorId(id);
+  }
 
   if (floors.isLoading) {
     return (
@@ -86,7 +109,7 @@ export function FacilityFloorsTab({ facilityId }: Props) {
           facilityId,
           input: { name: name.trim(), floorNumber: n },
         });
-        setSelectedFloorId(floor.id);
+        await selectFloor(floor.id);
         toast.success('Planta creada.');
       }
       setEditing(null);
@@ -105,13 +128,11 @@ export function FacilityFloorsTab({ facilityId }: Props) {
     } catch (err) {
       const code = err instanceof ApiError ? (err.body as { code?: string }).code : undefined;
       toast.error(
-        code === 'floor_has_units'
-          ? 'Tiene trasteros: muévelos a otra planta (editando cada trastero) antes de borrarla.'
-          : code === 'floor_is_default'
-            ? 'Es la planta principal del local: no se puede borrar.'
-            : err instanceof ApiError
-              ? err.body.message
-              : 'No se pudo borrar.',
+        code === 'floor_is_default'
+          ? 'Es la planta principal del local: no se puede borrar.'
+          : err instanceof ApiError
+            ? err.body.message
+            : 'No se pudo borrar.',
       );
     }
   }
@@ -122,7 +143,7 @@ export function FacilityFloorsTab({ facilityId }: Props) {
         {allFloors.length > 0 && (
           <>
             <span className="text-sm text-muted-foreground">Planta:</span>
-            <Select value={current?.id ?? undefined} onValueChange={(v) => setSelectedFloorId(v)}>
+            <Select value={current?.id ?? undefined} onValueChange={(v) => void selectFloor(v)}>
               <SelectTrigger className="w-[240px]">
                 <SelectValue />
               </SelectTrigger>
@@ -176,7 +197,14 @@ export function FacilityFloorsTab({ facilityId }: Props) {
           principal» con el primer trastero).
         </div>
       ) : (
-        current && <PlanEditor facilityId={facilityId} floorId={current.id} />
+        current && (
+          <PlanEditor
+            key={current.id}
+            facilityId={facilityId}
+            floorId={current.id}
+            onDirtyChange={trackDirty}
+          />
+        )
       )}
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
