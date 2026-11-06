@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useFacilities, useFloors, useUnitTypes } from '@/lib/facilities/hooks';
+import { useFacilities, useFloors, useUnits, useUnitTypes } from '@/lib/facilities/hooks';
 import { useBulkCreateUnits } from '@/lib/facilities/inventory-hooks';
 
 /** Alta de varios trasteros seguidos: «A-01» … «A-20» con las mismas medidas. */
@@ -61,6 +61,11 @@ export function BulkCreateUnitsDialog({ facilityId: fixedFacility }: { facilityI
           padding: Math.min(6, Math.max(0, Math.floor(num(f.padding)) || 0)),
         })
       : [];
+
+  const existing = useUnits(facilityId ? { facilityId } : {}, { enabled: open && !!facilityId });
+  const taken = new Set((existing.data?.items ?? []).map((u) => u.code.toLowerCase()));
+  const repeated = preview.filter((c) => taken.has(c.toLowerCase()));
+  const shown = preview.slice(0, 24);
 
   async function submit() {
     if (!facilityId || !f.unitTypeId) {
@@ -181,12 +186,31 @@ export function BulkCreateUnitsDialog({ facilityId: fixedFacility }: { facilityI
             <Small label="Cifras" value={f.padding} onChange={(v) => set('padding', v)} />
           </div>
           {preview.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {preview.length <= 4
-                ? preview.join(', ')
-                : `${preview[0]}, ${preview[1]} … ${preview[preview.length - 1]}`}{' '}
-              ({preview.length})
-            </p>
+            <div className="space-y-1">
+              <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto">
+                {shown.map((code) => (
+                  <span
+                    key={code}
+                    className={`rounded border px-1.5 py-0.5 text-xs ${
+                      taken.has(code.toLowerCase())
+                        ? 'text-muted-foreground line-through'
+                        : 'bg-muted/40'
+                    }`}
+                  >
+                    {code}
+                  </span>
+                ))}
+                {preview.length > shown.length && (
+                  <span className="px-1 text-xs text-muted-foreground">
+                    y {preview.length - shown.length} más
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {preview.length - repeated.length} nuevos
+                {repeated.length > 0 ? ` · ${repeated.length} ya existen y se saltan` : ''}
+              </p>
+            </div>
           )}
           <div className="grid grid-cols-4 gap-2">
             <Small label="Ancho (m)" value={f.widthM} onChange={(v) => set('widthM', v)} />
@@ -205,7 +229,7 @@ export function BulkCreateUnitsDialog({ facilityId: fixedFacility }: { facilityI
             Cancelar
           </Button>
           <Button onClick={() => void submit()} disabled={create.isPending}>
-            {create.isPending ? 'Creando…' : `Crear ${preview.length}`}
+            {create.isPending ? 'Creando…' : `Crear ${preview.length - repeated.length}`}
           </Button>
         </DialogFooter>
       </DialogContent>

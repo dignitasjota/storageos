@@ -7,12 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useUnitInsights } from '@/lib/facilities/inventory-hooks';
 import { formatDate, formatEur } from '@/lib/format';
 
-const SOURCE_LABELS: Record<string, string> = {
-  manual: 'a mano',
-  suggestion: 'sugerencia de precio',
-  import: 'importación',
-};
-
 const CONTRACT_STATUS: Record<string, string> = {
   active: 'En vigor',
   ending: 'Baja pedida',
@@ -21,7 +15,7 @@ const CONTRACT_STATUS: Record<string, string> = {
   draft: 'Borrador',
 };
 
-/** Rentabilidad, historial de precios e inquilinos del trastero. */
+/** Rentabilidad e inquilinos que ha tenido el trastero. */
 export function UnitInsightsCard({ unitId }: { unitId: string }) {
   const insights = useUnitInsights(unitId);
   const { data } = insights;
@@ -92,28 +86,6 @@ export function UnitInsightsCard({ unitId }: { unitId: string }) {
           )}
         </CardContent>
       </Card>
-      {data.priceHistory.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Cambios de precio</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-1 text-sm">
-              {data.priceHistory.map((p) => (
-                <li key={p.changedAt} className="flex flex-wrap justify-between gap-2">
-                  <span className="text-muted-foreground">
-                    {formatDate(p.changedAt)} · {SOURCE_LABELS[p.source] ?? p.source}
-                    {p.userName ? ` · ${p.userName}` : ''}
-                  </span>
-                  <span>
-                    {formatEur(p.previousPrice)} → <strong>{formatEur(p.newPrice)}</strong>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

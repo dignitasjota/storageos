@@ -74,7 +74,12 @@ export class InventoryService {
     await this.admin.$transaction(async (tx) => {
       const claimed = await tx.unit.updateMany({
         where: { id: issue.unitId, tenantId: args.tenantId, status: issue.currentStatus },
-        data: { status: issue.expectedStatus },
+        data: {
+          status: issue.expectedStatus,
+          outOfServiceReason: null,
+          outOfServiceSince: null,
+          maintenanceUntil: null,
+        },
       });
       if (claimed.count === 0) {
         throw new ConflictException({

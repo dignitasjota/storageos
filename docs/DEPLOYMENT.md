@@ -1852,3 +1852,11 @@ Migración `20261227100000_units_review`, se aplica sola. Sin variables nuevas.
 - **Pares apilados rotos**: la misma migración desapila las taquillas cuya pareja se borró y los pares separados en dos plantas. Si alguna taquilla «reaparece» en el plano de un local, es esto.
 - **Tras desplegar, mira Inventario → Trasteros**: el aviso de descuadres puede enseñar trasteros reservados o fuera de servicio con el inquilino dentro. Es lo que se hizo a mano antes de este cambio; «Corregir a Ocupado» lo arregla.
 - **Cambia cómo se trabaja**: ya no se puede poner a mano «Reservado» ni cambiar el estado de un trastero con contrato en vigor. Para una avería con inquilino dentro, una incidencia.
+
+## 102. Trasteros: mejoras (2026-11-06)
+
+Migración `20261228100000_units_features`, se aplica sola. Sin variables nuevas.
+
+- **Trasteros ya parados**: la migración les pone como motivo y fecha los de su último paso a mantenimiento o bloqueado. Si no hay historial, la fecha es la de su última actualización, así que los días y el dinero sin ingresar pueden salir cortos.
+- **Fotos**: van al bucket público, igual que las de los locales. Se ven en el panel; todavía no salen en la web ni en el área de clientes.
+- **Etiquetas de puerta**: el QR lleva la dirección del panel, así que hay que iniciar sesión para abrirla. Sirven para el equipo, no para los inquilinos.

@@ -16,6 +16,7 @@ import { unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import { FacilityFloorsService } from './facility-floors.service';
@@ -56,6 +57,12 @@ export interface ListUnitsFilters {
   facilityScope?: string[] | null;
 }
 
+export const UNIT_INCLUDE = {
+  facility: { select: { name: true } },
+  floor: { select: { name: true } },
+  unitType: { select: { name: true, color: true } },
+} as const;
+
 const LIVE_CONTRACT: Prisma.ContractWhereInput = {
   status: { in: ['active', 'ending'] },
   deletedAt: null,
@@ -69,6 +76,7 @@ export class UnitsService {
     private readonly floors: FacilityFloorsService,
     private readonly limits: PlanLimitsService,
     private readonly eventBus: EventEmitter2,
+    private readonly files: FilesService,
   ) {}
 
   async list(
@@ -128,11 +136,7 @@ export class UnitsService {
           orderBy: [{ code: 'asc' }, { id: 'asc' }],
           take: limit + 1,
           ...(filters.cursor ? { cursor: { id: filters.cursor }, skip: 1 } : {}),
-          include: {
-            facility: { select: { name: true } },
-            floor: { select: { name: true } },
-            unitType: { select: { name: true, color: true } },
-          },
+          include: UNIT_INCLUDE,
         }),
       tenantId,
     );
@@ -241,12 +245,9 @@ export class UnitsService {
             heightM: input.heightM,
             basePriceMonthly: input.basePriceMonthly ?? Number(unitType.defaultPriceMonthly),
             notes: input.notes?.trim() || null,
+            features: input.features ?? [],
           },
-          include: {
-            facility: { select: { name: true } },
-            floor: { select: { name: true } },
-            unitType: { select: { name: true, color: true } },
-          },
+          include: UNIT_INCLUDE,
         });
       } catch (err) {
         if (this.isUniqueViolation(err)) {
@@ -390,6 +391,10 @@ export class UnitsService {
       data.notes = args.input.notes.trim() || null;
       changes.notes = data.notes;
     }
+    if (args.input.features !== undefined) {
+      data.features = args.input.features;
+      changes.features = args.input.features;
+    }
 
     let updated;
     try {
@@ -398,11 +403,7 @@ export class UnitsService {
           tx.unit.update({
             where: { id: args.unitId },
             data,
-            include: {
-              facility: { select: { name: true } },
-              floor: { select: { name: true } },
-              unitType: { select: { name: true, color: true } },
-            },
+            include: UNIT_INCLUDE,
           }),
         args.tenantId,
       );
@@ -483,6 +484,9 @@ export class UnitsService {
       await tx.unitStatusHistory.deleteMany({ where: { unitId: args.unitId } });
       await tx.unit.delete({ where: { id: args.unitId } });
     }, args.tenantId);
+    if (existing.images.length > 0) {
+      await this.files.deleteObjects('public', existing.images).catch(() => undefined);
+    }
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -550,11 +554,6 @@ export class UnitsService {
     }
 
     const groupId = randomUUID();
-    const include = {
-      facility: { select: { name: true } },
-      floor: { select: { name: true } },
-      unitType: { select: { name: true, color: true } },
-    } as const;
     const [updatedA, updatedB] = await this.prisma.withTenant(
       (tx) =>
         Promise.all([
@@ -568,12 +567,12 @@ export class UnitsService {
               planWidth: b.planWidth,
               planHeight: b.planHeight,
             },
-            include,
+            include: UNIT_INCLUDE,
           }),
           tx.unit.update({
             where: { id: b.id },
             data: { stackGroupId: groupId, stackLevel: 0 },
-            include,
+            include: UNIT_INCLUDE,
           }),
         ]),
       tenantId,
@@ -618,11 +617,6 @@ export class UnitsService {
       });
     }
     const groupId = unit.stackGroupId;
-    const include = {
-      facility: { select: { name: true } },
-      floor: { select: { name: true } },
-      unitType: { select: { name: true, color: true } },
-    } as const;
     const partners = await this.prisma.withTenant(
       (tx) => tx.unit.findMany({ where: { stackGroupId: groupId } }),
       tenantId,
@@ -650,7 +644,7 @@ export class UnitsService {
                     }
                   : {}),
               },
-              include,
+              include: UNIT_INCLUDE,
             });
           }),
         ),
@@ -694,11 +688,7 @@ export class UnitsService {
         const updatedRow = await tx.unit.update({
           where: { id: args.unitId },
           data: { maintenanceUntil: until },
-          include: {
-            facility: { select: { name: true } },
-            floor: { select: { name: true } },
-            unitType: { select: { name: true, color: true } },
-          },
+          include: UNIT_INCLUDE,
         });
         await tx.unitStatusHistory.create({
           data: {
@@ -754,21 +744,27 @@ export class UnitsService {
         // Reparado o desbloqueado, vuelve a quien lo tenía guardado.
         finalStatus = 'reserved';
       }
+      const stopped = finalStatus === 'maintenance' || finalStatus === 'blocked';
+      const wasStopped = from === 'maintenance' || from === 'blocked';
       const row = await tx.unit.update({
         where: { id: args.unitId },
         data: {
           status: finalStatus as UnitStatus,
+          outOfServiceReason: stopped
+            ? args.input.reason?.trim() || (wasStopped ? existing.outOfServiceReason : null)
+            : null,
+          outOfServiceSince: stopped
+            ? wasStopped
+              ? (existing.outOfServiceSince ?? new Date())
+              : new Date()
+            : null,
           // Fecha prevista de vuelta al servicio: solo mientras está en mantenimiento.
           maintenanceUntil:
             to === 'maintenance' && args.input.until
               ? new Date(`${args.input.until}T00:00:00Z`)
               : null,
         },
-        include: {
-          facility: { select: { name: true } },
-          floor: { select: { name: true } },
-          unitType: { select: { name: true, color: true } },
-        },
+        include: UNIT_INCLUDE,
       });
       await tx.unitStatusHistory.create({
         data: {
@@ -918,7 +914,7 @@ export class UnitsService {
     }
   }
 
-  private toDto(
+  toDto(
     row: Unit & {
       facility: { name: string };
       floor: { name: string };
@@ -952,9 +948,13 @@ export class UnitsService {
       stackGroupId: row.stackGroupId,
       stackLevel: row.stackLevel,
       notes: row.notes,
+      features: row.features,
+      images: row.images.map((key) => ({ key, url: this.files.buildPublicUrl('public', key) })),
       maintenanceUntil: row.maintenanceUntil
         ? row.maintenanceUntil.toISOString().slice(0, 10)
         : null,
+      outOfServiceReason: row.outOfServiceReason,
+      outOfServiceSince: row.outOfServiceSince?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

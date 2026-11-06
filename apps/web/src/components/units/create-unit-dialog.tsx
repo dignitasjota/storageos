@@ -1,7 +1,13 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { type CreateUnitInput, CreateUnitSchema, type UnitDto } from '@storageos/shared';
+import {
+  type CreateUnitInput,
+  CreateUnitSchema,
+  nextUnitCode,
+  type UnitDto,
+  type UnitFeature,
+} from '@storageos/shared';
 import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -26,6 +32,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -35,7 +42,13 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useCreateUnit, useFacilities, useFloors, useUnitTypes } from '@/lib/facilities/hooks';
+import {
+  useCreateUnit,
+  useFacilities,
+  useFloors,
+  useUnits,
+  useUnitTypes,
+} from '@/lib/facilities/hooks';
 import { formatEur } from '@/lib/format';
 
 const DIMENSIONS = { widthM: 2, depthM: 2, heightM: 2.5 };
@@ -51,6 +64,7 @@ export function CreateUnitDialog({
   open: controlledOpen,
   onOpenChange,
   onCreated,
+  copyFrom,
 }: {
   facilityId?: string;
   /** Planta fija (p. ej. al crearlo desde el plano). */
@@ -61,6 +75,8 @@ export function CreateUnitDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onCreated?: (unit: UnitDto) => void;
+  /** Empieza con los datos de este trastero y el siguiente código de su serie. */
+  copyFrom?: UnitDto;
 }) {
   const [ownOpen, setOwnOpen] = useState(false);
   const controlled = controlledOpen !== undefined;
@@ -71,12 +87,26 @@ export function CreateUnitDialog({
   const create = useCreateUnit();
   const activeTypes = (types.data ?? []).filter((t) => t.isActive);
   const firstFacility = facilities.data?.[0]?.id;
-  const defaults = (): Partial<CreateUnitInput> => ({
-    ...(facilityId ? { facilityId } : {}),
-    ...(floorId ? { floorId } : {}),
-    code: '',
-    ...DIMENSIONS,
+  const copied = (u: UnitDto): Partial<CreateUnitInput> => ({
+    facilityId: u.facilityId,
+    floorId: u.floorId,
+    unitTypeId: u.unitTypeId,
+    code: nextUnitCode(u.code),
+    widthM: u.widthM,
+    depthM: u.depthM,
+    heightM: u.heightM,
+    basePriceMonthly: u.basePriceMonthly,
+    features: u.features as UnitFeature[],
   });
+  const defaults = (): Partial<CreateUnitInput> =>
+    copyFrom
+      ? copied(copyFrom)
+      : {
+          ...(facilityId ? { facilityId } : {}),
+          ...(floorId ? { floorId } : {}),
+          code: '',
+          ...DIMENSIONS,
+        };
 
   const form = useForm<CreateUnitInput>({
     resolver: zodResolver(CreateUnitSchema),
@@ -93,6 +123,9 @@ export function CreateUnitDialog({
   // La misma que elige el servidor si no se toca el desplegable.
   const defaultFloor = floorList.find((f) => f.isDefault) ?? floorList[0];
   const chosenType = activeTypes.find((t) => t.id === form.watch('unitTypeId'));
+  const copyOptions = useUnits(chosenFacility ? { facilityId: chosenFacility } : {}, {
+    enabled: open && !!chosenFacility && !copyFrom,
+  });
 
   if (types.isSuccess && activeTypes.length === 0) {
     // Sin tipo no se puede crear un trastero: en vez de un botón gris sin
@@ -179,10 +212,33 @@ export function CreateUnitDialog({
       )}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Nuevo trastero</DialogTitle>
+          <DialogTitle>{copyFrom ? `Duplicar ${copyFrom.code}` : 'Nuevo trastero'}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            {!copyFrom && (copyOptions.data?.items.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <Label>Copiar los datos de</Label>
+                <Select
+                  value=""
+                  onValueChange={(id) => {
+                    const source = copyOptions.data?.items.find((u) => u.id === id);
+                    if (source) form.reset({ ...form.getValues(), ...copied(source) });
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Otro trastero (opcional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(copyOptions.data?.items ?? []).map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.code} · {u.unitTypeName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {!facilityId && (
               <FormField
                 control={form.control}

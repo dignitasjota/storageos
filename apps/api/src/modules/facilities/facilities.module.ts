@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { PromotionsModule } from '../promotions/promotions.module';
 
 import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
@@ -13,11 +14,12 @@ import { FacilityInsightsService } from './facility-insights.service';
 import { UnitTypesController } from './unit-types.controller';
 import { UnitTypesService } from './unit-types.service';
 import { UnitsInventoryService } from './units-inventory.service';
+import { UnitsOverviewService } from './units-overview.service';
 import { UnitsController } from './units.controller';
 import { UnitsService } from './units.service';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, PromotionsModule],
   controllers: [
     FacilitiesController,
     UnitTypesController,
@@ -32,6 +34,7 @@ import { UnitsService } from './units.service';
     FacilityFloorsService,
     DashboardService,
     UnitsInventoryService,
+    UnitsOverviewService,
     FacilityInsightsService,
     FacilityDocumentsService,
   ],

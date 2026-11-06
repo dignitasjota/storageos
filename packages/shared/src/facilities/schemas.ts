@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { PropertyKindEnum } from '../billing/tax-category';
 import { CompetitorFeatureEnum } from '../competitors';
 
+import { UnitFeatureEnum, UnitPriceRoundEnum } from './unit-tools';
+
 const hexColor = z
   .string()
   .trim()
@@ -184,6 +186,7 @@ export const CreateUnitSchema = z.object({
   heightM: unitHeight,
   basePriceMonthly: unitPrice.optional(),
   notes: z.string().trim().max(2000).optional().or(z.literal('')),
+  features: z.array(UnitFeatureEnum).max(20).optional(),
 });
 export type CreateUnitInput = z.infer<typeof CreateUnitSchema>;
 
@@ -197,6 +200,7 @@ export const UpdateUnitSchema = z
     heightM: unitHeight.optional(),
     basePriceMonthly: unitPrice.optional(),
     notes: z.string().trim().max(2000).optional().or(z.literal('')),
+    features: z.array(UnitFeatureEnum).max(20).optional(),
   })
   .refine((v) => Object.values(v).some((field) => field !== undefined), {
     message: 'Debes enviar al menos un campo',
@@ -327,6 +331,7 @@ export const BulkUnitsActionSchema = z
       /** `set` = fijar el precio; `percent` = subir/bajar un %. */
       mode: z.enum(['set', 'percent']),
       value: z.number().finite().min(-90).max(UNIT_MAX_PRICE),
+      round: UnitPriceRoundEnum.default('none'),
     }),
   ])
   .superRefine((input, ctx) => {

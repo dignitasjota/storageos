@@ -924,3 +924,11 @@ PR A con una definición única por cifra y una sola petición (`GET /dashboard/
 ### Accesos del panel del tenant: revisión (2026-11-05, #904–#905)
 
 PR A con todos los fallos: diálogo de credencial, corte por impago que se podía sortear, ex-inquilinos con acceso, «ping» que abría la puerta, regenerar clave, PIN reutilizado, propagación a terminales, alcance por defecto y cerraduras ajenas. PR B con las mejoras: accesos por inquilino, avisos de seguridad, conexión real, sincronización a la vista, alta guiada, accesos temporales, registro con CSV y foto de cámara, filtro «Vigentes» y política de corte. **Falta**: probar con los equipos físicos y la foto de cámara; el análisis de cámaras queda para más adelante.
+
+### Trasteros del panel del tenant: revisión (2026-11-06, #915 + PR B)
+
+Arreglos (PR A): un trastero con contrato no cambia de estado a mano, lo guardado para alguien no vuelve a la venta, descuadres sin falsos huérfanos, apilados que se editan y no se rompen, borrar con lo pendiente a la vista e historial real por trastero (`unit_tenancies`).
+
+Mejoras (PR B): lista con inquilino, cuota, deuda y días libre, columnas a elegir, filtros, CSV y vistas del equipo; plano con búsqueda, filtros y color por días libre; lote de precios con vista previa y redondeo; duplicar y copiar al dar de alta; fotos y características; motivo, días y dinero de los parados; precio en contexto; etiquetas de puerta con QR.
+
+**Pendiente**: enseñar fotos y características en la web y el área de clientes.

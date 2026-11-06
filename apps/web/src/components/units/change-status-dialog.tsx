@@ -59,6 +59,7 @@ export function ChangeUnitStatusDialog({
     : [];
   const [status, setStatus] = useState<UnitStatusValue>('available');
   const onlyDate = unit?.status === 'maintenance' && status === 'maintenance';
+  const needsReason = !onlyDate && (status === 'maintenance' || status === 'blocked');
   const [reason, setReason] = useState('');
   const [until, setUntil] = useState<string | undefined>();
   const [createTask, setCreateTask] = useState(true);
@@ -75,6 +76,10 @@ export function ChangeUnitStatusDialog({
     if (!unit) return;
     if (onlyDate && !until) {
       toast.error('Elige la nueva fecha prevista.');
+      return;
+    }
+    if (needsReason && !reason.trim()) {
+      toast.error('Di por qué se para: sale en la ficha y en la lista.');
       return;
     }
     try {
@@ -133,7 +138,11 @@ export function ChangeUnitStatusDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="status-reason">
-              {status === 'maintenance' ? 'Qué hay que hacer' : 'Motivo (opcional)'}
+              {status === 'maintenance'
+                ? 'Qué hay que hacer'
+                : status === 'blocked'
+                  ? 'Motivo'
+                  : 'Motivo (opcional)'}
             </Label>
             <Input id="status-reason" value={reason} onChange={(e) => setReason(e.target.value)} />
           </div>

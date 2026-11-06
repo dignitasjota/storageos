@@ -60,6 +60,11 @@ test('trasteros: lista, ficha, edición, estado y plano', async ({ page }) => {
   const codes = page.getByRole('link', { name: /^A-\d+$/ });
   await expect(codes).toHaveCount(2);
   await expect(codes.first()).toHaveText('A-2');
+  // Los filtros se aplican sobre la lista cargada.
+  await page.getByRole('button', { name: 'Fuera de servicio' }).click();
+  await expect(codes).toHaveCount(0);
+  await page.getByRole('button', { name: 'Fuera de servicio' }).click();
+  await expect(codes).toHaveCount(2);
 
   // Ficha: se edita el precio y se pasa a mantenimiento.
   await page.goto(`/units/${second.id}`);
@@ -71,10 +76,18 @@ test('trasteros: lista, ficha, edición, estado y plano', async ({ page }) => {
   await requests.idle();
 
   await page.getByRole('button', { name: 'Cambiar estado' }).click();
+  await page.getByRole('combobox').first().click();
+  await page.getByRole('option', { name: 'Mantenimiento' }).click();
   await page.getByLabel(/Qué hay que hacer/i).fill('Cambiar la cerradura');
   await page.getByRole('button', { name: 'Cambiar', exact: true }).click();
   await expect(page.getByText(/En mantenimiento|Estado actualizado/)).toBeVisible();
+  await expect(page.getByText('Cambiar la cerradura').first()).toBeVisible();
   await requests.idle();
+
+  // Etiqueta de puerta con su QR.
+  await page.goto(`/units/labels?id=${second.id}`);
+  await expect(page.getByText('A-2', { exact: true })).toBeVisible();
+  await expect(page.locator('.unit-label svg')).toBeVisible();
 
   // Un trastero que no existe no se queda cargando.
   await page.goto('/units/01a1ae29-0000-7000-8000-000000000000');
@@ -84,6 +97,10 @@ test('trasteros: lista, ficha, edición, estado y plano', async ({ page }) => {
   await page.goto('/units');
   await page.getByRole('button', { name: 'Plano' }).click();
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 10_000 });
+  await page.getByLabel('Buscar en el plano').fill('A-10');
+  await page.getByRole('combobox', { name: 'Color' }).click();
+  await page.getByRole('option', { name: 'Color por días libre' }).click();
+  await expect(page.getByText('Menos de 30 días')).toBeVisible();
   await requests.idle();
 
   expect(errors).toEqual([]);
