@@ -10,6 +10,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UNIT_STATUS_TRANSITIONS } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
+import { formatDateLong, todayInTimezone } from '../../common/format';
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
@@ -30,15 +32,9 @@ import type {
 } from '@storageos/shared';
 
 /**
- * Transiciones de estado validas en Fase 2. En Fase 3 (contratos)
- * algunas se activaran automaticamente (occupied <-> available al firmar/
- * cerrar contrato). De momento todas son manuales.
- *
- * Reglas:
- * - `occupied` solo lo pondra el flujo de contratos en Fase 3. Lo bloqueamos
- *   en cambios manuales para no quedar con units ocupadas sin contrato.
- *   `occupied -> available` SI es manual (admin cierra ocupacion sin
- *   contrato registrado).
+ * Cambios de estado a mano. `occupied` solo lo pone un contrato y un trastero con
+ * contrato en vigor no se toca a mano; `occupied -> available` queda para cerrar
+ * una ocupación sin contrato.
  */
 const ALLOWED_TRANSITIONS = UNIT_STATUS_TRANSITIONS;
 
@@ -52,11 +48,18 @@ export interface ListUnitsFilters {
   unitTypeId?: string;
   status?: UnitStatusValue;
   search?: string;
+  /** La búsqueda mira también inquilino y contrato (hace falta poder ver inquilinos). */
+  searchTenants?: boolean;
   limit?: number;
   cursor?: string;
   /** Permisos por local: si está, solo unidades de esos locales. */
   facilityScope?: string[] | null;
 }
+
+const LIVE_CONTRACT: Prisma.ContractWhereInput = {
+  status: { in: ['active', 'ending'] },
+  deletedAt: null,
+};
 
 @Injectable()
 export class UnitsService {
@@ -81,9 +84,40 @@ export class UnitsService {
     if (filters.unitTypeId) where.unitTypeId = filters.unitTypeId;
     if (filters.status) where.status = filters.status as UnitStatus;
     if (filters.search) {
+      const text = { contains: filters.search, mode: 'insensitive' } as const;
+      const words = filters.search.trim().split(/\s+/).filter(Boolean).slice(0, 5);
       where.OR = [
-        { code: { contains: filters.search, mode: 'insensitive' } },
-        { notes: { contains: filters.search, mode: 'insensitive' } },
+        { code: text },
+        { notes: text },
+        ...(filters.searchTenants
+          ? [
+              {
+                contracts: {
+                  some: {
+                    ...LIVE_CONTRACT,
+                    OR: [
+                      { contractNumber: text },
+                      {
+                        customer: {
+                          AND: words.map((w) => {
+                            const word = { contains: w, mode: 'insensitive' } as const;
+                            return {
+                              OR: [
+                                { firstName: word },
+                                { lastName: word },
+                                { companyName: word },
+                                { email: word },
+                              ],
+                            };
+                          }),
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ]
+          : []),
       ];
     }
     const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
@@ -249,7 +283,14 @@ export class UnitsService {
     const existing = await this.findOrThrow(args.tenantId, args.unitId, args.facilityScope);
     const data: Prisma.UnitUpdateInput = {};
     const changes: Record<string, unknown> = {};
-    if (args.input.floorId !== undefined) {
+    if (args.input.floorId !== undefined && args.input.floorId !== existing.floorId) {
+      // Una pareja apilada comparte hueco: separarla de planta la rompe.
+      if (existing.stackGroupId) {
+        throw new BadRequestException({
+          code: 'cannot_change_floor_while_stacked',
+          message: 'Este trastero está apilado con otro; desapílalo antes de moverlo de planta',
+        });
+      }
       // Validar que la floor pertenece a la misma facility.
       const floor = await this.prisma.withTenant(
         (tx) => tx.facilityFloor.findUnique({ where: { id: args.input.floorId! } }),
@@ -262,6 +303,11 @@ export class UnitsService {
         });
       }
       data.floor = { connect: { id: args.input.floorId } };
+      // Su posición era la del plano de la otra planta: se recoloca sola.
+      data.planX = null;
+      data.planY = null;
+      data.planWidth = null;
+      data.planHeight = null;
       changes.floorId = args.input.floorId;
     }
     if (args.input.unitTypeId !== undefined && args.input.unitTypeId !== existing.unitTypeId) {
@@ -288,7 +334,7 @@ export class UnitsService {
         });
       }
     }
-    if (args.input.unitTypeId !== undefined) {
+    if (args.input.unitTypeId !== undefined && args.input.unitTypeId !== existing.unitTypeId) {
       // Un trastero apilado comparte hueco/tipo con su pareja (ver
       // `stackUnits`) — cambiar el tipo lo dejaría inconsistente. Hay que
       // desapilar primero (desde el editor de plano).
@@ -397,21 +443,39 @@ export class UnitsService {
         message: 'No se puede borrar un trastero ocupado',
       });
     }
-    // Un trastero con contratos (aunque estén finalizados) es historia de
-    // facturas y accesos: no se borra; se puede bloquear para no alquilarlo.
+    // Su pareja se quedaría apilada con nadie y dejaría de verse en el plano.
+    if (existing.stackGroupId) {
+      throw new ConflictException({
+        code: 'unit_stacked',
+        message: 'Este trastero está apilado con otro: desapílalo antes de borrarlo',
+      });
+    }
+    // Un trastero con contratos (aunque estén finalizados o se trasladaran a
+    // otro) es historia de facturas y accesos: no se borra; se puede bloquear.
     const history = await this.prisma.withTenant(
       (tx) =>
         Promise.all([
           tx.contract.count({ where: { unitId: args.unitId } }),
           tx.reservation.count({ where: { unitId: args.unitId } }),
+          tx.unitTenancy.count({ where: { unitId: args.unitId } }),
         ]),
       args.tenantId,
     );
-    if (history[0] + history[1] > 0) {
+    if (history[0] + history[1] + history[2] > 0) {
       throw new ConflictException({
         code: 'unit_has_history',
         message:
           'Este trastero tiene contratos o reservas: no se puede borrar. Si ya no se alquila, cámbialo a «Bloqueado».',
+      });
+    }
+    const pending = await this.prisma.withTenant(
+      (tx) => this.pendingOnUnit(tx, args.unitId),
+      args.tenantId,
+    );
+    if (pending.length > 0) {
+      throw new ConflictException({
+        code: 'unit_has_pending',
+        message: `Antes de borrarlo: ${pending.join('; ')}.`,
       });
     }
     // Sin contratos ni reservas, su historial de estados no es prueba de nada.
@@ -614,25 +678,40 @@ export class UnitsService {
     input: ChangeUnitStatusInput;
     meta: RequestMeta;
     facilityScope?: string[] | null;
+    /** La tarea de mantenimiento pide además poder crear tareas. */
+    canCreateTasks?: boolean;
   }): Promise<UnitDto> {
     const existing = await this.findOrThrow(args.tenantId, args.unitId, args.facilityScope);
     const from = existing.status as UnitStatusValue;
     const to = args.input.status;
+    if (to === 'maintenance' && args.input.until !== undefined) {
+      await this.assertFutureDay(args.tenantId, existing.facilityId, args.input.until);
+    }
     if (from === to && to === 'maintenance' && args.input.until !== undefined) {
       // Ya en mantenimiento: solo se mueve la fecha prevista.
-      const row = await this.prisma.withTenant(
-        (tx) =>
-          tx.unit.update({
-            where: { id: args.unitId },
-            data: { maintenanceUntil: new Date(`${args.input.until}T00:00:00Z`) },
-            include: {
-              facility: { select: { name: true } },
-              floor: { select: { name: true } },
-              unitType: { select: { name: true, color: true } },
-            },
-          }),
-        args.tenantId,
-      );
+      const until = new Date(`${args.input.until}T00:00:00Z`);
+      const row = await this.prisma.withTenant(async (tx) => {
+        const updatedRow = await tx.unit.update({
+          where: { id: args.unitId },
+          data: { maintenanceUntil: until },
+          include: {
+            facility: { select: { name: true } },
+            floor: { select: { name: true } },
+            unitType: { select: { name: true, color: true } },
+          },
+        });
+        await tx.unitStatusHistory.create({
+          data: {
+            tenantId: args.tenantId,
+            unitId: args.unitId,
+            previousStatus: 'maintenance',
+            newStatus: 'maintenance',
+            changedByUserId: args.userId,
+            reason: `Nueva fecha prevista: ${formatDateLong(until, 'UTC')}`,
+          },
+        });
+        return updatedRow;
+      }, args.tenantId);
       return this.toDto(row);
     }
     if (from === to) return this.toDto(existing);
@@ -650,22 +729,35 @@ export class UnitsService {
       });
     }
 
+    let finalStatus: UnitStatusValue = to;
     const updated = await this.prisma.withTenant(async (tx) => {
-      // A la venta no vuelve lo que sigue guardado para alguien.
-      if (
-        from === 'reserved' &&
-        to === 'available' &&
-        (await unitHeldByOther(tx, { unitId: args.unitId }))
-      ) {
+      // Con un inquilino dentro el estado lo llevan los contratos. Una reserva
+      // anticipada de un local por abrir aún no ha empezado.
+      const live = await tx.contract.count({
+        where: { unitId: args.unitId, ...LIVE_CONTRACT, ...STARTED_CONTRACT_WHERE },
+      });
+      if (live > 0) {
         throw new ConflictException({
-          code: 'unit_held_by_other',
-          message: 'Este trastero sigue guardado para alguien: cancela antes lo que lo retiene',
+          code: 'unit_has_live_contract',
+          message:
+            'Tiene un contrato en vigor: el estado cambia al terminar el contrato o al trasladarlo. Para una avería, abre una incidencia.',
         });
+      }
+      // A la venta no vuelve lo que sigue guardado para alguien.
+      if (to === 'available' && (await unitHeldByOther(tx, { unitId: args.unitId }))) {
+        if (from === 'reserved') {
+          throw new ConflictException({
+            code: 'unit_held_by_other',
+            message: 'Este trastero sigue guardado para alguien: cancela antes lo que lo retiene',
+          });
+        }
+        // Reparado o desbloqueado, vuelve a quien lo tenía guardado.
+        finalStatus = 'reserved';
       }
       const row = await tx.unit.update({
         where: { id: args.unitId },
         data: {
-          status: to as UnitStatus,
+          status: finalStatus as UnitStatus,
           // Fecha prevista de vuelta al servicio: solo mientras está en mantenimiento.
           maintenanceUntil:
             to === 'maintenance' && args.input.until
@@ -683,12 +775,24 @@ export class UnitsService {
           tenantId: args.tenantId,
           unitId: args.unitId,
           previousStatus: from as UnitStatus,
-          newStatus: to as UnitStatus,
+          newStatus: finalStatus as UnitStatus,
           changedByUserId: args.userId,
           reason: args.input.reason?.trim() || null,
         },
       });
-      if (to === 'maintenance' && args.input.createTask) {
+      // Se acabó el mantenimiento: su tarea ya no tiene nada que hacer.
+      if (from === 'maintenance' && finalStatus !== 'blocked') {
+        await tx.task.updateMany({
+          where: {
+            unitId: args.unitId,
+            status: { in: ['open', 'in_progress'] },
+            deletedAt: null,
+            metadata: { path: ['source'], equals: 'unit_maintenance' },
+          },
+          data: { status: 'done', completedAt: new Date() },
+        });
+      }
+      if (to === 'maintenance' && args.input.createTask && args.canCreateTasks !== false) {
         await tx.task.create({
           data: {
             tenantId: args.tenantId,
@@ -713,18 +817,62 @@ export class UnitsService {
       action: 'unit.status_changed',
       entityType: 'Unit',
       entityId: args.unitId,
-      changes: { from, to, reason: args.input.reason ?? null },
+      changes: { from, to: finalStatus, reason: args.input.reason ?? null },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
     // Trastero liberado a mano → avisar a la lista de espera de su tipo.
-    if (to === 'available') {
+    if (finalStatus === 'available') {
       this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
         tenantId: args.tenantId,
         unitId: args.unitId,
       } satisfies UnitAvailablePayload);
     }
     return this.toDto(updated);
+  }
+
+  /** La fecha prevista de vuelta no puede estar pasada (día del local). */
+  private async assertFutureDay(tenantId: string, facilityId: string, day: string): Promise<void> {
+    const facility = await this.prisma.withTenant(
+      (tx) => tx.facility.findUnique({ where: { id: facilityId }, select: { timezone: true } }),
+      tenantId,
+    );
+    const today = todayInTimezone(facility?.timezone ?? 'Europe/Madrid');
+    if (new Date(`${day}T00:00:00Z`) < today) {
+      throw new BadRequestException({
+        code: 'invalid_until',
+        message: 'La fecha prevista de vuelta no puede estar pasada',
+      });
+    }
+  }
+
+  /** Lo que se quedaría colgando si el trastero desapareciera. */
+  private async pendingOnUnit(tx: Prisma.TransactionClient, unitId: string): Promise<string[]> {
+    const now = new Date();
+    const [moves, held, preassigned, offers, requests, changes, devices] = await Promise.all([
+      tx.contract.count({ where: { scheduledUnitId: unitId, ...LIVE_CONTRACT } }),
+      tx.waitlistEntry.count({ where: { heldUnitId: unitId, status: 'notified' } }),
+      tx.waitlistEntry.count({ where: { preassignedUnitId: unitId, status: 'waiting' } }),
+      tx.promotion.count({
+        where: {
+          isActive: true,
+          appliesTo: { path: ['unitId'], equals: unitId },
+          OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+        },
+      }),
+      tx.unitRequest.count({ where: { unitId, status: 'pending' } }),
+      tx.unitChangeRequest.count({ where: { targetUnitId: unitId, status: 'pending' } }),
+      tx.accessDevice.count({ where: { unitId } }),
+    ]);
+    return [
+      ...(moves > 0 ? ['anula el traslado programado a este trastero'] : []),
+      ...(held > 0 ? ['está guardado para la lista de espera'] : []),
+      ...(preassigned > 0 ? ['quita la preasignación de la lista de espera'] : []),
+      ...(offers > 0 ? ['retira la oferta de este trastero'] : []),
+      ...(requests > 0 ? ['atiende la solicitud de un inquilino'] : []),
+      ...(changes > 0 ? ['atiende la petición de cambio a este trastero'] : []),
+      ...(devices > 0 ? ['desvincula la cerradura'] : []),
+    ];
   }
 
   private async findOrThrow(tenantId: string, unitId: string, facilityScope?: string[] | null) {

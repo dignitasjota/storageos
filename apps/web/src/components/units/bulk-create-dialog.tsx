@@ -85,9 +85,19 @@ export function BulkCreateUnitsDialog({ facilityId: fixedFacility }: { facilityI
         heightM: num(f.heightM),
         ...(f.price.trim() ? { basePriceMonthly: num(f.price) } : {}),
       });
-      toast.success(
-        `${res.created} trastero(s) creado(s)${res.skipped.length ? `; ya existían: ${res.skipped.join(', ')}` : ''}.`,
-      );
+      const notes = [
+        ...(res.skipped.length ? [`Ya existían: ${res.skipped.join(', ')}.`] : []),
+        ...(res.overLimit.length
+          ? [`No caben en tu plan: ${res.overLimit.join(', ')}. Amplíalo en Suscripción.`]
+          : []),
+        ...res.failed.map((x) => `Se ha parado en ${x.code}: ${x.error}`),
+      ];
+      const title = `${res.created} trastero(s) creado(s).`;
+      if (res.overLimit.length || res.failed.length) {
+        toast.warning(title, { description: notes.join('\n'), duration: 12_000 });
+      } else {
+        toast.success(title, notes.length ? { description: notes.join('\n') } : undefined);
+      }
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudieron crear.');

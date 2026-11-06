@@ -61,7 +61,8 @@ export function BulkUnitsBar({
   async function apply() {
     if (!action) return;
     const v = Number(value.replace(',', '.'));
-    if (action === 'price' && !Number.isFinite(v)) {
+    // Un campo vacío se lee como 0 y pondría gratis lo seleccionado.
+    if (action === 'price' && (!value.trim() || !Number.isFinite(v) || v === 0)) {
       toast.error('Indica el precio o el porcentaje.');
       return;
     }
@@ -80,10 +81,14 @@ export function BulkUnitsBar({
               : { action, unitIds, mode, value: v },
       );
       if (res.failed.length === 0) toast.success(`${res.updated} trastero(s) actualizado(s).`);
-      else
-        toast.warning(
-          `${res.updated} actualizado(s); ${res.failed.length} no: ${res.failed[0]!.error}`,
-        );
+      else {
+        const shown = res.failed.slice(0, 5).map((f) => `${f.unitCode ?? '—'}: ${f.error}`);
+        const rest = res.failed.length - shown.length;
+        toast.warning(`${res.updated} actualizado(s); ${res.failed.length} no.`, {
+          description: [...shown, ...(rest > 0 ? [`Y ${rest} más.`] : [])].join('\n'),
+          duration: 12_000,
+        });
+      }
       setAction(null);
       onDone();
     } catch (err) {
@@ -121,13 +126,11 @@ export function BulkUnitsBar({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(['available', 'reserved', 'maintenance', 'blocked'] as UnitStatusValue[]).map(
-                  (s) => (
-                    <SelectItem key={s} value={s}>
-                      {UNIT_STATUS_LABELS[s]}
-                    </SelectItem>
-                  ),
-                )}
+                {(['available', 'maintenance', 'blocked'] as UnitStatusValue[]).map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {UNIT_STATUS_LABELS[s]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           )}

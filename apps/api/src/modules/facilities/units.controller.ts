@@ -35,6 +35,8 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { assertFacilityAllowed } from '../../common/facility-scope';
+import { userCan } from '../../common/guards/permissions.guard';
+import { assertUuid } from '../../common/pagination';
 
 import { UnitsInventoryService } from './units-inventory.service';
 import { UnitsService } from './units.service';
@@ -122,14 +124,16 @@ export class UnitsController {
     @Query('limit') limit?: string,
   ): Promise<{ items: UnitDto[]; nextCursor: string | null }> {
     const parsedStatus = status ? UnitStatusEnum.parse(status) : undefined;
+    for (const id of [facilityId, floorId, unitTypeId, cursor]) assertUuid(id);
+    const parsedLimit = Number.parseInt(limit ?? '', 10);
     return this.units.list(user.tenantId, {
       ...(facilityId ? { facilityId } : {}),
       ...(floorId ? { floorId } : {}),
       ...(unitTypeId ? { unitTypeId } : {}),
       ...(parsedStatus ? { status: parsedStatus } : {}),
-      ...(search ? { search } : {}),
+      ...(search ? { search, searchTenants: userCan(user, 'customers:read') } : {}),
       ...(cursor ? { cursor } : {}),
-      ...(limit ? { limit: Number.parseInt(limit, 10) } : {}),
+      ...(Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {}),
       facilityScope: user.facilityScope ?? null,
     });
   }
@@ -202,6 +206,7 @@ export class UnitsController {
       input,
       meta: extractMeta(req),
       facilityScope: user.facilityScope ?? null,
+      canCreateTasks: userCan(user, 'tasks:write'),
     });
   }
 

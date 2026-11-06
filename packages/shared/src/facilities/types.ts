@@ -191,15 +191,19 @@ export interface UnitInsightsDto {
     startDate: string;
     endDate: string | null;
     status: string;
+    /** Se trasladó a otro trastero: el contrato siguió allí. */
+    movedAway: boolean;
     priceMonthly: number;
-    /** Facturado (con IVA, sin fianzas) en ese contrato. */
+    /** Facturado sin IVA ni fianzas mientras estuvo en este trastero. */
     invoiced: number;
   }[];
   /** Días que lleva libre (null si no está libre). */
   daysVacant: number | null;
   /** Días que ha estado alquilado en los últimos 365. */
   daysRentedLastYear: number;
-  /** Facturado en los últimos 12 meses (con IVA, sin fianzas). */
+  /** Días que se miran: 365, o menos si el trastero es más reciente. */
+  daysTrackedLastYear: number;
+  /** Facturado en los últimos 12 meses (sin IVA ni fianzas). */
   revenue12m: number;
   /** Facturado en 12 meses por m². */
   revenuePerM2: number | null;

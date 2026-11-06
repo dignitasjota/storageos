@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useChangeUnitStatus } from '@/lib/facilities/hooks';
 
 export const UNIT_STATUS_LABELS: Record<UnitStatusValue, string> = {
@@ -48,8 +49,16 @@ export function ChangeUnitStatusDialog({
   onClose: () => void;
 }) {
   const change = useChangeUnitStatus();
-  const options = unit ? UNIT_STATUS_TRANSITIONS[unit.status] : [];
+  const canCreateTasks = useHasPermission('tasks:write');
+  // En mantenimiento se puede quedar como está y cambiar solo la fecha prevista.
+  const options = unit
+    ? [
+        ...UNIT_STATUS_TRANSITIONS[unit.status],
+        ...(unit.status === 'maintenance' ? (['maintenance'] as const) : []),
+      ]
+    : [];
   const [status, setStatus] = useState<UnitStatusValue>('available');
+  const onlyDate = unit?.status === 'maintenance' && status === 'maintenance';
   const [reason, setReason] = useState('');
   const [until, setUntil] = useState<string | undefined>();
   const [createTask, setCreateTask] = useState(true);
@@ -64,21 +73,26 @@ export function ChangeUnitStatusDialog({
 
   async function submit() {
     if (!unit) return;
+    if (onlyDate && !until) {
+      toast.error('Elige la nueva fecha prevista.');
+      return;
+    }
     try {
-      await change.mutateAsync({
+      const task = status === 'maintenance' && !onlyDate && createTask && canCreateTasks;
+      const updated = await change.mutateAsync({
         id: unit.id,
         input: {
           status,
           ...(reason.trim() ? { reason: reason.trim() } : {}),
           ...(status === 'maintenance' && until ? { until } : {}),
-          ...(status === 'maintenance' ? { createTask } : {}),
+          ...(status === 'maintenance' ? { createTask: task } : {}),
         },
       });
-      toast.success(
-        status === 'maintenance' && createTask
-          ? 'En mantenimiento: se ha creado la tarea.'
-          : 'Estado actualizado.',
-      );
+      if (updated.status !== status) {
+        toast.info('Sigue guardado para alguien: ha vuelto a «Reservado».');
+      } else {
+        toast.success(task ? 'En mantenimiento: se ha creado la tarea.' : 'Estado actualizado.');
+      }
       onClose();
     } catch (err) {
       const code = err instanceof ApiError ? (err.body as { code?: string }).code : undefined;
@@ -111,7 +125,7 @@ export function ChangeUnitStatusDialog({
               <SelectContent>
                 {options.map((s) => (
                   <SelectItem key={s} value={s}>
-                    {UNIT_STATUS_LABELS[s]}
+                    {s === unit?.status ? 'Sigue en mantenimiento' : UNIT_STATUS_LABELS[s]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -132,10 +146,15 @@ export function ChangeUnitStatusDialog({
                   Si pasa la fecha o lleva más de 7 días parado, sale en «Hoy».
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={createTask} onCheckedChange={(v) => setCreateTask(v === true)} />
-                Crear una tarea de mantenimiento
-              </label>
+              {canCreateTasks && !onlyDate && (
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={createTask}
+                    onCheckedChange={(v) => setCreateTask(v === true)}
+                  />
+                  Crear una tarea de mantenimiento
+                </label>
+              )}
             </>
           )}
         </div>

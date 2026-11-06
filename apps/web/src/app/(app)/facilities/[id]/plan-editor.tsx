@@ -173,13 +173,16 @@ export function PlanEditor({ facilityId, floorId }: Props) {
     let cursorX = GRID;
     let cursorY = GRID;
     const next: UnitRect[] = [];
+    const lowerGroups = new Set(
+      units.data.items.filter((u) => u.stackLevel === 0).map((u) => u.stackGroupId),
+    );
     for (const u of units.data.items) {
       // El miembro "de arriba" de un par apilado (stackLevel:1) no dibuja su
       // propio rectángulo — comparte el hueco físico del stackLevel:0, que
       // es el único que se arrastra/redimensiona por el par. Se sigue
       // gestionando (desapilar, ver su propio código/precio/estado) desde el
       // panel de detalle del trastero seleccionado.
-      if (u.stackLevel === 1) continue;
+      if (u.stackLevel === 1 && lowerGroups.has(u.stackGroupId)) continue;
       const hasPos = u.planX !== null && u.planY !== null;
       // Sin tamaño guardado todavía: nace proporcional a las dimensiones
       // reales del trastero (no un tamaño fijo igual para todos) — se puede

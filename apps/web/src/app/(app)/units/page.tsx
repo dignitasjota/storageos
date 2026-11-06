@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { InventoryIssuesBanner } from './inventory-issues-banner';
 
 import { Can } from '@/components/auth/can';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -37,16 +38,12 @@ import { BulkUnitsBar } from '@/components/units/bulk-actions-bar';
 import { BulkCreateUnitsDialog } from '@/components/units/bulk-create-dialog';
 import { ChangeUnitStatusDialog } from '@/components/units/change-status-dialog';
 import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
+import { useDeleteUnitAction } from '@/components/units/use-delete-unit';
 import { useHasPermission } from '@/lib/auth/hooks';
-import {
-  useFacilities,
-  useFloors,
-  useOccupancyDashboard,
-  useUnits,
-  useUnitTypes,
-} from '@/lib/facilities/hooks';
+import { useFacilities, useFloors, useUnits, useUnitTypes } from '@/lib/facilities/hooks';
 import { useFacilityStore } from '@/lib/facilities/store';
 import { formatEur, formatNumber } from '@/lib/format';
+import { useDebouncedSearch } from '@/lib/pagination';
 
 // Konva no funciona en SSR; el plano se carga solo en cliente.
 const PlanViewer = dynamic(() => import('./plan-viewer').then((m) => m.PlanViewer), {
@@ -98,7 +95,6 @@ export default function UnitsPage() {
 
   const facilities = useFacilities();
   const types = useUnitTypes();
-  const occupancy = useOccupancyDashboard(facilityId);
   const floors = useFloors(facilityId);
 
   // El local recordado (en este navegador) puede ya no existir —borrado o de
@@ -116,17 +112,32 @@ export default function UnitsPage() {
     }
   }, [facilities.data, facilityId, selectFacility]);
 
+  const [searchValue, search, setSearch] = useDebouncedSearch();
+  // El estado se filtra aquí: las tiras de arriba cuentan lo que dejan los demás filtros.
   const units = useUnits({
     ...(facilityId ? { facilityId } : {}),
     ...(facilityId && tableFloorId ? { floorId: tableFloorId } : {}),
-    ...(status ? { status } : {}),
     ...(unitTypeId ? { unitTypeId } : {}),
+    ...(search ? { search } : {}),
   });
+  const allUnits = useMemo(() => units.data?.items ?? [], [units.data?.items]);
+  const rows = useMemo(
+    () => (status ? allUnits.filter((u) => u.status === status) : allUnits),
+    [allUnits, status],
+  );
+  const statusCounts = useMemo(() => {
+    const counts: Partial<Record<UnitStatusValue, number>> = {};
+    for (const u of allUnits) counts[u.status] = (counts[u.status] ?? 0) + 1;
+    return counts;
+  }, [allUnits]);
 
   const canWrite = useHasPermission('units:write');
+  const canDelete = useHasPermission('units:manage');
+  const canSeeCustomers = useHasPermission('customers:read');
+  const deleteUnit = useDeleteUnitAction();
   const [target, setTarget] = useState<UnitDto | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const visibleIds = (units.data?.items ?? []).map((u) => u.id);
+  const visibleIds = rows.map((u) => u.id);
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -163,6 +174,7 @@ export default function UnitsPage() {
       {
         accessorKey: 'code',
         header: 'Código',
+        sortingFn: 'alphanumeric',
         cell: ({ row }) => (
           <Link href={`/units/${row.original.id}`} className="font-medium hover:underline">
             {row.original.code}
@@ -209,9 +221,14 @@ export default function UnitsPage() {
       {
         id: 'actions',
         header: '',
-        meta: { mobileHidden: !canWrite },
-        cell: ({ row }) =>
-          canWrite ? (
+        meta: { mobileHidden: !canWrite && !canDelete },
+        cell: ({ row }) => {
+          const u = row.original;
+          // Un trastero ocupado lo llevan sus contratos.
+          const canChange = canWrite && u.status !== 'occupied';
+          const canRemove = canDelete && u.status !== 'occupied';
+          if (!canChange && !canRemove) return null;
+          return (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" aria-label="Acciones">
@@ -219,16 +236,22 @@ export default function UnitsPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setTarget(row.original)}>
-                  Cambiar estado
-                </DropdownMenuItem>
+                {canChange && (
+                  <DropdownMenuItem onClick={() => setTarget(u)}>Cambiar estado</DropdownMenuItem>
+                )}
+                {canRemove && (
+                  <DropdownMenuItem className="text-destructive" onClick={() => void deleteUnit(u)}>
+                    Borrar
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : null,
+          );
+        },
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canWrite, selected, allSelected, visibleIds.join(',')],
+    [canWrite, canDelete, selected, allSelected, visibleIds.join(',')],
   );
 
   return (
@@ -274,12 +297,12 @@ export default function UnitsPage() {
         </div>
       </div>
 
-      {occupancy.data && occupancy.data.totalUnits > 0 && (
+      {allUnits.length > 0 && (
         // En el móvil, una tira compacta que se desliza (antes, cinco tarjetas
         // grandes ocupaban la pantalla antes del primer trastero).
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-5">
           {STATUS_KPIS.map((k) => {
-            const count = occupancy.data.byStatus[k.status] ?? 0;
+            const count = statusCounts[k.status] ?? 0;
             const active = status === k.status;
             return (
               <button
@@ -393,21 +416,31 @@ export default function UnitsPage() {
               onDone={() => setSelected(new Set())}
             />
           )}
-          <DataTable
-            filtersActive={!!status || !!unitTypeId || !!tableFloorId}
-            onClearFilters={() => {
-              setStatus(undefined);
-              setUnitTypeId(undefined);
-              setTableFloorId(undefined);
-            }}
-            rowHref={(u) => `/units/${u.id}`}
-            columns={columns}
-            data={units.data?.items ?? []}
-            isLoading={units.isLoading}
-            searchPlaceholder="Buscar por código..."
-            guide="importar"
-            emptyText="Aún no hay trasteros. Crea el primero con «Nuevo trastero» o impórtalos desde un Excel."
-          />
+          {units.isError ? (
+            <SectionError onRetry={() => void units.refetch()} />
+          ) : (
+            <DataTable
+              filtersActive={!!status || !!unitTypeId || !!tableFloorId}
+              onClearFilters={() => {
+                setStatus(undefined);
+                setUnitTypeId(undefined);
+                setTableFloorId(undefined);
+              }}
+              rowHref={(u) => `/units/${u.id}`}
+              columns={columns}
+              data={rows}
+              isLoading={units.isLoading}
+              serverSearch={{
+                value: searchValue,
+                onChange: setSearch,
+                placeholder: canSeeCustomers
+                  ? 'Buscar por código, inquilino o contrato...'
+                  : 'Buscar por código...',
+              }}
+              guide="importar"
+              emptyText="Aún no hay trasteros. Crea el primero con «Nuevo trastero» o impórtalos desde un Excel."
+            />
+          )}
         </>
       ) : (
         <PlanView

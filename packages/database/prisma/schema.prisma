@@ -680,6 +680,7 @@ model Tenant {
   // por estado/borrado + ventanas temporales de métricas/cohortes/trials).
   competitorUnitObservations CompetitorUnitObservation[]
   unitPriceHistory           UnitPriceHistory[]
+  unitTenancies              UnitTenancy[]
   owners                         Owner[]
   ownerStatements                OwnerStatement[]
   whatsappSettings               TenantWhatsappSettings?
@@ -1329,12 +1330,35 @@ model Unit {
   delinquencyCases DelinquencyCase[]
 
   priceHistory      UnitPriceHistory[]
+  tenancies         UnitTenancy[]
   @@unique([facilityId, code])
   @@index([tenantId])
   @@index([facilityId, status])
   @@index([floorId])
   @@index([stackGroupId])
   @@map("units")
+}
+
+/// Cada tramo de un contrato en un trastero: un traslado cierra uno y abre otro.
+/// La mantiene un disparador sobre `contracts` (`contracts_sync_unit_tenancy`).
+model UnitTenancy {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  unitId       String    @map("unit_id") @db.Uuid
+  contractId   String    @map("contract_id") @db.Uuid
+  startedOn    DateTime  @map("started_on") @db.Date
+  endedOn      DateTime? @map("ended_on") @db.Date
+  priceMonthly Decimal   @map("price_monthly") @db.Decimal(10, 2)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unit     Unit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "unit_tenancies_tenant_idx")
+  @@index([unitId, startedOn(sort: Desc)], map: "unit_tenancies_unit_idx")
+  @@index([contractId], map: "unit_tenancies_contract_idx")
+  @@map("unit_tenancies")
 }
 
 /// Historial de cambios de estado de cada unit. Inmutable. Se inserta
@@ -1691,6 +1715,7 @@ model Contract {
   whatsappConversations WhatsappConversation[]
   couponRedemptions CouponRedemption[]
   legalDocAcceptances LegalDocAcceptance[]
+  unitTenancies      UnitTenancy[]
   scheduledUnit Unit? @relation("ContractScheduledUnit", fields: [scheduledUnitId], references: [id], onDelete: SetNull)
   waitlistConversions WaitlistEntry[] @relation("WaitlistConvertedContract")
 

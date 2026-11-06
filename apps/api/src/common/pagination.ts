@@ -3,6 +3,13 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, type PageDto } from '@storageos/share
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Filtros por id: un valor que no lo es da 400, no un error interno. */
+export function assertUuid(id: string | undefined): void {
+  if (id && !UUID_RE.test(id)) {
+    throw new BadRequestException({ code: 'invalid_id', message: 'Identificador no válido' });
+  }
+}
+
 /** Página pedida: id de la última fila vista y tamaño. */
 export interface PageRequest {
   cursor?: string;

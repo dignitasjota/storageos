@@ -3,6 +3,7 @@ import request from 'supertest';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createCustomer } from './helpers/customer-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -115,11 +116,18 @@ describe('Tendencia del mercado y efecto de los cambios de precio (e2e)', () => 
     });
     expect(free.body.lowers).toMatchObject({ changes: 1, rented: 0 });
 
+    const customerId = await createCustomer(app, auth.Authorization.slice('Bearer '.length));
     await request(app.getHttpServer())
-      .post(`/units/${unitId}/change-status`)
+      .post('/reservations')
       .set(auth)
-      .send({ status: 'reserved', reason: 'test' })
-      .expect(200);
+      .send({
+        unitId,
+        customerId,
+        validFrom: new Date().toISOString(),
+        validUntil: new Date(Date.now() + 5 * 86_400_000).toISOString(),
+        confirmImmediately: true,
+      })
+      .expect(201);
     const rented = await request(app.getHttpServer())
       .get('/analytics/price-change-effects')
       .set(auth);

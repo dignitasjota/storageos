@@ -17,6 +17,11 @@ function hasAll(user: AuthenticatedUser, required: Permission[]): boolean {
   return roleHasAllPermissions(user.role, required);
 }
 
+/** ¿Tiene este usuario el permiso? Para lo que solo cambia una parte de la respuesta. */
+export function userCan(user: AuthenticatedUser, permission: Permission): boolean {
+  return hasAll(user, [permission]);
+}
+
 /**
  * Guard de autorización por permiso fino. Se evalúa DESPUÉS del `JwtAuthGuard`
  * (que garantiza `request.user`). Si el handler no declara

@@ -5,9 +5,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { MoreHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { toast } from 'sonner';
 
-import { useConfirm } from '@/components/confirm-provider';
 import { DataTable } from '@/components/data-table';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -19,9 +17,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { BulkCreateUnitsDialog } from '@/components/units/bulk-create-dialog';
 import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
-import { ApiError } from '@/lib/auth/api';
+import { useDeleteUnitAction } from '@/components/units/use-delete-unit';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useDeleteUnit, useUnits, useUnitTypes } from '@/lib/facilities/hooks';
+import { useUnits, useUnitTypes } from '@/lib/facilities/hooks';
 import { formatEur, formatNumber } from '@/lib/format';
 
 interface Props {
@@ -29,37 +27,18 @@ interface Props {
 }
 
 export function FacilityUnitsTab({ facilityId }: Props) {
-  const ask = useConfirm();
   const units = useUnits({ facilityId });
   const types = useUnitTypes();
   const router = useRouter();
   const pathname = usePathname();
-  const remove = useDeleteUnit();
+  const deleteUnit = useDeleteUnitAction();
   const canDelete = useHasPermission('units:manage');
-
-  async function handleDelete(id: string) {
-    if (!(await ask({ title: '¿Borrar este trastero?', destructive: true }))) return;
-    try {
-      await remove.mutateAsync(id);
-      toast.success('Trastero borrado.');
-    } catch (err) {
-      const code = err instanceof ApiError ? (err.body as { code?: string }).code : undefined;
-      if (code === 'unit_occupied') {
-        toast.error('No puedes borrar un trastero ocupado.');
-        return;
-      }
-      if (code === 'unit_has_history') {
-        toast.error('Tiene contratos o reservas: no se borra. Si ya no se alquila, bloquéalo.');
-        return;
-      }
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
-    }
-  }
 
   const columns: ColumnDef<UnitDto>[] = [
     {
       accessorKey: 'code',
       header: 'Código',
+      sortingFn: 'alphanumeric',
       cell: ({ row }) => (
         <Link href={`/units/${row.original.id}`} className="font-medium hover:underline">
           {row.original.code}
@@ -112,7 +91,7 @@ export function FacilityUnitsTab({ facilityId }: Props) {
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 className="text-destructive"
-                onClick={() => handleDelete(row.original.id)}
+                onClick={() => void deleteUnit(row.original)}
               >
                 Borrar
               </DropdownMenuItem>
