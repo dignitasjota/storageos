@@ -68,12 +68,14 @@ interface WebTenant {
 }
 
 /** Tenant con Web Premium, la plantilla indicada, un local y dos trasteros. */
-async function webTenant(template: string): Promise<WebTenant> {
+async function webTenant(template: string, extras: string[] = []): Promise<WebTenant> {
   const tenant = await seedTestTenant(`web${template.slice(0, 4)}`);
   const { accessToken: token } = await apiLogin(tenant.slug, tenant.email, tenant.password);
   await api(`/admin/tenants/${tenant.tenantId}/features`, await superAdminToken(), {
     method: 'PUT',
-    body: { overrides: [{ feature: 'web_premium', enabled: true }] },
+    body: {
+      overrides: ['web_premium', ...extras].map((feature) => ({ feature, enabled: true })),
+    },
   });
   const facility = await api<{ id: string; publicSlug: string }>('/facilities', token, {
     method: 'POST',
@@ -168,4 +170,11 @@ test.describe('Web pública del tenant', () => {
       }
     });
   }
+
+  test('el chat de la web habla en el idioma de la página', async ({ page }) => {
+    const t = await webTenant('default', ['ai_assistant']);
+    await openOk(page, `/s/${t.slug}/l/en`);
+    await page.getByRole('button', { name: 'Chat with us' }).click();
+    await expect(page.getByText('What are your opening hours?')).toBeVisible();
+  });
 });

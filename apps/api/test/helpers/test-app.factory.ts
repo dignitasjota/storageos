@@ -103,6 +103,9 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
     prefix: 'v',
   });
   app.useGlobalFilters(new HttpExceptionFilter());
-  await app.init();
+  // Un solo puerto en `127.0.0.1` para toda la suite. Sin esto, supertest abre uno
+  // al azar en cada petición y, si coincide con el de otro programa del equipo, la
+  // petición le llega a él (`404 {}` o se queda esperando).
+  await app.listen(0, '127.0.0.1');
   return app;
 }

@@ -426,12 +426,11 @@ describe('Mejoras de la mensajería (e2e)', () => {
     });
     await signedContractFor(app, owner.accessToken, { id: customerId }, facility.facilityId);
 
-    const server = app.getHttpServer() as http.Server;
-    if (!server.listening) await new Promise<void>((r) => server.listen(0, () => r()));
-    const { port } = server.address() as AddressInfo;
+    const { port } = (app.getHttpServer() as http.Server).address() as AddressInfo;
     const events: string[] = [];
     const req = http.get(
       {
+        host: '127.0.0.1',
         port,
         path: '/v1/realtime/stream',
         headers: { Authorization: `Bearer ${owner.accessToken}` },
