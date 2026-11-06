@@ -24,7 +24,7 @@ export function useSupportTickets() {
   });
 }
 
-/** Nº de tickets esperando tu respuesta — para el badge del menú (sondea cada 60 s). */
+/** Nº de tickets con una respuesta sin leer — para el badge del menú (sondea cada 60 s). */
 export function useSupportWaitingCount() {
   return useQuery({
     queryKey: ['support', 'waiting-count'] as const,
@@ -38,6 +38,8 @@ export function useSupportTicket(id: string | undefined) {
     queryKey: ['support', 'tickets', id] as const,
     queryFn: () => apiFetch<SupportTicketDto>(`/support/tickets/${id}`),
     enabled: Boolean(id),
+    refetchInterval: 20_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -68,8 +70,9 @@ export function useAddTicketMessage() {
 }
 
 /** Mensajes de TrasterOS al tenant (correo directo, anuncios, retención). */
-export function usePlatformMessages() {
+export function usePlatformMessages(enabled = true) {
   return useInfiniteQuery({
+    enabled,
     queryKey: ['support', 'platform-messages'] as const,
     queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
       apiFetch<TenantPlatformMessagesPageDto>(

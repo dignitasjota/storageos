@@ -15,6 +15,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AdminCommsService } from './admin-comms.service';
 
@@ -24,8 +25,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
  * Cara tenant de los mensajes de TrasterOS (correo directo, anuncios,
- * retención): Soporte → «Mensajes de TrasterOS». Solo los del tenant del JWT.
+ * retención): Soporte → «Mensajes de TrasterOS». Solo los del tenant del JWT,
+ * y solo para quien lleva la cuenta (propietario y gestor).
  */
+@RequirePermission('platform_messages:manage')
 @Controller('support/platform-messages')
 export class PlatformMessagesTenantController {
   constructor(private readonly comms: AdminCommsService) {}
@@ -38,7 +41,7 @@ export class PlatformMessagesTenantController {
     if (cursor && !UUID_RE.test(cursor)) {
       throw new BadRequestException({ code: 'invalid_cursor', message: 'Cursor no válido' });
     }
-    return this.comms.listForTenant(user.tenantId, cursor);
+    return this.comms.listForTenant(user.tenantId, user.sub, cursor);
   }
 
   /** URL firmada (10 min) para descargar un adjunto. */
@@ -51,10 +54,10 @@ export class PlatformMessagesTenantController {
     return { url: await this.comms.platformMessageFileUrl(user.tenantId, id, index) };
   }
 
-  /** Marca como leídos todos los mensajes del tenant. */
+  /** Deja leídos todos los mensajes para quien los abre. */
   @Post('read')
   @HttpCode(HttpStatus.NO_CONTENT)
   async read(@CurrentUser() user: AuthenticatedUser): Promise<void> {
-    await this.comms.markReadForTenant(user.tenantId);
+    await this.comms.markReadForTenant(user.tenantId, user.sub);
   }
 }

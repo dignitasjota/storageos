@@ -31,6 +31,7 @@ export const STAFF_PUSH_TYPES: Record<string, string> = {
   'lead.unattended': 'Un contacto lleva tiempo sin atender',
   'lead.assigned': 'Te han asignado un contacto',
   'customer.message': 'Mensaje de un inquilino',
+  'customer.message_unanswered': 'Un inquilino lleva un día sin respuesta',
   'support.reply': 'Soporte de TrasterOS te ha respondido',
   'whatsapp.message': 'Mensaje de WhatsApp',
   'whatsapp.handoff': 'El asistente de WhatsApp pide una persona',

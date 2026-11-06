@@ -116,7 +116,7 @@ export type CustomerEmailData =
       outcome: 'moved' | 'handled' | 'rejected';
       note: string | null;
     }
-  | { kind: 'staff_message'; tenantName: string; body: string };
+  | { kind: 'staff_message'; tenantName: string; body: string; viaEmail?: boolean };
 
 export interface RenderedEmail {
   subject: string;
@@ -477,9 +477,13 @@ function content(data: CustomerEmailData, l: Locale): Content {
             ? 'We have written to you in your customer area:'
             : 'Te hemos escrito en tu área de clientes:',
           data.body,
-          en
-            ? 'You can reply from the Messages tab of your customer area.'
-            : 'Puedes responder desde la pestaña «Mensajes» de tu área de clientes.',
+          data.viaEmail
+            ? en
+              ? 'You can reply to this email or from the Messages tab of your customer area.'
+              : 'Puedes responder a este correo o desde la pestaña «Mensajes» de tu área de clientes.'
+            : en
+              ? 'Reply from the Messages tab of your customer area: an answer to this email does not reach the conversation.'
+              : 'Responde desde la pestaña «Mensajes» de tu área de clientes: una respuesta a este correo no llega a la conversación.',
         ],
         cta: en ? 'Read and reply' : 'Leer y responder',
       };

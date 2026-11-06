@@ -185,6 +185,8 @@ export interface CustomerMessagePayload {
   channel: 'portal' | 'whatsapp' | 'email';
   /** Solo en mensajes del equipo: por dónde sale además (canal del inquilino). */
   replyVia?: 'whatsapp' | 'email' | null;
+  /** El aviso es el recordatorio de un mensaje que sigue sin respuesta. */
+  reminder?: boolean;
 }
 
 export interface ReservationExpiringPayload {

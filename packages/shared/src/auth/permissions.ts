@@ -85,6 +85,7 @@ export const Permissions = [
   'billing:configure', // series, credenciales AEAT, Holded, Redsys, suscripción
   'integrations:manage', // API keys + webhooks
   'rgpd:manage', // exportación / anonimización
+  'platform_messages:manage', // leer lo que TrasterOS envía al negocio (propietario y gestor)
 ] as const;
 
 export type Permission = (typeof Permissions)[number];
@@ -162,6 +163,7 @@ export function roleHasAllPermissions(role: UserRole, permissions: Permission[])
 
 /** Nombre de cada recurso para la pantalla de roles. */
 export const PERMISSION_RESOURCE_LABELS: Record<string, string> = {
+  platform_messages: 'Mensajes de TrasterOS',
   customers: 'Inquilinos',
   contracts: 'Contratos',
   reservations: 'Reservas',

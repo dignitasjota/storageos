@@ -209,14 +209,44 @@ export class AdminCommsService {
         attachments: attachments as unknown as Prisma.InputJsonValue,
       },
     });
-    await this.notifications
-      .create(tenantId, {
-        type: 'platform.message',
-        title: `Mensaje de TrasterOS: ${input.subject}`,
-        body: input.body.slice(0, 140),
-        link: ticketId ? `/support/${ticketId}` : '/support?tab=trasteros',
+    const notice = {
+      type: 'platform.message',
+      title: `Mensaje de TrasterOS: ${input.subject}`,
+      body: input.body.slice(0, 140),
+    };
+    // Con ticket lo ve todo el equipo; sin él, solo quien lee estos mensajes.
+    if (ticketId) {
+      await this.notifications
+        .create(tenantId, { ...notice, link: `/support/${ticketId}` })
+        .catch(() => undefined);
+      return;
+    }
+    await this.admin.notification
+      .createMany({
+        data: (await this.platformReaders([tenantId])).map((u) => ({
+          ...notice,
+          tenantId: u.tenantId,
+          userId: u.id,
+          link: '/support?tab=trasteros',
+        })),
       })
       .catch(() => undefined);
+  }
+
+  /** Quien puede leer los mensajes de TrasterOS: propietario, gestor o rol a medida con el permiso. */
+  private platformReaders(tenantIds: string[]) {
+    return this.admin.user.findMany({
+      where: {
+        tenantId: { in: tenantIds },
+        isActive: true,
+        OR: [
+          { role: 'owner' },
+          { role: 'manager', tenantRoleId: null },
+          { tenantRole: { permissions: { has: 'platform_messages:manage' } } },
+        ],
+      },
+      select: { id: true, tenantId: true },
+    });
   }
 
   /** Subida de un adjunto del correo directo (bucket privado). */
@@ -288,8 +318,9 @@ export class AdminCommsService {
       })),
     });
     await this.admin.notification.createMany({
-      data: tenantIds.map((tenantId) => ({
-        tenantId,
+      data: (await this.platformReaders(tenantIds)).map((u) => ({
+        tenantId: u.tenantId,
+        userId: u.id,
         type: 'platform.message',
         title: `Mensaje de TrasterOS: ${input.subject}`,
         body: input.body.slice(0, 140),
@@ -299,8 +330,18 @@ export class AdminCommsService {
   }
 
   /** Mensajes de TrasterOS al tenant (cara tenant, Soporte), de 30 en 30. */
-  async listForTenant(tenantId: string, cursor?: string): Promise<TenantPlatformMessagesPageDto> {
+  async listForTenant(
+    tenantId: string,
+    userId: string,
+    cursor?: string,
+  ): Promise<TenantPlatformMessagesPageDto> {
     const take = 30;
+    // Hasta cuándo ha leído esta persona (o desde su alta: no hereda lo anterior).
+    const [read, user] = await Promise.all([
+      this.admin.tenantPlatformMessageRead.findUnique({ where: { userId } }),
+      this.admin.user.findFirst({ where: { id: userId, tenantId }, select: { createdAt: true } }),
+    ]);
+    const readUntil = read?.lastReadAt ?? user?.createdAt ?? new Date(0);
     const [rows, unread] = await Promise.all([
       this.admin.tenantPlatformMessage.findMany({
         where: { tenantId },
@@ -308,7 +349,9 @@ export class AdminCommsService {
         take: take + 1,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       }),
-      this.admin.tenantPlatformMessage.count({ where: { tenantId, readAt: null } }),
+      this.admin.tenantPlatformMessage.count({
+        where: { tenantId, createdAt: { gt: readUntil } },
+      }),
     ]);
     const page = rows.slice(0, take);
     return {
@@ -323,7 +366,7 @@ export class AdminCommsService {
           mimeType: f.mimeType,
           size: f.size,
         })),
-        readAt: r.readAt?.toISOString() ?? null,
+        readAt: r.createdAt <= readUntil ? readUntil.toISOString() : null,
         createdAt: r.createdAt.toISOString(),
       })),
       nextCursor: rows.length > take ? (page[page.length - 1]?.id ?? null) : null,
@@ -331,11 +374,13 @@ export class AdminCommsService {
     };
   }
 
-  /** El tenant abre la pestaña: todo queda leído. */
-  async markReadForTenant(tenantId: string): Promise<void> {
-    await this.admin.tenantPlatformMessage.updateMany({
-      where: { tenantId, readAt: null },
-      data: { readAt: new Date() },
+  /** Abrir la pestaña deja todo leído para quien la abre, no para el resto del equipo. */
+  async markReadForTenant(tenantId: string, userId: string): Promise<void> {
+    const now = new Date();
+    await this.admin.tenantPlatformMessageRead.upsert({
+      where: { userId },
+      create: { userId, tenantId, lastReadAt: now },
+      update: { lastReadAt: now },
     });
   }
 

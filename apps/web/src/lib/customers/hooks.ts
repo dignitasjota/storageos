@@ -753,6 +753,11 @@ export function useCustomerMessages(id: string | undefined, enabled = true) {
   });
 }
 
+/** Mensajes anteriores a uno dado (el hilo trae solo los últimos). */
+export function fetchOlderCustomerMessages(customerId: string, before: string) {
+  return apiFetch<CustomerMessageDto[]>(`/customers/${customerId}/messages?before=${before}`);
+}
+
 /** URL firmada para subir un adjunto a la conversación con un inquilino. */
 export function presignCustomerMessageAttachment(customerId: string, mimeType: string) {
   return apiFetch<MessageAttachmentUploadDto>(`/customers/${customerId}/messages/upload-url`, {

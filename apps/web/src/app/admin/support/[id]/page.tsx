@@ -21,6 +21,7 @@ import {
   AttachmentView,
   uploadMessageAttachment,
 } from '@/components/messages/attachments';
+import { MessageText } from '@/components/messages/message-text';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -192,7 +193,18 @@ export default function AdminSupportTicketPage() {
         </CardContent>
       </Card>
 
-      <ReplyForm ticketId={t.id} tenantName={t.tenantName} contactName={t.createdByName} />
+      {t.status === 'closed' && (
+        <p className="text-sm text-muted-foreground">
+          Está cerrado: el cliente no puede contestar. Solo puedes dejar una nota interna o
+          reabrirlo para responderle.
+        </p>
+      )}
+      <ReplyForm
+        ticketId={t.id}
+        tenantName={t.tenantName}
+        contactName={t.createdByName}
+        closed={t.status === 'closed'}
+      />
     </div>
   );
 }
@@ -224,7 +236,7 @@ function MessageBubble({ message }: { message: SupportTicketMessageDto }) {
           )}
         </span>
       </div>
-      {message.body && <p className="mt-1 whitespace-pre-wrap">{message.body}</p>}
+      {message.body && <MessageText text={message.body} className="mt-1" />}
       {message.attachment && <AttachmentView attachment={message.attachment} />}
     </div>
   );
@@ -234,10 +246,12 @@ function ReplyForm({
   ticketId,
   tenantName,
   contactName,
+  closed,
 }: {
   ticketId: string;
   tenantName: string;
   contactName: string | null;
+  closed: boolean;
 }) {
   const add = useAddAdminTicketMessage();
   const canned = useSupportCannedResponses();
@@ -261,7 +275,12 @@ function ReplyForm({
         : undefined;
       await add.mutateAsync({
         id: ticketId,
-        input: { ...values, body, ...(attachment ? { attachment } : {}) },
+        input: {
+          ...values,
+          isInternal: closed || values.isInternal,
+          body,
+          ...(attachment ? { attachment } : {}),
+        },
       });
       form.reset({ body: '', isInternal: false });
       setFile(null);
@@ -340,7 +359,8 @@ function ReplyForm({
                   <FormItem className="flex items-center gap-2 space-y-0">
                     <FormControl>
                       <Checkbox
-                        checked={field.value}
+                        checked={closed || field.value}
+                        disabled={closed}
                         onCheckedChange={(v) => field.onChange(v === true)}
                       />
                     </FormControl>

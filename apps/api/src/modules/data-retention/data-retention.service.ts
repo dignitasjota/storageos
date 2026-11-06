@@ -31,6 +31,9 @@ const WEB_CHAT_RETENTION_DAYS = 90;
 /** Días que se guarda la IP de quien escribe por el formulario de contacto. */
 const CONTACT_IP_DAYS = 90;
 
+/** Horas que se espera a que un adjunto subido llegue a enviarse. */
+const ORPHAN_ATTACHMENT_HOURS = 24;
+
 @Injectable()
 export class DataRetentionService {
   private readonly logger = new Logger(DataRetentionService.name);
@@ -47,6 +50,40 @@ export class DataRetentionService {
    * quedaba en MinIO para siempre — y una exportación lleva datos personales de
    * todos los inquilinos del tenant.
    */
+  /**
+   * Adjuntos subidos y nunca enviados (se cerró la conversación con el mensaje a
+   * medias): pasado un día nadie los va a usar y solo ocupan espacio.
+   */
+  async cleanupOrphanAttachments(now = new Date()): Promise<number> {
+    const before = new Date(now.getTime() - ORPHAN_ATTACHMENT_HOURS * 3_600_000);
+    const tenants = await this.admin.tenant.findMany({ select: { id: true } });
+    let removed = 0;
+    for (const { id: tenantId } of tenants) {
+      const keys = [
+        ...(await this.files.listOlderThan('uploads', `${tenantId}/chat/`, before)),
+        ...(await this.files.listOlderThan('uploads', `${tenantId}/support/`, before)),
+      ];
+      for (let i = 0; i < keys.length; i += 500) {
+        const batch = keys.slice(i, i + 500);
+        const [chat, tickets] = await Promise.all([
+          this.admin.customerMessage.findMany({
+            where: { tenantId, attachmentKey: { in: batch } },
+            select: { attachmentKey: true },
+          }),
+          this.admin.supportTicketMessage.findMany({
+            where: { ticket: { tenantId }, attachmentKey: { in: batch } },
+            select: { attachmentKey: true },
+          }),
+        ]);
+        const used = new Set([...chat, ...tickets].map((r) => r.attachmentKey));
+        const orphans = batch.filter((k) => !used.has(k));
+        await this.files.deleteObjects('uploads', orphans);
+        removed += orphans.length;
+      }
+    }
+    return removed;
+  }
+
   async cleanupExpiredFiles(): Promise<{ reports: number; exports: number }> {
     const now = new Date();
     const expired = await this.admin.reportRun.findMany({

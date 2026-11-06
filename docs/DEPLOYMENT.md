@@ -1818,3 +1818,13 @@ Migración `20261224100000_reservations_features`, se aplica sola. Sin variables
 - **Limpieza de la cola**: quien lleva 90 días esperando recibe «¿Sigues buscando?» en la primera hora tras desplegar, y sale de la cola si no responde en 14 días. Cada negocio lo cambia (o lo apaga con 0) en Reservas → Ajustes.
 - **Aviso por WhatsApp**: sale solo con el extra activo y la plantilla de recordatorio configurada, o con la conversación abierta.
 - **Señal**: por defecto se sigue devolviendo. Si un negocio elige quedársela, conviene que lo digan sus condiciones.
+
+## 99. Mensajería: arreglos (2026-11-06)
+
+Migración `20261225100000_messages_review`, se aplica sola. Sin variables nuevas.
+
+- **Avisos de mensajes**: cada persona solo recibe los de inquilinos que puede abrir. Al equipo le llega uno por conversación cada 15 minutos y un recordatorio a las 24 horas si sigue sin respuesta (cron `customer-messages.unanswered`, cada hora, en el API; solo mensajes de los últimos 3 días, así que al desplegar no salen avisos de conversaciones antiguas).
+- **Mensajes de TrasterOS**: pasan a verlos solo el propietario y el gestor. Un rol a medida necesita marcar el permiso nuevo. Lo ya leído se conserva para el equipo actual.
+- **Tickets**: el contador del menú pasa a ser «con respuesta sin leer», por persona. Tras desplegar, las respuestas anteriores a la fecha de alta de cada persona no cuentan; las posteriores salen como sin leer hasta abrir el ticket.
+- **Adjuntos sin enviar**: la limpieza diaria borra lo subido a un chat o ticket que no llegó a enviarse.
+- **Correo entrante** (solo si `EMAIL_INBOUND_SECRET` está puesto): lo que no se sabe de quién es aparece en las notificaciones del super admin.

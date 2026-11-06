@@ -54,13 +54,13 @@ export class SupportTicketsTenantController {
 
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<SupportTicketDto[]> {
-    return this.tickets.listForTenant(user.tenantId);
+    return this.tickets.listForTenant(user.tenantId, user.sub);
   }
 
-  /** Nº de tickets esperando tu respuesta (el admin ya contestó) — badge del menú. */
+  /** Nº de tickets con una respuesta de soporte sin leer — badge del menú. */
   @Get('waiting-count')
   async waitingCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
-    return { count: await this.tickets.countWaitingForTenant(user.tenantId) };
+    return { count: await this.tickets.countWaitingForTenant(user.tenantId, user.sub) };
   }
 
   @Get(':id')
@@ -68,7 +68,7 @@ export class SupportTicketsTenantController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<SupportTicketDto> {
-    return this.tickets.detailForTenant(user.tenantId, id);
+    return this.tickets.detailForTenant(user.tenantId, id, user.sub);
   }
 
   /** URL firmada para subir un adjunto (imagen o PDF) a un ticket. */

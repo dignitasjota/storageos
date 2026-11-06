@@ -81,6 +81,36 @@ export class NotificationsService {
       .catch((err) => this.logger.warn(`[push] equipo: ${(err as Error).message}`));
   }
 
+  /**
+   * Aviso de algo que depende de varios locales (un inquilino con trasteros en
+   * más de uno): lo reciben quienes tienen alguno. Sin locales, toda la empresa.
+   */
+  async createForFacilities(
+    tenantId: string,
+    facilityIds: string[],
+    input: { type: string; title: string; body?: string; link?: string },
+  ): Promise<void> {
+    if (facilityIds.length <= 1) {
+      await this.create(tenantId, { ...input, facilityId: facilityIds[0] ?? null });
+      return;
+    }
+    const users = await this.prisma.withTenant(
+      (tx) =>
+        tx.user.findMany({
+          where: {
+            isActive: true,
+            OR: [
+              { facilities: { none: {} } },
+              { facilities: { some: { facilityId: { in: facilityIds } } } },
+            ],
+          },
+          select: { id: true },
+        }),
+      tenantId,
+    );
+    for (const user of users) await this.create(tenantId, { ...input, userId: user.id });
+  }
+
   /** Local de un contrato, factura o trastero (null si no se sabe). */
   private async facilityOf(
     tenantId: string,

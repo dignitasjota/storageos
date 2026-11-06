@@ -12,6 +12,7 @@ import {
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantHasFeature } from '../../common/tenant-features';
+import { claimAlert } from '../admin/alert-state';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
@@ -38,7 +39,7 @@ import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
 
 /** Como mucho un correo por mensajes del equipo cada 15 minutos por inquilino. */
-const STAFF_MESSAGE_EMAIL_GAP_MS = 15 * 60 * 1000;
+const STAFF_MESSAGE_EMAIL_GAP_MINUTES = 15;
 
 interface Recipient {
   customerId: string;
@@ -396,21 +397,19 @@ export class CustomerEmailsService {
         });
         if (!tenant) return;
         await this.send(p.tenantId, 'staff_message', null, p.customerId, {
-          data: { kind: 'staff_message', tenantName: tenant.name, body: p.body },
+          data: { kind: 'staff_message', tenantName: tenant.name, body: p.body, viaEmail: true },
           ignoreSettings: true,
         });
         return;
       }
-      const recent = await this.admin.customerMessage.count({
-        where: {
-          tenantId: p.tenantId,
-          customerId: p.customerId,
-          senderType: 'staff',
-          id: { not: p.messageId },
-          createdAt: { gte: new Date(Date.now() - STAFF_MESSAGE_EMAIL_GAP_MS) },
-        },
-      });
-      if (recent > 0) return;
+      // El plazo cuenta desde el último correo, no desde el último mensaje.
+      const claimed = await claimAlert(
+        this.admin,
+        'customer_message_email',
+        p.customerId,
+        STAFF_MESSAGE_EMAIL_GAP_MINUTES,
+      );
+      if (!claimed) return;
       const tenant = await this.admin.tenant.findUnique({
         where: { id: p.tenantId },
         select: { name: true },

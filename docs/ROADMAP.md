@@ -562,6 +562,11 @@ Arreglos: prórroga por el plazo original, reservas que se convierten por el alt
 
 Fases 0 a 4 completas + un subset esencial de la 5 (al menos email transaccional y recordatorios de pago) + Fase 8 mínima para poder cobrar suscripciones.
 
+### Mensajería: revisión (2026-11-06)
+
+- ✅ **PR A**: avisos y bandeja según el alcance por local, un aviso por conversación cada 15 minutos y recordatorio a las 24 h, correo al inquilino medido desde el último correo, hilo por páginas, adjuntos sin volver a descargarse, leído por persona en tickets y mensajes de TrasterOS.
+- **PR B** (12 mejoras): estado y responsable por conversación, notas internas, respuestas guardadas, visto y entrega, responder por correo dentro del hilo, bandeja completa y única, tiempos de respuesta, horario de atención, de mensaje a incidencia o tarea, varios adjuntos, cierre y valoración de tickets y tiempo real.
+
 ### Reservas, lista de espera y peticiones de trastero: revisión (2026-11-05)
 
 - ✅ **PR A (arreglos)**: un trastero guardado para otra persona ya no se reserva ni vuelve a la venta (`unitHeldByOther` + `releaseReservedUnit`); dos trasteros liberados a la vez no van a la misma persona; repaso horario de la cola con trastero libre; correo al inquilino al responder sus peticiones; transiciones atómicas y validaciones.

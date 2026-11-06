@@ -972,6 +972,8 @@ export function useAdminSupportTicket(id: string | undefined) {
     queryKey: ['admin', 'support', 'tickets', id] as const,
     queryFn: () => adminApiFetch<SupportTicketDto>(`/admin/support/tickets/${id}`),
     enabled: Boolean(id),
+    refetchInterval: 20_000,
+    refetchIntervalInBackground: false,
   });
 }
 

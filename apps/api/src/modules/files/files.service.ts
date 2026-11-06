@@ -334,6 +334,8 @@ export class FilesService implements OnModuleInit {
     expiresIn = 300,
     /** Si se indica, se descarga con ese nombre (no se abre en el navegador). */
     downloadFilename?: string,
+    /** Fecha de firma fija: la misma URL durante un rato (el navegador reusa la imagen). */
+    signingDate?: Date,
   ): Promise<string> {
     const cmd = new GetObjectCommand({
       Bucket: this.bucketMap[bucket],
@@ -345,7 +347,10 @@ export class FilesService implements OnModuleInit {
           }
         : {}),
     });
-    return getSignedUrl(this.presigner, cmd, { expiresIn });
+    return getSignedUrl(this.presigner, cmd, {
+      expiresIn,
+      ...(signingDate ? { signingDate } : {}),
+    });
   }
 
   /** Genera una key para una foto de inspección de contrato (check-in/check-out). */
@@ -451,6 +456,31 @@ export class FilesService implements OnModuleInit {
   }
 
   /** Borra objetos (p. ej. archivos de conversaciones anonimizadas); best-effort. */
+  /** Objetos de una carpeta subidos antes de esa fecha. */
+  async listOlderThan(
+    bucket: PresignArgs['bucket'],
+    prefix: string,
+    before: Date,
+  ): Promise<string[]> {
+    const keys: string[] = [];
+    let token: string | undefined;
+    do {
+      const page = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucketMap[bucket],
+          Prefix: prefix,
+          ContinuationToken: token,
+          MaxKeys: 1000,
+        }),
+      );
+      for (const obj of page.Contents ?? []) {
+        if (obj.Key && obj.LastModified && obj.LastModified < before) keys.push(obj.Key);
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return keys;
+  }
+
   async deleteObjects(bucket: PresignArgs['bucket'], keys: string[]): Promise<void> {
     for (const key of keys) await this.deleteObjectQuietly(bucket, key);
   }
