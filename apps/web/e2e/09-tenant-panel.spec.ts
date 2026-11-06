@@ -8,7 +8,7 @@
  */
 import { expect, test } from '@playwright/test';
 
-import { API_URL, apiCreateCustomer, apiLogin, seedTestTenant } from './helpers';
+import { API_URL, apiCreateCustomer, apiLogin, seedTestTenant, trackRequests } from './helpers';
 
 const UNITS = 60;
 
@@ -120,6 +120,8 @@ test.describe('Panel del tenant', () => {
     const tenant = await seedTestTenant('lists');
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
+    // Con sesión, el canal en vivo sigue abierto: `networkidle` no llegaría.
+    const requests = trackRequests(page);
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
     await page.getByLabel(/Empresa/i).fill(tenant.slug);
@@ -142,7 +144,7 @@ test.describe('Panel del tenant', () => {
       const res = await page.goto(path);
       expect(res?.status(), path).toBe(200);
       await expect(page.locator('h1').first()).toBeVisible();
-      await page.waitForLoadState('networkidle');
+      await requests.idle();
     }
     expect(errors).toEqual([]);
   });
