@@ -311,7 +311,7 @@ export async function apiCreateDraftInvoice(
  * Como `networkidle`, pero sin contar los canales en vivo (`…/stream`): siguen
  * abiertos mientras dura la página y con ellos la red nunca queda en reposo.
  * Hay que llamarlo antes de navegar; `idle()` espera a que no quede ninguna
- * otra petición en curso durante medio segundo.
+ * otra petición en curso durante medio segundo, y como mucho 8 segundos.
  */
 export function trackRequests(page: Page): { idle: () => Promise<void> } {
   const pending = new Set<Request>();
@@ -321,14 +321,20 @@ export function trackRequests(page: Page): { idle: () => Promise<void> } {
   });
   page.on('requestfinished', done);
   page.on('requestfailed', done);
+  // Lo que se corta al cambiar de página no siempre avisa de que ha terminado.
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) pending.clear();
+  });
   return {
     async idle() {
+      const deadline = Date.now() + 8_000;
       let quietSince = Date.now();
-      for (;;) {
+      while (Date.now() < deadline) {
         if (pending.size > 0) quietSince = Date.now();
         else if (Date.now() - quietSince >= 500) return;
         await page.waitForTimeout(100);
       }
+      console.warn(`Sin terminar: ${[...pending].map((r) => r.url()).join(', ')}`);
     },
   };
 }
