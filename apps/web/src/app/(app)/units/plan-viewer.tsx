@@ -11,15 +11,29 @@ import type Konva from 'konva';
 
 import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useFloors, useUnits } from '@/lib/facilities/hooks';
-import { useFloorHolds, useFloorOccupants } from '@/lib/facilities/inventory-hooks';
+import {
+  useFloorHolds,
+  useFloorOccupants,
+  useUnitsOverview,
+} from '@/lib/facilities/inventory-hooks';
 import { proportionalPlanSize } from '@/lib/facilities/plan-size';
 import { formatDate, formatEur, formatNumber } from '@/lib/format';
 
 interface Props {
   facilityId: string;
   floorId: string;
+  /** Lo deja seleccionado y centrado al abrir (viene de «Ver en el plano»). */
+  focusUnitId?: string;
 }
 
 const GRID = 20;
@@ -50,6 +64,28 @@ interface PlanUnit {
   areaM2: number;
   price: number;
   typeName: string;
+  typeId: string;
+}
+
+/** Tramos de tamaño del filtro del plano. */
+const SIZE_RANGES: { key: string; label: string; min: number; max: number }[] = [
+  { key: 'xs', label: 'Hasta 3 m²', min: 0, max: 3 },
+  { key: 's', label: '3 a 6 m²', min: 3, max: 6 },
+  { key: 'm', label: '6 a 10 m²', min: 6, max: 10 },
+  { key: 'l', label: 'Más de 10 m²', min: 10, max: Number.POSITIVE_INFINITY },
+];
+
+/** Días libre: cuanto más tiempo, más se nota en el plano. */
+const VACANCY_BANDS: { label: string; color: string; from: number }[] = [
+  { label: 'Menos de 30 días', color: '#16a34a', from: 0 },
+  { label: '30 a 90 días', color: '#d97706', from: 30 },
+  { label: 'Más de 90 días', color: '#dc2626', from: 90 },
+];
+const NOT_VACANT = '#94a3b8';
+
+function vacancyFill(days: number | undefined | null): string {
+  if (days === null || days === undefined) return NOT_VACANT;
+  return [...VACANCY_BANDS].reverse().find((b) => days >= b.from)?.color ?? NOT_VACANT;
 }
 
 interface UnitRect extends PlanUnit {
@@ -68,6 +104,7 @@ function planUnit(u: {
   areaM2: number;
   basePriceMonthly: number;
   unitTypeName: string;
+  unitTypeId: string;
 }): PlanUnit {
   return {
     id: u.id,
@@ -76,6 +113,7 @@ function planUnit(u: {
     areaM2: u.areaM2,
     price: u.basePriceMonthly,
     typeName: u.unitTypeName,
+    typeId: u.unitTypeId,
   };
 }
 
@@ -83,10 +121,16 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-export function PlanViewer({ facilityId, floorId }: Props) {
+export function PlanViewer({ facilityId, floorId, focusUnitId }: Props) {
   const router = useRouter();
   const floors = useFloors(facilityId);
   const units = useUnits({ facilityId, floorId });
+  const overview = useUnitsOverview(facilityId);
+  const [search, setSearch] = useState('');
+  const [colorBy, setColorBy] = useState<'status' | 'vacancy'>('status');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [sizeFilter, setSizeFilter] = useState('all');
   const [planImage, setPlanImage] = useState<HTMLImageElement | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -168,6 +212,35 @@ export function PlanViewer({ facilityId, floorId }: Props) {
     [holds.data],
   );
 
+  const details = useMemo(
+    () => new Map((overview.data?.rows ?? []).map((u) => [u.id, u])),
+    [overview.data?.rows],
+  );
+  const fillOf = (unit: PlanUnit) =>
+    colorBy === 'vacancy'
+      ? vacancyFill(details.get(unit.id)?.daysVacant)
+      : (STATUS_FILL[unit.status] ?? '#64748b');
+
+  // Lo que no cumple los filtros se queda atenuado: se sigue viendo dónde está.
+  const query = search.trim().toLowerCase();
+  const size = SIZE_RANGES.find((r) => r.key === sizeFilter);
+  const filtering = !!query || statusFilter !== 'all' || typeFilter !== 'all' || !!size;
+  const fits = (unit: PlanUnit) => {
+    const tenant = details.get(unit.id)?.tenant?.customerName ?? '';
+    return (
+      (!query || unit.code.toLowerCase().includes(query) || tenant.toLowerCase().includes(query)) &&
+      (statusFilter === 'all' || unit.status === statusFilter) &&
+      (typeFilter === 'all' || unit.typeId === typeFilter) &&
+      (!size || (unit.areaM2 >= size.min && unit.areaM2 < size.max))
+    );
+  };
+  const matches = (r: UnitRect) => fits(r) || (r.upper ? fits(r.upper) : false);
+  const dimmed = (r: UnitRect) => filtering && !matches(r);
+  const typeOptions = useMemo(
+    () => [...new Map(rects.map((r) => [r.typeId, r.typeName])).entries()],
+    [rects],
+  );
+
   const sceneSize = useMemo(() => {
     if (planImage) return { width: planImage.naturalWidth, height: planImage.naturalHeight };
     const maxX = Math.max(800, ...rects.map((r) => r.x + r.width + GRID));
@@ -204,6 +277,30 @@ export function PlanViewer({ facilityId, floorId }: Props) {
     didFit.current = key;
     fitToViewport();
   }, [viewport.width, viewport.height, sceneSize.width, sceneSize.height, fitToViewport]);
+
+  /** Centra un trastero en la vista y lo deja seleccionado. */
+  const focusOn = useCallback(
+    (r: UnitRect) => {
+      const zoom = Math.max(scale, 1);
+      setScale(zoom);
+      setPos({
+        x: viewport.width / 2 - (r.x + r.width / 2) * zoom,
+        y: viewport.height / 2 - (r.y + r.height / 2) * zoom,
+      });
+      setSelectedId(r.id);
+    },
+    [scale, viewport.width, viewport.height],
+  );
+
+  // Abre centrado en el trastero que viene de su ficha (una sola vez).
+  const focused = useRef(false);
+  useEffect(() => {
+    if (focused.current || !focusUnitId || viewport.width === 0) return;
+    const target = rects.find((r) => r.id === focusUnitId || r.upper?.id === focusUnitId);
+    if (!target) return;
+    focused.current = true;
+    focusOn(target);
+  }, [focusUnitId, rects, viewport.width, focusOn]);
 
   function zoomTo(newScaleRaw: number, center?: { x: number; y: number }) {
     const c = center ?? { x: viewport.width / 2, y: viewport.height / 2 };
@@ -280,15 +377,82 @@ export function PlanViewer({ facilityId, floorId }: Props) {
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          className="h-9 w-full sm:w-[220px]"
+          placeholder="Buscar trastero o inquilino…"
+          aria-label="Buscar en el plano"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            const first = rects.find(matches);
+            if (first) focusOn(first);
+          }}
+        />
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="h-9 w-full sm:w-[170px]" aria-label="Estado">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los estados</SelectItem>
+            {Object.entries(STATUS_LABEL).map(([k, label]) => (
+              <SelectItem key={k} value={k}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="h-9 w-full sm:w-[170px]" aria-label="Tipo">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los tipos</SelectItem>
+            {typeOptions.map(([id, name]) => (
+              <SelectItem key={id} value={id}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={sizeFilter} onValueChange={setSizeFilter}>
+          <SelectTrigger className="h-9 w-full sm:w-[180px]" aria-label="Tamaño">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los tamaños</SelectItem>
+            {SIZE_RANGES.map((r) => (
+              <SelectItem key={r.key} value={r.key}>
+                {r.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={colorBy} onValueChange={(v) => setColorBy(v as 'status' | 'vacancy')}>
+          <SelectTrigger className="h-9 w-full sm:w-[170px]" aria-label="Color">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="status">Color por estado</SelectItem>
+            <SelectItem value="vacancy">Color por días libre</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {(['available', 'occupied', 'reserved', 'maintenance', 'blocked'] as const).map((s) => (
-            <span key={s} className="inline-flex items-center gap-1.5">
+          {(colorBy === 'status'
+            ? (['available', 'occupied', 'reserved', 'maintenance', 'blocked'] as const).map(
+                (s) => ({ label: STATUS_LABEL[s], color: STATUS_FILL[s] }),
+              )
+            : [...VACANCY_BANDS, { label: 'No está libre', color: NOT_VACANT }]
+          ).map((item) => (
+            <span key={item.label} className="inline-flex items-center gap-1.5">
               <span
                 className="inline-block h-3 w-3 rounded-sm"
-                style={{ backgroundColor: STATUS_FILL[s] }}
+                style={{ backgroundColor: item.color }}
               />
-              {STATUS_LABEL[s]}
+              {item.label}
             </span>
           ))}
         </div>
@@ -364,8 +528,8 @@ export function PlanViewer({ facilityId, floorId }: Props) {
                     y={r.y - 5}
                     width={r.width}
                     height={r.height}
-                    fill={STATUS_FILL[r.upper?.status ?? r.status] ?? '#64748b'}
-                    opacity={0.6}
+                    fill={fillOf(r.upper ?? r)}
+                    opacity={dimmed(r) ? 0.1 : 0.6}
                     stroke="#ffffff"
                     strokeWidth={1}
                     cornerRadius={3}
@@ -379,10 +543,10 @@ export function PlanViewer({ facilityId, floorId }: Props) {
                   y={r.y}
                   width={r.width}
                   height={r.height}
-                  fill={STATUS_FILL[r.status] ?? '#64748b'}
-                  opacity={0.85}
-                  stroke="#ffffff"
-                  strokeWidth={1.5}
+                  fill={fillOf(r)}
+                  opacity={dimmed(r) ? 0.15 : 0.85}
+                  stroke={filtering && !dimmed(r) ? '#0f172a' : '#ffffff'}
+                  strokeWidth={filtering && !dimmed(r) ? 2.5 : 1.5}
                   cornerRadius={3}
                   onClick={() => setSelectedId(r.id)}
                   onTap={() => setSelectedId(r.id)}
@@ -414,6 +578,7 @@ export function PlanViewer({ facilityId, floorId }: Props) {
                   fontStyle="bold"
                   lineHeight={1.25}
                   fill="#ffffff"
+                  opacity={dimmed(r) ? 0.25 : 1}
                   listening={false}
                 />
               ))}
@@ -435,7 +600,11 @@ export function PlanViewer({ facilityId, floorId }: Props) {
               {formatNumber(hover.unit.areaM2, 1)} m² ·{' '}
               <span className="font-medium text-foreground">{formatEur(hover.unit.price)}/mes</span>
             </p>
-            <p className="text-muted-foreground">{STATUS_LABEL[hover.unit.status]}</p>
+            <p className="text-muted-foreground">
+              {STATUS_LABEL[hover.unit.status]}
+              {details.get(hover.unit.id)?.daysVacant != null &&
+                ` · ${details.get(hover.unit.id)?.daysVacant} días libre`}
+            </p>
             {hover.unit.upper && (
               <p className="text-muted-foreground">
                 Arriba: {hover.unit.upper.code} · {STATUS_LABEL[hover.unit.upper.status]}

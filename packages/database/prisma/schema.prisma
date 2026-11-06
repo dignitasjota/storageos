@@ -681,6 +681,7 @@ model Tenant {
   competitorUnitObservations CompetitorUnitObservation[]
   unitPriceHistory           UnitPriceHistory[]
   unitTenancies              UnitTenancy[]
+  unitSavedViews             UnitSavedView[]
   owners                         Owner[]
   ownerStatements                OwnerStatement[]
   whatsappSettings               TenantWhatsappSettings?
@@ -838,6 +839,7 @@ model User {
   authorizedPersonsCreated CustomerAuthorizedPerson[] @relation("AuthorizedPersonCreatedBy")
   documentRequestsMade     CustomerDocumentRequest[] @relation("DocumentRequestedBy")
   customerViewsCreated     CustomerSavedView[]       @relation("CustomerViewCreatedBy")
+  unitViewsCreated         UnitSavedView[]           @relation("UnitViewCreatedBy")
   createdBusinessReminders   BusinessReminder[]           @relation("BusinessReminderCreatedBy")
   completedBusinessReminders BusinessReminderCompletion[] @relation("BusinessReminderCompletedBy")
   /// Baja de los anuncios comerciales de TrasterOS.
@@ -1309,6 +1311,12 @@ model Unit {
   stackGroupId     String?    @map("stack_group_id") @db.Uuid
   stackLevel       Int?       @map("stack_level")
   notes            String?
+  features         String[]   @default([])
+  /// Claves de las fotos en el bucket público.
+  images           String[]   @default([])
+  /// Por qué está en mantenimiento o bloqueado, y desde cuándo.
+  outOfServiceReason String?  @map("out_of_service_reason")
+  outOfServiceSince  DateTime? @map("out_of_service_since") @db.Timestamptz(6)
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1337,6 +1345,22 @@ model Unit {
   @@index([floorId])
   @@index([stackGroupId])
   @@map("units")
+}
+
+/// Vistas de la lista de Trasteros, compartidas por el equipo.
+model UnitSavedView {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  name            String
+  filters         Json
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("UnitViewCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, name])
+  @@map("unit_saved_views")
 }
 
 /// Cada tramo de un contrato en un trastero: un traslado cierra uno y abre otro.

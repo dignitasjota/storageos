@@ -1,15 +1,26 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { type UpdateUnitInput, UpdateUnitSchema } from '@storageos/shared';
-import { ArrowLeft, Loader2, Pencil, Trash2, User } from 'lucide-react';
+import { lostUnitIncome, type UpdateUnitInput, UpdateUnitSchema } from '@storageos/shared';
+import {
+  ArrowLeft,
+  Copy,
+  Loader2,
+  Map as MapIcon,
+  Pencil,
+  QrCode,
+  Trash2,
+  User,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { UnitDetailsCard } from './unit-details-card';
 import { UnitInsightsCard } from './unit-insights-card';
+import { UnitPriceCard } from './unit-price-card';
 import { UnitReservationCard } from './unit-reservation-card';
 
 import { SectionError } from '@/components/dashboard/section-state';
@@ -42,6 +53,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ChangeUnitStatusDialog } from '@/components/units/change-status-dialog';
+import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
 import { useDeleteUnitAction } from '@/components/units/use-delete-unit';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
@@ -53,6 +65,7 @@ import {
   useUnitTypes,
   useUpdateUnit,
 } from '@/lib/facilities/hooks';
+import { useUnitInsights } from '@/lib/facilities/inventory-hooks';
 import { formatDate, formatDateTime, formatEur, formatNumber } from '@/lib/format';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -74,8 +87,10 @@ export default function UnitDetailPage() {
   const canDelete = useHasPermission('units:manage');
   const router = useRouter();
   const deleteUnit = useDeleteUnitAction();
+  const insights = useUnitInsights(id);
   const [editOpen, setEditOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
 
   if (unit.isError) {
     const missing = unit.error instanceof ApiError && unit.error.statusCode === 404;
@@ -110,6 +125,10 @@ export default function UnitDetailPage() {
     (c) => c.status === 'active' || c.status === 'ending',
   );
   const isRented = u.status === 'occupied' || !!activeContract;
+  const stoppedDays = u.outOfServiceSince
+    ? Math.floor((Date.now() - new Date(u.outOfServiceSince).getTime()) / 86_400_000)
+    : null;
+  const partner = insights.data?.stackPartner ?? null;
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
@@ -135,6 +154,23 @@ export default function UnitDetailPage() {
                 <Pencil className="mr-1 h-4 w-4" /> Editar trastero
               </Button>
             )}
+            {canWrite && (
+              <Button variant="outline" size="sm" onClick={() => setDuplicateOpen(true)}>
+                <Copy className="mr-1 h-4 w-4" /> Duplicar
+              </Button>
+            )}
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/units/labels?id=${u.id}`}>
+                <QrCode className="mr-1 h-4 w-4" /> Etiqueta
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link
+                href={`/units?view=plan&facility=${u.facilityId}&floor=${u.floorId}&unit=${u.id}`}
+              >
+                <MapIcon className="mr-1 h-4 w-4" /> Ver en el plano
+              </Link>
+            </Button>
             {canDelete && !isRented && (
               <Button
                 variant="outline"
@@ -155,6 +191,15 @@ export default function UnitDetailPage() {
             {u.facilityName}
           </Link>{' '}
           · {u.floorName} · {u.unitTypeName}
+          {partner && (
+            <>
+              {' · '}apilado con{' '}
+              <Link href={`/units/${partner.id}`} className="hover:underline">
+                {partner.code}
+              </Link>{' '}
+              ({STATUS_LABELS[partner.status]})
+            </>
+          )}
         </p>
       </div>
 
@@ -166,13 +211,22 @@ export default function UnitDetailPage() {
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2">
             <StatusBadge status={u.status} />
-            <span className="text-sm text-muted-foreground">{STATUS_LABELS[u.status]}</span>
             {u.status === 'maintenance' && u.maintenanceUntil && (
               <span className="text-sm text-muted-foreground">
-                · vuelve previsto el {formatDate(u.maintenanceUntil)}
+                Vuelve previsto el {formatDate(u.maintenanceUntil)}
               </span>
             )}
           </div>
+          {stoppedDays !== null && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              {u.outOfServiceReason && <p className="font-medium">{u.outOfServiceReason}</p>}
+              <p>
+                Parado {stoppedDays} día(s) desde el {formatDate(u.outOfServiceSince)} ·{' '}
+                {formatEur(lostUnitIncome(u.basePriceMonthly, stoppedDays))} sin ingresar, al precio
+                de catálogo.
+              </p>
+            </div>
+          )}
           {activeContract ? (
             <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-3">
               <span className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -245,11 +299,13 @@ export default function UnitDetailPage() {
         </Card>
       </div>
 
+      <UnitPriceCard unit={u} />
       <UnitInsightsCard unitId={u.id} />
+      <UnitDetailsCard unit={u} />
 
       <Card>
         <CardHeader>
-          <CardTitle>Historial de estados</CardTitle>
+          <CardTitle className="text-base">Historial de estados</CardTitle>
         </CardHeader>
         <CardContent>
           {history.isLoading && <p className="text-sm text-muted-foreground">Cargando...</p>}
@@ -279,6 +335,14 @@ export default function UnitDetailPage() {
 
       <EditUnitDialog unit={u} rented={isRented} open={editOpen} onOpenChange={setEditOpen} />
       <ChangeUnitStatusDialog unit={statusOpen ? u : null} onClose={() => setStatusOpen(false)} />
+      {duplicateOpen && (
+        <CreateUnitDialog
+          open
+          copyFrom={u}
+          onOpenChange={setDuplicateOpen}
+          onCreated={(created) => router.push(`/units/${created.id}`)}
+        />
+      )}
     </div>
   );
 }

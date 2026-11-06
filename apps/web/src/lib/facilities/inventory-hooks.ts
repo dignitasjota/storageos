@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { compressImage } from '../images/compress';
 
 import type {
   BulkCreateUnitsInput,
@@ -11,10 +12,15 @@ import type {
   FacilityDocumentDto,
   FacilityDocumentKind,
   FacilityDocumentUploadDto,
+  FacilityImageUploadResponseDto,
   FacilitySummaryDto,
   FloorHoldDto,
   FloorOccupantDto,
+  SaveUnitViewInput,
+  UnitDto,
   UnitInsightsDto,
+  UnitSavedViewDto,
+  UnitsOverviewDto,
   UpdateFacilityDocumentInput,
 } from '@storageos/shared';
 
@@ -31,6 +37,70 @@ export function useUnitInsights(unitId: string | undefined) {
     queryKey: ['units', unitId, 'insights'],
     queryFn: () => apiFetch<UnitInsightsDto>(`/units/${unitId}/insights`),
     enabled: !!unitId,
+  });
+}
+
+/** La lista de Trasteros: cada uno con su inquilino, cuota, deuda y días libre. */
+export function useUnitsOverview(facilityId: string | undefined) {
+  return useQuery({
+    queryKey: ['units', 'overview', facilityId ?? 'all'],
+    queryFn: () =>
+      apiFetch<UnitsOverviewDto>(`/units/overview${facilityId ? `?facilityId=${facilityId}` : ''}`),
+    staleTime: 15_000,
+  });
+}
+
+const unitViewsKey = ['units', 'views'] as const;
+
+export function useUnitViews() {
+  return useQuery({
+    queryKey: unitViewsKey,
+    queryFn: () => apiFetch<UnitSavedViewDto[]>('/units/views'),
+  });
+}
+
+export function useSaveUnitView() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SaveUnitViewInput) =>
+      apiFetch<UnitSavedViewDto>('/units/views', { method: 'POST', json: input }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: unitViewsKey }),
+  });
+}
+
+export function useDeleteUnitView() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/units/views/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: unitViewsKey }),
+  });
+}
+
+/** Sube una foto del trastero (comprimida en el navegador) y devuelve su clave. */
+export async function uploadUnitImage(unitId: string, file: File): Promise<string> {
+  const compressed = await compressImage(file);
+  const presign = await apiFetch<FacilityImageUploadResponseDto>(
+    `/units/${unitId}/images/upload-url`,
+    { method: 'POST', json: { mimeType: compressed.type, sizeBytes: compressed.size } },
+  );
+  const put = await fetch(presign.uploadUrl, {
+    method: 'PUT',
+    headers: presign.requiredHeaders,
+    body: compressed,
+  });
+  if (!put.ok) throw new Error('No se pudo subir la foto');
+  return presign.key;
+}
+
+export function useSetUnitImages() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; images: string[] }) =>
+      apiFetch<UnitDto>(`/units/${args.id}/images`, {
+        method: 'PUT',
+        json: { images: args.images },
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['units'] }),
   });
 }
 

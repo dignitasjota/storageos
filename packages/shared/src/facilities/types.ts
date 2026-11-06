@@ -99,8 +99,13 @@ export interface UnitDto {
   stackGroupId: string | null;
   stackLevel: number | null;
   notes: string | null;
+  features: string[];
+  images: { key: string; url: string }[];
   /** En mantenimiento: fecha prevista de vuelta al servicio (YYYY-MM-DD). */
   maintenanceUntil: string | null;
+  /** En mantenimiento o bloqueado: por qué y desde cuándo. */
+  outOfServiceReason: string | null;
+  outOfServiceSince: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -203,6 +208,10 @@ export interface UnitInsightsDto {
   daysRentedLastYear: number;
   /** Días que se miran: 365, o menos si el trastero es más reciente. */
   daysTrackedLastYear: number;
+  /** Lo que paga al mes el inquilino actual, sin IVA. */
+  currentFee: number | null;
+  /** La otra taquilla, si está apilado. */
+  stackPartner: { id: string; code: string; status: string } | null;
   /** Facturado en los últimos 12 meses (sin IVA ni fianzas). */
   revenue12m: number;
   /** Facturado en 12 meses por m². */

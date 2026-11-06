@@ -1005,6 +1005,16 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 - `GET /inventory/issues`: ya no marca lo guardado para la cola o un traslado programado, y avisa de un trastero reservado o fuera de servicio con el inquilino dentro (→ `occupied`).
 - Medidas hasta 500 m (alto 50 m) y precio hasta 999.999 €: fuera de eso, 400.
 
+**Mejoras de Trasteros (2026-11-06).**
+
+- `GET /units/overview?facilityId=` (`units:read`): la lista con `tenant` (nombre, contrato, `monthly` y `overdue`), `daysVacant`, `offer` y `outOfService` (`days`, `lostIncome`). Trae `tenantsVisible` (`customers:read`) y `moneyVisible` (`customers:read`, `invoices:read` y `payments:read`): sin permiso, `tenant` es null u `overdue` es null.
+- `GET/POST /units/views` y `DELETE /units/views/:id`: vistas del equipo. Guardar con un nombre que ya existe la sustituye (leer `units:read`, guardar y borrar `units:write`).
+- `POST /units/:id/images/upload-url` y `PUT /units/:id/images {images}` (`units:write`): fotos del trastero, hasta 12, en el bucket público. Una clave de otra carpeta da 400 `invalid_image_key`.
+- `POST/PATCH /units`: `features` (`UnitFeatureEnum`). `UnitDto` gana `features`, `images`, `outOfServiceReason` y `outOfServiceSince`.
+- `POST /units/:id/change-status`: guarda el motivo y desde cuándo al pasar a mantenimiento o bloqueado; pasar de uno a otro conserva la fecha, y se borran al volver.
+- `POST /units/bulk`: el precio admite `round` (`none`, `euro`, `five`).
+- `GET /units/:id/insights`: `currentFee` (lo que paga el inquilino actual) y `stackPartner`.
+
 ## Operativa, productos, analytics y reports (Fase 6)
 
 **Funcionalidades de la Operativa (2026-10-25, PR B).** Migración `20261114100000_operations_features`.

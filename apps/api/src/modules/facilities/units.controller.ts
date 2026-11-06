@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -19,10 +20,16 @@ import {
   BulkUnitsActionSchema,
   type BulkUnitsResultDto,
   ChangeUnitStatusSchema,
+  type FacilityImageUploadResponseDto,
+  RequestFacilityImageUploadSchema,
+  SaveUnitViewSchema,
+  SetFacilityImagesSchema,
   type UnitInsightsDto,
   CreateUnitSchema,
   StackUnitsSchema,
   type UnitDto,
+  type UnitSavedViewDto,
+  type UnitsOverviewDto,
   type UnitStatusHistoryDto,
   UnitStatusEnum,
   UpdateUnitSchema,
@@ -39,6 +46,7 @@ import { userCan } from '../../common/guards/permissions.guard';
 import { assertUuid } from '../../common/pagination';
 
 import { UnitsInventoryService } from './units-inventory.service';
+import { UnitsOverviewService } from './units-overview.service';
 import { UnitsService } from './units.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -49,6 +57,9 @@ class UpdateUnitDto extends createZodDto(UpdateUnitSchema) {}
 class ChangeUnitStatusDto extends createZodDto(ChangeUnitStatusSchema) {}
 class StackUnitsDto extends createZodDto(StackUnitsSchema) {}
 class BulkCreateUnitsDto extends createZodDto(BulkCreateUnitsSchema) {}
+class SaveUnitViewDto extends createZodDto(SaveUnitViewSchema) {}
+class RequestUnitImageUploadDto extends createZodDto(RequestFacilityImageUploadSchema) {}
+class SetUnitImagesDto extends createZodDto(SetFacilityImagesSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -64,7 +75,82 @@ export class UnitsController {
   constructor(
     private readonly units: UnitsService,
     private readonly inventory: UnitsInventoryService,
+    private readonly overviewService: UnitsOverviewService,
   ) {}
+
+  /** La lista: cada trastero con su inquilino, cuota, deuda, días libre y oferta. */
+  @RequirePermission('units:read')
+  @Get('overview')
+  async overview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<UnitsOverviewDto> {
+    assertUuid(facilityId);
+    return this.overviewService.overview(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
+      tenantsVisible: userCan(user, 'customers:read'),
+      moneyVisible:
+        userCan(user, 'customers:read') &&
+        userCan(user, 'invoices:read') &&
+        userCan(user, 'payments:read'),
+    });
+  }
+
+  /** Vistas de la lista, compartidas por el equipo. */
+  @RequirePermission('units:read')
+  @Get('views')
+  async views(@CurrentUser() user: AuthenticatedUser): Promise<UnitSavedViewDto[]> {
+    return this.overviewService.listViews(user.tenantId);
+  }
+
+  @RequirePermission('units:write')
+  @Post('views')
+  async saveView(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: SaveUnitViewDto,
+  ): Promise<UnitSavedViewDto> {
+    return this.overviewService.saveView(user.tenantId, user.sub, input);
+  }
+
+  @RequirePermission('units:write')
+  @Delete('views/:viewId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteView(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('viewId', new ParseUUIDPipe()) viewId: string,
+  ): Promise<void> {
+    await this.overviewService.deleteView(user.tenantId, viewId);
+  }
+
+  @RequirePermission('units:write')
+  @Post(':id/images/upload-url')
+  @HttpCode(HttpStatus.OK)
+  async imageUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: RequestUnitImageUploadDto,
+  ): Promise<FacilityImageUploadResponseDto> {
+    return this.inventory.imageUploadUrl(user.tenantId, id, input, user.facilityScope ?? null);
+  }
+
+  @RequirePermission('units:write')
+  @Put(':id/images')
+  async setImages(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: SetUnitImagesDto,
+    @Req() req: Request,
+  ): Promise<UnitDto> {
+    return this.inventory.setImages({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      unitId: id,
+      images: input.images,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
 
   /** Cambia estado, tipo, planta o precio de varios trasteros. */
   @RequirePermission('units:write')

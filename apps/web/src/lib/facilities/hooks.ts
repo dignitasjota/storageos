@@ -208,8 +208,9 @@ interface UnitFilters {
   search?: string;
 }
 
-export function useUnits(filters: UnitFilters = {}) {
+export function useUnits(filters: UnitFilters = {}, options: { enabled?: boolean } = {}) {
   return useQuery({
+    enabled: options.enabled ?? true,
     queryKey: unitsKey(filters as Record<string, string | undefined>),
     // El API pagina (máx. 200 por página): se piden todas para que listas,
     // planos y selectores no se queden en los 50 primeros trasteros.

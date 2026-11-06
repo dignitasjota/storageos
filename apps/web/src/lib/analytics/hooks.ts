@@ -191,12 +191,17 @@ export function useApplyPricing() {
 }
 
 /** Sugerencia de precio por trastero (mercado + posicionamiento + demanda). */
-export function useUnitPricingSuggestions(facilityId?: string, includeCompetition = true) {
+export function useUnitPricingSuggestions(
+  facilityId?: string,
+  includeCompetition = true,
+  enabled = true,
+) {
   const params = new URLSearchParams();
   if (facilityId) params.set('facilityId', facilityId);
   if (!includeCompetition) params.set('includeCompetition', 'false');
   const qs = params.toString() ? `?${params}` : '';
   return useQuery({
+    enabled,
     queryKey: analyticsKey('unit-pricing-suggestions', {
       facilityId,
       includeCompetition: includeCompetition ? undefined : 'false',

@@ -1,11 +1,15 @@
+import { randomUUID } from 'node:crypto';
+
 import { BadRequestException, HttpException, Injectable, Logger } from '@nestjs/common';
-import { bulkUnitCodes, UNIT_MAX_PRICE } from '@storageos/shared';
+import { bulkUnitCodes, bulkUnitPrice, UNIT_MAX_PRICE } from '@storageos/shared';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { INVOICED_SELECT, INVOICED_STATUSES, invoicedBase } from '../analytics/business-metrics';
+import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 
-import { UnitsService } from './units.service';
+import { UNIT_INCLUDE, UnitsService } from './units.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
@@ -13,6 +17,9 @@ import type {
   BulkCreateUnitsResultDto,
   BulkUnitsActionInput,
   BulkUnitsResultDto,
+  FacilityImageUploadResponseDto,
+  RequestFacilityImageUploadInput,
+  UnitDto,
   UnitInsightsDto,
 } from '@storageos/shared';
 
@@ -53,6 +60,8 @@ export class UnitsInventoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly units: UnitsService,
+    private readonly files: FilesService,
+    private readonly audit: AuditService,
   ) {}
 
   async insights(
@@ -63,8 +72,8 @@ export class UnitsInventoryService {
     const unit = await this.units.detail(tenantId, unitId, facilityScope);
     const now = Date.now();
     const yearAgo = new Date(now - 365 * DAY);
-    const { prices, tenancies, lastFree } = await this.prisma.withTenant(async (tx) => {
-      const [prices, tenancies, lastFree] = await Promise.all([
+    const { prices, tenancies, lastFree, partner } = await this.prisma.withTenant(async (tx) => {
+      const [prices, tenancies, lastFree, partner] = await Promise.all([
         tx.unitPriceHistory.findMany({
           where: { unitId },
           orderBy: { changedAt: 'desc' },
@@ -81,6 +90,7 @@ export class UnitsInventoryService {
                 contractNumber: true,
                 customerId: true,
                 status: true,
+                discountAmount: true,
                 customer: {
                   select: {
                     customerType: true,
@@ -110,8 +120,14 @@ export class UnitsInventoryService {
           orderBy: { occurredAt: 'desc' },
           select: { occurredAt: true },
         }),
+        unit.stackGroupId
+          ? tx.unit.findFirst({
+              where: { stackGroupId: unit.stackGroupId, id: { not: unitId } },
+              select: { id: true, code: true, status: true },
+            })
+          : Promise.resolve(null),
       ]);
-      return { prices, tenancies, lastFree };
+      return { prices, tenancies, lastFree, partner };
     }, tenantId);
 
     let daysRented = 0;
@@ -158,6 +174,7 @@ export class UnitsInventoryService {
       ...tenancies.map((t) => t.startedOn.getTime()),
     );
     const daysTracked = Math.min(365, Math.max(1, Math.ceil((now - firstKnown) / DAY)));
+    const current = tenancies.find((t) => !t.endedOn);
 
     return {
       priceHistory: prices.map((p) => ({
@@ -171,10 +188,92 @@ export class UnitsInventoryService {
       daysVacant,
       daysRentedLastYear: Math.min(daysTracked, Math.round(daysRented)),
       daysTrackedLastYear: daysTracked,
+      currentFee:
+        current && !current.endedOn
+          ? round2(
+              Math.max(0, Number(current.priceMonthly) - Number(current.contract.discountAmount)),
+            )
+          : null,
+      stackPartner: partner,
       revenue12m: round2(revenue12m),
       revenuePerM2: unit.areaM2 > 0 ? round2(revenue12m / unit.areaM2) : null,
       maintenanceUntil: unit.maintenanceUntil,
     };
+  }
+
+  /** URL firmada para subir una foto del trastero. */
+  async imageUploadUrl(
+    tenantId: string,
+    unitId: string,
+    input: RequestFacilityImageUploadInput,
+    facilityScope?: string[] | null,
+  ): Promise<FacilityImageUploadResponseDto> {
+    await this.units.detail(tenantId, unitId, facilityScope);
+    const ext = input.mimeType.split('/')[1] ?? 'jpg';
+    const key = `${tenantId}/units/${unitId}/images/${randomUUID()}.${ext}`;
+    const { uploadUrl, expiresIn } = await this.files.getPresignedPutUrl({
+      bucket: 'public',
+      key,
+      contentType: input.mimeType,
+      contentLengthRange: { min: 1, max: input.sizeBytes },
+    });
+    return {
+      uploadUrl,
+      key,
+      expiresIn,
+      requiredHeaders: { 'Content-Type': input.mimeType },
+    };
+  }
+
+  /** Fija las fotos (por sus claves): añade, quita y ordena. */
+  async setImages(args: {
+    tenantId: string;
+    userId: string;
+    unitId: string;
+    images: string[];
+    meta: RequestMeta;
+    facilityScope?: string[] | null;
+  }): Promise<UnitDto> {
+    const before = await this.units.detail(args.tenantId, args.unitId, args.facilityScope);
+    // Cada clave debe ser de la carpeta de este trastero.
+    const prefix = `${args.tenantId}/units/${args.unitId}/images/`;
+    if (args.images.some((k) => !k.startsWith(prefix))) {
+      throw new BadRequestException({
+        code: 'invalid_image_key',
+        message: 'Una de las fotos no es de este trastero',
+      });
+    }
+    for (const key of args.images) {
+      await this.files.assertObjectMimeType('public', key, [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+      ]);
+    }
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.unit.update({
+          where: { id: args.unitId },
+          data: { images: args.images },
+          include: UNIT_INCLUDE,
+        }),
+      args.tenantId,
+    );
+    const removed = before.images.map((i) => i.key).filter((k) => !args.images.includes(k));
+    if (removed.length > 0) {
+      await this.files.deleteObjects('public', removed).catch(() => undefined);
+    }
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'unit.images_updated',
+      entityType: 'Unit',
+      entityId: args.unitId,
+      changes: { count: args.images.length },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.units.toDto(updated);
   }
 
   /** Cambia estado, tipo, planta o precio de varios trasteros (cada uno por su cuenta). */
@@ -221,10 +320,7 @@ export class UnitsInventoryService {
           await this.units.update({ ...base, input: { floorId: input.floorId } });
         } else {
           const current = await this.units.detail(args.tenantId, unitId, args.facilityScope);
-          const price =
-            input.mode === 'set'
-              ? input.value
-              : round2(current.basePriceMonthly * (1 + input.value / 100));
+          const price = bulkUnitPrice(current.basePriceMonthly, input);
           if (price < 0 || price > UNIT_MAX_PRICE) {
             throw new BadRequestException({
               code: 'invalid_price',
