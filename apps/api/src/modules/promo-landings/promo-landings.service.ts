@@ -89,7 +89,7 @@ export class PromoLandingsService {
 
   async create(tenantId: string, input: CreatePromoLandingInput): Promise<PromoLandingDto> {
     await this.assertRefs(tenantId, input);
-    if (input.shortPath) await this.assertShortPathFree(tenantId, input.slug);
+    if (input.shortPath) await this.claimShortPath(tenantId, input.slug);
     try {
       const row = await this.prisma.withTenant(
         (tx) =>
@@ -142,7 +142,7 @@ export class PromoLandingsService {
     });
     const shortPath = input.shortPath ?? current.shortPath;
     if (shortPath && (input.shortPath || (input.slug && input.slug !== current.slug))) {
-      await this.assertShortPathFree(tenantId, input.slug ?? current.slug);
+      await this.claimShortPath(tenantId, input.slug ?? current.slug);
     }
 
     const data: Prisma.PromoLandingUpdateInput = {};
@@ -392,7 +392,7 @@ export class PromoLandingsService {
    * La dirección corta `/<nombre>` no puede coincidir con una página fija de la
    * web, una página de ciudad ni un local del negocio (el local ganaría).
    */
-  private async assertShortPathFree(tenantId: string, slug: string): Promise<void> {
+  private async claimShortPath(tenantId: string, slug: string): Promise<void> {
     const facility = promoShortPathReserved(slug)
       ? null
       : await this.prisma.withTenant(
@@ -411,6 +411,11 @@ export class PromoLandingsService {
           : 'Esa dirección corta está reservada para otra página de la web. Cambia el nombre de la landing.',
       });
     }
+    // Si fue la dirección de un local, deja de redirigir: ahora es de esta landing.
+    await this.prisma.withTenant(
+      (tx) => tx.facilitySlugRedirect.deleteMany({ where: { oldSlug: slug } }),
+      tenantId,
+    );
   }
 
   /** El cupón, los locales y los tamaños deben ser del tenant. */

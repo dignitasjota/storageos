@@ -140,6 +140,9 @@ const VERBS: Record<string, string> = {
   plan_removed: 'plano quitado',
   layout_updated: 'plano reorganizado',
   opening_changed: 'apertura cambiada',
+  restored: 'restaurado',
+  duplicated: 'duplicado',
+  tenants_messaged: 'aviso a sus inquilinos',
 };
 
 /** Entidades en femenino: «Planta · creada», no «Planta · creado». */

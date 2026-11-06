@@ -3,7 +3,8 @@
  *
  * Borrar dice qué falta y, sin nada pendiente, borra; la dirección pública
  * ocupada propone otra; la ficha de un local que no existe lo dice; y una
- * pestaña desconocida no deja la página en blanco.
+ * pestaña desconocida no deja la página en blanco. El resumen, el horario
+ * partido, la comparación, la papelera y el cartel funcionan en la ficha.
  */
 import { expect, test } from '@playwright/test';
 
@@ -97,16 +98,111 @@ test('locales: borrar, dirección pública y ficha', async ({ page }) => {
 
   // Una pestaña que no existe enseña la primera.
   await page.goto(`/facilities/${facility.id}?tab=inventada`);
-  await expect(page.getByRole('tab', { name: 'Trasteros' })).toHaveAttribute(
-    'data-state',
-    'active',
-  );
+  await expect(page.getByRole('tab', { name: 'Resumen' })).toHaveAttribute('data-state', 'active');
   await requests.idle();
 
   // Un local que no existe lo dice, en vez de quedarse cargando.
   await page.goto('/facilities/0190e4a0-0000-7000-8000-000000000000');
   await expect(page.getByText('Este local no existe o no tienes acceso a él.')).toBeVisible();
 
+  await requests.idle();
+
+  expect(errors).toEqual([]);
+});
+
+test('locales: resumen, horario partido, comparar, papelera y cartel', async ({ page }) => {
+  test.setTimeout(60_000);
+  const tenant = await seedTestTenant('localesb');
+  const { accessToken: token } = await apiLogin(tenant.slug, tenant.email, tenant.password);
+  const facility = await api<{ id: string }>('/facilities', token, {
+    name: 'Local Mejoras',
+    city: 'Sevilla',
+    country: 'ES',
+    timezone: 'Europe/Madrid',
+  });
+  const type = await api<{ id: string }>('/unit-types', token, {
+    name: 'Pequeño',
+    defaultPriceMonthly: 40,
+    color: '#3366ff',
+  });
+  await api('/units', token, {
+    facilityId: facility.id,
+    unitTypeId: type.id,
+    code: 'B-1',
+    widthM: 2,
+    depthM: 2,
+    heightM: 2.5,
+    basePriceMonthly: 35,
+  });
+
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const requests = trackRequests(page);
+  await page.goto('/login');
+  await page.waitForLoadState('networkidle');
+  await page.getByLabel(/Empresa/i).fill(tenant.slug);
+  await page.getByLabel(/^Email$/i).fill(tenant.email);
+  await page.getByLabel(/Contraseña/i).fill(tenant.password);
+  await page.getByRole('button', { name: /Iniciar sesión/i }).click();
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+
+  // El resumen es lo primero que se ve, y dice lo que le falta a la ficha.
+  await page.goto(`/facilities/${facility.id}`);
+  await expect(page.getByText('Ocupación por tamaño')).toBeVisible();
+  await expect(page.getByText(/Ficha al \d+%/)).toBeVisible();
+  await requests.idle();
+
+  // Aplicar el precio del tipo a sus trasteros enseña antes qué cambia.
+  await page.getByRole('tab', { name: 'Tipos' }).click();
+  await page.getByRole('button', { name: 'Acciones' }).click();
+  await page.getByRole('menuitem', { name: 'Aplicar su precio en este local' }).click();
+  await expect(page.getByText(/Cambia\s+1\s+de 1 trastero/)).toBeVisible();
+  await page.getByRole('button', { name: 'Aplicar', exact: true }).click();
+  await expect(page.getByText('Precio aplicado a 1 trastero.')).toBeVisible();
+  await requests.idle();
+
+  // Horario partido, copiado a toda la semana.
+  await page.getByRole('tab', { name: 'Ajustes' }).click();
+  const hours = page.locator('div.rounded-xl.border', { hasText: 'Horario de apertura' });
+  await hours.getByLabel('Lunes').check();
+  await hours.getByRole('button', { name: 'Turno de tarde' }).first().click();
+  await hours.getByRole('button', { name: 'Copiar a toda la semana' }).first().click();
+  await hours.getByRole('button', { name: 'Guardar' }).click();
+  await expect(page.getByText('Horario actualizado.')).toBeVisible();
+  await requests.idle();
+  const saved = await fetch(`${API_URL}/facilities/${facility.id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = (await saved.json()) as {
+    openingHours: { sun?: { open2?: string; close2?: string } };
+  };
+  expect(body.openingHours.sun).toMatchObject({ open2: '16:00', close2: '20:00' });
+
+  // El cartel lleva el QR de su página.
+  await page.goto(`/facilities/${facility.id}/poster`);
+  await expect(page.getByRole('heading', { name: 'Cartel con QR' })).toBeVisible();
+  await expect(page.getByText('Reserva tu trastero').first()).toBeVisible();
+  await requests.idle();
+
+  // Comparar en tabla.
+  await page.goto('/facilities');
+  await page.getByRole('button', { name: 'Comparar en tabla' }).click();
+  await expect(page.getByRole('columnheader', { name: /Ocupación/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Ver en tarjetas' }).click();
+
+  // Borrar y recuperar.
+  const card = page
+    .locator('div.group')
+    .filter({ has: page.getByRole('link', { name: 'Local Mejoras', exact: true }) });
+  await card.getByRole('button', { name: 'Acciones' }).click();
+  await page.getByRole('menuitem', { name: 'Borrar' }).click();
+  await page.getByRole('button', { name: 'Borrar el local' }).click();
+  await expect(page.getByRole('link', { name: 'Local Mejoras', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Borrados' }).click();
+  await expect(page.getByText('Local Mejoras')).toBeVisible();
+  await page.getByRole('button', { name: 'Restaurar' }).click();
+  await page.getByRole('button', { name: 'Restaurar' }).last().click();
+  await expect(page.getByText('No hay locales borrados.')).toBeVisible();
   await requests.idle();
 
   expect(errors).toEqual([]);

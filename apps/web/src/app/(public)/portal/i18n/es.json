@@ -354,7 +354,10 @@
           "fri": "Viernes",
           "sat": "Sábado",
           "sun": "Domingo"
-        }
+        },
+        "allDay": "24 horas",
+        "and": "y",
+        "specialDays": "Días especiales"
       },
       "referrals": {
         "title": "Recomienda y gana",

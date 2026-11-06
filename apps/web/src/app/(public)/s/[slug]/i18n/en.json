@@ -41,7 +41,10 @@
       "openNow": "Open now",
       "closedNow": "Closed now",
       "preOpening": "Opening soon",
-      "preOpeningDate": "Opens on {date}"
+      "preOpeningDate": "Opens on {date}",
+      "allDay": "24 hours",
+      "and": "and",
+      "specialDays": "Special days"
     },
     "promo": {
       "percentageOff": "{value}% off",
@@ -72,7 +75,9 @@
       "headingDefault": "Storage units — {name}",
       "sizesAndPrices": "Sizes and pricing",
       "video": "Video",
-      "photoAlt": "Photo {index} of {name}"
+      "photoAlt": "Photo {index} of {name}",
+      "directions": "How to get there",
+      "openInMaps": "Open in Google Maps"
     },
     "testimonials": {
       "title": "What our customers say"
@@ -970,6 +975,14 @@
       "contactSend": "Send",
       "contactError": "We couldn't save your details. Please try again.",
       "contactThanks": "Thanks! The team will contact you soon."
+    },
+    "features": {
+      "24h": "24-hour access",
+      "climate": "Climate-controlled",
+      "vehicle_access": "Vehicle access",
+      "cctv": "CCTV",
+      "ground_floor": "Ground floor",
+      "online_booking": "Online booking"
     }
   },
   "offlinePayment": {

@@ -682,6 +682,7 @@ model Tenant {
   unitPriceHistory           UnitPriceHistory[]
   unitTenancies              UnitTenancy[]
   unitSavedViews             UnitSavedView[]
+  facilitySlugRedirects      FacilitySlugRedirect[]
   owners                         Owner[]
   ownerStatements                OwnerStatement[]
   whatsappSettings               TenantWhatsappSettings?
@@ -1158,6 +1159,11 @@ model Facility {
   longitude           Decimal?  @db.Decimal(9, 6)
   timezone            String    @default("Europe/Madrid")
   openingHours        Json      @default("{}") @map("opening_hours")
+  /// Festivos y días con otro horario: `[{date, label?, hours}]`.
+  openingExceptions   Json      @default("[]") @map("opening_exceptions")
+  /// Cómo llegar: indicaciones y enlace de Google Maps.
+  directions          String?
+  mapsUrl             String?   @map("maps_url")
   /// Toque de queda de acceso: franja "HH:MM"-"HH:MM" (en `timezone`) en la que
   /// se bloquea el acceso, salvo credenciales con `bypassCurfew`.
   accessCurfewEnabled Boolean   @default(false) @map("access_curfew_enabled")
@@ -1172,6 +1178,8 @@ model Facility {
   /// Keys de objeto MinIO de las imágenes del local (landing pública). El
   /// servidor construye las URLs con `FilesService.buildPublicUrl`.
   images              String[]  @default([])
+  /// Texto alternativo de cada imagen, por su key.
+  imageAlts           Json      @default("{}") @map("image_alts")
   /// URL de vídeo (YouTube/Vimeo) para la web pública del local.
   videoUrl            String?   @map("video_url")
   /// Local en «próxima apertura»: admite reservas anticipadas.
@@ -1182,12 +1190,15 @@ model Facility {
   preOpeningMaxMonths Int       @default(6) @map("pre_opening_max_months")
   isActive            Boolean   @default(true) @map("is_active")
   deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  /// Lo que se apagó al borrarlo y su dirección pública, para poder restaurarlo.
+  deletedSnapshot     Json?     @map("deleted_snapshot")
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant               Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   owner           Owner?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   floors               FacilityFloor[]
+  slugRedirects        FacilitySlugRedirect[]
   units                Unit[]
   unitRequests         UnitRequest[]
   waitlistEntries      WaitlistEntry[]
@@ -1348,6 +1359,22 @@ model Unit {
 }
 
 /// Vistas de la lista de Trasteros, compartidas por el equipo.
+/// Direcciones antiguas de un local: la web redirige a la actual.
+model FacilitySlugRedirect {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  facilityId String   @map("facility_id") @db.Uuid
+  oldSlug    String   @map("old_slug")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, oldSlug])
+  @@index([facilityId], map: "facility_slug_redirects_facility_idx")
+  @@map("facility_slug_redirects")
+}
+
 model UnitSavedView {
   id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid

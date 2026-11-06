@@ -40,6 +40,7 @@ import type { Prisma } from '@storageos/database';
 import type {
   PublicAreaPageContentDto,
   LeadDto,
+  OpeningException,
   OpeningHours,
   PublicContactInput,
   PromoLeadInput,
@@ -329,6 +330,11 @@ export class LandingService {
           contactPhone: true,
           contactEmail: true,
           openingHours: true,
+          openingExceptions: true,
+          directions: true,
+          mapsUrl: true,
+          features: true,
+          imageAlts: true,
           timezone: true,
           latitude: true,
           longitude: true,
@@ -464,10 +470,17 @@ export class LandingService {
         contactPhone: f.contactPhone ?? tenant.contactPhone,
         contactEmail: f.contactEmail ?? tenant.contactEmail,
         openingHours: (f.openingHours as OpeningHours) ?? {},
+        openingExceptions: (f.openingExceptions as OpeningException[]) ?? [],
+        directions: f.directions,
+        mapsUrl: f.mapsUrl,
+        features: f.features ?? [],
         timezone: f.timezone,
         latitude: f.latitude != null ? Number(f.latitude) : null,
         longitude: f.longitude != null ? Number(f.longitude) : null,
         imageUrls: (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key)),
+        imageAlts: (f.images ?? []).map(
+          (key) => ((f.imageAlts ?? {}) as Record<string, string>)[key] ?? null,
+        ),
         videoUrl: f.videoUrl,
         preOpening: f.preOpening,
         openingDate: f.openingDate ? f.openingDate.toISOString().slice(0, 10) : null,
@@ -768,7 +781,20 @@ export class LandingService {
       (f: PublicLandingFacilityDto) => f.publicSlug === facilitySlug,
     );
     if (!facility) {
-      throw new NotFoundException({ code: 'facility_not_found', message: 'No encontrado' });
+      // Dirección antigua de un local: la web redirige a la actual.
+      const moved = await this.admin.facilitySlugRedirect.findFirst({
+        where: {
+          oldSlug: facilitySlug,
+          tenant: { slug: tenantSlug },
+          facility: { deletedAt: null, isActive: true },
+        },
+        select: { facility: { select: { publicSlug: true } } },
+      });
+      throw new NotFoundException({
+        code: moved?.facility.publicSlug ? 'facility_moved' : 'facility_not_found',
+        message: 'No encontrado',
+        ...(moved?.facility.publicSlug ? { details: { slug: moved.facility.publicSlug } } : {}),
+      });
     }
     return {
       tenantName: full.tenantName,

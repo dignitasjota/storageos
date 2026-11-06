@@ -4,7 +4,7 @@ import { SepaBicSchema, SepaIbanSchema } from '../sepa';
 
 import type { ContractPreOpeningDto } from '../contracts/pre-opening';
 import type { ContractDepositStatusValue, ContractStatusValue } from '../customers/schemas';
-import type { OpeningHours } from '../facilities/schemas';
+import type { OpeningException, OpeningHours } from '../facilities/schemas';
 
 /** Idiomas soportados por el portal del inquilino. */
 export const PortalLocaleEnum = z.enum(['es', 'en']);
@@ -77,6 +77,10 @@ export interface PortalFacilityDto {
   imageUrls?: string[];
   /** Horario de apertura del local (atención), por día. */
   openingHours?: OpeningHours;
+  /** Festivos y días con otro horario que vienen. */
+  openingExceptions?: OpeningException[];
+  /** Cómo llegar (indicaciones del negocio). */
+  directions?: string | null;
   /** Mapa para incrustar y enlace «Cómo llegar». */
   mapEmbedUrl?: string | null;
   directionsUrl?: string | null;

@@ -170,7 +170,7 @@ export class FacilityFloorsService {
       action: 'floor.updated',
       entityType: 'FacilityFloor',
       entityId: floorId,
-      changes: { ...data } as unknown as Prisma.InputJsonValue,
+      changes: { ...data, facilityId: existing.facilityId } as unknown as Prisma.InputJsonValue,
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });
@@ -218,6 +218,7 @@ export class FacilityFloorsService {
       action: 'floor.deleted',
       entityType: 'FacilityFloor',
       entityId: floorId,
+      changes: { facilityId: existing.facilityId, name: existing.name },
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });

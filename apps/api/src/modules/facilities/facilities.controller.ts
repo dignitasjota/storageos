@@ -10,15 +10,22 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
   CreateFacilityDocumentSchema,
   CreateFacilitySchema,
+  type DeletedFacilityDto,
+  DuplicateFacilitySchema,
   type FacilityDocumentDto,
   type FacilityDocumentUploadDto,
   type FacilityDeletePreviewDto,
+  type FacilityHistoryDto,
+  type FacilityOverviewDto,
+  type FacilityRestoreResultDto,
   type FacilitySummaryDto,
+  type FacilityTeamMemberDto,
   permissionsForRole,
   RequestFacilityDocumentUploadSchema,
   UpdateFacilityDocumentSchema,
@@ -51,6 +58,7 @@ class SetFacilityImagesDto extends createZodDto(SetFacilityImagesSchema) {}
 class RequestFacilityDocumentUploadDto extends createZodDto(RequestFacilityDocumentUploadSchema) {}
 class CreateFacilityDocumentDto extends createZodDto(CreateFacilityDocumentSchema) {}
 class UpdateFacilityDocumentDto extends createZodDto(UpdateFacilityDocumentSchema) {}
+class DuplicateFacilityDto extends createZodDto(DuplicateFacilitySchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -69,6 +77,11 @@ export class FacilitiesController {
     private readonly documents: FacilityDocumentsService,
   ) {}
 
+  private moneyVisible(user: AuthenticatedUser): boolean {
+    const permissions = user.permissions ?? permissionsForRole(user.role);
+    return permissions.includes('invoices:read') && permissions.includes('payments:read');
+  }
+
   @RequirePermission('facilities:read')
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<FacilityDto[]> {
@@ -79,10 +92,16 @@ export class FacilitiesController {
   @RequirePermission('facilities:read')
   @Get('summary')
   async summary(@CurrentUser() user: AuthenticatedUser): Promise<FacilitySummaryDto[]> {
-    const permissions = user.permissions ?? permissionsForRole(user.role);
     return this.insights.summary(user.tenantId, user.facilityScope ?? null, {
-      moneyVisible: permissions.includes('invoices:read') && permissions.includes('payments:read'),
+      moneyVisible: this.moneyVisible(user),
     });
+  }
+
+  /** La papelera: lo borrado en los últimos 30 días. */
+  @RequirePermission('facilities:manage')
+  @Get('deleted')
+  async deleted(@CurrentUser() user: AuthenticatedUser): Promise<DeletedFacilityDto[]> {
+    return this.facilities.listDeleted(user.tenantId, user.facilityScope ?? null);
   }
 
   // --- Documentos del local -------------------------------------------------
@@ -171,6 +190,40 @@ export class FacilitiesController {
     return this.documents.downloadUrl(user.tenantId, id, documentId);
   }
 
+  /** Lo que pasa en el local, de un vistazo. */
+  @RequirePermission('facilities:read')
+  @Get(':id/overview')
+  async overview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<FacilityOverviewDto> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.insights.overview(user.tenantId, id, { moneyVisible: this.moneyVisible(user) });
+  }
+
+  /** Quién del equipo ve el local. */
+  @RequirePermission('users:read')
+  @Get(':id/team')
+  async team(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<FacilityTeamMemberDto[]> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.insights.team(user.tenantId, id);
+  }
+
+  /** Lo que se ha cambiado en el local y en sus plantas. */
+  @RequirePermission('facilities:manage')
+  @Get(':id/history')
+  async history(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('cursor') cursor?: string,
+  ): Promise<FacilityHistoryDto> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.insights.history(user.tenantId, id, cursor);
+  }
+
   @RequirePermission('facilities:read')
   @Get(':id')
   async detail(
@@ -244,6 +297,43 @@ export class FacilitiesController {
     });
   }
 
+  @RequirePermission('facilities:manage')
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  async restore(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<FacilityRestoreResultDto> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.facilities.restore({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      facilityId: id,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Otro local con el mismo horario, características, contacto y plantas. */
+  @RequirePermission('facilities:manage')
+  @Post(':id/duplicate')
+  async duplicate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: DuplicateFacilityDto,
+    @Req() req: Request,
+  ): Promise<FacilityDto> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.facilities.duplicate({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      facilityId: id,
+      name: input.name,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
+    });
+  }
+
   /** Qué hay que resolver antes de borrarlo y qué se apagará. */
   @RequirePermission('facilities:manage')
   @Get(':id/delete-preview')
@@ -305,6 +395,7 @@ export class FacilitiesController {
       userId: user.sub,
       facilityId: id,
       images: input.images,
+      alts: input.alts,
       meta: extractMeta(req),
     });
   }

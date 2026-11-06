@@ -36,6 +36,7 @@ import {
   FacilityMap,
   formatPrice,
   GoogleReviewBadge,
+  FacilityExtras,
   OpeningHoursInfo,
   PromoBanner,
   useHeadlineFallback,
@@ -314,7 +315,7 @@ export function CorporateTemplate({
                             {img ? (
                               <Image
                                 src={img}
-                                alt={f.name}
+                                alt={f.imageAlts?.[0] ?? f.name}
                                 fill
                                 loading="lazy"
                                 sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
@@ -500,9 +501,11 @@ export function CorporateTemplate({
                           <OpeningHoursInfo
                             hours={f.openingHours}
                             timezone={f.timezone}
+                            exceptions={f.openingExceptions}
                             preOpening={f}
                           />
                         </div>
+                        <FacilityExtras f={f} className="mt-2" />
                         <div className="mt-2">
                           <FacilityMap f={f} />
                         </div>

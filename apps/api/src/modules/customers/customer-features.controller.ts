@@ -18,6 +18,7 @@ import {
   BulkCustomerTagsSchema,
   CreateCustomerDocumentRequestSchema,
   CustomerMessageSchema,
+  FacilityMessageSchema,
   MergeCustomerSchema,
   SaveCustomerViewSchema,
   UpsertCustomerContactSchema,
@@ -55,6 +56,7 @@ class SaveViewDto extends createZodDto(SaveCustomerViewSchema) {}
 class BulkTagsDto extends createZodDto(BulkCustomerTagsSchema) {}
 class BulkMessageDto extends createZodDto(BulkCustomerMessageSchema) {}
 class MessageDto extends createZodDto(CustomerMessageSchema) {}
+class FacilityMessageDto extends createZodDto(FacilityMessageSchema) {}
 
 const permissionsOf = (user: AuthenticatedUser) =>
   user.permissions ?? permissionsForRole(user.role);
@@ -123,6 +125,24 @@ export class CustomerFeaturesController {
     @Body() input: BulkMessageDto,
   ): Promise<{ sent: number; skipped: number }> {
     return this.tools.bulkMessage(user.tenantId, input, user.facilityScope ?? null);
+  }
+
+  /** Aviso a los inquilinos en vigor de un local. */
+  @RequirePermission('communications:send')
+  @Post('by-facility/:facilityId/message')
+  @HttpCode(HttpStatus.OK)
+  messageFacility(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('facilityId', new ParseUUIDPipe()) facilityId: string,
+    @Body() input: FacilityMessageDto,
+  ): Promise<{ sent: number }> {
+    return this.tools.messageFacility(
+      user.tenantId,
+      user.sub,
+      facilityId,
+      input,
+      user.facilityScope ?? null,
+    );
   }
 
   @RequirePermission('customers:delete')

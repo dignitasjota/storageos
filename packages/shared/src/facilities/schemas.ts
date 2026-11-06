@@ -43,13 +43,29 @@ export type Weekday = (typeof WEEKDAYS)[number];
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora HH:MM');
 
-/** Apertura antes del cierre («00:00» como cierre = medianoche). */
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha AAAA-MM-DD');
+
+/**
+ * Apertura antes del cierre («00:00» como cierre = medianoche; 00:00–00:00 = 24
+ * horas). `open2`/`close2`: segundo turno de un horario partido, después del primero.
+ */
 export const DayHoursSchema = z
-  .object({ open: hhmm, close: hhmm })
+  .object({ open: hhmm, close: hhmm, open2: hhmm.optional(), close2: hhmm.optional() })
   .refine((d) => d.close === '00:00' || d.open < d.close, {
     message: 'La hora de apertura tiene que ser anterior a la de cierre',
     path: ['close'],
-  });
+  })
+  .refine((d) => !d.open2 === !d.close2, {
+    message: 'Indica las dos horas del segundo turno',
+    path: ['close2'],
+  })
+  .refine(
+    (d) =>
+      !d.open2 ||
+      !d.close2 ||
+      (d.close !== '00:00' && d.close <= d.open2 && (d.close2 === '00:00' || d.open2 < d.close2)),
+    { message: 'El segundo turno tiene que ir después del primero', path: ['open2'] },
+  );
 export type DayHours = z.infer<typeof DayHoursSchema>;
 
 /** `null` = cerrado ese día; ausente = sin configurar (se trata como cerrado). */
@@ -63,6 +79,14 @@ export const OpeningHoursSchema = z.object({
   sun: DayHoursSchema.nullable().optional(),
 });
 export type OpeningHours = z.infer<typeof OpeningHoursSchema>;
+
+/** Festivo o día con otro horario: manda sobre el de la semana. `hours: null` = cerrado. */
+export const OpeningExceptionSchema = z.object({
+  date: isoDay,
+  label: z.string().trim().max(80, 'Máximo 80 caracteres').optional(),
+  hours: DayHoursSchema.nullable(),
+});
+export type OpeningException = z.infer<typeof OpeningExceptionSchema>;
 
 // ============================================================================
 // Facilities
@@ -103,6 +127,19 @@ export const CreateFacilitySchema = z.object({
     .default('Europe/Madrid'),
   /** Horario de apertura semanal, para la web pública del local. */
   openingHours: OpeningHoursSchema.optional(),
+  /** Festivos y días con otro horario. */
+  openingExceptions: z.array(OpeningExceptionSchema).max(60, 'Máximo 60 días').optional(),
+  /** Cómo llegar: indicaciones para la web, el área de clientes y el correo de bienvenida. */
+  directions: z.string().trim().max(1000, 'Máximo 1.000 caracteres').optional().or(z.literal('')),
+  /** Enlace de Google Maps para «Cómo llegar». */
+  mapsUrl: z
+    .string()
+    .trim()
+    .max(500, 'Máximo 500 caracteres')
+    .url('Enlace no válido')
+    .regex(/^https?:\/\//i, 'El enlace tiene que empezar por https://')
+    .optional()
+    .or(z.literal('')),
   /** Vídeo (YouTube/Vimeo) para la web pública del local. */
   videoUrl: z
     .string()
@@ -149,6 +186,16 @@ export const UpdateFacilitySchema = CreateFacilitySchema.partial()
     message: 'Debes enviar al menos un campo',
   });
 export type UpdateFacilityInput = z.infer<typeof UpdateFacilitySchema>;
+
+export const DuplicateFacilitySchema = z.object({ name: facilityName });
+export type DuplicateFacilityInput = z.infer<typeof DuplicateFacilitySchema>;
+
+/** Aviso a los inquilinos de un local (obras, corte de agua…): es de servicio, no comercial. */
+export const FacilityMessageSchema = z.object({
+  subject: z.string().trim().min(2, 'Mínimo 2 caracteres').max(200, 'Máximo 200 caracteres'),
+  bodyText: z.string().trim().min(2, 'Mínimo 2 caracteres').max(20_000),
+});
+export type FacilityMessageInput = z.infer<typeof FacilityMessageSchema>;
 
 // ============================================================================
 // Unit Types
@@ -239,8 +286,6 @@ export const UpdateUnitSchema = z
     message: 'Debes enviar al menos un campo',
   });
 export type UpdateUnitInput = z.infer<typeof UpdateUnitSchema>;
-
-const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha AAAA-MM-DD');
 
 export const ChangeUnitStatusSchema = z.object({
   status: UnitStatusEnum,
@@ -338,6 +383,8 @@ export type RequestFacilityImageUploadInput = z.infer<typeof RequestFacilityImag
 /** Confirma una imagen subida (por su key) o reordena la lista completa. */
 export const SetFacilityImagesSchema = z.object({
   images: z.array(z.string().min(1).max(300)).max(12),
+  /** Texto alternativo por clave (Google y lectores de pantalla). Sin él, el nombre del local. */
+  alts: z.record(z.string().trim().max(150, 'Máximo 150 caracteres')).optional(),
 });
 export type SetFacilityImagesInput = z.infer<typeof SetFacilityImagesSchema>;
 

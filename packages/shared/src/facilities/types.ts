@@ -1,4 +1,9 @@
-import type { FacilityDocumentKind, OpeningHours, UnitStatusValue } from './schemas';
+import type {
+  FacilityDocumentKind,
+  OpeningException,
+  OpeningHours,
+  UnitStatusValue,
+} from './schemas';
 
 export interface FacilityDto {
   id: string;
@@ -16,6 +21,11 @@ export interface FacilityDto {
   timezone: string;
   /** Horario de apertura semanal (por día, en `timezone`); se muestra en la web pública. */
   openingHours: OpeningHours;
+  /** Festivos y días con otro horario. */
+  openingExceptions: OpeningException[];
+  /** Indicaciones para llegar y enlace de Google Maps. */
+  directions: string | null;
+  mapsUrl: string | null;
   /** Toque de queda de acceso (franja bloqueada, en `timezone`). */
   accessCurfewEnabled: boolean;
   accessCurfewStart: string | null;
@@ -25,7 +35,7 @@ export interface FacilityDto {
   contactPhone: string | null;
   contactEmail: string | null;
   /** Imágenes del local (key de objeto + URL pública) para la landing. */
-  images: Array<{ key: string; url: string }>;
+  images: Array<{ key: string; url: string; alt: string | null }>;
   /** Vídeo (YouTube/Vimeo) para la landing pública del local. */
   videoUrl: string | null;
   isActive: boolean;
@@ -253,6 +263,11 @@ export interface FacilitySummaryDto {
   occupiedM2: number;
   /** Facturado este mes (con IVA, sin fianzas). Null sin permiso. */
   invoicedMonth: number | null;
+  /** Deuda vencida a hoy. Null sin permiso. */
+  overdue: number | null;
+  /** Altas y bajas de este mes. */
+  moveIns: number;
+  moveOuts: number;
   /** El trastero que más lleva libre: días (null si no hay libres). */
   longestVacantDays: number | null;
   /** Trasteros en mantenimiento o bloqueados. */
@@ -298,4 +313,83 @@ export interface FacilityDeletePreviewDto {
   };
   /** Personas que solo ven este local: se quedan sin ninguno hasta que les asignes otro. */
   usersLeftWithoutFacilities: string[];
+}
+
+/** Lo que pasa en un local, de un vistazo. */
+export interface FacilityOverviewDto {
+  /** Dirección de su página en la web (con el dominio propio si lo hay). */
+  publicUrl: string | null;
+  /** Ocupación por tamaño: solo los que tiene el local. */
+  byType: {
+    unitTypeId: string;
+    name: string;
+    color: string;
+    defaultPriceMonthly: number;
+    total: number;
+    occupied: number;
+    reserved: number;
+    available: number;
+    outOfService: number;
+    avgPrice: number;
+  }[];
+  /** Null sin permiso para ver el dinero. */
+  mrr: number | null;
+  overdue: number | null;
+  /** Los últimos 30 días. */
+  moveIns: number;
+  moveOuts: number;
+  waitlist: number;
+  /** Inquilinos con contrato en vigor y correo (a quienes llega un aviso del local). */
+  tenantsReachable: number;
+  openIncidents: number;
+  expiringDocuments: { id: string; name: string; expiresOn: string; daysToExpiry: number }[];
+  offlineDevices: { id: string; name: string }[];
+}
+
+/** Días que un local borrado se puede restaurar. */
+export const FACILITY_RESTORE_DAYS = 30;
+
+/** Un local en la papelera. */
+export interface DeletedFacilityDto {
+  id: string;
+  name: string;
+  city: string | null;
+  deletedAt: string;
+  /** Días que quedan para poder restaurarlo. */
+  daysLeft: number;
+  unitsCount: number;
+}
+
+export interface FacilityRestoreResultDto {
+  facility: FacilityDto;
+  /** Lo que se ha vuelto a encender. */
+  restored: {
+    maintenancePlans: number;
+    recurringExpenses: number;
+    accessDevices: number;
+    cameraDevices: number;
+  };
+}
+
+/** Quién del equipo ve este local. */
+export interface FacilityTeamMemberDto {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+  /** `assigned`: tiene este local asignado; `all`: ve todos los locales. */
+  access: 'assigned' | 'all';
+}
+
+export interface FacilityHistoryItemDto {
+  id: string;
+  action: string;
+  userName: string | null;
+  occurredAt: string;
+  changes: Record<string, unknown> | null;
+}
+
+export interface FacilityHistoryDto {
+  items: FacilityHistoryItemDto[];
+  nextCursor: string | null;
 }

@@ -1,7 +1,13 @@
 'use client';
 
-import { mapEmbedUrl, WEEKDAYS } from '@storageos/shared';
-import { Clock, MapPin, MessageCircle, Phone, Mail, Star, Quote } from 'lucide-react';
+import {
+  dayHoursText,
+  isOpenNow,
+  mapEmbedUrl,
+  upcomingExceptions,
+  WEEKDAYS,
+} from '@storageos/shared';
+import { Clock, MapPin, MessageCircle, Navigation, Phone, Mail, Star, Quote } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
@@ -12,7 +18,7 @@ import { bookHrefFor, facilityHref, type BookSite, type PublicWebLocale } from '
 import { grossPrice, formatPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 
-import type { OpeningHours, PublicLandingDto, Weekday } from '@storageos/shared';
+import type { DayHours, OpeningException, OpeningHours, PublicLandingDto } from '@storageos/shared';
 
 export { formatPrice, priceRangeString } from './price-format';
 
@@ -72,7 +78,13 @@ export function FacilityMeta({
         )}
         {f.contactPhone && <WhatsAppButton phone={f.contactPhone} tenantName={tenantName} />}
       </div>
-      <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} preOpening={f} />
+      <OpeningHoursInfo
+        hours={f.openingHours}
+        timezone={f.timezone}
+        exceptions={f.openingExceptions}
+        preOpening={f}
+      />
+      <FacilityExtras f={f} />
       <FacilityMap f={f} />
     </div>
   );
@@ -121,48 +133,10 @@ export function WhatsAppButton({ phone, tenantName }: { phone: string; tenantNam
   );
 }
 
-const WEEKDAY_INTL_SHORT: Record<string, Weekday> = {
-  Mon: 'mon',
-  Tue: 'tue',
-  Wed: 'wed',
-  Thu: 'thu',
-  Fri: 'fri',
-  Sat: 'sat',
-  Sun: 'sun',
-};
-
-/** `true`/`false` si se pudo calcular con la `timezone` del local, `null` si no. */
-export function isOpenNow(hours: OpeningHours, timezone: string): boolean | null {
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).formatToParts(new Date());
-    const weekdayShort = parts.find((p) => p.type === 'weekday')?.value;
-    const hour = Number(parts.find((p) => p.type === 'hour')?.value);
-    const minute = Number(parts.find((p) => p.type === 'minute')?.value);
-    const day = weekdayShort ? WEEKDAY_INTL_SHORT[weekdayShort] : undefined;
-    if (!day || Number.isNaN(hour) || Number.isNaN(minute)) return null;
-    const today = hours[day];
-    if (!today) return false;
-    const [openH, openM] = today.open.split(':').map(Number);
-    const [closeH, closeM] = today.close.split(':').map(Number);
-    const nowMin = hour * 60 + minute;
-    const openMin = openH! * 60 + openM!;
-    let closeMin = closeH! * 60 + closeM!;
-    // «23:59» cuenta como hasta medianoche (un horario 24 h no debe salir cerrado ese minuto).
-    if (closeMin === 23 * 60 + 59) closeMin = 24 * 60;
-    // Cierre igual o anterior a la apertura: abre 24 h (00:00–00:00) o cruza la medianoche.
-    if (closeMin <= openMin) {
-      return closeMin === openMin || nowMin >= openMin || nowMin < closeMin;
-    }
-    return nowMin >= openMin && nowMin < closeMin;
-  } catch {
-    return null;
-  }
+/** Cómo se lee el horario de un día: «09:00–14:00 y 16:00–20:00», «24 horas» o «Cerrado». */
+export function useDayHoursText(): (h: DayHours | null | undefined) => string {
+  const t = useTranslations('publicWeb.hours');
+  return (h) => dayHoursText(h, { closed: t('closed'), allDay: t('allDay'), and: t('and') });
 }
 
 /** «Próxima apertura» (con la fecha si la hay) de un local que aún no ha abierto. */
@@ -177,10 +151,12 @@ export function PreOpeningBadge({
   const locale = useLocale();
   if (!f.preOpening) return null;
   const date = f.openingDate
-    ? new Date(`${f.openingDate}T12:00:00Z`).toLocaleDateString(
-        locale === 'en' ? 'en-GB' : 'es-ES',
-        { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' },
-      )
+    ? new Date(`${f.openingDate}T12:00:00Z`).toLocaleDateString(locale, {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+      })
     : null;
   return (
     <span
@@ -196,18 +172,22 @@ export function PreOpeningBadge({
 export function OpeningHoursInfo({
   hours,
   timezone,
+  exceptions,
   preOpening,
 }: {
   hours: OpeningHours;
   timezone: string;
+  /** Festivos y días con otro horario. */
+  exceptions?: OpeningException[];
   /** Local por abrir: en vez del horario, «Próxima apertura». */
   preOpening?: { preOpening: boolean; openingDate: string | null };
 }) {
   const t = useTranslations('publicWeb.hours');
+  const dayText = useDayHoursText();
   if (preOpening?.preOpening) return <PreOpeningBadge f={preOpening} />;
   const hasAny = WEEKDAYS.some((d) => hours[d]);
   if (!hasAny) return null;
-  const open = isOpenNow(hours, timezone);
+  const open = isOpenNow(hours, timezone, exceptions ?? []);
   return (
     <details className="group w-fit text-sm text-muted-foreground">
       <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 marker:content-none">
@@ -229,12 +209,90 @@ export function OpeningHoursInfo({
           return (
             <li key={day} className="flex gap-2">
               <span className="inline-block w-24">{t(day)}</span>
-              <span>{dayHours ? `${dayHours.open}–${dayHours.close}` : t('closed')}</span>
+              <span>{dayText(dayHours)}</span>
             </li>
           );
         })}
       </ul>
+      <SpecialDays exceptions={exceptions} timezone={timezone} className="mt-1.5 pl-6 text-xs" />
     </details>
+  );
+}
+
+/** Festivos y días con otro horario que vienen. */
+export function SpecialDays({
+  exceptions,
+  timezone,
+  className = '',
+}: {
+  exceptions?: OpeningException[];
+  timezone: string;
+  className?: string;
+}) {
+  const t = useTranslations('publicWeb.hours');
+  const locale = useLocale();
+  const dayText = useDayHoursText();
+  const days = upcomingExceptions(exceptions ?? [], timezone);
+  if (days.length === 0) return null;
+  return (
+    <div className={className}>
+      <p className="font-medium">{t('specialDays')}</p>
+      <ul className="space-y-0.5">
+        {days.map((e) => (
+          <li key={e.date}>
+            {new Date(`${e.date}T12:00:00Z`).toLocaleDateString(locale, {
+              day: 'numeric',
+              month: 'long',
+              timeZone: 'UTC',
+            })}
+            {e.label ? ` (${e.label})` : ''}: {dayText(e.hours)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Características del local y cómo llegar. */
+export function FacilityExtras({
+  f,
+  className = '',
+}: {
+  f: PublicLandingDto['facilities'][number];
+  className?: string;
+}) {
+  const t = useTranslations('publicWeb.features');
+  const tFacility = useTranslations('publicWeb.facility');
+  const features = f.features ?? [];
+  if (features.length === 0 && !f.directions && !f.mapsUrl) return null;
+  return (
+    <div className={`space-y-2 text-sm ${className}`}>
+      {features.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {features.map((key) => (
+            <li key={key} className="rounded-full border px-2.5 py-0.5 text-xs font-medium">
+              {t(key)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {f.directions && (
+        <p className="whitespace-pre-line text-muted-foreground">
+          <span className="font-medium text-foreground">{tFacility('directions')}: </span>
+          {f.directions}
+        </p>
+      )}
+      {f.mapsUrl && (
+        <a
+          href={f.mapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+        >
+          <Navigation className="h-4 w-4" /> {tFacility('openInMaps')}
+        </a>
+      )}
+    </div>
   );
 }
 
@@ -267,7 +325,7 @@ export function UnitTypeList({
         return (
           <li
             key={unitType.id}
-            className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm ${
+            className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm ${
               soldOut ? 'opacity-60' : ''
             }`}
           >
@@ -487,7 +545,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
                 <div className="relative aspect-[16/9] w-full bg-neutral-800">
                   <Image
                     src={f.imageUrls[0]}
-                    alt={f.name}
+                    alt={f.imageAlts?.[0] ?? f.name}
                     fill
                     {...(index === 0 ? { priority: true } : { loading: 'lazy' as const })}
                     sizes="(min-width: 768px) 50vw, 100vw"
@@ -559,7 +617,7 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
             <div className="relative aspect-[16/9] w-full bg-muted">
               <Image
                 src={f.imageUrls[0]}
-                alt={f.name}
+                alt={f.imageAlts?.[0] ?? f.name}
                 fill
                 {...(index === 0 ? { priority: true } : { loading: 'lazy' as const })}
                 sizes="(min-width: 768px) 50vw, 100vw"

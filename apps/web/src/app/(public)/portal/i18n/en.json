@@ -354,7 +354,10 @@
           "fri": "Friday",
           "sat": "Saturday",
           "sun": "Sunday"
-        }
+        },
+        "allDay": "24 hours",
+        "and": "and",
+        "specialDays": "Special days"
       },
       "referrals": {
         "title": "Refer and earn",

@@ -1,6 +1,6 @@
 'use client';
 
-import { type FacilityDto } from '@storageos/shared';
+import { FACILITY_RESTORE_DAYS, type FacilityDto } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -119,6 +119,9 @@ export function DeleteFacilityDialog({
                 no verá ninguno hasta que le asignes otro en Configuración → Usuarios.
               </p>
             )}
+            <p className="text-muted-foreground">
+              Podrás restaurarlo durante {FACILITY_RESTORE_DAYS} días desde Locales → Borrados.
+            </p>
           </div>
         )}
 

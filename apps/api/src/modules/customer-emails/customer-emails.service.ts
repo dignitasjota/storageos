@@ -225,6 +225,7 @@ export class CustomerEmailsService {
             c.preOpening && !c.preOpeningStartedAt
               ? { openingDate: c.preOpeningDateConfirmed ? c.startDate : null }
               : null,
+          directions: c.unit.facility.directions,
         },
         contractId: c.id,
       });
@@ -746,7 +747,9 @@ export class CustomerEmailsService {
         preOpening: true,
         preOpeningDateConfirmed: true,
         preOpeningStartedAt: true,
-        unit: { select: { code: true, facility: { select: { name: true } } } },
+        unit: {
+          select: { code: true, facility: { select: { name: true, directions: true } } },
+        },
       },
     });
   }

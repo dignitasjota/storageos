@@ -1,4 +1,4 @@
-import { type AreaPageKind, type PublicLandingDto } from '@storageos/shared';
+import { dayHoursText, type AreaPageKind, type PublicLandingDto } from '@storageos/shared';
 
 import { formatEur } from '../../common/format';
 import { AREA_PAGE_DRAFT_MARKER } from '../ai/stub-ai-provider';
@@ -17,11 +17,10 @@ const DAYS: [keyof NonNullable<Facility['openingHours']>, string][] = [
 
 function hoursText(hours: Facility['openingHours']): string {
   if (!hours) return 'sin horario publicado';
-  const parts = DAYS.map(([key, label]) => {
-    const day = hours[key];
-    return `${label} ${day ? `${day.open}–${day.close === '00:00' ? '24:00' : day.close}` : 'cerrado'}`;
-  });
-  return parts.join(', ');
+  return DAYS.map(
+    ([key, label]) =>
+      `${label} ${dayHoursText(hours[key], { closed: 'cerrado', allDay: '24 horas', and: 'y' })}`,
+  ).join(', ');
 }
 
 function facilityText(f: Facility): string {

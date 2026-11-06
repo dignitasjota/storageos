@@ -1,6 +1,6 @@
 'use client';
 
-import { mapEmbedUrl, WEEKDAYS } from '@storageos/shared';
+import { isOpenNow, mapEmbedUrl, WEEKDAYS } from '@storageos/shared';
 import {
   ArrowRight,
   Bell,
@@ -36,7 +36,15 @@ import {
 import { grossPrice } from './price-format';
 import { goToSection, goToTop } from './site-sections';
 import { StorageCalculator } from './storage-calculator';
-import { cities, formatPrice, isOpenNow, PreOpeningBadge, useHeadlineFallback } from './templates';
+import {
+  cities,
+  FacilityExtras,
+  formatPrice,
+  PreOpeningBadge,
+  SpecialDays,
+  useDayHoursText,
+  useHeadlineFallback,
+} from './templates';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
@@ -845,7 +853,8 @@ function FacilityCard({
   const t = useTranslations('publicWeb.trstrom');
   const tHours = useTranslations('publicWeb.hours');
   const tCommon = useTranslations('publicWeb.common');
-  const open = isOpenNow(f.openingHours, f.timezone);
+  const dayText = useDayHoursText();
+  const open = isOpenNow(f.openingHours, f.timezone, f.openingExceptions ?? []);
   const hasHours = WEEKDAYS.some((d) => f.openingHours[d]);
   const map = mapEmbedUrl(f);
   const image = f.imageUrls[0] ?? null;
@@ -919,13 +928,19 @@ function FacilityCard({
                         <span className="inline-block w-24 text-muted-foreground">
                           {tHours(day)}
                         </span>
-                        <span>{h ? `${h.open}–${h.close}` : tHours('closed')}</span>
+                        <span>{dayText(h)}</span>
                       </li>
                     );
                   })}
                 </ul>
+                <SpecialDays
+                  exceptions={f.openingExceptions}
+                  timezone={f.timezone}
+                  className="mt-2 text-xs"
+                />
               </div>
             )}
+            <FacilityExtras f={f} className="border-t pt-3" />
           </div>
           <div className="flex flex-wrap gap-2 pt-6">
             <button
@@ -959,7 +974,7 @@ function FacilityCard({
           ) : image ? (
             <Image
               src={image}
-              alt={f.name}
+              alt={f.imageAlts?.[0] ?? f.name}
               fill
               loading="lazy"
               sizes="(min-width: 1024px) 58vw, 100vw"

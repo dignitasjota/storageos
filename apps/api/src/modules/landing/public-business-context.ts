@@ -1,4 +1,11 @@
-import type { PublicLandingDto } from '@storageos/shared';
+import {
+  COMPETITOR_FEATURE_LABELS,
+  dayHoursText,
+  upcomingExceptions,
+  type CompetitorFeature,
+  type DayHours,
+  type PublicLandingDto,
+} from '@storageos/shared';
 
 /**
  * Información PÚBLICA del negocio para los asistentes que hablan con
@@ -20,15 +27,33 @@ export function publicBusinessContextLines(args: {
     lines.push('', '## Locales');
     for (const [fi, f] of l.facilities.entries()) {
       const hours = Object.entries(f.openingHours ?? {})
-        .map(([day, h]) => {
-          const v = h as { open?: string; close?: string } | null;
-          return `${day}: ${v?.open && v.close ? `${v.open}-${v.close}` : 'cerrado'}`;
-        })
+        .map(
+          ([day, h]) =>
+            `${day}: ${dayHoursText(h as DayHours | null, { closed: 'cerrado', allDay: '24 horas', and: 'y' })}`,
+        )
+        .join(', ');
+      const special = upcomingExceptions(f.openingExceptions ?? [], f.timezone)
+        .map(
+          (e) =>
+            `${e.date}${e.label ? ` (${e.label})` : ''}: ${dayHoursText(e.hours, {
+              closed: 'cerrado',
+              allDay: '24 horas',
+              and: 'y',
+            })}`,
+        )
+        .join(', ');
+      const features = f.features
+        .map((key) => COMPETITOR_FEATURE_LABELS[key as CompetitorFeature])
+        .filter(Boolean)
         .join(', ');
       lines.push(
         `- ${code(`L${fi + 1}`)}${f.name}${f.address ? `, ${f.address}` : ''}${f.city ? ` (${f.city})` : ''}${
           f.contactPhone ? ` · tel. ${f.contactPhone}` : ''
-        }${hours ? ` · horario de atención: ${hours}` : ''}`,
+        }${hours ? ` · horario de atención: ${hours}` : ''}${
+          special ? ` · días especiales: ${special}` : ''
+        }${features ? ` · características: ${features}` : ''}${
+          f.directions ? ` · cómo llegar: ${f.directions}` : ''
+        }`,
       );
       for (const [ti, t] of f.unitTypes.entries()) {
         const price = (t.priceMonthly * (1 + t.taxRate / 100)).toFixed(2).replace('.', ',');

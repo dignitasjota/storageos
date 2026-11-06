@@ -41,7 +41,10 @@
       "openNow": "Abierto ahora",
       "closedNow": "Cerrado ahora",
       "preOpening": "Próxima apertura",
-      "preOpeningDate": "Abre el {date}"
+      "preOpeningDate": "Abre el {date}",
+      "allDay": "24 horas",
+      "and": "y",
+      "specialDays": "Días especiales"
     },
     "promo": {
       "percentageOff": "{value}% de descuento",
@@ -72,7 +75,9 @@
       "headingDefault": "Trasteros — {name}",
       "sizesAndPrices": "Tamaños y precios",
       "video": "Vídeo",
-      "photoAlt": "Foto {index} de {name}"
+      "photoAlt": "Foto {index} de {name}",
+      "directions": "Cómo llegar",
+      "openInMaps": "Abrir en Google Maps"
     },
     "testimonials": {
       "title": "Lo que dicen nuestros clientes"
@@ -970,6 +975,14 @@
       "contactSend": "Enviar",
       "contactError": "No se han podido guardar tus datos. Inténtalo de nuevo.",
       "contactThanks": "¡Gracias! El equipo te contactará pronto."
+    },
+    "features": {
+      "24h": "Acceso 24 h",
+      "climate": "Climatizado",
+      "vehicle_access": "Acceso con vehículo",
+      "cctv": "Videovigilancia",
+      "ground_floor": "Planta baja",
+      "online_booking": "Reserva online"
     }
   },
   "offlinePayment": {
