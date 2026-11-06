@@ -86,7 +86,7 @@ test('trasteros: lista, ficha, edición, estado y plano', async ({ page }) => {
 
   // Etiqueta de puerta con su QR.
   await page.goto(`/units/labels?id=${second.id}`);
-  await expect(page.getByText('A-2', { exact: true })).toBeVisible();
+  await expect(page.locator('.unit-label').getByText('A-2', { exact: true })).toBeVisible();
   await expect(page.locator('.unit-label svg')).toBeVisible();
 
   // Un trastero que no existe no se queda cargando.
