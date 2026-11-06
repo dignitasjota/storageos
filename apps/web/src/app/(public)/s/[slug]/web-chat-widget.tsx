@@ -125,7 +125,7 @@ export function WebChatWidget({
   proactive?: boolean;
 }) {
   const t = useTranslations('publicWeb.webChat');
-  const locale = useLocale() === 'en' ? 'en' : 'es';
+  const locale = useLocale().startsWith('en') ? 'en' : 'es';
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const [loaded, setLoaded] = useState(false);
