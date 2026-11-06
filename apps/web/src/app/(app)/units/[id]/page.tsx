@@ -211,10 +211,9 @@ export default function UnitDetailPage() {
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2">
             <StatusBadge status={u.status} />
-            <span className="text-sm text-muted-foreground">{STATUS_LABELS[u.status]}</span>
             {u.status === 'maintenance' && u.maintenanceUntil && (
               <span className="text-sm text-muted-foreground">
-                · vuelve previsto el {formatDate(u.maintenanceUntil)}
+                Vuelve previsto el {formatDate(u.maintenanceUntil)}
               </span>
             )}
           </div>
@@ -306,7 +305,7 @@ export default function UnitDetailPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Historial de estados</CardTitle>
+          <CardTitle className="text-base">Historial de estados</CardTitle>
         </CardHeader>
         <CardContent>
           {history.isLoading && <p className="text-sm text-muted-foreground">Cargando...</p>}

@@ -371,8 +371,12 @@ export default function UnitsPage() {
         accessorFn: (u) => u.daysVacant ?? u.outOfService?.days ?? -1,
         cell: ({ row }) => {
           const u = row.original;
-          if (u.daysVacant !== null) return `Libre ${u.daysVacant} d`;
-          if (u.outOfService) return `Parado ${u.outOfService.days} d`;
+          if (u.daysVacant !== null) {
+            return <span className="whitespace-nowrap">Libre {u.daysVacant} d</span>;
+          }
+          if (u.outOfService) {
+            return <span className="whitespace-nowrap">Parado {u.outOfService.days} d</span>;
+          }
           return <span className="text-muted-foreground">—</span>;
         },
       },

@@ -4,6 +4,9 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+import type { UnitDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { UNIT_LABELS_KEY } from '@/components/units/bulk-actions-bar';
@@ -18,6 +21,31 @@ function readIds(): string[] {
   } catch {
     return [];
   }
+}
+
+function LabelCard({
+  unit,
+  origin,
+  className,
+}: {
+  unit: UnitDto;
+  origin: string;
+  className: string;
+}) {
+  return (
+    <div
+      className={`${className} flex items-center gap-4 rounded-lg border bg-white p-4 text-black`}
+    >
+      <QRCodeSVG value={`${origin}/units/${unit.id}`} size={96} />
+      <div className="min-w-0">
+        <p className="truncate text-4xl font-bold">{unit.code}</p>
+        <p className="truncate text-sm">{unit.facilityName}</p>
+        <p className="text-sm">
+          {unit.unitTypeName} · {formatNumber(unit.areaM2, 1)} m²
+        </p>
+      </div>
+    </div>
+  );
 }
 
 /** Etiquetas de puerta: el código grande y un QR que abre la ficha del trastero. */
@@ -36,13 +64,20 @@ export default function UnitLabelsPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      {/* Al imprimir solo sale la hoja de etiquetas, sin el menú ni la cabecera. */}
+      {/* Se imprime una copia colgada de <body>: dentro del panel heredaría su
+          posición y se estiraría a toda la hoja. */}
       <style>{`
+        .unit-labels-print { display: none; }
         @media print {
-          body * { visibility: hidden; }
-          .unit-labels, .unit-labels * { visibility: visible; }
-          .unit-labels { position: absolute; inset: 0; }
-          .unit-label { break-inside: avoid; }
+          body > *:not(.unit-labels-print) { display: none !important; }
+          .unit-labels-print {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            align-content: start;
+            padding: 12px;
+          }
+          .unit-print-label { break-inside: avoid; }
         }
       `}</style>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -66,23 +101,20 @@ export default function UnitLabelsPage() {
           Selecciona trasteros en la lista y pulsa «Etiquetas».
         </p>
       )}
-      <div className="unit-labels grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 print:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {labels.map((u) => (
-          <div
-            key={u.id}
-            className="unit-label flex items-center gap-4 rounded-lg border bg-white p-4 text-black"
-          >
-            <QRCodeSVG value={`${origin}/units/${u.id}`} size={96} />
-            <div className="min-w-0">
-              <p className="truncate text-4xl font-bold">{u.code}</p>
-              <p className="truncate text-sm">{u.facilityName}</p>
-              <p className="text-sm">
-                {u.unitTypeName} · {formatNumber(u.areaM2, 1)} m²
-              </p>
-            </div>
-          </div>
+          <LabelCard key={u.id} unit={u} origin={origin} className="unit-label" />
         ))}
       </div>
+      {origin &&
+        createPortal(
+          <div className="unit-labels-print">
+            {labels.map((u) => (
+              <LabelCard key={u.id} unit={u} origin={origin} className="unit-print-label" />
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
