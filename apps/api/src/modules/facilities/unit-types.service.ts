@@ -16,6 +16,11 @@ import type { CreateUnitTypeInput, UnitTypeDto, UpdateUnitTypeInput } from '@sto
 
 type UnitTypeWithCount = UnitType & { _count?: { units: number } };
 
+/** Los trasteros de un local borrado no cuentan en el recuento de la lista. */
+const LIVE_UNITS_COUNT = {
+  _count: { select: { units: { where: { facility: { deletedAt: null } } } } },
+} as const;
+
 interface CreateArgs {
   tenantId: string;
   userId: string;
@@ -62,7 +67,7 @@ export class UnitTypesService {
       (tx) =>
         tx.unitType.findMany({
           orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-          include: { _count: { select: { units: true } } },
+          include: LIVE_UNITS_COUNT,
         }),
       tenantId,
     );
@@ -146,17 +151,27 @@ export class UnitTypesService {
       changes.stackable = args.input.stackable;
     }
     if (args.input.propertyKind !== undefined) {
-      // Pasar a vivienda exige el extra; volver a trastero, nunca.
-      if (args.input.propertyKind === 'housing') {
-        const current = await this.prisma.withTenant(
+      if (args.input.propertyKind !== existing.propertyKind) {
+        // Trastero ↔ vivienda cambia el IVA de sus facturas: no con contratos en vigor.
+        const rented = await this.prisma.withTenant(
           (tx) =>
-            tx.unitType.findUnique({
-              where: { id: args.unitTypeId },
-              select: { propertyKind: true },
+            tx.contract.count({
+              where: {
+                status: { in: ['active', 'ending'] },
+                deletedAt: null,
+                unit: { unitTypeId: args.unitTypeId },
+              },
             }),
           args.tenantId,
         );
-        if (current?.propertyKind !== 'housing') await this.assertHousingAllowed(args.tenantId);
+        if (rented > 0) {
+          throw new ConflictException({
+            code: 'cannot_change_kind_while_rented',
+            message: `Este tipo tiene ${rented === 1 ? '1 contrato' : `${rented} contratos`} en vigor: no se puede pasar de trastero a vivienda (o al revés) porque cambiaría el IVA de sus facturas. Crea un tipo nuevo.`,
+          });
+        }
+        // Pasar a vivienda exige el extra; volver a trastero, nunca.
+        if (args.input.propertyKind === 'housing') await this.assertHousingAllowed(args.tenantId);
       }
       data.propertyKind = args.input.propertyKind;
       changes.propertyKind = args.input.propertyKind;
@@ -199,7 +214,7 @@ export class UnitTypesService {
       (tx) =>
         tx.unitType.findUniqueOrThrow({
           where: { id: updated.id },
-          include: { _count: { select: { units: true } } },
+          include: LIVE_UNITS_COUNT,
         }),
       args.tenantId,
     );

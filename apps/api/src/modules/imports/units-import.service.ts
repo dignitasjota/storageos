@@ -12,6 +12,7 @@ import { UnitsService } from '../facilities/units.service';
 
 import {
   buildPreview,
+  facilitiesByName,
   flattenZodErrors,
   parseDecimal,
   parseRaw,
@@ -77,6 +78,7 @@ const TEMPLATE_HEADERS = [
 
 interface UnitsCtx {
   facilityByName: Map<string, string>;
+  ambiguousFacilities: Set<string>;
   unitTypeByName: Map<string, string>;
   existingKeys: Set<string>;
   seen: Set<string>;
@@ -137,11 +139,12 @@ export class UnitsImportService {
         ]),
       tenantId,
     );
-    const facilityByName = new Map(facilities.map((f) => [f.name.trim().toLowerCase(), f.id]));
+    const { byName: facilityByName, ambiguous: ambiguousFacilities } = facilitiesByName(facilities);
     const unitTypeByName = new Map(unitTypes.map((t) => [t.name.trim().toLowerCase(), t.id]));
     const existingKeys = new Set(units.map((u) => `${u.facilityId}::${u.code.toUpperCase()}`));
     return {
       facilityByName,
+      ambiguousFacilities,
       unitTypeByName,
       existingKeys,
       seen: new Set(),
@@ -168,7 +171,11 @@ export class UnitsImportService {
         ? ctx.facilityByName.get(facilityName.toLowerCase())
         : undefined;
       if (!facilityName) errors.push('facility: falta el local');
-      else if (!facilityId) errors.push(`facility: local no encontrado "${facilityName}"`);
+      else if (ctx.ambiguousFacilities.has(facilityName.toLowerCase())) {
+        errors.push(
+          `facility: hay varios locales llamados "${facilityName}", cambia uno de nombre`,
+        );
+      } else if (!facilityId) errors.push(`facility: local no encontrado "${facilityName}"`);
 
       const unitTypeId = unitTypeName
         ? ctx.unitTypeByName.get(unitTypeName.toLowerCase())

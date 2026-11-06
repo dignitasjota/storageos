@@ -23,6 +23,19 @@ import { useUpdateFacility } from '@/lib/facilities/hooks';
 /** Zonas horarias habituales (España continental y Canarias, Portugal). */
 const TIMEZONES = ['Europe/Madrid', 'Atlantic/Canary', 'Europe/Lisbon'];
 
+const COUNTRIES: Record<string, string> = {
+  ES: 'España',
+  PT: 'Portugal',
+  AD: 'Andorra',
+  FR: 'Francia',
+  IT: 'Italia',
+  DE: 'Alemania',
+  BE: 'Bélgica',
+  NL: 'Países Bajos',
+  IE: 'Irlanda',
+  GB: 'Reino Unido',
+};
+
 interface Form {
   name: string;
   address: string;
@@ -65,13 +78,14 @@ export function FacilityDetailsCard({ facility }: { facility: FacilityDto }) {
     setForm((f) => ({ ...f, [key]: value }));
 
   async function save() {
-    const lat = form.latitude.trim() ? Number(form.latitude.replace(',', '.')) : undefined;
-    const lng = form.longitude.trim() ? Number(form.longitude.replace(',', '.')) : undefined;
-    if (
-      (lat !== undefined && !Number.isFinite(lat)) ||
-      (lng !== undefined && !Number.isFinite(lng))
-    ) {
+    const lat = form.latitude.trim() ? Number(form.latitude.replace(',', '.')) : null;
+    const lng = form.longitude.trim() ? Number(form.longitude.replace(',', '.')) : null;
+    if ((lat !== null && !Number.isFinite(lat)) || (lng !== null && !Number.isFinite(lng))) {
       toast.error('Las coordenadas tienen que ser números (p. ej. 40.4168 y -3.7038).');
+      return;
+    }
+    if ((lat === null) !== (lng === null)) {
+      toast.error('Indica la latitud y la longitud, o deja las dos vacías.');
       return;
     }
     if (form.name.trim().length < 2) {
@@ -97,12 +111,12 @@ export function FacilityDetailsCard({ facility }: { facility: FacilityDto }) {
           address: form.address.trim(),
           city: form.city.trim(),
           postalCode: form.postalCode.trim(),
-          country: form.country.trim().toUpperCase(),
+          country: form.country,
           timezone: form.timezone,
           contactPhone: form.contactPhone.trim(),
           contactEmail: form.contactEmail.trim(),
-          ...(lat !== undefined ? { latitude: lat } : {}),
-          ...(lng !== undefined ? { longitude: lng } : {}),
+          latitude: lat,
+          longitude: lng,
           isActive: form.isActive,
         },
       });
@@ -142,12 +156,21 @@ export function FacilityDetailsCard({ facility }: { facility: FacilityDto }) {
               value={form.postalCode}
               onChange={(v) => set('postalCode', v)}
             />
-            <Field
-              id="fd-country"
-              label="País (2 letras)"
-              value={form.country}
-              onChange={(v) => set('country', v.slice(0, 2))}
-            />
+            <div className="space-y-1">
+              <Label>País</Label>
+              <Select value={form.country} onValueChange={(v) => set('country', v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[...new Set([...Object.keys(COUNTRIES), facility.country])].map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {COUNTRIES[code] ?? code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <Field
             id="fd-phone"
@@ -196,7 +219,8 @@ export function FacilityDetailsCard({ facility }: { facility: FacilityDto }) {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              En Google Maps, botón derecho sobre el local → copia los números.{' '}
+              En Google Maps, botón derecho sobre el local → copia los números. Déjalas vacías para
+              quitar el mapa.{' '}
               {mapHref && (
                 <a href={mapHref} target="_blank" rel="noreferrer" className="underline">
                   Comprobar en el mapa

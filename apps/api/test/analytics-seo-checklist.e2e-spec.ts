@@ -71,11 +71,16 @@ describe('Analytics — checklist de SEO on-page (e2e)', () => {
       })
       .expect(200);
 
-    // Imagen (no hace falta subirla físicamente, solo confirmar la key).
+    // Imagen.
     const presign = await request(app.getHttpServer())
       .post(`/facilities/${facilityId}/images/upload-url`)
       .set(auth)
       .send({ mimeType: 'image/jpeg', sizeBytes: 1000 });
+    await fetch(presign.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'content-type': 'image/jpeg' },
+      body: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]),
+    });
     await request(app.getHttpServer())
       .put(`/facilities/${facilityId}/images`)
       .set(auth)

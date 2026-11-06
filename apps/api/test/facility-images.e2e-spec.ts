@@ -37,7 +37,12 @@ describe('Facility images + slug (e2e)', () => {
     const key = presign.body.key as string;
     expect(key).toContain(`/${facilityId}/images/`);
 
-    // Confirmar la imagen (no hace falta subirla físicamente: la API guarda la key).
+    // Confirmar la imagen ya subida.
+    await fetch(presign.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'content-type': 'image/jpeg' },
+      body: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]),
+    });
     const set = await request(app.getHttpServer())
       .put(`/facilities/${facilityId}/images`)
       .set(auth)
@@ -184,9 +189,10 @@ describe('Facility images + slug (e2e)', () => {
         .patch(`/facilities/${facilityId}`)
         .set(auth)
         .send({ publicSlug: reserved });
-      expect(patch.status).toBe(200);
-      // Se desambigua con sufijo, como cualquier slug ya en uso.
-      expect(patch.body.publicSlug).toBe(`${reserved}-2`);
+      expect(patch.status).toBe(409);
+      expect(patch.body.code).toBe('slug_taken');
+      // Propone uno libre, como con cualquier dirección ya en uso.
+      expect(patch.body.details.suggestion).toBe(`${reserved}-2`);
     }
   });
 });

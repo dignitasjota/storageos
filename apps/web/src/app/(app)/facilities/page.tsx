@@ -14,7 +14,9 @@ import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
-import { useConfirm } from '@/components/confirm-provider';
+import { DeleteFacilityDialog } from './delete-facility-dialog';
+
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,9 +45,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
-import { useCreateFacility, useDeleteFacility, useFacilities } from '@/lib/facilities/hooks';
+import { useCreateFacility, useFacilities } from '@/lib/facilities/hooks';
 import { useFacilitySummary } from '@/lib/facilities/inventory-hooks';
-import { formatEur, formatNumber } from '@/lib/format';
+import { formatDate, formatEur, formatNumber } from '@/lib/format';
 
 function barColor(pct: number): string {
   if (pct >= 85) return '#16a34a';
@@ -55,7 +57,6 @@ function barColor(pct: number): string {
 }
 
 export default function FacilitiesPage() {
-  const ask = useConfirm();
   const facilities = useFacilities();
   const summaries = useFacilitySummary();
   const summaryOf = useMemo(
@@ -66,9 +67,9 @@ export default function FacilitiesPage() {
   const canManage = useHasPermission('facilities:manage');
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [deleting, setDeleting] = useState<FacilityDto | null>(null);
   const router = useRouter();
   const create = useCreateFacility();
-  const remove = useDeleteFacility();
 
   const form = useForm<CreateFacilityInput>({
     resolver: zodResolver(CreateFacilitySchema),
@@ -85,15 +86,18 @@ export default function FacilitiesPage() {
   }, [all, search]);
 
   const totals = useMemo(() => {
-    const units = all.reduce((s, f) => s + f.unitsTotal, 0);
-    const occupied = all.reduce((s, f) => s + f.unitsOccupied, 0);
+    const units = all.reduce((s, f) => s + (summaryOf.get(f.id)?.totalUnits ?? f.unitsTotal), 0);
+    const occupied = all.reduce(
+      (s, f) => s + (summaryOf.get(f.id)?.occupiedUnits ?? f.unitsOccupied),
+      0,
+    );
     return {
       facilities: all.length,
       units,
       occupied,
       pct: units > 0 ? Math.round((occupied / units) * 100) : 0,
     };
-  }, [all]);
+  }, [all, summaryOf]);
 
   async function onSubmit(values: CreateFacilityInput) {
     try {
@@ -107,31 +111,13 @@ export default function FacilitiesPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (
-      !(await ask({
-        title: '¿Borrar este local?',
-        description:
-          'Sus trasteros dejan de aparecer en el panel, en la web y en la reserva. Solo se puede si no tiene contratos en vigor; para dejar de alquilarlo sin borrarlo, desactívalo en Ajustes.',
-        destructive: true,
-      }))
-    )
-      return;
-    try {
-      await remove.mutateAsync(id);
-      toast.success('Local borrado.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error al borrar.');
-    }
-  }
-
   return (
     <div className="space-y-5 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Locales</h1>
           <p className="text-sm text-muted-foreground">
-            Gestiona tus naves de self-storage. Cada local tiene sus plantas y sus trasteros.
+            Cada local tiene sus plantas y sus trasteros.
           </p>
         </div>
         {canManage && (
@@ -234,6 +220,8 @@ export default function FacilitiesPage() {
         <div className="flex h-48 items-center justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
+      ) : facilities.isError ? (
+        <SectionError onRetry={() => void facilities.refetch()} />
       ) : filtered.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
@@ -251,11 +239,12 @@ export default function FacilitiesPage() {
               summary={summaryOf.get(f.id) ?? null}
               showOwner={hasOwners}
               canManage={canManage}
-              onDelete={handleDelete}
+              onDelete={() => setDeleting(f)}
             />
           ))}
         </div>
       )}
+      <DeleteFacilityDialog facility={deleting} onClose={() => setDeleting(null)} />
     </div>
   );
 }
@@ -282,10 +271,12 @@ function FacilityCard({
   summary: FacilitySummaryDto | null;
   showOwner: boolean;
   canManage: boolean;
-  onDelete: (id: string) => void;
+  onDelete: () => void;
 }) {
   const cover = f.images[0]?.url ?? null;
-  const pct = f.unitsTotal > 0 ? Math.round((f.unitsOccupied / f.unitsTotal) * 100) : 0;
+  const total = summary?.totalUnits ?? f.unitsTotal;
+  const occupied = summary?.occupiedUnits ?? f.unitsOccupied;
+  const pct = total > 0 ? Math.round((occupied / total) * 100) : 0;
 
   return (
     <Card className="group overflow-hidden transition-shadow hover:shadow-soft">
@@ -305,6 +296,11 @@ function FacilityCard({
           )}
           <div className="absolute left-2 top-2 flex flex-wrap gap-1">
             {!f.isActive && <Badge variant="secondary">Inactivo</Badge>}
+            {f.preOpening && (
+              <Badge variant="secondary">
+                {f.openingDate ? `Abre el ${formatDate(f.openingDate)}` : 'Próxima apertura'}
+              </Badge>
+            )}
             {showOwner && !f.ownerId && <Badge variant="secondary">Sin propietario</Badge>}
           </div>
         </div>
@@ -340,7 +336,7 @@ function FacilityCard({
                 <Link href={`/facilities/${f.id}`}>Abrir</Link>
               </DropdownMenuItem>
               {canManage && (
-                <DropdownMenuItem className="text-destructive" onClick={() => onDelete(f.id)}>
+                <DropdownMenuItem className="text-destructive" onClick={onDelete}>
                   Borrar
                 </DropdownMenuItem>
               )}
@@ -348,12 +344,12 @@ function FacilityCard({
           </DropdownMenu>
         </div>
 
-        {f.unitsTotal > 0 ? (
+        {total > 0 ? (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Ocupación</span>
               <span className="font-medium tabular-nums">
-                {pct}% · {f.unitsOccupied}/{f.unitsTotal}
+                {pct}% · {occupied}/{total}
               </span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
@@ -366,16 +362,20 @@ function FacilityCard({
         ) : (
           <p className="text-xs text-muted-foreground">Sin trasteros todavía</p>
         )}
-        {summary && f.unitsTotal > 0 && (
+        {summary && total > 0 && (
           <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-            <dt className="text-muted-foreground">Cuotas al mes</dt>
-            <dd className="text-right font-medium tabular-nums">{formatEur(summary.mrr)}</dd>
-            <dt className="text-muted-foreground">Cuota media</dt>
-            <dd className="text-right tabular-nums">
-              {summary.avgPrice === null ? '—' : formatEur(summary.avgPrice)}
-            </dd>
-            <dt className="text-muted-foreground">Facturado este mes</dt>
-            <dd className="text-right tabular-nums">{formatEur(summary.invoicedMonth)}</dd>
+            {summary.mrr !== null && (
+              <>
+                <dt className="text-muted-foreground">Cuotas al mes</dt>
+                <dd className="text-right font-medium tabular-nums">{formatEur(summary.mrr)}</dd>
+                <dt className="text-muted-foreground">Cuota media</dt>
+                <dd className="text-right tabular-nums">
+                  {summary.avgPrice === null ? '—' : formatEur(summary.avgPrice)}
+                </dd>
+                <dt className="text-muted-foreground">Facturado este mes</dt>
+                <dd className="text-right tabular-nums">{formatEur(summary.invoicedMonth ?? 0)}</dd>
+              </>
+            )}
             <dt className="text-muted-foreground">m² alquilados</dt>
             <dd className="text-right tabular-nums">
               {formatNumber(summary.occupiedM2)} / {formatNumber(summary.totalM2)}

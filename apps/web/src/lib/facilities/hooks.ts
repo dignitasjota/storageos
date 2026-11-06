@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { meQueryKey } from '../auth/hooks';
 import { compressImage } from '../images/compress';
 
 import type {
@@ -12,6 +13,7 @@ import type {
   CreateFloorInput,
   CreateUnitInput,
   CreateUnitTypeInput,
+  FacilityDeletePreviewDto,
   FacilityDto,
   FacilityImageUploadResponseDto,
   FacilityFloorDto,
@@ -66,6 +68,8 @@ export function useCreateFacility() {
       apiFetch<FacilityDto>('/facilities', { method: 'POST', json: input }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: facilitiesKey });
+      // Quien solo ve unos locales gana el que acaba de crear.
+      void qc.invalidateQueries({ queryKey: meQueryKey });
     },
   });
 }
@@ -142,12 +146,24 @@ export async function uploadFacilityImage(facilityId: string, file: File): Promi
   return presign.key;
 }
 
+/** Qué hay que resolver antes de borrar un local y qué se apagará. */
+export function useFacilityDeletePreview(id: string | null) {
+  return useQuery({
+    queryKey: ['facilities', id, 'delete-preview'],
+    queryFn: () => apiFetch<FacilityDeletePreviewDto>(`/facilities/${id}/delete-preview`),
+    enabled: !!id,
+    gcTime: 0,
+  });
+}
+
 export function useDeleteFacility() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/facilities/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: facilitiesKey });
+      for (const queryKey of [facilitiesKey, ['units'], ['dashboard'], ['inventory'], meQueryKey]) {
+        void qc.invalidateQueries({ queryKey });
+      }
     },
   });
 }
@@ -391,6 +407,17 @@ export function useSetFloorPlan() {
         method: 'PATCH',
         json: args.input,
       }),
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: floorsKey(data.facilityId) });
+    },
+  });
+}
+
+export function useRemoveFloorPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<FacilityFloorDto>(`/floors/${id}/plan`, { method: 'DELETE' }),
     onSuccess: (data) => {
       void qc.invalidateQueries({ queryKey: floorsKey(data.facilityId) });
     },

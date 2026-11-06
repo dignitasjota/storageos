@@ -17,7 +17,9 @@ import {
   CreateFacilitySchema,
   type FacilityDocumentDto,
   type FacilityDocumentUploadDto,
+  type FacilityDeletePreviewDto,
   type FacilitySummaryDto,
+  permissionsForRole,
   RequestFacilityDocumentUploadSchema,
   UpdateFacilityDocumentSchema,
   type FacilityDto,
@@ -77,7 +79,10 @@ export class FacilitiesController {
   @RequirePermission('facilities:read')
   @Get('summary')
   async summary(@CurrentUser() user: AuthenticatedUser): Promise<FacilitySummaryDto[]> {
-    return this.insights.summary(user.tenantId, user.facilityScope ?? null);
+    const permissions = user.permissions ?? permissionsForRole(user.role);
+    return this.insights.summary(user.tenantId, user.facilityScope ?? null, {
+      moneyVisible: permissions.includes('invoices:read') && permissions.includes('payments:read'),
+    });
   }
 
   // --- Documentos del local -------------------------------------------------
@@ -187,6 +192,7 @@ export class FacilitiesController {
       tenantId: user.tenantId,
       userId: user.sub,
       input,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
@@ -236,6 +242,17 @@ export class FacilitiesController {
       facilityId: id,
       meta: extractMeta(req),
     });
+  }
+
+  /** Qué hay que resolver antes de borrarlo y qué se apagará. */
+  @RequirePermission('facilities:manage')
+  @Get(':id/delete-preview')
+  async deletePreview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<FacilityDeletePreviewDto> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.facilities.deletePreview(user.tenantId, id);
   }
 
   @RequirePermission('facilities:manage')

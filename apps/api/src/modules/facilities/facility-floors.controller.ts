@@ -190,6 +190,17 @@ export class FacilityFloorsController {
   }
 
   @RequirePermission('facilities:manage')
+  @Delete('floors/:id/plan')
+  async removePlan(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<FacilityFloorDto> {
+    await this.scopedFloor(user, id);
+    return this.floors.removePlan(user.tenantId, user.sub, id, extractMeta(req));
+  }
+
+  @RequirePermission('facilities:manage')
   @Patch('floors/:id/units-layout')
   @HttpCode(HttpStatus.OK)
   async updateLayout(

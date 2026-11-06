@@ -240,7 +240,12 @@ export class MaintenanceService {
   async generateDue(): Promise<{ generated: number }> {
     const today = toDateOnly(undefined);
     const duePlans = await this.admin.maintenancePlan.findMany({
-      where: { isActive: true, nextRunDate: { lte: today } },
+      where: {
+        isActive: true,
+        nextRunDate: { lte: today },
+        // Los de toda la empresa no tienen local; los de un local borrado no siguen.
+        OR: [{ facilityId: null }, { facility: { deletedAt: null } }],
+      },
       take: 500,
       orderBy: { nextRunDate: 'asc' },
     });

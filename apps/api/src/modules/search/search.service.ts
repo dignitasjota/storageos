@@ -18,8 +18,8 @@ function customerName(c: {
 }
 
 /**
- * Búsqueda global del panel: localiza inquilinos, contratos, trasteros y
- * facturas por su identificador/nombre. `withTenant` (RLS) garantiza que solo
+ * Búsqueda global del panel: localiza inquilinos, contratos, locales, trasteros
+ * y facturas por su identificador/nombre. `withTenant` (RLS) garantiza que solo
  * devuelve datos del tenant del usuario.
  */
 @Injectable()
@@ -40,7 +40,7 @@ export class SearchService {
     const invoiceScope = invoiceFacilityWhere(facilityScope) ?? {};
 
     return this.prisma.withTenant(async (tx) => {
-      const [customers, contracts, units, invoices] = await Promise.all([
+      const [customers, contracts, facilities, units, invoices] = await Promise.all([
         tx.customer.findMany({
           where: {
             deletedAt: null,
@@ -71,8 +71,18 @@ export class SearchService {
             unit: { select: { code: true } },
           },
         }),
+        tx.facility.findMany({
+          where: {
+            deletedAt: null,
+            OR: [{ name: contains }, { city: contains }],
+            ...(facilityScope ? { id: { in: facilityScope } } : {}),
+          },
+          take: PER_TYPE,
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true, city: true },
+        }),
         tx.unit.findMany({
-          where: { code: contains, ...unitScope },
+          where: { code: contains, facility: { deletedAt: null }, ...unitScope },
           take: PER_TYPE,
           select: { id: true, code: true, facility: { select: { name: true } } },
         }),
@@ -100,6 +110,15 @@ export class SearchService {
           label: c.contractNumber,
           detail: c.unit?.code ?? null,
           href: `/contracts/${c.id}`,
+        });
+      }
+      for (const f of facilities) {
+        results.push({
+          type: 'facility',
+          id: f.id,
+          label: f.name,
+          detail: f.city,
+          href: `/facilities/${f.id}`,
         });
       }
       for (const u of units) {

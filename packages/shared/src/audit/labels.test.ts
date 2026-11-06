@@ -15,6 +15,17 @@ describe('auditActionLabel', () => {
     expect(auditActionLabel('foo.bar_baz')).toBe('foo bar baz');
   });
 
+  it('concuerda con la entidad y nombra las acciones de locales y plantas', () => {
+    expect(auditActionLabel('floor.created')).toBe('Planta · creada');
+    expect(auditActionLabel('floor.deleted')).toBe('Planta · borrada');
+    expect(auditActionLabel('facility.deleted')).toBe('Local · borrado');
+    expect(auditActionLabel('floor.plan_uploaded')).toBe('Planta · plano subido');
+    expect(auditActionLabel('floor.layout_updated')).toBe('Planta · plano reorganizado');
+    expect(auditActionLabel('facility.images_updated')).toBe('Local · fotos cambiadas');
+    expect(auditActionLabel('facility.document_added')).toBe('Local · documento añadido');
+    expect(auditActionLabel('unit_type.deactivated')).toBe('Tipo de trastero · desactivado');
+  });
+
   it('nombra los permisos', () => {
     expect(permissionLabel('invoices:refund')).toBe('Facturas · Devolver dinero');
   });

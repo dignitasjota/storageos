@@ -10,6 +10,7 @@ import {
   Plus,
   RectangleHorizontal,
   Save,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -20,6 +21,7 @@ import { toast } from 'sonner';
 import type { UnitDto } from '@storageos/shared';
 import type Konva from 'konva';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,8 +33,10 @@ import {
 } from '@/components/ui/select';
 import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useFloors,
+  useRemoveFloorPlan,
   useRequestPlanUploadUrl,
   useSetFloorPlan,
   useStackUnits,
@@ -47,6 +51,7 @@ import { formatEur, formatNumber } from '@/lib/format';
 interface Props {
   facilityId: string;
   floorId: string;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 /** Colores por estado (los mismos que el visor del plano). */
@@ -111,12 +116,16 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-export function PlanEditor({ facilityId, floorId }: Props) {
+export function PlanEditor({ facilityId, floorId, onDirtyChange }: Props) {
+  const ask = useConfirm();
+  const canManage = useHasPermission('facilities:manage');
+  const canCreateUnits = useHasPermission('units:write');
   const floors = useFloors(facilityId);
   const units = useUnits({ facilityId, floorId });
   const types = useUnitTypes();
   const requestUpload = useRequestPlanUploadUrl();
   const setPlan = useSetFloorPlan();
+  const removePlan = useRemoveFloorPlan();
   const updateLayout = useUpdateUnitsLayout();
   const stackUnits = useStackUnits();
   const unstackUnit = useUnstackUnit();
@@ -254,8 +263,8 @@ export function PlanEditor({ facilityId, floorId }: Props) {
             },
           });
           toast.success('Plano actualizado.');
-        } catch {
-          toast.error('No se pudo guardar el plano.');
+        } catch (err) {
+          toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar el plano.');
         }
       };
       img.onerror = () => {
@@ -264,14 +273,32 @@ export function PlanEditor({ facilityId, floorId }: Props) {
       };
       img.src = objectUrl;
     } catch (err) {
-      toast.error('No se pudo subir el plano.');
-      void err;
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo subir el plano.');
+    }
+  }
+
+  async function quitPlan() {
+    if (
+      !(await ask({
+        title: '¿Quitar el plano de esta planta?',
+        description: 'Los trasteros se quedan donde están. Puedes subir otro cuando quieras.',
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    try {
+      await removePlan.mutateAsync(floorId);
+      toast.success('Plano quitado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo quitar el plano.');
     }
   }
 
   /** Doble clic en un hueco del plano: crear un trastero ahí. */
   function openCreateAt(target: Konva.Node) {
     const stage = stageRef.current;
+    if (!canCreateUnits) return;
     if (!stage || (target !== stage && target.getClassName() !== 'Image')) return;
     const p = stage.getPointerPosition();
     if (!p) return;
@@ -300,6 +327,11 @@ export function PlanEditor({ facilityId, floorId }: Props) {
     setNewAt(null);
   }
 
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+
   // Aviso al salir con la distribución sin guardar.
   useEffect(() => {
     if (!dirty) return;
@@ -325,10 +357,12 @@ export function PlanEditor({ facilityId, floorId }: Props) {
           })),
         },
       });
-      toast.success('Layout guardado.');
+      toast.success('Distribución guardada.');
       setDirty(false);
-    } catch {
-      toast.error('Error guardando layout.');
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.body.message : 'No se pudo guardar la distribución.',
+      );
     }
   }
 
@@ -457,17 +491,30 @@ export function PlanEditor({ facilityId, floorId }: Props) {
             e.target.value = '';
           }}
         />
-        <Button
-          variant="outline"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={requestUpload.isPending || setPlan.isPending}
-        >
-          <Upload className="mr-1 h-4 w-4" />
-          {floor?.planImageUrl ? 'Cambiar plano' : 'Subir plano'}
-        </Button>
-        <Button onClick={saveLayout} disabled={!dirty || updateLayout.isPending}>
-          <Save className="mr-1 h-4 w-4" /> Guardar layout
-        </Button>
+        {canManage && (
+          <>
+            <Button
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={requestUpload.isPending || setPlan.isPending}
+            >
+              <Upload className="mr-1 h-4 w-4" />
+              {floor?.planImageUrl ? 'Cambiar plano' : 'Subir plano'}
+            </Button>
+            {floor?.planImageUrl && (
+              <Button
+                variant="ghost"
+                onClick={() => void quitPlan()}
+                disabled={removePlan.isPending}
+              >
+                <Trash2 className="mr-1 h-4 w-4" /> Quitar plano
+              </Button>
+            )}
+            <Button onClick={saveLayout} disabled={!dirty || updateLayout.isPending}>
+              <Save className="mr-1 h-4 w-4" /> Guardar distribución
+            </Button>
+          </>
+        )}
         <div className="flex items-center rounded-md border p-0.5">
           <Button
             size="sm"
@@ -486,10 +533,12 @@ export function PlanEditor({ facilityId, floorId }: Props) {
             Por estado
           </Button>
         </div>
-        <span className="hidden text-sm text-muted-foreground sm:inline">
-          Arrastra para colocar; tira de una esquina para cambiar el tamaño; doble clic en un hueco
-          para crear un trastero ahí. Snap a {GRID}px.
-        </span>
+        {canManage && (
+          <span className="hidden text-sm text-muted-foreground sm:inline">
+            Arrastra para colocar (se ajusta solo a la cuadrícula); tira de una esquina para cambiar
+            el tamaño; doble clic en un hueco para crear un trastero ahí.
+          </span>
+        )}
       </div>
 
       {/* Leyenda de estados (color del borde de cada trastero). */}
@@ -577,7 +626,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                     opacity={STATUS_OPACITY[r.status] ?? 0.6}
                     stroke={isSelected ? '#000' : (STATUS_COLOR[r.status] ?? '#222')}
                     strokeWidth={isSelected ? 4 : 2.5}
-                    draggable
+                    draggable={canManage}
                     onClick={() => setSelectedId(r.id)}
                     onTap={() => setSelectedId(r.id)}
                     onDragEnd={(e) => {
@@ -610,6 +659,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                 ref={transformerRef}
                 rotateEnabled={false}
                 keepRatio={false}
+                resizeEnabled={canManage}
                 boundBoxFunc={(oldBox, newBox) =>
                   newBox.width < 20 ||
                   newBox.height < 20 ||
@@ -709,22 +759,24 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={fullUnit.status} />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const { width, height } = proportionalPlanSize(
-                        fullUnit.widthM,
-                        fullUnit.depthM,
-                      );
-                      setRects((prev) =>
-                        prev.map((it) => (it.id === fullUnit.id ? { ...it, width, height } : it)),
-                      );
-                      setDirty(true);
-                    }}
-                  >
-                    <RectangleHorizontal className="mr-1 h-4 w-4" /> Tamaño real
-                  </Button>
+                  {canManage && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const { width, height } = proportionalPlanSize(
+                          fullUnit.widthM,
+                          fullUnit.depthM,
+                        );
+                        setRects((prev) =>
+                          prev.map((it) => (it.id === fullUnit.id ? { ...it, width, height } : it)),
+                        );
+                        setDirty(true);
+                      }}
+                    >
+                      <RectangleHorizontal className="mr-1 h-4 w-4" /> Tamaño real
+                    </Button>
+                  )}
                   {fullUnit.status === 'available' && (
                     <>
                       <Button asChild size="sm">
@@ -746,7 +798,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
               </div>
 
               {/* Apilado: solo para tipos marcados "apilable" (taquillas). */}
-              {unitType?.stackable && (
+              {canManage && unitType?.stackable && (
                 <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3 text-sm">
                   <Layers className="h-4 w-4 text-muted-foreground" />
                   {stackPartner ? (

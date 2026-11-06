@@ -216,7 +216,9 @@ export class UsersService {
       (tx) =>
         tx.user.findMany({
           orderBy: [{ role: 'asc' }, { fullName: 'asc' }],
-          include: { facilities: { select: { facilityId: true } } },
+          include: {
+            facilities: { where: { facility: { deletedAt: null } }, select: { facilityId: true } },
+          },
         }),
       tenantId,
     );
@@ -228,7 +230,9 @@ export class UsersService {
       (tx) =>
         tx.user.findUnique({
           where: { id: userId },
-          include: { facilities: { select: { facilityId: true } } },
+          include: {
+            facilities: { where: { facility: { deletedAt: null } }, select: { facilityId: true } },
+          },
         }),
       tenantId,
     );

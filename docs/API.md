@@ -570,7 +570,7 @@ Cada cambio inserta una fila inmutable en `unit_status_history` con
 | GET    | `/facilities/:id`             | SI   | cualquiera            | Detalle con `unitsTotal` / `unitsOccupied`                                                       |
 | POST   | `/facilities`                 | SI   | owner, manager        | Crea facility                                                                                    |
 | PATCH  | `/facilities/:id`             | SI   | owner, manager        | Actualiza facility                                                                               |
-| DELETE | `/facilities/:id`             | SI   | owner, manager        | Soft delete (sets `deleted_at`)                                                                  |
+| DELETE | `/facilities/:id`             | SI   | owner, manager        | Soft delete; 409 si queda algo pendiente (ver revisión de Locales)                               |
 | GET    | `/facilities/:id/floors`      | SI   | cualquiera            | Lista plantas                                                                                    |
 | POST   | `/facilities/:id/floors`      | SI   | owner, manager        | Crea planta                                                                                      |
 | PATCH  | `/floors/:id`                 | SI   | owner, manager        | Renombra planta                                                                                  |
@@ -1014,6 +1014,23 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 - `POST /units/:id/change-status`: guarda el motivo y desde cuándo al pasar a mantenimiento o bloqueado; pasar de uno a otro conserva la fecha, y se borran al volver.
 - `POST /units/bulk`: el precio admite `round` (`none`, `euro`, `five`).
 - `GET /units/:id/insights`: `currentFee` (lo que paga el inquilino actual) y `stackPartner`.
+
+**Revisión de Locales (2026-11-06).**
+
+- Errores de validación: `message` dice qué campo falla y por qué (`Email no válido`, `Nombre: Mínimo 2 caracteres`) en vez de `Validation failed`, en toda la API. `details` no cambia.
+- `GET /facilities/:id/delete-preview` (`facilities:manage`): `blockers` (`kind`, `count`, `label`, `href`), `turnsOff` (`maintenancePlans`, `recurringExpenses`, `accessDevices`, `cameraDevices`), `unitsCount` y `usersLeftWithoutFacilities` (quien solo ve ese local).
+- `DELETE /facilities/:id`: 409 `facility_has_live_contracts` o `facility_has_pending` (`details.blockers`) con borradores, reservas, traslados programados hacia él o lista de espera. Al borrar se apagan sus planes, gastos recurrentes, puertas y cámaras.
+- `POST /facilities`: quien solo ve unos locales queda asignado al que crea.
+- `POST/PATCH /facilities`: 409 `facility_name_taken` (sin distinguir mayúsculas); 400 `coordinates_incomplete` (`latitude` y `longitude` admiten `null`, las dos o ninguna); 400 `curfew_hours_required` e `invalid_curfew`, también al crear; `timezone` validada; `videoUrl` solo `http(s)`.
+- `PATCH /facilities/:id`: `publicSlug` da 409 `slug_taken` con `details.suggestion` (ocupada, reservada o `trasteros-en-…`) y 400 `slug_required` si va vacía.
+- `PUT /facilities/:id/images`: solo comprueba las nuevas, con tope real de 2 MB; 400 `file_not_uploaded` si no existe.
+- `GET /facilities/summary`: gana `totalUnits` y `occupiedUnits`; todo con las definiciones del Resumen. `mrr`, `avgPrice` e `invoicedMonth` llegan a null sin `invoices:read` y `payments:read`. Igual `mrr` y `overdue` en `byFacility` de `GET /dashboard/overview`.
+- `POST /contracts/:id/sign`: 409 `facility_deleted`. `POST /contracts/:id/change-unit`: 404 si el destino es de un local borrado.
+- `PATCH /unit-types/:id`: 409 `cannot_change_kind_while_rented` al pasar de trastero a vivienda (o al revés) con contratos en vigor. Precio y fianza hasta 999.999 €. `unitsCount` no cuenta locales borrados.
+- `POST /floors` y `PATCH /floors/:id`: 409 `floor_name_taken`. Las rutas de una planta dan 404 si su local está borrado. `PATCH /floors/:id/plan`: tope de 5 MB, 400 `file_not_uploaded` y borra el plano anterior. `DELETE /floors/:id/plan` lo quita.
+- `POST /access/devices/:id/open`: 409 `device_inactive`. `POST /access/devices` y `POST /cameras/devices`: 404 si el local no existe o está borrado.
+- `POST /leads/:id/quote/preview`: 409 `facility_inactive` si el local está desactivado.
+- `GET /search`: encuentra locales (`type: 'facility'`) por nombre o ciudad y no enseña trasteros de locales borrados.
 
 ## Operativa, productos, analytics y reports (Fase 6)
 

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useCameraEvents } from '@/lib/cameras/hooks';
+import { formatDateTime } from '@/lib/format';
 
 /**
  * Eventos recientes de cámara/alarma de este local (con miniatura del snapshot).
@@ -56,7 +57,7 @@ export function FacilityCamerasTab({ facilityId }: { facilityId: string }) {
                   </Badge>
                 </div>
                 <p className="truncate text-xs text-muted-foreground">
-                  {e.cameraName} · {new Date(e.occurredAt).toLocaleString('es-ES')}
+                  {e.cameraName} · {formatDateTime(e.occurredAt)}
                 </p>
               </div>
             </div>

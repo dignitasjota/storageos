@@ -21,6 +21,9 @@ import type {
 
 const DEFAULT_FLOOR_NAME = 'Planta principal';
 
+/** Tamaño máximo de un plano (`RequestPlanUploadSchema`). */
+const FLOOR_PLAN_MAX_BYTES = 5 * 1024 * 1024;
+
 @Injectable()
 export class FacilityFloorsService {
   constructor(
@@ -29,15 +32,44 @@ export class FacilityFloorsService {
     private readonly files: FilesService,
   ) {}
 
+  /** La planta de un local que sigue existiendo. */
   async findOrThrow(tenantId: string, floorId: string): Promise<FacilityFloor> {
     const floor = await this.prisma.withTenant(
-      (tx) => tx.facilityFloor.findUnique({ where: { id: floorId } }),
+      (tx) => tx.facilityFloor.findFirst({ where: { id: floorId, facility: { deletedAt: null } } }),
       tenantId,
     );
     if (!floor) {
       throw new NotFoundException({ code: 'floor_not_found', message: 'Planta no encontrada' });
     }
     return floor;
+  }
+
+  /** Dos plantas con el mismo nombre no se distinguen en los desplegables. */
+  private async assertNameFree(
+    tx: Prisma.TransactionClient,
+    facilityId: string,
+    name: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const clash = await tx.facilityFloor.findFirst({
+      where: {
+        facilityId,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new ConflictException({
+        code: 'floor_name_taken',
+        message: `Este local ya tiene una planta llamada «${name}».`,
+      });
+    }
+  }
+
+  private async deletePlanFile(planImageUrl: string | null): Promise<void> {
+    const key = planImageUrl ? this.files.keyFromPublicUrl('plans', planImageUrl) : null;
+    if (key) await this.files.deleteObjects('plans', [key]).catch(() => undefined);
   }
 
   async list(tenantId: string, facilityId: string): Promise<FacilityFloorDto[]> {
@@ -90,18 +122,17 @@ export class FacilityFloorsService {
     meta: RequestMeta,
   ): Promise<FacilityFloorDto> {
     await this.assertFacility(tenantId, facilityId);
-    const floor = await this.prisma.withTenant(
-      (tx) =>
-        tx.facilityFloor.create({
-          data: {
-            facilityId,
-            name: input.name.trim(),
-            floorNumber: input.floorNumber ?? 0,
-            isDefault: false,
-          },
-        }),
-      tenantId,
-    );
+    const floor = await this.prisma.withTenant(async (tx) => {
+      await this.assertNameFree(tx, facilityId, input.name.trim());
+      return tx.facilityFloor.create({
+        data: {
+          facilityId,
+          name: input.name.trim(),
+          floorNumber: input.floorNumber ?? 0,
+          isDefault: false,
+        },
+      });
+    }, tenantId);
     await this.audit.write({
       tenantId,
       userId,
@@ -122,20 +153,17 @@ export class FacilityFloorsService {
     input: UpdateFloorInput,
     meta: RequestMeta,
   ): Promise<FacilityFloorDto> {
-    const existing = await this.prisma.withTenant(
-      (tx) => tx.facilityFloor.findUnique({ where: { id: floorId } }),
-      tenantId,
-    );
-    if (!existing) {
-      throw new NotFoundException({ code: 'floor_not_found', message: 'Planta no encontrada' });
-    }
+    const existing = await this.findOrThrow(tenantId, floorId);
     const data: Prisma.FacilityFloorUpdateInput = {};
     if (input.name !== undefined) data.name = input.name.trim();
     if (input.floorNumber !== undefined) data.floorNumber = input.floorNumber;
-    const updated = await this.prisma.withTenant(
-      (tx) => tx.facilityFloor.update({ where: { id: floorId }, data }),
-      tenantId,
-    );
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const name = input.name?.trim();
+      if (name && name.toLowerCase() !== existing.name.toLowerCase()) {
+        await this.assertNameFree(tx, existing.facilityId, name, floorId);
+      }
+      return tx.facilityFloor.update({ where: { id: floorId }, data });
+    }, tenantId);
     await this.audit.write({
       tenantId,
       userId,
@@ -157,8 +185,8 @@ export class FacilityFloorsService {
   ): Promise<void> {
     const existing = await this.prisma.withTenant(
       (tx) =>
-        tx.facilityFloor.findUnique({
-          where: { id: floorId },
+        tx.facilityFloor.findFirst({
+          where: { id: floorId, facility: { deletedAt: null } },
           include: { _count: { select: { units: true } } },
         }),
       tenantId,
@@ -169,7 +197,8 @@ export class FacilityFloorsService {
     if ((existing._count?.units ?? 0) > 0) {
       throw new ConflictException({
         code: 'floor_has_units',
-        message: 'No se puede borrar una planta con trasteros asignados',
+        message:
+          'Esta planta tiene trasteros. En Trasteros puedes seleccionarlos y moverlos a otra planta de una vez.',
       });
     }
     if (existing.isDefault) {
@@ -182,6 +211,7 @@ export class FacilityFloorsService {
       (tx) => tx.facilityFloor.delete({ where: { id: floorId } }),
       tenantId,
     );
+    await this.deletePlanFile(existing.planImageUrl);
     await this.audit.write({
       tenantId,
       userId,
@@ -200,13 +230,7 @@ export class FacilityFloorsService {
     input: UpdateFloorPlanInput,
     meta: RequestMeta,
   ): Promise<FacilityFloorDto> {
-    const existing = await this.prisma.withTenant(
-      (tx) => tx.facilityFloor.findUnique({ where: { id: floorId } }),
-      tenantId,
-    );
-    if (!existing) {
-      throw new NotFoundException({ code: 'floor_not_found', message: 'Planta no encontrada' });
-    }
+    const existing = await this.findOrThrow(tenantId, floorId);
     // Seguridad: `planImageUrl` llegaba SIN validar en absoluto (a diferencia
     // de `setImages`/`setCover`, que sí comprueban el prefijo) — cualquier
     // URL era aceptada, incluida una externa ajena al bucket `plans` del
@@ -223,7 +247,13 @@ export class FacilityFloorsService {
       });
     }
     const key = input.planImageUrl.slice(bucketBase.length);
-    await this.files.assertObjectMimeType('plans', key, ['image/jpeg', 'image/png', 'image/webp']);
+    await this.files.assertObjectMimeType(
+      'plans',
+      key,
+      ['image/jpeg', 'image/png', 'image/webp'],
+      FLOOR_PLAN_MAX_BYTES,
+      { mustExist: true },
+    );
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.facilityFloor.update({
@@ -236,6 +266,10 @@ export class FacilityFloorsService {
         }),
       tenantId,
     );
+    // El plano anterior ya no lo usa nadie.
+    if (existing.planImageUrl !== input.planImageUrl) {
+      await this.deletePlanFile(existing.planImageUrl);
+    }
     await this.audit.write({
       tenantId,
       userId,
@@ -252,6 +286,35 @@ export class FacilityFloorsService {
     return this.toDto(updated);
   }
 
+  /** Quita el plano de la planta. La posición de los trasteros se conserva. */
+  async removePlan(
+    tenantId: string,
+    userId: string,
+    floorId: string,
+    meta: RequestMeta,
+  ): Promise<FacilityFloorDto> {
+    const existing = await this.findOrThrow(tenantId, floorId);
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.facilityFloor.update({
+          where: { id: floorId },
+          data: { planImageUrl: null, planWidthPx: null, planHeightPx: null },
+        }),
+      tenantId,
+    );
+    await this.deletePlanFile(existing.planImageUrl);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'floor.plan_removed',
+      entityType: 'FacilityFloor',
+      entityId: floorId,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
   async updateUnitsLayout(
     tenantId: string,
     userId: string,
@@ -259,13 +322,7 @@ export class FacilityFloorsService {
     input: UpdateUnitsLayoutInput,
     meta: RequestMeta,
   ): Promise<{ updated: number }> {
-    const existing = await this.prisma.withTenant(
-      (tx) => tx.facilityFloor.findUnique({ where: { id: floorId } }),
-      tenantId,
-    );
-    if (!existing) {
-      throw new NotFoundException({ code: 'floor_not_found', message: 'Planta no encontrada' });
-    }
+    await this.findOrThrow(tenantId, floorId);
     const ids = input.units.map((u) => u.id);
     const owned = await this.prisma.withTenant(
       (tx) => tx.unit.findMany({ where: { id: { in: ids }, floorId } }),

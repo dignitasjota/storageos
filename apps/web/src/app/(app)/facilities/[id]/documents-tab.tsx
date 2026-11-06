@@ -41,6 +41,7 @@ import {
   useUpdateFacilityDocument,
   useUploadFacilityDocument,
 } from '@/lib/facilities/inventory-hooks';
+import { formatDate } from '@/lib/format';
 
 function expiryBadge(d: FacilityDocumentDto) {
   if (d.daysToExpiry === null) return null;
@@ -158,9 +159,7 @@ export function FacilityDocumentsTab({ facilityId }: { facilityId: string }) {
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {FACILITY_DOCUMENT_KIND_LABELS[d.kind]}
-                    {d.expiresOn
-                      ? ` · caduca el ${new Date(`${d.expiresOn}T00:00:00`).toLocaleDateString('es-ES')}`
-                      : ''}
+                    {d.expiresOn ? ` · caduca el ${formatDate(d.expiresOn)}` : ''}
                     {d.uploadedByName ? ` · ${d.uploadedByName}` : ''}
                   </p>
                 </div>

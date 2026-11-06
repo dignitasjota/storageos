@@ -27,6 +27,8 @@ export function FacilitiesCard({
 }) {
   // Con un solo local, todo esto ya está en las demás tarjetas.
   if (data && data.length < 2) return null;
+  // Sin permiso para ver el dinero no llegan esas dos columnas.
+  const money = data?.some((f) => f.mrr !== null) ?? true;
   return (
     <Card>
       <CardHeader>
@@ -41,8 +43,8 @@ export function FacilitiesCard({
                 <tr className="text-left text-xs text-muted-foreground">
                   <th className="pb-2 font-normal">Local</th>
                   <th className="pb-2 font-normal">Ocupación</th>
-                  <th className="pb-2 text-right font-normal">Cuotas al mes</th>
-                  <th className="pb-2 text-right font-normal">Vencido</th>
+                  {money && <th className="pb-2 text-right font-normal">Cuotas al mes</th>}
+                  {money && <th className="pb-2 text-right font-normal">Vencido</th>}
                   <th className="pb-2 text-right font-normal">Altas</th>
                   <th className="pb-2 text-right font-normal">Bajas</th>
                 </tr>
@@ -71,12 +73,16 @@ export function FacilitiesCard({
                         </span>
                       </div>
                     </td>
-                    <td className="py-2 text-right tabular-nums">{formatEur(f.mrr)}</td>
-                    <td
-                      className={`py-2 text-right tabular-nums ${f.overdue > 0 ? 'text-red-600' : ''}`}
-                    >
-                      {formatEur(f.overdue)}
-                    </td>
+                    {money && (
+                      <td className="py-2 text-right tabular-nums">{formatEur(f.mrr ?? 0)}</td>
+                    )}
+                    {money && (
+                      <td
+                        className={`py-2 text-right tabular-nums ${(f.overdue ?? 0) > 0 ? 'text-red-600' : ''}`}
+                      >
+                        {formatEur(f.overdue ?? 0)}
+                      </td>
+                    )}
                     <td className="py-2 text-right tabular-nums">{f.moveIns}</td>
                     <td className="py-2 text-right tabular-nums">{f.moveOuts}</td>
                   </tr>

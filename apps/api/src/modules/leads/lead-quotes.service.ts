@@ -50,10 +50,14 @@ export class LeadQuotesService {
     if (!lead)
       throw new NotFoundException({ code: 'lead_not_found', message: 'Contacto no encontrado' });
 
-    const [tenant, unit, plan] = await Promise.all([
+    const [tenant, facility, unit, plan] = await Promise.all([
       this.admin.tenant.findUniqueOrThrow({
         where: { id: tenantId },
         select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
+      }),
+      this.admin.facility.findFirst({
+        where: { id: input.facilityId, tenantId, deletedAt: null },
+        select: { isActive: true },
       }),
       this.admin.unit.findFirst({
         where: {
@@ -77,6 +81,13 @@ export class LeadQuotesService {
           })
         : Promise.resolve(null),
     ]);
+    // El enlace del presupuesto lleva a la reserva online, que no lo admite.
+    if (!facility?.isActive) {
+      throw new ConflictException({
+        code: 'facility_inactive',
+        message: 'Ese local está desactivado: no se puede reservar en él.',
+      });
+    }
     if (!unit) {
       throw new ConflictException({
         code: 'no_units_available',

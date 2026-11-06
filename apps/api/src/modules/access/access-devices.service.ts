@@ -118,6 +118,7 @@ export class AccessDevicesService {
     const devices = await this.admin.accessDevice.findMany({
       where: {
         isActive: true,
+        facility: { deletedAt: null },
         OR: [{ controlUrl: { not: null } }, { lastHeartbeatAt: { not: null } }],
       },
     });
@@ -172,6 +173,17 @@ export class AccessDevicesService {
       .catch((err) => this.logger.warn(`[access-devices] sync ${deviceId}: ${String(err)}`));
   }
 
+  private async assertFacility(tenantId: string, facilityId: string): Promise<void> {
+    const facility = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findFirst({ where: { id: facilityId, deletedAt: null }, select: { id: true } }),
+      tenantId,
+    );
+    if (!facility) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
+  }
+
   private async assertUnitInFacility(
     tenantId: string,
     unitId: string,
@@ -223,6 +235,7 @@ export class AccessDevicesService {
     meta: RequestMeta;
     facilityScope?: string[] | null;
   }): Promise<AccessDeviceWithKeyDto> {
+    await this.assertFacility(args.tenantId, args.input.facilityId);
     if (args.input.unitId) {
       await this.assertUnitInFacility(args.tenantId, args.input.unitId, args.input.facilityId);
     }
@@ -278,7 +291,10 @@ export class AccessDevicesService {
     const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const data: Prisma.AccessDeviceUncheckedUpdateInput = {};
     const input = args.input;
-    if (input.facilityId !== undefined) assertFacilityAllowed(args.facilityScope, input.facilityId);
+    if (input.facilityId !== undefined) {
+      assertFacilityAllowed(args.facilityScope, input.facilityId);
+      await this.assertFacility(args.tenantId, input.facilityId);
+    }
     const unitId = input.unitId === undefined ? existing.unitId : input.unitId;
     if (unitId) {
       await this.assertUnitInFacility(
@@ -407,6 +423,13 @@ export class AccessDevicesService {
     facilityScope?: string[] | null;
   }): Promise<{ dispatched: boolean; message?: string }> {
     const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    // Desactivado también queda el de un local borrado: de ahí no se abre nada.
+    if (!device.isActive) {
+      throw new ConflictException({
+        code: 'device_inactive',
+        message: 'Este dispositivo está desactivado',
+      });
+    }
     const safety = await this.assertControlUrlSafe(device);
     const result = safety.safe
       ? await this.locks.resolve(device.provider).open({

@@ -242,14 +242,17 @@ export interface FloorHoldDto {
 /** Resumen de cada local para comparar. */
 export interface FacilitySummaryDto {
   facilityId: string;
-  /** Cuotas al mes de sus contratos vivos (menos descuentos). */
-  mrr: number;
-  /** Cuota media de los ocupados. */
+  /** Las mismas cuentas que el Resumen: el inquilino de prueba no ocupa. */
+  totalUnits: number;
+  occupiedUnits: number;
+  /** Cuotas al mes de sus contratos vivos (menos descuentos). Null sin permiso. */
+  mrr: number | null;
+  /** Cuota media de los ocupados. Null sin permiso o sin contratos. */
   avgPrice: number | null;
   totalM2: number;
   occupiedM2: number;
-  /** Facturado este mes (con IVA, sin fianzas). */
-  invoicedMonth: number;
+  /** Facturado este mes (con IVA, sin fianzas). Null sin permiso. */
+  invoicedMonth: number | null;
   /** El trastero que más lleva libre: días (null si no hay libres). */
   longestVacantDays: number | null;
   /** Trasteros en mantenimiento o bloqueados. */
@@ -271,4 +274,28 @@ export interface OwnersOverviewDto {
   owners: OwnerSummaryDto[];
   /** Locales sin propietario (con el plan Administrador, sus facturas las emite el negocio). */
   facilitiesWithoutOwner: { id: string; name: string }[];
+}
+
+/** Lo que impide borrar un local: hay que resolverlo antes. */
+export interface FacilityDeleteBlockerDto {
+  kind: 'live_contracts' | 'draft_contracts' | 'reservations' | 'scheduled_moves' | 'waitlist';
+  count: number;
+  /** «3 contratos en vigor». */
+  label: string;
+  /** Pantalla donde resolverlo. */
+  href: string;
+}
+
+export interface FacilityDeletePreviewDto {
+  unitsCount: number;
+  blockers: FacilityDeleteBlockerDto[];
+  /** Lo que se apaga al borrarlo. */
+  turnsOff: {
+    maintenancePlans: number;
+    recurringExpenses: number;
+    accessDevices: number;
+    cameraDevices: number;
+  };
+  /** Personas que solo ven este local: se quedan sin ninguno hasta que les asignes otro. */
+  usersLeftWithoutFacilities: string[];
 }

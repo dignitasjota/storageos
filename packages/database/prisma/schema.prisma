@@ -3867,6 +3867,8 @@ model FacilityDocument {
   sizeBytes        Int       @map("size_bytes")
   expiresOn        DateTime? @map("expires_on") @db.Date
   expiryNotifiedAt DateTime? @map("expiry_notified_at") @db.Timestamptz(6)
+  /// Segundo aviso: el documento ya ha caducado.
+  expiredNotifiedAt DateTime? @map("expired_notified_at") @db.Timestamptz(6)
   notes            String?
   uploadedByUserId String?   @map("uploaded_by_user_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

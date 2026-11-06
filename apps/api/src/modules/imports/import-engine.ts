@@ -109,6 +109,25 @@ export function resolveColumns<F extends string>(
   return map;
 }
 
+/**
+ * Locales por nombre (en minúsculas). Un nombre repetido no se puede resolver:
+ * va en `ambiguous` para que la fila diga por qué falla en vez de caer en uno.
+ */
+export function facilitiesByName(facilities: { id: string; name: string }[]): {
+  byName: Map<string, string>;
+  ambiguous: Set<string>;
+} {
+  const byName = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const f of facilities) {
+    const key = f.name.trim().toLowerCase();
+    if (byName.has(key)) ambiguous.add(key);
+    byName.set(key, f.id);
+  }
+  for (const key of ambiguous) byName.delete(key);
+  return { byName, ambiguous };
+}
+
 export function flattenZodErrors(error: {
   issues: { path: (string | number)[]; message: string }[];
 }): string[] {
