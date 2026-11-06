@@ -183,6 +183,10 @@ Cada trastero individual.
 
 > `area_m2` y `volume_m3` se implementan como columnas `GENERATED ALWAYS AS` en Postgres para garantizar coherencia (no se pueden setear desde la app).
 
+### `unit_tenancies`
+
+Cada tramo de un contrato en un trastero (RLS): `unit_id`, `contract_id`, `started_on`, `ended_on` (null = sigue), `price_monthly`. Un traslado cierra un tramo y abre otro. La mantiene el disparador `contracts_unit_tenancy` (función `contracts_sync_unit_tenancy`) al firmar, trasladar, cambiar la cuota, terminar, cancelar o empezar una reserva anticipada; una reserva anticipada sin empezar no tiene tramo. Único: un tramo abierto por contrato. Un trastero con tramos no se borra (FK `RESTRICT`).
+
 ### `unit_status_history`
 
 Auditoría de cambios de estado.

@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { resolveFacilityFilter } from '../../common/facility-scope';
+import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -139,11 +140,19 @@ export class InventoryService {
       status: 'available',
       contracts: { some: LIVE_CONTRACT },
     });
-    // (3) Reservado sin reserva viva ni hold de booking (contrato draft) → disponible.
+    // (3) Reservado sin nadie que lo guarde (reserva, contrato en curso, aviso de
+    // la cola o traslado programado) → disponible.
     const reservedOrphan = await find({
       status: 'reserved',
       reservations: { none: { status: { in: ['pending', 'confirmed'] } } },
       contracts: { none: { status: { in: ['draft', 'active', 'ending'] }, deletedAt: null } },
+      waitlistHolds: { none: { status: 'notified' } },
+      scheduledContracts: { none: LIVE_CONTRACT },
+    });
+    // (4) Reservado o fuera de servicio con el inquilino ya dentro → ocupado.
+    const blockedWithContract = await find({
+      status: { in: ['reserved', 'maintenance', 'blocked'] },
+      contracts: { some: { ...LIVE_CONTRACT, ...STARTED_CONTRACT_WHERE } },
     });
 
     return [
@@ -156,6 +165,7 @@ export class InventoryService {
       ...reservedOrphan.map((u) =>
         toIssue(u, 'available', 'Reservado sin reserva ni contrato en curso'),
       ),
+      ...blockedWithContract.map((u) => toIssue(u, 'occupied', 'Tiene un contrato en vigor')),
     ];
   }
 }

@@ -230,6 +230,8 @@ export function useUnits(filters: UnitFilters = {}) {
         cursor = res.nextCursor;
         if (!cursor) break;
       }
+      // «A-2» antes que «A-10», que en el orden de la base de datos sale detrás.
+      items.sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
       return { items, nextCursor: null };
     },
     staleTime: 15_000,

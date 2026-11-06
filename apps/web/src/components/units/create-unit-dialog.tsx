@@ -33,8 +33,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useCreateUnit, useFacilities, useFloors, useUnitTypes } from '@/lib/facilities/hooks';
+import { formatEur } from '@/lib/format';
 
 const DIMENSIONS = { widthM: 2, depthM: 2, heightM: 2.5 };
 
@@ -88,6 +90,9 @@ export function CreateUnitDialog({
   const chosenFacility = form.watch('facilityId') ?? facilityId;
   const floors = useFloors(open ? chosenFacility : undefined);
   const floorList = floors.data ?? [];
+  // La misma que elige el servidor si no se toca el desplegable.
+  const defaultFloor = floorList.find((f) => f.isDefault) ?? floorList[0];
+  const chosenType = activeTypes.find((t) => t.id === form.watch('unitTypeId'));
 
   if (types.isSuccess && activeTypes.length === 0) {
     // Sin tipo no se puede crear un trastero: en vez de un botón gris sin
@@ -185,7 +190,14 @@ export function CreateUnitDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Local</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select
+                      onValueChange={(v) => {
+                        field.onChange(v);
+                        // Las plantas son de cada local.
+                        form.setValue('floorId', undefined);
+                      }}
+                      value={field.value}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Selecciona un local" />
@@ -211,7 +223,7 @@ export function CreateUnitDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Planta</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? floorList[0]?.id}>
+                    <Select onValueChange={field.onChange} value={field.value ?? defaultFloor?.id}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue />
@@ -292,6 +304,45 @@ export function CreateUnitDialog({
                 />
               ))}
             </div>
+            <FormField
+              control={form.control}
+              name="basePriceMonthly"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Precio mensual sin IVA (€)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      {...field}
+                      value={field.value ?? ''}
+                      placeholder={
+                        chosenType
+                          ? `El del tipo: ${formatEur(chosenType.defaultPriceMonthly)}`
+                          : 'El del tipo'
+                      }
+                      onChange={(e) =>
+                        field.onChange(e.target.value === '' ? undefined : e.target.valueAsNumber)
+                      }
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notas</FormLabel>
+                  <FormControl>
+                    <Textarea {...field} value={field.value ?? ''} rows={2} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <p className="text-xs text-muted-foreground">
               El diálogo se queda abierto para que puedas crear varios seguidos.
             </p>

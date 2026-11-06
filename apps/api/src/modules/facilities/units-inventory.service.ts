@@ -1,7 +1,8 @@
-import { HttpException, Injectable } from '@nestjs/common';
-import { bulkUnitCodes } from '@storageos/shared';
+import { BadRequestException, HttpException, Injectable, Logger } from '@nestjs/common';
+import { bulkUnitCodes, UNIT_MAX_PRICE } from '@storageos/shared';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
+import { INVOICED_SELECT, INVOICED_STATUSES, invoicedBase } from '../analytics/business-metrics';
 import { PrismaService } from '../database/prisma.service';
 
 import { UnitsService } from './units.service';
@@ -28,12 +29,18 @@ function customerName(c: {
   return [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Cliente';
 }
 
+const dayOf = (d: Date) => d.toISOString().slice(0, 10);
+
+const logger = new Logger('UnitsInventory');
+
 function errorOf(err: unknown): { code: string | null; error: string } {
   if (err instanceof HttpException) {
     const body = err.getResponse() as { code?: string; message?: string };
     return { code: body.code ?? null, error: body.message ?? err.message };
   }
-  return { code: null, error: err instanceof Error ? err.message : String(err) };
+  // Un fallo interno no se enseña: su texto lleva rutas y consultas.
+  logger.error(err);
+  return { code: null, error: 'No se ha podido hacer' };
 }
 
 /**
@@ -56,38 +63,45 @@ export class UnitsInventoryService {
     const unit = await this.units.detail(tenantId, unitId, facilityScope);
     const now = Date.now();
     const yearAgo = new Date(now - 365 * DAY);
-    const { prices, contracts, lastFree } = await this.prisma.withTenant(async (tx) => {
-      const [prices, contracts, lastFree] = await Promise.all([
+    const { prices, tenancies, lastFree } = await this.prisma.withTenant(async (tx) => {
+      const [prices, tenancies, lastFree] = await Promise.all([
         tx.unitPriceHistory.findMany({
           where: { unitId },
           orderBy: { changedAt: 'desc' },
           take: 50,
           include: { changedBy: { select: { fullName: true } } },
         }),
-        tx.contract.findMany({
-          where: { unitId, deletedAt: null, signedAt: { not: null } },
-          orderBy: { startDate: 'desc' },
-          select: {
-            id: true,
-            contractNumber: true,
-            customerId: true,
-            startDate: true,
-            endDate: true,
-            endedAt: true,
-            cancelledAt: true,
-            status: true,
-            priceMonthly: true,
-            signedAt: true,
-            customer: {
-              select: { customerType: true, firstName: true, lastName: true, companyName: true },
-            },
-            invoices: {
-              where: {
-                kind: 'invoice',
-                deletedAt: null,
-                status: { notIn: ['draft', 'cancelled'] },
+        tx.unitTenancy.findMany({
+          where: { unitId },
+          orderBy: [{ startedOn: 'desc' }, { id: 'desc' }],
+          include: {
+            contract: {
+              select: {
+                id: true,
+                contractNumber: true,
+                customerId: true,
+                status: true,
+                customer: {
+                  select: {
+                    customerType: true,
+                    firstName: true,
+                    lastName: true,
+                    companyName: true,
+                  },
+                },
+                invoices: {
+                  where: {
+                    kind: 'invoice',
+                    deletedAt: null,
+                    status: { in: [...INVOICED_STATUSES] },
+                  },
+                  select: INVOICED_SELECT,
+                },
+                unitTenancies: {
+                  orderBy: [{ startedOn: 'asc' }, { id: 'asc' }],
+                  select: { id: true },
+                },
               },
-              select: { total: true, issueDate: true },
             },
           },
         }),
@@ -97,25 +111,53 @@ export class UnitsInventoryService {
           select: { occurredAt: true },
         }),
       ]);
-      return { prices, contracts, lastFree };
+      return { prices, tenancies, lastFree };
     }, tenantId);
 
     let daysRented = 0;
     let revenue12m = 0;
-    for (const c of contracts) {
-      const begin = Math.max((c.signedAt ?? c.startDate).getTime(), yearAgo.getTime());
-      const endAt =
-        c.status === 'active' || c.status === 'ending'
-          ? now
-          : ((c.endedAt ?? c.cancelledAt ?? c.endDate)?.getTime() ?? now);
+    const rows = tenancies.map((t) => {
+      const begin = Math.max(t.startedOn.getTime(), yearAgo.getTime());
+      const endAt = Math.min(t.endedOn?.getTime() ?? now, now);
       if (endAt > begin) daysRented += (endAt - begin) / DAY;
-      for (const i of c.invoices)
-        if (i.issueDate && i.issueDate >= yearAgo) revenue12m += Number(i.total);
-    }
+      // Lo facturado por un contrato trasladado se reparte por las fechas de cada
+      // tramo; el primero recoge lo anterior al alta y el último lo posterior.
+      const others = t.contract.unitTenancies;
+      const isFirst = others[0]?.id === t.id;
+      const isLast = others[others.length - 1]?.id === t.id;
+      const invoices = t.contract.invoices.filter(
+        (i) =>
+          i.issueDate &&
+          (isFirst || i.issueDate >= t.startedOn) &&
+          (isLast || !t.endedOn || i.issueDate < t.endedOn),
+      );
+      for (const i of invoices) {
+        if (i.issueDate && i.issueDate >= yearAgo) revenue12m += invoicedBase(i);
+      }
+      return {
+        contractId: t.contract.id,
+        contractNumber: t.contract.contractNumber,
+        customerId: t.contract.customerId,
+        customerName: customerName(t.contract.customer),
+        startDate: dayOf(t.startedOn),
+        endDate: t.endedOn ? dayOf(t.endedOn) : null,
+        status: t.contract.status,
+        movedAway: !isLast,
+        priceMonthly: Number(t.priceMonthly),
+        invoiced: round2(invoices.reduce((sum, i) => sum + invoicedBase(i), 0)),
+      };
+    });
     const daysVacant =
       unit.status === 'available'
         ? Math.floor((now - (lastFree?.occurredAt ?? new Date(unit.createdAt)).getTime()) / DAY)
         : null;
+    // Un trastero dado de alta hace poco no ha podido estar alquilado todo el
+    // año; uno importado puede tener inquilinos de antes de su alta.
+    const firstKnown = Math.min(
+      new Date(unit.createdAt).getTime(),
+      ...tenancies.map((t) => t.startedOn.getTime()),
+    );
+    const daysTracked = Math.min(365, Math.max(1, Math.ceil((now - firstKnown) / DAY)));
 
     return {
       priceHistory: prices.map((p) => ({
@@ -125,19 +167,10 @@ export class UnitsInventoryService {
         source: p.source,
         userName: p.changedBy?.fullName ?? null,
       })),
-      tenancies: contracts.map((c) => ({
-        contractId: c.id,
-        contractNumber: c.contractNumber,
-        customerId: c.customerId,
-        customerName: customerName(c.customer),
-        startDate: c.startDate.toISOString().slice(0, 10),
-        endDate: (c.endedAt ?? c.cancelledAt ?? c.endDate)?.toISOString().slice(0, 10) ?? null,
-        status: c.status,
-        priceMonthly: Number(c.priceMonthly),
-        invoiced: round2(c.invoices.reduce((sum, i) => sum + Number(i.total), 0)),
-      })),
+      tenancies: rows,
       daysVacant,
-      daysRentedLastYear: Math.min(365, Math.round(daysRented)),
+      daysRentedLastYear: Math.min(daysTracked, Math.round(daysRented)),
+      daysTrackedLastYear: daysTracked,
       revenue12m: round2(revenue12m),
       revenuePerM2: unit.areaM2 > 0 ? round2(revenue12m / unit.areaM2) : null,
       maintenanceUntil: unit.maintenanceUntil,
@@ -155,7 +188,20 @@ export class UnitsInventoryService {
     const { input } = args;
     const failed: BulkUnitsResultDto['failed'] = [];
     let updated = 0;
-    for (const unitId of [...new Set(input.unitIds)]) {
+    const unitIds = [...new Set(input.unitIds)];
+    const codes = new Map(
+      (
+        await this.prisma.withTenant(
+          (tx) =>
+            tx.unit.findMany({
+              where: { id: { in: unitIds } },
+              select: { id: true, code: true },
+            }),
+          args.tenantId,
+        )
+      ).map((u) => [u.id, u.code]),
+    );
+    for (const unitId of unitIds) {
       try {
         const base = {
           tenantId: args.tenantId,
@@ -179,12 +225,17 @@ export class UnitsInventoryService {
             input.mode === 'set'
               ? input.value
               : round2(current.basePriceMonthly * (1 + input.value / 100));
-          if (price < 0) throw new Error('El precio no puede ser negativo');
+          if (price < 0 || price > UNIT_MAX_PRICE) {
+            throw new BadRequestException({
+              code: 'invalid_price',
+              message: `El precio quedaría en ${price} €: fuera de lo admitido`,
+            });
+          }
           await this.units.update({ ...base, input: { basePriceMonthly: price } });
         }
         updated += 1;
       } catch (err) {
-        failed.push({ unitId, ...errorOf(err) });
+        failed.push({ unitId, unitCode: codes.get(unitId) ?? null, ...errorOf(err) });
       }
     }
     return { updated, failed };
@@ -208,6 +259,8 @@ export class UnitsInventoryService {
     });
     let created = 0;
     const skipped: string[] = [];
+    const overLimit: string[] = [];
+    const failed: BulkCreateUnitsResultDto['failed'] = [];
     for (const code of codes) {
       try {
         await this.units.create({
@@ -229,17 +282,23 @@ export class UnitsInventoryService {
         });
         created += 1;
       } catch (err) {
-        const { code: errCode } = errorOf(err);
+        const { code: errCode, error } = errorOf(err);
         // El límite del plan corta el resto: no tiene sentido seguir.
         if (errCode === 'units_limit_reached') {
           if (created === 0) throw err;
-          skipped.push(...codes.slice(codes.indexOf(code)));
+          overLimit.push(...codes.slice(codes.indexOf(code)));
           break;
         }
-        if (errCode !== 'unit_code_taken') throw err;
-        skipped.push(code);
+        if (errCode === 'unit_code_taken') {
+          skipped.push(code);
+          continue;
+        }
+        // Lo creado hasta aquí se queda: se dice dónde se ha parado.
+        if (created === 0) throw err;
+        failed.push({ code, error });
+        break;
       }
     }
-    return { created, skipped };
+    return { created, skipped, overLimit, failed };
   }
 }

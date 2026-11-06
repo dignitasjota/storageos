@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useUnitInsights } from '@/lib/facilities/inventory-hooks';
 import { formatDate, formatEur } from '@/lib/format';
@@ -22,7 +23,9 @@ const CONTRACT_STATUS: Record<string, string> = {
 
 /** Rentabilidad, historial de precios e inquilinos del trastero. */
 export function UnitInsightsCard({ unitId }: { unitId: string }) {
-  const { data } = useUnitInsights(unitId);
+  const insights = useUnitInsights(unitId);
+  const { data } = insights;
+  if (insights.isError) return <SectionError onRetry={() => void insights.refetch()} />;
   if (!data) return null;
   return (
     <div className="space-y-4">
@@ -33,13 +36,18 @@ export function UnitInsightsCard({ unitId }: { unitId: string }) {
         />
         <Metric
           label="Alquilado el último año"
-          value={`${Math.round((data.daysRentedLastYear / 365) * 100)} %`}
-          hint={`${data.daysRentedLastYear} de 365 días`}
+          value={`${Math.round((data.daysRentedLastYear / data.daysTrackedLastYear) * 100)} %`}
+          hint={`${data.daysRentedLastYear} de ${data.daysTrackedLastYear} días`}
         />
-        <Metric label="Facturado en 12 meses" value={formatEur(data.revenue12m)} />
+        <Metric
+          label="Facturado en 12 meses"
+          value={formatEur(data.revenue12m)}
+          hint="Sin IVA ni fianzas"
+        />
         <Metric
           label="Por m² en 12 meses"
           value={data.revenuePerM2 === null ? '—' : formatEur(data.revenuePerM2)}
+          hint="Sin IVA ni fianzas"
         />
       </div>
       <Card>
@@ -53,7 +61,7 @@ export function UnitInsightsCard({ unitId }: { unitId: string }) {
             <ul className="space-y-2 text-sm">
               {data.tenancies.map((t) => (
                 <li
-                  key={t.contractId}
+                  key={`${t.contractId}-${t.startDate}`}
                   className="flex flex-wrap justify-between gap-2 border-b pb-2 last:border-0"
                 >
                   <span>
@@ -69,13 +77,13 @@ export function UnitInsightsCard({ unitId }: { unitId: string }) {
                     </Link>
                     <span className="block text-muted-foreground">
                       {formatDate(t.startDate)} → {t.endDate ? formatDate(t.endDate) : 'hoy'} ·{' '}
-                      {CONTRACT_STATUS[t.status] ?? t.status}
+                      {t.movedAway ? 'Se trasladó' : (CONTRACT_STATUS[t.status] ?? t.status)}
                     </span>
                   </span>
                   <span className="text-right">
                     {formatEur(t.priceMonthly)}/mes
                     <span className="block text-muted-foreground">
-                      facturado {formatEur(t.invoiced)}
+                      facturado {formatEur(t.invoiced)} sin IVA
                     </span>
                   </span>
                 </li>
@@ -94,8 +102,7 @@ export function UnitInsightsCard({ unitId }: { unitId: string }) {
               {data.priceHistory.map((p) => (
                 <li key={p.changedAt} className="flex flex-wrap justify-between gap-2">
                   <span className="text-muted-foreground">
-                    {new Date(p.changedAt).toLocaleDateString('es-ES')} ·{' '}
-                    {SOURCE_LABELS[p.source] ?? p.source}
+                    {formatDate(p.changedAt)} · {SOURCE_LABELS[p.source] ?? p.source}
                     {p.userName ? ` · ${p.userName}` : ''}
                   </span>
                   <span>

@@ -9,12 +9,13 @@ import { Image as KonvaImage, Layer, Rect, Stage, Text } from 'react-konva';
 import type { FloorHoldDto, FloorOccupantDto } from '@storageos/shared';
 import type Konva from 'konva';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useFloors, useUnits } from '@/lib/facilities/hooks';
 import { useFloorHolds, useFloorOccupants } from '@/lib/facilities/inventory-hooks';
 import { proportionalPlanSize } from '@/lib/facilities/plan-size';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatEur, formatNumber } from '@/lib/format';
 
 interface Props {
   facilityId: string;
@@ -42,18 +43,40 @@ const STATUS_LABEL: Record<string, string> = {
   blocked: 'Bloqueado',
 };
 
-interface UnitRect {
+interface PlanUnit {
   id: string;
   code: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
   status: string;
   areaM2: number;
   price: number;
   typeName: string;
-  stacked: boolean;
+}
+
+interface UnitRect extends PlanUnit {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Taquilla de arriba, si es un par apilado. */
+  upper: PlanUnit | null;
+}
+
+function planUnit(u: {
+  id: string;
+  code: string;
+  status: string;
+  areaM2: number;
+  basePriceMonthly: number;
+  unitTypeName: string;
+}): PlanUnit {
+  return {
+    id: u.id,
+    code: u.code,
+    status: u.status,
+    areaM2: u.areaM2,
+    price: u.basePriceMonthly,
+    typeName: u.unitTypeName,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -93,11 +116,16 @@ export function PlanViewer({ facilityId, floorId }: Props) {
     let cursorX = GRID;
     let cursorY = GRID;
     const out: UnitRect[] = [];
-    for (const u of units.data.items) {
+    const items = units.data.items;
+    const lowerGroups = new Set(items.filter((u) => u.stackLevel === 0).map((u) => u.stackGroupId));
+    const uppers = new Map(
+      items.filter((u) => u.stackLevel === 1).map((u) => [u.stackGroupId, u] as const),
+    );
+    for (const u of items) {
       // La taquilla "de arriba" de un par apilado comparte el hueco de la
       // "de abajo" (stackLevel:0) — no se dibuja aparte, o se verían dos
       // rects idénticos superpuestos en el mismo sitio.
-      if (u.stackLevel === 1) continue;
+      if (u.stackLevel === 1 && lowerGroups.has(u.stackGroupId)) continue;
       const hasPos = u.planX !== null && u.planY !== null;
       const proportional = proportionalPlanSize(u.widthM, u.depthM);
       const w = u.planWidth ?? proportional.width;
@@ -111,18 +139,14 @@ export function PlanViewer({ facilityId, floorId }: Props) {
           cursorY += h + GRID;
         }
       }
+      const upper = u.stackLevel === 0 ? uppers.get(u.stackGroupId) : undefined;
       out.push({
-        id: u.id,
-        code: u.code,
+        ...planUnit(u),
         x,
         y,
         width: w,
         height: h,
-        status: u.status,
-        areaM2: u.areaM2,
-        price: u.basePriceMonthly,
-        typeName: u.unitTypeName,
-        stacked: u.stackGroupId !== null,
+        upper: upper ? planUnit(upper) : null,
       });
     }
     return out;
@@ -234,6 +258,8 @@ export function PlanViewer({ facilityId, floorId }: Props) {
     lastCenter.current = null;
   }
 
+  const selected = rects.find((x) => x.id === selectedId) ?? null;
+
   if (units.isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -241,6 +267,8 @@ export function PlanViewer({ facilityId, floorId }: Props) {
       </div>
     );
   }
+
+  if (units.isError) return <SectionError onRetry={() => void units.refetch()} />;
 
   if (rects.length === 0) {
     return (
@@ -328,7 +356,7 @@ export function PlanViewer({ facilityId, floorId }: Props) {
             </Layer>
             <Layer>
               {rects
-                .filter((r) => r.stacked)
+                .filter((r) => r.upper)
                 .map((r) => (
                   <Rect
                     key={`stack-echo-${r.id}`}
@@ -336,8 +364,8 @@ export function PlanViewer({ facilityId, floorId }: Props) {
                     y={r.y - 5}
                     width={r.width}
                     height={r.height}
-                    fill={STATUS_FILL[r.status] ?? '#64748b'}
-                    opacity={0.35}
+                    fill={STATUS_FILL[r.upper?.status ?? r.status] ?? '#64748b'}
+                    opacity={0.6}
                     stroke="#ffffff"
                     strokeWidth={1}
                     cornerRadius={3}
@@ -381,11 +409,7 @@ export function PlanViewer({ facilityId, floorId }: Props) {
                   y={r.y + r.height / 2 - 13}
                   width={r.width}
                   align="center"
-                  text={
-                    r.stacked
-                      ? `${r.code} ×2\n${r.areaM2.toFixed(1)} m²`
-                      : `${r.code}\n${r.areaM2.toFixed(1)} m²`
-                  }
+                  text={`${r.code}${r.upper ? ' ×2' : ''}\n${formatNumber(r.areaM2, 1)} m²`}
                   fontSize={12}
                   fontStyle="bold"
                   lineHeight={1.25}
@@ -408,24 +432,32 @@ export function PlanViewer({ facilityId, floorId }: Props) {
             <p className="font-semibold text-foreground">{hover.unit.code}</p>
             <p className="text-muted-foreground">{hover.unit.typeName}</p>
             <p className="text-muted-foreground">
-              {hover.unit.areaM2.toFixed(1)} m² ·{' '}
-              <span className="font-medium text-foreground">
-                {hover.unit.price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
-                /mes
-              </span>
+              {formatNumber(hover.unit.areaM2, 1)} m² ·{' '}
+              <span className="font-medium text-foreground">{formatEur(hover.unit.price)}/mes</span>
             </p>
             <p className="text-muted-foreground">{STATUS_LABEL[hover.unit.status]}</p>
+            {hover.unit.upper && (
+              <p className="text-muted-foreground">
+                Arriba: {hover.unit.upper.code} · {STATUS_LABEL[hover.unit.upper.status]}
+              </p>
+            )}
           </div>
         )}
       </div>
-      {selectedId && (
-        <SelectedUnitPanel
-          unit={rects.find((x) => x.id === selectedId) ?? null}
-          occupant={occupantByUnit.get(selectedId) ?? null}
-          hold={holdByUnit.get(selectedId) ?? null}
-          onOpen={() => router.push(`/units/${selectedId}`)}
-          onClose={() => setSelectedId(null)}
-        />
+      {selected && (
+        <div className="space-y-2">
+          {[selected, ...(selected.upper ? [selected.upper] : [])].map((u, i) => (
+            <SelectedUnitPanel
+              key={u.id}
+              unit={u}
+              {...(selected.upper ? { position: i === 0 ? 'Abajo' : 'Arriba' } : {})}
+              occupant={occupantByUnit.get(u.id) ?? null}
+              hold={holdByUnit.get(u.id) ?? null}
+              onOpen={() => router.push(`/units/${u.id}`)}
+              onClose={() => setSelectedId(null)}
+            />
+          ))}
+        </div>
       )}
       <p className="text-xs text-muted-foreground">
         Pasa el cursor por un trastero para ver el precio; haz clic para ver quién lo ocupa. Rueda o
@@ -437,27 +469,29 @@ export function PlanViewer({ facilityId, floorId }: Props) {
 
 function SelectedUnitPanel({
   unit,
+  position,
   occupant,
   hold,
   onOpen,
   onClose,
 }: {
-  unit: UnitRect | null;
+  unit: PlanUnit;
+  /** En un par apilado, cuál de las dos es. */
+  position?: string;
   occupant: FloorOccupantDto | null;
   hold: FloorHoldDto | null;
   onOpen: () => void;
   onClose: () => void;
 }) {
-  if (!unit) return null;
-  const eur = (v: number) => v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-3 text-sm">
       <div className="min-w-0 flex-1">
         <p className="font-semibold">
+          {position ? `${position}: ` : ''}
           {unit.code} · {STATUS_LABEL[unit.status]}
         </p>
         <p className="text-muted-foreground">
-          {unit.typeName} · {unit.areaM2.toFixed(1)} m² · {eur(unit.price)}/mes
+          {unit.typeName} · {formatNumber(unit.areaM2, 1)} m² · {formatEur(unit.price)}/mes
         </p>
         {hold && (
           <p className="text-xs text-muted-foreground">
@@ -482,7 +516,7 @@ function SelectedUnitPanel({
             </Link>
             {occupant.overdue > 0 ? (
               <span className="ml-2 font-medium text-rose-700 dark:text-rose-400">
-                Debe {eur(occupant.overdue)}
+                Debe {formatEur(occupant.overdue)}
               </span>
             ) : (
               <span className="ml-2 text-muted-foreground">Al día</span>

@@ -18,6 +18,12 @@ const nonNegativeDecimal = z
   .nonnegative('No puede ser negativo')
   .finite();
 
+/** Lo que cabe en las columnas de medidas, superficie y volumen. */
+const unitSide = positiveDecimal.max(500, 'Máximo 500 m');
+const unitHeight = positiveDecimal.max(50, 'Máximo 50 m');
+export const UNIT_MAX_PRICE = 999_999;
+const unitPrice = nonNegativeDecimal.max(UNIT_MAX_PRICE, 'Máximo 999.999 €');
+
 const facilityName = z.string().trim().min(2, 'Minimo 2 caracteres').max(120);
 const optionalShortText = z.string().trim().max(200).optional().or(z.literal(''));
 
@@ -151,8 +157,12 @@ export type UnitStatusValue = z.infer<typeof UnitStatusEnum>;
  * Cambios de estado manuales permitidos desde cada estado. `occupied` solo lo
  * pone un contrato (o la reconciliación de inventario cuando hay contrato).
  */
+/**
+ * Cambios de estado a mano. «Reservado» no está: lo pone quien guarda el trastero
+ * (reserva, aviso de la cola, traslado programado); a mano quedaba sin dueño.
+ */
 export const UNIT_STATUS_TRANSITIONS: Record<UnitStatusValue, UnitStatusValue[]> = {
-  available: ['reserved', 'maintenance', 'blocked'],
+  available: ['maintenance', 'blocked'],
   reserved: ['available', 'maintenance', 'blocked'],
   maintenance: ['available', 'blocked'],
   blocked: ['available', 'maintenance'],
@@ -169,10 +179,10 @@ export const CreateUnitSchema = z.object({
     .min(1, 'Obligatorio')
     .max(40)
     .regex(/^[A-Za-z0-9_\-./]+$/, 'Solo letras, numeros y -_./'),
-  widthM: positiveDecimal,
-  depthM: positiveDecimal,
-  heightM: positiveDecimal,
-  basePriceMonthly: nonNegativeDecimal.optional(),
+  widthM: unitSide,
+  depthM: unitSide,
+  heightM: unitHeight,
+  basePriceMonthly: unitPrice.optional(),
   notes: z.string().trim().max(2000).optional().or(z.literal('')),
 });
 export type CreateUnitInput = z.infer<typeof CreateUnitSchema>;
@@ -182,10 +192,10 @@ export const UpdateUnitSchema = z
     floorId: z.string().uuid().optional(),
     unitTypeId: z.string().uuid().optional(),
     code: CreateUnitSchema.shape.code.optional(),
-    widthM: positiveDecimal.optional(),
-    depthM: positiveDecimal.optional(),
-    heightM: positiveDecimal.optional(),
-    basePriceMonthly: nonNegativeDecimal.optional(),
+    widthM: unitSide.optional(),
+    depthM: unitSide.optional(),
+    heightM: unitHeight.optional(),
+    basePriceMonthly: unitPrice.optional(),
     notes: z.string().trim().max(2000).optional().or(z.literal('')),
   })
   .refine((v) => Object.values(v).some((field) => field !== undefined), {
@@ -293,36 +303,46 @@ export type SetFacilityImagesInput = z.infer<typeof SetFacilityImagesSchema>;
 // Acciones en lote y alta masiva de trasteros
 // ============================================================================
 
-export const BulkUnitsActionSchema = z.discriminatedUnion('action', [
-  z.object({
-    action: z.literal('status'),
-    unitIds: z.array(z.string().uuid()).min(1).max(500),
-    status: UnitStatusEnum,
-    reason: z.string().trim().max(500).optional(),
-  }),
-  z.object({
-    action: z.literal('type'),
-    unitIds: z.array(z.string().uuid()).min(1).max(500),
-    unitTypeId: z.string().uuid(),
-  }),
-  z.object({
-    action: z.literal('floor'),
-    unitIds: z.array(z.string().uuid()).min(1).max(500),
-    floorId: z.string().uuid(),
-  }),
-  z.object({
-    action: z.literal('price'),
-    unitIds: z.array(z.string().uuid()).min(1).max(500),
-    /** `set` = fijar el precio; `percent` = subir/bajar un %. */
-    mode: z.enum(['set', 'percent']),
-    value: z.number().finite().min(-90).max(100000),
-  }),
-]);
+export const BulkUnitsActionSchema = z
+  .discriminatedUnion('action', [
+    z.object({
+      action: z.literal('status'),
+      unitIds: z.array(z.string().uuid()).min(1).max(500),
+      status: UnitStatusEnum,
+      reason: z.string().trim().max(500).optional(),
+    }),
+    z.object({
+      action: z.literal('type'),
+      unitIds: z.array(z.string().uuid()).min(1).max(500),
+      unitTypeId: z.string().uuid(),
+    }),
+    z.object({
+      action: z.literal('floor'),
+      unitIds: z.array(z.string().uuid()).min(1).max(500),
+      floorId: z.string().uuid(),
+    }),
+    z.object({
+      action: z.literal('price'),
+      unitIds: z.array(z.string().uuid()).min(1).max(500),
+      /** `set` = fijar el precio; `percent` = subir/bajar un %. */
+      mode: z.enum(['set', 'percent']),
+      value: z.number().finite().min(-90).max(UNIT_MAX_PRICE),
+    }),
+  ])
+  .superRefine((input, ctx) => {
+    if (input.action !== 'price') return;
+    if (input.mode === 'set' && input.value <= 0) {
+      ctx.addIssue({ code: 'custom', path: ['value'], message: 'Indica un precio mayor que 0' });
+    }
+    if (input.mode === 'percent' && (input.value === 0 || input.value > 1000)) {
+      ctx.addIssue({ code: 'custom', path: ['value'], message: 'Indica un % entre -90 y 1.000' });
+    }
+  });
 export type BulkUnitsActionInput = z.infer<typeof BulkUnitsActionSchema>;
 
 export interface BulkUnitsResultDto {
   updated: number;
-  failed: { unitId: string; code: string | null; error: string }[];
+  failed: { unitId: string; unitCode: string | null; code: string | null; error: string }[];
 }
 
 export const BulkCreateUnitsSchema = z.object({
@@ -339,10 +359,10 @@ export const BulkCreateUnitsSchema = z.object({
   count: z.number().int().min(1).max(200),
   /** Cifras del número (2 → A-01). */
   padding: z.number().int().min(0).max(6).default(2),
-  widthM: positiveDecimal,
-  depthM: positiveDecimal,
-  heightM: positiveDecimal,
-  basePriceMonthly: nonNegativeDecimal.optional(),
+  widthM: unitSide,
+  depthM: unitSide,
+  heightM: unitHeight,
+  basePriceMonthly: unitPrice.optional(),
 });
 export type BulkCreateUnitsInput = z.infer<typeof BulkCreateUnitsSchema>;
 
@@ -361,7 +381,12 @@ export function bulkUnitCodes(input: {
 
 export interface BulkCreateUnitsResultDto {
   created: number;
+  /** Ya existían y se han saltado. */
   skipped: string[];
+  /** No caben en el plan: no se han creado. */
+  overLimit: string[];
+  /** Fallaron por otro motivo (el alta se para ahí). */
+  failed: { code: string; error: string }[];
 }
 
 // ============================================================================

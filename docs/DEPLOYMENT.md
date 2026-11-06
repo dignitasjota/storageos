@@ -1843,3 +1843,12 @@ Migración `20261226100000_messages_features`, se aplica sola. Las conversacione
   4. Prueba: escribe a un inquilino de prueba desde el panel, contesta a ese correo y comprueba que aparece en la conversación.
 
   **No está probado con un proveedor real**: solo con el webhook simulado en los tests. Solo se aceptan imágenes y PDF de hasta 10 MB.
+
+## 101. Trasteros: arreglos (2026-11-06)
+
+Migración `20261227100000_units_review`, se aplica sola. Sin variables nuevas.
+
+- **Historial por trastero**: la migración crea `unit_tenancies` y la rellena con los contratos firmados y sus traslados. Después la mantiene un disparador sobre `contracts`. Los traslados antiguos salen de los eventos del contrato; su precio es el actual del contrato, porque el de entonces no se guardaba.
+- **Pares apilados rotos**: la misma migración desapila las taquillas cuya pareja se borró y los pares separados en dos plantas. Si alguna taquilla «reaparece» en el plano de un local, es esto.
+- **Tras desplegar, mira Inventario → Trasteros**: el aviso de descuadres puede enseñar trasteros reservados o fuera de servicio con el inquilino dentro. Es lo que se hizo a mano antes de este cambio; «Corregir a Ocupado» lo arregla.
+- **Cambia cómo se trabaja**: ya no se puede poner a mano «Reservado» ni cambiar el estado de un trastero con contrato en vigor. Para una avería con inquilino dentro, una incidencia.

@@ -993,6 +993,18 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 
 `POST /units/:id/change-status` acepta `until` (vuelta prevista, en mantenimiento) y `createTask` (crea una tarea de mantenimiento del trastero). `POST/PATCH /products` aceptan `minStock`; `ProductDto` gana `minStock` y `lowStock`. `GET /dashboard/today` añade `lowStock`, `unitsOutOfService` (mantenimiento o bloqueado más de 7 días o pasada la fecha prevista) y `facilityDocumentsExpiring` (30 días).
 
+**Revisión de Trasteros (2026-11-06).**
+
+- `POST /units/:id/change-status`: un trastero con contrato en vigor no cambia a mano (409 `unit_has_live_contract`; una reserva anticipada sin empezar no cuenta). «Reservado» ya no se pone a mano (400 `invalid_status_transition`). `until` no admite una fecha pasada (400 `invalid_until`) y, en mantenimiento, cambiar la fecha deja una línea en el historial. Si al pasar a `available` el trastero sigue guardado para alguien, vuelve a `reserved` (la respuesta trae el estado real); desde `reserved` sigue siendo 409 `unit_held_by_other`. Al salir de mantenimiento se cierra su tarea. `createTask` necesita además `tasks:write`.
+- `PATCH /units/:id`: mandar el tipo o la planta sin cambiarlos no falla en un apilado; cambiarlos sí (400 `cannot_change_type_while_stacked`, `cannot_change_floor_while_stacked`). Cambiar de planta borra la posición en el plano.
+- `DELETE /units/:id`: 409 `unit_stacked` (hay que desapilar), 409 `unit_has_history` (también si un contrato se trasladó a otro) y 409 `unit_has_pending` (traslado programado, lista de espera, oferta, solicitud, petición de cambio o cerradura; el mensaje dice qué falta).
+- `GET /units`: `search` mira también inquilino y número de contrato con `customers:read`. `facilityId`, `floorId`, `unitTypeId` y `cursor` no válidos dan 400 `invalid_id`; `limit` no numérico se ignora.
+- `POST /units/bulk`: `failed[]` lleva `unitCode`, y un fallo interno no enseña su texto. Precio: `set` exige más de 0, `percent` entre -90 y 1.000 sin ser 0, y un resultado fuera de rango falla por trastero (`invalid_price`).
+- `POST /units/bulk-create`: `{created, skipped, overLimit, failed}`. `skipped` son los que ya existían, `overLimit` los que no caben en el plan y `failed` dónde se paró.
+- `GET /units/:id/insights`: el historial sale de `unit_tenancies`, así que un traslado queda en los dos trasteros (`movedAway`). `invoiced` y `revenue12m` van sin IVA y sin contar dos veces una sustitutiva. `daysTrackedLastYear` son los días que se miran (365, o menos en un trastero reciente).
+- `GET /inventory/issues`: ya no marca lo guardado para la cola o un traslado programado, y avisa de un trastero reservado o fuera de servicio con el inquilino dentro (→ `occupied`).
+- Medidas hasta 500 m (alto 50 m) y precio hasta 999.999 €: fuera de eso, 400.
+
 ## Operativa, productos, analytics y reports (Fase 6)
 
 **Funcionalidades de la Operativa (2026-10-25, PR B).** Migración `20261114100000_operations_features`.

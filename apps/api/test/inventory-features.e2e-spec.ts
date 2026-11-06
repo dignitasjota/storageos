@@ -103,7 +103,12 @@ describe('Funcionalidades de Inventario (e2e)', () => {
         basePriceMonthly: 60,
       })
       .expect(201);
-    expect(bulkCreate.body).toEqual({ created: 4, skipped: ['A-03'] });
+    expect(bulkCreate.body).toMatchObject({
+      created: 4,
+      skipped: ['A-03'],
+      overLimit: [],
+      failed: [],
+    });
 
     // En lote: subir un 10 % el precio de los dos primeros.
     const bulk = await http()
@@ -147,12 +152,17 @@ describe('Funcionalidades de Inventario (e2e)', () => {
 
     // Mantenimiento con fecha prevista y tarea; pasada la fecha sale en «Hoy».
     const yesterday = new Date(Date.now() - DAY).toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 2 * DAY).toISOString().slice(0, 10);
     const maint = await http()
       .post(`/units/${unitIds[1]}/change-status`)
       .set(auth)
-      .send({ status: 'maintenance', reason: 'Puerta rota', until: yesterday, createTask: true })
+      .send({ status: 'maintenance', reason: 'Puerta rota', until: tomorrow, createTask: true })
       .expect(200);
-    expect(maint.body.maintenanceUntil).toBe(yesterday);
+    expect(maint.body.maintenanceUntil).toBe(tomorrow);
+    await db.unit.update({
+      where: { id: unitIds[1]! },
+      data: { maintenanceUntil: new Date(yesterday) },
+    });
     const task = await db.task.findFirst({ where: { unitId: unitIds[1] } });
     expect(task).toMatchObject({ type: 'maintenance', description: 'Puerta rota' });
     const today = await http().get('/dashboard/today').set(auth).expect(200);

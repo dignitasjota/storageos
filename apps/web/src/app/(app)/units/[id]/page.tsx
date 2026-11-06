@@ -2,9 +2,9 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type UpdateUnitInput, UpdateUnitSchema } from '@storageos/shared';
-import { ArrowLeft, Loader2, Pencil, User } from 'lucide-react';
+import { ArrowLeft, Loader2, Pencil, Trash2, User } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { UnitInsightsCard } from './unit-insights-card';
 import { UnitReservationCard } from './unit-reservation-card';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,6 +42,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ChangeUnitStatusDialog } from '@/components/units/change-status-dialog';
+import { useDeleteUnitAction } from '@/components/units/use-delete-unit';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useContracts } from '@/lib/customers/hooks';
@@ -51,7 +53,7 @@ import {
   useUnitTypes,
   useUpdateUnit,
 } from '@/lib/facilities/hooks';
-import { formatEur, formatNumber } from '@/lib/format';
+import { formatDate, formatDateTime, formatEur, formatNumber } from '@/lib/format';
 
 const STATUS_LABELS: Record<string, string> = {
   available: 'Disponible',
@@ -69,8 +71,31 @@ export default function UnitDetailPage() {
   // Contrato vigente del trastero (para mostrar el inquilino que lo ocupa).
   const contracts = useContracts(id ? { unitId: id } : {});
   const canWrite = useHasPermission('units:write');
+  const canDelete = useHasPermission('units:manage');
+  const router = useRouter();
+  const deleteUnit = useDeleteUnitAction();
   const [editOpen, setEditOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+
+  if (unit.isError) {
+    const missing = unit.error instanceof ApiError && unit.error.statusCode === 404;
+    return (
+      <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
+        <Button variant="ghost" size="sm" asChild className="-ml-2">
+          <Link href="/units">
+            <ArrowLeft className="mr-1 h-4 w-4" /> Trasteros
+          </Link>
+        </Button>
+        {missing ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Este trastero no existe o ya no está.
+          </p>
+        ) : (
+          <SectionError onRetry={() => void unit.refetch()} />
+        )}
+      </div>
+    );
+  }
 
   if (unit.isLoading || !unit.data) {
     return (
@@ -94,23 +119,36 @@ export default function UnitDetailPage() {
             <ArrowLeft className="mr-1 h-4 w-4" /> Trasteros
           </Link>
         </Button>
-        <div className="mt-2 flex items-center justify-between gap-3">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">{u.code}</h1>
             <StatusBadge status={u.status} />
           </div>
-          {canWrite && (
-            <div className="flex flex-wrap gap-2">
-              {u.status !== 'occupied' && (
-                <Button variant="outline" size="sm" onClick={() => setStatusOpen(true)}>
-                  Cambiar estado
-                </Button>
-              )}
+          <div className="flex flex-wrap gap-2">
+            {canWrite && !isRented && (
+              <Button variant="outline" size="sm" onClick={() => setStatusOpen(true)}>
+                Cambiar estado
+              </Button>
+            )}
+            {canWrite && (
               <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
                 <Pencil className="mr-1 h-4 w-4" /> Editar trastero
               </Button>
-            </div>
-          )}
+            )}
+            {canDelete && !isRented && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void deleteUnit(u).then((deleted) => {
+                    if (deleted) router.push('/units');
+                  })
+                }
+              >
+                <Trash2 className="mr-1 h-4 w-4" /> Borrar
+              </Button>
+            )}
+          </div>
         </div>
         <p className="text-sm text-muted-foreground">
           <Link href={`/facilities/${u.facilityId}`} className="hover:underline">
@@ -131,8 +169,7 @@ export default function UnitDetailPage() {
             <span className="text-sm text-muted-foreground">{STATUS_LABELS[u.status]}</span>
             {u.status === 'maintenance' && u.maintenanceUntil && (
               <span className="text-sm text-muted-foreground">
-                · vuelve previsto el{' '}
-                {new Date(`${u.maintenanceUntil}T00:00:00`).toLocaleDateString('es-ES')}
+                · vuelve previsto el {formatDate(u.maintenanceUntil)}
               </span>
             )}
           </div>
@@ -175,7 +212,7 @@ export default function UnitDetailPage() {
           <CardContent>
             <p className="text-xl font-semibold">{formatNumber(u.areaM2)} m²</p>
             <p className="text-xs text-muted-foreground">
-              {u.widthM} × {u.depthM} m
+              {formatNumber(u.widthM)} × {formatNumber(u.depthM)} m
             </p>
           </CardContent>
         </Card>
@@ -185,13 +222,13 @@ export default function UnitDetailPage() {
           </CardHeader>
           <CardContent>
             <p className="text-xl font-semibold">{formatNumber(u.volumeM3)} m³</p>
-            <p className="text-xs text-muted-foreground">Alto {u.heightM} m</p>
+            <p className="text-xs text-muted-foreground">Alto {formatNumber(u.heightM)} m</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-normal text-muted-foreground">
-              Precio mensual
+              Precio mensual (sin IVA)
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -216,6 +253,7 @@ export default function UnitDetailPage() {
         </CardHeader>
         <CardContent>
           {history.isLoading && <p className="text-sm text-muted-foreground">Cargando...</p>}
+          {history.isError && <SectionError onRetry={() => void history.refetch()} />}
           {history.data && history.data.length === 0 && (
             <p className="text-sm text-muted-foreground">Sin cambios de estado registrados.</p>
           )}
@@ -223,10 +261,8 @@ export default function UnitDetailPage() {
             <ul className="space-y-2 text-sm">
               {history.data.map((h) => (
                 <li key={h.id} className="border-b pb-2 last:border-0">
-                  <span className="text-muted-foreground">
-                    {new Date(h.occurredAt).toLocaleString('es-ES')}
-                  </span>{' '}
-                  · <strong>{STATUS_LABELS[h.previousStatus]}</strong> →{' '}
+                  <span className="text-muted-foreground">{formatDateTime(h.occurredAt)}</span> ·{' '}
+                  <strong>{STATUS_LABELS[h.previousStatus]}</strong> →{' '}
                   <strong>{STATUS_LABELS[h.newStatus]}</strong>
                   {h.changedByName && ` · ${h.changedByName}`}
                   {h.reason && (
@@ -256,6 +292,7 @@ function EditUnitDialog({
   rented: boolean;
   unit: {
     id: string;
+    code: string;
     facilityId: string;
     floorId: string;
     unitTypeId: string;
@@ -277,6 +314,7 @@ function EditUnitDialog({
   const form = useForm<UpdateUnitInput>({
     resolver: zodResolver(UpdateUnitSchema),
     values: {
+      code: unit.code,
       floorId: unit.floorId,
       unitTypeId: unit.unitTypeId,
       widthM: unit.widthM,
@@ -295,11 +333,8 @@ function EditUnitDialog({
       toast.success('Trastero actualizado.');
       onOpenChange(false);
     } catch (err) {
-      if (
-        err instanceof ApiError &&
-        (err.body as { code?: string }).code === 'cannot_change_type_while_stacked'
-      ) {
-        toast.error('Está apilado con otro trastero; desapílalo antes de cambiar el tipo.');
+      if (err instanceof ApiError && (err.body as { code?: string }).code === 'unit_code_taken') {
+        form.setError('code', { message: 'Ya existe un trastero con ese código en este local.' });
         return;
       }
       if (
@@ -330,6 +365,19 @@ function EditUnitDialog({
         )}
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <FormField
+              control={form.control}
+              name="code"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Código</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value ?? ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             {floorList.length > 1 && (
               <FormField
                 control={form.control}
@@ -337,7 +385,11 @@ function EditUnitDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Planta</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={!!unit.stackGroupId}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue />
@@ -383,7 +435,7 @@ function EditUnitDialog({
                   {unit.stackGroupId && (
                     <FormDescription>
                       Este trastero está apilado con otro — desapílalo desde el plano para poder
-                      cambiar su tipo.
+                      cambiar su tipo o su planta.
                     </FormDescription>
                   )}
                   <FormMessage />
@@ -453,17 +505,13 @@ function EditUnitDialog({
               Superficie:{' '}
               <span className="font-semibold">
                 {Number.isFinite(width * depth) && width > 0 && depth > 0
-                  ? `${(width * depth).toLocaleString('es-ES', { maximumFractionDigits: 2 })} m²`
+                  ? `${formatNumber(width * depth)} m²`
                   : '—'}
               </span>
               {Number.isFinite(width * depth * height) && width > 0 && depth > 0 && height > 0 && (
                 <span className="text-muted-foreground">
                   {' '}
-                  · Volumen{' '}
-                  {(width * depth * height).toLocaleString('es-ES', {
-                    maximumFractionDigits: 2,
-                  })}{' '}
-                  m³
+                  · Volumen {formatNumber(width * depth * height)} m³
                 </span>
               )}
             </p>

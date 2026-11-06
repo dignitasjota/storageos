@@ -131,6 +131,7 @@ test.describe('Panel del tenant', () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
     for (const path of [
       '/customers',
+      '/units',
       '/contracts',
       '/invoices',
       '/payments',
