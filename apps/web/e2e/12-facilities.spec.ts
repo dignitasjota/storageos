@@ -207,3 +207,29 @@ test('locales: resumen, horario partido, comparar, papelera y cartel', async ({ 
 
   expect(errors).toEqual([]);
 });
+
+test('locales: los días especiales se leen en el idioma de la web', async ({ page }) => {
+  test.setTimeout(30_000);
+  const tenant = await seedTestTenant('localesen');
+  const { accessToken: token } = await apiLogin(tenant.slug, tenant.email, tenant.password);
+  const day = new Date(Date.now() + 5 * 86_400_000);
+  const facility = await api<{ publicSlug: string }>('/facilities', token, {
+    name: 'Local Festivos',
+    city: 'Valencia',
+    country: 'ES',
+    timezone: 'Europe/Madrid',
+    openingHours: { mon: { open: '09:00', close: '20:00' } },
+    openingExceptions: [
+      { date: day.toISOString().slice(0, 10), label: 'Fiesta local', hours: null },
+    ],
+  });
+  const special = (locale: string) =>
+    page.locator('li', {
+      hasText: `${day.toLocaleDateString(locale, { day: 'numeric', month: 'long', timeZone: 'UTC' })} (Fiesta local)`,
+    });
+
+  await page.goto(`/s/${tenant.slug}/${facility.publicSlug}`);
+  await expect(special('es-ES').first()).toBeAttached();
+  await page.goto(`/s/${tenant.slug}/l/en/${facility.publicSlug}`);
+  await expect(special('en-GB').first()).toBeAttached();
+});
