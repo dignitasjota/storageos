@@ -1133,3 +1133,7 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 ### Facturas (`20261231100000_invoices_review`)
 
 `tenants.invoice_due_days` (15): días para pagar una factura desde que se emite. `invoices.consumed_benefits` (jsonb): lo que la factura gastó del contrato (`freeMonth`, `creditCents`, `creditReason`), para devolverlo si se cancela el borrador o se anula la factura. Con RLS: `invoice_refunds`, una fila por devolución (`via`: `gateway`, `bank`, `manual` o `external`, con el pago, el motivo, el id de la pasarela y quién la hizo); FK a `invoices` en cascada y a `payments` y `users` SET NULL.
+
+### Facturas, mejoras (`20270101100000_invoices_features`)
+
+`customers.invoice_due_days` (null = el plazo del negocio, `tenants.invoice_due_days`): días para pagar sus facturas desde que se emiten. `contracts.credit_balance` (DECIMAL, 0): saldo a favor del inquilino, de una devolución hecha «como saldo a favor» (`invoice_refunds.via = 'credit'`); la siguiente factura del contrato lo descuenta al emitirse con un pago `credit_note` y el saldo baja. Con RLS: `invoice_saved_views` (vistas de la lista de facturas del equipo: `name` único por tenant, `filters` jsonb, `created_by_user_id` FK SET NULL). Índice `audit_logs_tenant_entity_idx (tenant_id, entity_type, entity_id)` para el historial de una ficha.
