@@ -169,6 +169,7 @@ describe('Cobros en curso frente a impagos (e2e)', () => {
           status: 'executed',
           scheduledFor: new Date(),
           executedAt: new Date(),
+          result: { accessBlocked: true },
         },
       });
     }

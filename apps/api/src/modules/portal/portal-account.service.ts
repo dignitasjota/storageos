@@ -6,6 +6,7 @@ import {
   type PortalDunningStepDto,
 } from '@storageos/shared';
 
+import { accessCutApplied, accessCutUndecided } from '../../common/access-cut';
 import { todayInTimezone } from '../../common/format';
 import { nextContractCharge } from '../../common/next-charge';
 import { isPendingPreOpening } from '../../common/pre-opening';
@@ -174,6 +175,7 @@ export class PortalAccountService {
           scheduledFor: true,
           executedAt: true,
           status: true,
+          result: true,
         },
         orderBy: { scheduledFor: 'asc' },
       });
@@ -187,14 +189,16 @@ export class PortalAccountService {
             (a) =>
               a.invoiceId === oldest.id &&
               STEP_TYPES.has(a.actionType as PortalDunningStepDto['type']) &&
-              a.status !== 'cancelled',
+              a.status !== 'cancelled' &&
+              // Un corte que no llegó a aplicarse no se cuenta como hecho.
+              !accessCutUndecided(a),
           )
           .map((a) => ({
             type: a.actionType as PortalDunningStepDto['type'],
             date: (a.executedAt ?? a.scheduledFor).toISOString(),
             done: !!a.executedAt,
           })),
-        accessBlocked: actions.some((a) => a.actionType === 'access_block' && !!a.executedAt),
+        accessBlocked: actions.some(accessCutApplied),
       };
     }
 

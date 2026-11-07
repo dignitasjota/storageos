@@ -106,6 +106,26 @@ export interface CustomerAccessSummaryDto {
   recent: AccessLogDto[];
 }
 
+/** Inquilino con deuda al que el corte por impago no llegó a aplicarse. */
+export interface AccessCutPendingRowDto {
+  customerId: string;
+  customerName: string;
+  /** Lo que debe de esas facturas. */
+  amount: number;
+  /** Días desde el vencimiento más antiguo. */
+  days: number;
+  invoiceIds: string[];
+  invoiceNumbers: string[];
+  /** Credenciales que se le cortarían con la política del negocio. */
+  credentials: number;
+}
+
+/** `GET /access/debt-cuts`. */
+export interface AccessCutPendingDto {
+  mode: 'all' | 'extras';
+  rows: AccessCutPendingRowDto[];
+}
+
 /** Cómo va la sincronización de un terminal. */
 export interface AccessSyncDeviceDto {
   deviceId: string;

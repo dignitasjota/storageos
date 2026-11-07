@@ -9,6 +9,7 @@ import type { Env } from '../../../config/env.schema';
 import type { AccessIntegrationsService } from '../../access/access-integrations.service';
 import type { AuditService } from '../../auth/audit.service';
 import type { InvoicesService } from '../../billing/invoices.service';
+import type { CollectionsService } from '../../collections/collections.service';
 import type { CommunicationsService } from '../../communications/communications.service';
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { ConfigService } from '@nestjs/config';
@@ -36,7 +37,12 @@ interface AdminMock {
 function buildService(
   admin: AdminMock,
   communications: { enqueue: jest.Mock },
-  deps: { queue?: { add: jest.Mock }; events?: { emit: jest.Mock } } = {},
+  deps: {
+    queue?: { add: jest.Mock };
+    events?: { emit: jest.Mock };
+    access?: { suspendForDunning: jest.Mock };
+    collections?: { openFromDunning: jest.Mock };
+  } = {},
 ) {
   const queue = deps.queue ?? { add: jest.fn() };
   const events = deps.events ?? { emit: jest.fn() };
@@ -50,7 +56,8 @@ function buildService(
     events as unknown as EventEmitter2,
     invoices,
     { get: () => 'http://localhost:3000' } as unknown as ConfigService<Env, true>,
-    null as unknown as AccessIntegrationsService,
+    (deps.access ?? { suspendForDunning: jest.fn() }) as unknown as AccessIntegrationsService,
+    (deps.collections ?? { openFromDunning: jest.fn() }) as unknown as CollectionsService,
   );
 }
 
@@ -292,5 +299,78 @@ describe('DunningService.dailyTick (marcar overdue)', () => {
     expect(admin.invoice.updateMany).not.toHaveBeenCalled();
     expect(queue.add).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('DunningService.executeAction (access_block)', () => {
+  function adminFor(status: string) {
+    const admin: AdminMock = {
+      dunningAction: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: ACTION_ID,
+          tenantId: TENANT,
+          invoiceId: INVOICE_ID,
+          actionType: 'access_block',
+          status,
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      },
+      paymentPlan: { findFirst: jest.fn().mockResolvedValue(null) },
+      invoice: {
+        count: jest.fn().mockResolvedValue(1),
+        findUnique: jest.fn().mockResolvedValue(overdueInvoice()),
+      },
+      tenant: { findUnique: jest.fn() },
+    };
+    return admin;
+  }
+  const run = (service: DunningService) =>
+    service.handleJob(JOB_DUNNING_EXECUTE_ACTION, { tenantId: TENANT, actionId: ACTION_ID });
+
+  it('apunta que el acceso se ha cortado', async () => {
+    const admin = adminFor('scheduled');
+    const access = {
+      suspendForDunning: jest.fn().mockResolvedValue({ applied: true, suspended: 2 }),
+    };
+    await run(buildService(admin, { enqueue: jest.fn() }, { access }));
+    expect(access.suspendForDunning).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      customerId: CUSTOMER_ID,
+      invoiceId: INVOICE_ID,
+    });
+    expect(admin.dunningAction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'executed',
+          result: expect.objectContaining({ accessBlocked: true, suspended: 2 }),
+        }),
+      }),
+    );
+  });
+
+  it('con la política de no cortar no dice que lo ha cortado', async () => {
+    const admin = adminFor('scheduled');
+    const access = {
+      suspendForDunning: jest.fn().mockResolvedValue({ applied: false, skipped: 'mode_none' }),
+    };
+    await run(buildService(admin, { enqueue: jest.fn() }, { access }));
+    expect(admin.dunningAction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'executed',
+          result: expect.objectContaining({ accessBlocked: false, accessCutSkipped: 'mode_none' }),
+        }),
+      }),
+    );
+  });
+
+  it('si el corte falla sigue programado para reintentarlo', async () => {
+    const admin = adminFor('scheduled');
+    const access = { suspendForDunning: jest.fn().mockRejectedValue(new Error('terminal caído')) };
+    await run(buildService(admin, { enqueue: jest.fn() }, { access }));
+    expect(admin.dunningAction.update).toHaveBeenCalledTimes(1);
+    const update = admin.dunningAction.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(update.data.status).toBeUndefined();
+    expect(update.data.notes).toContain('terminal caído');
   });
 });

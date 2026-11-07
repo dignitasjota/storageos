@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 
+import { ACCESS_CUT_APPLIED_WHERE } from '../../common/access-cut';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { todayInTimezone, zonedDayStart } from '../../common/format';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
@@ -11,6 +12,7 @@ import {
   ContractUnitChangedPayload,
   DOMAIN_EVENTS,
   type DomainEventPayload,
+  type InvoiceVoidedPayload,
 } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -19,6 +21,11 @@ import { PrismaService } from '../database/prisma.service';
 import { AccessCredentialsService } from './access-credentials.service';
 
 import type { Env } from '../../config/env.schema';
+
+/** Qué ha hecho el corte por impago de una factura. */
+export type AccessCutOutcome =
+  | { applied: true; suspended: number }
+  | { applied: false; skipped: string };
 
 /**
  * Fase 8D: integraciones del modulo de accesos con el dominio.
@@ -299,43 +306,8 @@ export class AccessIntegrationsService {
     if (!payload.customerId) return;
     const customerId = payload.customerId;
     try {
-      // 1. Reactiva SOLO las credenciales suspendidas por impago (no las que el
-      //    staff suspendió por seguridad), y solo si ya no le queda ninguna otra
-      //    factura impagada por la que se le cortó el acceso. Idempotente.
-      const stillBlocked = await this.prisma.withTenant(
-        (tx) =>
-          tx.dunningAction.count({
-            where: {
-              actionType: 'access_block',
-              status: 'executed',
-              supersededAt: null,
-              invoice: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
-            },
-          }),
-        payload.tenantId,
-      );
-      // Sin contratos vivos no se reactiva nada: quien paga una deuda antigua ya
-      // no tiene trastero (el repaso periódico le retira lo que quede).
-      const liveContracts = await this.prisma.withTenant(
-        (tx) =>
-          tx.contract.count({
-            where: {
-              customerId,
-              status: { in: ['active', 'ending'] },
-              ...STARTED_CONTRACT_WHERE,
-              deletedAt: null,
-            },
-          }),
-        payload.tenantId,
-      );
-      if (stillBlocked === 0 && liveContracts > 0)
-        await this.credentials.resume({
-          tenantId: payload.tenantId,
-          userId: null,
-          customerId,
-          onlyIfReasonStartsWith: 'dunning:',
-          meta: {},
-        });
+      // 1. Devuelve el acceso cortado por impago, si ya no queda deuda por él.
+      await this.restoreIfDebtCleared(payload.tenantId, customerId);
       // 2. Auto-emisión al primer pago: solo si el inquilino aún no tiene
       //    NINGÚN acceso propio (p. ej. reserva online «pago primero»). Un
       //    acceso suspendido por el staff, una tarjeta o una cara cuentan: no se
@@ -378,39 +350,100 @@ export class AccessIntegrationsService {
     }
   }
 
+  /** Anulada o sustituida: esa factura ya no se debe. */
+  @OnEvent(DOMAIN_EVENTS.invoice_voided, { async: true, promisify: true })
+  async onInvoiceVoided(payload: InvoiceVoidedPayload): Promise<void> {
+    try {
+      const invoice = await this.admin.invoice.findFirst({
+        where: { id: payload.invoiceId, tenantId: payload.tenantId },
+        select: { customerId: true },
+      });
+      if (invoice?.customerId) {
+        await this.restoreIfDebtCleared(payload.tenantId, invoice.customerId);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `invoice.voided tenant=${payload.tenantId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Reactiva SOLO las credenciales suspendidas por impago (no las que el staff
+   * suspendió por seguridad), y solo si ya no queda ninguna otra factura sin
+   * pagar por la que se le cortó el acceso. Idempotente.
+   */
+  private async restoreIfDebtCleared(tenantId: string, customerId: string): Promise<void> {
+    const stillBlocked = await this.prisma.withTenant(
+      (tx) =>
+        tx.dunningAction.count({
+          where: {
+            ...ACCESS_CUT_APPLIED_WHERE,
+            invoice: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+          },
+        }),
+      tenantId,
+    );
+    if (stillBlocked > 0) return;
+    // Sin contratos vivos no se reactiva nada: quien paga una deuda antigua ya
+    // no tiene trastero (el repaso periódico le retira lo que quede).
+    const liveContracts = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.count({
+          where: {
+            customerId,
+            status: { in: ['active', 'ending'] },
+            ...STARTED_CONTRACT_WHERE,
+            deletedAt: null,
+          },
+        }),
+      tenantId,
+    );
+    if (liveContracts === 0) return;
+    await this.credentials.resume({
+      tenantId,
+      userId: null,
+      customerId,
+      onlyIfReasonStartsWith: 'dunning:',
+      meta: {},
+    });
+  }
+
   /**
    * Llamado desde `DunningService.executeAction` cuando el `action_type`
    * es `access_block`. No usa EventEmitter porque el dunning quiere saber
-   * si la suspension tuvo exito antes de marcar la action como executed.
+   * si el corte se aplicó antes de marcar la acción como ejecutada. Si falla,
+   * lanza: la acción sigue programada y se reintenta.
    */
   async suspendForDunning(args: {
     tenantId: string;
     customerId: string;
     invoiceId: string;
-  }): Promise<void> {
+  }): Promise<AccessCutOutcome> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: args.tenantId },
       select: { accessCutMode: true },
     });
-    if (tenant?.accessCutMode === 'none') return;
-    if (tenant?.accessCutMode === 'extras') {
-      await this.credentials.suspendExtras(
-        args.tenantId,
-        args.customerId,
-        `dunning:invoice-${args.invoiceId}`,
-      );
-      return;
-    }
-    await this.credentials.suspend({
-      tenantId: args.tenantId,
-      userId: null,
-      customerId: args.customerId,
-      input: { reason: `dunning:invoice-${args.invoiceId}` },
-      meta: {},
-    } as Parameters<AccessCredentialsService['suspend']>[0]);
+    if (tenant?.accessCutMode === 'none') return { applied: false, skipped: 'mode_none' };
+    const reason = `dunning:invoice-${args.invoiceId}`;
+    const suspended =
+      tenant?.accessCutMode === 'extras'
+        ? await this.credentials.suspendExtras(args.tenantId, args.customerId, reason)
+        : (
+            await this.credentials.suspend({
+              tenantId: args.tenantId,
+              userId: null,
+              customerId: args.customerId,
+              input: { reason },
+              meta: {},
+              // Sin nada que cortar el corte vale igual: no podrá darse otro acceso.
+              allowNone: true,
+            } as Parameters<AccessCredentialsService['suspend']>[0])
+          ).length;
     this.logger.log(
       `access_block ejecutado tenant=${args.tenantId} customer=${args.customerId} invoice=${args.invoiceId}`,
     );
+    return { applied: true, suspended };
   }
 
   /** Vuelve a mandar al inquilino su código por correo. */

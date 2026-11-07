@@ -71,6 +71,12 @@ export const DOMAIN_EVENTS = {
    * es trigger.
    */
   invoice_payment_reverted: 'domain.invoice_payment_reverted',
+  /**
+   * Una factura emitida deja de deberse sin cobrarse: anulada con una
+   * rectificativa o sustituida por otra. Quien tenía el acceso cortado solo por
+   * ella lo recupera.
+   */
+  invoice_voided: 'domain.invoice_voided',
 } as const;
 
 export interface InvoicePaymentRevertedPayload {
@@ -79,6 +85,11 @@ export interface InvoicePaymentRevertedPayload {
 }
 
 export interface InvoiceCancelledPayload {
+  tenantId: string;
+  invoiceId: string;
+}
+
+export interface InvoiceVoidedPayload {
   tenantId: string;
   invoiceId: string;
 }

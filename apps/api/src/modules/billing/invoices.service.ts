@@ -46,6 +46,7 @@ import {
   type InvoiceCancelledPayload,
   type InvoicePaymentRevertedPayload,
   type InvoiceRefundedPayload,
+  type InvoiceVoidedPayload,
 } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { overdueInvoiceWhere } from '../dashboard/today-filters';
@@ -766,6 +767,10 @@ export class InvoicesService {
         tenantId: args.tenantId,
         invoiceId: existing.rectifiesInvoiceId,
       } satisfies InvoiceCancelledPayload);
+      this.events.emit(DOMAIN_EVENTS.invoice_voided, {
+        tenantId: args.tenantId,
+        invoiceId: existing.rectifiesInvoiceId,
+      } satisfies InvoiceVoidedPayload);
     }
     return this.toDto(await this.findOrThrow(args.tenantId, updated.id));
   }
@@ -1719,6 +1724,10 @@ export class InvoicesService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    this.events.emit(DOMAIN_EVENTS.invoice_voided, {
+      tenantId: args.tenantId,
+      invoiceId: original.id,
+    } satisfies InvoiceVoidedPayload);
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.findUniqueOrThrow({

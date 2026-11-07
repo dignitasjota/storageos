@@ -373,21 +373,21 @@ export class CollectionsService {
    * Apertura desde el dunning (paso `legal_notice` a +30) si el tenant activó
    * los impagos físicos. Cross-tenant (el dunning corre sin contexto). Best-effort
    * e idempotente (el índice único parcial impide dos expedientes abiertos por
-   * contrato).
+   * contrato). Devuelve si el contrato queda con un expediente abierto.
    */
-  async openFromDunning(tenantId: string, invoiceId: string): Promise<void> {
+  async openFromDunning(tenantId: string, invoiceId: string): Promise<boolean> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: { collectionsEnabled: true },
     });
-    if (!tenant?.collectionsEnabled) return;
+    if (!tenant?.collectionsEnabled) return false;
     const invoice = await this.admin.invoice.findFirst({
       where: { id: invoiceId, tenantId },
       select: { contractId: true },
     });
-    if (!invoice?.contractId) return;
+    if (!invoice?.contractId) return false;
     try {
-      await this.prisma.withTenant(async (tx) => {
+      return await this.prisma.withTenant(async (tx) => {
         const existing = await tx.delinquencyCase.findFirst({
           where: {
             tenantId,
@@ -396,7 +396,7 @@ export class CollectionsService {
           },
           select: { id: true },
         });
-        if (existing) return;
+        if (existing) return true;
         const contract = await tx.contract.findFirst({
           where: { id: invoice.contractId!, tenantId },
           select: {
@@ -406,9 +406,9 @@ export class CollectionsService {
             unit: { select: { facilityId: true } },
           },
         });
-        if (!contract) return;
+        if (!contract) return false;
         const debtCents = await this.computeDebtCents(tx, tenantId, contract.id);
-        if (debtCents <= 0) return;
+        if (debtCents <= 0) return false;
         await this.createCase(
           tx,
           tenantId,
@@ -426,10 +426,12 @@ export class CollectionsService {
         this.logger.log(
           `collections: expediente abierto por dunning tenant=${tenantId} contract=${contract.id}`,
         );
+        return true;
       }, tenantId);
     } catch (err) {
       // El índice único puede saltar en una carrera; no es un error.
       this.logger.warn(`collections.openFromDunning: ${err instanceof Error ? err.message : err}`);
+      return false;
     }
   }
 

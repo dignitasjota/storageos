@@ -1879,3 +1879,18 @@ Migración `20261230100000_facilities_features`, se aplica sola. Sin variables n
 - **Direcciones antiguas**: solo redirigen las que se cambien a partir de ahora. Las que se cambiaron antes ya no existen en ningún sitio.
 - **Cartel con QR**: lleva a la página del local en la web, con el dominio propio si está verificado. Con web externa, a la reserva de ese local (`/reservar/<local>`), porque `/<local>` es de esa web. Si después cambia el dominio, hay que imprimirlo de nuevo.
 - **Datos estructurados**: el horario partido y los días especiales salen ya en lo que lee Google. Google tarda días en reflejarlo.
+
+## 105. Corte de acceso por impago (2026-11-07)
+
+Sin migración ni variables nuevas.
+
+Hasta ahora el corte **nunca se aplicaba**: el escalado no recibía el servicio de accesos ni el de expedientes (se inyectaban con `@Optional()` y tipo `X | null`, que Nest no resuelve) y aun así dejaba la acción ejecutada, de modo que el panel y el área de clientes daban al inquilino por cortado mientras su PIN seguía abriendo.
+
+**Qué cambia al redesplegar:**
+
+- Los cortes se aplican de verdad desde el primer repaso del escalado (06:00 UTC, en el worker). El aviso legal de los 30 días también abre el expediente, si el negocio tiene activados los impagos físicos.
+- **Antes de redesplegar**, revisar con los tenants que usen accesos su política en Configuración → Accesos del inquilino (cortar todo, solo los adicionales o nada, y a los cuántos días).
+- **Los que ya constaban como cortados no se cortan solos**: en el panel dejan de salir como cortados y aparecen en Deudores → «Deudores con el acceso sin cortar», con «Cortar ahora», «No cortar» y «Cortar a todos». Solo salen si tienen algo que cortar y su factura sigue sin pagar, sin cobro en curso y sin plan de pago.
+- Los expedientes que debían abrirse con el aviso legal antes de este cambio no se abren solos: se abren a mano desde Deudores.
+- Un corte que falla ya no se da por hecho: la acción sigue programada y se reintenta en el repaso del día siguiente, con el motivo en sus notas.
+- El inquilino no recibe un correo en el momento del corte: el segundo recordatorio (día 7) ya le avisa y el área de clientes se lo dice.

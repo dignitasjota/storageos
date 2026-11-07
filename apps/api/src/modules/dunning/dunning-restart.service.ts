@@ -53,7 +53,14 @@ export class DunningRestartService {
         total: true,
         invoiceNumber: true,
         lateFeeInvoice: { select: { id: true } },
-        tenant: { select: { lateFeeEnabled: true, lateFeeGraceDays: true } },
+        tenant: {
+          select: {
+            lateFeeEnabled: true,
+            lateFeeGraceDays: true,
+            accessCutMode: true,
+            accessCutDays: true,
+          },
+        },
       },
     });
     // Solo una factura que vuelve a deber (vencida). Si aún no ha vencido, el
@@ -61,10 +68,10 @@ export class DunningRestartService {
     if (!invoice || invoice.status !== 'overdue' || invoice.kind !== 'invoice') return 0;
     if (Number(invoice.total) <= 0) return 0;
 
-    const calendar = dunningCalendar({
-      enabled: invoice.tenant.lateFeeEnabled,
-      graceDays: invoice.tenant.lateFeeGraceDays,
-    })
+    const calendar = dunningCalendar(
+      { enabled: invoice.tenant.lateFeeEnabled, graceDays: invoice.tenant.lateFeeGraceDays },
+      { mode: invoice.tenant.accessCutMode, days: invoice.tenant.accessCutDays },
+    )
       // El recargo ya emitido no se vuelve a emitir.
       .filter((s) => !(s.type === 'late_fee' && invoice.lateFeeInvoice));
 

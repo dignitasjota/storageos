@@ -13,6 +13,7 @@ import {
 import {
   type AccessCredentialDto,
   type AccessCredentialWithSecretDto,
+  type AccessCutPendingDto,
   type AccessSyncDeviceDto,
   type CustomerAccessSummaryDto,
   CreateTemporaryAccessSchema,
@@ -30,6 +31,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { resolveFacilityFilter } from '../../common/facility-scope';
 
 import { AccessCredentialsService } from './access-credentials.service';
+import { AccessDebtCutsService } from './access-debt-cuts.service';
 import { AccessDevicesService } from './access-devices.service';
 import { AccessIntegrationsService } from './access-integrations.service';
 import { DahuaSyncService } from './dahua-sync.service';
@@ -55,7 +57,72 @@ export class AccessToolsController {
     private readonly devices: AccessDevicesService,
     private readonly integrations: AccessIntegrationsService,
     private readonly sync: DahuaSyncService,
+    private readonly debtCuts: AccessDebtCutsService,
   ) {}
+
+  @RequirePermission('access:manage')
+  @Get('debt-cuts')
+  debtCutsPending(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<AccessCutPendingDto> {
+    return this.debtCuts.pending(
+      user.tenantId,
+      user.facilityScope ?? null,
+      facilityId || undefined,
+    );
+  }
+
+  @RequirePermission('access:manage')
+  @Post('debt-cuts/cut-all')
+  @HttpCode(HttpStatus.OK)
+  debtCutAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<{ customers: number; suspended: number }> {
+    return this.debtCuts.cutAll({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
+      ...(facilityId ? { facilityId } : {}),
+      meta: meta(req),
+    });
+  }
+
+  @RequirePermission('access:manage')
+  @Post('debt-cuts/:customerId/cut')
+  @HttpCode(HttpStatus.OK)
+  debtCut(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('customerId', new ParseUUIDPipe()) customerId: string,
+    @Req() req: Request,
+  ): Promise<{ suspended: number }> {
+    return this.debtCuts.cut({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      customerId,
+      facilityScope: user.facilityScope ?? null,
+      meta: meta(req),
+    });
+  }
+
+  @RequirePermission('access:manage')
+  @Post('debt-cuts/:customerId/skip')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  debtCutSkip(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('customerId', new ParseUUIDPipe()) customerId: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    return this.debtCuts.skip({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      customerId,
+      facilityScope: user.facilityScope ?? null,
+      meta: meta(req),
+    });
+  }
 
   @RequirePermission('access:read')
   @Get('customers/:customerId')
