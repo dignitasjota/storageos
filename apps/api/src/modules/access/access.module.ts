@@ -9,6 +9,7 @@ import { QUEUE_BILLING } from '../queues/queues.module';
 import { AccessAlertsService } from './access-alerts.service';
 import { AccessCredentialsController } from './access-credentials.controller';
 import { AccessCredentialsService } from './access-credentials.service';
+import { AccessDebtCutsService } from './access-debt-cuts.service';
 import { AccessDevicesController } from './access-devices.controller';
 import { AccessDevicesService } from './access-devices.service';
 import { AccessDoorController } from './access-door.controller';
@@ -49,6 +50,7 @@ import { SyncProviderRegistry } from './providers/sync-provider.registry';
     AccessRateLimitService,
     AccessAlertsService,
     AccessIntegrationsService,
+    AccessDebtCutsService,
     // Todos los adapters de cerradura; el registry elige por-device (o por env).
     StubLockProvider,
     MqttLockProvider,

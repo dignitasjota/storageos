@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import type { ArrearsRowDto, PaymentPlanDto } from '@storageos/shared';
 
+import { AccessCutsCard } from '@/components/billing/access-cuts-card';
 import { PaymentPlanDialog } from '@/components/billing/payment-plan-dialog';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
@@ -149,6 +150,8 @@ export default function ArrearsPage() {
               </Card>
             ))}
           </div>
+
+          <AccessCutsCard facilityId={facilityId} />
 
           <Card>
             <CardContent className="p-0">

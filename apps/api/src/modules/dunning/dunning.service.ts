@@ -1,5 +1,5 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
@@ -76,8 +76,8 @@ export class DunningService {
     private readonly events: EventEmitter2,
     private readonly invoices: InvoicesService,
     private readonly config: ConfigService<Env, true>,
-    @Optional() private readonly access: AccessIntegrationsService | null = null,
-    @Optional() private readonly collections: CollectionsService | null = null,
+    private readonly access: AccessIntegrationsService,
+    private readonly collections: CollectionsService,
   ) {}
 
   /**
@@ -304,7 +304,7 @@ export class DunningService {
     //   - access_block: suspender credenciales del customer via
     //     AccessIntegrationsService.suspendForDunning (Fase 7+8).
     //   - legal_notice: alerta al admin via audit; sin efecto automatico.
-    let result: Record<string, string | boolean> = { action: action.actionType };
+    let result: Record<string, string | boolean | number> = { action: action.actionType };
     try {
       if (action.actionType === 'email_reminder' || action.actionType === 'email_reminder_final') {
         const sent = await this.sendReminderEmail(
@@ -315,19 +315,25 @@ export class DunningService {
         );
         result = { ...result, emailEnqueued: sent };
       }
-      if (action.actionType === 'access_block' && invoice.customerId && this.access) {
-        await this.access.suspendForDunning({
-          tenantId: action.tenantId,
-          customerId: invoice.customerId,
-          invoiceId: action.invoiceId,
-        });
-        result = { ...result, accessBlocked: true };
+      if (action.actionType === 'access_block') {
+        // `accessBlocked` dice lo que pasó de verdad: el panel, el área de
+        // clientes y la vuelta del acceso al pagar se fían de este dato.
+        const cut = invoice.customerId
+          ? await this.access.suspendForDunning({
+              tenantId: action.tenantId,
+              customerId: invoice.customerId,
+              invoiceId: action.invoiceId,
+            })
+          : ({ applied: false, skipped: 'no_customer' } as const);
+        result = cut.applied
+          ? { ...result, accessBlocked: true, suspended: cut.suspended }
+          : { ...result, accessBlocked: false, accessCutSkipped: cut.skipped };
       }
-      if (action.actionType === 'legal_notice' && this.collections) {
+      if (action.actionType === 'legal_notice') {
         // Abre un expediente de impago si el tenant activó los impagos físicos
         // (opt-in). Best-effort e idempotente (índice único por contrato).
-        await this.collections.openFromDunning(action.tenantId, action.invoiceId);
-        result = { ...result, collectionsCaseOpened: true };
+        const opened = await this.collections.openFromDunning(action.tenantId, action.invoiceId);
+        result = { ...result, collectionsCaseOpened: opened };
       }
       if (action.actionType === 'late_fee') {
         // Re-chequea el opt-in (pudo desactivarse tras agendar). Idempotente:
@@ -348,12 +354,20 @@ export class DunningService {
         }
       }
     } catch (err) {
-      result = {
-        ...result,
-        error: err instanceof Error ? err.message : String(err),
-      };
+      const message = err instanceof Error ? err.message : String(err);
+      // Un corte que falla no se da por hecho: sigue programado y se reintenta
+      // en el repaso del día siguiente.
+      if (action.actionType === 'access_block') {
+        this.logger.error(`dunning.access_block sin aplicar en ${action.invoiceId}: ${message}`);
+        await this.admin.dunningAction.update({
+          where: { id: action.id },
+          data: { notes: `Último intento fallido: ${message}`.slice(0, 500) },
+        });
+        return;
+      }
+      result = { ...result, error: message };
       this.logger.warn(
-        `dunning.${action.actionType} fallo lateral pero marcamos executed: ${result.error}`,
+        `dunning.${action.actionType} fallo lateral pero marcamos executed: ${message}`,
       );
     }
     await this.admin.dunningAction.update({

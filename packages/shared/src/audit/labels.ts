@@ -26,6 +26,8 @@ const EXACT: Record<string, string> = {
   'user.role_changed': 'Rol de un usuario cambiado',
   'user.ownership_transferred': 'Propiedad de la cuenta transferida',
   'invoice.cancelled_with_rectification': 'Factura · anulada con abono',
+  'access.debt_cut_applied': 'Acceso cortado por impago',
+  'access.debt_cut_skipped': 'Decidido no cortar el acceso por impago',
   'tenant.security.require_2fa_changed': 'Regla de verificación en dos pasos cambiada',
   'tenant.profile_changed': 'Nombre o zona horaria del negocio cambiados',
 };
