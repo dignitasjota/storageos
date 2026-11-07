@@ -22,5 +22,6 @@ import { StaffEmailsService } from './staff-emails.service';
   imports: [AuthModule, CommunicationsModule, BullModule.registerQueue({ name: QUEUE_EMAIL })],
   controllers: [CustomerEmailsController, StaffEmailsController, MyEmailNoticesController],
   providers: [CustomerEmailsService, StaffEmailsService],
+  exports: [CustomerEmailsService],
 })
 export class CustomerEmailsModule {}

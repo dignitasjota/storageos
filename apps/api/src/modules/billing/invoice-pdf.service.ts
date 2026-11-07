@@ -1,7 +1,10 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
+import { loadInvoicePaymentHint, type InvoicePaymentHint } from '../../common/invoice-payment-hint';
 import { loadPuppeteer } from '../../common/puppeteer';
 import { HoldedSyncService } from '../accounting/holded-sync.service';
 import { PrismaService } from '../database/prisma.service';
@@ -91,6 +94,9 @@ export class InvoicePdfService implements OnModuleDestroy {
             billingAddress: true,
             billingPostalCode: true,
             billingCity: true,
+            timezone: true,
+            portalLogoKey: true,
+            portalBrandColor: true,
           },
         }),
       tenantId,
@@ -163,7 +169,48 @@ export class InvoicePdfService implements OnModuleDestroy {
         )
       : null;
 
-    const html = renderInvoiceHtml({ invoice, issuer, customer });
+    // Pagada: fecha y forma del último cobro de verdad (no una compensación).
+    const extras = await this.prisma.withTenant(async (tx) => {
+      const lastPayment =
+        invoice.status === 'paid'
+          ? await tx.payment.findFirst({
+              where: {
+                invoiceId,
+                status: 'succeeded',
+                methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+              },
+              orderBy: { paidAt: 'desc' },
+              select: { paidAt: true, methodType: true },
+            })
+          : null;
+      const payment: InvoicePaymentHint | null =
+        (invoice.status === 'issued' || invoice.status === 'overdue') && invoice.customerId
+          ? await loadInvoicePaymentHint(tx, tenantId, invoice.customerId)
+          : null;
+      return { lastPayment, payment };
+    }, tenantId);
+    const html = renderInvoiceHtml({
+      invoice,
+      issuer,
+      customer,
+      // El logo es el del negocio; una factura de un propietario va sin él.
+      logo: owner ? null : await this.logoDataUri(tenant.portalLogoKey),
+      brandColor: owner ? null : tenant.portalBrandColor,
+      payment: extras.payment,
+      // El día del cobro en la hora del negocio (a las 00:30 ya es el día siguiente).
+      paid:
+        invoice.status === 'paid'
+          ? {
+              at: todayInTimezone(
+                tenant.timezone,
+                extras.lastPayment?.paidAt ?? new Date(invoice.paidAt ?? invoice.updatedAt),
+              )
+                .toISOString()
+                .slice(0, 10),
+              method: extras.lastPayment?.methodType ?? null,
+            }
+          : null,
+    });
     const browser = await this.getBrowser();
     const page = await browser.newPage();
     try {
@@ -176,6 +223,21 @@ export class InvoicePdfService implements OnModuleDestroy {
       return await this.store(tenantId, invoiceId, invoice.invoiceNumber, pdfBuffer);
     } finally {
       await page.close();
+    }
+  }
+
+  /** El logo subido (no una dirección pegada: el servidor no descarga de fuera). */
+  private async logoDataUri(key: string | null): Promise<string | null> {
+    if (!key) return null;
+    const mime = /\.png$/i.test(key) ? 'image/png' : /\.jpe?g$/i.test(key) ? 'image/jpeg' : null;
+    if (!mime) return null;
+    try {
+      const bytes = await this.files.getObject({ bucket: 'public', key });
+      if (bytes.length > 2 * 1024 * 1024) return null;
+      return `data:${mime};base64,${bytes.toString('base64')}`;
+    } catch (err) {
+      this.logger.warn(`Logo ${key} sin leer: ${(err as Error).message}`);
+      return null;
     }
   }
 

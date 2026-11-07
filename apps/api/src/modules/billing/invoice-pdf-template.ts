@@ -5,6 +5,8 @@ import {
   type InvoiceTaxCategory,
 } from '@storageos/shared';
 
+import type { InvoicePaymentHint } from '../../common/invoice-payment-hint';
+
 /** Quien emite la factura: el negocio o, en el plan Administrador, el propietario. */
 export interface InvoicePdfIssuer {
   name: string;
@@ -38,6 +40,48 @@ const RECTIFICATION_LABELS: Record<string, string> = {
   R4: 'otras causas',
   R5: 'factura simplificada',
 };
+
+/** Forma de un cobro, en palabras. */
+const METHOD_WORDS: Record<string, string> = {
+  card: 'tarjeta',
+  sepa_debit: 'domiciliación',
+  bank_transfer: 'transferencia',
+  cash: 'efectivo',
+  other: 'otro medio',
+};
+
+/** «ES9121000418450200051332» → «ES91 2100 0418 4502 0005 1332». */
+function ibanGroups(iban: string): string {
+  return iban
+    .replace(/\s+/g, '')
+    .replace(/(.{4})/g, '$1 ')
+    .trim();
+}
+
+/** Cómo pagar una factura pendiente, en una o dos frases. */
+export function paymentLines(p: InvoicePaymentHint, invoiceNumber: string): string[] {
+  switch (p.via) {
+    case 'auto_card':
+      return [
+        `Se cobrará automáticamente en la tarjeta${p.brand ? ` ${p.brand}` : ''}${
+          p.last4 ? ` terminada en ${p.last4}` : ''
+        }.`,
+      ];
+    case 'auto_debit':
+      return [
+        `Se cargará por domiciliación en la cuenta${p.last4 ? ` terminada en ${p.last4}` : ''}.`,
+      ];
+    case 'sepa_remittance':
+      return [`Se cobrará por domiciliación en la cuenta terminada en ${p.last4}.`];
+    case 'manual':
+      return p.transferIban
+        ? [
+            `Por transferencia a ${ibanGroups(p.transferIban)} indicando ${invoiceNumber}.`,
+            'También puedes pagarla con tarjeta desde tu área de clientes.',
+          ]
+        : ['Puedes pagarla desde tu área de clientes.'];
+  }
+}
 
 /** Título del documento según lo que es. */
 export function invoiceDocTitle(i: Pick<InvoiceDto, 'kind' | 'invoiceType'>): string {
@@ -105,15 +149,30 @@ export function invoiceBreakdown(items: InvoiceDto['items']): Breakdown {
 }
 
 /**
- * HTML del PDF de una factura (o de un justificante de fianza). Sin estado de
- * cobro («pagado», «pendiente»): el PDF se genera al emitir y no cambia.
+ * HTML del PDF de una factura (o de un justificante de fianza). No dice lo que
+ * falta por pagar; sí cómo pagarla mientras está pendiente y el sello de
+ * «Pagada» cuando lo está (se rehace al pagarla, devolverla o corregir un cobro).
  */
 export function renderInvoiceHtml(args: {
   invoice: InvoiceDto;
   issuer: InvoicePdfIssuer;
   customer: InvoicePdfCustomer | null;
+  /** Logo del negocio como data URI (PNG o JPG). */
+  logo?: string | null;
+  /** Color de la marca (`#rrggbb`). */
+  brandColor?: string | null;
+  /** Cómo pagarla, si está pendiente. */
+  payment?: InvoicePaymentHint | null;
+  /** Pagada: fecha y forma del último cobro. */
+  paid?: { at: string; method: string | null } | null;
 }): string {
   const i = args.invoice;
+  const brand =
+    args.brandColor && /^#[0-9a-f]{6}$/i.test(args.brandColor) ? args.brandColor : '#111111';
+  const logo =
+    args.logo && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(args.logo)
+      ? args.logo
+      : null;
   const issuer = args.issuer;
   const isReceipt = i.kind === 'deposit_receipt';
   const isRectification = i.invoiceType.startsWith('R');
@@ -193,6 +252,23 @@ export function renderInvoiceHtml(args: {
       ? `<div class="meta">Vencimiento: ${day(i.dueDate)}</div>`
       : '';
 
+  const stamp = args.paid
+    ? `<div class="stamp">PAGADA<small>${day(args.paid.at)}${
+        args.paid.method && METHOD_WORDS[args.paid.method]
+          ? ` · ${METHOD_WORDS[args.paid.method]}`
+          : ''
+      }</small></div>`
+    : '';
+  const howToPay =
+    args.payment && !args.paid && (i.status === 'issued' || i.status === 'overdue') && i.total > 0
+      ? `<div class="box pay"><strong>Forma de pago</strong>${paymentLines(
+          args.payment,
+          i.invoiceNumber,
+        )
+          .map((l) => `<div class="row">${escapeHtml(l)}</div>`)
+          .join('')}</div>`
+      : '';
+
   // La justificación de una simplificada se guarda delante de las notas.
   const notes = (i.notes ?? '').replace(/^\[F2:[a-z_]+\]\s*/, '').trim();
 
@@ -217,7 +293,11 @@ export function renderInvoiceHtml(args: {
 <style>
   body { font-family: -apple-system, system-ui, Segoe UI, Helvetica, Arial, sans-serif; color: #111; font-size: 10.5pt; line-height: 1.4; }
   header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24pt; margin-bottom: 20pt; }
-  h1 { font-size: 20pt; margin: 0 0 6pt; }
+  h1 { font-size: 20pt; margin: 0 0 6pt; color: ${brand}; }
+  .logo { max-height: 48pt; max-width: 160pt; margin-bottom: 6pt; }
+  .stamp { display: inline-block; margin-top: 8pt; border: 2.5pt solid #15803d; color: #15803d; border-radius: 6pt; padding: 4pt 10pt; font-weight: 700; font-size: 14pt; letter-spacing: 2pt; transform: rotate(-4deg); }
+  .stamp small { display: block; font-size: 8pt; letter-spacing: 0; font-weight: 500; text-align: center; }
+  .box.pay { margin-top: 16pt; }
   .meta { color: #555; font-size: 9.5pt; }
   .issuer { text-align: right; }
   .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 16pt; margin-bottom: 16pt; }
@@ -227,7 +307,7 @@ export function renderInvoiceHtml(args: {
   .party .row, .box .row { margin-top: 4pt; font-size: 9.5pt; }
   table.items { width: 100%; border-collapse: collapse; }
   table.items th, table.items td { border-bottom: 1px solid #ddd; padding: 6pt 4pt; vertical-align: top; }
-  table.items th { background: #f4f4f4; text-align: left; font-size: 8.5pt; text-transform: uppercase; }
+  table.items th { background: #f4f4f4; text-align: left; font-size: 8.5pt; text-transform: uppercase; border-bottom: 2px solid ${brand}; }
   table.items th.num { text-align: right; }
   .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .period { color: #777; font-size: 8.5pt; }
@@ -251,8 +331,10 @@ export function renderInvoiceHtml(args: {
     ${period}
   </div>
   <div class="issuer">
+    ${logo ? `<img class="logo" src="${logo}" alt="" /><br />` : ''}
     <strong>${escapeHtml(issuer.name)}</strong>
     ${issuer.billingEmail ? `<div class="meta">${escapeHtml(issuer.billingEmail)}</div>` : ''}
+    ${stamp}
   </div>
 </header>
 
@@ -295,6 +377,8 @@ ${rectification}
       : ''
   }
 </div>
+
+${howToPay}
 
 ${
   isReceipt

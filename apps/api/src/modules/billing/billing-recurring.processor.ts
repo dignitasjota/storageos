@@ -54,8 +54,9 @@ export class BillingRecurringProcessor extends WorkerHost {
   ): Promise<{ created: number }> {
     if (job.name === JOB_BILLING_INVOICE_PDF) {
       const data = job.data as InvoicePdfRequestedPayload;
-      // Si ya lo tiene (otro intento), no se repite.
-      await this.pdf.ensure(data.tenantId, data.invoiceId);
+      // Rehacerlo (pagada, devuelta…) o, si ya lo tiene, no repetirlo.
+      if (data.refresh) await this.pdf.generate(data.tenantId, data.invoiceId);
+      else await this.pdf.ensure(data.tenantId, data.invoiceId);
       return { created: 0 };
     }
     if (job.name !== JOB_BILLING_GENERATE_RECURRING) {

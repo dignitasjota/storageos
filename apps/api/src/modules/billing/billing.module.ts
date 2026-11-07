@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AccountingModule } from '../accounting/accounting.module';
 import { AuthModule } from '../auth/auth.module';
+import { CustomerEmailsModule } from '../customer-emails/customer-emails.module';
 import { GoCardlessCoreModule } from '../payments/gocardless/gocardless-core.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { QUEUE_BILLING, QUEUE_VERIFACTU } from '../queues/queues.module';
@@ -17,10 +18,13 @@ import { VerifactuXmlBuilder } from './aeat-client/verifactu-xml-builder';
 import { BillingJobsService } from './billing-jobs.service';
 import { BillingRecurringProcessor } from './billing-recurring.processor';
 import { FirstInvoiceService } from './first-invoice.service';
+import { InvoiceDownloadController } from './invoice-download.controller';
 import { InvoicePdfJobsService } from './invoice-pdf-jobs.service';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { InvoiceSeriesController } from './invoice-series.controller';
 import { InvoiceSeriesService } from './invoice-series.service';
+import { InvoiceToolsController } from './invoice-tools.controller';
+import { InvoiceToolsService } from './invoice-tools.service';
 import { InvoicesController } from './invoices.controller';
 import { InvoicesService } from './invoices.service';
 import { InvoicingModeController } from './invoicing-mode.controller';
@@ -50,10 +54,14 @@ import type { Env } from '../../config/env.schema';
     PaymentsModule,
     GoCardlessCoreModule,
     ReferralsModule,
+    CustomerEmailsModule,
     BullModule.registerQueue({ name: QUEUE_BILLING }, { name: QUEUE_VERIFACTU }),
   ],
   controllers: [
+    // Antes que InvoicesController: `invoices/totals` no es un `:id`.
+    InvoiceToolsController,
     InvoicesController,
+    InvoiceDownloadController,
     InvoiceSeriesController,
     TenantAeatCredentialsController,
     VerifactuAeatController,
@@ -65,6 +73,7 @@ import type { Env } from '../../config/env.schema';
     FirstInvoiceService,
     InvoicePdfService,
     InvoicePdfJobsService,
+    InvoiceToolsService,
     InvoicingModeService,
     VerifactuService,
     PricingRulesService,
