@@ -2,22 +2,25 @@
 
 import {
   InvoiceStatusEnum,
+  type BulkInvoiceActionResultDto,
   type CreatableInvoiceTypeValue,
   type InvoiceDto,
   type InvoiceStatusValue,
   type SimplifiedJustificationValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Plus } from 'lucide-react';
+import { Loader2, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { CustomerSearchSelect } from '@/components/customer-search-select';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
-import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
+import { INVOICE_STATUS_LABELS, InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -50,22 +53,11 @@ import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useOpenFromUrl } from '@/lib/use-open-from-url';
 
 const SIMPLIFIED_JUSTIFICATION_LABELS: Record<SimplifiedJustificationValue, string> = {
-  reparation: 'Reparacion',
+  reparation: 'Reparación',
   transport: 'Transporte',
-  restaurant: 'Hosteleria / restaurante',
-  parking: 'Parking / autopista',
+  restaurant: 'Hostelería / restaurante',
+  parking: 'Aparcamiento / autopista',
   other: 'Otros',
-};
-
-const STATUS_LABELS: Record<InvoiceStatusValue, string> = {
-  draft: 'Borrador',
-  issued: 'Emitida',
-  paid: 'Pagada',
-  overdue: 'Vencida',
-  cancelled: 'Cancelada',
-  refunded: 'Reembolsada',
-  partially_refunded: 'Reemb. parcial',
-  rectified: 'Anulada (rectificativa)',
 };
 
 interface NewInvoiceDraftItem {
@@ -85,8 +77,27 @@ const ZERO_RATE_OPTIONS: { value: ZeroRateCategory; label: string }[] = [
   { value: 'E6', label: 'Exenta (otros)' },
 ];
 
+const EMPTY_LINE: NewInvoiceDraftItem = {
+  description: '',
+  quantity: 1,
+  unitPrice: 0,
+  taxRate: 21,
+  zeroCategory: 'N1',
+};
+
+function lineTotal(it: { quantity: number; unitPrice: number; taxRate: number }): number {
+  const base = Math.round(it.quantity * it.unitPrice * 100);
+  return (base + Math.round((base * it.taxRate) / 100)) / 100;
+}
+
+/** «Borrador» en vez del número provisional, que no significa nada. */
+function invoiceLabel(i: InvoiceDto): string {
+  return i.status === 'draft' ? 'Borrador' : i.invoiceNumber;
+}
+
 export default function InvoicesPage() {
   const router = useRouter();
+  const ask = useConfirm();
   const [status, setStatus] = useState<InvoiceStatusValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [overdueOnly, setOverdueOnly] = useState(false);
@@ -99,16 +110,14 @@ export default function InvoicesPage() {
     }
   }, []);
 
-  // Estado del dialog "Nueva factura". Soporta F1 (cliente obligatorio)
-  // y F2 (simplificada sin destinatario, limite 400€/3000€ con motivo).
+  // Estado del diálogo «Nueva factura»: completa (con cliente) o simplificada
+  // (sin cliente, hasta 400 €; hasta 3.000 € con motivo).
   const [createOpen, setCreateOpen] = useState(false);
   useOpenFromUrl(() => setCreateOpen(true));
   const [newType, setNewType] = useState<CreatableInvoiceTypeValue>('F1');
   const [newCustomerId, setNewCustomerId] = useState<string>('');
   const [newJustification, setNewJustification] = useState<SimplifiedJustificationValue | ''>('');
-  const [newItems, setNewItems] = useState<NewInvoiceDraftItem[]>([
-    { description: '', quantity: 1, unitPrice: 0, taxRate: 21, zeroCategory: 'N1' },
-  ]);
+  const [newItems, setNewItems] = useState<NewInvoiceDraftItem[]>([{ ...EMPTY_LINE }]);
 
   const headerFacilityId = useHeaderFacilityId();
   const [searchText, search, setSearchText] = useDebouncedSearch();
@@ -125,14 +134,24 @@ export default function InvoicesPage() {
   const bulkRemind = useBulkRemindInvoices();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Al cambiar los filtros, lo seleccionado deja de verse: se suelta.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [status, customerId, overdueOnly, search, headerFacilityId]);
+
   const rows = invoices.rows;
   const selectableDraft = rows.filter((i) => i.status === 'draft').map((i) => i.id);
   const selectableChargeable = rows
-    .filter((i) => i.status === 'issued' || i.status === 'overdue')
+    .filter((i) => (i.status === 'issued' || i.status === 'overdue') && i.amountPending > 0)
     .map((i) => i.id);
+  const selectable = [...selectableDraft, ...selectableChargeable];
   const selectedList = [...selectedIds];
   const selectedDraft = selectedList.filter((id) => selectableDraft.includes(id));
   const selectedChargeable = selectedList.filter((id) => selectableChargeable.includes(id));
+  const allSelected = selectable.length > 0 && selectable.every((id) => selectedIds.has(id));
+  const pendingOfSelected = rows
+    .filter((i) => selectedChargeable.includes(i.id))
+    .reduce((sum, i) => sum + i.amountPending, 0);
 
   function toggleRow(id: string) {
     setSelectedIds((prev) => {
@@ -143,69 +162,103 @@ export default function InvoicesPage() {
     });
   }
 
-  function reportBulk(res: { succeeded: string[]; failed: { id: string; error: string }[] }) {
+  function reportBulk(res: BulkInvoiceActionResultDto, done: string, processingNote?: string) {
     setSelectedIds(new Set());
+    const processing = res.processing?.length ?? 0;
+    const ok = res.succeeded.length - processing;
+    const parts: string[] = [];
+    if (ok > 0) parts.push(`${ok} ${done}`);
+    if (processing > 0 && processingNote) parts.push(`${processing} ${processingNote}`);
     if (res.failed.length === 0) {
-      toast.success(`${res.succeeded.length} factura(s) procesada(s).`);
-    } else {
-      toast.warning(
-        `${res.succeeded.length} OK, ${res.failed.length} con error (${res.failed[0]?.error ?? ''}…).`,
-      );
+      toast.success(parts.join(' · ') || 'Hecho.');
+      return;
     }
+    const lines = res.failed
+      .slice(0, 4)
+      .map((f) => `${f.invoiceNumber ?? 'Borrador'}: ${f.message ?? 'no se ha podido'}`);
+    if (res.failed.length > 4) lines.push(`y ${res.failed.length - 4} más`);
+    toast.warning(`${parts.length ? `${parts.join(' · ')}. ` : ''}${res.failed.length} sin hacer`, {
+      description: <div className="whitespace-pre-line">{lines.join('\n')}</div>,
+      duration: 12_000,
+    });
   }
 
   async function onBulkIssue() {
+    if (
+      !(await ask({
+        title: `¿Emitir ${selectedDraft.length} ${selectedDraft.length === 1 ? 'borrador' : 'borradores'}?`,
+        description:
+          'Cada factura recibe su número y se registra en Veri*Factu. Después ya no se puede borrar, solo rectificar.',
+        confirmLabel: 'Emitir',
+      }))
+    )
+      return;
     try {
-      reportBulk(await bulkIssue.mutateAsync(selectedDraft));
-    } catch {
-      toast.error('No se pudo emitir el lote.');
+      reportBulk(await bulkIssue.mutateAsync(selectedDraft), 'emitidas');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido emitir.');
     }
   }
   async function onBulkCharge() {
+    if (
+      !(await ask({
+        title: `¿Cobrar ${selectedChargeable.length} ${selectedChargeable.length === 1 ? 'factura' : 'facturas'} (${formatEur(pendingOfSelected)})?`,
+        description:
+          'Se cobra a cada inquilino con su tarjeta o domiciliación guardada. Las que no tengan forma de pago se quedan sin cobrar.',
+        confirmLabel: 'Cobrar',
+      }))
+    )
+      return;
     try {
-      reportBulk(await bulkCharge.mutateAsync(selectedChargeable));
-    } catch {
-      toast.error('No se pudo cobrar el lote.');
+      reportBulk(
+        await bulkCharge.mutateAsync(selectedChargeable),
+        'cobradas',
+        'por domiciliación (el banco las confirma en 2-5 días)',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido cobrar.');
     }
   }
   async function onBulkRemind() {
+    if (
+      !(await ask({
+        title: `¿Enviar un recordatorio de pago a ${selectedChargeable.length} ${selectedChargeable.length === 1 ? 'inquilino' : 'inquilinos'}?`,
+        description:
+          'Les llega un correo con lo que deben y el enlace para pagar. A quien ya recibió uno hoy no se le envía otro.',
+        confirmLabel: 'Enviar',
+      }))
+    )
+      return;
     try {
-      reportBulk(await bulkRemind.mutateAsync(selectedChargeable));
-    } catch {
-      toast.error('No se pudo enviar el recordatorio.');
+      reportBulk(await bulkRemind.mutateAsync(selectedChargeable), 'recordatorios enviados');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido enviar.');
     }
   }
 
-  const newTotal = newItems.reduce((acc, it) => {
-    const sub = it.quantity * it.unitPrice;
-    return acc + sub + (sub * it.taxRate) / 100;
-  }, 0);
-  const exceedsBasicF2 = newType === 'F2' && newTotal > 400.001;
+  const newTotal = newItems.reduce((acc, it) => acc + lineTotal(it), 0);
+  const exceedsBasicF2 = newType === 'F2' && newTotal > 400;
+  const linesInvalid = newItems.some(
+    (it) => !it.description.trim() || !(it.quantity > 0) || !(it.unitPrice > 0),
+  );
 
   const columns: ColumnDef<InvoiceDto>[] = [
     {
       id: 'select',
-      header: () => {
-        const selectable = [...selectableDraft, ...selectableChargeable];
-        const allSelected = selectable.length > 0 && selectable.every((id) => selectedIds.has(id));
-        return (
-          <Checkbox
-            checked={allSelected}
-            aria-label="Seleccionar todas"
-            onCheckedChange={(v) =>
-              setSelectedIds(v ? new Set([...selectableDraft, ...selectableChargeable]) : new Set())
-            }
-          />
-        );
-      },
+      header: () => (
+        <Checkbox
+          checked={allSelected}
+          aria-label="Seleccionar todas"
+          onCheckedChange={(v) => setSelectedIds(v ? new Set(selectable) : new Set())}
+        />
+      ),
       cell: ({ row }) => {
         const i = row.original;
-        const selectable = i.status === 'draft' || i.status === 'issued' || i.status === 'overdue';
-        if (!selectable) return null;
+        if (!selectable.includes(i.id)) return null;
         return (
           <Checkbox
             checked={selectedIds.has(i.id)}
-            aria-label={`Seleccionar ${i.invoiceNumber}`}
+            aria-label={`Seleccionar ${invoiceLabel(i)} de ${i.customerName ?? 'cliente sin identificar'}`}
             onCheckedChange={() => toggleRow(i.id)}
           />
         );
@@ -214,18 +267,31 @@ export default function InvoicesPage() {
     {
       accessorKey: 'invoiceNumber',
       header: 'Número',
-      cell: ({ row }) => (
-        <span className="flex items-center gap-1.5">
-          <Link href={`/invoices/${row.original.id}`} className="font-mono text-xs hover:underline">
-            {row.original.invoiceNumber}
-          </Link>
-          {row.original.kind === 'deposit_receipt' && (
-            <Badge variant="outline" title="Justificante de fianza: no es una factura">
-              Fianza
-            </Badge>
-          )}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const i = row.original;
+        return (
+          <span className="flex flex-wrap items-center justify-end gap-1.5 md:justify-start">
+            <Link
+              href={`/invoices/${i.id}`}
+              className={
+                i.status === 'draft'
+                  ? 'text-xs italic text-muted-foreground hover:underline'
+                  : 'font-mono text-xs hover:underline'
+              }
+            >
+              {invoiceLabel(i)}
+            </Link>
+            {i.kind === 'deposit_receipt' && (
+              <Badge variant="outline" title="Justificante de fianza: no es una factura">
+                Fianza
+              </Badge>
+            )}
+            {i.invoiceType === 'F2' && <Badge variant="outline">Simplificada</Badge>}
+            {i.invoiceType.startsWith('R') && <Badge variant="outline">Rectificativa</Badge>}
+            {i.lateFeeForInvoiceId && <Badge variant="outline">Recargo</Badge>}
+          </span>
+        );
+      },
     },
     {
       accessorKey: 'customerName',
@@ -236,27 +302,25 @@ export default function InvoicesPage() {
             {row.original.customerName ?? 'Cliente'}
           </Link>
         ) : (
-          <span className="italic text-muted-foreground">Sin identificar (F2)</span>
+          <span className="italic text-muted-foreground">Sin identificar</span>
         ),
     },
     {
       accessorKey: 'issueDate',
       header: 'Emitida',
-      cell: ({ row }) => (row.original.issueDate ? formatDate(row.original.issueDate) : '—'),
+      meta: { mobileHidden: true },
+      cell: ({ row }) =>
+        row.original.status === 'draft' ? '—' : formatDate(row.original.issueDate),
     },
     {
       accessorKey: 'dueDate',
-      header: 'Vencimiento',
-      cell: ({ row }) => (row.original.dueDate ? formatDate(row.original.dueDate) : '—'),
+      header: 'Vence',
+      cell: ({ row }) => formatDate(row.original.dueDate),
     },
     {
       accessorKey: 'total',
       header: 'Total',
-      cell: ({ row }) =>
-        row.original.total.toLocaleString('es-ES', {
-          style: 'currency',
-          currency: row.original.currency,
-        }),
+      cell: ({ row }) => <span className="tabular-nums">{formatEur(row.original.total)}</span>,
     },
     {
       accessorKey: 'amountPending',
@@ -264,10 +328,7 @@ export default function InvoicesPage() {
       cell: ({ row }) =>
         row.original.amountPending > 0 ? (
           <span className="text-destructive tabular-nums">
-            {row.original.amountPending.toLocaleString('es-ES', {
-              style: 'currency',
-              currency: row.original.currency,
-            })}
+            {formatEur(row.original.amountPending)}
           </span>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -282,14 +343,15 @@ export default function InvoicesPage() {
     },
   ];
 
+  const busy = bulkIssue.isPending || bulkCharge.isPending || bulkRemind.isPending;
+
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Facturas</h1>
           <p className="text-sm text-muted-foreground">
-            Listado de facturas emitidas y borradores. La numeración secuencial está reservada al
-            emitir.
+            Facturas emitidas y borradores. El número se pone al emitir.
           </p>
         </div>
         <Can permission="invoices:write">
@@ -298,9 +360,7 @@ export default function InvoicesPage() {
               setNewType('F1');
               setNewCustomerId('');
               setNewJustification('');
-              setNewItems([
-                { description: '', quantity: 1, unitPrice: 0, taxRate: 21, zeroCategory: 'N1' },
-              ]);
+              setNewItems([{ ...EMPTY_LINE }]);
               setCreateOpen(true);
             }}
           >
@@ -314,14 +374,14 @@ export default function InvoicesPage() {
           value={status ?? 'all'}
           onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as InvoiceStatusValue))}
         >
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos los estados</SelectItem>
-            {(Object.keys(STATUS_LABELS) as InvoiceStatusValue[]).map((s) => (
+            {(Object.keys(INVOICE_STATUS_LABELS) as InvoiceStatusValue[]).map((s) => (
               <SelectItem key={s} value={s}>
-                {STATUS_LABELS[s]}
+                {INVOICE_STATUS_LABELS[s]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -330,7 +390,7 @@ export default function InvoicesPage() {
           value={customerId}
           onChange={setCustomerId}
           clearLabel="Todos los clientes"
-          className="w-[240px]"
+          className="w-full sm:w-[240px]"
         />
         <Button
           variant={overdueOnly ? 'default' : 'outline'}
@@ -338,18 +398,30 @@ export default function InvoicesPage() {
         >
           Solo vencidas
         </Button>
+        {selectable.length > 0 && (
+          <Button
+            variant="ghost"
+            className="md:hidden"
+            onClick={() => setSelectedIds(allSelected ? new Set() : new Set(selectable))}
+          >
+            {allSelected ? 'Quitar la selección' : 'Seleccionar todas'}
+          </Button>
+        )}
       </div>
 
       {selectedIds.size > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-          <span className="font-medium">{selectedIds.size} seleccionada(s)</span>
+        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <span className="font-medium">
+            {selectedIds.size} {selectedIds.size === 1 ? 'seleccionada' : 'seleccionadas'}
+          </span>
           <Can permission="invoices:manage">
             <Button
               size="sm"
               variant="outline"
-              disabled={selectedDraft.length === 0 || bulkIssue.isPending}
+              disabled={selectedDraft.length === 0 || busy}
               onClick={onBulkIssue}
             >
+              {bulkIssue.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
               Emitir {selectedDraft.length > 0 ? `(${selectedDraft.length})` : ''}
             </Button>
           </Can>
@@ -357,9 +429,10 @@ export default function InvoicesPage() {
             <Button
               size="sm"
               variant="outline"
-              disabled={selectedChargeable.length === 0 || bulkCharge.isPending}
+              disabled={selectedChargeable.length === 0 || busy}
               onClick={onBulkCharge}
             >
+              {bulkCharge.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
               Cobrar {selectedChargeable.length > 0 ? `(${selectedChargeable.length})` : ''}
             </Button>
           </Can>
@@ -367,47 +440,52 @@ export default function InvoicesPage() {
             <Button
               size="sm"
               variant="outline"
-              disabled={selectedChargeable.length === 0 || bulkRemind.isPending}
+              disabled={selectedChargeable.length === 0 || busy}
               onClick={onBulkRemind}
             >
+              {bulkRemind.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
               Recordatorio {selectedChargeable.length > 0 ? `(${selectedChargeable.length})` : ''}
             </Button>
           </Can>
           <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
-            Limpiar
+            Quitar la selección
           </Button>
         </div>
       )}
 
-      <DataTable
-        filtersActive={!!status || !!customerId || overdueOnly}
-        onClearFilters={() => {
-          setStatus(undefined);
-          setCustomerId(undefined);
-          setOverdueOnly(false);
-        }}
-        rowHref={(i) => `/invoices/${i.id}`}
-        columns={columns}
-        data={rows}
-        isLoading={invoices.isLoading}
-        serverSearch={{
-          value: searchText,
-          onChange: setSearchText,
-          placeholder: 'Buscar por número o inquilino…',
-        }}
-        loadMore={invoices.loadMore}
-        guide="cobrar"
-        emptyText="Aún no hay facturas. Las de alquiler se crean solas cada mes; también puedes crear una con «Nueva factura»."
-      />
+      {invoices.isError ? (
+        <SectionError onRetry={() => void invoices.refetch()} />
+      ) : (
+        <DataTable
+          filtersActive={!!status || !!customerId || overdueOnly}
+          onClearFilters={() => {
+            setStatus(undefined);
+            setCustomerId(undefined);
+            setOverdueOnly(false);
+          }}
+          rowHref={(i) => `/invoices/${i.id}`}
+          columns={columns}
+          data={rows}
+          isLoading={invoices.isLoading}
+          serverSearch={{
+            value: searchText,
+            onChange: setSearchText,
+            placeholder: 'Buscar por número o inquilino…',
+          }}
+          loadMore={invoices.loadMore}
+          guide="cobrar"
+          emptyText="Aún no hay facturas. Las de alquiler se crean solas cada mes; también puedes crear una con «Nueva factura»."
+        />
+      )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nueva factura</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div>
+              <div className="space-y-1">
                 <Label>Tipo de factura</Label>
                 <Select
                   value={newType}
@@ -417,18 +495,18 @@ export default function InvoicesPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="F1">F1 - Factura completa</SelectItem>
-                    <SelectItem value="F2">F2 - Simplificada (sin cliente)</SelectItem>
+                    <SelectItem value="F1">Completa (con los datos del cliente)</SelectItem>
+                    <SelectItem value="F2">Simplificada (ticket, sin cliente)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {newType === 'F2'
-                    ? 'B2C de bajo importe. Limite 400€; hasta 3000€ con justificacion.'
-                    : 'Cliente identificado por NIF/CIF.'}
+                    ? 'Para ventas sueltas: hasta 400 €; hasta 3.000 € con un motivo.'
+                    : 'Con el nombre y el NIF del cliente.'}
                 </p>
               </div>
               {newType === 'F1' ? (
-                <div>
+                <div className="space-y-1">
                   <Label>Cliente *</Label>
                   <CustomerSearchSelect
                     value={newCustomerId || undefined}
@@ -437,8 +515,8 @@ export default function InvoicesPage() {
                   />
                 </div>
               ) : (
-                <div>
-                  <Label>Justificacion (requerida si total &gt; 400€)</Label>
+                <div className="space-y-1">
+                  <Label>Motivo (si pasa de 400 €)</Label>
                   <Select
                     value={newJustification || 'none'}
                     onValueChange={(v) =>
@@ -446,10 +524,10 @@ export default function InvoicesPage() {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Ninguna" />
+                      <SelectValue placeholder="Ninguno" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Ninguna (limite 400€)</SelectItem>
+                      <SelectItem value="none">Ninguno (hasta 400 €)</SelectItem>
                       {(
                         Object.keys(
                           SIMPLIFIED_JUSTIFICATION_LABELS,
@@ -467,143 +545,137 @@ export default function InvoicesPage() {
 
             {newType === 'F2' && exceedsBasicF2 && !newJustification && (
               <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                El total ({formatEur(newTotal)}) supera el limite F2 sin justificacion (400€). Anade
-                una justificacion para llegar a 3000€.
+                El total ({formatEur(newTotal)}) pasa de 400 €: elige un motivo para llegar hasta
+                3.000 €, o haz una factura completa.
               </div>
             )}
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Lineas</Label>
+                <Label>Líneas</Label>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() =>
-                    setNewItems((curr) => [
-                      ...curr,
-                      {
-                        description: '',
-                        quantity: 1,
-                        unitPrice: 0,
-                        taxRate: 21,
-                        zeroCategory: 'N1',
-                      },
-                    ])
-                  }
+                  onClick={() => setNewItems((curr) => [...curr, { ...EMPTY_LINE }])}
                 >
-                  <Plus className="mr-1 h-3 w-3" /> Anadir linea
+                  <Plus className="mr-1 h-3 w-3" /> Añadir línea
                 </Button>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[420px] text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                      <th className="py-1">Concepto</th>
-                      <th className="py-1 text-right">Cant.</th>
-                      <th className="py-1 text-right">P. unit (€)</th>
-                      <th className="py-1 text-right">IVA %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {newItems.map((it, idx) => (
-                      <tr key={idx} className="border-b last:border-0">
-                        <td className="py-1">
-                          <Input
-                            value={it.description}
-                            onChange={(e) =>
-                              setNewItems((curr) =>
-                                curr.map((row, i) =>
-                                  i === idx ? { ...row, description: e.target.value } : row,
-                                ),
-                              )
-                            }
-                          />
-                        </td>
-                        <td className="py-1 text-right">
-                          <Input
-                            type="number"
-                            step="1"
-                            min="1"
-                            value={it.quantity}
-                            onChange={(e) =>
-                              setNewItems((curr) =>
-                                curr.map((row, i) =>
-                                  i === idx ? { ...row, quantity: Number(e.target.value) } : row,
-                                ),
-                              )
-                            }
-                            className="w-20"
-                          />
-                        </td>
-                        <td className="py-1 text-right">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={it.unitPrice}
-                            onChange={(e) =>
-                              setNewItems((curr) =>
-                                curr.map((row, i) =>
-                                  i === idx ? { ...row, unitPrice: Number(e.target.value) } : row,
-                                ),
-                              )
-                            }
-                            className="w-28"
-                          />
-                        </td>
-                        <td className="py-1 text-right">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="100"
-                            value={it.taxRate}
-                            onChange={(e) =>
-                              setNewItems((curr) =>
-                                curr.map((row, i) =>
-                                  i === idx ? { ...row, taxRate: Number(e.target.value) } : row,
-                                ),
-                              )
-                            }
-                            className="w-20"
-                          />
-                          {it.taxRate === 0 && (
-                            <Select
-                              value={it.zeroCategory}
-                              onValueChange={(v) =>
-                                setNewItems((curr) =>
-                                  curr.map((row, i) =>
-                                    i === idx
-                                      ? { ...row, zeroCategory: v as ZeroRateCategory }
-                                      : row,
-                                  ),
-                                )
-                              }
-                            >
-                              <SelectTrigger
-                                className="mt-1 h-8 w-56 text-xs"
-                                aria-label="Tipo de operación"
-                              >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {ZERO_RATE_OPTIONS.map((o) => (
-                                  <SelectItem key={o.value} value={o.value}>
-                                    {o.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ul className="space-y-3">
+                {newItems.map((it, idx) => (
+                  <li key={idx} className="space-y-2 rounded border p-2">
+                    <div className="flex gap-2">
+                      <Input
+                        aria-label="Concepto"
+                        placeholder="Concepto"
+                        value={it.description}
+                        onChange={(e) =>
+                          setNewItems((curr) =>
+                            curr.map((row, i) =>
+                              i === idx ? { ...row, description: e.target.value } : row,
+                            ),
+                          )
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Quitar línea"
+                        disabled={newItems.length === 1}
+                        onClick={() => setNewItems((curr) => curr.filter((_row, i) => i !== idx))}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Cantidad</Label>
+                        <Input
+                          type="number"
+                          step="1"
+                          min="1"
+                          inputMode="numeric"
+                          value={it.quantity}
+                          onChange={(e) =>
+                            setNewItems((curr) =>
+                              curr.map((row, i) =>
+                                i === idx ? { ...row, quantity: Number(e.target.value) } : row,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Precio sin IVA (€)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          inputMode="decimal"
+                          value={it.unitPrice}
+                          onChange={(e) =>
+                            setNewItems((curr) =>
+                              curr.map((row, i) =>
+                                i === idx ? { ...row, unitPrice: Number(e.target.value) } : row,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">IVA (%)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          inputMode="decimal"
+                          value={it.taxRate}
+                          onChange={(e) =>
+                            setNewItems((curr) =>
+                              curr.map((row, i) =>
+                                i === idx ? { ...row, taxRate: Number(e.target.value) } : row,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                    {it.taxRate === 0 && (
+                      <Select
+                        value={it.zeroCategory}
+                        onValueChange={(v) =>
+                          setNewItems((curr) =>
+                            curr.map((row, i) =>
+                              i === idx ? { ...row, zeroCategory: v as ZeroRateCategory } : row,
+                            ),
+                          )
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs" aria-label="Tipo de operación">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ZERO_RATE_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {it.description.trim() && !(it.unitPrice > 0) && (
+                      <p className="text-xs text-destructive">
+                        El precio tiene que ser mayor que 0. Para restar, rectifica la factura.
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
               <p className="text-right text-sm tabular-nums">
-                Total: <span className="font-semibold">{formatEur(newTotal)}</span>
+                Total con IVA: <span className="font-semibold">{formatEur(newTotal)}</span>
               </p>
             </div>
           </div>
@@ -633,15 +705,19 @@ export default function InvoicesPage() {
                   setCreateOpen(false);
                   router.push(`/invoices/${created.id}`);
                 } catch (err) {
-                  toast.error(err instanceof ApiError ? err.body.message : 'Error');
+                  toast.error(
+                    err instanceof ApiError ? err.body.message : 'No se ha podido crear.',
+                  );
                 }
               }}
               disabled={
                 createInvoice.isPending ||
                 (newType === 'F1' && !newCustomerId) ||
-                newItems.some((it) => !it.description.trim() || it.unitPrice < 0)
+                linesInvalid ||
+                (exceedsBasicF2 && !newJustification)
               }
             >
+              {createInvoice.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               Crear borrador
             </Button>
           </DialogFooter>

@@ -69,8 +69,15 @@ export function VerifactuBadge({ invoice }: { invoice: InvoiceWithAeatExtras }) 
   const resend = useResendVerifactuMutation(invoice.id);
   const refresh = useRefreshAeatStatusMutation(invoice.id);
 
-  // Las draft no se envían a AEAT; no mostramos badge en ese caso.
-  if (invoice.status === 'draft') return null;
+  // Los borradores, los cancelados y los justificantes de fianza no van a la AEAT.
+  if (
+    invoice.status === 'draft' ||
+    invoice.status === 'cancelled' ||
+    invoice.kind === 'deposit_receipt' ||
+    invoice.issuedBy === 'holded'
+  ) {
+    return null;
+  }
 
   const status = invoice.aeatStatus;
   const visual = visualForStatus(status);

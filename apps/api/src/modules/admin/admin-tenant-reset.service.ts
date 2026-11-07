@@ -120,6 +120,7 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'product_stock_movements', where: 'sale_id IS NOT NULL' },
   { table: 'product_sale_items' },
   { table: 'product_sales' },
+  { table: 'invoice_refunds' },
   { table: 'payments' },
   { table: 'invoice_items' },
   { table: 'invoices' },

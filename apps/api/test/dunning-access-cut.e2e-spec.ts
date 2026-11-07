@@ -100,7 +100,10 @@ describe('Corte de acceso por impago', () => {
     };
   }
 
-  async function overdueInvoice(f: Fixture, price = 100): Promise<string> {
+  async function overdueInvoice(
+    f: Pick<Fixture, 'token' | 'customerId' | 'contractId'>,
+    price = 100,
+  ): Promise<string> {
     const draft = await http()
       .post('/invoices')
       .set(auth(f.token))
@@ -249,7 +252,7 @@ describe('Corte de acceso por impago', () => {
     const f = await fixture('cutold');
     const invoice = await overdueInvoice(f);
     const second = await fixtureCustomer(f);
-    const invoice2 = await overdueInvoice({ ...f, customerId: second });
+    const invoice2 = await overdueInvoice({ token: f.token, ...second });
     // Como quedaron las acciones antes del arreglo: ejecutadas, sin cortar nada.
     const phantom = async (invoiceId: string) =>
       admin.dunningAction.create({
@@ -273,7 +276,7 @@ describe('Corte de acceso por impago', () => {
 
     const list = await http().get('/access/debt-cuts').set(auth(f.token)).expect(200);
     expect(list.body.rows.map((r: { customerId: string }) => r.customerId).sort()).toEqual(
-      [f.customerId, second].sort(),
+      [f.customerId, second.customerId].sort(),
     );
 
     const cut = await http()
@@ -284,11 +287,11 @@ describe('Corte de acceso por impago', () => {
     expect(await credentialStatus(f)).toBe('suspended');
     expect(await door(f)).not.toBe('allowed');
 
-    await http().post(`/access/debt-cuts/${second}/skip`).set(auth(f.token)).expect(204);
+    await http().post(`/access/debt-cuts/${second.customerId}/skip`).set(auth(f.token)).expect(204);
     const after = await http().get('/access/debt-cuts').set(auth(f.token)).expect(200);
     expect(after.body.rows).toEqual([]);
     const secondCredential = await admin.accessCredential.findFirst({
-      where: { customerId: second, status: 'active' },
+      where: { customerId: second.customerId, status: 'active' },
     });
     expect(secondCredential).not.toBeNull();
 
@@ -301,16 +304,16 @@ describe('Corte de acceso por impago', () => {
     await waitFor(async () => (await credentialStatus(f)) === 'active');
   });
 
-  async function fixtureCustomer(f: Fixture): Promise<string> {
+  async function fixtureCustomer(f: Fixture): Promise<{ customerId: string; contractId: string }> {
     const customerId = await createCustomer(app, f.token, {
       email: `cut-${Math.random().toString(36).slice(2, 10)}@e2e.local`,
     });
-    await signedContractFor(app, f.token, { id: customerId });
+    const contract = await signedContractFor(app, f.token, { id: customerId });
     await waitFor(async () => {
       const count = await admin.accessCredential.count({ where: { customerId, status: 'active' } });
       return count > 0;
     });
-    return customerId;
+    return { customerId, contractId: contract.contractId };
   }
 
   it('abre el expediente del aviso legal solo si el negocio los usa', async () => {

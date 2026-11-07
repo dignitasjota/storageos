@@ -133,6 +133,12 @@ export interface SeededTenant {
  *   2. Lee email de verificación de Mailpit
  *   3. POST /auth/verify-email
  */
+/** Un DNI válido al azar: el NIF no puede repetirse entre empresas. */
+function randomDni(): string {
+  const n = Math.floor(10_000_000 + Math.random() * 89_999_999);
+  return `${n}${'TRWAGMYFPDXBNJZSQVHLCKE'[n % 23]}`;
+}
+
 export async function seedTestTenant(prefix = 'e2e'): Promise<SeededTenant> {
   const { slug, email } = uniqueIds(prefix);
   const password = 'Secret123';
@@ -165,9 +171,27 @@ export async function seedTestTenant(prefix = 'e2e'): Promise<SeededTenant> {
     throw new Error(`/auth/verify-email devolvió ${verify.status}: ${await verify.text()}`);
   }
   const body = (await verify.json()) as {
+    accessToken?: string;
     user: { id: string };
     tenant: { id: string };
   };
+  // Sin razón social, NIF y domicilio fiscal no se puede emitir una factura.
+  const accessToken = body.accessToken ?? (await apiLogin(slug, email, password)).accessToken;
+  const details = await fetch(`${API_URL}/settings/saas-billing/billing-details`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({
+      legalName: `E2E ${prefix} SL`,
+      taxId: randomDni(),
+      address: 'Calle Mayor 1',
+      city: 'Madrid',
+      postalCode: '28001',
+      country: 'ES',
+    }),
+  });
+  if (!details.ok) {
+    throw new Error(`/settings/saas-billing/billing-details devolvió ${details.status}`);
+  }
   return {
     slug,
     email,

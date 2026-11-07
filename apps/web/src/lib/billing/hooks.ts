@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  LateFeePreviewDto,
   ReturnedReceiptsDto,
   BulkInvoiceActionResultDto,
   CancelInvoiceInput,
@@ -21,6 +22,7 @@ import type {
   RegisterPaymentMethodInput,
   SetupIntentResponseDto,
   SignedDownloadDto,
+  UpdateInvoiceInput,
   UpdateInvoiceSeriesInput,
 } from '@storageos/shared';
 
@@ -116,6 +118,22 @@ export function useCreateInvoice() {
   });
 }
 
+/** Lo que cambia al emitir, cobrar, devolver o anular una factura. */
+export function invalidateBilling(qc: ReturnType<typeof useQueryClient>): void {
+  for (const key of [
+    'invoices',
+    'payments',
+    'arrears',
+    'collections-month',
+    'dashboard',
+    'customers',
+    'contracts',
+    'access-cuts',
+  ]) {
+    void qc.invalidateQueries({ queryKey: [key] });
+  }
+}
+
 function makeInvoiceAction<T>(action: string) {
   return function useInvoiceAction() {
     const qc = useQueryClient();
@@ -125,11 +143,24 @@ function makeInvoiceAction<T>(action: string) {
           method: 'POST',
           json: args.body,
         }),
-      onSuccess: () => {
-        void qc.invalidateQueries({ queryKey: ['invoices'] });
-      },
+      onSuccess: () => invalidateBilling(qc),
     });
   };
+}
+
+/** Cuánto sería el recargo por mora de una factura vencida. */
+export function fetchLateFeePreview(id: string): Promise<LateFeePreviewDto> {
+  return apiFetch<LateFeePreviewDto>(`/invoices/${id}/late-fee-preview`);
+}
+
+/** Cambia el vencimiento (con motivo, si ya está emitida) o las notas. */
+export function useUpdateInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: UpdateInvoiceInput }) =>
+      apiFetch<InvoiceDto>(`/invoices/${args.id}`, { method: 'PATCH', json: args.input }),
+    onSuccess: () => invalidateBilling(qc),
+  });
 }
 
 export const useIssueInvoice = makeInvoiceAction<undefined>('issue');
@@ -210,11 +241,7 @@ export function useChargeInvoice() {
         method: 'POST',
         json: args.input,
       }),
-    onSuccess: (_d, args) => {
-      void qc.invalidateQueries({ queryKey: ['invoices'] });
-      void qc.invalidateQueries({ queryKey: ['payments'] });
-      void qc.invalidateQueries({ queryKey: invoiceKey(args.invoiceId) });
-    },
+    onSuccess: () => invalidateBilling(qc),
   });
 }
 
@@ -227,9 +254,7 @@ export function useBulkIssueInvoices() {
         method: 'POST',
         json: { ids },
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['invoices'] });
-    },
+    onSuccess: () => invalidateBilling(qc),
   });
 }
 
@@ -257,10 +282,7 @@ export function useBulkChargeInvoices() {
         method: 'POST',
         json: { ids },
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['invoices'] });
-      void qc.invalidateQueries({ queryKey: ['payments'] });
-    },
+    onSuccess: () => invalidateBilling(qc),
   });
 }
 
