@@ -229,6 +229,7 @@ export class TenantSettingsService {
     lateFeeType: string;
     lateFeeValue: unknown;
     lateFeeGraceDays: number;
+    invoiceDueDays: number;
     firstPaymentNextMonthFromDay: number | null;
     autoChargeRetryEnabled: boolean;
     autoChargeRetryMax: number;
@@ -245,6 +246,7 @@ export class TenantSettingsService {
       lateFeeType: tenant.lateFeeType as 'percentage' | 'fixed',
       lateFeeValue: Number(tenant.lateFeeValue),
       lateFeeGraceDays: tenant.lateFeeGraceDays,
+      invoiceDueDays: tenant.invoiceDueDays,
       firstPaymentNextMonthFromDay: tenant.firstPaymentNextMonthFromDay,
       autoChargeRetryEnabled: tenant.autoChargeRetryEnabled,
       autoChargeRetryMax: tenant.autoChargeRetryMax,
@@ -282,6 +284,7 @@ export class TenantSettingsService {
     if (input.lateFeeType !== undefined) data.lateFeeType = input.lateFeeType;
     if (input.lateFeeValue !== undefined) data.lateFeeValue = input.lateFeeValue;
     if (input.lateFeeGraceDays !== undefined) data.lateFeeGraceDays = input.lateFeeGraceDays;
+    if (input.invoiceDueDays !== undefined) data.invoiceDueDays = input.invoiceDueDays;
     if (input.firstPaymentNextMonthFromDay !== undefined)
       data.firstPaymentNextMonthFromDay = input.firstPaymentNextMonthFromDay;
     if (input.autoChargeRetryEnabled !== undefined)

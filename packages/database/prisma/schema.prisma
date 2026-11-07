@@ -390,6 +390,8 @@ model Tenant {
   lateFeeType                  String                @default("percentage") @map("late_fee_type")
   lateFeeValue                 Decimal               @default(5) @map("late_fee_value") @db.Decimal(10, 2)
   lateFeeGraceDays             Int                   @default(7) @map("late_fee_grace_days")
+  /// Días de plazo para pagar una factura, contados desde que se emite.
+  invoiceDueDays               Int                   @default(15) @map("invoice_due_days")
   /// Primer pago mensual: a partir de este día del mes, la primera factura
   /// incluye también el mes siguiente completo. Null = desactivado.
   firstPaymentNextMonthFromDay Int?                  @default(20) @map("first_payment_next_month_from_day")
@@ -564,6 +566,7 @@ model Tenant {
   invoiceSeries           InvoiceSeries[]
   invoices                Invoice[]
   invoiceItems            InvoiceItem[]
+  invoiceRefunds          InvoiceRefund[]
   payments                Payment[]
   paymentMethods          PaymentMethod[]
   dunningActions          DunningAction[]
@@ -792,6 +795,7 @@ model User {
   waitlistAssigned         WaitlistEntry[]           @relation("WaitlistAssignedTo")
   unitChangesAssigned      UnitChangeRequest[]       @relation("UnitChangeAssignedTo")
   unitRequestsAssigned     UnitRequest[]             @relation("UnitRequestAssignedTo")
+  invoiceRefundsCreated    InvoiceRefund[]           @relation("InvoiceRefundCreatedBy")
   incidentsReported        Incident[]                @relation("IncidentReportedBy")
   incidentCommentsAuthored IncidentComment[]         @relation("IncidentCommentAuthor")
   productSalesMade         ProductSale[]             @relation("ProductSaleSoldBy")
@@ -2152,6 +2156,8 @@ model Invoice {
   currency            String            @default("EUR") @db.Char(3)
   pdfUrl              String?           @map("pdf_url")
   notes               String?
+  /// Lo que gastó al crearse (mes gratis, señal): vuelve al contrato si se cancela.
+  consumedBenefits    Json?             @map("consumed_benefits")
   /// --- Verifactu ---
   hash                String?
   previousHash        String?           @map("previous_hash")
@@ -2188,6 +2194,7 @@ model Invoice {
   series             InvoiceSeries              @relation(fields: [seriesId], references: [id], onDelete: Restrict)
   items              InvoiceItem[]
   payments           Payment[]
+  refunds            InvoiceRefund[]
   dunningActions     DunningAction[]
   productSale        ProductSale?               @relation("ProductSaleInvoice")
   redsysOrders       RedsysOrder[]
@@ -2258,6 +2265,30 @@ model InvoiceItem {
   @@map("invoice_items")
 }
 
+/// Cada devolución de una factura: cómo se hizo y quién la registró.
+model InvoiceRefund {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  invoiceId       String    @map("invoice_id") @db.Uuid
+  paymentId       String?   @map("payment_id") @db.Uuid
+  amount          Decimal   @db.Decimal(12, 2)
+  /// gateway | bank | manual | external
+  via             String
+  reason          String?
+  gatewayRefundId String?   @map("gateway_refund_id")
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdBy User?    @relation("InvoiceRefundCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId, createdAt(sort: Desc)])
+  @@index([tenantId])
+  @@map("invoice_refunds")
+}
+
 /// Pago. Puede asociarse a una invoice o ser standalone (p.ej. fianza
 /// inicial sin factura). Sincronizado con el gateway via webhook.
 model Payment {
@@ -2298,6 +2329,7 @@ model Payment {
   customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
   bankTransactions BankStatementTransaction[]
+  refunds       InvoiceRefund[]
 
   @@index([tenantId])
   @@index([invoiceId])

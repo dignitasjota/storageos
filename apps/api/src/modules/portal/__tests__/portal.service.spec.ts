@@ -6,6 +6,7 @@ import { PortalService } from '../portal.service';
 
 import type { Env } from '../../../config/env.schema';
 import type { AuditService } from '../../auth/audit.service';
+import type { InvoicePdfService } from '../../billing/invoice-pdf.service';
 import type { ContractsService } from '../../contracts/contracts.service';
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { EmailService } from '../../email/email.service';
@@ -125,6 +126,7 @@ function buildService(opts: { portalSecret?: string | undefined } = {}) {
     { write: audit } as unknown as AuditService,
     { client: Promise.resolve(redis) } as unknown as Queue,
     {} as GeneralTermsService,
+    {} as InvoicePdfService,
   );
   return { service, redis, admin, audit, emailSend, jwt };
 }

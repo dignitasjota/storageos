@@ -52,6 +52,7 @@ export class DunningRestartService {
         kind: true,
         total: true,
         invoiceNumber: true,
+        lateFeeForInvoiceId: true,
         lateFeeInvoice: { select: { id: true } },
         tenant: {
           select: {
@@ -72,8 +73,10 @@ export class DunningRestartService {
       { enabled: invoice.tenant.lateFeeEnabled, graceDays: invoice.tenant.lateFeeGraceDays },
       { mode: invoice.tenant.accessCutMode, days: invoice.tenant.accessCutDays },
     )
-      // El recargo ya emitido no se vuelve a emitir.
-      .filter((s) => !(s.type === 'late_fee' && invoice.lateFeeInvoice));
+      // El recargo ya emitido no se vuelve a emitir, y un recargo no lleva otro.
+      .filter(
+        (s) => !(s.type === 'late_fee' && (invoice.lateFeeInvoice || invoice.lateFeeForInvoiceId)),
+      );
 
     const created = await this.admin.$transaction(async (tx) => {
       // Ciclo anterior → historial. Lo pendiente se cancela; lo ejecutado se

@@ -23,6 +23,7 @@ import {
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
+import { customerScopeWhere } from '../../common/customer-scope';
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
 import { emailLocale, formatDateLong, formatEur, todayInTimezone } from '../../common/format';
 import {
@@ -37,6 +38,7 @@ import { pageArgs, type PageRequest } from '../../common/pagination';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { assertNotInSepaRemittance, hasPaymentInFlight } from '../../common/sepa-remittance-guard';
+import { tenantFiscalDataMissing } from '../../common/tenant-readiness';
 import { HoldedSettingsService } from '../accounting/holded-settings.service';
 import { HoldedSyncService } from '../accounting/holded-sync.service';
 import { AuditService } from '../auth/audit.service';
@@ -67,6 +69,7 @@ import type { Invoice, InvoiceItem, InvoiceStatus, InvoiceType } from '@storageo
 import type {
   BulkInvoiceActionResultDto,
   CancelInvoiceInput,
+  LateFeePreviewDto,
   CorrectionMethodValue,
   CreateInvoiceInput,
   CreateInvoiceItemInput,
@@ -122,7 +125,9 @@ type InvoiceWithRelations = Invoice & {
     unit: { id: string; code: string; facility: { id: string; name: string } } | null;
   } | null;
   series: { code: string };
-  rectifiesInvoice: { id: string; invoiceNumber: string } | null;
+  rectifiesInvoice: { id: string; invoiceNumber: string; issueDate: Date | null } | null;
+  /** Solo las compensaciones con un abono (`credit_note`). */
+  payments: { amount: Prisma.Decimal }[];
   rectifiedBy: { id: string; invoiceNumber: string; status: string; total: Prisma.Decimal }[];
   lateFeeInvoice: { id: string } | null;
 };
@@ -143,6 +148,34 @@ interface ListFilters {
 
 /** Motivo de las rectificativas automáticas por reembolso. */
 const REFUND_CREDIT_REASON = 'Reembolso de lo cobrado';
+
+/**
+ * Lo que gasta una factura al crearse: si se cancela o se anula, vuelve al
+ * contrato (si no, el inquilino perdía su mes gratis o su señal).
+ */
+export interface ConsumedBenefits {
+  /** Un mes gratis de una promoción. */
+  freeMonth?: boolean;
+  /** Saldo a favor del contrato (la señal de la reserva) descontado. */
+  creditCents?: number;
+  creditReason?: string | null;
+}
+
+/** Dos registros iguales en este margen son un doble clic, no dos cobros. */
+const DUPLICATE_WINDOW_MS = 30_000;
+
+/** Un recordatorio por factura y día como mucho. */
+const REMINDER_GAP_MS = 24 * 60 * 60 * 1000;
+
+/** Total máximo de una factura (por encima, el importe es un error). */
+const MAX_INVOICE_TOTAL_CENTS = 99_999_999_900;
+
+/** Pide el PDF de una factura (lo genera el worker). */
+export const INVOICE_PDF_REQUESTED = 'billing.invoice_pdf_requested';
+export interface InvoicePdfRequestedPayload {
+  tenantId: string;
+  invoiceId: string;
+}
 
 @Injectable()
 export class InvoicesService {
@@ -175,42 +208,44 @@ export class InvoicesService {
 
   async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
     const where: Prisma.InvoiceWhereInput = { deletedAt: null };
+    const and: Prisma.InvoiceWhereInput[] = [];
     if (filters.status) where.status = filters.status as InvoiceStatus;
     if (filters.customerId) where.customerId = filters.customerId;
     if (filters.contractId) where.contractId = filters.contractId;
-    if (filters.overdue) {
-      where.status = { in: ['issued', 'overdue'] };
-      where.dueDate = { lt: new Date() };
-    }
     // Alcance por local: un usuario restringido solo ve las facturas de contratos
     // de sus locales. Las facturas SIN contrato (F2/ventas de producto) no están
     // ancladas a un local → se incluyen (no son "la caja" de un local ajeno).
     const facility = invoiceFacilityWhere(filters.facilityScope, filters.facilityId);
     if (!facility) return [];
-    Object.assign(where, facility);
-    if (filters.search) {
-      const q = { contains: filters.search, mode: 'insensitive' as const };
-      where.AND = [
-        {
-          OR: [
-            { invoiceNumber: q },
-            { customer: { firstName: q } },
-            { customer: { lastName: q } },
-            { customer: { companyName: q } },
-          ],
-        },
-      ];
+    and.push(facility as Prisma.InvoiceWhereInput);
+    // Por palabras: «Ana García» encuentra a quien se llama Ana y se apellida García.
+    const words = (filters.search ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 5);
+    for (const word of words) {
+      const q = { contains: word, mode: 'insensitive' as const };
+      and.push({
+        OR: [
+          { invoiceNumber: q },
+          { customer: { firstName: q } },
+          { customer: { lastName: q } },
+          { customer: { companyName: q } },
+        ],
+      });
     }
-    const rows = await this.prisma.withTenant(
-      (tx) =>
-        tx.invoice.findMany({
-          where,
-          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-          ...pageArgs(filters.page),
-          include: this.includeRelations(),
-        }),
-      tenantId,
-    );
+    const rows = await this.prisma.withTenant(async (tx) => {
+      if (filters.overdue) {
+        // «Solo vencidas» se suma al estado elegido (antes lo pisaba).
+        const tenant = await tx.tenant.findFirst({ select: { timezone: true } });
+        and.push(overdueInvoiceWhere(todayInTimezone(tenant?.timezone ?? 'Europe/Madrid')));
+      }
+      if (and.length) where.AND = and;
+      return tx.invoice.findMany({
+        where,
+        // Por fecha de alta: generar el PDF o cobrar no la mueve en la lista.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...pageArgs(filters.page),
+        include: this.includeRelations(),
+      });
+    }, tenantId);
     return rows.map((r) => this.toDto(r));
   }
 
@@ -251,6 +286,10 @@ export class InvoicesService {
      * Uso interno: el recargo por mora lo emite el emisor de la vencida.
      */
     ownerId?: string | null;
+    /** Alcance por local de quien la crea desde el panel. */
+    facilityScope?: string[] | null;
+    /** Uso interno: lo que gasta (mes gratis, señal), para devolverlo si se cancela. */
+    consumedBenefits?: ConsumedBenefits;
   }): Promise<InvoiceDto> {
     const invoiceType: 'F1' | 'F2' = args.input.invoiceType ?? 'F1';
     const { subtotal, taxAmount, total } = this.computeTotals(args.input.items);
@@ -284,7 +323,12 @@ export class InvoicesService {
       .withTenant(async (tx) => {
         if (args.input.customerId) {
           const customer = await tx.customer.findFirst({
-            where: { id: args.input.customerId, deletedAt: null },
+            where: {
+              id: args.input.customerId,
+              deletedAt: null,
+              // Quien solo ve unos locales no factura a inquilinos de otros.
+              ...customerScopeWhere(args.facilityScope ?? null),
+            },
           });
           if (!customer) {
             throw new NotFoundException({
@@ -295,12 +339,26 @@ export class InvoicesService {
         }
         // Emisor: el propietario del contrato (plan Administrador) o el tenant.
         let ownerId: string | null = args.ownerId ?? null;
-        if (args.ownerId === undefined && args.input.contractId) {
+        if (args.input.contractId) {
           const contract = await tx.contract.findFirst({
-            where: { id: args.input.contractId },
-            select: { ownerId: true },
+            where: { id: args.input.contractId, deletedAt: null },
+            select: { ownerId: true, customerId: true, unit: { select: { facilityId: true } } },
           });
-          ownerId = contract?.ownerId ?? null;
+          if (!contract) {
+            throw new NotFoundException({
+              code: 'contract_not_found',
+              message: 'Contrato no encontrado',
+            });
+          }
+          if (args.input.customerId && contract.customerId !== args.input.customerId) {
+            throw new BadRequestException({
+              code: 'contract_customer_mismatch',
+              message: 'Ese contrato es de otro inquilino',
+            });
+          }
+          if (args.facilityScope)
+            assertFacilityAllowed(args.facilityScope, contract.unit.facilityId);
+          if (args.ownerId === undefined) ownerId = contract.ownerId;
         }
         let series = args.input.seriesId
           ? await tx.invoiceSeries.findUniqueOrThrow({ where: { id: args.input.seriesId } })
@@ -358,6 +416,9 @@ export class InvoicesService {
             total,
             notes: finalNotes,
             verifactuMode: args.input.verifactuMode,
+            ...(args.consumedBenefits
+              ? { consumedBenefits: args.consumedBenefits as Prisma.InputJsonValue }
+              : {}),
             items: {
               create: args.input.items.map((item, idx) =>
                 this.toItemCreateData(item, args.tenantId, idx),
@@ -403,13 +464,56 @@ export class InvoicesService {
     if (existing.status !== 'draft' && args.input.items !== undefined) {
       throw new BadRequestException({
         code: 'invoice_not_editable',
-        message: 'Solo se pueden editar lineas en estado draft',
+        message: 'Las líneas solo se cambian en un borrador',
       });
+    }
+    // Vencimiento de una factura ya emitida: solo si se está cobrando, y con
+    // motivo (queda en el registro de actividad).
+    const dueChange = existing.status !== 'draft' && args.input.dueDate !== undefined;
+    if (dueChange) {
+      if (existing.status !== 'issued' && existing.status !== 'overdue') {
+        throw new BadRequestException({
+          code: 'invoice_not_editable',
+          message: 'Solo se cambia el vencimiento de una factura pendiente de pago',
+        });
+      }
+      if (!args.input.dueDate) {
+        throw new BadRequestException({
+          code: 'due_date_required',
+          message: 'Indica la nueva fecha de vencimiento',
+        });
+      }
+      if (!args.input.dueDateReason?.trim()) {
+        throw new BadRequestException({
+          code: 'due_date_reason_required',
+          message: 'Indica por qué cambia el vencimiento',
+        });
+      }
+      if (existing.issueDate && args.input.dueDate < ymd(existing.issueDate)) {
+        throw new BadRequestException({
+          code: 'due_date_before_issue',
+          message: 'El vencimiento no puede ser anterior a la fecha de emisión',
+        });
+      }
     }
     const updated = await this.prisma.withTenant(async (tx) => {
       const data: Prisma.InvoiceUpdateInput = {};
       if (args.input.dueDate !== undefined) {
         data.dueDate = args.input.dueDate ? new Date(args.input.dueDate) : null;
+      }
+      if (dueChange && existing.status === 'overdue') {
+        const tenant = await tx.tenant.findFirst({ select: { timezone: true } });
+        const today = todayInTimezone(tenant?.timezone ?? 'Europe/Madrid');
+        // Aplazada a una fecha que aún no ha llegado: deja de estar vencida y
+        // los avisos que quedaban por mandar se cancelan (si vuelve a vencer,
+        // el escalado empieza desde la fecha nueva).
+        if (new Date(args.input.dueDate as string) >= today) {
+          data.status = 'issued';
+          await tx.dunningAction.updateMany({
+            where: { invoiceId: args.invoiceId, status: 'scheduled', supersededAt: null },
+            data: { status: 'cancelled', notes: 'Vencimiento aplazado' },
+          });
+        }
       }
       if (args.input.notes !== undefined) {
         data.notes = args.input.notes?.trim() || null;
@@ -437,9 +541,18 @@ export class InvoicesService {
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
-      action: 'invoice.updated',
+      action: dueChange ? 'invoice.due_date_changed' : 'invoice.updated',
       entityType: 'Invoice',
       entityId: args.invoiceId,
+      ...(dueChange
+        ? {
+            changes: {
+              from: existing.dueDate ? ymd(existing.dueDate) : null,
+              to: args.input.dueDate ?? null,
+              reason: args.input.dueDateReason?.trim() ?? null,
+            },
+          }
+        : {}),
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
@@ -459,6 +572,12 @@ export class InvoicesService {
     meta: RequestMeta;
     /** Rectificativa ya creada por el tenant en Holded (modo Holded): se enlaza. */
     holdedDocument?: { documentId: string; number: string };
+    /**
+     * Una factura de 0 € queda saldada al emitirse. La primera factura de un
+     * contrato lo hace ella misma después de crear el justificante de fianza
+     * (el acceso espera a que se pague la fianza).
+     */
+    settleZero?: boolean;
   }): Promise<InvoiceDto> {
     const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     if (existing.kind === 'deposit_receipt') {
@@ -498,6 +617,8 @@ export class InvoicesService {
       total: number;
       fullyPaid: boolean;
     } | null = null;
+    // A 0 € no hay nada que cobrar: queda saldada (sin correo de «nueva factura»).
+    const settledZero = toCents(Number(existing.total)) === 0 && args.settleZero !== false;
     const updated = await this.prisma.withTenant(async (tx) => {
       // Dos «Emitir» a la vez (doble clic, lote + emisión automática): la fila
       // bloqueada serializa y el segundo ve la factura ya emitida → 409, en vez
@@ -531,7 +652,15 @@ export class InvoicesService {
       }
       const tenant = await tx.tenant.findUniqueOrThrow({
         where: { id: args.tenantId },
-        select: { taxId: true, timezone: true },
+        select: {
+          taxId: true,
+          timezone: true,
+          invoiceDueDays: true,
+          billingLegalName: true,
+          billingAddress: true,
+          billingPostalCode: true,
+          billingCity: true,
+        },
       });
       // Fecha de emisión = hoy en la zona del tenant (en UTC, a las 00:30 del
       // día 1 la factura caía en el mes —o trimestre— anterior).
@@ -540,6 +669,7 @@ export class InvoicesService {
       // Rectificativa de abono: no se cobra ni se reclama (queda saldada al
       // emitirse; el dinero, si lo hay, se devuelve aparte).
       const isCredit = total < 0;
+      const settled = isCredit || settledZero;
 
       if (fromHolded) {
         // Emitida en Holded: su número y su registro en Veri*Factu son los de
@@ -547,11 +677,13 @@ export class InvoicesService {
         const holdedRow = await tx.invoice.update({
           where: { id: args.invoiceId },
           data: {
-            status: isCredit ? 'paid' : 'issued',
+            status: settled ? 'paid' : 'issued',
             invoiceNumber: fromHolded.number,
             issueDate,
-            dueDate: isCredit ? null : (existing.dueDate ?? this.computeDefaultDueDate(issueDate)),
-            ...(isCredit ? { amountPaid: total, paidAt: new Date() } : {}),
+            dueDate: settled
+              ? null
+              : (existing.dueDate ?? this.computeDefaultDueDate(issueDate, tenant.invoiceDueDays)),
+            ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
             issuedBy: 'holded',
             holdedDocumentId: fromHolded.documentId,
             holdedSyncState: null,
@@ -559,7 +691,7 @@ export class InvoicesService {
           },
           include: this.includeRelations(),
         });
-        const holdedWithheld = isCredit
+        const holdedWithheld = settled
           ? holdedRow
           : await this.applyWithholding(tx, args.tenantId, holdedRow);
         if (isCredit && existing.rectifiesInvoiceId) {
@@ -592,7 +724,8 @@ export class InvoicesService {
         });
       }
       const invoiceNumber = this.series.formatInvoiceNumber(series, sequenceNumber, issueDate);
-      const dueDate = existing.dueDate ?? this.computeDefaultDueDate(issueDate);
+      const dueDate =
+        existing.dueDate ?? this.computeDefaultDueDate(issueDate, tenant.invoiceDueDays);
 
       // Veri*Factu: huella oficial encadenada con el último registro del emisor
       // (el propietario en el plan Administrador; si no, el tenant).
@@ -604,6 +737,8 @@ export class InvoicesService {
         : null;
       const issuerTaxId = owner ? owner.taxId : tenant.taxId;
       const emitterTaxId = issuerTaxId ? normalizeTaxId(issuerTaxId) : '';
+      // Sin NIF, razón social y domicilio la factura no es válida (RD 1619/2012).
+      await this.assertIssuerFiscalData(tx, existing.ownerId, tenant);
       if (this.verifactu.realMode) {
         // Envío real a la AEAT: sin NIF válido del emisor el registro se
         // rechazaría (antes la huella llevaba «PENDIENTE»).
@@ -662,12 +797,12 @@ export class InvoicesService {
       const issuedRow = await tx.invoice.update({
         where: { id: args.invoiceId },
         data: {
-          status: isCredit ? 'paid' : 'issued',
+          status: settled ? 'paid' : 'issued',
           invoiceNumber,
           sequenceNumber,
           issueDate,
-          dueDate: isCredit ? null : dueDate,
-          ...(isCredit ? { amountPaid: total, paidAt: new Date() } : {}),
+          dueDate: settled ? null : dueDate,
+          ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
           hash,
           previousHash,
           previousInvoiceId: chain.previousInvoiceId,
@@ -679,7 +814,7 @@ export class InvoicesService {
         include: this.includeRelations(),
       });
       // Retención de IRPF del contrato (si el inquilino la practica).
-      const row = isCredit ? issuedRow : await this.applyWithholding(tx, args.tenantId, issuedRow);
+      const row = settled ? issuedRow : await this.applyWithholding(tx, args.tenantId, issuedRow);
       // Un abono por diferencias sobre una factura con importe pendiente lo
       // compensa: la original deja de reclamar lo abonado.
       if (
@@ -704,6 +839,25 @@ export class InvoicesService {
       total: number;
       fullyPaid: boolean;
     } | null;
+    if (settledZero && updated.status === 'paid') {
+      // Saldada sin cobro: avisa como pagada (devuelve el acceso, cierra el
+      // escalado) pero sin el correo de «pago recibido».
+      this.events.emit(DOMAIN_EVENTS.invoice_paid, {
+        tenantId: args.tenantId,
+        entityType: 'invoice',
+        entityId: updated.id,
+        customerId: updated.customerId,
+        recipientEmail: null,
+        scope: {
+          invoice: {
+            number: updated.invoiceNumber,
+            total: '0.00',
+            paidAt: new Date().toISOString(),
+            compensated: true,
+          },
+        },
+      } satisfies DomainEventPayload);
+    }
     if (comp?.fullyPaid) {
       this.events.emit(DOMAIN_EVENTS.invoice_paid, {
         tenantId: args.tenantId,
@@ -761,6 +915,11 @@ export class InvoicesService {
       },
     };
     this.events.emit(DOMAIN_EVENTS.invoice_issued, issuedPayload);
+    // El PDF se genera solo (en el worker): sale en el correo y en el área de clientes.
+    this.events.emit(INVOICE_PDF_REQUESTED, {
+      tenantId: args.tenantId,
+      invoiceId: updated.id,
+    } satisfies InvoicePdfRequestedPayload);
     if (existing.rectifiesInvoiceId && existing.correctionMethod === 'by_substitution') {
       // La sustituida deja de valer (copia contable de Holded).
       this.events.emit(DOMAIN_EVENTS.invoice_cancelled, {
@@ -905,7 +1064,7 @@ export class InvoicesService {
       if (!fresh.holdedDocumentId) {
         const tenant = await tx.tenant.findUniqueOrThrow({
           where: { id: tenantId },
-          select: { timezone: true },
+          select: { timezone: true, invoiceDueDays: true },
         });
         const issueDate = fresh.issueDate ?? todayInTimezone(tenant.timezone);
         await tx.invoice.update({
@@ -914,9 +1073,9 @@ export class InvoicesService {
             holdedSyncState: 'creating',
             holdedSyncStartedAt: new Date(),
             issueDate,
-            ...(existing.dueDate || Number(existing.total) < 0
+            ...(existing.dueDate || Number(existing.total) <= 0
               ? {}
-              : { dueDate: this.computeDefaultDueDate(issueDate) }),
+              : { dueDate: this.computeDefaultDueDate(issueDate, tenant.invoiceDueDays) }),
           },
         });
       }
@@ -940,10 +1099,11 @@ export class InvoicesService {
     tenantId: string;
     userId: string;
     ids: string[];
+    facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<BulkInvoiceActionResultDto> {
     const succeeded: string[] = [];
-    const failed: { id: string; error: string }[] = [];
+    const failed: BulkInvoiceActionResultDto['failed'] = [];
     for (const invoiceId of args.ids) {
       try {
         await this.issue({
@@ -951,13 +1111,39 @@ export class InvoicesService {
           userId: args.userId,
           invoiceId,
           meta: args.meta,
+          // Quien solo ve unos locales no emite facturas de otros.
+          facilityScope: args.facilityScope ?? null,
         });
         succeeded.push(invoiceId);
       } catch (err) {
-        failed.push({ id: invoiceId, error: this.errorCode(err) });
+        failed.push(await this.bulkFailure(args.tenantId, invoiceId, err));
       }
     }
     return { succeeded, failed };
+  }
+
+  /** Fila de error de una acción en lote: código, texto legible y número. */
+  async bulkFailure(
+    tenantId: string,
+    invoiceId: string,
+    err: unknown,
+  ): Promise<BulkInvoiceActionResultDto['failed'][number]> {
+    const row = await this.prisma
+      .withTenant(
+        (tx) =>
+          tx.invoice.findFirst({
+            where: { id: invoiceId },
+            select: { invoiceNumber: true, sequenceNumber: true },
+          }),
+        tenantId,
+      )
+      .catch(() => null);
+    return {
+      id: invoiceId,
+      error: this.errorCode(err),
+      message: this.errorMessage(err),
+      invoiceNumber: row && row.sequenceNumber > 0 ? row.invoiceNumber : null,
+    };
   }
 
   /**
@@ -998,13 +1184,13 @@ export class InvoicesService {
     facilityScope?: string[] | null;
   }): Promise<BulkInvoiceActionResultDto> {
     const succeeded: string[] = [];
-    const failed: { id: string; error: string }[] = [];
+    const failed: BulkInvoiceActionResultDto['failed'] = [];
     for (const invoiceId of args.ids) {
       try {
         await this.sendReminderForInvoice(args.tenantId, invoiceId, args.facilityScope);
         succeeded.push(invoiceId);
       } catch (err) {
-        failed.push({ id: invoiceId, error: this.errorCode(err) });
+        failed.push(await this.bulkFailure(args.tenantId, invoiceId, err));
       }
     }
     return { succeeded, failed };
@@ -1052,20 +1238,38 @@ export class InvoicesService {
         where: { id: tenantId },
         select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
       });
-      const [inFlight, plan] = await Promise.all([
+      const [inFlight, plan, lastReminder] = await Promise.all([
         hasPaymentInFlight(tx, invoiceId),
         tx.paymentPlan.findFirst({
           where: { status: 'active', invoiceIds: { has: invoiceId } },
           select: { id: true },
         }),
+        tx.communication.findFirst({
+          where: {
+            invoiceId,
+            source: 'bulk.manual_reminder',
+            status: { notIn: ['failed', 'skipped'] },
+            createdAt: { gte: new Date(Date.now() - REMINDER_GAP_MS) },
+          },
+          select: { id: true },
+        }),
       ]);
-      return { invoice, tenant, inFlight, inPlan: !!plan };
+      const timezone =
+        (await tx.tenant.findFirst({ select: { timezone: true } }))?.timezone ?? 'Europe/Madrid';
+      return {
+        invoice,
+        tenant,
+        inFlight,
+        inPlan: !!plan,
+        recentlyReminded: !!lastReminder,
+        today: todayInTimezone(timezone),
+      };
     }, tenantId);
 
     if (!data) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
-    const { invoice, tenant, inFlight, inPlan } = data;
+    const { invoice, tenant, inFlight, inPlan, recentlyReminded, today } = data;
 
     const facilityId = invoice.contract?.unit?.facilityId;
     if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
@@ -1089,6 +1293,14 @@ export class InvoicesService {
         message: 'Esta factura va en un plan de pagos',
       });
     }
+    // Uno al día como mucho: dos seguidos (doble clic, o desde la lista y la
+    // ficha) le llegaban dos correos iguales al inquilino.
+    if (recentlyReminded) {
+      throw new ConflictException({
+        code: 'reminder_recently_sent',
+        message: 'Ya se le recordó esta factura en las últimas 24 horas',
+      });
+    }
     const customer = invoice.customer;
     if (!invoice.customerId || !customer?.email) {
       throw new BadRequestException({
@@ -1097,13 +1309,12 @@ export class InvoicesService {
       });
     }
 
-    const amountPending = subtractAmounts(
-      subtractAmounts(invoice.total, invoice.amountPaid),
-      invoice.amountRefunded,
-    );
+    const amountPending = subtractAmounts(invoice.total, invoice.amountPaid);
     const daysOverdue = invoice.dueDate
       ? Math.max(0, Math.floor((Date.now() - invoice.dueDate.getTime()) / 86_400_000))
       : 0;
+    // Aún no ha vencido: otro texto («vence el…», no «venció el…»).
+    const overdue = invoice.status === 'overdue' || (!!invoice.dueDate && invoice.dueDate < today);
     const locale = emailLocale(customer.locale);
     const displayName =
       customer.customerType === 'business'
@@ -1116,7 +1327,7 @@ export class InvoicesService {
       recipient: customer.billingEmail ?? customer.email,
       invoiceId,
       contractId: invoice.contractId,
-      templateCode: 'invoice_overdue_email',
+      templateCode: overdue ? 'invoice_overdue_email' : 'invoice_due_reminder_email',
       trigger: 'invoice_overdue',
       // Las mismas variables que el recordatorio del escalado de impago: importes
       // y fecha legibles y el enlace para pagar (sin él, «Pagar ahora» salía vacío).
@@ -1139,6 +1350,18 @@ export class InvoicesService {
     });
   }
 
+  /** Texto de una excepción Nest para enseñarlo tal cual. */
+  private errorMessage(err: unknown): string {
+    if (err && typeof err === 'object' && 'response' in err) {
+      const res = (err as { response?: unknown }).response;
+      if (res && typeof res === 'object' && 'message' in res) {
+        const m = (res as { message: unknown }).message;
+        if (typeof m === 'string') return m;
+      }
+    }
+    return 'No se ha podido hacer';
+  }
+
   /** Extrae el `code` de una excepción Nest (o su mensaje) para el reporte en lote. */
   private errorCode(err: unknown): string {
     if (err && typeof err === 'object' && 'response' in err) {
@@ -1148,6 +1371,131 @@ export class InvoicesService {
       }
     }
     return err instanceof Error ? err.message : 'unknown_error';
+  }
+
+  /** Lo que se cobraría de recargo por esta factura (sin emitir nada). */
+  async lateFeePreview(
+    tenantId: string,
+    invoiceId: string,
+    facilityScope?: string[] | null,
+  ): Promise<LateFeePreviewDto> {
+    await this.findOrThrow(tenantId, invoiceId, facilityScope);
+    const { fee, type, value } = await this.prisma.withTenant(
+      (tx) => this.lateFeeFor(tx, tenantId, invoiceId),
+      tenantId,
+    );
+    return { amount: fee, type, value };
+  }
+
+  /**
+   * Comprueba que a la factura le toca recargo y calcula cuánto: emitida y ya
+   * vencida, sin recargo previo, que no sea ella misma un recargo y con el
+   * recargo activado en el negocio.
+   */
+  private async lateFeeFor(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    invoiceId: string,
+  ): Promise<{
+    customerId: string;
+    contractId: string | null;
+    invoiceLabel: string;
+    fee: number;
+    ownerId: string | null;
+    type: 'percentage' | 'fixed';
+    value: number;
+  }> {
+    const original = await tx.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        status: true,
+        customerId: true,
+        contractId: true,
+        total: true,
+        amountPaid: true,
+        dueDate: true,
+        kind: true,
+        ownerId: true,
+        lateFeeForInvoiceId: true,
+        lateFeeInvoice: { select: { id: true } },
+      },
+    });
+    if (!original) {
+      throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
+    }
+    if (original.kind === 'deposit_receipt') {
+      throw new BadRequestException({
+        code: 'invoice_not_chargeable',
+        message: 'Una fianza no lleva recargo por mora',
+      });
+    }
+    // Nunca recargo sobre recargo.
+    if (original.lateFeeForInvoiceId) {
+      throw new BadRequestException({
+        code: 'late_fee_on_late_fee',
+        message: 'Esta factura ya es un recargo por mora: no lleva otro',
+      });
+    }
+    if (original.lateFeeInvoice) {
+      throw new ConflictException({
+        code: 'late_fee_already_applied',
+        message: 'Esta factura ya tiene un recargo por mora',
+      });
+    }
+    if (!original.customerId) {
+      throw new BadRequestException({
+        code: 'customer_required',
+        message: 'La factura no tiene cliente al que recargar',
+      });
+    }
+    const tenant = await tx.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { lateFeeEnabled: true, lateFeeType: true, lateFeeValue: true, timezone: true },
+    });
+    const today = todayInTimezone(tenant.timezone);
+    const overdue =
+      original.status === 'overdue' ||
+      (original.status === 'issued' && !!original.dueDate && original.dueDate < today);
+    if (!overdue) {
+      throw new BadRequestException({
+        code: 'invoice_not_overdue',
+        message: 'Solo se aplica recargo a una factura ya vencida',
+      });
+    }
+    if (!tenant.lateFeeEnabled) {
+      throw new BadRequestException({
+        code: 'late_fee_disabled',
+        message: 'Activa el recargo por mora en Configuración → Facturación para aplicarlo',
+      });
+    }
+    // El porcentaje se aplica a lo que sigue pendiente, no al total: una
+    // factura pagada a medias solo recarga la parte impagada.
+    const base =
+      Math.max(0, toCents(Number(original.total)) - toCents(Number(original.amountPaid))) / 100;
+    const value = Number(tenant.lateFeeValue);
+    const type = tenant.lateFeeType === 'fixed' ? 'fixed' : 'percentage';
+    // Cálculo en céntimos enteros: base*% sobre floats arrastra drift al recargo.
+    const fee =
+      type === 'percentage'
+        ? Math.round(toCents(base) * (value / 100)) / 100
+        : toCents(value) / 100;
+    if (fee <= 0) {
+      throw new BadRequestException({
+        code: 'late_fee_zero',
+        message: 'El recargo configurado es 0',
+      });
+    }
+    return {
+      customerId: original.customerId,
+      contractId: original.contractId,
+      invoiceLabel: original.invoiceNumber ?? original.id,
+      fee,
+      ownerId: original.ownerId,
+      type,
+      value,
+    };
   }
 
   /**
@@ -1165,84 +1513,10 @@ export class InvoicesService {
     const { tenantId, invoiceId } = args;
     // Alcance por local: asertar antes de crear el recargo.
     await this.findOrThrow(tenantId, invoiceId, args.facilityScope);
-    const { customerId, invoiceLabel, fee, ownerId } = await this.prisma.withTenant(async (tx) => {
-      const original = await tx.invoice.findFirst({
-        where: { id: invoiceId, tenantId },
-        select: {
-          id: true,
-          invoiceNumber: true,
-          status: true,
-          customerId: true,
-          total: true,
-          amountPaid: true,
-          amountRefunded: true,
-          kind: true,
-          ownerId: true,
-          lateFeeInvoice: { select: { id: true } },
-        },
-      });
-      if (original?.kind === 'deposit_receipt') {
-        throw new BadRequestException({
-          code: 'invoice_not_chargeable',
-          message: 'Una fianza no lleva recargo por mora',
-        });
-      }
-      if (!original) {
-        throw new NotFoundException({
-          code: 'invoice_not_found',
-          message: 'Factura no encontrada',
-        });
-      }
-      if (original.lateFeeInvoice) {
-        throw new ConflictException({
-          code: 'late_fee_already_applied',
-          message: 'Esta factura ya tiene un recargo por mora',
-        });
-      }
-      if (!original.customerId) {
-        throw new BadRequestException({
-          code: 'customer_required',
-          message: 'La factura no tiene cliente al que recargar',
-        });
-      }
-      if (original.status !== 'issued' && original.status !== 'overdue') {
-        throw new BadRequestException({
-          code: 'invoice_not_chargeable',
-          message: 'Solo se aplica recargo a facturas emitidas o vencidas',
-        });
-      }
-      const tenant = await tx.tenant.findUniqueOrThrow({
-        where: { id: tenantId },
-        select: { lateFeeType: true, lateFeeValue: true },
-      });
-      // El porcentaje se aplica a lo que sigue pendiente, no al total: una
-      // factura pagada a medias solo recarga la parte impagada.
-      const base =
-        Math.max(
-          0,
-          toCents(Number(original.total)) -
-            toCents(Number(original.amountPaid)) -
-            toCents(Number(original.amountRefunded)),
-        ) / 100;
-      const value = Number(tenant.lateFeeValue);
-      // Cálculo en céntimos enteros: base*% sobre floats arrastra drift al recargo.
-      const fee =
-        tenant.lateFeeType === 'percentage'
-          ? Math.round(toCents(base) * (value / 100)) / 100
-          : toCents(value) / 100;
-      if (fee <= 0) {
-        throw new BadRequestException({
-          code: 'late_fee_zero',
-          message: 'El recargo configurado es 0',
-        });
-      }
-      return {
-        customerId: original.customerId,
-        invoiceLabel: original.invoiceNumber ?? original.id,
-        fee,
-        ownerId: original.ownerId,
-      };
-    }, tenantId);
+    const { customerId, contractId, invoiceLabel, fee, ownerId } = await this.prisma.withTenant(
+      (tx) => this.lateFeeFor(tx, tenantId, invoiceId),
+      tenantId,
+    );
 
     // Lo emite el mismo emisor que la vencida (el propietario, si lo hay).
     const series = ownerId ? null : await this.series.getDefault(tenantId);
@@ -1260,6 +1534,8 @@ export class InvoicesService {
       input: {
         invoiceType: 'F1',
         customerId,
+        // Del contrato de la vencida: sale en su ficha y en su local.
+        ...(contractId ? { contractId } : {}),
         ...(series ? { seriesId: series.id } : {}),
         items: [
           {
@@ -1319,12 +1595,20 @@ export class InvoicesService {
   async resendAeat(
     invoiceId: string,
     tenantId: string,
+    facilityScope?: string[] | null,
   ): Promise<{ queued: true; invoiceId: string }> {
-    const existing = await this.findOrThrow(tenantId, invoiceId);
+    const existing = await this.findOrThrow(tenantId, invoiceId, facilityScope);
     if (existing.status === 'draft' || existing.status === 'cancelled') {
       throw new BadRequestException({
         code: 'invoice_draft_not_sendable',
         message: 'No se puede reenviar a AEAT una factura en borrador',
+      });
+    }
+    // Un justificante de fianza no es una factura: no va a la AEAT.
+    if (existing.kind === 'deposit_receipt') {
+      throw new BadRequestException({
+        code: 'not_an_invoice',
+        message: 'Un justificante de fianza no se envía a la AEAT',
       });
     }
     if (existing.issuedBy === 'holded') {
@@ -1370,8 +1654,18 @@ export class InvoicesService {
    * boton "Consultar AEAT" del badge cuando la factura quedo `pending`
    * o `error`.
    */
-  async refreshAeatStatus(invoiceId: string, tenantId: string): Promise<InvoiceDto> {
-    const existing = await this.findOrThrow(tenantId, invoiceId);
+  async refreshAeatStatus(
+    invoiceId: string,
+    tenantId: string,
+    facilityScope?: string[] | null,
+  ): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(tenantId, invoiceId, facilityScope);
+    if (existing.kind === 'deposit_receipt') {
+      throw new BadRequestException({
+        code: 'not_an_invoice',
+        message: 'Un justificante de fianza no se envía a la AEAT',
+      });
+    }
     if (existing.status === 'draft') {
       throw new BadRequestException({
         code: 'invoice_draft_not_sendable',
@@ -1420,6 +1714,8 @@ export class InvoicesService {
       // Se emitió entre la lectura y la anulación: se anula como emitida.
       return this.cancelIssued(args);
     }
+    // El mes gratis, la señal o la recompensa que gastaba vuelven al contrato.
+    await this.releaseConsumedBenefits(args.tenantId, args.invoiceId);
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.findUniqueOrThrow({
@@ -1575,6 +1871,10 @@ export class InvoicesService {
       ipAddress: null,
       userAgent: null,
     });
+    this.events.emit(INVOICE_PDF_REQUESTED, {
+      tenantId: args.tenantId,
+      invoiceId: created.id,
+    } satisfies InvoicePdfRequestedPayload);
     return this.toDto(created);
   }
 
@@ -1587,6 +1887,26 @@ export class InvoicesService {
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
     const reason = args.input.reason?.trim() || 'Anulación de la factura';
+    // La rectificativa también lleva los datos fiscales del emisor: se comprueba
+    // antes de tocar nada (si no, la original quedaba anulada sin su abono).
+    await this.prisma.withTenant(async (tx) => {
+      const row = await tx.invoice.findUniqueOrThrow({
+        where: { id: args.invoiceId },
+        select: { ownerId: true, issuedBy: true },
+      });
+      if (row.issuedBy === 'holded') return;
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: args.tenantId },
+        select: {
+          taxId: true,
+          billingLegalName: true,
+          billingAddress: true,
+          billingPostalCode: true,
+          billingCity: true,
+        },
+      });
+      await this.assertIssuerFiscalData(tx, row.ownerId, tenant);
+    }, args.tenantId);
     // Reserva atómica: la factura pasa a `rectified` con la fila bloqueada y
     // comprobando que sigue sin cobros ni cobros en curso. Dos anulaciones a
     // la vez no emiten dos rectificativas.
@@ -1724,6 +2044,8 @@ export class InvoicesService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    await this.releaseConsumedBenefits(args.tenantId, original.id);
+    await this.cancelOrphanLateFee(args, original.id, original.invoiceNumber);
     this.events.emit(DOMAIN_EVENTS.invoice_voided, {
       tenantId: args.tenantId,
       invoiceId: original.id,
@@ -1737,6 +2059,83 @@ export class InvoicesService {
       args.tenantId,
     );
     return this.toDto(updated);
+  }
+
+  /**
+   * Lo que gastó la factura al crearse vuelve al contrato: el mes gratis de una
+   * promoción, el saldo a favor (señal) y la recompensa por recomendar. Una vez.
+   */
+  private async releaseConsumedBenefits(tenantId: string, invoiceId: string): Promise<void> {
+    await this.prisma.withTenant(async (tx) => {
+      const row = await tx.invoice.findUnique({
+        where: { id: invoiceId },
+        select: { contractId: true, consumedBenefits: true },
+      });
+      if (!row) return;
+      const benefits = (row.consumedBenefits ?? null) as ConsumedBenefits | null;
+      if (row.contractId && benefits) {
+        const creditCents = benefits.creditCents ?? 0;
+        await tx.contract.update({
+          where: { id: row.contractId },
+          data: {
+            ...(benefits.freeMonth ? { freeMonthsRemaining: { increment: 1 } } : {}),
+            ...(creditCents > 0
+              ? {
+                  pendingCreditAmount: { increment: creditCents / 100 },
+                  ...(benefits.creditReason ? { pendingCreditReason: benefits.creditReason } : {}),
+                }
+              : {}),
+          },
+        });
+      }
+      if (benefits) {
+        await tx.invoice.update({
+          where: { id: invoiceId },
+          data: { consumedBenefits: Prisma.DbNull },
+        });
+      }
+      // La recompensa por recomendar vuelve a estar pendiente para la siguiente.
+      await tx.referral.updateMany({
+        where: { rewardInvoiceId: invoiceId },
+        data: { rewardAppliedAt: null, rewardInvoiceId: null },
+      });
+    }, tenantId);
+  }
+
+  /** Anulada la factura, su recargo por mora sin cobrar deja de tener sentido. */
+  private async cancelOrphanLateFee(
+    args: { tenantId: string; userId: string | null; meta: RequestMeta },
+    originalId: string,
+    originalNumber: string,
+  ): Promise<void> {
+    const fee = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findFirst({
+          where: {
+            lateFeeForInvoiceId: originalId,
+            status: { in: ['draft', 'issued', 'overdue'] },
+            deletedAt: null,
+          },
+          select: { id: true, amountPaid: true },
+        }),
+      args.tenantId,
+    );
+    if (!fee || Number(fee.amountPaid) > 0) return;
+    try {
+      await this.cancel({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        invoiceId: fee.id,
+        input: { reason: `Anulada la factura ${originalNumber}` },
+        meta: args.meta,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[invoices] recargo ${fee.id} de ${originalId} sin anular: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   /**
@@ -1779,11 +2178,23 @@ export class InvoicesService {
     facilityScope?: string[] | null;
     input: MarkPaidManuallyInput;
     meta: RequestMeta;
+    /**
+     * Registro a mano desde el panel: el mismo cobro dos veces en unos segundos
+     * es un doble clic (409), no dos cobros.
+     */
+    rejectDuplicate?: boolean;
   }): Promise<InvoiceDto> {
     // Alcance por local y existencia (fuera de la transacción: solo lectura).
     const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     const amount = args.input.amount;
     const paidAt = args.input.paidAt ? new Date(args.input.paidAt) : new Date();
+    // Un cobro no se registra en el futuro (unos minutos de margen por el reloj).
+    if (paidAt.getTime() > Date.now() + 10 * 60_000) {
+      throw new BadRequestException({
+        code: 'paid_at_in_future',
+        message: 'La fecha del cobro no puede ser futura',
+      });
+    }
     let total = 0;
     let fullyPaid = false;
 
@@ -1813,6 +2224,26 @@ export class InvoicesService {
         });
       }
       fullyPaid = isAtLeast(newPaid, total);
+      if (args.rejectDuplicate) {
+        const twin = await tx.payment.findFirst({
+          where: {
+            invoiceId: args.invoiceId,
+            gateway: 'manual',
+            status: 'succeeded',
+            amount,
+            methodType: args.input.methodType,
+            createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
+          },
+          select: { id: true },
+        });
+        if (twin) {
+          throw new ConflictException({
+            code: 'duplicate_payment',
+            message:
+              'Este cobro ya se ha registrado hace un momento. Si es otro, espera unos segundos.',
+          });
+        }
+      }
       // Anti-doble-cobro: si hay un adeudo SEPA/tarjeta en curso (`processing`/
       // `pending`) sobre la factura, marcar pagado a mano lo cobraría dos veces
       // (el webhook confirmará el adeudo después). Se bloquea salvo marca explícita.
@@ -2045,6 +2476,8 @@ export class InvoicesService {
      * al liquidarla.
      */
     allowDepositReceipt?: boolean;
+    /** Desde el panel: la misma devolución dos veces en unos segundos es un doble clic. */
+    rejectDuplicate?: boolean;
   }): Promise<InvoiceDto> {
     // Alcance por local y existencia (fuera de la transacción: solo lectura).
     await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
@@ -2099,6 +2532,23 @@ export class InvoicesService {
           });
         }
         fullyRefunded = isAtLeast(newRefunded, total);
+        if (args.rejectDuplicate) {
+          const twin = await tx.invoiceRefund.findFirst({
+            where: {
+              invoiceId: args.invoiceId,
+              amount,
+              createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
+            },
+            select: { id: true },
+          });
+          if (twin) {
+            throw new ConflictException({
+              code: 'duplicate_refund',
+              message:
+                'Esta devolución ya se ha registrado hace un momento. Si es otra, espera unos segundos.',
+            });
+          }
+        }
 
         // Si la factura se cobró por pasarela (Stripe/SEPA), devolvemos el dinero
         // DE VERDAD: el payment con `gatewayPaymentId` que tenga saldo reembolsable.
@@ -2111,15 +2561,43 @@ export class InvoicesService {
           orderBy: { createdAt: 'desc' },
         });
 
-        if (gatewayPayment?.gatewayPaymentId) {
-          // Redsys (y cualquier otra pasarela sin API de reembolso integrada): se
-          // reembolsa a mano en su panel. Stripe y GoCardless SÍ se reembolsan aquí.
-          if (gatewayPayment.gateway !== 'stripe' && gatewayPayment.gateway !== 'gocardless') {
+        let via: 'gateway' | 'bank' | 'manual' = 'manual';
+        let refundedPaymentId: string | null = null;
+        if (
+          gatewayPayment?.gatewayPaymentId &&
+          gatewayPayment.gateway !== 'stripe' &&
+          gatewayPayment.gateway !== 'gocardless'
+        ) {
+          // Redsys (tarjeta guardada): la app no puede devolver el dinero. Se
+          // devuelve en el banco o en el panel del TPV y aquí se registra.
+          if (!args.input.registeredExternally) {
             throw new BadRequestException({
-              code: 'refund_not_supported_gateway',
-              message: `Este cobro se hizo por ${gatewayPayment.gateway}; reembólsalo desde el panel de ${gatewayPayment.gateway} (aún no se puede desde la app).`,
+              code: 'refund_needs_bank',
+              message:
+                'Este cobro se hizo con el TPV del banco: devuélvelo allí y después regístralo aquí.',
             });
           }
+          const refundable = subtractAmounts(gatewayPayment.amount, gatewayPayment.refundedAmount);
+          if (isGreaterThan(amount, refundable)) {
+            throw new BadRequestException({
+              code: 'over_refund_gateway',
+              message: 'El importe excede lo cobrado en ese pago',
+            });
+          }
+          const newPaymentRefunded = addAmounts(gatewayPayment.refundedAmount, amount);
+          await tx.payment.update({
+            where: { id: gatewayPayment.id },
+            data: {
+              refundedAmount: newPaymentRefunded,
+              refundedAt: new Date(),
+              status: isAtLeast(newPaymentRefunded, gatewayPayment.amount)
+                ? 'refunded'
+                : 'partially_refunded',
+            },
+          });
+          via = 'bank';
+          refundedPaymentId = gatewayPayment.id;
+        } else if (gatewayPayment?.gatewayPaymentId) {
           const paymentRefundable = subtractAmounts(
             gatewayPayment.amount,
             gatewayPayment.refundedAmount,
@@ -2166,6 +2644,8 @@ export class InvoicesService {
           }
           gatewayRefundId = result.gatewayRefundId;
           usedGateway = true;
+          via = 'gateway';
+          refundedPaymentId = gatewayPayment.id;
           // `payment.refundedAmount` al día: el webhook `charge.refunded`
           // sincroniza por delta contra este campo, así no se cuenta dos veces.
           await tx.payment.update({
@@ -2203,8 +2683,22 @@ export class InvoicesService {
                   : 'partially_refunded',
               },
             });
+            refundedPaymentId = manualPayment.id;
           }
         }
+        // Constancia de cada devolución: cuánto, cómo y quién.
+        await tx.invoiceRefund.create({
+          data: {
+            tenantId: args.tenantId,
+            invoiceId: args.invoiceId,
+            paymentId: refundedPaymentId,
+            amount,
+            via,
+            reason: args.input.reason?.trim() || null,
+            gatewayRefundId,
+            createdByUserId: args.userId,
+          },
+        });
         return tx.invoice.update({
           where: { id: args.invoiceId },
           data: {
@@ -2619,7 +3113,7 @@ export class InvoicesService {
     await lockInvoiceRow(tx, args.originalId);
     const original = await tx.invoice.findUniqueOrThrow({
       where: { id: args.originalId },
-      select: { total: true, amountPaid: true },
+      select: { total: true, amountPaid: true, withholdingAmount: true },
     });
     const others = await tx.invoice.findMany({
       where: {
@@ -2631,7 +3125,8 @@ export class InvoicesService {
       select: { total: true, correctionMethod: true },
     });
     if (args.method === 'by_substitution') {
-      if (toCents(original.amountPaid) > 0) {
+      // La retención de IRPF no es un cobro: con ella también se puede sustituir.
+      if (toCents(original.amountPaid) - toCents(original.withholdingAmount) > 0) {
         throw new BadRequestException({
           code: 'substitution_original_paid',
           message:
@@ -2674,24 +3169,6 @@ export class InvoicesService {
         }),
       args.tenantId,
     );
-  }
-
-  /** Marca como `overdue` las facturas issued con dueDate ya vencida. */
-  async markOverdueDue(tenantId: string): Promise<{ updated: number }> {
-    const result = await this.prisma.withTenant(
-      (tx) =>
-        tx.invoice.updateMany({
-          where: {
-            status: 'issued',
-            dueDate: { lt: new Date() },
-            // Una rectificativa de abono (importe ≤ 0) no se reclama.
-            total: { gt: 0 },
-          },
-          data: { status: 'overdue' },
-        }),
-      tenantId,
-    );
-    return { updated: result.count };
   }
 
   private async findOrThrow(
@@ -2752,7 +3229,12 @@ export class InvoicesService {
         },
       },
       series: { select: { code: true } },
-      rectifiesInvoice: { select: { id: true, invoiceNumber: true } },
+      rectifiesInvoice: { select: { id: true, invoiceNumber: true, issueDate: true } },
+      // Solo las compensaciones con un abono: lo saldado sin cobrar.
+      payments: {
+        where: { methodType: 'credit_note' as const, status: 'succeeded' as const },
+        select: { amount: true },
+      },
       rectifiedBy: {
         where: { deletedAt: null },
         select: { id: true, invoiceNumber: true, status: true, total: true },
@@ -2779,6 +3261,7 @@ export class InvoicesService {
       taxCents += line.taxCents;
       totalCents += line.totalCents;
     }
+    assertTotalInRange(totalCents);
     return {
       subtotal: (totalCents - taxCents) / 100,
       taxAmount: taxCents / 100,
@@ -2831,6 +3314,7 @@ export class InvoicesService {
       taxCents += line.taxCents;
       totalCents += line.totalCents;
     }
+    assertTotalInRange(totalCents);
     return {
       subtotal: (totalCents - taxCents) / 100,
       taxAmount: taxCents / 100,
@@ -2861,12 +3345,61 @@ export class InvoicesService {
     };
   }
 
-  private computeDefaultDueDate(issueDate: Date): Date {
+  /** Vencimiento: los días de plazo del negocio desde la emisión (15 por defecto). */
+  private computeDefaultDueDate(issueDate: Date, days = 15): Date {
     const due = new Date(issueDate);
     // UTC como el resto de fechas de facturación (setDate usa la TZ local del
     // servidor y podía mover el vencimiento un día según la hora de emisión).
-    due.setUTCDate(due.getUTCDate() + 15);
+    due.setUTCDate(due.getUTCDate() + days);
     return due;
+  }
+
+  /**
+   * Una factura sin NIF, razón social y domicilio del emisor no es válida
+   * (RD 1619/2012, art. 6). Del negocio, o del propietario que la emite.
+   */
+  private async assertIssuerFiscalData(
+    tx: Prisma.TransactionClient,
+    ownerId: string | null,
+    tenant: {
+      taxId: string | null;
+      billingLegalName: string | null;
+      billingAddress: string | null;
+      billingPostalCode: string | null;
+      billingCity: string | null;
+    },
+  ): Promise<void> {
+    if (ownerId) {
+      const owner = await tx.owner.findUnique({
+        where: { id: ownerId },
+        select: { legalName: true, taxId: true, address: true, postalCode: true, city: true },
+      });
+      const missing = owner
+        ? tenantFiscalDataMissing({
+            taxId: owner.taxId,
+            billingLegalName: owner.legalName,
+            billingAddress: owner.address,
+            billingPostalCode: owner.postalCode,
+            billingCity: owner.city,
+          })
+        : [];
+      if (owner && missing.length) {
+        throw new BadRequestException({
+          code: 'issuer_fiscal_data_required',
+          message: `Faltan datos del propietario ${owner.legalName} (${missing.join(', ')}). Complétalos en Propietarios antes de emitir sus facturas.`,
+          details: { missing, ownerId },
+        });
+      }
+      return;
+    }
+    const missing = tenantFiscalDataMissing(tenant);
+    if (missing.length) {
+      throw new BadRequestException({
+        code: 'issuer_fiscal_data_required',
+        message: `Antes de emitir facturas, completa los datos de tu empresa (falta: ${missing.join(', ')}) en Configuración → Datos de tu empresa.`,
+        details: { missing },
+      });
+    }
   }
 
   /**
@@ -2884,10 +3417,13 @@ export class InvoicesService {
       customerId: string | null;
       invoiceType: string;
       kind: string;
+      correctionMethod?: string | null;
     },
   >(tx: Prisma.TransactionClient, tenantId: string, row: T): Promise<T> {
     if (!row.contractId || row.kind !== 'invoice') return row;
-    if (row.invoiceType !== 'F1' && row.invoiceType !== 'F2') return row;
+    // La sustitutiva es la factura que se cobra: lleva su retención como la original.
+    const substitute = row.correctionMethod === 'by_substitution';
+    if (row.invoiceType !== 'F1' && row.invoiceType !== 'F2' && !substitute) return row;
     const contract = await tx.contract.findUnique({
       where: { id: row.contractId },
       select: { irpfRetentionPct: true },
@@ -2964,6 +3500,9 @@ export class InvoicesService {
       invoiceType: row.invoiceType as InvoiceTypeValue,
       rectifiesInvoiceId: row.rectifiesInvoiceId,
       rectifiesInvoiceNumber: row.rectifiesInvoice?.invoiceNumber ?? null,
+      rectifiesInvoiceDate: row.rectifiesInvoice?.issueDate
+        ? ymd(row.rectifiesInvoice.issueDate)
+        : null,
       rectifiedBy: row.rectifiedBy.map((r) => ({
         id: r.id,
         invoiceNumber: r.status === 'draft' ? null : r.invoiceNumber,
@@ -2983,7 +3522,13 @@ export class InvoicesService {
       total,
       amountPaid,
       amountRefunded,
-      amountPending: Math.max(0, total - amountPaid),
+      // Solo se debe lo que se está cobrando: un borrador, una anulada o una
+      // cancelada no tienen nada pendiente.
+      amountPending:
+        row.status === 'issued' || row.status === 'overdue'
+          ? Math.max(0, Math.round((total - amountPaid) * 100) / 100)
+          : 0,
+      amountCompensated: row.payments.reduce((sum, p) => sum + toCents(p.amount), 0) / 100,
       withholdingPct: Number(row.withholdingPct),
       ownerId: row.ownerId,
       ownerName: row.owner?.legalName ?? null,
@@ -3041,12 +3586,31 @@ export function draftPlaceholderNumber(): string {
 }
 
 /**
- * Bloquea la fila de la factura hasta el fin de la transacción (`FOR UPDATE`):
- * serializa las operaciones que leen y reescriben importes o el estado.
+ * Bloquea la fila de la factura hasta el fin de la transacción: serializa las
+ * operaciones que leen y reescriben importes o el estado. `FOR NO KEY UPDATE`
+ * (no `FOR UPDATE`): no choca con el bloqueo que toma Postgres al apuntar a
+ * esta factura desde otra (`previous_invoice_id` de la cadena Veri*Factu). Con
+ * `FOR UPDATE`, emitir una rectificativa mientras se emitía otra factura acababa
+ * en interbloqueo.
  */
 export async function lockInvoiceRow(
   tx: Prisma.TransactionClient,
   invoiceId: string,
 ): Promise<void> {
-  await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId}::uuid FOR UPDATE`;
+  await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId}::uuid FOR NO KEY UPDATE`;
+}
+
+/** `YYYY-MM-DD` de una fecha guardada como día (columnas DATE). */
+function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** Un total fuera de rango no cabe en la base de datos (y es un error de tecleo). */
+function assertTotalInRange(totalCents: number): void {
+  if (Math.abs(totalCents) > MAX_INVOICE_TOTAL_CENTS) {
+    throw new BadRequestException({
+      code: 'amount_too_large',
+      message: 'El importe de la factura es demasiado alto: revisa los precios y las cantidades',
+    });
+  }
 }

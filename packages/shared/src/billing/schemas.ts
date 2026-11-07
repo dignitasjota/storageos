@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
+
 import { InvoiceTaxCategoryEnum, taxCategoryAllowsRate } from './tax-category';
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
@@ -11,7 +13,11 @@ const nonNegativeDecimal = z
   .nonnegative()
   .finite();
 
-const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
+const dateOnly = calendarDate;
+
+/** Tope de una línea: un precio o una cantidad mayores es un error de tecleo. */
+export const INVOICE_LINE_MAX_PRICE = 1_000_000;
+export const INVOICE_LINE_MAX_QUANTITY = 10_000;
 
 // ============================================================================
 // Enums
@@ -255,8 +261,8 @@ export type UpdateInvoiceSeriesInput = z.infer<typeof UpdateInvoiceSeriesSchema>
 export const CreateInvoiceItemSchema = z
   .object({
     description: z.string().trim().min(1).max(500),
-    quantity: positiveDecimal.default(1),
-    unitPrice: positiveDecimal,
+    quantity: positiveDecimal.max(INVOICE_LINE_MAX_QUANTITY).default(1),
+    unitPrice: positiveDecimal.max(INVOICE_LINE_MAX_PRICE),
     taxRate: z.number().min(0).max(100).default(21),
     /** Sin indicar: con IVA si lleva tipo, no sujeta al 0 %. */
     taxCategory: InvoiceTaxCategoryEnum.optional(),
@@ -308,6 +314,8 @@ export type CreateInvoiceInput = z.infer<typeof CreateInvoiceSchema>;
 export const UpdateInvoiceSchema = z
   .object({
     dueDate: dateOnly.optional(),
+    /** Obligatorio al cambiar el vencimiento de una factura ya emitida. */
+    dueDateReason: z.string().trim().max(300).optional(),
     notes: optionalText(2000),
     items: z.array(CreateInvoiceItemSchema).min(1).optional(),
   })
@@ -322,8 +330,13 @@ export const CancelInvoiceSchema = z.object({
 export type CancelInvoiceInput = z.infer<typeof CancelInvoiceSchema>;
 
 export const RefundInvoiceSchema = z.object({
-  amount: positiveDecimal,
+  amount: positiveDecimal.max(10_000_000),
   reason: optionalText(500),
+  /**
+   * Cobros con el TPV (Redsys): la app no puede devolverlos. Con esto se
+   * registra la devolución que ya se hizo en el banco.
+   */
+  registeredExternally: z.boolean().optional(),
 });
 export type RefundInvoiceInput = z.infer<typeof RefundInvoiceSchema>;
 
@@ -341,8 +354,8 @@ export type BulkInvoiceActionInput = z.infer<typeof BulkInvoiceActionSchema>;
 export const RectifyInvoiceItemSchema = z
   .object({
     description: z.string().trim().min(1).max(500),
-    quantity: z.number().int().positive().finite().default(1),
-    unitPrice: z.number().finite(),
+    quantity: z.number().int().positive().finite().max(INVOICE_LINE_MAX_QUANTITY).default(1),
+    unitPrice: z.number().finite().min(-INVOICE_LINE_MAX_PRICE).max(INVOICE_LINE_MAX_PRICE),
     taxRate: z.number().min(0).max(100).default(21),
     /** Sin indicar: con IVA si lleva tipo, no sujeta al 0 %. */
     taxCategory: InvoiceTaxCategoryEnum.optional(),
@@ -414,7 +427,7 @@ export const ChargeInvoiceSchema = z.object({
 export type ChargeInvoiceInput = z.infer<typeof ChargeInvoiceSchema>;
 
 export const MarkPaidManuallySchema = z.object({
-  amount: positiveDecimal,
+  amount: positiveDecimal.max(10_000_000),
   paidAt: z.string().datetime().optional(),
   methodType: PaymentMethodTypeEnum.default('cash'),
   notes: optionalText(500),
@@ -424,21 +437,24 @@ export const MarkPaidManuallySchema = z.object({
    * doble cobro accidental; hay que confirmarlo conscientemente).
    */
   overridePaymentInFlight: z.boolean().optional(),
-  /**
-   * Permite registrar un pago parcial por una vía que no es efectivo. Uso
-   * interno para cobros bancarios REALES ya confirmados (conciliación N43,
-   * remesa SEPA) donde el importe del apunte puede ser menor que el pendiente.
-   */
-  allowPartialNonCash: z.boolean().optional(),
-  /**
-   * Uso interno: dinero que YA entró por otra vía (confirmar la remesa,
-   * conciliación N43, Redsys) aunque la factura esté en una remesa SEPA sin
-   * confirmar. Si al confirmar esa remesa la factura ya está pagada, su adeudo
-   * queda «fallido» para devolverlo.
-   */
-  allowInSepaRemittance: z.boolean().optional(),
 });
-export type MarkPaidManuallyInput = z.infer<typeof MarkPaidManuallySchema>;
+
+/**
+ * Lo que admite el registro de un cobro desde dentro de la app. Estas dos
+ * marcas no las puede mandar nadie desde fuera: no están en el esquema.
+ */
+export type MarkPaidManuallyInput = z.infer<typeof MarkPaidManuallySchema> & {
+  /**
+   * Pago parcial por una vía que no es efectivo: cobros bancarios REALES ya
+   * confirmados (conciliación N43, remesa SEPA) por menos de lo pendiente.
+   */
+  allowPartialNonCash?: boolean;
+  /**
+   * Dinero que YA entró por otra vía (confirmar la remesa, conciliación N43,
+   * Redsys) aunque la factura esté en una remesa SEPA sin confirmar.
+   */
+  allowInSepaRemittance?: boolean;
+};
 
 // ============================================================================
 // Pricing rules

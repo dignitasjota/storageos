@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import JSZip from 'jszip';
 
+import { InvoicePdfService } from '../billing/invoice-pdf.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 
@@ -37,6 +38,7 @@ export class PortalInvoiceExportService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly files: FilesService,
+    private readonly pdf: InvoicePdfService,
   ) {}
 
   async annual(
@@ -100,8 +102,17 @@ export class PortalInvoiceExportService {
     );
     let withPdf = 0;
     for (const r of rows) {
-      if (!r.pdfUrl) continue;
-      const key = this.files.keyFromPublicUrl('invoices', r.pdfUrl);
+      // Sin PDF (emitida antes de que se generara solo): se genera ahora, para
+      // que el ZIP no se salte ninguna.
+      let pdfUrl = r.pdfUrl;
+      if (!pdfUrl) {
+        await this.pdf.ensure(tenantId, r.id).catch(() => undefined);
+        pdfUrl =
+          (await this.admin.invoice.findUnique({ where: { id: r.id }, select: { pdfUrl: true } }))
+            ?.pdfUrl ?? null;
+      }
+      if (!pdfUrl) continue;
+      const key = this.files.keyFromPublicUrl('invoices', pdfUrl);
       if (!key) continue;
       try {
         const pdf = await this.files.getObject({ bucket: 'invoices', key });

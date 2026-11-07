@@ -60,6 +60,7 @@ function invoiceRow(overrides: Record<string, unknown> = {}) {
     paidAt: now,
     cancelledAt: null,
     items: [],
+    payments: [],
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -88,6 +89,10 @@ function buildService(deps: {
       // Dinero cobrado de la factura (límite del reembolso).
       findMany: jest.fn().mockResolvedValue([{ amount: 1000 }]),
       update: jest.fn().mockResolvedValue(undefined),
+    },
+    invoiceRefund: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue(undefined),
     },
   };
   const prisma = {
@@ -280,7 +285,8 @@ describe('InvoicesService.refund — reembolso real vía pasarela', () => {
     expect(tx.invoice.update).not.toHaveBeenCalled();
   });
 
-  it('cobro por Redsys u otra pasarela: 400 claro (reembolso manual en su panel)', async () => {
+  it('cobro con el TPV (Redsys): pide devolverlo en el banco y después lo registra', async () => {
+    const gatewayRefund = jest.fn();
     const { service, tx } = buildService({
       gatewayPayment: {
         id: 'pay-1',
@@ -290,6 +296,7 @@ describe('InvoicesService.refund — reembolso real vía pasarela', () => {
         refundedAmount: 0,
         status: 'succeeded',
       },
+      gatewayRefund,
     });
 
     await expect(
@@ -300,7 +307,42 @@ describe('InvoicesService.refund — reembolso real vía pasarela', () => {
         input: { amount: 50 },
         meta: {},
       }),
-    ).rejects.toMatchObject({ response: { code: 'refund_not_supported_gateway' } });
+    ).rejects.toMatchObject({ response: { code: 'refund_needs_bank' } });
+    expect(tx.invoice.update).not.toHaveBeenCalled();
+
+    const result = await service.refund({
+      tenantId: TENANT,
+      userId: 'user-1',
+      invoiceId: INVOICE,
+      input: { amount: 50, registeredExternally: true },
+      meta: {},
+    });
+    expect(gatewayRefund).not.toHaveBeenCalled();
+    expect(tx.payment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'pay-1' },
+        data: expect.objectContaining({ refundedAmount: 50, status: 'partially_refunded' }),
+      }),
+    );
+    expect(tx.invoiceRefund.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ via: 'bank', amount: 50 }) }),
+    );
+    expect(result.status).toBe('partially_refunded');
+  });
+
+  it('la misma devolución dos veces seguidas desde el panel: 409 la segunda', async () => {
+    const { service, tx } = buildService({ gatewayPayment: null });
+    tx.invoiceRefund.findFirst.mockResolvedValueOnce({ id: 'r-1' });
+    await expect(
+      service.refund({
+        tenantId: TENANT,
+        userId: 'user-1',
+        invoiceId: INVOICE,
+        input: { amount: 30 },
+        meta: {},
+        rejectDuplicate: true,
+      }),
+    ).rejects.toMatchObject({ response: { code: 'duplicate_refund' } });
     expect(tx.invoice.update).not.toHaveBeenCalled();
   });
 });

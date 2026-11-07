@@ -17,6 +17,7 @@ import { VerifactuXmlBuilder } from './aeat-client/verifactu-xml-builder';
 import { BillingJobsService } from './billing-jobs.service';
 import { BillingRecurringProcessor } from './billing-recurring.processor';
 import { FirstInvoiceService } from './first-invoice.service';
+import { InvoicePdfJobsService } from './invoice-pdf-jobs.service';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { InvoiceSeriesController } from './invoice-series.controller';
 import { InvoiceSeriesService } from './invoice-series.service';
@@ -63,6 +64,7 @@ import type { Env } from '../../config/env.schema';
     InvoicesService,
     FirstInvoiceService,
     InvoicePdfService,
+    InvoicePdfJobsService,
     InvoicingModeService,
     VerifactuService,
     PricingRulesService,
@@ -83,6 +85,7 @@ import type { Env } from '../../config/env.schema';
   ],
   exports: [
     InvoicesService,
+    InvoicePdfService,
     FirstInvoiceService,
     InvoicingModeService,
     InvoiceSeriesService,

@@ -241,6 +241,8 @@ export const UpdateTenantBillingSettingsSchema = z.object({
   lateFeeType: z.enum(['percentage', 'fixed']).optional(),
   lateFeeValue: z.number().nonnegative().max(100_000).optional(),
   lateFeeGraceDays: z.number().int().min(0).max(120).optional(),
+  /** Días de plazo para pagar, contados desde que se emite la factura. */
+  invoiceDueDays: z.number().int().min(0).max(120).optional(),
   /**
    * Primer pago mensual: a partir de este día del mes, incluye también el mes
    * siguiente completo (null = desactivado).
