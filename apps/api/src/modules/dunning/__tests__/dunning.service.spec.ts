@@ -82,71 +82,81 @@ function overdueInvoice(overrides: Record<string, unknown> = {}) {
 }
 
 describe('DunningService.executeAction (email_reminder)', () => {
-  it('encola el recordatorio via CommunicationsService y marca la accion executed', async () => {
-    const admin: AdminMock = {
-      dunningAction: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: ACTION_ID,
-          tenantId: TENANT,
-          invoiceId: INVOICE_ID,
-          actionType: 'email_reminder',
-          status: 'scheduled',
-        }),
-        update: jest.fn().mockResolvedValue(undefined),
-      },
-      // Sin plan de pago activo.
-      paymentPlan: { findFirst: jest.fn().mockResolvedValue(null) },
-      // count = 1 → sin cobro en curso.
-      invoice: {
-        count: jest.fn().mockResolvedValue(1),
-        findUnique: jest.fn().mockResolvedValue(overdueInvoice()),
-      },
-      tenant: {
-        findUnique: jest.fn().mockResolvedValue({
-          name: 'Trasteros SL',
-          slug: 'trasteros-sl',
-          customDomain: null,
-          customDomainVerifiedAt: null,
-        }),
-      },
-      automationRule: { count: jest.fn().mockResolvedValue(0) },
-    };
-    const communications = { enqueue: jest.fn().mockResolvedValue(undefined) };
-    const service = buildService(admin, communications);
+  it.each([
+    ['sin otras facturas por recordar', () => jest.fn().mockResolvedValue([])],
+    ['si no se puede agrupar', () => jest.fn().mockRejectedValue(new Error('caído'))],
+  ])(
+    'encola el recordatorio de la factura (%s) y marca la accion executed',
+    async (_, siblings) => {
+      const admin: AdminMock = {
+        dunningAction: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: ACTION_ID,
+            tenantId: TENANT,
+            invoiceId: INVOICE_ID,
+            actionType: 'email_reminder',
+            status: 'scheduled',
+          }),
+          update: jest.fn().mockResolvedValue(undefined),
+          // Otras facturas del inquilino con recordatorio hoy (correo agrupado).
+          findMany: siblings(),
+        },
+        // Sin plan de pago activo.
+        paymentPlan: { findFirst: jest.fn().mockResolvedValue(null) },
+        // count = 1 → sin cobro en curso.
+        invoice: {
+          count: jest.fn().mockResolvedValue(1),
+          findUnique: jest.fn().mockResolvedValue(overdueInvoice()),
+        },
+        tenant: {
+          findUnique: jest.fn().mockResolvedValue({
+            name: 'Trasteros SL',
+            slug: 'trasteros-sl',
+            customDomain: null,
+            customDomainVerifiedAt: null,
+          }),
+        },
+        automationRule: { count: jest.fn().mockResolvedValue(0) },
+      };
+      const communications = { enqueue: jest.fn().mockResolvedValue(undefined) };
+      const service = buildService(admin, communications);
 
-    await service.handleJob(JOB_DUNNING_EXECUTE_ACTION, {
-      tenantId: TENANT,
-      actionId: ACTION_ID,
-    });
+      await service.handleJob(JOB_DUNNING_EXECUTE_ACTION, {
+        tenantId: TENANT,
+        actionId: ACTION_ID,
+      });
 
-    expect(communications.enqueue).toHaveBeenCalledTimes(1);
-    const args = communications.enqueue.mock.calls[0][0];
-    expect(args).toMatchObject({
-      tenantId: TENANT,
-      channel: 'email',
-      recipient: 'cliente@example.com',
-      templateCode: 'invoice_overdue_email',
-      trigger: 'invoice_overdue',
-      customerId: CUSTOMER_ID,
-      source: 'dunning.email_reminder',
-    });
-    // amountPending = total(100) - amountPaid(20) - amountRefunded(0) = 80,00 €
-    expect(args.variables.invoice.amountPending.replace(/\s/g, ' ')).toBe('80,00 €');
-    expect(args.variables.portal.url).toBe('http://localhost:3000/portal/login?slug=trasteros-sl');
-    expect(args.variables.invoice.number).toBe('A-2026-00042');
-    expect(args.variables.customer.displayName).toBe('Ana García');
-    expect(args.variables.tenant.name).toBe('Trasteros SL');
+      expect(communications.enqueue).toHaveBeenCalledTimes(1);
+      const args = communications.enqueue.mock.calls[0][0];
+      expect(args).toMatchObject({
+        tenantId: TENANT,
+        channel: 'email',
+        recipient: 'cliente@example.com',
+        templateCode: 'invoice_overdue_email',
+        trigger: 'invoice_overdue',
+        customerId: CUSTOMER_ID,
+        source: 'dunning.email_reminder',
+      });
+      // amountPending = total(100) - amountPaid(20) - amountRefunded(0) = 80,00 €
+      expect(args.variables.invoice.amountPending.replace(/\s/g, ' ')).toBe('80,00 €');
+      expect(args.variables.portal.url).toBe(
+        'http://localhost:3000/portal/login?slug=trasteros-sl',
+      );
+      expect(args.variables.invoice.number).toBe('A-2026-00042');
+      expect(args.variables.customer.displayName).toBe('Ana García');
+      expect(args.variables.tenant.name).toBe('Trasteros SL');
 
-    expect(admin.dunningAction.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: ACTION_ID },
-        data: expect.objectContaining({
-          status: 'executed',
-          result: expect.objectContaining({ emailEnqueued: true }),
+      expect(admin.dunningAction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: ACTION_ID },
+          data: expect.objectContaining({
+            status: 'executed',
+            result: expect.objectContaining({ emailEnqueued: true }),
+          }),
         }),
-      }),
-    );
-  });
+      );
+    },
+  );
 
   it('no envia email cuando la factura no tiene customer/email (F2) pero marca executed', async () => {
     const admin: AdminMock = {

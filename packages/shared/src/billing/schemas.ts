@@ -337,6 +337,11 @@ export const RefundInvoiceSchema = z.object({
    * registra la devolución que ya se hizo en el banco.
    */
   registeredExternally: z.boolean().optional(),
+  /**
+   * `credit`: no sale dinero; se descuenta de su próxima factura (saldo a favor
+   * en el contrato). Por defecto, por la misma vía del cobro.
+   */
+  method: z.enum(['original', 'credit']).optional(),
 });
 export type RefundInvoiceInput = z.infer<typeof RefundInvoiceSchema>;
 

@@ -37,7 +37,11 @@ import {
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
-import { assertNotInSepaRemittance, hasPaymentInFlight } from '../../common/sepa-remittance-guard';
+import {
+  assertNotInSepaRemittance,
+  CHARGEABLE_MANDATE_WHERE,
+  hasPaymentInFlight,
+} from '../../common/sepa-remittance-guard';
 import { tenantFiscalDataMissing } from '../../common/tenant-readiness';
 import { HoldedSettingsService } from '../accounting/holded-settings.service';
 import { HoldedSyncService } from '../accounting/holded-sync.service';
@@ -60,6 +64,7 @@ import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../queues/queues.module';
 
 import { InvoiceSeriesService } from './invoice-series.service';
 import { InvoicingModeService } from './invoicing-mode.service';
+import { buildReminderSummary, remindersOfInvoice } from './reminder-summary';
 import { VerifactuService } from './verifactu.service';
 
 import type { VerifactuSendJobData } from './verifactu.processor';
@@ -75,7 +80,11 @@ import type {
   CreateInvoiceItemInput,
   InvoiceDto,
   InvoiceItemDto,
+  InvoicePaymentFilterValue,
+  InvoiceSortValue,
   InvoiceStatusValue,
+  InvoiceTotalsDto,
+  InvoiceTypeFilterValue,
   InvoiceTypeValue,
   MarkPaidManuallyInput,
   RectifyInvoiceInput,
@@ -132,7 +141,7 @@ type InvoiceWithRelations = Invoice & {
   lateFeeInvoice: { id: string } | null;
 };
 
-interface ListFilters {
+export interface ListFilters {
   status?: InvoiceStatusValue;
   customerId?: string;
   contractId?: string;
@@ -143,8 +152,22 @@ interface ListFilters {
   facilityId?: string;
   /** Nº de factura o inquilino. */
   search?: string;
+  /** Fecha de emisión desde / hasta (AAAA-MM-DD, incluidas). */
+  from?: string;
+  to?: string;
+  type?: InvoiceTypeFilterValue;
+  payment?: InvoicePaymentFilterValue;
+  sort?: InvoiceSortValue;
   page?: PageRequest;
 }
+
+/** Orden de la lista (todos terminan en `id`: el cursor necesita un orden estable). */
+const LIST_ORDER: Record<InvoiceSortValue, Prisma.InvoiceOrderByWithRelationInput[]> = {
+  newest: [{ createdAt: 'desc' }, { id: 'desc' }],
+  oldest: [{ createdAt: 'asc' }, { id: 'asc' }],
+  due: [{ dueDate: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
+  amount: [{ total: 'desc' }, { id: 'desc' }],
+};
 
 /** Motivo de las rectificativas automáticas por reembolso. */
 const REFUND_CREDIT_REASON = 'Reembolso de lo cobrado';
@@ -175,6 +198,8 @@ export const INVOICE_PDF_REQUESTED = 'billing.invoice_pdf_requested';
 export interface InvoicePdfRequestedPayload {
   tenantId: string;
   invoiceId: string;
+  /** Rehacerlo aunque ya exista (se ha pagado, devuelto, corregido…). */
+  refresh?: boolean;
 }
 
 @Injectable()
@@ -207,16 +232,67 @@ export class InvoicesService {
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
-    const where: Prisma.InvoiceWhereInput = { deletedAt: null };
-    const and: Prisma.InvoiceWhereInput[] = [];
-    if (filters.status) where.status = filters.status as InvoiceStatus;
-    if (filters.customerId) where.customerId = filters.customerId;
-    if (filters.contractId) where.contractId = filters.contractId;
+    const rows = await this.prisma.withTenant(async (tx) => {
+      const where = await this.listWhere(tx, filters);
+      if (!where) return [];
+      return tx.invoice.findMany({
+        where,
+        // Por fecha de alta: generar el PDF o cobrar no la mueve en la lista.
+        orderBy: LIST_ORDER[filters.sort ?? 'newest'],
+        ...pageArgs(filters.page),
+        include: this.includeRelations(),
+      });
+    }, tenantId);
+    return rows.map((r) => this.toDto(r));
+  }
+
+  /** Lo que suman las facturas de la lista con esos filtros (sin las canceladas). */
+  async totals(tenantId: string, filters: ListFilters): Promise<InvoiceTotalsDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const where = await this.listWhere(tx, filters);
+      if (!where) return { count: 0, total: 0, pending: 0, collected: 0 };
+      const [count, all, open, paid] = await Promise.all([
+        tx.invoice.count({ where }),
+        tx.invoice.aggregate({
+          where: { AND: [where, { status: { not: 'cancelled' } }] },
+          _sum: { total: true },
+        }),
+        tx.invoice.aggregate({
+          where: { AND: [where, { status: { in: ['issued', 'overdue'] } }] },
+          _sum: { total: true, amountPaid: true },
+        }),
+        tx.payment.aggregate({
+          where: {
+            invoice: where,
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+          },
+          _sum: { amount: true, refundedAmount: true },
+        }),
+      ]);
+      return {
+        count,
+        total: Number(all._sum.total ?? 0),
+        pending: subtractAmounts(open._sum.total ?? 0, open._sum.amountPaid ?? 0),
+        collected: subtractAmounts(paid._sum.amount ?? 0, paid._sum.refundedAmount ?? 0),
+      };
+    }, tenantId);
+  }
+
+  /** Filtros de la lista. null = el usuario no ve ningún local de los pedidos. */
+  private async listWhere(
+    tx: Prisma.TransactionClient,
+    filters: ListFilters,
+  ): Promise<Prisma.InvoiceWhereInput | null> {
+    const and: Prisma.InvoiceWhereInput[] = [{ deletedAt: null }];
+    if (filters.status) and.push({ status: filters.status as InvoiceStatus });
+    if (filters.customerId) and.push({ customerId: filters.customerId });
+    if (filters.contractId) and.push({ contractId: filters.contractId });
     // Alcance por local: un usuario restringido solo ve las facturas de contratos
     // de sus locales. Las facturas SIN contrato (F2/ventas de producto) no están
     // ancladas a un local → se incluyen (no son "la caja" de un local ajeno).
     const facility = invoiceFacilityWhere(filters.facilityScope, filters.facilityId);
-    if (!facility) return [];
+    if (!facility) return null;
     and.push(facility as Prisma.InvoiceWhereInput);
     // Por palabras: «Ana García» encuentra a quien se llama Ana y se apellida García.
     const words = (filters.search ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 5);
@@ -231,22 +307,37 @@ export class InvoicesService {
         ],
       });
     }
-    const rows = await this.prisma.withTenant(async (tx) => {
-      if (filters.overdue) {
-        // «Solo vencidas» se suma al estado elegido (antes lo pisaba).
-        const tenant = await tx.tenant.findFirst({ select: { timezone: true } });
-        and.push(overdueInvoiceWhere(todayInTimezone(tenant?.timezone ?? 'Europe/Madrid')));
-      }
-      if (and.length) where.AND = and;
-      return tx.invoice.findMany({
-        where,
-        // Por fecha de alta: generar el PDF o cobrar no la mueve en la lista.
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        ...pageArgs(filters.page),
-        include: this.includeRelations(),
+    if (filters.overdue) {
+      // «Solo vencidas» se suma al estado elegido (antes lo pisaba).
+      const tenant = await tx.tenant.findFirst({ select: { timezone: true } });
+      and.push(overdueInvoiceWhere(todayInTimezone(tenant?.timezone ?? 'Europe/Madrid')));
+    }
+    if (filters.from) and.push({ issueDate: { gte: new Date(`${filters.from}T00:00:00Z`) } });
+    if (filters.to) and.push({ issueDate: { lte: new Date(`${filters.to}T00:00:00Z`) } });
+    if (filters.type === 'deposit') and.push({ kind: 'deposit_receipt' });
+    else if (filters.type === 'R') {
+      and.push({ kind: 'invoice', invoiceType: { in: ['R1', 'R2', 'R3', 'R4', 'R5'] } });
+    } else if (filters.type) and.push({ kind: 'invoice', invoiceType: filters.type });
+    if (filters.payment === 'none') {
+      // Pendiente y sin forma de pago guardada: habrá que cobrarla a mano.
+      and.push({
+        status: { in: ['issued', 'overdue'] },
+        customer: {
+          paymentMethods: { none: { deletedAt: null, type: { in: ['card', 'sepa_debit'] } } },
+          sepaMandates: { none: CHARGEABLE_MANDATE_WHERE },
+        },
       });
-    }, tenantId);
-    return rows.map((r) => this.toDto(r));
+    } else if (filters.payment) {
+      and.push({
+        payments: {
+          some: {
+            methodType: filters.payment,
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+          },
+        },
+      });
+    }
+    return { AND: and };
   }
 
   async detail(tenantId: string, id: string, facilityScope?: string[] | null): Promise<InvoiceDto> {
@@ -303,20 +394,7 @@ export class InvoicesService {
         });
       }
     } else {
-      // F2: limite 400€ general, hasta 3000€ con justificacion. AEAT no
-      // exige cuantitativamente el motivo pero si que se justifique algo.
-      const F2_DEFAULT_LIMIT = 400;
-      const F2_JUSTIFIED_LIMIT = 3000;
-      const justified = args.input.simplifiedJustification !== undefined;
-      const limit = justified ? F2_JUSTIFIED_LIMIT : F2_DEFAULT_LIMIT;
-      if (isGreaterThan(total, limit)) {
-        throw new BadRequestException({
-          code: 'f2_amount_limit_exceeded',
-          message: justified
-            ? `El total ${total.toFixed(2)}€ supera el limite F2 con justificacion (3000€)`
-            : `El total ${total.toFixed(2)}€ supera el limite F2 sin justificacion (400€). Anade una justificacion para llegar a 3000€.`,
-        });
-      }
+      this.assertSimplifiedLimit(total, args.input.simplifiedJustification !== undefined);
     }
 
     const created = await this.prisma
@@ -467,6 +545,13 @@ export class InvoicesService {
         message: 'Las líneas solo se cambian en un borrador',
       });
     }
+    // Una simplificada editada sigue dentro de su límite (el motivo va en las notas).
+    if (args.input.items !== undefined && existing.invoiceType === 'F2') {
+      this.assertSimplifiedLimit(
+        this.computeTotals(args.input.items).total,
+        (existing.notes ?? '').startsWith('[F2:'),
+      );
+    }
     // Vencimiento de una factura ya emitida: solo si se está cobrando, y con
     // motivo (queda en el registro de actividad).
     const dueChange = existing.status !== 'draft' && args.input.dueDate !== undefined;
@@ -557,6 +642,18 @@ export class InvoicesService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(updated);
+  }
+
+  /** Factura simplificada: hasta 400 €, o hasta 3.000 € con un motivo (RD 1619/2012). */
+  private assertSimplifiedLimit(total: number, justified: boolean): void {
+    const limit = justified ? 3000 : 400;
+    if (!isGreaterThan(total, limit)) return;
+    throw new BadRequestException({
+      code: 'f2_amount_limit_exceeded',
+      message: justified
+        ? `El total ${total.toFixed(2)} € supera el límite de una factura simplificada con motivo (3.000 €)`
+        : `El total ${total.toFixed(2)} € supera el límite de una factura simplificada (400 €). Indica un motivo para llegar a 3.000 €.`,
+    });
   }
 
   /**
@@ -662,6 +759,16 @@ export class InvoicesService {
           billingCity: true,
         },
       });
+      // Plazo de pago: el del inquilino si tiene uno propio; si no, el del negocio.
+      const customerDays = existing.customerId
+        ? ((
+            await tx.customer.findUnique({
+              where: { id: existing.customerId },
+              select: { invoiceDueDays: true },
+            })
+          )?.invoiceDueDays ?? null)
+        : null;
+      const dueDays = customerDays ?? tenant.invoiceDueDays;
       // Fecha de emisión = hoy en la zona del tenant (en UTC, a las 00:30 del
       // día 1 la factura caía en el mes —o trimestre— anterior).
       const issueDate = existing.issueDate ?? todayInTimezone(tenant.timezone);
@@ -682,7 +789,7 @@ export class InvoicesService {
             issueDate,
             dueDate: settled
               ? null
-              : (existing.dueDate ?? this.computeDefaultDueDate(issueDate, tenant.invoiceDueDays)),
+              : (existing.dueDate ?? this.computeDefaultDueDate(issueDate, dueDays)),
             ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
             issuedBy: 'holded',
             holdedDocumentId: fromHolded.documentId,
@@ -693,7 +800,11 @@ export class InvoicesService {
         });
         const holdedWithheld = settled
           ? holdedRow
-          : await this.applyWithholding(tx, args.tenantId, holdedRow);
+          : await this.applyCreditBalance(
+              tx,
+              args.tenantId,
+              await this.applyWithholding(tx, args.tenantId, holdedRow),
+            );
         if (isCredit && existing.rectifiesInvoiceId) {
           compensatedOriginal = await this.compensateWithCredit(tx, {
             tenantId: args.tenantId,
@@ -724,8 +835,7 @@ export class InvoicesService {
         });
       }
       const invoiceNumber = this.series.formatInvoiceNumber(series, sequenceNumber, issueDate);
-      const dueDate =
-        existing.dueDate ?? this.computeDefaultDueDate(issueDate, tenant.invoiceDueDays);
+      const dueDate = existing.dueDate ?? this.computeDefaultDueDate(issueDate, dueDays);
 
       // Veri*Factu: huella oficial encadenada con el último registro del emisor
       // (el propietario en el plan Administrador; si no, el tenant).
@@ -813,8 +923,15 @@ export class InvoicesService {
         },
         include: this.includeRelations(),
       });
-      // Retención de IRPF del contrato (si el inquilino la practica).
-      const row = settled ? issuedRow : await this.applyWithholding(tx, args.tenantId, issuedRow);
+      // Retención de IRPF del contrato (si el inquilino la practica) y, después,
+      // su saldo a favor (una devolución que se quedó para la próxima factura).
+      const row = settled
+        ? issuedRow
+        : await this.applyCreditBalance(
+            tx,
+            args.tenantId,
+            await this.applyWithholding(tx, args.tenantId, issuedRow),
+          );
       // Un abono por diferencias sobre una factura con importe pendiente lo
       // compensa: la original deja de reclamar lo abonado.
       if (
@@ -839,6 +956,25 @@ export class InvoicesService {
       total: number;
       fullyPaid: boolean;
     } | null;
+    if (!settledZero && toCents(Number(existing.total)) > 0 && updated.status === 'paid') {
+      // Saldada entera con el saldo a favor del inquilino: como pagada, sin el
+      // correo de «pago recibido» (no ha pagado nada ahora).
+      this.events.emit(DOMAIN_EVENTS.invoice_paid, {
+        tenantId: args.tenantId,
+        entityType: 'invoice',
+        entityId: updated.id,
+        customerId: updated.customerId,
+        recipientEmail: null,
+        scope: {
+          invoice: {
+            number: updated.invoiceNumber,
+            total: Number(updated.total).toFixed(2),
+            paidAt: new Date().toISOString(),
+            compensated: true,
+          },
+        },
+      } satisfies DomainEventPayload);
+    }
     if (settledZero && updated.status === 'paid') {
       // Saldada sin cobro: avisa como pagada (devuelve el acceso, cierra el
       // escalado) pero sin el correo de «pago recibido».
@@ -1185,7 +1321,35 @@ export class InvoicesService {
   }): Promise<BulkInvoiceActionResultDto> {
     const succeeded: string[] = [];
     const failed: BulkInvoiceActionResultDto['failed'] = [];
+    // Un solo correo por inquilino: con varias facturas suyas, uno que las lista.
+    const owners = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findMany({
+          where: { id: { in: args.ids } },
+          select: { id: true, customerId: true },
+        }),
+      args.tenantId,
+    );
+    const byCustomer = new Map<string, string[]>();
+    for (const row of owners) {
+      if (!row.customerId) continue;
+      byCustomer.set(row.customerId, [...(byCustomer.get(row.customerId) ?? []), row.id]);
+    }
+    const grouped = new Set<string>();
+    for (const [customerId, ids] of byCustomer) {
+      if (ids.length < 2) continue;
+      for (const id of ids) grouped.add(id);
+      const res = await this.sendReminderSummary(
+        args.tenantId,
+        customerId,
+        ids,
+        args.facilityScope,
+      );
+      succeeded.push(...res.sent);
+      failed.push(...res.failed);
+    }
     for (const invoiceId of args.ids) {
+      if (grouped.has(invoiceId)) continue;
       try {
         await this.sendReminderForInvoice(args.tenantId, invoiceId, args.facilityScope);
         succeeded.push(invoiceId);
@@ -1194,6 +1358,173 @@ export class InvoicesService {
       }
     }
     return { succeeded, failed };
+  }
+
+  /**
+   * Varias facturas del mismo inquilino: se comprueba cada una como en el
+   * recordatorio individual y las que pueden recordarse van en UN correo.
+   */
+  private async sendReminderSummary(
+    tenantId: string,
+    customerId: string,
+    ids: string[],
+    facilityScope?: string[] | null,
+  ): Promise<{ sent: string[]; failed: BulkInvoiceActionResultDto['failed'] }> {
+    const failed: BulkInvoiceActionResultDto['failed'] = [];
+    const ok: { id: string; number: string; pending: number; dueDate: Date | null }[] = [];
+    for (const id of ids) {
+      try {
+        ok.push(await this.reminderCandidate(tenantId, id, facilityScope));
+      } catch (err) {
+        failed.push(await this.bulkFailure(tenantId, id, err));
+      }
+    }
+    if (ok.length === 0) return { sent: [], failed };
+    if (ok.length === 1) {
+      try {
+        await this.sendReminderForInvoice(tenantId, ok[0]!.id, facilityScope);
+        return { sent: [ok[0]!.id], failed };
+      } catch (err) {
+        return { sent: [], failed: [...failed, await this.bulkFailure(tenantId, ok[0]!.id, err)] };
+      }
+    }
+    const data = await this.prisma.withTenant(async (tx) => {
+      const [customer, tenant] = await Promise.all([
+        tx.customer.findFirst({
+          where: { id: customerId },
+          select: {
+            email: true,
+            billingEmail: true,
+            firstName: true,
+            companyName: true,
+            customerType: true,
+            locale: true,
+          },
+        }),
+        tx.tenant.findUniqueOrThrow({
+          where: { id: tenantId },
+          select: {
+            name: true,
+            slug: true,
+            customDomain: true,
+            customDomainVerifiedAt: true,
+            timezone: true,
+          },
+        }),
+      ]);
+      return { customer, tenant };
+    }, tenantId);
+    const email = data.customer?.billingEmail ?? data.customer?.email;
+    if (!email) {
+      for (const c of ok) {
+        failed.push({
+          id: c.id,
+          error: 'customer_email_missing',
+          message: 'El inquilino no tiene email',
+          invoiceNumber: c.number,
+        });
+      }
+      return { sent: [], failed };
+    }
+    const locale = emailLocale(data.customer?.locale);
+    const summary = buildReminderSummary({
+      tenantName: data.tenant.name,
+      customerName:
+        (data.customer?.customerType === 'business'
+          ? data.customer.companyName
+          : data.customer?.firstName) ?? '',
+      locale,
+      invoices: ok.map((c) => ({ number: c.number, pending: c.pending, dueDate: c.dueDate })),
+      portalUrl: tenantPortalLoginUrl(
+        this.config.get('WEB_BASE_URL', { infer: true }),
+        data.tenant,
+      ),
+      today: todayInTimezone(data.tenant.timezone),
+    });
+    await this.communications.enqueue({
+      tenantId,
+      channel: 'email',
+      recipient: email,
+      subject: summary.subject,
+      bodyText: summary.text,
+      customerId,
+      invoiceId: ok[0]!.id,
+      variables: { invoiceIds: ok.map((c) => c.id) },
+      source: 'bulk.reminder_summary',
+    });
+    return { sent: ok.map((c) => c.id), failed };
+  }
+
+  /** Lo que se le recordaría de una factura (o por qué no se le puede recordar). */
+  private async reminderCandidate(
+    tenantId: string,
+    invoiceId: string,
+    facilityScope?: string[] | null,
+  ): Promise<{ id: string; number: string; pending: number; dueDate: Date | null }> {
+    const row = await this.prisma.withTenant(async (tx) => {
+      const invoice = await tx.invoice.findFirst({
+        where: { id: invoiceId, deletedAt: null },
+        select: {
+          invoiceNumber: true,
+          status: true,
+          total: true,
+          amountPaid: true,
+          dueDate: true,
+          contract: { select: { unit: { select: { facilityId: true } } } },
+        },
+      });
+      if (!invoice) return null;
+      const [inFlight, plan, recent] = await Promise.all([
+        hasPaymentInFlight(tx, invoiceId),
+        tx.paymentPlan.findFirst({
+          where: { status: 'active', invoiceIds: { has: invoiceId } },
+          select: { id: true },
+        }),
+        tx.communication.findFirst({
+          where: {
+            ...remindersOfInvoice(invoiceId),
+            createdAt: { gte: new Date(Date.now() - REMINDER_GAP_MS) },
+          },
+          select: { id: true },
+        }),
+      ]);
+      return { invoice, inFlight, inPlan: !!plan, recent: !!recent };
+    }, tenantId);
+    if (!row) {
+      throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
+    }
+    const facilityId = row.invoice.contract?.unit?.facilityId;
+    if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
+    if (row.invoice.status !== 'issued' && row.invoice.status !== 'overdue') {
+      throw new BadRequestException({
+        code: 'invoice_not_pending',
+        message: 'Solo se puede recordar una factura emitida o vencida',
+      });
+    }
+    if (row.inFlight) {
+      throw new ConflictException({
+        code: 'payment_in_progress',
+        message: 'Esta factura ya tiene un cobro en curso',
+      });
+    }
+    if (row.inPlan) {
+      throw new ConflictException({
+        code: 'invoice_in_payment_plan',
+        message: 'Esta factura va en un plan de pagos',
+      });
+    }
+    if (row.recent) {
+      throw new ConflictException({
+        code: 'reminder_recently_sent',
+        message: 'Ya se le recordó esta factura en las últimas 24 horas',
+      });
+    }
+    return {
+      id: invoiceId,
+      number: row.invoice.invoiceNumber,
+      pending: Number(subtractAmounts(row.invoice.total, row.invoice.amountPaid)),
+      dueDate: row.invoice.dueDate,
+    };
   }
 
   /**
@@ -1246,9 +1577,7 @@ export class InvoicesService {
         }),
         tx.communication.findFirst({
           where: {
-            invoiceId,
-            source: 'bulk.manual_reminder',
-            status: { notIn: ['failed', 'skipped'] },
+            ...remindersOfInvoice(invoiceId),
             createdAt: { gte: new Date(Date.now() - REMINDER_GAP_MS) },
           },
           select: { id: true },
@@ -2362,6 +2691,7 @@ export class InvoicesService {
     await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     let revertedStatus: InvoiceStatus = 'issued';
     let backToOverdue = false;
+    let revertedIds: string[] = [];
 
     const updated = await this.prisma.withTenant(async (tx) => {
       // Fila bloqueada + lectura fresca: dos devoluciones a la vez no restan
@@ -2421,6 +2751,7 @@ export class InvoicesService {
           if (left <= 0) break;
         }
       }
+      revertedIds = reverted;
       if (reverted.length > 0) {
         await tx.payment.updateMany({
           where: { id: { in: reverted } },
@@ -2448,7 +2779,13 @@ export class InvoicesService {
       action: args.undo ? 'invoice.payment_undone' : 'invoice.payment_reverted',
       entityType: 'Invoice',
       entityId: args.invoiceId,
-      changes: { amount: args.amount, reason: args.reason, revertedStatus },
+      // Qué cobros: la ficha marca así los deshechos.
+      changes: {
+        amount: args.amount,
+        reason: args.reason,
+        revertedStatus,
+        paymentIds: revertedIds,
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
@@ -2498,7 +2835,7 @@ export class InvoicesService {
         await lockInvoiceRow(tx, args.invoiceId);
         const existing = await tx.invoice.findUniqueOrThrow({
           where: { id: args.invoiceId },
-          select: { status: true, total: true, amountRefunded: true, kind: true },
+          select: { status: true, total: true, amountRefunded: true, kind: true, contractId: true },
         });
         if (existing.kind === 'deposit_receipt' && !args.allowDepositReceipt) {
           throw new BadRequestException({
@@ -2561,9 +2898,22 @@ export class InvoicesService {
           orderBy: { createdAt: 'desc' },
         });
 
-        let via: 'gateway' | 'bank' | 'manual' = 'manual';
+        let via: 'gateway' | 'bank' | 'manual' | 'credit' = 'manual';
         let refundedPaymentId: string | null = null;
-        if (
+        if (args.input.method === 'credit') {
+          // Saldo a favor: no sale dinero; su próxima factura lo descuenta.
+          if (!existing.contractId) {
+            throw new BadRequestException({
+              code: 'credit_needs_contract',
+              message: 'Solo se puede dejar como saldo a favor si la factura es de un contrato',
+            });
+          }
+          await tx.contract.update({
+            where: { id: existing.contractId },
+            data: { creditBalance: { increment: amount } },
+          });
+          via = 'credit';
+        } else if (
           gatewayPayment?.gatewayPaymentId &&
           gatewayPayment.gateway !== 'stripe' &&
           gatewayPayment.gateway !== 'gocardless'
@@ -2725,6 +3075,7 @@ export class InvoicesService {
         reason: args.input.reason ?? null,
         gateway: usedGateway,
         gatewayRefundId,
+        method: args.input.method ?? 'original',
       },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
@@ -3400,6 +3751,63 @@ export class InvoicesService {
         details: { missing },
       });
     }
+  }
+
+  /**
+   * Saldo a favor del inquilino (una devolución que se dejó para su próxima
+   * factura): al emitir una factura de su contrato, paga lo que alcance. Es una
+   * compensación, no dinero cobrado (pago `credit_note`). Si la cubre entera,
+   * queda pagada.
+   */
+  private async applyCreditBalance<
+    T extends {
+      id: string;
+      contractId: string | null;
+      customerId: string | null;
+      invoiceType: string;
+      kind: string;
+      total: Prisma.Decimal;
+      amountPaid: Prisma.Decimal;
+    },
+  >(tx: Prisma.TransactionClient, tenantId: string, row: T): Promise<T> {
+    if (!row.contractId || row.kind !== 'invoice' || row.invoiceType.startsWith('R')) return row;
+    const contract = await tx.contract.findUnique({
+      where: { id: row.contractId },
+      select: { creditBalance: true },
+    });
+    const balanceCents = toCents(contract?.creditBalance ?? 0);
+    const pendingCents = toCents(row.total) - toCents(row.amountPaid);
+    if (balanceCents <= 0 || pendingCents <= 0) return row;
+    const use = Math.min(balanceCents, pendingCents) / 100;
+    // Condicionado al saldo: dos emisiones a la vez no lo gastan dos veces.
+    const taken = await tx.contract.updateMany({
+      where: { id: row.contractId, creditBalance: { gte: use } },
+      data: { creditBalance: { decrement: use } },
+    });
+    if (taken.count === 0) return row;
+    const now = new Date();
+    await tx.payment.create({
+      data: {
+        tenantId,
+        invoiceId: row.id,
+        customerId: row.customerId,
+        amount: use,
+        status: 'succeeded',
+        methodType: 'credit_note',
+        gateway: 'manual',
+        paidAt: now,
+        notes: 'Saldo a favor (devolución anterior)',
+      },
+    });
+    const fully = toCents(use) === pendingCents;
+    return (await tx.invoice.update({
+      where: { id: row.id },
+      data: {
+        amountPaid: { increment: use },
+        ...(fully ? { status: 'paid', paidAt: now } : {}),
+      },
+      include: this.includeRelations(),
+    })) as unknown as T;
   }
 
   /**

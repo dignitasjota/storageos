@@ -140,6 +140,7 @@ export class CustomersService {
       emergencyContactName: args.input.emergencyContactName?.trim() || null,
       emergencyContactPhone: args.input.emergencyContactPhone?.trim() || null,
       billingEmail: args.input.billingEmail?.trim() || null,
+      invoiceDueDays: args.input.invoiceDueDays ?? null,
       notes: args.input.notes?.trim() || null,
       tags: args.input.tags,
       depositExempt: args.input.depositExempt ?? false,
@@ -233,6 +234,7 @@ export class CustomersService {
     set('emergencyContactName');
     set('emergencyContactPhone');
     set('billingEmail');
+    set('invoiceDueDays');
     set('notes');
     if (args.input.depositExempt !== undefined) {
       data.depositExempt = args.input.depositExempt;
@@ -552,6 +554,7 @@ export class CustomersService {
       emergencyContactName: row.emergencyContactName,
       emergencyContactPhone: row.emergencyContactPhone,
       billingEmail: row.billingEmail,
+      invoiceDueDays: row.invoiceDueDays,
       notes: row.notes,
       tags: row.tags,
       kycVerified: row.kycVerified,

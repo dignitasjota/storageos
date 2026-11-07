@@ -1918,3 +1918,20 @@ Migración `20261231100000_invoices_review`, se aplica sola. Sin variables nueva
 - **Recargo por mora**: solo sobre facturas vencidas y con el recargo activado; ya no sobre otro recargo.
 - **Devoluciones**: cada una queda en `invoice_refunds`. Un cobro con el TPV del banco (Redsys) no se puede devolver desde la app: se devuelve en el banco y se registra en la ficha.
 - **Quien use la API**: `GET /invoices?status=` desconocido da 400 `invalid_status`; el mismo cobro o la misma devolución dos veces en 30 segundos da 409; `POST /payments/invoices/bulk/charge` devuelve también `processing`.
+
+## 107. Facturas: mejoras (2026-11-07)
+
+Migración `20270101100000_invoices_features`, se aplica sola. Sin variables nuevas: el enlace de descarga del correo se firma con una clave derivada de `MASTER_ENCRYPTION_KEY` (si se cambia esa clave, los enlaces de correos antiguos dejan de valer y la factura se descarga desde el área de clientes) y apunta a `API_BASE_URL`, que en producción tiene que ser la dirección pública del API (§36).
+
+**Qué cambia al redesplegar:**
+
+- **Correos de factura con enlace de descarga.** «Nueva factura», «Pago recibido» y la factura enviada desde la ficha («Enviar por correo») llevan un enlace al PDF que funciona sin iniciar sesión (`/v1/public/invoices/<token>/pdf`, 30 por minuto por IP). Si la factura aún no tiene PDF, se genera al abrirlo. Los recordatorios siguen llevando al área de clientes para pagar.
+- **PDF más completo**: logo y color de la marca, cómo se paga y el sello «PAGADA» con la fecha. Se vuelve a generar solo al cobrarse, al devolverse o al deshacer un cobro, así que el sello no se queda viejo. Los PDF ya generados siguen como estaban hasta que se rehagan (menú «Más» → «Volver a generar el PDF»).
+- **Un solo recordatorio por inquilino.** Si debe varias facturas, el escalado y el recordatorio en lote le mandan un correo con todas («Tienes N facturas pendientes de pago»); antes, uno por factura. Si algo falla al agruparlas, sale el recordatorio de cada factura como antes.
+- **Devolver como saldo a favor**: no sale dinero; se emite la rectificativa por lo devuelto y el importe se descuenta de la siguiente factura del contrato al emitirla. No cuenta como cobrado ni entra en la caja.
+- **Deshacer un cobro registrado por error** (solo los registrados a mano, sin devoluciones): la factura vuelve a pendiente y no cuenta como recibo devuelto. Un cobro en efectivo de un día con la caja ya cerrada no se puede deshacer ni cambiar (409 `cash_day_closed`): ese arqueo ya lo cuenta.
+- **Plazo de pago por inquilino** (ficha del inquilino → Editar datos): manda sobre el del negocio en las facturas que se emitan después.
+- **Página nueva** «Cierre del mes» (`/invoices/month-close`, desde Facturas).
+- **Quien use la API**: `GET /invoices/page` acepta `from`, `to`, `type`, `payment` y `sort` (valores desconocidos → 400) y trae `collection` en cada fila; rutas nuevas en `API.md` → «Mejoras de Facturas».
+
+**Comprobar tras el despliegue:** emitir una factura de prueba a un inquilino con email propio → le llega el correo y el enlace descarga el PDF con el logo; registrar un cobro en efectivo y deshacerlo desde la tarjeta «Actividad» de la ficha.

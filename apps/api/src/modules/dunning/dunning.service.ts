@@ -2,9 +2,10 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma, type CustomerType } from '@storageos/database';
 import { Queue } from 'bullmq';
 
-import { emailLocale, formatDateLong, formatEur } from '../../common/format';
+import { emailLocale, formatDateLong, formatEur, todayInTimezone } from '../../common/format';
 import { subtractAmounts } from '../../common/money';
 import { invoiceInActivePlan } from '../../common/payment-plan-guard';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
@@ -15,6 +16,7 @@ import { AccessIntegrationsService } from '../access/access-integrations.service
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { InvoicesService } from '../billing/invoices.service';
+import { buildReminderSummary } from '../billing/reminder-summary';
 import { CollectionsService } from '../collections/collections.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -27,7 +29,6 @@ import {
 import { dunningCalendar } from './dunning-calendar';
 
 import type { Env } from '../../config/env.schema';
-import type { CustomerType, Prisma } from '@storageos/database';
 
 export interface ProcessInvoiceJobData {
   tenantId: string;
@@ -311,13 +312,25 @@ export class DunningService {
     let result: Record<string, string | boolean | number> = { action: action.actionType };
     try {
       if (action.actionType === 'email_reminder' || action.actionType === 'email_reminder_final') {
-        const sent = await this.sendReminderEmail(
-          action.tenantId,
-          action.invoiceId,
-          invoice,
-          action.actionType === 'email_reminder_final' ? 'final' : 'first',
-        );
-        result = { ...result, emailEnqueued: sent };
+        // Varias facturas del inquilino con recordatorio hoy: un solo correo.
+        // Agrupar es una ayuda: si falla, sale el recordatorio de esta sola.
+        const merged = await this.sendMergedReminder(action, invoice).catch((err: unknown) => {
+          this.logger.warn(
+            `dunning.${action.actionType}: no se ha podido agrupar ${invoice.invoiceNumber} (${err instanceof Error ? err.message : String(err)}); va sola`,
+          );
+          return null;
+        });
+        if (merged) {
+          result = { ...result, emailEnqueued: true, invoicesInEmail: merged };
+        } else {
+          const sent = await this.sendReminderEmail(
+            action.tenantId,
+            action.invoiceId,
+            invoice,
+            action.actionType === 'email_reminder_final' ? 'final' : 'first',
+          );
+          result = { ...result, emailEnqueued: sent };
+        }
       }
       if (action.actionType === 'access_block') {
         // `accessBlocked` dice lo que pasó de verdad: el panel, el área de
@@ -483,6 +496,152 @@ export class DunningService {
       `dunning.email_reminder: recordatorio encolado para invoice ${invoiceId} -> ${customer.email}`,
     );
     return true;
+  }
+
+  /**
+   * Un inquilino con varias facturas a las que les toca recordatorio en las
+   * próximas horas recibe UN correo que las lista; las demás acciones quedan
+   * hechas («en el mismo correo»). Devuelve cuántas facturas lleva, o null si
+   * no hay otras (sale el recordatorio de siempre).
+   */
+  private async sendMergedReminder(
+    action: { id: string; tenantId: string; invoiceId: string; actionType: string },
+    invoice: {
+      invoiceNumber: string;
+      total: Prisma.Decimal;
+      amountPaid: Prisma.Decimal;
+      amountRefunded: Prisma.Decimal;
+      dueDate: Date | null;
+      customerId: string | null;
+      customer: {
+        email: string | null;
+        billingEmail?: string | null;
+        firstName: string | null;
+        lastName: string | null;
+        companyName: string | null;
+        customerType: CustomerType;
+        locale?: string | null;
+      } | null;
+    },
+  ): Promise<number | null> {
+    const email = invoice.customer?.billingEmail ?? invoice.customer?.email;
+    if (!invoice.customerId || !email) return null;
+    const final = action.actionType === 'email_reminder_final';
+    const siblings = await this.admin.dunningAction.findMany({
+      where: {
+        tenantId: action.tenantId,
+        actionType: action.actionType as 'email_reminder' | 'email_reminder_final',
+        status: 'scheduled',
+        supersededAt: null,
+        id: { not: action.id },
+        invoiceId: { not: action.invoiceId },
+        scheduledFor: { lte: new Date(Date.now() + 18 * 3_600_000) },
+        invoice: {
+          customerId: invoice.customerId,
+          status: { in: ['issued', 'overdue'] },
+          deletedAt: null,
+          ...NO_PAYMENT_IN_FLIGHT,
+        },
+      },
+      select: {
+        id: true,
+        invoiceId: true,
+        invoice: {
+          select: {
+            invoiceNumber: true,
+            total: true,
+            amountPaid: true,
+            amountRefunded: true,
+            dueDate: true,
+          },
+        },
+      },
+    });
+    const eligible: typeof siblings = [];
+    for (const s of siblings) {
+      if (!(await invoiceInActivePlan(this.admin, s.invoiceId))) eligible.push(s);
+    }
+    if (eligible.length === 0) return null;
+    // El primer aviso lo sustituye una automatización propia si la hay.
+    if (!final && (await this.hasOverdueAutomation(action.tenantId))) return null;
+
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: action.tenantId },
+      select: {
+        name: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        timezone: true,
+      },
+    });
+    if (!tenant) return null;
+    const pending = (i: {
+      total: Prisma.Decimal;
+      amountPaid: Prisma.Decimal;
+      amountRefunded: Prisma.Decimal;
+    }) => subtractAmounts(subtractAmounts(i.total, i.amountPaid), i.amountRefunded);
+    // Se reservan antes de enviar: dos procesos a la vez no mandan dos correos,
+    // y si el envío falla vuelven a quedar programadas.
+    const claimed: typeof eligible = [];
+    for (const s of eligible) {
+      const { count } = await this.admin.dunningAction.updateMany({
+        where: { id: s.id, status: 'scheduled' },
+        data: {
+          status: 'executed',
+          executedAt: new Date(),
+          result: { action: action.actionType, emailEnqueued: true, mergedInto: action.id },
+        },
+      });
+      if (count === 1) claimed.push(s);
+    }
+    if (claimed.length === 0) return null;
+    const list = [
+      {
+        id: action.invoiceId,
+        number: invoice.invoiceNumber,
+        pending: pending(invoice),
+        dueDate: invoice.dueDate,
+      },
+      ...claimed.map((s) => ({
+        id: s.invoiceId,
+        number: s.invoice.invoiceNumber,
+        pending: pending(s.invoice),
+        dueDate: s.invoice.dueDate,
+      })),
+    ];
+    const summary = buildReminderSummary({
+      tenantName: tenant.name,
+      customerName:
+        (invoice.customer?.customerType === 'business'
+          ? invoice.customer.companyName
+          : invoice.customer?.firstName) ?? '',
+      locale: emailLocale(invoice.customer?.locale),
+      invoices: list,
+      portalUrl: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
+      final,
+      today: todayInTimezone(tenant.timezone),
+    });
+    try {
+      await this.communications.enqueue({
+        tenantId: action.tenantId,
+        channel: 'email',
+        recipient: email,
+        subject: summary.subject,
+        bodyText: summary.text,
+        customerId: invoice.customerId,
+        invoiceId: action.invoiceId,
+        variables: { invoiceIds: list.map((i) => i.id) },
+        source: 'dunning.reminder_summary',
+      });
+    } catch (err) {
+      await this.admin.dunningAction.updateMany({
+        where: { id: { in: claimed.map((s) => s.id) } },
+        data: { status: 'scheduled', executedAt: null, result: Prisma.DbNull },
+      });
+      throw err;
+    }
+    return list.length;
   }
 
   private async hasOverdueAutomation(tenantId: string): Promise<boolean> {

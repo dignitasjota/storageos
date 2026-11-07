@@ -1257,7 +1257,8 @@ export class PortalService {
         // por pagar es el total menos todo lo aplicado, no menos solo lo cobrado.
         amountPending: Math.max(0, Math.round((total - Number(r.amountPaid)) * 100) / 100),
         status: r.status,
-        hasPdf: !!r.pdfUrl,
+        // Si aún no tiene PDF, se genera al pedirlo.
+        hasPdf: !!r.pdfUrl || (r.status !== 'draft' && r.status !== 'cancelled'),
         paymentInProgress: inFlightIds.has(r.id),
         generalTerms:
           terms && r.contractId && termsPending.has(r.contractId) && pendingOf(r) > 0

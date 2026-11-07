@@ -685,6 +685,7 @@ model Tenant {
   unitPriceHistory           UnitPriceHistory[]
   unitTenancies              UnitTenancy[]
   unitSavedViews             UnitSavedView[]
+  invoiceSavedViews          InvoiceSavedView[]
   facilitySlugRedirects      FacilitySlugRedirect[]
   owners                         Owner[]
   ownerStatements                OwnerStatement[]
@@ -845,6 +846,7 @@ model User {
   documentRequestsMade     CustomerDocumentRequest[] @relation("DocumentRequestedBy")
   customerViewsCreated     CustomerSavedView[]       @relation("CustomerViewCreatedBy")
   unitViewsCreated         UnitSavedView[]           @relation("UnitViewCreatedBy")
+  invoiceViewsCreated      InvoiceSavedView[]        @relation("InvoiceViewCreatedBy")
   createdBusinessReminders   BusinessReminder[]           @relation("BusinessReminderCreatedBy")
   completedBusinessReminders BusinessReminderCompletion[] @relation("BusinessReminderCompletedBy")
   /// Baja de los anuncios comerciales de TrasterOS.
@@ -1041,6 +1043,7 @@ model AuditLog {
   user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([tenantId, entityType, entityId], map: "audit_logs_tenant_entity_idx")
   @@map("audit_logs")
 }
 
@@ -1394,6 +1397,22 @@ model UnitSavedView {
   @@map("unit_saved_views")
 }
 
+/// Vistas guardadas de la lista de facturas, compartidas por el equipo.
+model InvoiceSavedView {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  name            String
+  filters         Json
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("InvoiceViewCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, name])
+  @@map("invoice_saved_views")
+}
+
 /// Cada tramo de un contrato en un trastero: un traslado cierra uno y abre otro.
 /// La mantiene un disparador sobre `contracts` (`contracts_sync_unit_tenancy`).
 model UnitTenancy {
@@ -1490,6 +1509,8 @@ model Customer {
   mergedIntoCustomerId  String?      @map("merged_into_customer_id") @db.Uuid
   /// Empresas: a dónde van las facturas si no es el email de contacto.
   billingEmail          String?      @map("billing_email")
+  /// Días para pagar sus facturas; null = los del negocio (`tenants.invoice_due_days`).
+  invoiceDueDays        Int?         @map("invoice_due_days")
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1690,6 +1711,9 @@ model Contract {
   /// Descuento pendiente (p. ej. la señal de la reserva): se resta una vez del alquiler.
   pendingCreditAmount Decimal @default(0) @map("pending_credit_amount") @db.Decimal(12, 2)
   pendingCreditReason String? @map("pending_credit_reason")
+  /// Saldo a favor del inquilino (una devolución que se quedó para la próxima
+  /// factura): al emitir la siguiente factura del contrato la paga en parte.
+  creditBalance       Decimal @default(0) @map("credit_balance") @db.Decimal(12, 2)
   depositAmount          Decimal               @default(0) @map("deposit_amount") @db.Decimal(10, 2)
   depositStatus          ContractDepositStatus @default(none) @map("deposit_status")
   /// Liquidación de la fianza al finalizar: importe devuelto + fecha + motivo de

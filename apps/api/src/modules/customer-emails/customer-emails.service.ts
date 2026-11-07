@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import {
@@ -12,8 +12,9 @@ import {
   replyAddressOf,
 } from '@storageos/shared';
 
+import { invoiceDownloadKey, invoiceDownloadUrl } from '../../common/invoice-download-token';
+import { loadInvoicePaymentHint } from '../../common/invoice-payment-hint';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
-import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { claimAlert } from '../admin/alert-state';
 import { AuditService } from '../auth/audit.service';
@@ -142,6 +143,7 @@ export class CustomerEmailsService {
           total: Number(inv.total) - Number(inv.withholdingAmount),
           dueDate: inv.dueDate,
           payment: await this.paymentHint(p.tenantId, inv.customerId),
+          pdfUrl: this.pdfUrl(p.tenantId, p.entityId),
         },
         invoiceId: p.entityId,
         contractId: inv.contractId,
@@ -180,6 +182,7 @@ export class CustomerEmailsService {
           amount: Math.round(amount * 100) / 100,
           paidAt: inv.paidAt ?? new Date(),
           depositReceipt: inv.kind === 'deposit_receipt',
+          ...(inv.kind === 'invoice' ? { pdfUrl: this.pdfUrl(p.tenantId, p.entityId) } : {}),
         },
         invoiceId: p.entityId,
         contractId: inv.contractId,
@@ -657,6 +660,102 @@ export class CustomerEmailsService {
     return rules > 0 && (await tenantHasFeature(this.admin, tenantId, 'automations'));
   }
 
+  /**
+   * Copia de una factura que el equipo envía a mano (o reenvía) desde su ficha.
+   * Sale aunque los correos automáticos de facturas estén apagados.
+   */
+  async sendInvoiceCopy(args: {
+    tenantId: string;
+    invoiceId: string;
+    /** Otro email; por defecto el de facturación del inquilino o el suyo. */
+    email?: string;
+  }): Promise<{ communicationId: string; recipient: string }> {
+    const inv = await this.admin.invoice.findFirst({
+      where: { id: args.invoiceId, tenantId: args.tenantId, deletedAt: null },
+      select: {
+        customerId: true,
+        invoiceNumber: true,
+        status: true,
+        total: true,
+        withholdingAmount: true,
+        dueDate: true,
+        paidAt: true,
+        contractId: true,
+      },
+    });
+    if (!inv?.customerId) {
+      throw new BadRequestException({
+        code: 'customer_email_missing',
+        message: 'La factura no tiene un cliente al que enviarla',
+      });
+    }
+    const customer = await this.admin.customer.findFirst({
+      where: { id: inv.customerId, tenantId: args.tenantId },
+      select: {
+        email: true,
+        billingEmail: true,
+        firstName: true,
+        companyName: true,
+        customerType: true,
+        locale: true,
+      },
+    });
+    const email = args.email ?? customer?.billingEmail ?? customer?.email;
+    if (!email) {
+      throw new BadRequestException({
+        code: 'customer_email_missing',
+        message: 'El inquilino no tiene email: escribe a cuál enviarla',
+      });
+    }
+    const tenant = await this.admin.tenant.findUniqueOrThrow({
+      where: { id: args.tenantId },
+      select: {
+        name: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        portalLogoUrl: true,
+        portalBrandColor: true,
+      },
+    });
+    const paid = inv.status === 'paid';
+    const pending = inv.status === 'issued' || inv.status === 'overdue';
+    const rendered = renderCustomerEmail(
+      {
+        tenantName: tenant.name,
+        customerName:
+          (customer?.customerType === 'business' ? customer.companyName : customer?.firstName) ??
+          '',
+        locale: customer?.locale ?? null,
+        logoUrl: tenant.portalLogoUrl,
+        brandColor: tenant.portalBrandColor,
+        portalUrl: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
+      },
+      {
+        kind: 'invoice_copy',
+        invoiceNumber: inv.invoiceNumber,
+        total: Number(inv.total) - Number(inv.withholdingAmount),
+        dueDate: pending ? inv.dueDate : null,
+        paidAt: paid ? (inv.paidAt ?? null) : null,
+        payment: pending ? await this.paymentHint(args.tenantId, inv.customerId) : null,
+        pdfUrl: this.pdfUrl(args.tenantId, args.invoiceId),
+      },
+    );
+    const comm = await this.communications.enqueue({
+      tenantId: args.tenantId,
+      channel: 'email',
+      recipient: email,
+      subject: rendered.subject,
+      bodyText: rendered.text,
+      bodyHtml: rendered.html,
+      customerId: inv.customerId,
+      invoiceId: args.invoiceId,
+      ...(inv.contractId ? { contractId: inv.contractId } : {}),
+      source: 'invoice.sent',
+    });
+    return { communicationId: comm.id, recipient: email };
+  }
+
   private async recipient(
     tenantId: string,
     customerId: string,
@@ -684,34 +783,18 @@ export class CustomerEmailsService {
    * inquilino tiene tarjeta o domiciliación por pasarela), remesa SEPA (mandato
    * activo) o a mano (área de clientes + IBAN para transferencias si lo hay).
    */
-  private async paymentHint(tenantId: string, customerId: string): Promise<InvoicePaymentHint> {
-    const [tenant, pm, mandate] = await Promise.all([
-      this.admin.tenant.findUnique({
-        where: { id: tenantId },
-        select: { autoChargeOnIssue: true, transferIban: true },
-      }),
-      this.admin.paymentMethod.findFirst({
-        where: {
-          tenantId,
-          customerId,
-          isDefault: true,
-          deletedAt: null,
-          type: { in: ['card', 'sepa_debit'] },
-        },
-        select: { type: true, brand: true, last4: true },
-      }),
-      this.admin.sepaMandate.findFirst({
-        where: { tenantId, customerId, ...CHARGEABLE_MANDATE_WHERE },
-        select: { ibanLast4: true },
-      }),
-    ]);
-    if (tenant?.autoChargeOnIssue && pm) {
-      return pm.type === 'card'
-        ? { via: 'auto_card', brand: pm.brand, last4: pm.last4 }
-        : { via: 'auto_debit', last4: pm.last4 };
-    }
-    if (mandate) return { via: 'sepa_remittance', last4: mandate.ibanLast4 };
-    return { via: 'manual', transferIban: tenant?.transferIban ?? null };
+  private paymentHint(tenantId: string, customerId: string): Promise<InvoicePaymentHint> {
+    return loadInvoicePaymentHint(this.admin, tenantId, customerId);
+  }
+
+  /** Descarga de la factura sin iniciar sesión (enlace firmado). */
+  private pdfUrl(tenantId: string, invoiceId: string): string {
+    return invoiceDownloadUrl(
+      this.config.get('API_BASE_URL', { infer: true }),
+      invoiceDownloadKey(this.config.get('MASTER_ENCRYPTION_KEY', { infer: true })),
+      tenantId,
+      invoiceId,
+    );
   }
 
   private invoice(tenantId: string, invoiceId: string) {

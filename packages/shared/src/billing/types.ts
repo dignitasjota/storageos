@@ -1,3 +1,4 @@
+import type { InvoiceCollectionDto } from './invoice-tools';
 import type { InvoiceTaxCategory } from './tax-category';
 import type { InvoicingModeValue } from '../accounting';
 import type { PortalLocaleValue } from '../portal';
@@ -119,6 +120,8 @@ export interface InvoiceDto {
   amountPending: number;
   /** Parte saldada con un abono (no es dinero cobrado). */
   amountCompensated: number;
+  /** Estado real del cobro (solo en la lista y la ficha). */
+  collection?: InvoiceCollectionDto;
   currency: string;
   /**
    * El PDF NO viaja aquí como URL permanente (bucket privado, sin firmar):
@@ -288,7 +291,7 @@ export interface PortalInvoiceDto {
   amountPaid: number;
   amountPending: number;
   status: InvoiceStatusValue;
-  /** Pedir `POST /portal/me/invoices/:id/signed-pdf` cuando `true` da una URL firmada de corta duración. */
+  /** `GET /portal/me/invoices/:id/signed-pdf` da una URL firmada de corta duración (si no hay PDF, se genera). */
   hasPdf: boolean;
   /** Hay un cobro en curso (SEPA/GoCardless `processing`) sobre esta factura. */
   paymentInProgress: boolean;

@@ -1,4 +1,9 @@
-import { invoiceBreakdown, invoiceDocTitle, renderInvoiceHtml } from '../invoice-pdf-template';
+import {
+  invoiceBreakdown,
+  invoiceDocTitle,
+  paymentLines,
+  renderInvoiceHtml,
+} from '../invoice-pdf-template';
 
 import type { InvoiceDto } from '@storageos/shared';
 
@@ -124,7 +129,7 @@ describe('PDF de la factura', () => {
     expect(b.exempt).toBe(0);
   });
 
-  it('no dice si está pagada ni lo que falta: el PDF no cambia', () => {
+  it('sin cobros ni forma de pago no dice lo que falta', () => {
     const html = renderInvoiceHtml({ invoice: invoice(), issuer, customer: null });
     expect(html).not.toContain('Pendiente');
     expect(html).not.toContain('Pagado');
@@ -168,5 +173,77 @@ describe('PDF de la factura', () => {
     expect(html).toContain('<h1>Factura simplificada</h1>');
     expect(html).toContain('Venta en mostrador');
     expect(html).not.toContain('[F2:');
+  });
+
+  it('pagada: sello con el día y la forma, sin la caja de cómo pagar', () => {
+    const html = renderInvoiceHtml({
+      invoice: invoice({ status: 'paid', amountPaid: 171, amountPending: 0 }),
+      issuer,
+      customer: null,
+      payment: { via: 'manual', transferIban: 'ES9121000418450200051332' },
+      paid: { at: '2026-11-08', method: 'bank_transfer' },
+    });
+    expect(html).toContain('PAGADA');
+    expect(html).toContain('08/11/2026 · transferencia');
+    expect(html).not.toContain('Forma de pago');
+  });
+
+  it('pendiente: dice cómo pagarla', () => {
+    const html = renderInvoiceHtml({
+      invoice: invoice(),
+      issuer,
+      customer: null,
+      payment: { via: 'manual', transferIban: 'ES9121000418450200051332' },
+    });
+    expect(html).toContain('Forma de pago');
+    expect(html).toContain('ES91 2100 0418 4502 0005 1332');
+    expect(html).toContain('indicando FA/2026/00007');
+    expect(html).not.toContain('PAGADA');
+    // Anulada o rectificativa: no se paga.
+    const cancelled = renderInvoiceHtml({
+      invoice: invoice({ status: 'rectified' }),
+      issuer,
+      customer: null,
+      payment: { via: 'manual', transferIban: null },
+    });
+    expect(cancelled).not.toContain('Forma de pago');
+  });
+
+  it('las frases de cada forma de pago', () => {
+    expect(paymentLines({ via: 'auto_card', brand: 'Visa', last4: '4242' }, 'F1')).toEqual([
+      'Se cobrará automáticamente en la tarjeta Visa terminada en 4242.',
+    ]);
+    expect(paymentLines({ via: 'auto_debit', last4: '1332' }, 'F1')).toEqual([
+      'Se cargará por domiciliación en la cuenta terminada en 1332.',
+    ]);
+    expect(paymentLines({ via: 'sepa_remittance', last4: '0001' }, 'F1')).toEqual([
+      'Se cobrará por domiciliación en la cuenta terminada en 0001.',
+    ]);
+    expect(paymentLines({ via: 'manual', transferIban: null }, 'F1')).toEqual([
+      'Puedes pagarla desde tu área de clientes.',
+    ]);
+  });
+
+  it('el logo solo como imagen incrustada y el color solo en #rrggbb', () => {
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+    const ok = renderInvoiceHtml({
+      invoice: invoice(),
+      issuer,
+      customer: null,
+      logo: png,
+      brandColor: '#1E3A8A',
+    });
+    expect(ok).toContain(`<img class="logo" src="${png}"`);
+    expect(ok).toContain('#1E3A8A');
+    const bad = renderInvoiceHtml({
+      invoice: invoice(),
+      issuer,
+      customer: null,
+      logo: 'https://evil.test/x.png',
+      brandColor: 'red;}</style><script>',
+    });
+    expect(bad).not.toContain('<img class="logo"');
+    expect(bad).not.toContain('evil.test');
+    expect(bad).not.toContain('<script>');
   });
 });

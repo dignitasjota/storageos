@@ -39,7 +39,9 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { assertUuid, parsePageRequest, toPage } from '../../common/pagination';
 
 import { BillingJobsService } from './billing-jobs.service';
+import { type InvoiceListQuery, parseInvoiceListQuery } from './invoice-list-query';
 import { InvoicePdfService } from './invoice-pdf.service';
+import { InvoiceToolsService } from './invoice-tools.service';
 import { InvoicesService } from './invoices.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -73,6 +75,7 @@ export class InvoicesController {
     private readonly invoices: InvoicesService,
     private readonly pdf: InvoicePdfService,
     private readonly billingJobs: BillingJobsService,
+    private readonly tools: InvoiceToolsService,
   ) {}
 
   /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
@@ -80,31 +83,17 @@ export class InvoicesController {
   @Get('page')
   async page(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('status') status?: string,
-    @Query('customerId') customerId?: string,
-    @Query('contractId') contractId?: string,
-    @Query('overdue') overdue?: string,
-    @Query('facilityId') facilityId?: string,
-    @Query('search') search?: string,
-    @Query('cursor') cursor?: string,
-    @Query('limit') limit?: string,
+    @Query() query: InvoiceListQuery,
   ): Promise<PageDto<InvoiceDto>> {
-    const parsedStatus = parseStatus(status);
-    assertUuid(customerId);
-    assertUuid(contractId);
-    assertUuid(facilityId);
-    const page = parsePageRequest(cursor, limit);
+    const page = parsePageRequest(query.cursor, query.limit);
     const rows = await this.invoices.list(user.tenantId, {
-      ...(search ? { search } : {}),
+      ...parseInvoiceListQuery(query),
       page,
-      ...(facilityId ? { facilityId } : {}),
-      ...(parsedStatus ? { status: parsedStatus } : {}),
-      ...(customerId ? { customerId } : {}),
-      ...(contractId ? { contractId } : {}),
-      ...(overdue === 'true' ? { overdue: true } : {}),
       facilityScope: user.facilityScope ?? null,
     });
-    return toPage(rows, page);
+    const result = toPage(rows, page);
+    // Con el estado real del cobro (en curso, en remesa, en plan, recordada).
+    return { ...result, items: await this.tools.withCollection(user.tenantId, result.items) };
   }
 
   @RequirePermission('invoices:read')
@@ -137,7 +126,9 @@ export class InvoicesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<InvoiceDto> {
-    return this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+    const dto = await this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+    const [withState] = await this.tools.withCollection(user.tenantId, [dto]);
+    return withState ?? dto;
   }
 
   /** URL firmada de corta duración para descargar el PDF (bucket privado). */

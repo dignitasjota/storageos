@@ -477,7 +477,7 @@ export default function ContractDetailPage() {
           <IrpfRetentionCard contract={c} />
         </TabsContent>
         <TabsContent value="invoices">
-          <ContractBillingTab contractId={c.id} />
+          <ContractBillingTab contractId={c.id} creditBalance={c.creditBalance} />
         </TabsContent>
         <TabsContent value="photos" className="space-y-4">
           <InspectionPhotosCard contractId={c.id} kind="checkin" />
