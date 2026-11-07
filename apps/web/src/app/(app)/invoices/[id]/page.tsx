@@ -3,7 +3,9 @@
 import {
   INVOICE_TAX_CATEGORY_LABELS,
   type CorrectionMethodValue,
+  type InvoiceCancelPreviewDto,
   type InvoiceDto,
+  type InvoiceRefundOptionsDto,
   type InvoiceTaxCategory,
   type RectificationTypeValue,
 } from '@storageos/shared';
@@ -11,9 +13,13 @@ import {
   ArrowLeft,
   Ban,
   CheckCircle2,
+  Copy,
   Download,
   FileText,
   Loader2,
+  Mail,
+  MoreHorizontal,
+  Pencil,
   Plus,
   Receipt,
   Send,
@@ -25,6 +31,10 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { EditDraftDialog } from './edit-draft-dialog';
+import { InvoiceActivityCard } from './invoice-activity';
+
+import { InvoiceCollectionBadges } from '@/components/billing/invoice-collection-badges';
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
@@ -40,6 +50,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -54,11 +70,15 @@ import { VerifactuBadge } from '@/components/verifactu-badge';
 import { useHoldedSettings, useSyncInvoiceHolded } from '@/lib/accounting/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { PAYMENT_METHOD_LABELS } from '@/lib/billing/activity-labels';
 import {
+  fetchCancelPreview,
   fetchLateFeePreview,
+  fetchRefundOptions,
   useCancelInvoice,
   useChargeInvoice,
   useCustomerPaymentMethods,
+  useDuplicateInvoice,
   useGenerateInvoicePdf,
   useInvoice,
   useInvoiceSignedPdfUrl,
@@ -67,9 +87,11 @@ import {
   useMarkInvoicePaid,
   useRectifyInvoice,
   useRefundInvoice,
+  useSendInvoiceEmail,
   useUpdateInvoice,
 } from '@/lib/billing/hooks';
 import { invoiceNumberLabel, isNumbered } from '@/lib/billing/labels';
+import { localDateString } from '@/lib/dates';
 import { formatDate, formatEur } from '@/lib/format';
 import { fetchRedsysRedirect, submitRedsysForm, useRedsysSettings } from '@/lib/payments/redsys';
 
@@ -126,6 +148,58 @@ function lineTotal(it: { quantity: number; unitPrice: number; taxRate: number })
   return (base + Math.round((base * it.taxRate) / 100)) / 100;
 }
 
+/** `YYYY-MM-DD` + `days` días. */
+function addDays(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return localDateString(new Date(y!, m! - 1, d! + days));
+}
+
+/** Lo que pasará al anular, en frases. */
+function cancelEffects(p: InvoiceCancelPreviewDto): string[] {
+  const out: string[] = [];
+  if (p.action === 'void') {
+    out.push(
+      `Se emite una factura rectificativa de ${formatEur(p.creditNoteTotal ?? 0)} que la deja a cero. Queda registrada en Veri*Factu y en la contabilidad.`,
+    );
+  } else {
+    out.push('El borrador no tiene número ni efecto fiscal: simplemente se descarta.');
+  }
+  if (p.lateFee) {
+    out.push(
+      `También se anula el recargo ${p.lateFee.invoiceNumber} (${formatEur(p.lateFee.total)}), que está sin cobrar.`,
+    );
+  }
+  if (p.freeMonth) out.push('Vuelve al contrato el mes gratis que se usó en esta factura.');
+  if (p.credit > 0) out.push(`Vuelven ${formatEur(p.credit)} de saldo a favor al contrato.`);
+  if (p.referralReward) out.push('Vuelve la recompensa por recomendar que se descontó.');
+  if (p.accessRestored) {
+    out.push('El inquilino recupera el acceso, que estaba cortado por esta factura.');
+  }
+  if (p.periodic) {
+    out.push(
+      'Es la cuota de un periodo y no se vuelve a generar sola: si hay que cobrarlo, crea otra factura.',
+    );
+  }
+  return out;
+}
+
+/** Cómo vuelve el dinero de una devolución, en una frase. */
+function refundHowText(o: InvoiceRefundOptionsDto): string {
+  const method = o.methodType ? (PAYMENT_METHOD_LABELS[o.methodType] ?? '').toLowerCase() : '';
+  if (o.how === 'gateway') {
+    return `Se devuelve a la misma ${o.methodType === 'sepa_debit' ? 'cuenta' : 'tarjeta'}${
+      o.last4 ? ` (terminada en ${o.last4})` : ''
+    }. Le llega en unos días.`;
+  }
+  if (o.how === 'bank') {
+    return 'Se cobró con el TPV del banco y la app no puede devolverlo: devuélvelo en el banco o en el panel del TPV y regístralo aquí.';
+  }
+  if (o.how === 'manual') {
+    return `Se cobró ${method ? `en ${method}` : 'a mano'}: aquí solo se registra; el dinero se lo devuelves tú.`;
+  }
+  return 'No queda nada por devolver.';
+}
+
 export default function InvoiceDetailPage() {
   const ask = useConfirm();
   const params = useParams<{ id: string }>();
@@ -144,7 +218,10 @@ export default function InvoiceDetailPage() {
   const rectify = useRectifyInvoice();
   const lateFee = useLateFeeInvoice();
   const updateInvoice = useUpdateInvoice();
+  const duplicate = useDuplicateInvoice();
+  const sendEmail = useSendInvoiceEmail();
   const canRefund = useHasPermission('invoices:refund');
+  const canSend = useHasPermission('communications:send');
   const canManageInv = useHasPermission('invoices:manage');
   const canWriteInv = useHasPermission('invoices:write');
   const canCharge = useHasPermission('payments:charge');
@@ -168,6 +245,10 @@ export default function InvoiceDetailPage() {
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundAmount, setRefundAmount] = useState(0);
   const [refundReason, setRefundReason] = useState('');
+  const [refundOptions, setRefundOptions] = useState<InvoiceRefundOptionsDto | null>(null);
+  const [refundAsCredit, setRefundAsCredit] = useState(false);
+  const [refundBankDone, setRefundBankDone] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [rectifyOpen, setRectifyOpen] = useState(false);
   const [rectifyType, setRectifyType] = useState<RectificationTypeValue>('R1');
   const [rectifyMethod, setRectifyMethod] = useState<CorrectionMethodValue>('by_differences');
@@ -217,6 +298,17 @@ export default function InvoiceDetailPage() {
     Math.round((i.amountPaid - i.withholdingAmount - i.amountCompensated) * 100) / 100,
   );
   const refundable = Math.max(0, Math.round((collected - i.amountRefunded) * 100) / 100);
+  // Acciones del menú «Más».
+  const showPdfAction = !isDraft && i.status !== 'cancelled' && canManageInv;
+  const showDuplicate =
+    canWriteInv && i.kind === 'invoice' && (i.invoiceType === 'F1' || i.invoiceType === 'F2');
+  const holdedEligible =
+    canManageInv &&
+    !!holded.data?.ready &&
+    i.issuedBy !== 'holded' &&
+    i.kind === 'invoice' &&
+    (i.status === 'issued' || i.status === 'paid' || i.status === 'overdue') &&
+    !!i.customerId;
 
   async function safe<T>(fn: () => Promise<T>, ok: string): Promise<void> {
     try {
@@ -299,6 +391,22 @@ export default function InvoiceDetailPage() {
     }
   }
 
+  async function openRefund(): Promise<void> {
+    setRefundAmount(refundable);
+    setRefundReason('');
+    setRefundAsCredit(false);
+    setRefundBankDone(false);
+    setRefundOptions(null);
+    setRefundOpen(true);
+    try {
+      const options = await fetchRefundOptions(i.id);
+      setRefundOptions(options);
+      setRefundAmount(options.refundable);
+    } catch {
+      // Sin las opciones se puede devolver igual: el API elige la vía.
+    }
+  }
+
   async function submitRefund(registeredExternally = false): Promise<void> {
     try {
       await refund.mutateAsync({
@@ -306,11 +414,18 @@ export default function InvoiceDetailPage() {
         body: {
           amount: refundAmount,
           reason: refundReason,
-          ...(registeredExternally ? { registeredExternally: true } : {}),
+          ...(refundAsCredit ? { method: 'credit' as const } : {}),
+          ...(!refundAsCredit && registeredExternally ? { registeredExternally: true } : {}),
         },
       });
       setRefundOpen(false);
-      toast.success(registeredExternally ? 'Devolución registrada.' : 'Devolución hecha.');
+      toast.success(
+        refundAsCredit
+          ? `Saldo a favor de ${formatEur(refundAmount)}: se descontará de su próxima factura.`
+          : registeredExternally
+            ? 'Devolución registrada.'
+            : 'Devolución hecha.',
+      );
     } catch (err) {
       // Cobro con el TPV del banco: la app no puede devolverlo; se registra la
       // devolución hecha allí.
@@ -332,27 +447,77 @@ export default function InvoiceDetailPage() {
   }
 
   async function handleCancel(): Promise<void> {
-    const confirmed = await ask(
-      isDraft
-        ? {
-            title: '¿Cancelar este borrador?',
-            description: i.periodStart
-              ? 'No se volverá a generar solo. Si lo necesitas, crea otra factura.'
-              : 'No tiene número ni efecto fiscal.',
-            destructive: true,
-          }
-        : {
-            title: '¿Anular la factura?',
-            description:
-              'Se emite una rectificativa que la deja a cero (queda registrada en Veri*Factu y en la contabilidad). Si tenía un recargo por mora sin cobrar, también se anula.',
-            destructive: true,
-          },
-    );
+    let preview: InvoiceCancelPreviewDto;
+    try {
+      preview = await fetchCancelPreview(i.id);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido comprobar.');
+      return;
+    }
+    if (preview.action === 'blocked') {
+      toast.error(preview.blockedReason ?? 'Esta factura no se puede anular.', {
+        duration: 10_000,
+      });
+      return;
+    }
+    const confirmed = await ask({
+      title: isDraft ? '¿Cancelar este borrador?' : '¿Anular la factura?',
+      description: cancelEffects(preview).map((line) => (
+        <span key={line} className="mt-1 block">
+          • {line}
+        </span>
+      )),
+      confirmLabel: isDraft ? 'Cancelar el borrador' : 'Anular la factura',
+      destructive: true,
+      ...(isDraft
+        ? {}
+        : { input: { label: 'Motivo (opcional)', placeholder: 'Se facturó por error' } }),
+    });
     if (!confirmed) return;
+    const reason = confirmed.value || (isDraft ? 'Borrador descartado' : 'Anulación manual');
     await safe(
-      () => cancel.mutateAsync({ id: i.id, body: { reason: 'Anulación manual' } }),
+      () => cancel.mutateAsync({ id: i.id, body: { reason } }),
       isDraft ? 'Borrador cancelado.' : 'Factura anulada.',
     );
+  }
+
+  async function exportToHolded(): Promise<void> {
+    try {
+      await holdedSync.mutateAsync(i.id);
+      toast.success('Factura exportada a Holded.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido.');
+    }
+  }
+
+  async function handleDuplicate(): Promise<void> {
+    try {
+      const copy = await duplicate.mutateAsync(i.id);
+      toast.success('Copia creada como borrador: revísala antes de emitirla.');
+      router.push(`/invoices/${copy.id}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido duplicar.');
+    }
+  }
+
+  async function handleSend(): Promise<void> {
+    const res = await ask({
+      title: '¿Enviar la factura por correo?',
+      description:
+        'Le llega un correo con el importe y un enlace para descargar el PDF. Va a su email de facturación o, si no tiene, a su email.',
+      confirmLabel: 'Enviar',
+      input: { label: 'Otra dirección (opcional)', placeholder: 'contabilidad@empresa.com' },
+    });
+    if (!res) return;
+    try {
+      const sent = await sendEmail.mutateAsync({
+        id: i.id,
+        input: res.value ? { email: res.value } : {},
+      });
+      toast.success(`Factura enviada a ${sent.recipient}.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido enviar.');
+    }
   }
 
   const rectifyTotal = rectifyItems.reduce((sum, it) => sum + lineTotal(it), 0);
@@ -376,6 +541,7 @@ export default function InvoiceDetailPage() {
                 {invoiceNumberLabel(i)}
               </h1>
               <InvoiceStatusBadge status={i.status} total={i.total} />
+              <InvoiceCollectionBadges invoice={i} />
               {i.issuedBy === 'holded' && isDraft ? (
                 <Badge
                   variant="outline"
@@ -488,6 +654,11 @@ export default function InvoiceDetailPage() {
                 Emitir
               </Button>
             )}
+            {isDraft && canWriteInv && i.issuedBy !== 'holded' && (
+              <Button variant="outline" onClick={() => setEditOpen(true)}>
+                <Pencil className="mr-1 h-4 w-4" /> Editar
+              </Button>
+            )}
             {pendingStatus && i.amountPending > 0 && (
               <>
                 {canCharge && i.customerId && chargeable && (
@@ -541,14 +712,7 @@ export default function InvoiceDetailPage() {
               i.total > 0 &&
               (i.status === 'paid' || i.status === 'partially_refunded') &&
               refundable > 0 && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setRefundAmount(refundable);
-                    setRefundReason('');
-                    setRefundOpen(true);
-                  }}
-                >
+                <Button variant="outline" onClick={() => void openRefund()}>
                   <Undo2 className="mr-1 h-4 w-4" /> Devolver
                 </Button>
               )}
@@ -580,20 +744,6 @@ export default function InvoiceDetailPage() {
                   <Receipt className="mr-1 h-4 w-4" /> Rectificar
                 </Button>
               )}
-            {!isDraft && i.status !== 'cancelled' && canManageInv && (
-              <Button
-                variant="outline"
-                onClick={() => safe(() => generatePdf.mutateAsync(i.id), 'PDF generado.')}
-                disabled={generatePdf.isPending}
-              >
-                {generatePdf.isPending ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileText className="mr-1 h-4 w-4" />
-                )}
-                {i.hasPdf ? 'Regenerar PDF' : 'Generar PDF'}
-              </Button>
-            )}
             {i.hasPdf && (
               <Button variant="outline" onClick={onDownloadPdf} disabled={signedPdfUrl.isPending}>
                 {signedPdfUrl.isPending ? (
@@ -602,6 +752,20 @@ export default function InvoiceDetailPage() {
                   <Download className="mr-1 h-4 w-4" />
                 )}
                 Descargar
+              </Button>
+            )}
+            {canSend && !isDraft && i.status !== 'cancelled' && (
+              <Button
+                variant="outline"
+                disabled={sendEmail.isPending}
+                onClick={() => void handleSend()}
+              >
+                {sendEmail.isPending ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Mail className="mr-1 h-4 w-4" />
+                )}
+                Enviar por correo
               </Button>
             )}
             {canCharge && redsysAvailable && pendingStatus && i.amountPending > 0 && (
@@ -618,32 +782,52 @@ export default function InvoiceDetailPage() {
                 Pagar con tarjeta
               </Button>
             )}
-            {canManageInv &&
-              holded.data?.ready &&
-              i.issuedBy !== 'holded' &&
-              i.kind === 'invoice' &&
-              (i.status === 'issued' || i.status === 'paid' || i.status === 'overdue') &&
-              i.customerId &&
-              (i.holdedDocumentId ? (
-                <span className="self-center text-xs text-muted-foreground">
-                  Exportada a Holded
-                </span>
-              ) : (
-                <Button
-                  variant="outline"
-                  disabled={holdedSync.isPending}
-                  onClick={async () => {
-                    try {
-                      await holdedSync.mutateAsync(i.id);
-                      toast.success('Factura exportada a Holded.');
-                    } catch (err) {
-                      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido.');
-                    }
-                  }}
-                >
-                  Exportar a Holded
-                </Button>
-              ))}
+            {holdedEligible && i.holdedDocumentId && (
+              <span className="self-center text-xs text-muted-foreground">Exportada a Holded</span>
+            )}
+            {(showPdfAction || showDuplicate || (holdedEligible && !i.holdedDocumentId)) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" aria-label="Más acciones">
+                    {generatePdf.isPending || duplicate.isPending || holdedSync.isPending ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <MoreHorizontal className="mr-1 h-4 w-4" />
+                    )}
+                    Más
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {showPdfAction && (
+                    <DropdownMenuItem
+                      disabled={generatePdf.isPending}
+                      onSelect={() =>
+                        void safe(() => generatePdf.mutateAsync(i.id), 'PDF generado.')
+                      }
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      {i.hasPdf ? 'Volver a generar el PDF' : 'Generar el PDF'}
+                    </DropdownMenuItem>
+                  )}
+                  {showDuplicate && (
+                    <DropdownMenuItem
+                      disabled={duplicate.isPending}
+                      onSelect={() => void handleDuplicate()}
+                    >
+                      <Copy className="mr-2 h-4 w-4" /> Duplicar
+                    </DropdownMenuItem>
+                  )}
+                  {holdedEligible && !i.holdedDocumentId && (
+                    <DropdownMenuItem
+                      disabled={holdedSync.isPending}
+                      onSelect={() => void exportToHolded()}
+                    >
+                      <Send className="mr-2 h-4 w-4" /> Exportar a Holded
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </div>
@@ -806,6 +990,8 @@ export default function InvoiceDetailPage() {
         </CardContent>
       </Card>
 
+      <InvoiceActivityCard invoice={i} />
+
       {i.hash && (
         <Card>
           <CardHeader>
@@ -837,6 +1023,8 @@ export default function InvoiceDetailPage() {
         </Card>
       )}
 
+      {editOpen && <EditDraftDialog invoice={i} onClose={() => setEditOpen(false)} />}
+
       <Dialog open={dueOpen} onOpenChange={setDueOpen}>
         <DialogContent>
           <DialogHeader>
@@ -850,6 +1038,25 @@ export default function InvoiceDetailPage() {
             <div className="space-y-1">
               <Label>Nueva fecha</Label>
               <DateSelect value={dueDate} onChange={setDueDate} future />
+              <div className="flex flex-wrap gap-2 pt-1">
+                {[7, 15, 30].map((days) => (
+                  <Button
+                    key={days}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // Desde el vencimiento actual o, si ya pasó, desde hoy.
+                      const today = localDateString();
+                      const base = i.dueDate && i.dueDate >= today ? i.dueDate : today;
+                      setDueDate(addDays(base, days));
+                      if (!dueReason.trim()) setDueReason(`Prórroga de ${days} días`);
+                    }}
+                  >
+                    +{days} días
+                  </Button>
+                ))}
+              </div>
             </div>
             <div className="space-y-1">
               <Label htmlFor="due-reason">Motivo</Label>
@@ -993,7 +1200,7 @@ export default function InvoiceDetailPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1">
-                <Label>Motivo legal</Label>
+                <Label>Por qué se rectifica</Label>
                 <Select
                   value={rectifyType}
                   onValueChange={(v) => setRectifyType(v as RectificationTypeValue)}
@@ -1172,6 +1379,16 @@ export default function InvoiceDetailPage() {
                 <span className="font-semibold">{formatEur(rectifyTotal)}</span>
               </p>
             </div>
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">Qué pasará</p>
+              <p className="mt-1">
+                {rectifyMethod === 'by_differences'
+                  ? `Se crea una rectificativa en borrador por ${formatEur(rectifyTotal)}, que se suma a la factura ${i.invoiceNumber} (en negativo, resta).`
+                  : `Se crea en borrador una factura nueva por ${formatEur(rectifyTotal)} que sustituye entera a la ${i.invoiceNumber}.`}{' '}
+                Mientras sea borrador no cuenta: al emitirla recibe su número, se registra en
+                Veri*Factu y ya no se puede borrar.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRectifyOpen(false)}>
@@ -1218,12 +1435,61 @@ export default function InvoiceDetailPage() {
           <DialogHeader>
             <DialogTitle>Devolver dinero</DialogTitle>
             <DialogDescription>
-              Si se cobró con tarjeta o domiciliación, se devuelve por la misma vía. Si se cobró en
-              efectivo o por transferencia, aquí solo se registra: el dinero lo devuelves tú. Se
-              emite una rectificativa por lo devuelto.
+              Se emite una rectificativa por lo devuelto, que queda en la contabilidad.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {!refundOptions ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Comprobando cómo se cobró…
+              </p>
+            ) : refundOptions.creditAvailable ? (
+              <div className="space-y-2 rounded border p-3 text-sm">
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="refundMethod"
+                    className="mt-1"
+                    checked={!refundAsCredit}
+                    onChange={() => setRefundAsCredit(false)}
+                  />
+                  <span>
+                    <span className="font-medium">Devolver el dinero</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {refundHowText(refundOptions)}
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="refundMethod"
+                    className="mt-1"
+                    checked={refundAsCredit}
+                    onChange={() => setRefundAsCredit(true)}
+                  />
+                  <span>
+                    <span className="font-medium">Dejarlo como saldo a favor</span>
+                    <span className="block text-xs text-muted-foreground">
+                      No sale dinero: se descuenta de su próxima factura.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">{refundHowText(refundOptions)}</p>
+            )}
+            {!refundAsCredit && refundOptions?.how === 'bank' && (
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={refundBankDone}
+                  onChange={(e) => setRefundBankDone(e.target.checked)}
+                />
+                <span>Ya lo he devuelto en el banco o en el panel del TPV</span>
+              </label>
+            )}
             <div className="space-y-1">
               <Label htmlFor="refund-amount">Importe (€)</Label>
               <Input
@@ -1235,7 +1501,8 @@ export default function InvoiceDetailPage() {
                 onChange={(e) => setRefundAmount(Number(e.target.value))}
               />
               <p className="text-xs text-muted-foreground">
-                Como mucho {formatEur(refundable)} (lo cobrado menos lo ya devuelto).
+                Como mucho {formatEur(refundOptions?.refundable ?? refundable)} (lo cobrado menos lo
+                ya devuelto).
               </p>
             </div>
             <div className="space-y-1">
@@ -1253,11 +1520,21 @@ export default function InvoiceDetailPage() {
             </Button>
             <Button
               variant="destructive"
-              disabled={refund.isPending || refundAmount <= 0 || refundAmount > refundable}
-              onClick={() => void submitRefund()}
+              disabled={
+                refund.isPending ||
+                !refundOptions ||
+                refundAmount <= 0 ||
+                refundAmount > refundOptions.refundable ||
+                (!refundAsCredit && refundOptions.how === 'bank' && !refundBankDone)
+              }
+              onClick={() => void submitRefund(!refundAsCredit && refundOptions?.how === 'bank')}
             >
               {refund.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Devolver
+              {refundAsCredit
+                ? 'Dejar como saldo a favor'
+                : refundOptions?.how === 'gateway'
+                  ? 'Devolver'
+                  : 'Registrar la devolución'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -9,7 +9,14 @@ import { useContractAccount } from '@/lib/customers/hooks';
 import { formatDate, formatEur } from '@/lib/format';
 
 /** Lo que debe el contrato, lo que viene y sus facturas. */
-export function ContractBillingTab({ contractId }: { contractId: string }) {
+export function ContractBillingTab({
+  contractId,
+  creditBalance = 0,
+}: {
+  contractId: string;
+  /** Saldo a favor del inquilino en este contrato (una devolución que no salió). */
+  creditBalance?: number;
+}) {
   const account = useContractAccount(contractId);
   const invoices = useInvoices({ contractId });
   const a = account.data;
@@ -32,6 +39,12 @@ export function ContractBillingTab({ contractId }: { contractId: string }) {
           {a?.nextInvoice ? `Hacia el ${formatDate(a.nextInvoice.date)}, sin IVA` : null}
         </Figure>
       </div>
+      {creditBalance > 0 && (
+        <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          Tiene <span className="font-medium tabular-nums">{formatEur(creditBalance)}</span> de
+          saldo a favor: se descuentan de su próxima factura al emitirla.
+        </p>
+      )}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Facturas del contrato</CardTitle>

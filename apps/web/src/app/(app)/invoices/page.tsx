@@ -3,36 +3,40 @@
 import {
   InvoiceStatusEnum,
   type BulkInvoiceActionResultDto,
-  type CreatableInvoiceTypeValue,
   type InvoiceDto,
+  type InvoicePaymentFilterValue,
+  type InvoiceSavedViewDto,
+  type InvoiceSortValue,
   type InvoiceStatusValue,
-  type SimplifiedJustificationValue,
+  type InvoiceTypeFilterValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Bookmark, CalendarCheck, Download, Loader2, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { NewInvoiceDialog } from './new-invoice-dialog';
+
 import { Can } from '@/components/auth/can';
+import { InvoiceCollectionBadges } from '@/components/billing/invoice-collection-badges';
 import { useConfirm } from '@/components/confirm-provider';
 import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { INVOICE_STATUS_LABELS, InvoiceStatusBadge } from '@/components/invoice-status-badge';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -41,62 +45,111 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { toastBulkResult } from '@/lib/billing/bulk-report';
 import {
+  fetchAllInvoices,
   useBulkChargeInvoices,
   useBulkIssueInvoices,
   useBulkRemindInvoices,
-  useCreateInvoice,
+  useDeleteInvoiceView,
+  useInvoiceTotals,
+  useInvoiceViews,
+  useSaveInvoiceView,
+  type InvoiceListParams,
 } from '@/lib/billing/hooks';
 import { invoiceNumberLabel, isNumbered } from '@/lib/billing/labels';
+import { downloadCsv } from '@/lib/csv';
+import { localDateString } from '@/lib/dates';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useOpenFromUrl } from '@/lib/use-open-from-url';
 
-const SIMPLIFIED_JUSTIFICATION_LABELS: Record<SimplifiedJustificationValue, string> = {
-  reparation: 'Reparación',
-  transport: 'Transporte',
-  restaurant: 'Hostelería / restaurante',
-  parking: 'Aparcamiento / autopista',
-  other: 'Otros',
+const TYPE_LABELS: Record<InvoiceTypeFilterValue, string> = {
+  F1: 'Completas',
+  F2: 'Simplificadas',
+  R: 'Rectificativas',
+  deposit: 'Justificantes de fianza',
 };
 
-interface NewInvoiceDraftItem {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  taxRate: number;
-  /** Solo cuenta al 0 %: exenta o no sujeta (con tipo, siempre con IVA). */
-  zeroCategory: ZeroRateCategory;
+const PAYMENT_LABELS: Record<InvoicePaymentFilterValue, string> = {
+  card: 'Cobradas con tarjeta',
+  sepa_debit: 'Cobradas por domiciliación',
+  bank_transfer: 'Cobradas por transferencia',
+  cash: 'Cobradas en efectivo',
+  other: 'Cobradas de otra forma',
+  none: 'Pendientes sin forma de pago guardada',
+};
+
+const SORT_LABELS: Record<InvoiceSortValue, string> = {
+  newest: 'Más recientes primero',
+  oldest: 'Más antiguas primero',
+  due: 'Por fecha de vencimiento',
+  amount: 'Por importe (de mayor a menor)',
+};
+
+type PeriodKey = 'all' | 'this_month' | 'last_month' | 'this_year' | 'last_year' | 'custom';
+const PERIOD_LABELS: Record<PeriodKey, string> = {
+  all: 'Cualquier fecha',
+  this_month: 'Emitidas este mes',
+  last_month: 'Emitidas el mes pasado',
+  this_year: 'Emitidas este año',
+  last_year: 'Emitidas el año pasado',
+  custom: 'Emitidas entre dos fechas',
+};
+
+/** Desde y hasta (fecha de emisión) de un periodo. */
+function periodRange(key: PeriodKey, from?: string, to?: string): { from?: string; to?: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  switch (key) {
+    case 'this_month':
+      return { from: localDateString(new Date(y, m, 1)) };
+    case 'last_month':
+      return {
+        from: localDateString(new Date(y, m - 1, 1)),
+        to: localDateString(new Date(y, m, 0)),
+      };
+    case 'this_year':
+      return { from: `${y}-01-01` };
+    case 'last_year':
+      return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
+    case 'custom':
+      return { ...(from ? { from } : {}), ...(to ? { to } : {}) };
+    default:
+      return {};
+  }
 }
 
-/** Tipos fiscales que se ofrecen para una línea al 0 %. */
-type ZeroRateCategory = 'N1' | 'E1' | 'E6';
-const ZERO_RATE_OPTIONS: { value: ZeroRateCategory; label: string }[] = [
-  { value: 'N1', label: 'No sujeta (fianza, indemnización)' },
-  { value: 'E1', label: 'Exenta art. 20 (p. ej. alquiler de vivienda)' },
-  { value: 'E6', label: 'Exenta (otros)' },
-];
+function typeLabel(i: InvoiceDto): string {
+  if (i.kind === 'deposit_receipt') return 'Fianza';
+  if (i.invoiceType === 'F2') return 'Simplificada';
+  if (i.invoiceType.startsWith('R')) return 'Rectificativa';
+  return i.lateFeeForInvoiceId ? 'Recargo' : 'Completa';
+}
 
-const EMPTY_LINE: NewInvoiceDraftItem = {
-  description: '',
-  quantity: 1,
-  unitPrice: 0,
-  taxRate: 21,
-  zeroCategory: 'N1',
-};
-
-function lineTotal(it: { quantity: number; unitPrice: number; taxRate: number }): number {
-  const base = Math.round(it.quantity * it.unitPrice * 100);
-  return (base + Math.round((base * it.taxRate) / 100)) / 100;
+/** Lo cobrado, como en la ficha: sin la retención ni lo saldado con un abono. */
+function collectedOf(i: InvoiceDto): number {
+  const value = i.amountPaid - i.withholdingAmount - i.amountCompensated;
+  return Math.max(0, Math.round(value * 100) / 100);
 }
 
 export default function InvoicesPage() {
-  const router = useRouter();
   const ask = useConfirm();
   const [status, setStatus] = useState<InvoiceStatusValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [type, setType] = useState<InvoiceTypeFilterValue | undefined>();
+  const [payment, setPayment] = useState<InvoicePaymentFilterValue | undefined>();
+  const [sort, setSort] = useState<InvoiceSortValue>('newest');
+  const [period, setPeriod] = useState<PeriodKey>('all');
+  const [customFrom, setCustomFrom] = useState<string | undefined>();
+  const [customTo, setCustomTo] = useState<string | undefined>();
+  // En el móvil, la fecha, el tipo, la forma de pago y el orden van plegados.
+  const [moreFilters, setMoreFilters] = useState(false);
+  const secondaryActive =
+    (period !== 'all' ? 1 : 0) + (type ? 1 : 0) + (payment ? 1 : 0) + (sort !== 'newest' ? 1 : 0);
   // Enlaces con filtro (`/invoices?status=overdue` desde «Hoy» o las sugerencias).
   useEffect(() => {
     const s = new URLSearchParams(window.location.search).get('status');
@@ -106,34 +159,197 @@ export default function InvoicesPage() {
     }
   }, []);
 
-  // Estado del diálogo «Nueva factura»: completa (con cliente) o simplificada
-  // (sin cliente, hasta 400 €; hasta 3.000 € con motivo).
   const [createOpen, setCreateOpen] = useState(false);
   useOpenFromUrl(() => setCreateOpen(true));
-  const [newType, setNewType] = useState<CreatableInvoiceTypeValue>('F1');
-  const [newCustomerId, setNewCustomerId] = useState<string>('');
-  const [newJustification, setNewJustification] = useState<SimplifiedJustificationValue | ''>('');
-  const [newItems, setNewItems] = useState<NewInvoiceDraftItem[]>([{ ...EMPTY_LINE }]);
 
   const headerFacilityId = useHeaderFacilityId();
   const [searchText, search, setSearchText] = useDebouncedSearch();
-  const invoices = usePagedList<InvoiceDto>('invoices', '/invoices', {
+  const range = periodRange(period, customFrom, customTo);
+  // Los mismos filtros para la lista, los totales, el CSV y las vistas.
+  const filterParams: InvoiceListParams = {
     facilityId: headerFacilityId,
     status,
     customerId,
     overdue: overdueOnly ? 'true' : undefined,
     search: search || undefined,
+    type,
+    payment,
+    from: range.from,
+    to: range.to,
+  };
+  const invoices = usePagedList<InvoiceDto>('invoices', '/invoices', {
+    ...filterParams,
+    sort: sort === 'newest' ? undefined : sort,
   });
-  const createInvoice = useCreateInvoice();
+  const totals = useInvoiceTotals(filterParams);
+  const views = useInvoiceViews();
+  const saveView = useSaveInvoiceView();
+  const deleteView = useDeleteInvoiceView();
   const bulkIssue = useBulkIssueInvoices();
   const bulkCharge = useBulkChargeInvoices();
   const bulkRemind = useBulkRemindInvoices();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
 
   // Al cambiar los filtros, lo seleccionado deja de verse: se suelta.
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [status, customerId, overdueOnly, search, headerFacilityId]);
+  }, [
+    status,
+    customerId,
+    overdueOnly,
+    search,
+    headerFacilityId,
+    type,
+    payment,
+    period,
+    customFrom,
+    customTo,
+  ]);
+
+  const filtersActive =
+    !!status ||
+    !!customerId ||
+    overdueOnly ||
+    !!type ||
+    !!payment ||
+    period !== 'all' ||
+    sort !== 'newest';
+
+  function clearFilters(): void {
+    setStatus(undefined);
+    setCustomerId(undefined);
+    setOverdueOnly(false);
+    setType(undefined);
+    setPayment(undefined);
+    setSort('newest');
+    setPeriod('all');
+    setCustomFrom(undefined);
+    setCustomTo(undefined);
+  }
+
+  /** Lo que se guarda de una vista: solo los filtros puestos. */
+  function currentFilters(): Record<string, string> {
+    const f: Record<string, string> = {};
+    if (status) f.status = status;
+    if (customerId) f.customerId = customerId;
+    if (overdueOnly) f.overdue = 'true';
+    if (type) f.type = type;
+    if (payment) f.payment = payment;
+    if (sort !== 'newest') f.sort = sort;
+    if (period !== 'all') f.period = period;
+    if (period === 'custom' && customFrom) f.from = customFrom;
+    if (period === 'custom' && customTo) f.to = customTo;
+    return f;
+  }
+
+  function applyView(view: InvoiceSavedViewDto): void {
+    const f = view.filters as Record<string, unknown>;
+    const str = (k: string) => (typeof f[k] === 'string' ? (f[k] as string) : undefined);
+    const parsedStatus = InvoiceStatusEnum.safeParse(str('status'));
+    setStatus(parsedStatus.success ? parsedStatus.data : undefined);
+    setCustomerId(str('customerId'));
+    setOverdueOnly(str('overdue') === 'true');
+    const t = str('type');
+    setType(t && t in TYPE_LABELS ? (t as InvoiceTypeFilterValue) : undefined);
+    const p = str('payment');
+    setPayment(p && p in PAYMENT_LABELS ? (p as InvoicePaymentFilterValue) : undefined);
+    const s = str('sort');
+    setSort(s && s in SORT_LABELS ? (s as InvoiceSortValue) : 'newest');
+    const per = str('period');
+    setPeriod(per && per in PERIOD_LABELS ? (per as PeriodKey) : 'all');
+    setCustomFrom(str('from'));
+    setCustomTo(str('to'));
+    toast.success(`Vista «${view.name}» aplicada.`);
+  }
+
+  async function onSaveView(): Promise<void> {
+    const res = await ask({
+      title: 'Guardar esta vista',
+      description:
+        'Se guardan los filtros y el orden que tienes puestos. La ve todo el equipo; con el mismo nombre se sustituye.',
+      confirmLabel: 'Guardar',
+      input: { label: 'Nombre', placeholder: 'Vencidas de este mes', required: true },
+    });
+    if (!res) return;
+    try {
+      await saveView.mutateAsync({ name: res.value.slice(0, 60), filters: currentFilters() });
+      toast.success('Vista guardada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido guardar.');
+    }
+  }
+
+  async function onDeleteView(view: InvoiceSavedViewDto): Promise<void> {
+    if (
+      !(await ask({
+        title: `¿Borrar la vista «${view.name}»?`,
+        description: 'Desaparece para todo el equipo. Las facturas no cambian.',
+        confirmLabel: 'Borrar',
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await deleteView.mutateAsync(view.id);
+      toast.success('Vista borrada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido borrar.');
+    }
+  }
+
+  async function exportCsv(): Promise<void> {
+    setExporting(true);
+    try {
+      const { rows: all, truncated } = await fetchAllInvoices({
+        ...filterParams,
+        sort: sort === 'newest' ? undefined : sort,
+      });
+      downloadCsv(`facturas-${localDateString()}.csv`, [
+        [
+          'Número',
+          'Tipo',
+          'Cliente',
+          'Contrato',
+          'Trastero',
+          'Local',
+          'Emitida',
+          'Vence',
+          'Base',
+          'IVA',
+          'Total',
+          'Cobrado',
+          'Devuelto',
+          'Pendiente',
+          'Estado',
+        ],
+        ...all.map((i) => [
+          invoiceNumberLabel(i),
+          typeLabel(i),
+          i.customerName ?? 'Sin identificar',
+          i.contractNumber ?? '',
+          i.unitCode ?? '',
+          i.facilityName ?? '',
+          isNumbered(i) ? formatDate(i.issueDate) : '',
+          i.dueDate ? formatDate(i.dueDate) : '',
+          i.subtotal,
+          i.taxAmount,
+          i.total,
+          collectedOf(i),
+          i.amountRefunded,
+          i.amountPending,
+          INVOICE_STATUS_LABELS[i.status] ?? i.status,
+        ]),
+      ]);
+      if (truncated) {
+        toast.info('Se han exportado las 5.000 primeras. Acota con los filtros para el resto.');
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido exportar.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const rows = invoices.rows;
   const selectableDraft = rows.filter((i) => i.status === 'draft').map((i) => i.id);
@@ -160,23 +376,7 @@ export default function InvoicesPage() {
 
   function reportBulk(res: BulkInvoiceActionResultDto, done: string, processingNote?: string) {
     setSelectedIds(new Set());
-    const processing = res.processing?.length ?? 0;
-    const ok = res.succeeded.length - processing;
-    const parts: string[] = [];
-    if (ok > 0) parts.push(`${ok} ${done}`);
-    if (processing > 0 && processingNote) parts.push(`${processing} ${processingNote}`);
-    if (res.failed.length === 0) {
-      toast.success(parts.join(' · ') || 'Hecho.');
-      return;
-    }
-    const lines = res.failed
-      .slice(0, 4)
-      .map((f) => `${f.invoiceNumber ?? 'Borrador'}: ${f.message ?? 'no se ha podido'}`);
-    if (res.failed.length > 4) lines.push(`y ${res.failed.length - 4} más`);
-    toast.warning(`${parts.length ? `${parts.join(' · ')}. ` : ''}${res.failed.length} sin hacer`, {
-      description: <div className="whitespace-pre-line">{lines.join('\n')}</div>,
-      duration: 12_000,
-    });
+    toastBulkResult(res, done, processingNote);
   }
 
   async function onBulkIssue() {
@@ -220,7 +420,7 @@ export default function InvoicesPage() {
       !(await ask({
         title: `¿Enviar un recordatorio de pago a ${selectedChargeable.length} ${selectedChargeable.length === 1 ? 'inquilino' : 'inquilinos'}?`,
         description:
-          'Les llega un correo con lo que deben y el enlace para pagar. A quien ya recibió uno hoy no se le envía otro.',
+          'Les llega un correo con lo que deben y el enlace para pagar; si alguien debe varias, todas van en el mismo correo. A quien ya recibió uno hoy no se le envía otro.',
         confirmLabel: 'Enviar',
       }))
     )
@@ -231,12 +431,6 @@ export default function InvoicesPage() {
       toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido enviar.');
     }
   }
-
-  const newTotal = newItems.reduce((acc, it) => acc + lineTotal(it), 0);
-  const exceedsBasicF2 = newType === 'F2' && newTotal > 400;
-  const linesInvalid = newItems.some(
-    (it) => !it.description.trim() || !(it.quantity > 0) || !(it.unitPrice > 0),
-  );
 
   const columns: ColumnDef<InvoiceDto>[] = [
     {
@@ -285,6 +479,7 @@ export default function InvoicesPage() {
             {i.invoiceType === 'F2' && <Badge variant="outline">Simplificada</Badge>}
             {i.invoiceType.startsWith('R') && <Badge variant="outline">Rectificativa</Badge>}
             {i.lateFeeForInvoiceId && <Badge variant="outline">Recargo</Badge>}
+            <InvoiceCollectionBadges invoice={i} compact />
           </span>
         );
       },
@@ -339,6 +534,7 @@ export default function InvoicesPage() {
   ];
 
   const busy = bulkIssue.isPending || bulkCharge.isPending || bulkRemind.isPending;
+  const sums = totals.data;
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -349,19 +545,18 @@ export default function InvoicesPage() {
             Facturas emitidas y borradores. El número se pone al emitir.
           </p>
         </div>
-        <Can permission="invoices:write">
-          <Button
-            onClick={() => {
-              setNewType('F1');
-              setNewCustomerId('');
-              setNewJustification('');
-              setNewItems([{ ...EMPTY_LINE }]);
-              setCreateOpen(true);
-            }}
-          >
-            <Plus className="mr-1 h-4 w-4" /> Nueva factura
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/invoices/month-close">
+              <CalendarCheck className="mr-1 h-4 w-4" /> Cierre del mes
+            </Link>
           </Button>
-        </Can>
+          <Can permission="invoices:write">
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" /> Nueva factura
+            </Button>
+          </Can>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -369,7 +564,7 @@ export default function InvoicesPage() {
           value={status ?? 'all'}
           onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as InvoiceStatusValue))}
         >
-          <SelectTrigger className="w-full sm:w-[200px]">
+          <SelectTrigger className="w-full sm:w-[190px]" aria-label="Estado">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
           <SelectContent>
@@ -388,10 +583,123 @@ export default function InvoicesPage() {
           className="w-full sm:w-[240px]"
         />
         <Button
+          variant="outline"
+          className="w-full sm:hidden"
+          onClick={() => setMoreFilters((v) => !v)}
+        >
+          {moreFilters ? 'Menos filtros' : 'Más filtros'}
+          {secondaryActive > 0 && ` (${secondaryActive})`}
+        </Button>
+        <div className={moreFilters ? 'contents' : 'hidden sm:contents'}>
+          <Select value={period} onValueChange={(v) => setPeriod(v as PeriodKey)}>
+            <SelectTrigger className="w-full sm:w-[210px]" aria-label="Fecha de emisión">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(PERIOD_LABELS) as PeriodKey[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {PERIOD_LABELS[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={type ?? 'all'}
+            onValueChange={(v) => setType(v === 'all' ? undefined : (v as InvoiceTypeFilterValue))}
+          >
+            <SelectTrigger className="w-full sm:w-[180px]" aria-label="Tipo">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los tipos</SelectItem>
+              {(Object.keys(TYPE_LABELS) as InvoiceTypeFilterValue[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {TYPE_LABELS[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={payment ?? 'all'}
+            onValueChange={(v) =>
+              setPayment(v === 'all' ? undefined : (v as InvoicePaymentFilterValue))
+            }
+          >
+            <SelectTrigger className="w-full sm:w-[240px]" aria-label="Forma de pago">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Cualquier forma de pago</SelectItem>
+              {(Object.keys(PAYMENT_LABELS) as InvoicePaymentFilterValue[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {PAYMENT_LABELS[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={(v) => setSort(v as InvoiceSortValue)}>
+            <SelectTrigger className="w-full sm:w-[220px]" aria-label="Orden">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(SORT_LABELS) as InvoiceSortValue[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {SORT_LABELS[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
           variant={overdueOnly ? 'default' : 'outline'}
           onClick={() => setOverdueOnly((v) => !v)}
         >
           Solo vencidas
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline">
+              <Bookmark className="mr-1 h-4 w-4" /> Vistas
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuLabel>Vistas del equipo</DropdownMenuLabel>
+            {(views.data ?? []).length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                Aún no hay ninguna. Pon unos filtros y guárdalos.
+              </p>
+            ) : (
+              (views.data ?? []).map((v) => (
+                <DropdownMenuItem key={v.id} onSelect={() => applyView(v)}>
+                  <span className="flex-1 truncate">{v.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Borrar la vista ${v.name}`}
+                    className="ml-2 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void onDeleteView(v);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuItem>
+              ))
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={!filtersActive} onSelect={() => void onSaveView()}>
+              Guardar los filtros actuales…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button variant="outline" disabled={exporting} onClick={() => void exportCsv()}>
+          {exporting ? (
+            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="mr-1 h-4 w-4" />
+          )}
+          CSV
         </Button>
         {selectable.length > 0 && !allSelected && (
           <Button
@@ -403,6 +711,44 @@ export default function InvoicesPage() {
           </Button>
         )}
       </div>
+
+      {period === 'custom' && (
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Emitidas desde</p>
+            <DateSelect value={customFrom} onChange={setCustomFrom} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Hasta</p>
+            <DateSelect value={customTo} onChange={setCustomTo} />
+          </div>
+        </div>
+      )}
+
+      {sums && (
+        <div className="grid grid-cols-2 gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm sm:flex sm:flex-wrap sm:gap-x-6">
+          <span>
+            <span className="text-muted-foreground">Facturas </span>
+            <span className="font-medium tabular-nums">{sums.count}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Total </span>
+            <span className="font-medium tabular-nums">{formatEur(sums.total)}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Cobrado </span>
+            <span className="font-medium tabular-nums">{formatEur(sums.collected)}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Pendiente </span>
+            <span
+              className={`font-medium tabular-nums ${sums.pending > 0 ? 'text-destructive' : ''}`}
+            >
+              {formatEur(sums.pending)}
+            </span>
+          </span>
+        </div>
+      )}
 
       {selectedIds.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
@@ -452,12 +798,8 @@ export default function InvoicesPage() {
         <SectionError onRetry={() => void invoices.refetch()} />
       ) : (
         <DataTable
-          filtersActive={!!status || !!customerId || overdueOnly}
-          onClearFilters={() => {
-            setStatus(undefined);
-            setCustomerId(undefined);
-            setOverdueOnly(false);
-          }}
+          filtersActive={filtersActive}
+          onClearFilters={clearFilters}
           rowHref={(i) => `/invoices/${i.id}`}
           columns={columns}
           data={rows}
@@ -473,251 +815,7 @@ export default function InvoicesPage() {
         />
       )}
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Nueva factura</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label>Tipo de factura</Label>
-                <Select
-                  value={newType}
-                  onValueChange={(v) => setNewType(v as CreatableInvoiceTypeValue)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="F1">Completa (con los datos del cliente)</SelectItem>
-                    <SelectItem value="F2">Simplificada (ticket, sin cliente)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {newType === 'F2'
-                    ? 'Para ventas sueltas: hasta 400 €; hasta 3.000 € con un motivo.'
-                    : 'Con el nombre y el NIF del cliente.'}
-                </p>
-              </div>
-              {newType === 'F1' ? (
-                <div className="space-y-1">
-                  <Label>Cliente *</Label>
-                  <CustomerSearchSelect
-                    value={newCustomerId || undefined}
-                    onChange={(id) => setNewCustomerId(id ?? '')}
-                    placeholder="Busca el cliente…"
-                  />
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <Label>Motivo (si pasa de 400 €)</Label>
-                  <Select
-                    value={newJustification || 'none'}
-                    onValueChange={(v) =>
-                      setNewJustification(v === 'none' ? '' : (v as SimplifiedJustificationValue))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Ninguno" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Ninguno (hasta 400 €)</SelectItem>
-                      {(
-                        Object.keys(
-                          SIMPLIFIED_JUSTIFICATION_LABELS,
-                        ) as SimplifiedJustificationValue[]
-                      ).map((k) => (
-                        <SelectItem key={k} value={k}>
-                          {SIMPLIFIED_JUSTIFICATION_LABELS[k]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-
-            {newType === 'F2' && exceedsBasicF2 && !newJustification && (
-              <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                El total ({formatEur(newTotal)}) pasa de 400 €: elige un motivo para llegar hasta
-                3.000 €, o haz una factura completa.
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Líneas</Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setNewItems((curr) => [...curr, { ...EMPTY_LINE }])}
-                >
-                  <Plus className="mr-1 h-3 w-3" /> Añadir línea
-                </Button>
-              </div>
-              <ul className="space-y-3">
-                {newItems.map((it, idx) => (
-                  <li key={idx} className="space-y-2 rounded border p-2">
-                    <div className="flex gap-2">
-                      <Input
-                        aria-label="Concepto"
-                        placeholder="Concepto"
-                        value={it.description}
-                        onChange={(e) =>
-                          setNewItems((curr) =>
-                            curr.map((row, i) =>
-                              i === idx ? { ...row, description: e.target.value } : row,
-                            ),
-                          )
-                        }
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Quitar línea"
-                        disabled={newItems.length === 1}
-                        onClick={() => setNewItems((curr) => curr.filter((_row, i) => i !== idx))}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">Cantidad</Label>
-                        <Input
-                          type="number"
-                          step="1"
-                          min="1"
-                          inputMode="numeric"
-                          value={it.quantity}
-                          onChange={(e) =>
-                            setNewItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, quantity: Number(e.target.value) } : row,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">Precio sin IVA (€)</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          inputMode="decimal"
-                          value={it.unitPrice}
-                          onChange={(e) =>
-                            setNewItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, unitPrice: Number(e.target.value) } : row,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">IVA (%)</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max="100"
-                          inputMode="decimal"
-                          value={it.taxRate}
-                          onChange={(e) =>
-                            setNewItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, taxRate: Number(e.target.value) } : row,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                    </div>
-                    {it.taxRate === 0 && (
-                      <Select
-                        value={it.zeroCategory}
-                        onValueChange={(v) =>
-                          setNewItems((curr) =>
-                            curr.map((row, i) =>
-                              i === idx ? { ...row, zeroCategory: v as ZeroRateCategory } : row,
-                            ),
-                          )
-                        }
-                      >
-                        <SelectTrigger className="h-8 text-xs" aria-label="Tipo de operación">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ZERO_RATE_OPTIONS.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>
-                              {o.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                    {it.description.trim() && !(it.unitPrice > 0) && (
-                      <p className="text-xs text-destructive">
-                        El precio tiene que ser mayor que 0. Para restar, rectifica la factura.
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <p className="text-right text-sm tabular-nums">
-                Total con IVA: <span className="font-semibold">{formatEur(newTotal)}</span>
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={async () => {
-                try {
-                  const created = await createInvoice.mutateAsync({
-                    invoiceType: newType,
-                    ...(newType === 'F1' && newCustomerId ? { customerId: newCustomerId } : {}),
-                    ...(newType === 'F2' && newJustification
-                      ? { simplifiedJustification: newJustification }
-                      : {}),
-                    items: newItems.map((it) => ({
-                      description: it.description,
-                      quantity: it.quantity,
-                      unitPrice: it.unitPrice,
-                      taxRate: it.taxRate,
-                      taxCategory: it.taxRate === 0 ? it.zeroCategory : 'S1',
-                    })),
-                    verifactuMode: 'verifactu',
-                  });
-                  toast.success('Factura creada como borrador.');
-                  setCreateOpen(false);
-                  router.push(`/invoices/${created.id}`);
-                } catch (err) {
-                  toast.error(
-                    err instanceof ApiError ? err.body.message : 'No se ha podido crear.',
-                  );
-                }
-              }}
-              disabled={
-                createInvoice.isPending ||
-                (newType === 'F1' && !newCustomerId) ||
-                linesInvalid ||
-                (exceedsBasicF2 && !newJustification)
-              }
-            >
-              {createInvoice.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Crear borrador
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {createOpen && <NewInvoiceDialog onClose={() => setCreateOpen(false)} />}
     </div>
   );
 }

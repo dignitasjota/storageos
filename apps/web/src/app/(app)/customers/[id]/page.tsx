@@ -190,6 +190,11 @@ export default function CustomerDetailPage() {
               {c.kycVerified ? 'KYC verificado' : 'KYC pendiente'}
             </Badge>
             {c.depositExempt && <Badge variant="secondary">Sin fianza</Badge>}
+            {c.invoiceDueDays != null && (
+              <Badge variant="secondary" title="Días para pagar sus facturas">
+                Paga a {c.invoiceDueDays} {c.invoiceDueDays === 1 ? 'día' : 'días'}
+              </Badge>
+            )}
             {c.isTest && <Badge variant="secondary">Prueba</Badge>}
             {c.tags.map((t) => (
               <Badge key={t} variant="outline">
