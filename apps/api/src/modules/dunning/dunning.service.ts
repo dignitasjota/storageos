@@ -172,7 +172,7 @@ export class DunningService {
   private async scheduleActions(data: ProcessInvoiceJobData): Promise<void> {
     const invoice = await this.admin.invoice.findUnique({
       where: { id: data.invoiceId },
-      select: { dueDate: true, status: true },
+      select: { dueDate: true, status: true, lateFeeForInvoiceId: true },
     });
     if (!invoice || (invoice.status !== 'issued' && invoice.status !== 'overdue')) return;
     if (!invoice.dueDate) return;
@@ -187,7 +187,11 @@ export class DunningService {
       },
     });
     const calendar = dunningCalendar(
-      { enabled: !!tenant?.lateFeeEnabled, graceDays: tenant?.lateFeeGraceDays ?? 0 },
+      // Un recargo no lleva otro recargo.
+      {
+        enabled: !!tenant?.lateFeeEnabled && !invoice.lateFeeForInvoiceId,
+        graceDays: tenant?.lateFeeGraceDays ?? 0,
+      },
       { mode: tenant?.accessCutMode ?? 'all', days: tenant?.accessCutDays ?? 14 },
     );
     for (const step of calendar) {

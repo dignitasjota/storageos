@@ -609,10 +609,23 @@ export class PaymentsService {
     meta: RequestMeta;
   }): Promise<BulkInvoiceActionResultDto> {
     const succeeded: string[] = [];
-    const failed: { id: string; error: string }[] = [];
+    const processing: string[] = [];
+    const failed: BulkInvoiceActionResultDto['failed'] = [];
+    const numbers = new Map(
+      (
+        await this.prisma.withTenant(
+          (tx) =>
+            tx.invoice.findMany({
+              where: { id: { in: args.ids } },
+              select: { id: true, invoiceNumber: true, sequenceNumber: true },
+            }),
+          args.tenantId,
+        )
+      ).map((r) => [r.id, r.sequenceNumber > 0 ? r.invoiceNumber : null]),
+    );
     for (const invoiceId of args.ids) {
       try {
-        await this.chargeInvoice({
+        const payment = await this.chargeInvoice({
           tenantId: args.tenantId,
           userId: args.userId,
           invoiceId,
@@ -620,21 +633,44 @@ export class PaymentsService {
           facilityScope: args.facilityScope ?? null,
           meta: args.meta,
         });
-        succeeded.push(invoiceId);
+        // Una tarjeta rechazada no lanza: el cobro queda fallido (antes contaba
+        // como cobrado en el resumen del lote).
+        if (payment.status === 'succeeded') succeeded.push(invoiceId);
+        else if (payment.status === 'processing' || payment.status === 'pending')
+          processing.push(invoiceId);
+        else
+          failed.push({
+            id: invoiceId,
+            error: 'charge_declined',
+            message: payment.failureReason
+              ? `Cobro rechazado: ${payment.failureReason}`
+              : 'Cobro rechazado',
+            invoiceNumber: numbers.get(invoiceId) ?? null,
+          });
       } catch (err) {
         let code = 'unknown_error';
+        let message = 'No se ha podido cobrar';
         if (err && typeof err === 'object' && 'response' in err) {
           const res = (err as { response?: unknown }).response;
           if (res && typeof res === 'object' && 'code' in res) {
             code = String((res as { code: unknown }).code);
           }
+          if (res && typeof res === 'object' && 'message' in res) {
+            const m = (res as { message: unknown }).message;
+            if (typeof m === 'string') message = m;
+          }
         } else if (err instanceof Error) {
           code = err.message;
         }
-        failed.push({ id: invoiceId, error: code });
+        failed.push({
+          id: invoiceId,
+          error: code,
+          message,
+          invoiceNumber: numbers.get(invoiceId) ?? null,
+        });
       }
     }
-    return { succeeded, failed };
+    return { succeeded, processing, failed };
   }
 
   /**
@@ -980,7 +1016,7 @@ export class PaymentsService {
         },
       });
       if (existing.invoiceId) {
-        await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${existing.invoiceId}::uuid FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${existing.invoiceId}::uuid FOR NO KEY UPDATE`;
         const invoice = await tx.invoice.findUniqueOrThrow({
           where: { id: existing.invoiceId },
         });
@@ -992,6 +1028,17 @@ export class PaymentsService {
           data: {
             amountRefunded: newInvoiceRefunded,
             status: invoiceFully ? 'refunded' : 'partially_refunded',
+          },
+        });
+        // Devolución hecha fuera de la app (en el panel de la pasarela).
+        await tx.invoiceRefund.create({
+          data: {
+            tenantId,
+            invoiceId: invoice.id,
+            paymentId: existing.id,
+            amount: delta,
+            via: 'external',
+            reason: 'Devuelto desde la pasarela',
           },
         });
       }
@@ -1065,7 +1112,7 @@ export class PaymentsService {
       if (moved.count === 0) return;
       reverted = true;
       if (existing.invoiceId) {
-        await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${existing.invoiceId}::uuid FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${existing.invoiceId}::uuid FOR NO KEY UPDATE`;
         const invoice = await tx.invoice.findUniqueOrThrow({
           where: { id: existing.invoiceId },
         });

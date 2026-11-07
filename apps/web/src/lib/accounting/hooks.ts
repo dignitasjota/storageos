@@ -16,10 +16,11 @@ import type {
 
 const holdedKey = ['holded-settings'] as const;
 
-export function useHoldedSettings() {
+export function useHoldedSettings(enabled = true) {
   return useQuery({
     queryKey: holdedKey,
     queryFn: () => apiFetch<HoldedSettingsDto>('/settings/holded'),
+    enabled,
   });
 }
 

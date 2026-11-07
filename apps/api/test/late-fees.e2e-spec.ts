@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
@@ -20,6 +22,14 @@ describe('Late fees / recargos por mora (e2e)', () => {
     await app.close();
     await cleanupTestTenants();
   });
+
+  /** Solo lleva recargo una factura ya vencida. */
+  async function makeOverdue(invoiceId: string): Promise<void> {
+    await app.get(PrismaAdminService).invoice.update({
+      where: { id: invoiceId },
+      data: { status: 'overdue', dueDate: new Date(Date.now() - 10 * 86_400_000) },
+    });
+  }
 
   it('configura el recargo y lo aplica como factura separada (idempotente)', async () => {
     const owner = await registerVerifiedUser(app, 'latefee');
@@ -48,6 +58,7 @@ describe('Late fees / recargos por mora (e2e)', () => {
       .set(auth);
     expect(issued.status).toBe(200);
     expect(issued.body.total).toBe(121);
+    await makeOverdue(invoiceId);
 
     // Aplicar recargo → factura nueva de 6.05 € (5% de 121, sin IVA).
     const lateFee = await request(app.getHttpServer())
@@ -86,6 +97,7 @@ describe('Late fees / recargos por mora (e2e)', () => {
       unitPrice: 100,
     });
     await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+    await makeOverdue(invoiceId);
 
     // Doble clic: las dos peticiones salen a la vez.
     const [first, second] = await Promise.all([

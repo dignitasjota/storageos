@@ -1894,3 +1894,27 @@ Hasta ahora el corte **nunca se aplicaba**: el escalado no recibía el servicio 
 - Los expedientes que debían abrirse con el aviso legal antes de este cambio no se abren solos: se abren a mano desde Deudores.
 - Un corte que falla ya no se da por hecho: la acción sigue programada y se reintenta en el repaso del día siguiente, con el motivo en sus notas.
 - El inquilino no recibe un correo en el momento del corte: el segundo recordatorio (día 7) ya le avisa y el área de clientes se lo dice.
+
+## 106. Facturas: arreglos (2026-11-07)
+
+Migración `20261231100000_invoices_review`, se aplica sola. Sin variables nuevas.
+
+**Qué cambia al redesplegar:**
+
+- **Datos fiscales obligatorios para emitir.** Sin razón social, NIF, domicilio, código postal y municipio del emisor, emitir o anular una factura da 400 `issuer_fiscal_data_required` y el panel lleva a completarlos (Configuración → Datos de tu empresa, o Propietarios si la factura es de un propietario). Las recurrentes con emisión automática se quedan en borrador hasta que los tengan. **Antes de redesplegar**, mirar qué negocios que facturan no los tienen:
+
+  ```sql
+  SELECT t.slug, t.name FROM tenants t
+  WHERE t.deleted_at IS NULL AND t.status IN ('active', 'trial')
+    AND EXISTS (SELECT 1 FROM invoices i WHERE i.tenant_id = t.id AND i.created_at > now() - interval '90 days')
+    AND (coalesce(t.tax_id, '') = '' OR coalesce(t.billing_legal_name, '') = ''
+      OR coalesce(t.billing_address, '') = '' OR coalesce(t.billing_postal_code, '') = ''
+      OR coalesce(t.billing_city, '') = '');
+  ```
+
+- **Cuándo vencen las cuotas.** Las facturas que se emitan a partir de ahora vencen a los 15 días de emitirse (antes, la mensual vencía a los 15 días del final del mes que cubre: la de noviembre, el 15 de diciembre). Las ya emitidas no cambian. Como el impago (y el corte de acceso, §105) cuenta desde el vencimiento, empieza antes. Cada negocio lo cambia en Configuración → Facturación → **Plazo de pago**; 45 días se parece a lo de antes.
+- **El PDF de la factura** ya no dice si está pagada ni lo que falta (no cambiaba después y se quedaba con lo del día que se generó). Se genera solo al emitir, en el worker. Los PDF ya generados se quedan como están: «Regenerar PDF» en la ficha los rehace.
+- **Anular una factura** devuelve al contrato lo que gastó (mes gratis, saldo de la señal, recompensa de referido) y anula su recargo por mora si no se cobró. Las anuladas antes no lo devolvieron: si hace falta, a mano.
+- **Recargo por mora**: solo sobre facturas vencidas y con el recargo activado; ya no sobre otro recargo.
+- **Devoluciones**: cada una queda en `invoice_refunds`. Un cobro con el TPV del banco (Redsys) no se puede devolver desde la app: se devuelve en el banco y se registra en la ficha.
+- **Quien use la API**: `GET /invoices?status=` desconocido da 400 `invalid_status`; el mismo cobro o la misma devolución dos veces en 30 segundos da 409; `POST /payments/invoices/bulk/charge` devuelve también `processing`.

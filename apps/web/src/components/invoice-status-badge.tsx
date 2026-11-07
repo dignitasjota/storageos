@@ -2,14 +2,14 @@ import type { InvoiceStatusValue } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
 
-const labels: Record<InvoiceStatusValue, string> = {
+export const INVOICE_STATUS_LABELS: Record<InvoiceStatusValue, string> = {
   draft: 'Borrador',
   issued: 'Emitida',
   paid: 'Pagada',
   overdue: 'Vencida',
   cancelled: 'Cancelada',
-  refunded: 'Reembolsada',
-  partially_refunded: 'Reemb. parcial',
+  refunded: 'Devuelta',
+  partially_refunded: 'Devuelta en parte',
   rectified: 'Anulada',
 };
 
@@ -36,6 +36,8 @@ export function InvoiceStatusBadge({
   total?: number;
 }) {
   const label =
-    status === 'paid' && total !== undefined && total < 0 ? 'Compensada' : labels[status];
+    status === 'paid' && total !== undefined && total < 0
+      ? 'Compensada'
+      : INVOICE_STATUS_LABELS[status];
   return <Badge variant={variants[status]}>{label}</Badge>;
 }

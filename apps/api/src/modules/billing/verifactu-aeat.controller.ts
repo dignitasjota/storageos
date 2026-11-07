@@ -31,7 +31,7 @@ export class VerifactuAeatController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ queued: true; invoiceId: string }> {
-    return this.invoices.resendAeat(id, user.tenantId);
+    return this.invoices.resendAeat(id, user.tenantId, user.facilityScope ?? null);
   }
 
   /**
@@ -47,6 +47,6 @@ export class VerifactuAeatController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<InvoiceDto> {
-    return this.invoices.refreshAeatStatus(id, user.tenantId);
+    return this.invoices.refreshAeatStatus(id, user.tenantId, user.facilityScope ?? null);
   }
 }

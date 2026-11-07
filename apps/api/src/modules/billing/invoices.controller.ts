@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -20,6 +21,7 @@ import {
   CreateInvoiceSchema,
   type InvoiceDto,
   InvoiceStatusEnum,
+  type LateFeePreviewDto,
   LinkHoldedCreditNoteSchema,
   MarkPaidManuallySchema,
   RectifyInvoiceSchema,
@@ -34,7 +36,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
-import { parsePageRequest, toPage } from '../../common/pagination';
+import { assertUuid, parsePageRequest, toPage } from '../../common/pagination';
 
 import { BillingJobsService } from './billing-jobs.service';
 import { InvoicePdfService } from './invoice-pdf.service';
@@ -87,7 +89,10 @@ export class InvoicesController {
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
   ): Promise<PageDto<InvoiceDto>> {
-    const parsedStatus = status ? InvoiceStatusEnum.parse(status) : undefined;
+    const parsedStatus = parseStatus(status);
+    assertUuid(customerId);
+    assertUuid(contractId);
+    assertUuid(facilityId);
     const page = parsePageRequest(cursor, limit);
     const rows = await this.invoices.list(user.tenantId, {
       ...(search ? { search } : {}),
@@ -112,7 +117,10 @@ export class InvoicesController {
     @Query('overdue') overdue?: string,
     @Query('facilityId') facilityId?: string,
   ): Promise<InvoiceDto[]> {
-    const parsedStatus = status ? InvoiceStatusEnum.parse(status) : undefined;
+    const parsedStatus = parseStatus(status);
+    assertUuid(customerId);
+    assertUuid(contractId);
+    assertUuid(facilityId);
     return this.invoices.list(user.tenantId, {
       ...(facilityId ? { facilityId } : {}),
       ...(parsedStatus ? { status: parsedStatus } : {}),
@@ -153,6 +161,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       input,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
@@ -189,6 +198,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       ids: body.ids,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
@@ -261,6 +271,16 @@ export class InvoicesController {
     });
   }
 
+  /** Cuánto sería el recargo por mora (para confirmarlo antes de emitirlo). */
+  @RequirePermission('invoices:manage')
+  @Get(':id/late-fee-preview')
+  async lateFeePreview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<LateFeePreviewDto> {
+    return this.invoices.lateFeePreview(user.tenantId, id, user.facilityScope ?? null);
+  }
+
   @RequirePermission('invoices:manage')
   @Post(':id/late-fee')
   @HttpCode(HttpStatus.OK)
@@ -312,6 +332,7 @@ export class InvoicesController {
       facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
+      rejectDuplicate: true,
     });
   }
 
@@ -331,6 +352,7 @@ export class InvoicesController {
       facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
+      rejectDuplicate: true,
     });
   }
 
@@ -361,7 +383,13 @@ export class InvoicesController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ pdfUrl: string }> {
     // Alcance por local: asserta (403/404) antes de generar el PDF de la factura.
-    await this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+    const invoice = await this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+    if (invoice.status === 'draft') {
+      throw new BadRequestException({
+        code: 'invoice_is_draft',
+        message: 'Un borrador no tiene PDF: emítelo primero',
+      });
+    }
     return this.pdf.generate(user.tenantId, id);
   }
 
@@ -371,4 +399,14 @@ export class InvoicesController {
   async runRecurring(@CurrentUser() user: AuthenticatedUser): Promise<{ jobId: string }> {
     return this.billingJobs.enqueueForTenant(user.tenantId);
   }
+}
+
+/** Estado de la lista: uno que no existe es un 400 legible, no un 500. */
+function parseStatus(status: string | undefined) {
+  if (!status) return undefined;
+  const parsed = InvoiceStatusEnum.safeParse(status);
+  if (!parsed.success) {
+    throw new BadRequestException({ code: 'invalid_status', message: 'Estado no válido' });
+  }
+  return parsed.data;
 }

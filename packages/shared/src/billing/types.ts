@@ -82,6 +82,8 @@ export interface InvoiceDto {
   bundledWithInvoiceId: string | null;
   rectifiesInvoiceId: string | null;
   rectifiesInvoiceNumber: string | null;
+  /** Fecha de emisión de la factura que rectifica. */
+  rectifiesInvoiceDate: string | null;
   /** Rectificativas emitidas sobre esta factura (p. ej. la de abono al anularla). */
   rectifiedBy: {
     id: string;
@@ -113,7 +115,10 @@ export interface InvoiceDto {
   withholdingAmount: number;
   /** Total a pagar = total − retención. */
   amountDue: number;
+  /** Lo que falta por pagar; 0 si la factura no se está cobrando (borrador, anulada…). */
   amountPending: number;
+  /** Parte saldada con un abono (no es dinero cobrado). */
+  amountCompensated: number;
   currency: string;
   /**
    * El PDF NO viaja aquí como URL permanente (bucket privado, sin firmar):
@@ -387,7 +392,22 @@ export interface RedsysRedirectDto {
 /** Resultado de una acción en lote sobre facturas: cuáles fueron OK y cuáles no. */
 export interface BulkInvoiceActionResultDto {
   succeeded: string[];
-  failed: { id: string; error: string }[];
+  /** Cobros que han empezado y se confirman más tarde (adeudo SEPA). */
+  processing?: string[];
+  failed: {
+    id: string;
+    error: string;
+    /** Por qué no se ha podido, para enseñarlo tal cual. */
+    message?: string;
+    invoiceNumber?: string | null;
+  }[];
+}
+
+/** `GET /invoices/:id/late-fee-preview`. */
+export interface LateFeePreviewDto {
+  amount: number;
+  type: 'percentage' | 'fixed';
+  value: number;
 }
 
 /** Oferta activa de un trastero concreto. */

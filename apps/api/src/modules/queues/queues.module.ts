@@ -44,6 +44,8 @@ export {
  * worker para garantizar consistencia.
  */
 export const JOB_BILLING_GENERATE_RECURRING = 'generate-recurring';
+/** PDF de una factura emitida (lo genera el worker). */
+export const JOB_BILLING_INVOICE_PDF = 'invoice-pdf';
 export const JOB_DUNNING_PROCESS_INVOICE = 'process-invoice';
 export const JOB_DUNNING_EXECUTE_ACTION = 'execute-action';
 export const JOB_PAYMENTS_SYNC = 'sync';

@@ -133,6 +133,29 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     trigger: 'invoice_overdue',
   },
   {
+    code: 'invoice_due_reminder_email',
+    kind: 'transactional',
+    channel: 'email',
+    name: 'Recordatorio de factura por vencer',
+    subject: 'Recordatorio: factura {{invoice.number}}',
+    bodyText:
+      'Hola {{customer.firstName}},\n\nTe recordamos que la factura {{invoice.number}}, de {{invoice.amountPending}}, vence el {{invoice.dueDate}}. Puedes pagarla desde tu área de clientes:\n\n{{portal.url}}\n\nSi ya la has pagado, ignora este mensaje.\n\nUn saludo,\nEl equipo de {{tenant.name}}',
+    bodyHtml: wrapHtml(
+      'Factura por vencer',
+      '<p>Hola {{customer.firstName}},</p><p>Te recordamos que la factura <strong>{{invoice.number}}</strong>, de <strong>{{invoice.amountPending}}</strong>, vence el {{invoice.dueDate}}. Puedes pagarla desde tu área de clientes.</p><p><a href="{{portal.url}}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">Pagar ahora</a></p><p>Si ya la has pagado, ignora este mensaje.</p>',
+    ),
+    locale: 'es-ES',
+    variables: [
+      'customer.firstName',
+      'invoice.number',
+      'invoice.amountPending',
+      'invoice.dueDate',
+      'portal.url',
+      'tenant.name',
+    ],
+    trigger: 'invoice_overdue',
+  },
+  {
     code: 'invoice_overdue_final_email',
     kind: 'transactional',
     channel: 'email',

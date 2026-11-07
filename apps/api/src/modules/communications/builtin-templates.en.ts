@@ -60,6 +60,15 @@ export const BUILTIN_TEMPLATES_EN: Record<string, BuiltinTemplateTranslation> = 
       `<p>Hello {{customer.firstName}},</p><p>Invoice <strong>{{invoice.number}}</strong> was due on {{invoice.dueDate}} and <strong>{{invoice.amountPending}}</strong> is still outstanding. It may have slipped your mind: you can pay it now from your customer area.</p><p><a href="{{portal.url}}" ${BTN}>Pay now</a></p><p>If you have already paid it, please ignore this message.</p>`,
     ),
   },
+  invoice_due_reminder_email: {
+    subject: 'Reminder: invoice {{invoice.number}}',
+    bodyText:
+      'Hello {{customer.firstName}},\n\nThis is a reminder that invoice {{invoice.number}}, for {{invoice.amountPending}}, is due on {{invoice.dueDate}}. You can pay it from your customer area:\n\n{{portal.url}}\n\nIf you have already paid it, please ignore this message.\n\nKind regards,\nThe {{tenant.name}} team',
+    bodyHtml: wrapHtml(
+      'Invoice due soon',
+      `<p>Hello {{customer.firstName}},</p><p>This is a reminder that invoice <strong>{{invoice.number}}</strong>, for <strong>{{invoice.amountPending}}</strong>, is due on {{invoice.dueDate}}. You can pay it from your customer area.</p><p><a href="{{portal.url}}" ${BTN}>Pay now</a></p><p>If you have already paid it, please ignore this message.</p>`,
+    ),
+  },
   invoice_overdue_final_email: {
     subject: 'Second notice: invoice {{invoice.number}} is unpaid',
     bodyText:

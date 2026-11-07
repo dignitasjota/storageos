@@ -933,6 +933,10 @@ Mejoras (PR B): lista con inquilino, cuota, deuda y días libre, columnas a eleg
 
 **Pendiente**: enseñar fotos y características en la web y el área de clientes.
 
+### Facturas del panel del tenant: revisión (2026-11-07)
+
+Arreglos (PR A): emitir exige los datos fiscales del emisor; el doble clic ya no cobra ni devuelve dos veces; una rectificativa ya no se bloquea con la cadena Veri\*Factu; anular devuelve el mes gratis, la señal y la recompensa de referido y anula el recargo sin cobrar; el recargo solo sobre vencidas; una factura a 0 € queda pagada; plazo de pago por negocio (15 días desde la emisión, antes desde el fin del mes); cambiar el vencimiento con motivo; alcance por local y por inquilino al crear y al consultar la AEAT; PDF sin estado de cobro y generado al emitir; devoluciones con constancia (`invoice_refunds`) y las del TPV registradas a mano; recordatorio «vence pronto» y uno al día como mucho; ficha y lista con errores visibles, «Borrador» en vez del número provisional, botones según el caso, cobrado real y rectificar con líneas. Sigue la PR B (mejoras).
+
 ### Corte de acceso por impago (2026-11-07)
 
 El escalado nunca cortaba el acceso (inyección `@Optional() … | null`) aunque lo daba por hecho. Se aplica de verdad, con resultado real por acción (`accessBlocked`), reintento si falla, vuelta del acceso al anular o sustituir la factura y lista en Deudores para decidir con quienes ya constaban como cortados.
