@@ -1265,6 +1265,10 @@ Modulo `apps/api/src/modules/access/`.
 | POST   | `/access/customers/:id/suspend`          | SI               | owner, manager | Corta todo. `{reason}` → `{changed}`                                                           |
 | POST   | `/access/customers/:id/resume`           | SI               | owner, manager | Reactiva todo, también lo cortado por impago → `{changed}`                                     |
 | POST   | `/access/customers/:id/resend`           | SI               | owner, manager | Reenvía su PIN por correo → `{sentTo}`. 400 `customer_without_email`, `no_code_to_resend`      |
+| GET    | `/access/debt-cuts?facilityId=`          | SI               | owner, manager | Deudores a los que el corte no llegó a aplicarse (`AccessCutPendingDto`)                       |
+| POST   | `/access/debt-cuts/:customerId/cut`      | SI               | owner, manager | Corta su acceso → `{suspended}`. 404 `nothing_to_cut`, 409 `access_cut_disabled`               |
+| POST   | `/access/debt-cuts/:customerId/skip`     | SI               | owner, manager | No se le corta: sale de la lista (204)                                                         |
+| POST   | `/access/debt-cuts/cut-all?facilityId=`  | SI               | owner, manager | Corta a todos los de la lista → `{customers, suspended}`                                       |
 | GET    | `/access/temporary`                      | SI               | cualquiera     | Accesos temporales (sin inquilino)                                                             |
 | POST   | `/access/temporary`                      | SI               | owner, manager | Crea uno: titular, locales, `validFrom?`, `expiresAt` obligatorio                              |
 | GET    | `/access/logs/:id/camera`                | SI               | cualquiera     | Foto de cámara más cercana (±2 min), o null. Solo con la función `cameras`                     |

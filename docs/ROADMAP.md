@@ -933,6 +933,10 @@ Mejoras (PR B): lista con inquilino, cuota, deuda y días libre, columnas a eleg
 
 **Pendiente**: enseñar fotos y características en la web y el área de clientes.
 
+### Corte de acceso por impago (2026-11-07)
+
+El escalado nunca cortaba el acceso (inyección `@Optional() … | null`) aunque lo daba por hecho. Se aplica de verdad, con resultado real por acción (`accessBlocked`), reintento si falla, vuelta del acceso al anular o sustituir la factura y lista en Deudores para decidir con quienes ya constaban como cortados.
+
 ### Locales del panel del tenant: revisión (2026-11-06)
 
 Arreglos (PR A): borrar un local dice qué falta (borradores, reservas, traslados, lista de espera), avisa de lo que se apaga y de quién se queda sin locales, y un local borrado deja de generar tareas y gastos y de abrir puertas. Quien solo ve unos locales ve el que crea, al momento. Las cifras de cada local son las del Resumen y el dinero se oculta sin permiso. El plano ya no mezcla plantas ni pierde cambios en silencio. Dirección pública sin cambios ocultos, nombres sin repetir, errores que dicen qué campo falla y botones según permiso.
