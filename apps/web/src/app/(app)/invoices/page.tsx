@@ -47,6 +47,7 @@ import {
   useBulkRemindInvoices,
   useCreateInvoice,
 } from '@/lib/billing/hooks';
+import { invoiceNumberLabel, isNumbered } from '@/lib/billing/labels';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
@@ -88,11 +89,6 @@ const EMPTY_LINE: NewInvoiceDraftItem = {
 function lineTotal(it: { quantity: number; unitPrice: number; taxRate: number }): number {
   const base = Math.round(it.quantity * it.unitPrice * 100);
   return (base + Math.round((base * it.taxRate) / 100)) / 100;
-}
-
-/** «Borrador» en vez del número provisional, que no significa nada. */
-function invoiceLabel(i: InvoiceDto): string {
-  return i.status === 'draft' ? 'Borrador' : i.invoiceNumber;
 }
 
 export default function InvoicesPage() {
@@ -258,7 +254,7 @@ export default function InvoicesPage() {
         return (
           <Checkbox
             checked={selectedIds.has(i.id)}
-            aria-label={`Seleccionar ${invoiceLabel(i)} de ${i.customerName ?? 'cliente sin identificar'}`}
+            aria-label={`Seleccionar ${invoiceNumberLabel(i)} de ${i.customerName ?? 'cliente sin identificar'}`}
             onCheckedChange={() => toggleRow(i.id)}
           />
         );
@@ -274,12 +270,12 @@ export default function InvoicesPage() {
             <Link
               href={`/invoices/${i.id}`}
               className={
-                i.status === 'draft'
-                  ? 'text-xs italic text-muted-foreground hover:underline'
-                  : 'font-mono text-xs hover:underline'
+                isNumbered(i)
+                  ? 'font-mono text-xs hover:underline'
+                  : 'text-xs italic text-muted-foreground hover:underline'
               }
             >
-              {invoiceLabel(i)}
+              {invoiceNumberLabel(i)}
             </Link>
             {i.kind === 'deposit_receipt' && (
               <Badge variant="outline" title="Justificante de fianza: no es una factura">
@@ -309,8 +305,7 @@ export default function InvoicesPage() {
       accessorKey: 'issueDate',
       header: 'Emitida',
       meta: { mobileHidden: true },
-      cell: ({ row }) =>
-        row.original.status === 'draft' ? '—' : formatDate(row.original.issueDate),
+      cell: ({ row }) => (isNumbered(row.original) ? formatDate(row.original.issueDate) : '—'),
     },
     {
       accessorKey: 'dueDate',
@@ -398,13 +393,13 @@ export default function InvoicesPage() {
         >
           Solo vencidas
         </Button>
-        {selectable.length > 0 && (
+        {selectable.length > 0 && !allSelected && (
           <Button
             variant="ghost"
             className="md:hidden"
-            onClick={() => setSelectedIds(allSelected ? new Set() : new Set(selectable))}
+            onClick={() => setSelectedIds(new Set(selectable))}
           >
-            {allSelected ? 'Quitar la selección' : 'Seleccionar todas'}
+            Seleccionar todas
           </Button>
         )}
       </div>

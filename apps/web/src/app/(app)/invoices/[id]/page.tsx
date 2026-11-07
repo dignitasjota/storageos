@@ -69,6 +69,7 @@ import {
   useRefundInvoice,
   useUpdateInvoice,
 } from '@/lib/billing/hooks';
+import { invoiceNumberLabel, isNumbered } from '@/lib/billing/labels';
 import { formatDate, formatEur } from '@/lib/format';
 import { fetchRedsysRedirect, submitRedsysForm, useRedsysSettings } from '@/lib/payments/redsys';
 
@@ -372,7 +373,7 @@ export default function InvoiceDetailPage() {
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="font-mono text-2xl font-semibold tracking-tight">
-                {isDraft ? 'Borrador' : i.invoiceNumber}
+                {invoiceNumberLabel(i)}
               </h1>
               <InvoiceStatusBadge status={i.status} total={i.total} />
               {i.issuedBy === 'holded' && isDraft ? (
@@ -700,15 +701,18 @@ export default function InvoiceDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Fechas</CardTitle>
           </CardHeader>
           <CardContent className="space-y-0.5 text-sm">
-            <p>
-              {isDraft ? 'Creada' : 'Emitida'}: {formatDate(i.issueDate)}
-            </p>
+            {isNumbered(i) ? (
+              <p>Emitida: {formatDate(i.issueDate)}</p>
+            ) : (
+              <p>Creada: {formatDate(i.createdAt)}</p>
+            )}
             {i.dueDate && i.total > 0 && (
               <p className="flex flex-wrap items-center gap-x-2">
                 Vence: {formatDate(i.dueDate)}
                 {canWriteInv && pendingStatus && (
                   <button
                     type="button"
+                    aria-label="Cambiar el vencimiento"
                     className="text-xs text-primary underline-offset-2 hover:underline"
                     onClick={() => {
                       setDueDate(i.dueDate ?? undefined);
@@ -981,7 +985,7 @@ export default function InvoiceDetailPage() {
       <Dialog open={rectifyOpen} onOpenChange={setRectifyOpen}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Rectificar la factura {i.invoiceNumber}</DialogTitle>
+            <DialogTitle className="pr-6">Rectificar la factura {i.invoiceNumber}</DialogTitle>
             <DialogDescription>
               Se crea una factura rectificativa en borrador. Al emitirla se envía a la AEAT.
             </DialogDescription>
