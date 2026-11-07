@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
+import { accessCutUndecided } from '../../common/access-cut';
 import { customerScopeWhere } from '../../common/customer-scope';
 import {
   type FacilityScope,
@@ -454,7 +455,13 @@ export class CustomerOverviewService {
         const oldest = overdue[0]!;
         const steps = await tx.dunningAction.findMany({
           where: { invoiceId: oldest.id, supersededAt: null },
-          select: { actionType: true, scheduledFor: true, executedAt: true, status: true },
+          select: {
+            actionType: true,
+            scheduledFor: true,
+            executedAt: true,
+            status: true,
+            result: true,
+          },
           orderBy: { scheduledFor: 'asc' },
         });
         const since = oldest.dueDate ?? now;
@@ -470,13 +477,16 @@ export class CustomerOverviewService {
             dueDate: (i.dueDate ?? now).toISOString().slice(0, 10),
             pending: round2(Math.max(0, Number(i.total) - Number(i.amountPaid))),
           })),
-          steps: steps.map((s) => ({
-            type: s.actionType,
-            label: STEP_LABEL[s.actionType] ?? s.actionType,
-            scheduledFor: s.scheduledFor.toISOString(),
-            executedAt: s.executedAt?.toISOString() ?? null,
-            status: s.status,
-          })),
+          // Un corte que no llegó a aplicarse no se enseña como hecho.
+          steps: steps
+            .filter((s) => !accessCutUndecided(s))
+            .map((s) => ({
+              type: s.actionType,
+              label: STEP_LABEL[s.actionType] ?? s.actionType,
+              scheduledFor: s.scheduledFor.toISOString(),
+              executedAt: s.executedAt?.toISOString() ?? null,
+              status: s.status,
+            })),
         };
       }
 

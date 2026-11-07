@@ -49,6 +49,8 @@ export interface CustomerDto {
   portalAccessEnabled: boolean;
   /** Empresas: a dónde van las facturas si no es el email de contacto. */
   billingEmail: string | null;
+  /** Días para pagar sus facturas; null = los del negocio. */
+  invoiceDueDays: number | null;
   activeContracts: number;
   pendingReservations: number;
   createdAt: string;
@@ -172,6 +174,8 @@ export interface ContractDto {
   /** La fianza se cobró de verdad (`depositStatus` solo dice que el contrato la lleva). */
   depositCollected: boolean;
   depositAppliedAmount: number;
+  /** Saldo a favor para su próxima factura (una devolución que se quedó). */
+  creditBalance: number;
   depositReturnMethod: string | null;
   depositReturnedOn: string | null;
   depositReturnReference: string | null;

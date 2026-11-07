@@ -1129,3 +1129,11 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 ### Reservas y lista de espera (`20261224100000_reservations_features`)
 
 `tenants.waitlist_hold_hours` (48), `waitlist_stale_days` (90, 0 = no se pregunta), `reservation_signal_policy` (`refund`|`keep`). `reservations.reminder_sent_at`. `waitlist_entries.queue_date` (orden de la cola), `hold_expires_at`, `no_reply_alerted_at`, `preassigned_unit_id` (FK SET NULL a `units`), `interest_asked_at`, `interest_confirmed_at`, `interest_token_hash` (huella del enlace «¿Sigues buscando?»). `assigned_to_user_id` (FK SET NULL a `users`) en `reservations`, `waitlist_entries`, `unit_change_requests` y `unit_requests`.
+
+### Facturas (`20261231100000_invoices_review`)
+
+`tenants.invoice_due_days` (15): días para pagar una factura desde que se emite. `invoices.consumed_benefits` (jsonb): lo que la factura gastó del contrato (`freeMonth`, `creditCents`, `creditReason`), para devolverlo si se cancela el borrador o se anula la factura. Con RLS: `invoice_refunds`, una fila por devolución (`via`: `gateway`, `bank`, `manual` o `external`, con el pago, el motivo, el id de la pasarela y quién la hizo); FK a `invoices` en cascada y a `payments` y `users` SET NULL.
+
+### Facturas, mejoras (`20270101100000_invoices_features`)
+
+`customers.invoice_due_days` (null = el plazo del negocio, `tenants.invoice_due_days`): días para pagar sus facturas desde que se emiten. `contracts.credit_balance` (DECIMAL, 0): saldo a favor del inquilino, de una devolución hecha «como saldo a favor» (`invoice_refunds.via = 'credit'`); la siguiente factura del contrato lo descuenta al emitirse con un pago `credit_note` y el saldo baja. Con RLS: `invoice_saved_views` (vistas de la lista de facturas del equipo: `name` único por tenant, `filters` jsonb, `created_by_user_id` FK SET NULL). Índice `audit_logs_tenant_entity_idx (tenant_id, entity_type, entity_id)` para el historial de una ficha.

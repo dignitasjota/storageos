@@ -4231,6 +4231,7 @@ export class ContractsService {
       depositPaymentMethod: row.depositPaymentMethod === 'cash' ? 'cash' : 'online',
       depositCollected: row.invoices?.[0]?.status === 'paid',
       depositAppliedAmount: Number(row.depositAppliedAmount),
+      creditBalance: Number(row.creditBalance),
       depositReturnMethod: row.depositReturnMethod,
       depositReturnedOn: row.depositReturnedOn?.toISOString().slice(0, 10) ?? null,
       depositReturnReference: row.depositReturnReference,

@@ -182,13 +182,14 @@ export class BillingJobsService {
       // con [día 1, último día] de la recurrente. Con coincidencia exacta el
       // primer mes se facturaba dos veces (solape sin dedup). `[a,b]` solapa con
       // `[start,end]` sii `a <= end && b >= start`.
+      // También cuenta un borrador cancelado: quien lo cancela no quiere que
+      // vuelva a aparecer solo la noche siguiente (puede crear otra a mano).
       const already = await this.admin.invoice.findFirst({
         where: {
           tenantId,
           contractId: c.id,
           periodStart: { lte: cEnd },
           periodEnd: { gte: cStart },
-          status: { not: 'cancelled' },
           deletedAt: null,
         },
         select: { id: true },
@@ -250,11 +251,8 @@ export class BillingJobsService {
             seriesId: series.id,
             periodStart: cStart.toISOString().slice(0, 10),
             periodEnd: cEnd.toISOString().slice(0, 10),
-            // Prepago semestral/anual: a los 15 días del inicio del periodo (con el
-            // fin del periodo vencía al cabo de un año y no entraba en impagos).
-            dueDate: this.addDays(interval > 1 ? cStart : cEnd, 15)
-              .toISOString()
-              .slice(0, 10),
+            // Sin vencimiento: lo pone la emisión con el plazo del negocio (antes
+            // vencía a los 15 días del FIN del mes: la de noviembre, el 15 de diciembre).
             items: [
               {
                 description: rentDesc,
@@ -288,6 +286,17 @@ export class BillingJobsService {
             verifactuMode: 'verifactu',
           },
           meta: {},
+          // Si se cancela, el mes gratis y la señal vuelven al contrato.
+          ...(isFreeMonth || credit.cents > 0
+            ? {
+                consumedBenefits: {
+                  ...(isFreeMonth ? { freeMonth: true } : {}),
+                  ...(credit.cents > 0
+                    ? { creditCents: credit.cents, creditReason: credit.reason }
+                    : {}),
+                },
+              }
+            : {}),
         });
         await this.referrals.settleRewards(reward.referralIds, draft.id);
         // Emisión automática (opt-in): emite el borrador recién creado. Si el

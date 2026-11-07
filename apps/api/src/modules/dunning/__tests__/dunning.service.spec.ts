@@ -9,6 +9,7 @@ import type { Env } from '../../../config/env.schema';
 import type { AccessIntegrationsService } from '../../access/access-integrations.service';
 import type { AuditService } from '../../auth/audit.service';
 import type { InvoicesService } from '../../billing/invoices.service';
+import type { CollectionsService } from '../../collections/collections.service';
 import type { CommunicationsService } from '../../communications/communications.service';
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { ConfigService } from '@nestjs/config';
@@ -36,7 +37,12 @@ interface AdminMock {
 function buildService(
   admin: AdminMock,
   communications: { enqueue: jest.Mock },
-  deps: { queue?: { add: jest.Mock }; events?: { emit: jest.Mock } } = {},
+  deps: {
+    queue?: { add: jest.Mock };
+    events?: { emit: jest.Mock };
+    access?: { suspendForDunning: jest.Mock };
+    collections?: { openFromDunning: jest.Mock };
+  } = {},
 ) {
   const queue = deps.queue ?? { add: jest.fn() };
   const events = deps.events ?? { emit: jest.fn() };
@@ -50,7 +56,8 @@ function buildService(
     events as unknown as EventEmitter2,
     invoices,
     { get: () => 'http://localhost:3000' } as unknown as ConfigService<Env, true>,
-    null as unknown as AccessIntegrationsService,
+    (deps.access ?? { suspendForDunning: jest.fn() }) as unknown as AccessIntegrationsService,
+    (deps.collections ?? { openFromDunning: jest.fn() }) as unknown as CollectionsService,
   );
 }
 
@@ -75,71 +82,81 @@ function overdueInvoice(overrides: Record<string, unknown> = {}) {
 }
 
 describe('DunningService.executeAction (email_reminder)', () => {
-  it('encola el recordatorio via CommunicationsService y marca la accion executed', async () => {
-    const admin: AdminMock = {
-      dunningAction: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: ACTION_ID,
-          tenantId: TENANT,
-          invoiceId: INVOICE_ID,
-          actionType: 'email_reminder',
-          status: 'scheduled',
-        }),
-        update: jest.fn().mockResolvedValue(undefined),
-      },
-      // Sin plan de pago activo.
-      paymentPlan: { findFirst: jest.fn().mockResolvedValue(null) },
-      // count = 1 → sin cobro en curso.
-      invoice: {
-        count: jest.fn().mockResolvedValue(1),
-        findUnique: jest.fn().mockResolvedValue(overdueInvoice()),
-      },
-      tenant: {
-        findUnique: jest.fn().mockResolvedValue({
-          name: 'Trasteros SL',
-          slug: 'trasteros-sl',
-          customDomain: null,
-          customDomainVerifiedAt: null,
-        }),
-      },
-      automationRule: { count: jest.fn().mockResolvedValue(0) },
-    };
-    const communications = { enqueue: jest.fn().mockResolvedValue(undefined) };
-    const service = buildService(admin, communications);
+  it.each([
+    ['sin otras facturas por recordar', () => jest.fn().mockResolvedValue([])],
+    ['si no se puede agrupar', () => jest.fn().mockRejectedValue(new Error('caído'))],
+  ])(
+    'encola el recordatorio de la factura (%s) y marca la accion executed',
+    async (_, siblings) => {
+      const admin: AdminMock = {
+        dunningAction: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: ACTION_ID,
+            tenantId: TENANT,
+            invoiceId: INVOICE_ID,
+            actionType: 'email_reminder',
+            status: 'scheduled',
+          }),
+          update: jest.fn().mockResolvedValue(undefined),
+          // Otras facturas del inquilino con recordatorio hoy (correo agrupado).
+          findMany: siblings(),
+        },
+        // Sin plan de pago activo.
+        paymentPlan: { findFirst: jest.fn().mockResolvedValue(null) },
+        // count = 1 → sin cobro en curso.
+        invoice: {
+          count: jest.fn().mockResolvedValue(1),
+          findUnique: jest.fn().mockResolvedValue(overdueInvoice()),
+        },
+        tenant: {
+          findUnique: jest.fn().mockResolvedValue({
+            name: 'Trasteros SL',
+            slug: 'trasteros-sl',
+            customDomain: null,
+            customDomainVerifiedAt: null,
+          }),
+        },
+        automationRule: { count: jest.fn().mockResolvedValue(0) },
+      };
+      const communications = { enqueue: jest.fn().mockResolvedValue(undefined) };
+      const service = buildService(admin, communications);
 
-    await service.handleJob(JOB_DUNNING_EXECUTE_ACTION, {
-      tenantId: TENANT,
-      actionId: ACTION_ID,
-    });
+      await service.handleJob(JOB_DUNNING_EXECUTE_ACTION, {
+        tenantId: TENANT,
+        actionId: ACTION_ID,
+      });
 
-    expect(communications.enqueue).toHaveBeenCalledTimes(1);
-    const args = communications.enqueue.mock.calls[0][0];
-    expect(args).toMatchObject({
-      tenantId: TENANT,
-      channel: 'email',
-      recipient: 'cliente@example.com',
-      templateCode: 'invoice_overdue_email',
-      trigger: 'invoice_overdue',
-      customerId: CUSTOMER_ID,
-      source: 'dunning.email_reminder',
-    });
-    // amountPending = total(100) - amountPaid(20) - amountRefunded(0) = 80,00 €
-    expect(args.variables.invoice.amountPending.replace(/\s/g, ' ')).toBe('80,00 €');
-    expect(args.variables.portal.url).toBe('http://localhost:3000/portal/login?slug=trasteros-sl');
-    expect(args.variables.invoice.number).toBe('A-2026-00042');
-    expect(args.variables.customer.displayName).toBe('Ana García');
-    expect(args.variables.tenant.name).toBe('Trasteros SL');
+      expect(communications.enqueue).toHaveBeenCalledTimes(1);
+      const args = communications.enqueue.mock.calls[0][0];
+      expect(args).toMatchObject({
+        tenantId: TENANT,
+        channel: 'email',
+        recipient: 'cliente@example.com',
+        templateCode: 'invoice_overdue_email',
+        trigger: 'invoice_overdue',
+        customerId: CUSTOMER_ID,
+        source: 'dunning.email_reminder',
+      });
+      // amountPending = total(100) - amountPaid(20) - amountRefunded(0) = 80,00 €
+      expect(args.variables.invoice.amountPending.replace(/\s/g, ' ')).toBe('80,00 €');
+      expect(args.variables.portal.url).toBe(
+        'http://localhost:3000/portal/login?slug=trasteros-sl',
+      );
+      expect(args.variables.invoice.number).toBe('A-2026-00042');
+      expect(args.variables.customer.displayName).toBe('Ana García');
+      expect(args.variables.tenant.name).toBe('Trasteros SL');
 
-    expect(admin.dunningAction.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: ACTION_ID },
-        data: expect.objectContaining({
-          status: 'executed',
-          result: expect.objectContaining({ emailEnqueued: true }),
+      expect(admin.dunningAction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: ACTION_ID },
+          data: expect.objectContaining({
+            status: 'executed',
+            result: expect.objectContaining({ emailEnqueued: true }),
+          }),
         }),
-      }),
-    );
-  });
+      );
+    },
+  );
 
   it('no envia email cuando la factura no tiene customer/email (F2) pero marca executed', async () => {
     const admin: AdminMock = {
@@ -292,5 +309,78 @@ describe('DunningService.dailyTick (marcar overdue)', () => {
     expect(admin.invoice.updateMany).not.toHaveBeenCalled();
     expect(queue.add).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('DunningService.executeAction (access_block)', () => {
+  function adminFor(status: string) {
+    const admin: AdminMock = {
+      dunningAction: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: ACTION_ID,
+          tenantId: TENANT,
+          invoiceId: INVOICE_ID,
+          actionType: 'access_block',
+          status,
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      },
+      paymentPlan: { findFirst: jest.fn().mockResolvedValue(null) },
+      invoice: {
+        count: jest.fn().mockResolvedValue(1),
+        findUnique: jest.fn().mockResolvedValue(overdueInvoice()),
+      },
+      tenant: { findUnique: jest.fn() },
+    };
+    return admin;
+  }
+  const run = (service: DunningService) =>
+    service.handleJob(JOB_DUNNING_EXECUTE_ACTION, { tenantId: TENANT, actionId: ACTION_ID });
+
+  it('apunta que el acceso se ha cortado', async () => {
+    const admin = adminFor('scheduled');
+    const access = {
+      suspendForDunning: jest.fn().mockResolvedValue({ applied: true, suspended: 2 }),
+    };
+    await run(buildService(admin, { enqueue: jest.fn() }, { access }));
+    expect(access.suspendForDunning).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      customerId: CUSTOMER_ID,
+      invoiceId: INVOICE_ID,
+    });
+    expect(admin.dunningAction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'executed',
+          result: expect.objectContaining({ accessBlocked: true, suspended: 2 }),
+        }),
+      }),
+    );
+  });
+
+  it('con la política de no cortar no dice que lo ha cortado', async () => {
+    const admin = adminFor('scheduled');
+    const access = {
+      suspendForDunning: jest.fn().mockResolvedValue({ applied: false, skipped: 'mode_none' }),
+    };
+    await run(buildService(admin, { enqueue: jest.fn() }, { access }));
+    expect(admin.dunningAction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'executed',
+          result: expect.objectContaining({ accessBlocked: false, accessCutSkipped: 'mode_none' }),
+        }),
+      }),
+    );
+  });
+
+  it('si el corte falla sigue programado para reintentarlo', async () => {
+    const admin = adminFor('scheduled');
+    const access = { suspendForDunning: jest.fn().mockRejectedValue(new Error('terminal caído')) };
+    await run(buildService(admin, { enqueue: jest.fn() }, { access }));
+    expect(admin.dunningAction.update).toHaveBeenCalledTimes(1);
+    const update = admin.dunningAction.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(update.data.status).toBeUndefined();
+    expect(update.data.notes).toContain('terminal caído');
   });
 });

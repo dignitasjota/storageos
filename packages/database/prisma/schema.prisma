@@ -390,6 +390,8 @@ model Tenant {
   lateFeeType                  String                @default("percentage") @map("late_fee_type")
   lateFeeValue                 Decimal               @default(5) @map("late_fee_value") @db.Decimal(10, 2)
   lateFeeGraceDays             Int                   @default(7) @map("late_fee_grace_days")
+  /// Días de plazo para pagar una factura, contados desde que se emite.
+  invoiceDueDays               Int                   @default(15) @map("invoice_due_days")
   /// Primer pago mensual: a partir de este día del mes, la primera factura
   /// incluye también el mes siguiente completo. Null = desactivado.
   firstPaymentNextMonthFromDay Int?                  @default(20) @map("first_payment_next_month_from_day")
@@ -564,6 +566,7 @@ model Tenant {
   invoiceSeries           InvoiceSeries[]
   invoices                Invoice[]
   invoiceItems            InvoiceItem[]
+  invoiceRefunds          InvoiceRefund[]
   payments                Payment[]
   paymentMethods          PaymentMethod[]
   dunningActions          DunningAction[]
@@ -682,6 +685,7 @@ model Tenant {
   unitPriceHistory           UnitPriceHistory[]
   unitTenancies              UnitTenancy[]
   unitSavedViews             UnitSavedView[]
+  invoiceSavedViews          InvoiceSavedView[]
   facilitySlugRedirects      FacilitySlugRedirect[]
   owners                         Owner[]
   ownerStatements                OwnerStatement[]
@@ -792,6 +796,7 @@ model User {
   waitlistAssigned         WaitlistEntry[]           @relation("WaitlistAssignedTo")
   unitChangesAssigned      UnitChangeRequest[]       @relation("UnitChangeAssignedTo")
   unitRequestsAssigned     UnitRequest[]             @relation("UnitRequestAssignedTo")
+  invoiceRefundsCreated    InvoiceRefund[]           @relation("InvoiceRefundCreatedBy")
   incidentsReported        Incident[]                @relation("IncidentReportedBy")
   incidentCommentsAuthored IncidentComment[]         @relation("IncidentCommentAuthor")
   productSalesMade         ProductSale[]             @relation("ProductSaleSoldBy")
@@ -841,6 +846,7 @@ model User {
   documentRequestsMade     CustomerDocumentRequest[] @relation("DocumentRequestedBy")
   customerViewsCreated     CustomerSavedView[]       @relation("CustomerViewCreatedBy")
   unitViewsCreated         UnitSavedView[]           @relation("UnitViewCreatedBy")
+  invoiceViewsCreated      InvoiceSavedView[]        @relation("InvoiceViewCreatedBy")
   createdBusinessReminders   BusinessReminder[]           @relation("BusinessReminderCreatedBy")
   completedBusinessReminders BusinessReminderCompletion[] @relation("BusinessReminderCompletedBy")
   /// Baja de los anuncios comerciales de TrasterOS.
@@ -1037,6 +1043,7 @@ model AuditLog {
   user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([tenantId, entityType, entityId], map: "audit_logs_tenant_entity_idx")
   @@map("audit_logs")
 }
 
@@ -1390,6 +1397,22 @@ model UnitSavedView {
   @@map("unit_saved_views")
 }
 
+/// Vistas guardadas de la lista de facturas, compartidas por el equipo.
+model InvoiceSavedView {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  name            String
+  filters         Json
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("InvoiceViewCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, name])
+  @@map("invoice_saved_views")
+}
+
 /// Cada tramo de un contrato en un trastero: un traslado cierra uno y abre otro.
 /// La mantiene un disparador sobre `contracts` (`contracts_sync_unit_tenancy`).
 model UnitTenancy {
@@ -1486,6 +1509,8 @@ model Customer {
   mergedIntoCustomerId  String?      @map("merged_into_customer_id") @db.Uuid
   /// Empresas: a dónde van las facturas si no es el email de contacto.
   billingEmail          String?      @map("billing_email")
+  /// Días para pagar sus facturas; null = los del negocio (`tenants.invoice_due_days`).
+  invoiceDueDays        Int?         @map("invoice_due_days")
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1686,6 +1711,9 @@ model Contract {
   /// Descuento pendiente (p. ej. la señal de la reserva): se resta una vez del alquiler.
   pendingCreditAmount Decimal @default(0) @map("pending_credit_amount") @db.Decimal(12, 2)
   pendingCreditReason String? @map("pending_credit_reason")
+  /// Saldo a favor del inquilino (una devolución que se quedó para la próxima
+  /// factura): al emitir la siguiente factura del contrato la paga en parte.
+  creditBalance       Decimal @default(0) @map("credit_balance") @db.Decimal(12, 2)
   depositAmount          Decimal               @default(0) @map("deposit_amount") @db.Decimal(10, 2)
   depositStatus          ContractDepositStatus @default(none) @map("deposit_status")
   /// Liquidación de la fianza al finalizar: importe devuelto + fecha + motivo de
@@ -2152,6 +2180,8 @@ model Invoice {
   currency            String            @default("EUR") @db.Char(3)
   pdfUrl              String?           @map("pdf_url")
   notes               String?
+  /// Lo que gastó al crearse (mes gratis, señal): vuelve al contrato si se cancela.
+  consumedBenefits    Json?             @map("consumed_benefits")
   /// --- Verifactu ---
   hash                String?
   previousHash        String?           @map("previous_hash")
@@ -2188,6 +2218,7 @@ model Invoice {
   series             InvoiceSeries              @relation(fields: [seriesId], references: [id], onDelete: Restrict)
   items              InvoiceItem[]
   payments           Payment[]
+  refunds            InvoiceRefund[]
   dunningActions     DunningAction[]
   productSale        ProductSale?               @relation("ProductSaleInvoice")
   redsysOrders       RedsysOrder[]
@@ -2258,6 +2289,30 @@ model InvoiceItem {
   @@map("invoice_items")
 }
 
+/// Cada devolución de una factura: cómo se hizo y quién la registró.
+model InvoiceRefund {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  invoiceId       String    @map("invoice_id") @db.Uuid
+  paymentId       String?   @map("payment_id") @db.Uuid
+  amount          Decimal   @db.Decimal(12, 2)
+  /// gateway | bank | manual | external
+  via             String
+  reason          String?
+  gatewayRefundId String?   @map("gateway_refund_id")
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdBy User?    @relation("InvoiceRefundCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId, createdAt(sort: Desc)])
+  @@index([tenantId])
+  @@map("invoice_refunds")
+}
+
 /// Pago. Puede asociarse a una invoice o ser standalone (p.ej. fianza
 /// inicial sin factura). Sincronizado con el gateway via webhook.
 model Payment {
@@ -2298,6 +2353,7 @@ model Payment {
   customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
   bankTransactions BankStatementTransaction[]
+  refunds       InvoiceRefund[]
 
   @@index([tenantId])
   @@index([invoiceId])

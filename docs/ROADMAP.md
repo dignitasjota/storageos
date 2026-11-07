@@ -933,6 +933,16 @@ Mejoras (PR B): lista con inquilino, cuota, deuda y días libre, columnas a eleg
 
 **Pendiente**: enseñar fotos y características en la web y el área de clientes.
 
+### Facturas del panel del tenant: revisión (2026-11-07)
+
+Arreglos (PR A): emitir exige los datos fiscales del emisor; el doble clic ya no cobra ni devuelve dos veces; una rectificativa ya no se bloquea con la cadena Veri\*Factu; anular devuelve el mes gratis, la señal y la recompensa de referido y anula el recargo sin cobrar; el recargo solo sobre vencidas; una factura a 0 € queda pagada; plazo de pago por negocio (15 días desde la emisión, antes desde el fin del mes); cambiar el vencimiento con motivo; alcance por local y por inquilino al crear y al consultar la AEAT; PDF sin estado de cobro y generado al emitir; devoluciones con constancia (`invoice_refunds`) y las del TPV registradas a mano; recordatorio «vence pronto» y uno al día como mucho; ficha y lista con errores visibles, «Borrador» en vez del número provisional, botones según el caso, cobrado real y rectificar con líneas.
+
+Mejoras (PR B): PDF con logo, forma de pago y sello «PAGADA», y enlace de descarga sin sesión en los correos; ficha con la actividad de la factura (cobros, devoluciones, avisos, escalado e historial); deshacer o corregir un cobro registrado a mano; editar el borrador y duplicar; nueva factura con contrato, periodo, vencimiento, notas y catálogo; lista con fechas, tipo, forma de pago, orden, totales, CSV y vistas del equipo; estado real del cobro a la vista; enviar la factura por correo y ver si llegó; cierre del mes guiado; anular y rectificar diciendo lo que pasará; devoluciones según cómo se cobró y como saldo a favor; prórroga rápida, plazo de pago por inquilino y un solo recordatorio por inquilino. **Pendiente**: deshacer un cierre de caja (hoy un cobro en efectivo de un día cerrado no se puede tocar) y una página amable cuando el enlace de descarga ya no vale.
+
+### Corte de acceso por impago (2026-11-07)
+
+El escalado nunca cortaba el acceso (inyección `@Optional() … | null`) aunque lo daba por hecho. Se aplica de verdad, con resultado real por acción (`accessBlocked`), reintento si falla, vuelta del acceso al anular o sustituir la factura y lista en Deudores para decidir con quienes ya constaban como cortados.
+
 ### Locales del panel del tenant: revisión (2026-11-06)
 
 Arreglos (PR A): borrar un local dice qué falta (borradores, reservas, traslados, lista de espera), avisa de lo que se apaga y de quién se queda sin locales, y un local borrado deja de generar tareas y gastos y de abrir puertas. Quien solo ve unos locales ve el que crea, al momento. Las cifras de cada local son las del Resumen y el dinero se oculta sin permiso. El plano ya no mezcla plantas ni pierde cambios en silencio. Dirección pública sin cambios ocultos, nombres sin repetir, errores que dicen qué campo falla y botones según permiso.

@@ -10,6 +10,7 @@ import {
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { accessWindowsFrom } from '@storageos/shared';
 
+import { ACCESS_CUT_APPLIED_WHERE } from '../../common/access-cut';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone, zonedDayStart, zonedNextDayStart } from '../../common/format';
@@ -162,9 +163,7 @@ export class AccessCredentialsService {
         }),
         tx.dunningAction.count({
           where: {
-            actionType: 'access_block',
-            status: 'executed',
-            supersededAt: null,
+            ...ACCESS_CUT_APPLIED_WHERE,
             invoice: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
           },
         }),
@@ -739,6 +738,8 @@ export class AccessCredentialsService {
      * contexto de usuario, así que nunca llega con `facilityScope`.
      */
     facilityScope?: string[] | null;
+    /** Path automático: si no hay nada que suspender no es un error. */
+    allowNone?: boolean;
   }): Promise<AccessCredentialDto[]> {
     if (!args.id && !args.customerId) {
       throw new ConflictException({
@@ -778,6 +779,7 @@ export class AccessCredentialsService {
     }, args.tenantId);
 
     if (rows.length === 0) {
+      if (args.allowNone) return [];
       throw new NotFoundException({
         code: 'credential_not_found',
         message: 'No se encontraron credenciales para suspender',
@@ -862,7 +864,33 @@ export class AccessCredentialsService {
       await this.writeAudit('access.credential_resumed', args, r.id);
       await this.sync.applyState(args.tenantId, r.id, 'active');
     }
+    // Reactivado a mano: si no queda nada cortado por impago, el corte deja de
+    // contar aunque la deuda siga (si no, se le seguiría dando por cortado).
+    if (!filtered) {
+      const customers = new Set(rows.map((r) => r.customerId).filter((c) => c !== null));
+      for (const customerId of customers) await this.clearDebtCut(args.tenantId, customerId);
+    }
     return rows.map((r) => this.toDto(r));
+  }
+
+  private async clearDebtCut(tenantId: string, customerId: string): Promise<void> {
+    await this.prisma.withTenant(async (tx) => {
+      const stillCut = await tx.accessCredential.count({
+        where: {
+          customerId,
+          status: 'suspended' as AccessCredentialStatus,
+          suspendReason: { startsWith: 'dunning:' },
+        },
+      });
+      if (stillCut > 0) return;
+      await tx.dunningAction.updateMany({
+        where: {
+          ...ACCESS_CUT_APPLIED_WHERE,
+          invoice: { customerId, status: { in: ['issued', 'overdue'] } },
+        },
+        data: { supersededAt: new Date(), notes: 'Acceso reactivado a mano' },
+      });
+    }, tenantId);
   }
 
   async revoke(args: {
@@ -935,9 +963,7 @@ export class AccessCredentialsService {
       const [actions, lastAllowed, lastDenied, recent] = await Promise.all([
         tx.dunningAction.findMany({
           where: {
-            actionType: 'access_block',
-            status: 'executed',
-            supersededAt: null,
+            ...ACCESS_CUT_APPLIED_WHERE,
             invoice: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
           },
           select: {
@@ -1022,7 +1048,7 @@ export class AccessCredentialsService {
   }
 
   /** Con la política «solo los adicionales», el acceso principal sigue abriendo. */
-  async suspendExtras(tenantId: string, customerId: string, reason: string): Promise<void> {
+  async suspendExtras(tenantId: string, customerId: string, reason: string): Promise<number> {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.accessCredential.findMany({
@@ -1040,6 +1066,38 @@ export class AccessCredentialsService {
     for (const row of rows) {
       await this.suspend({ tenantId, userId: null, id: row.id, input: { reason }, meta: {} });
     }
+    return rows.length;
+  }
+
+  /** Cuántas credenciales cortaría a cada inquilino la política del negocio. */
+  async cuttableByCustomer(
+    tenantId: string,
+    customerIds: string[],
+    extrasOnly: boolean,
+  ): Promise<Map<string, number>> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findMany({
+          where: {
+            customerId: { in: customerIds },
+            status: 'active' as AccessCredentialStatus,
+            ...(extrasOnly
+              ? {
+                  OR: EXTRA_SOURCES.map((source) => ({
+                    metadata: { path: ['source'], equals: source },
+                  })),
+                }
+              : {}),
+          },
+          select: { customerId: true },
+        }),
+      tenantId,
+    );
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      if (r.customerId) counts.set(r.customerId, (counts.get(r.customerId) ?? 0) + 1);
+    }
+    return counts;
   }
 
   async assertCustomerAllowed(

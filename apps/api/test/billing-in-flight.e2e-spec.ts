@@ -169,6 +169,7 @@ describe('Cobros en curso frente a impagos (e2e)', () => {
           status: 'executed',
           scheduledFor: new Date(),
           executedAt: new Date(),
+          result: { accessBlocked: true },
         },
       });
     }
@@ -214,6 +215,11 @@ describe('Cobros en curso frente a impagos (e2e)', () => {
       .set(auth)
       .send({ amount: 21, methodType: 'cash' })
       .expect(200);
+    // Solo lleva recargo una factura vencida.
+    await admin.invoice.update({
+      where: { id: invoiceId },
+      data: { status: 'overdue', dueDate: new Date(Date.now() - 10 * 86_400_000) },
+    });
     const fee = await request(app.getHttpServer())
       .post(`/invoices/${invoiceId}/late-fee`)
       .set(auth)

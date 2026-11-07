@@ -1,5 +1,6 @@
 import request from 'supertest';
 
+import { InvoicesService } from '../src/modules/billing/invoices.service';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -25,6 +26,7 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
   let app: INestApplication;
   let admin: PrismaAdminService;
   let token: string;
+  let tenantId: string;
   let customerId: string;
   let mandateId: string;
 
@@ -57,6 +59,7 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'sepasafe');
     await setTenantPlan(owner.slug, 'pro');
     token = owner.accessToken;
+    tenantId = owner.tenantId;
     await ensureDefaultSeries(app, token);
     await http()
       .put('/sepa/settings')
@@ -125,18 +128,21 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
       where: { id: its.find((i) => i.invoiceId === a)!.itemId },
     });
 
-    // Se cortó después de cobrar la factura A y antes de marcar su adeudo.
-    await http()
-      .post(`/invoices/${a}/mark-paid`)
-      .set(auth())
-      .send({
+    // Se cortó después de cobrar la factura A y antes de marcar su adeudo (como
+    // lo hace la confirmación por dentro: estas marcas no llegan desde fuera).
+    await app.get(InvoicesService).markPaidManually({
+      tenantId,
+      userId: null,
+      invoiceId: a,
+      input: {
         amount: 121,
         methodType: 'sepa_debit',
         notes: `Remesa SEPA x · ${itemA.endToEndId}`,
         overridePaymentInFlight: true,
         allowInSepaRemittance: true,
-      })
-      .expect(200);
+      },
+      meta: {},
+    });
     await admin.sepaRemittance.update({
       where: { id: rem },
       data: { status: 'confirmed', confirmedAt: new Date() },

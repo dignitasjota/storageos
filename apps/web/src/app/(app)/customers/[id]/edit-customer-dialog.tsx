@@ -74,6 +74,10 @@ export function EditCustomerDialog({
   );
   const [country, setCountry] = useState(c.country);
   const [tags, setTags] = useState(c.tags.join(', '));
+  const initialDueDays = c.invoiceDueDays == null ? '' : String(c.invoiceDueDays);
+  const [dueDays, setDueDays] = useState(initialDueDays);
+  const dueDaysValid =
+    dueDays.trim() === '' || (/^\d{1,3}$/.test(dueDays.trim()) && Number(dueDays) <= 120);
   const set = (k: TextField, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const business = c.customerType === 'business';
   const named = business
@@ -89,6 +93,9 @@ export function EditCustomerDialog({
       .map((t) => t.trim())
       .filter(Boolean);
     if (nextTags.join('|') !== c.tags.join('|')) input.tags = nextTags;
+    if (dueDays.trim() !== initialDueDays) {
+      input.invoiceDueDays = dueDays.trim() === '' ? null : Number(dueDays);
+    }
     if (Object.keys(input).length === 0) return onClose();
     try {
       await update.mutateAsync({ id: c.id, input: input as UpdateCustomerInput });
@@ -150,6 +157,22 @@ export function EditCustomerDialog({
             {field('phone', 'Teléfono', 'tel')}
           </div>
           {business && field('billingEmail', 'Email de facturación (si es otro)', 'email')}
+          <div className="space-y-1">
+            <Label htmlFor="edit-due-days">Días para pagar sus facturas</Label>
+            <Input
+              id="edit-due-days"
+              inputMode="numeric"
+              placeholder="Los del negocio"
+              className="sm:max-w-[180px]"
+              value={dueDays}
+              onChange={(e) => setDueDays(e.target.value.replace(/[^\d]/g, '').slice(0, 3))}
+            />
+            <p className="text-xs text-muted-foreground">
+              {dueDaysValid
+                ? 'Vacío: el plazo de pago del negocio. Vale para las facturas que se emitan a partir de ahora.'
+                : 'Entre 0 y 120 días.'}
+            </p>
+          </div>
           {field('address', 'Dirección')}
           <div className="grid gap-3 sm:grid-cols-3">
             {field('postalCode', 'Código postal')}
@@ -194,7 +217,7 @@ export function EditCustomerDialog({
           </Button>
           <Button
             onClick={() => void save()}
-            disabled={!named || country.length !== 2 || update.isPending}
+            disabled={!named || country.length !== 2 || !dueDaysValid || update.isPending}
           >
             Guardar
           </Button>

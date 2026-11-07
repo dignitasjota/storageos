@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -20,6 +21,7 @@ import {
   CreateInvoiceSchema,
   type InvoiceDto,
   InvoiceStatusEnum,
+  type LateFeePreviewDto,
   LinkHoldedCreditNoteSchema,
   MarkPaidManuallySchema,
   RectifyInvoiceSchema,
@@ -34,10 +36,12 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
-import { parsePageRequest, toPage } from '../../common/pagination';
+import { assertUuid, parsePageRequest, toPage } from '../../common/pagination';
 
 import { BillingJobsService } from './billing-jobs.service';
+import { type InvoiceListQuery, parseInvoiceListQuery } from './invoice-list-query';
 import { InvoicePdfService } from './invoice-pdf.service';
+import { InvoiceToolsService } from './invoice-tools.service';
 import { InvoicesService } from './invoices.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -71,6 +75,7 @@ export class InvoicesController {
     private readonly invoices: InvoicesService,
     private readonly pdf: InvoicePdfService,
     private readonly billingJobs: BillingJobsService,
+    private readonly tools: InvoiceToolsService,
   ) {}
 
   /** Página de la lista (cursor + búsqueda) para el panel. Antes de `:id`. */
@@ -78,28 +83,17 @@ export class InvoicesController {
   @Get('page')
   async page(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('status') status?: string,
-    @Query('customerId') customerId?: string,
-    @Query('contractId') contractId?: string,
-    @Query('overdue') overdue?: string,
-    @Query('facilityId') facilityId?: string,
-    @Query('search') search?: string,
-    @Query('cursor') cursor?: string,
-    @Query('limit') limit?: string,
+    @Query() query: InvoiceListQuery,
   ): Promise<PageDto<InvoiceDto>> {
-    const parsedStatus = status ? InvoiceStatusEnum.parse(status) : undefined;
-    const page = parsePageRequest(cursor, limit);
+    const page = parsePageRequest(query.cursor, query.limit);
     const rows = await this.invoices.list(user.tenantId, {
-      ...(search ? { search } : {}),
+      ...parseInvoiceListQuery(query),
       page,
-      ...(facilityId ? { facilityId } : {}),
-      ...(parsedStatus ? { status: parsedStatus } : {}),
-      ...(customerId ? { customerId } : {}),
-      ...(contractId ? { contractId } : {}),
-      ...(overdue === 'true' ? { overdue: true } : {}),
       facilityScope: user.facilityScope ?? null,
     });
-    return toPage(rows, page);
+    const result = toPage(rows, page);
+    // Con el estado real del cobro (en curso, en remesa, en plan, recordada).
+    return { ...result, items: await this.tools.withCollection(user.tenantId, result.items) };
   }
 
   @RequirePermission('invoices:read')
@@ -112,7 +106,10 @@ export class InvoicesController {
     @Query('overdue') overdue?: string,
     @Query('facilityId') facilityId?: string,
   ): Promise<InvoiceDto[]> {
-    const parsedStatus = status ? InvoiceStatusEnum.parse(status) : undefined;
+    const parsedStatus = parseStatus(status);
+    assertUuid(customerId);
+    assertUuid(contractId);
+    assertUuid(facilityId);
     return this.invoices.list(user.tenantId, {
       ...(facilityId ? { facilityId } : {}),
       ...(parsedStatus ? { status: parsedStatus } : {}),
@@ -129,7 +126,9 @@ export class InvoicesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<InvoiceDto> {
-    return this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+    const dto = await this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+    const [withState] = await this.tools.withCollection(user.tenantId, [dto]);
+    return withState ?? dto;
   }
 
   /** URL firmada de corta duración para descargar el PDF (bucket privado). */
@@ -153,6 +152,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       input,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
@@ -189,6 +189,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       ids: body.ids,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
@@ -261,6 +262,16 @@ export class InvoicesController {
     });
   }
 
+  /** Cuánto sería el recargo por mora (para confirmarlo antes de emitirlo). */
+  @RequirePermission('invoices:manage')
+  @Get(':id/late-fee-preview')
+  async lateFeePreview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<LateFeePreviewDto> {
+    return this.invoices.lateFeePreview(user.tenantId, id, user.facilityScope ?? null);
+  }
+
   @RequirePermission('invoices:manage')
   @Post(':id/late-fee')
   @HttpCode(HttpStatus.OK)
@@ -312,6 +323,7 @@ export class InvoicesController {
       facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
+      rejectDuplicate: true,
     });
   }
 
@@ -331,6 +343,7 @@ export class InvoicesController {
       facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
+      rejectDuplicate: true,
     });
   }
 
@@ -361,7 +374,13 @@ export class InvoicesController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ pdfUrl: string }> {
     // Alcance por local: asserta (403/404) antes de generar el PDF de la factura.
-    await this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+    const invoice = await this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+    if (invoice.status === 'draft') {
+      throw new BadRequestException({
+        code: 'invoice_is_draft',
+        message: 'Un borrador no tiene PDF: emítelo primero',
+      });
+    }
     return this.pdf.generate(user.tenantId, id);
   }
 
@@ -371,4 +390,14 @@ export class InvoicesController {
   async runRecurring(@CurrentUser() user: AuthenticatedUser): Promise<{ jobId: string }> {
     return this.billingJobs.enqueueForTenant(user.tenantId);
   }
+}
+
+/** Estado de la lista: uno que no existe es un 400 legible, no un 500. */
+function parseStatus(status: string | undefined) {
+  if (!status) return undefined;
+  const parsed = InvoiceStatusEnum.safeParse(status);
+  if (!parsed.success) {
+    throw new BadRequestException({ code: 'invalid_status', message: 'Estado no válido' });
+  }
+  return parsed.data;
 }

@@ -66,3 +66,24 @@ export function webPublished(r: TenantReadiness): boolean {
 export function bookingReady(r: TenantReadiness): boolean {
   return skipped() || (webPublished(r) && r.hasCompany && r.hasPayment);
 }
+
+/**
+ * Datos fiscales que le faltan al emisor para emitir una factura (RD 1619/2012,
+ * art. 6: NIF, nombre o razón social y domicilio). Vacío = puede emitir.
+ */
+export function tenantFiscalDataMissing(t: {
+  taxId: string | null;
+  billingLegalName: string | null;
+  billingAddress: string | null;
+  billingPostalCode: string | null;
+  billingCity: string | null;
+}): string[] {
+  if (skipped()) return [];
+  const missing: string[] = [];
+  if (!t.taxId?.trim()) missing.push('NIF');
+  if (!t.billingLegalName?.trim()) missing.push('razón social');
+  if (!t.billingAddress?.trim()) missing.push('domicilio fiscal');
+  if (!t.billingPostalCode?.trim()) missing.push('código postal');
+  if (!t.billingCity?.trim()) missing.push('municipio');
+  return missing;
+}

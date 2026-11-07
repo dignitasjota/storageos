@@ -13,6 +13,7 @@ export interface ValidationIssue {
   received?: string;
   minimum?: number | bigint;
   maximum?: number | bigint;
+  inclusive?: boolean;
 }
 
 /** Mensajes de error genéricos de nestjs-zod y del pipe propio. */
@@ -38,6 +39,8 @@ const FIELD_LABELS: Record<string, string> = {
   description: 'Descripción',
   directions: 'Cómo llegar',
   documentNumber: 'Documento',
+  dueDate: 'Vencimiento',
+  dueDateReason: 'Motivo del cambio de vencimiento',
   email: 'Email',
   endDate: 'Fecha de fin',
   features: 'Características',
@@ -45,6 +48,8 @@ const FIELD_LABELS: Record<string, string> = {
   floorNumber: 'Número de planta',
   fullName: 'Nombre',
   heightM: 'Alto',
+  issueDate: 'Fecha de emisión',
+  items: 'Líneas',
   lastName: 'Apellidos',
   latitude: 'Latitud',
   longitude: 'Longitud',
@@ -54,17 +59,23 @@ const FIELD_LABELS: Record<string, string> = {
   notes: 'Notas',
   openingExceptions: 'Días especiales',
   openingHours: 'Horario',
+  paidAt: 'Fecha del cobro',
   password: 'Contraseña',
+  periodEnd: 'Fin del periodo',
+  periodStart: 'Inicio del periodo',
   phone: 'Teléfono',
   postalCode: 'Código postal',
   priceMonthly: 'Cuota',
   publicSlug: 'Dirección en tu web',
+  quantity: 'Cantidad',
   reason: 'Motivo',
   startDate: 'Fecha de inicio',
   subject: 'Asunto',
   taxId: 'NIF',
+  taxRate: 'IVA',
   timezone: 'Zona horaria',
   title: 'Título',
+  unitPrice: 'Precio',
   videoUrl: 'Vídeo',
   widthM: 'Ancho',
 };
@@ -93,13 +104,15 @@ function defaultReason(issue: ValidationIssue): string {
           ? 'es obligatorio'
           : `necesita al menos ${issue.minimum} caracteres`;
       }
-      return issue.type === 'array'
-        ? `necesita al menos ${issue.minimum}`
+      if (issue.type === 'array') return `necesita al menos ${issue.minimum}`;
+      return issue.inclusive === false
+        ? `tiene que ser mayor que ${issue.minimum}`
         : `tiene que ser ${issue.minimum} o más`;
     case 'too_big':
       if (issue.type === 'string') return `admite como máximo ${issue.maximum} caracteres`;
-      return issue.type === 'array'
-        ? `admite como máximo ${issue.maximum}`
+      if (issue.type === 'array') return `admite como máximo ${issue.maximum}`;
+      return issue.inclusive === false
+        ? `tiene que ser menor que ${issue.maximum}`
         : `tiene que ser ${issue.maximum} o menos`;
     default:
       return 'no es válido';

@@ -205,6 +205,7 @@ export default function BillingSettingsPage() {
       </div>
 
       <AutoIssueCard />
+      <DueDaysCard />
       <FirstPaymentCard />
       <LateFeeCard />
 
@@ -419,6 +420,75 @@ function AutoIssueCard() {
         >
           {update.isPending ? 'Guardando…' : enabled ? 'Desactivar' : 'Activar emisión automática'}
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+const DUE_DAY_OPTIONS = [0, 5, 7, 10, 15, 20, 30, 45, 60, 90];
+
+/** Cuántos días tiene el inquilino para pagar una factura desde que se emite. */
+function DueDaysCard() {
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useTenantBillingSettings(canConfigure);
+  const update = useUpdateTenantBillingSettings();
+
+  if (!canConfigure || settings.isLoading || !settings.data) return null;
+  const days = settings.data.invoiceDueDays;
+  const options = DUE_DAY_OPTIONS.includes(days)
+    ? DUE_DAY_OPTIONS
+    : [...DUE_DAY_OPTIONS, days].sort((a, b) => a - b);
+
+  async function save(next: number) {
+    try {
+      await update.mutateAsync({ invoiceDueDays: next });
+      toast.success(
+        next === 0
+          ? 'Las facturas vencerán el mismo día en que se emiten.'
+          : `Las facturas vencerán a los ${next} días de emitirse.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Plazo de pago</CardTitle>
+          <Badge variant="outline">
+            {days === 0 ? 'El mismo día' : `${days} ${days === 1 ? 'día' : 'días'}`}
+          </Badge>
+        </div>
+        <CardDescription>
+          Días que tiene el inquilino para pagar desde que se emite la factura. Pasado ese día, la
+          factura se da por vencida y empiezan los recordatorios del impago.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-1">
+          <label className="text-sm font-medium" htmlFor="invoice-due-days">
+            Vence a los
+          </label>
+          <select
+            id="invoice-due-days"
+            className="flex h-9 w-48 rounded-md border border-input bg-transparent px-3 text-base sm:text-sm"
+            value={days}
+            onChange={(e) => void save(Number(e.target.value))}
+            disabled={update.isPending}
+          >
+            {options.map((d) => (
+              <option key={d} value={d}>
+                {d === 0 ? 'El mismo día' : `${d} días`}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Vale para las facturas que se emitan a partir de ahora. Las reservas online sin pagar
+          mantienen su plazo propio para liberar el trastero.
+        </p>
       </CardContent>
     </Card>
   );

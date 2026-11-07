@@ -35,6 +35,7 @@ import { emailLocale } from '../../common/format';
 import { escapeHtml, tenantEmailShell } from '../../common/tenant-email-layout';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
+import { InvoicePdfService } from '../billing/invoice-pdf.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
@@ -158,6 +159,7 @@ export class PortalService {
     // Solo para reutilizar su conexion Redis; no se encolan jobs aqui.
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
     private readonly generalTerms: GeneralTermsService,
+    private readonly invoicePdf: InvoicePdfService,
   ) {}
 
   /** Formas de pago que ofrece el portal (la tarjeta por Stripe puede estar desactivada). */
@@ -1255,7 +1257,8 @@ export class PortalService {
         // por pagar es el total menos todo lo aplicado, no menos solo lo cobrado.
         amountPending: Math.max(0, Math.round((total - Number(r.amountPaid)) * 100) / 100),
         status: r.status,
-        hasPdf: !!r.pdfUrl,
+        // Si aún no tiene PDF, se genera al pedirlo.
+        hasPdf: !!r.pdfUrl || (r.status !== 'draft' && r.status !== 'cancelled'),
         paymentInProgress: inFlightIds.has(r.id),
         generalTerms:
           terms && r.contractId && termsPending.has(r.contractId) && pendingOf(r) > 0
@@ -1296,14 +1299,24 @@ export class PortalService {
     await this.requireCustomer(tenantId, customerId);
     const invoice = await this.admin.invoice.findFirst({
       where: { id: invoiceId, customerId, tenantId, deletedAt: null },
-      select: { pdfUrl: true },
+      select: { pdfUrl: true, status: true },
     });
     if (!invoice) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
-    const url = invoice.pdfUrl
-      ? await this.files.presignFromPublicUrl('invoices', invoice.pdfUrl, 300)
-      : null;
+    // Una factura emitida antes de que el PDF se generara solo: se genera ahora.
+    let pdfUrl = invoice.pdfUrl;
+    if (!pdfUrl && invoice.status !== 'draft' && invoice.status !== 'cancelled') {
+      await this.invoicePdf.ensure(tenantId, invoiceId).catch(() => undefined);
+      pdfUrl =
+        (
+          await this.admin.invoice.findFirst({
+            where: { id: invoiceId, tenantId },
+            select: { pdfUrl: true },
+          })
+        )?.pdfUrl ?? null;
+    }
+    const url = pdfUrl ? await this.files.presignFromPublicUrl('invoices', pdfUrl, 300) : null;
     if (!url) {
       throw new NotFoundException({
         code: 'pdf_not_available',

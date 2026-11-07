@@ -190,13 +190,14 @@ describe('Revisión de Inquilinos (e2e)', () => {
     }
     // Una factura de un trastero del otro local: su deuda no se ve con alcance.
     await ensureDefaultSeries(app, owner.accessToken);
+    // (La API ya no deja ligar una factura al contrato de otro inquilino: se
+    // monta a mano.)
     const otherInv = await http()
       .post('/invoices')
       .set(auth)
       .send({
         invoiceType: 'F1',
         customerId: inA,
-        contractId: (await db.contract.findFirstOrThrow({ where: { customerId: inB } })).id,
         items: [{ description: 'Otro local', quantity: 1, unitPrice: 10, taxRate: 21 }],
         verifactuMode: 'verifactu',
       });
@@ -204,7 +205,10 @@ describe('Revisión de Inquilinos (e2e)', () => {
     await http().post(`/invoices/${otherInv.body.id}/issue`).set(auth).send({}).expect(200);
     await db.invoice.update({
       where: { id: otherInv.body.id as string },
-      data: { dueDate: new Date(isoDay(-3)) },
+      data: {
+        dueDate: new Date(isoDay(-3)),
+        contractId: (await db.contract.findFirstOrThrow({ where: { customerId: inB } })).id,
+      },
     });
     const email = `cus-staff-${Date.now()}@e2e.local`;
     await http().post('/invitations').set(auth).send({ email, role: 'staff' }).expect(201);

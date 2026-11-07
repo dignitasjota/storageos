@@ -3,9 +3,16 @@ import { Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Job } from 'bullmq';
 
-import { JOB_BILLING_GENERATE_RECURRING, QUEUE_BILLING } from '../queues/queues.module';
+import {
+  JOB_BILLING_GENERATE_RECURRING,
+  JOB_BILLING_INVOICE_PDF,
+  QUEUE_BILLING,
+} from '../queues/queues.module';
 
 import { BillingJobsService, type GenerateRecurringJobData } from './billing-jobs.service';
+import { InvoicePdfService } from './invoice-pdf.service';
+
+import type { InvoicePdfRequestedPayload } from './invoices.service';
 
 /**
  * Worker BullMQ + cron diario para la facturacion recurrente.
@@ -24,7 +31,10 @@ import { BillingJobsService, type GenerateRecurringJobData } from './billing-job
 export class BillingRecurringProcessor extends WorkerHost {
   private readonly logger = new Logger(BillingRecurringProcessor.name);
 
-  constructor(private readonly jobs: BillingJobsService) {
+  constructor(
+    private readonly jobs: BillingJobsService,
+    private readonly pdf: InvoicePdfService,
+  ) {
     super();
   }
 
@@ -39,11 +49,20 @@ export class BillingRecurringProcessor extends WorkerHost {
   }
 
   /** Handler del worker BullMQ. */
-  async process(job: Job<GenerateRecurringJobData>): Promise<{ created: number }> {
+  async process(
+    job: Job<GenerateRecurringJobData | InvoicePdfRequestedPayload>,
+  ): Promise<{ created: number }> {
+    if (job.name === JOB_BILLING_INVOICE_PDF) {
+      const data = job.data as InvoicePdfRequestedPayload;
+      // Rehacerlo (pagada, devuelta…) o, si ya lo tiene, no repetirlo.
+      if (data.refresh) await this.pdf.generate(data.tenantId, data.invoiceId);
+      else await this.pdf.ensure(data.tenantId, data.invoiceId);
+      return { created: 0 };
+    }
     if (job.name !== JOB_BILLING_GENERATE_RECURRING) {
       this.logger.warn(`Job desconocido en ${QUEUE_BILLING}: ${job.name}`);
       return { created: 0 };
     }
-    return this.jobs.processGenerateRecurring(job.data);
+    return this.jobs.processGenerateRecurring(job.data as GenerateRecurringJobData);
   }
 }

@@ -39,12 +39,11 @@ test.describe('Rectificación de factura', () => {
     await rectifyBtn.click();
 
     // Modal: tipo R1 ya es el default; rellenamos el motivo.
-    await expect(page.getByText(/Emitir factura rectificativa/i)).toBeVisible();
+    await expect(page.getByText(/Rectificar la factura/i)).toBeVisible();
     await page.getByPlaceholder(/NIF erroneo|equivocado/i).fill('Smoke test rectificación');
 
-    // Cambiamos el unitPrice de la línea a -10 para reducir el importe.
-    // El input numérico de "P. unit" es el tercero de cada fila; lo
-    // localizamos por su atributo step="0.01" + valor inicial 200.
+    // Por diferencias la línea viene en negativo (-200); la dejamos en -10
+    // para restar solo eso. El precio es el primer campo con step="0.01".
     const priceInput = page.locator('input[type="number"][step="0.01"]').first();
     await priceInput.fill('-10');
 

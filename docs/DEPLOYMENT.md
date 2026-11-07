@@ -1879,3 +1879,59 @@ Migración `20261230100000_facilities_features`, se aplica sola. Sin variables n
 - **Direcciones antiguas**: solo redirigen las que se cambien a partir de ahora. Las que se cambiaron antes ya no existen en ningún sitio.
 - **Cartel con QR**: lleva a la página del local en la web, con el dominio propio si está verificado. Con web externa, a la reserva de ese local (`/reservar/<local>`), porque `/<local>` es de esa web. Si después cambia el dominio, hay que imprimirlo de nuevo.
 - **Datos estructurados**: el horario partido y los días especiales salen ya en lo que lee Google. Google tarda días en reflejarlo.
+
+## 105. Corte de acceso por impago (2026-11-07)
+
+Sin migración ni variables nuevas.
+
+Hasta ahora el corte **nunca se aplicaba**: el escalado no recibía el servicio de accesos ni el de expedientes (se inyectaban con `@Optional()` y tipo `X | null`, que Nest no resuelve) y aun así dejaba la acción ejecutada, de modo que el panel y el área de clientes daban al inquilino por cortado mientras su PIN seguía abriendo.
+
+**Qué cambia al redesplegar:**
+
+- Los cortes se aplican de verdad desde el primer repaso del escalado (06:00 UTC, en el worker). El aviso legal de los 30 días también abre el expediente, si el negocio tiene activados los impagos físicos.
+- **Antes de redesplegar**, revisar con los tenants que usen accesos su política en Configuración → Accesos del inquilino (cortar todo, solo los adicionales o nada, y a los cuántos días).
+- **Los que ya constaban como cortados no se cortan solos**: en el panel dejan de salir como cortados y aparecen en Deudores → «Deudores con el acceso sin cortar», con «Cortar ahora», «No cortar» y «Cortar a todos». Solo salen si tienen algo que cortar y su factura sigue sin pagar, sin cobro en curso y sin plan de pago.
+- Los expedientes que debían abrirse con el aviso legal antes de este cambio no se abren solos: se abren a mano desde Deudores.
+- Un corte que falla ya no se da por hecho: la acción sigue programada y se reintenta en el repaso del día siguiente, con el motivo en sus notas.
+- El inquilino no recibe un correo en el momento del corte: el segundo recordatorio (día 7) ya le avisa y el área de clientes se lo dice.
+
+## 106. Facturas: arreglos (2026-11-07)
+
+Migración `20261231100000_invoices_review`, se aplica sola. Sin variables nuevas.
+
+**Qué cambia al redesplegar:**
+
+- **Datos fiscales obligatorios para emitir.** Sin razón social, NIF, domicilio, código postal y municipio del emisor, emitir o anular una factura da 400 `issuer_fiscal_data_required` y el panel lleva a completarlos (Configuración → Datos de tu empresa, o Propietarios si la factura es de un propietario). Las recurrentes con emisión automática se quedan en borrador hasta que los tengan. **Antes de redesplegar**, mirar qué negocios que facturan no los tienen:
+
+  ```sql
+  SELECT t.slug, t.name FROM tenants t
+  WHERE t.deleted_at IS NULL AND t.status IN ('active', 'trial')
+    AND EXISTS (SELECT 1 FROM invoices i WHERE i.tenant_id = t.id AND i.created_at > now() - interval '90 days')
+    AND (coalesce(t.tax_id, '') = '' OR coalesce(t.billing_legal_name, '') = ''
+      OR coalesce(t.billing_address, '') = '' OR coalesce(t.billing_postal_code, '') = ''
+      OR coalesce(t.billing_city, '') = '');
+  ```
+
+- **Cuándo vencen las cuotas.** Las facturas que se emitan a partir de ahora vencen a los 15 días de emitirse (antes, la mensual vencía a los 15 días del final del mes que cubre: la de noviembre, el 15 de diciembre). Las ya emitidas no cambian. Como el impago (y el corte de acceso, §105) cuenta desde el vencimiento, empieza antes. Cada negocio lo cambia en Configuración → Facturación → **Plazo de pago**; 45 días se parece a lo de antes.
+- **El PDF de la factura** ya no dice si está pagada ni lo que falta (no cambiaba después y se quedaba con lo del día que se generó). Se genera solo al emitir, en el worker. Los PDF ya generados se quedan como están: «Regenerar PDF» en la ficha los rehace.
+- **Anular una factura** devuelve al contrato lo que gastó (mes gratis, saldo de la señal, recompensa de referido) y anula su recargo por mora si no se cobró. Las anuladas antes no lo devolvieron: si hace falta, a mano.
+- **Recargo por mora**: solo sobre facturas vencidas y con el recargo activado; ya no sobre otro recargo.
+- **Devoluciones**: cada una queda en `invoice_refunds`. Un cobro con el TPV del banco (Redsys) no se puede devolver desde la app: se devuelve en el banco y se registra en la ficha.
+- **Quien use la API**: `GET /invoices?status=` desconocido da 400 `invalid_status`; el mismo cobro o la misma devolución dos veces en 30 segundos da 409; `POST /payments/invoices/bulk/charge` devuelve también `processing`.
+
+## 107. Facturas: mejoras (2026-11-07)
+
+Migración `20270101100000_invoices_features`, se aplica sola. Sin variables nuevas: el enlace de descarga del correo se firma con una clave derivada de `MASTER_ENCRYPTION_KEY` (si se cambia esa clave, los enlaces de correos antiguos dejan de valer y la factura se descarga desde el área de clientes) y apunta a `API_BASE_URL`, que en producción tiene que ser la dirección pública del API (§36).
+
+**Qué cambia al redesplegar:**
+
+- **Correos de factura con enlace de descarga.** «Nueva factura», «Pago recibido» y la factura enviada desde la ficha («Enviar por correo») llevan un enlace al PDF que funciona sin iniciar sesión (`/v1/public/invoices/<token>/pdf`, 30 por minuto por IP). Si la factura aún no tiene PDF, se genera al abrirlo. Los recordatorios siguen llevando al área de clientes para pagar.
+- **PDF más completo**: logo y color de la marca, cómo se paga y el sello «PAGADA» con la fecha. Se vuelve a generar solo al cobrarse, al devolverse o al deshacer un cobro, así que el sello no se queda viejo. Los PDF ya generados siguen como estaban hasta que se rehagan (menú «Más» → «Volver a generar el PDF»).
+- **Un solo recordatorio por inquilino.** Si debe varias facturas, el escalado y el recordatorio en lote le mandan un correo con todas («Tienes N facturas pendientes de pago»); antes, uno por factura. Si algo falla al agruparlas, sale el recordatorio de cada factura como antes.
+- **Devolver como saldo a favor**: no sale dinero; se emite la rectificativa por lo devuelto y el importe se descuenta de la siguiente factura del contrato al emitirla. No cuenta como cobrado ni entra en la caja.
+- **Deshacer un cobro registrado por error** (solo los registrados a mano, sin devoluciones): la factura vuelve a pendiente y no cuenta como recibo devuelto. Un cobro en efectivo de un día con la caja ya cerrada no se puede deshacer ni cambiar (409 `cash_day_closed`): ese arqueo ya lo cuenta.
+- **Plazo de pago por inquilino** (ficha del inquilino → Editar datos): manda sobre el del negocio en las facturas que se emitan después.
+- **Página nueva** «Cierre del mes» (`/invoices/month-close`, desde Facturas).
+- **Quien use la API**: `GET /invoices/page` acepta `from`, `to`, `type`, `payment` y `sort` (valores desconocidos → 400) y trae `collection` en cada fila; rutas nuevas en `API.md` → «Mejoras de Facturas».
+
+**Comprobar tras el despliegue:** emitir una factura de prueba a un inquilino con email propio → le llega el correo y el enlace descarga el PDF con el logo; registrar un cobro en efectivo y deshacerlo desde la tarjeta «Actividad» de la ficha.

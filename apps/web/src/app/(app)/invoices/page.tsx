@@ -2,34 +2,41 @@
 
 import {
   InvoiceStatusEnum,
-  type CreatableInvoiceTypeValue,
+  type BulkInvoiceActionResultDto,
   type InvoiceDto,
+  type InvoicePaymentFilterValue,
+  type InvoiceSavedViewDto,
+  type InvoiceSortValue,
   type InvoiceStatusValue,
-  type SimplifiedJustificationValue,
+  type InvoiceTypeFilterValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Plus } from 'lucide-react';
+import { Bookmark, CalendarCheck, Download, Loader2, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { NewInvoiceDialog } from './new-invoice-dialog';
+
 import { Can } from '@/components/auth/can';
+import { InvoiceCollectionBadges } from '@/components/billing/invoice-collection-badges';
+import { useConfirm } from '@/components/confirm-provider';
 import { CustomerSearchSelect } from '@/components/customer-search-select';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
-import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
+import { INVOICE_STATUS_LABELS, InvoiceStatusBadge } from '@/components/invoice-status-badge';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -38,58 +45,111 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { toastBulkResult } from '@/lib/billing/bulk-report';
 import {
+  fetchAllInvoices,
   useBulkChargeInvoices,
   useBulkIssueInvoices,
   useBulkRemindInvoices,
-  useCreateInvoice,
+  useDeleteInvoiceView,
+  useInvoiceTotals,
+  useInvoiceViews,
+  useSaveInvoiceView,
+  type InvoiceListParams,
 } from '@/lib/billing/hooks';
+import { invoiceNumberLabel, isNumbered } from '@/lib/billing/labels';
+import { downloadCsv } from '@/lib/csv';
+import { localDateString } from '@/lib/dates';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useOpenFromUrl } from '@/lib/use-open-from-url';
 
-const SIMPLIFIED_JUSTIFICATION_LABELS: Record<SimplifiedJustificationValue, string> = {
-  reparation: 'Reparacion',
-  transport: 'Transporte',
-  restaurant: 'Hosteleria / restaurante',
-  parking: 'Parking / autopista',
-  other: 'Otros',
+const TYPE_LABELS: Record<InvoiceTypeFilterValue, string> = {
+  F1: 'Completas',
+  F2: 'Simplificadas',
+  R: 'Rectificativas',
+  deposit: 'Justificantes de fianza',
 };
 
-const STATUS_LABELS: Record<InvoiceStatusValue, string> = {
-  draft: 'Borrador',
-  issued: 'Emitida',
-  paid: 'Pagada',
-  overdue: 'Vencida',
-  cancelled: 'Cancelada',
-  refunded: 'Reembolsada',
-  partially_refunded: 'Reemb. parcial',
-  rectified: 'Anulada (rectificativa)',
+const PAYMENT_LABELS: Record<InvoicePaymentFilterValue, string> = {
+  card: 'Cobradas con tarjeta',
+  sepa_debit: 'Cobradas por domiciliación',
+  bank_transfer: 'Cobradas por transferencia',
+  cash: 'Cobradas en efectivo',
+  other: 'Cobradas de otra forma',
+  none: 'Pendientes sin forma de pago guardada',
 };
 
-interface NewInvoiceDraftItem {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  taxRate: number;
-  /** Solo cuenta al 0 %: exenta o no sujeta (con tipo, siempre con IVA). */
-  zeroCategory: ZeroRateCategory;
+const SORT_LABELS: Record<InvoiceSortValue, string> = {
+  newest: 'Más recientes primero',
+  oldest: 'Más antiguas primero',
+  due: 'Por fecha de vencimiento',
+  amount: 'Por importe (de mayor a menor)',
+};
+
+type PeriodKey = 'all' | 'this_month' | 'last_month' | 'this_year' | 'last_year' | 'custom';
+const PERIOD_LABELS: Record<PeriodKey, string> = {
+  all: 'Cualquier fecha',
+  this_month: 'Emitidas este mes',
+  last_month: 'Emitidas el mes pasado',
+  this_year: 'Emitidas este año',
+  last_year: 'Emitidas el año pasado',
+  custom: 'Emitidas entre dos fechas',
+};
+
+/** Desde y hasta (fecha de emisión) de un periodo. */
+function periodRange(key: PeriodKey, from?: string, to?: string): { from?: string; to?: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  switch (key) {
+    case 'this_month':
+      return { from: localDateString(new Date(y, m, 1)) };
+    case 'last_month':
+      return {
+        from: localDateString(new Date(y, m - 1, 1)),
+        to: localDateString(new Date(y, m, 0)),
+      };
+    case 'this_year':
+      return { from: `${y}-01-01` };
+    case 'last_year':
+      return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
+    case 'custom':
+      return { ...(from ? { from } : {}), ...(to ? { to } : {}) };
+    default:
+      return {};
+  }
 }
 
-/** Tipos fiscales que se ofrecen para una línea al 0 %. */
-type ZeroRateCategory = 'N1' | 'E1' | 'E6';
-const ZERO_RATE_OPTIONS: { value: ZeroRateCategory; label: string }[] = [
-  { value: 'N1', label: 'No sujeta (fianza, indemnización)' },
-  { value: 'E1', label: 'Exenta art. 20 (p. ej. alquiler de vivienda)' },
-  { value: 'E6', label: 'Exenta (otros)' },
-];
+function typeLabel(i: InvoiceDto): string {
+  if (i.kind === 'deposit_receipt') return 'Fianza';
+  if (i.invoiceType === 'F2') return 'Simplificada';
+  if (i.invoiceType.startsWith('R')) return 'Rectificativa';
+  return i.lateFeeForInvoiceId ? 'Recargo' : 'Completa';
+}
+
+/** Lo cobrado, como en la ficha: sin la retención ni lo saldado con un abono. */
+function collectedOf(i: InvoiceDto): number {
+  const value = i.amountPaid - i.withholdingAmount - i.amountCompensated;
+  return Math.max(0, Math.round(value * 100) / 100);
+}
 
 export default function InvoicesPage() {
-  const router = useRouter();
+  const ask = useConfirm();
   const [status, setStatus] = useState<InvoiceStatusValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [type, setType] = useState<InvoiceTypeFilterValue | undefined>();
+  const [payment, setPayment] = useState<InvoicePaymentFilterValue | undefined>();
+  const [sort, setSort] = useState<InvoiceSortValue>('newest');
+  const [period, setPeriod] = useState<PeriodKey>('all');
+  const [customFrom, setCustomFrom] = useState<string | undefined>();
+  const [customTo, setCustomTo] = useState<string | undefined>();
+  // En el móvil, la fecha, el tipo, la forma de pago y el orden van plegados.
+  const [moreFilters, setMoreFilters] = useState(false);
+  const secondaryActive =
+    (period !== 'all' ? 1 : 0) + (type ? 1 : 0) + (payment ? 1 : 0) + (sort !== 'newest' ? 1 : 0);
   // Enlaces con filtro (`/invoices?status=overdue` desde «Hoy» o las sugerencias).
   useEffect(() => {
     const s = new URLSearchParams(window.location.search).get('status');
@@ -99,40 +159,211 @@ export default function InvoicesPage() {
     }
   }, []);
 
-  // Estado del dialog "Nueva factura". Soporta F1 (cliente obligatorio)
-  // y F2 (simplificada sin destinatario, limite 400€/3000€ con motivo).
   const [createOpen, setCreateOpen] = useState(false);
   useOpenFromUrl(() => setCreateOpen(true));
-  const [newType, setNewType] = useState<CreatableInvoiceTypeValue>('F1');
-  const [newCustomerId, setNewCustomerId] = useState<string>('');
-  const [newJustification, setNewJustification] = useState<SimplifiedJustificationValue | ''>('');
-  const [newItems, setNewItems] = useState<NewInvoiceDraftItem[]>([
-    { description: '', quantity: 1, unitPrice: 0, taxRate: 21, zeroCategory: 'N1' },
-  ]);
 
   const headerFacilityId = useHeaderFacilityId();
   const [searchText, search, setSearchText] = useDebouncedSearch();
-  const invoices = usePagedList<InvoiceDto>('invoices', '/invoices', {
+  const range = periodRange(period, customFrom, customTo);
+  // Los mismos filtros para la lista, los totales, el CSV y las vistas.
+  const filterParams: InvoiceListParams = {
     facilityId: headerFacilityId,
     status,
     customerId,
     overdue: overdueOnly ? 'true' : undefined,
     search: search || undefined,
+    type,
+    payment,
+    from: range.from,
+    to: range.to,
+  };
+  const invoices = usePagedList<InvoiceDto>('invoices', '/invoices', {
+    ...filterParams,
+    sort: sort === 'newest' ? undefined : sort,
   });
-  const createInvoice = useCreateInvoice();
+  const totals = useInvoiceTotals(filterParams);
+  const views = useInvoiceViews();
+  const saveView = useSaveInvoiceView();
+  const deleteView = useDeleteInvoiceView();
   const bulkIssue = useBulkIssueInvoices();
   const bulkCharge = useBulkChargeInvoices();
   const bulkRemind = useBulkRemindInvoices();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+
+  // Al cambiar los filtros, lo seleccionado deja de verse: se suelta.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [
+    status,
+    customerId,
+    overdueOnly,
+    search,
+    headerFacilityId,
+    type,
+    payment,
+    period,
+    customFrom,
+    customTo,
+  ]);
+
+  const filtersActive =
+    !!status ||
+    !!customerId ||
+    overdueOnly ||
+    !!type ||
+    !!payment ||
+    period !== 'all' ||
+    sort !== 'newest';
+
+  function clearFilters(): void {
+    setStatus(undefined);
+    setCustomerId(undefined);
+    setOverdueOnly(false);
+    setType(undefined);
+    setPayment(undefined);
+    setSort('newest');
+    setPeriod('all');
+    setCustomFrom(undefined);
+    setCustomTo(undefined);
+  }
+
+  /** Lo que se guarda de una vista: solo los filtros puestos. */
+  function currentFilters(): Record<string, string> {
+    const f: Record<string, string> = {};
+    if (status) f.status = status;
+    if (customerId) f.customerId = customerId;
+    if (overdueOnly) f.overdue = 'true';
+    if (type) f.type = type;
+    if (payment) f.payment = payment;
+    if (sort !== 'newest') f.sort = sort;
+    if (period !== 'all') f.period = period;
+    if (period === 'custom' && customFrom) f.from = customFrom;
+    if (period === 'custom' && customTo) f.to = customTo;
+    return f;
+  }
+
+  function applyView(view: InvoiceSavedViewDto): void {
+    const f = view.filters as Record<string, unknown>;
+    const str = (k: string) => (typeof f[k] === 'string' ? (f[k] as string) : undefined);
+    const parsedStatus = InvoiceStatusEnum.safeParse(str('status'));
+    setStatus(parsedStatus.success ? parsedStatus.data : undefined);
+    setCustomerId(str('customerId'));
+    setOverdueOnly(str('overdue') === 'true');
+    const t = str('type');
+    setType(t && t in TYPE_LABELS ? (t as InvoiceTypeFilterValue) : undefined);
+    const p = str('payment');
+    setPayment(p && p in PAYMENT_LABELS ? (p as InvoicePaymentFilterValue) : undefined);
+    const s = str('sort');
+    setSort(s && s in SORT_LABELS ? (s as InvoiceSortValue) : 'newest');
+    const per = str('period');
+    setPeriod(per && per in PERIOD_LABELS ? (per as PeriodKey) : 'all');
+    setCustomFrom(str('from'));
+    setCustomTo(str('to'));
+    toast.success(`Vista «${view.name}» aplicada.`);
+  }
+
+  async function onSaveView(): Promise<void> {
+    const res = await ask({
+      title: 'Guardar esta vista',
+      description:
+        'Se guardan los filtros y el orden que tienes puestos. La ve todo el equipo; con el mismo nombre se sustituye.',
+      confirmLabel: 'Guardar',
+      input: { label: 'Nombre', placeholder: 'Vencidas de este mes', required: true },
+    });
+    if (!res) return;
+    try {
+      await saveView.mutateAsync({ name: res.value.slice(0, 60), filters: currentFilters() });
+      toast.success('Vista guardada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido guardar.');
+    }
+  }
+
+  async function onDeleteView(view: InvoiceSavedViewDto): Promise<void> {
+    if (
+      !(await ask({
+        title: `¿Borrar la vista «${view.name}»?`,
+        description: 'Desaparece para todo el equipo. Las facturas no cambian.',
+        confirmLabel: 'Borrar',
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await deleteView.mutateAsync(view.id);
+      toast.success('Vista borrada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido borrar.');
+    }
+  }
+
+  async function exportCsv(): Promise<void> {
+    setExporting(true);
+    try {
+      const { rows: all, truncated } = await fetchAllInvoices({
+        ...filterParams,
+        sort: sort === 'newest' ? undefined : sort,
+      });
+      downloadCsv(`facturas-${localDateString()}.csv`, [
+        [
+          'Número',
+          'Tipo',
+          'Cliente',
+          'Contrato',
+          'Trastero',
+          'Local',
+          'Emitida',
+          'Vence',
+          'Base',
+          'IVA',
+          'Total',
+          'Cobrado',
+          'Devuelto',
+          'Pendiente',
+          'Estado',
+        ],
+        ...all.map((i) => [
+          invoiceNumberLabel(i),
+          typeLabel(i),
+          i.customerName ?? 'Sin identificar',
+          i.contractNumber ?? '',
+          i.unitCode ?? '',
+          i.facilityName ?? '',
+          isNumbered(i) ? formatDate(i.issueDate) : '',
+          i.dueDate ? formatDate(i.dueDate) : '',
+          i.subtotal,
+          i.taxAmount,
+          i.total,
+          collectedOf(i),
+          i.amountRefunded,
+          i.amountPending,
+          INVOICE_STATUS_LABELS[i.status] ?? i.status,
+        ]),
+      ]);
+      if (truncated) {
+        toast.info('Se han exportado las 5.000 primeras. Acota con los filtros para el resto.');
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido exportar.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const rows = invoices.rows;
   const selectableDraft = rows.filter((i) => i.status === 'draft').map((i) => i.id);
   const selectableChargeable = rows
-    .filter((i) => i.status === 'issued' || i.status === 'overdue')
+    .filter((i) => (i.status === 'issued' || i.status === 'overdue') && i.amountPending > 0)
     .map((i) => i.id);
+  const selectable = [...selectableDraft, ...selectableChargeable];
   const selectedList = [...selectedIds];
   const selectedDraft = selectedList.filter((id) => selectableDraft.includes(id));
   const selectedChargeable = selectedList.filter((id) => selectableChargeable.includes(id));
+  const allSelected = selectable.length > 0 && selectable.every((id) => selectedIds.has(id));
+  const pendingOfSelected = rows
+    .filter((i) => selectedChargeable.includes(i.id))
+    .reduce((sum, i) => sum + i.amountPending, 0);
 
   function toggleRow(id: string) {
     setSelectedIds((prev) => {
@@ -143,69 +374,81 @@ export default function InvoicesPage() {
     });
   }
 
-  function reportBulk(res: { succeeded: string[]; failed: { id: string; error: string }[] }) {
+  function reportBulk(res: BulkInvoiceActionResultDto, done: string, processingNote?: string) {
     setSelectedIds(new Set());
-    if (res.failed.length === 0) {
-      toast.success(`${res.succeeded.length} factura(s) procesada(s).`);
-    } else {
-      toast.warning(
-        `${res.succeeded.length} OK, ${res.failed.length} con error (${res.failed[0]?.error ?? ''}…).`,
-      );
-    }
+    toastBulkResult(res, done, processingNote);
   }
 
   async function onBulkIssue() {
+    if (
+      !(await ask({
+        title: `¿Emitir ${selectedDraft.length} ${selectedDraft.length === 1 ? 'borrador' : 'borradores'}?`,
+        description:
+          'Cada factura recibe su número y se registra en Veri*Factu. Después ya no se puede borrar, solo rectificar.',
+        confirmLabel: 'Emitir',
+      }))
+    )
+      return;
     try {
-      reportBulk(await bulkIssue.mutateAsync(selectedDraft));
-    } catch {
-      toast.error('No se pudo emitir el lote.');
+      reportBulk(await bulkIssue.mutateAsync(selectedDraft), 'emitidas');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido emitir.');
     }
   }
   async function onBulkCharge() {
+    if (
+      !(await ask({
+        title: `¿Cobrar ${selectedChargeable.length} ${selectedChargeable.length === 1 ? 'factura' : 'facturas'} (${formatEur(pendingOfSelected)})?`,
+        description:
+          'Se cobra a cada inquilino con su tarjeta o domiciliación guardada. Las que no tengan forma de pago se quedan sin cobrar.',
+        confirmLabel: 'Cobrar',
+      }))
+    )
+      return;
     try {
-      reportBulk(await bulkCharge.mutateAsync(selectedChargeable));
-    } catch {
-      toast.error('No se pudo cobrar el lote.');
+      reportBulk(
+        await bulkCharge.mutateAsync(selectedChargeable),
+        'cobradas',
+        'por domiciliación (el banco las confirma en 2-5 días)',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido cobrar.');
     }
   }
   async function onBulkRemind() {
+    if (
+      !(await ask({
+        title: `¿Enviar un recordatorio de pago a ${selectedChargeable.length} ${selectedChargeable.length === 1 ? 'inquilino' : 'inquilinos'}?`,
+        description:
+          'Les llega un correo con lo que deben y el enlace para pagar; si alguien debe varias, todas van en el mismo correo. A quien ya recibió uno hoy no se le envía otro.',
+        confirmLabel: 'Enviar',
+      }))
+    )
+      return;
     try {
-      reportBulk(await bulkRemind.mutateAsync(selectedChargeable));
-    } catch {
-      toast.error('No se pudo enviar el recordatorio.');
+      reportBulk(await bulkRemind.mutateAsync(selectedChargeable), 'recordatorios enviados');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido enviar.');
     }
   }
-
-  const newTotal = newItems.reduce((acc, it) => {
-    const sub = it.quantity * it.unitPrice;
-    return acc + sub + (sub * it.taxRate) / 100;
-  }, 0);
-  const exceedsBasicF2 = newType === 'F2' && newTotal > 400.001;
 
   const columns: ColumnDef<InvoiceDto>[] = [
     {
       id: 'select',
-      header: () => {
-        const selectable = [...selectableDraft, ...selectableChargeable];
-        const allSelected = selectable.length > 0 && selectable.every((id) => selectedIds.has(id));
-        return (
-          <Checkbox
-            checked={allSelected}
-            aria-label="Seleccionar todas"
-            onCheckedChange={(v) =>
-              setSelectedIds(v ? new Set([...selectableDraft, ...selectableChargeable]) : new Set())
-            }
-          />
-        );
-      },
+      header: () => (
+        <Checkbox
+          checked={allSelected}
+          aria-label="Seleccionar todas"
+          onCheckedChange={(v) => setSelectedIds(v ? new Set(selectable) : new Set())}
+        />
+      ),
       cell: ({ row }) => {
         const i = row.original;
-        const selectable = i.status === 'draft' || i.status === 'issued' || i.status === 'overdue';
-        if (!selectable) return null;
+        if (!selectable.includes(i.id)) return null;
         return (
           <Checkbox
             checked={selectedIds.has(i.id)}
-            aria-label={`Seleccionar ${i.invoiceNumber}`}
+            aria-label={`Seleccionar ${invoiceNumberLabel(i)} de ${i.customerName ?? 'cliente sin identificar'}`}
             onCheckedChange={() => toggleRow(i.id)}
           />
         );
@@ -214,18 +457,32 @@ export default function InvoicesPage() {
     {
       accessorKey: 'invoiceNumber',
       header: 'Número',
-      cell: ({ row }) => (
-        <span className="flex items-center gap-1.5">
-          <Link href={`/invoices/${row.original.id}`} className="font-mono text-xs hover:underline">
-            {row.original.invoiceNumber}
-          </Link>
-          {row.original.kind === 'deposit_receipt' && (
-            <Badge variant="outline" title="Justificante de fianza: no es una factura">
-              Fianza
-            </Badge>
-          )}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const i = row.original;
+        return (
+          <span className="flex flex-wrap items-center justify-end gap-1.5 md:justify-start">
+            <Link
+              href={`/invoices/${i.id}`}
+              className={
+                isNumbered(i)
+                  ? 'font-mono text-xs hover:underline'
+                  : 'text-xs italic text-muted-foreground hover:underline'
+              }
+            >
+              {invoiceNumberLabel(i)}
+            </Link>
+            {i.kind === 'deposit_receipt' && (
+              <Badge variant="outline" title="Justificante de fianza: no es una factura">
+                Fianza
+              </Badge>
+            )}
+            {i.invoiceType === 'F2' && <Badge variant="outline">Simplificada</Badge>}
+            {i.invoiceType.startsWith('R') && <Badge variant="outline">Rectificativa</Badge>}
+            {i.lateFeeForInvoiceId && <Badge variant="outline">Recargo</Badge>}
+            <InvoiceCollectionBadges invoice={i} compact />
+          </span>
+        );
+      },
     },
     {
       accessorKey: 'customerName',
@@ -236,27 +493,24 @@ export default function InvoicesPage() {
             {row.original.customerName ?? 'Cliente'}
           </Link>
         ) : (
-          <span className="italic text-muted-foreground">Sin identificar (F2)</span>
+          <span className="italic text-muted-foreground">Sin identificar</span>
         ),
     },
     {
       accessorKey: 'issueDate',
       header: 'Emitida',
-      cell: ({ row }) => (row.original.issueDate ? formatDate(row.original.issueDate) : '—'),
+      meta: { mobileHidden: true },
+      cell: ({ row }) => (isNumbered(row.original) ? formatDate(row.original.issueDate) : '—'),
     },
     {
       accessorKey: 'dueDate',
-      header: 'Vencimiento',
-      cell: ({ row }) => (row.original.dueDate ? formatDate(row.original.dueDate) : '—'),
+      header: 'Vence',
+      cell: ({ row }) => formatDate(row.original.dueDate),
     },
     {
       accessorKey: 'total',
       header: 'Total',
-      cell: ({ row }) =>
-        row.original.total.toLocaleString('es-ES', {
-          style: 'currency',
-          currency: row.original.currency,
-        }),
+      cell: ({ row }) => <span className="tabular-nums">{formatEur(row.original.total)}</span>,
     },
     {
       accessorKey: 'amountPending',
@@ -264,10 +518,7 @@ export default function InvoicesPage() {
       cell: ({ row }) =>
         row.original.amountPending > 0 ? (
           <span className="text-destructive tabular-nums">
-            {row.original.amountPending.toLocaleString('es-ES', {
-              style: 'currency',
-              currency: row.original.currency,
-            })}
+            {formatEur(row.original.amountPending)}
           </span>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -282,31 +533,30 @@ export default function InvoicesPage() {
     },
   ];
 
+  const busy = bulkIssue.isPending || bulkCharge.isPending || bulkRemind.isPending;
+  const sums = totals.data;
+
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Facturas</h1>
           <p className="text-sm text-muted-foreground">
-            Listado de facturas emitidas y borradores. La numeración secuencial está reservada al
-            emitir.
+            Facturas emitidas y borradores. El número se pone al emitir.
           </p>
         </div>
-        <Can permission="invoices:write">
-          <Button
-            onClick={() => {
-              setNewType('F1');
-              setNewCustomerId('');
-              setNewJustification('');
-              setNewItems([
-                { description: '', quantity: 1, unitPrice: 0, taxRate: 21, zeroCategory: 'N1' },
-              ]);
-              setCreateOpen(true);
-            }}
-          >
-            <Plus className="mr-1 h-4 w-4" /> Nueva factura
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/invoices/month-close">
+              <CalendarCheck className="mr-1 h-4 w-4" /> Cierre del mes
+            </Link>
           </Button>
-        </Can>
+          <Can permission="invoices:write">
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" /> Nueva factura
+            </Button>
+          </Can>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -314,14 +564,14 @@ export default function InvoicesPage() {
           value={status ?? 'all'}
           onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as InvoiceStatusValue))}
         >
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="w-full sm:w-[190px]" aria-label="Estado">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos los estados</SelectItem>
-            {(Object.keys(STATUS_LABELS) as InvoiceStatusValue[]).map((s) => (
+            {(Object.keys(INVOICE_STATUS_LABELS) as InvoiceStatusValue[]).map((s) => (
               <SelectItem key={s} value={s}>
-                {STATUS_LABELS[s]}
+                {INVOICE_STATUS_LABELS[s]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -330,26 +580,189 @@ export default function InvoicesPage() {
           value={customerId}
           onChange={setCustomerId}
           clearLabel="Todos los clientes"
-          className="w-[240px]"
+          className="w-full sm:w-[240px]"
         />
+        <Button
+          variant="outline"
+          className="w-full sm:hidden"
+          onClick={() => setMoreFilters((v) => !v)}
+        >
+          {moreFilters ? 'Menos filtros' : 'Más filtros'}
+          {secondaryActive > 0 && ` (${secondaryActive})`}
+        </Button>
+        <div className={moreFilters ? 'contents' : 'hidden sm:contents'}>
+          <Select value={period} onValueChange={(v) => setPeriod(v as PeriodKey)}>
+            <SelectTrigger className="w-full sm:w-[210px]" aria-label="Fecha de emisión">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(PERIOD_LABELS) as PeriodKey[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {PERIOD_LABELS[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={type ?? 'all'}
+            onValueChange={(v) => setType(v === 'all' ? undefined : (v as InvoiceTypeFilterValue))}
+          >
+            <SelectTrigger className="w-full sm:w-[180px]" aria-label="Tipo">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los tipos</SelectItem>
+              {(Object.keys(TYPE_LABELS) as InvoiceTypeFilterValue[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {TYPE_LABELS[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={payment ?? 'all'}
+            onValueChange={(v) =>
+              setPayment(v === 'all' ? undefined : (v as InvoicePaymentFilterValue))
+            }
+          >
+            <SelectTrigger className="w-full sm:w-[240px]" aria-label="Forma de pago">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Cualquier forma de pago</SelectItem>
+              {(Object.keys(PAYMENT_LABELS) as InvoicePaymentFilterValue[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {PAYMENT_LABELS[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={(v) => setSort(v as InvoiceSortValue)}>
+            <SelectTrigger className="w-full sm:w-[220px]" aria-label="Orden">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(SORT_LABELS) as InvoiceSortValue[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {SORT_LABELS[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <Button
           variant={overdueOnly ? 'default' : 'outline'}
           onClick={() => setOverdueOnly((v) => !v)}
         >
           Solo vencidas
         </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline">
+              <Bookmark className="mr-1 h-4 w-4" /> Vistas
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuLabel>Vistas del equipo</DropdownMenuLabel>
+            {(views.data ?? []).length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                Aún no hay ninguna. Pon unos filtros y guárdalos.
+              </p>
+            ) : (
+              (views.data ?? []).map((v) => (
+                <DropdownMenuItem key={v.id} onSelect={() => applyView(v)}>
+                  <span className="flex-1 truncate">{v.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Borrar la vista ${v.name}`}
+                    className="ml-2 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void onDeleteView(v);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuItem>
+              ))
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={!filtersActive} onSelect={() => void onSaveView()}>
+              Guardar los filtros actuales…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button variant="outline" disabled={exporting} onClick={() => void exportCsv()}>
+          {exporting ? (
+            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="mr-1 h-4 w-4" />
+          )}
+          CSV
+        </Button>
+        {selectable.length > 0 && !allSelected && (
+          <Button
+            variant="ghost"
+            className="md:hidden"
+            onClick={() => setSelectedIds(new Set(selectable))}
+          >
+            Seleccionar todas
+          </Button>
+        )}
       </div>
 
+      {period === 'custom' && (
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Emitidas desde</p>
+            <DateSelect value={customFrom} onChange={setCustomFrom} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Hasta</p>
+            <DateSelect value={customTo} onChange={setCustomTo} />
+          </div>
+        </div>
+      )}
+
+      {sums && (
+        <div className="grid grid-cols-2 gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm sm:flex sm:flex-wrap sm:gap-x-6">
+          <span>
+            <span className="text-muted-foreground">Facturas </span>
+            <span className="font-medium tabular-nums">{sums.count}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Total </span>
+            <span className="font-medium tabular-nums">{formatEur(sums.total)}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Cobrado </span>
+            <span className="font-medium tabular-nums">{formatEur(sums.collected)}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Pendiente </span>
+            <span
+              className={`font-medium tabular-nums ${sums.pending > 0 ? 'text-destructive' : ''}`}
+            >
+              {formatEur(sums.pending)}
+            </span>
+          </span>
+        </div>
+      )}
+
       {selectedIds.size > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-          <span className="font-medium">{selectedIds.size} seleccionada(s)</span>
+        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <span className="font-medium">
+            {selectedIds.size} {selectedIds.size === 1 ? 'seleccionada' : 'seleccionadas'}
+          </span>
           <Can permission="invoices:manage">
             <Button
               size="sm"
               variant="outline"
-              disabled={selectedDraft.length === 0 || bulkIssue.isPending}
+              disabled={selectedDraft.length === 0 || busy}
               onClick={onBulkIssue}
             >
+              {bulkIssue.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
               Emitir {selectedDraft.length > 0 ? `(${selectedDraft.length})` : ''}
             </Button>
           </Can>
@@ -357,9 +770,10 @@ export default function InvoicesPage() {
             <Button
               size="sm"
               variant="outline"
-              disabled={selectedChargeable.length === 0 || bulkCharge.isPending}
+              disabled={selectedChargeable.length === 0 || busy}
               onClick={onBulkCharge}
             >
+              {bulkCharge.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
               Cobrar {selectedChargeable.length > 0 ? `(${selectedChargeable.length})` : ''}
             </Button>
           </Can>
@@ -367,286 +781,41 @@ export default function InvoicesPage() {
             <Button
               size="sm"
               variant="outline"
-              disabled={selectedChargeable.length === 0 || bulkRemind.isPending}
+              disabled={selectedChargeable.length === 0 || busy}
               onClick={onBulkRemind}
             >
+              {bulkRemind.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
               Recordatorio {selectedChargeable.length > 0 ? `(${selectedChargeable.length})` : ''}
             </Button>
           </Can>
           <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
-            Limpiar
+            Quitar la selección
           </Button>
         </div>
       )}
 
-      <DataTable
-        filtersActive={!!status || !!customerId || overdueOnly}
-        onClearFilters={() => {
-          setStatus(undefined);
-          setCustomerId(undefined);
-          setOverdueOnly(false);
-        }}
-        rowHref={(i) => `/invoices/${i.id}`}
-        columns={columns}
-        data={rows}
-        isLoading={invoices.isLoading}
-        serverSearch={{
-          value: searchText,
-          onChange: setSearchText,
-          placeholder: 'Buscar por número o inquilino…',
-        }}
-        loadMore={invoices.loadMore}
-        guide="cobrar"
-        emptyText="Aún no hay facturas. Las de alquiler se crean solas cada mes; también puedes crear una con «Nueva factura»."
-      />
+      {invoices.isError ? (
+        <SectionError onRetry={() => void invoices.refetch()} />
+      ) : (
+        <DataTable
+          filtersActive={filtersActive}
+          onClearFilters={clearFilters}
+          rowHref={(i) => `/invoices/${i.id}`}
+          columns={columns}
+          data={rows}
+          isLoading={invoices.isLoading}
+          serverSearch={{
+            value: searchText,
+            onChange: setSearchText,
+            placeholder: 'Buscar por número o inquilino…',
+          }}
+          loadMore={invoices.loadMore}
+          guide="cobrar"
+          emptyText="Aún no hay facturas. Las de alquiler se crean solas cada mes; también puedes crear una con «Nueva factura»."
+        />
+      )}
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Nueva factura</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div>
-                <Label>Tipo de factura</Label>
-                <Select
-                  value={newType}
-                  onValueChange={(v) => setNewType(v as CreatableInvoiceTypeValue)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="F1">F1 - Factura completa</SelectItem>
-                    <SelectItem value="F2">F2 - Simplificada (sin cliente)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {newType === 'F2'
-                    ? 'B2C de bajo importe. Limite 400€; hasta 3000€ con justificacion.'
-                    : 'Cliente identificado por NIF/CIF.'}
-                </p>
-              </div>
-              {newType === 'F1' ? (
-                <div>
-                  <Label>Cliente *</Label>
-                  <CustomerSearchSelect
-                    value={newCustomerId || undefined}
-                    onChange={(id) => setNewCustomerId(id ?? '')}
-                    placeholder="Busca el cliente…"
-                  />
-                </div>
-              ) : (
-                <div>
-                  <Label>Justificacion (requerida si total &gt; 400€)</Label>
-                  <Select
-                    value={newJustification || 'none'}
-                    onValueChange={(v) =>
-                      setNewJustification(v === 'none' ? '' : (v as SimplifiedJustificationValue))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Ninguna" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Ninguna (limite 400€)</SelectItem>
-                      {(
-                        Object.keys(
-                          SIMPLIFIED_JUSTIFICATION_LABELS,
-                        ) as SimplifiedJustificationValue[]
-                      ).map((k) => (
-                        <SelectItem key={k} value={k}>
-                          {SIMPLIFIED_JUSTIFICATION_LABELS[k]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-
-            {newType === 'F2' && exceedsBasicF2 && !newJustification && (
-              <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                El total ({formatEur(newTotal)}) supera el limite F2 sin justificacion (400€). Anade
-                una justificacion para llegar a 3000€.
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Lineas</Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    setNewItems((curr) => [
-                      ...curr,
-                      {
-                        description: '',
-                        quantity: 1,
-                        unitPrice: 0,
-                        taxRate: 21,
-                        zeroCategory: 'N1',
-                      },
-                    ])
-                  }
-                >
-                  <Plus className="mr-1 h-3 w-3" /> Anadir linea
-                </Button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[420px] text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                      <th className="py-1">Concepto</th>
-                      <th className="py-1 text-right">Cant.</th>
-                      <th className="py-1 text-right">P. unit (€)</th>
-                      <th className="py-1 text-right">IVA %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {newItems.map((it, idx) => (
-                      <tr key={idx} className="border-b last:border-0">
-                        <td className="py-1">
-                          <Input
-                            value={it.description}
-                            onChange={(e) =>
-                              setNewItems((curr) =>
-                                curr.map((row, i) =>
-                                  i === idx ? { ...row, description: e.target.value } : row,
-                                ),
-                              )
-                            }
-                          />
-                        </td>
-                        <td className="py-1 text-right">
-                          <Input
-                            type="number"
-                            step="1"
-                            min="1"
-                            value={it.quantity}
-                            onChange={(e) =>
-                              setNewItems((curr) =>
-                                curr.map((row, i) =>
-                                  i === idx ? { ...row, quantity: Number(e.target.value) } : row,
-                                ),
-                              )
-                            }
-                            className="w-20"
-                          />
-                        </td>
-                        <td className="py-1 text-right">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={it.unitPrice}
-                            onChange={(e) =>
-                              setNewItems((curr) =>
-                                curr.map((row, i) =>
-                                  i === idx ? { ...row, unitPrice: Number(e.target.value) } : row,
-                                ),
-                              )
-                            }
-                            className="w-28"
-                          />
-                        </td>
-                        <td className="py-1 text-right">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="100"
-                            value={it.taxRate}
-                            onChange={(e) =>
-                              setNewItems((curr) =>
-                                curr.map((row, i) =>
-                                  i === idx ? { ...row, taxRate: Number(e.target.value) } : row,
-                                ),
-                              )
-                            }
-                            className="w-20"
-                          />
-                          {it.taxRate === 0 && (
-                            <Select
-                              value={it.zeroCategory}
-                              onValueChange={(v) =>
-                                setNewItems((curr) =>
-                                  curr.map((row, i) =>
-                                    i === idx
-                                      ? { ...row, zeroCategory: v as ZeroRateCategory }
-                                      : row,
-                                  ),
-                                )
-                              }
-                            >
-                              <SelectTrigger
-                                className="mt-1 h-8 w-56 text-xs"
-                                aria-label="Tipo de operación"
-                              >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {ZERO_RATE_OPTIONS.map((o) => (
-                                  <SelectItem key={o.value} value={o.value}>
-                                    {o.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-right text-sm tabular-nums">
-                Total: <span className="font-semibold">{formatEur(newTotal)}</span>
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={async () => {
-                try {
-                  const created = await createInvoice.mutateAsync({
-                    invoiceType: newType,
-                    ...(newType === 'F1' && newCustomerId ? { customerId: newCustomerId } : {}),
-                    ...(newType === 'F2' && newJustification
-                      ? { simplifiedJustification: newJustification }
-                      : {}),
-                    items: newItems.map((it) => ({
-                      description: it.description,
-                      quantity: it.quantity,
-                      unitPrice: it.unitPrice,
-                      taxRate: it.taxRate,
-                      taxCategory: it.taxRate === 0 ? it.zeroCategory : 'S1',
-                    })),
-                    verifactuMode: 'verifactu',
-                  });
-                  toast.success('Factura creada como borrador.');
-                  setCreateOpen(false);
-                  router.push(`/invoices/${created.id}`);
-                } catch (err) {
-                  toast.error(err instanceof ApiError ? err.body.message : 'Error');
-                }
-              }}
-              disabled={
-                createInvoice.isPending ||
-                (newType === 'F1' && !newCustomerId) ||
-                newItems.some((it) => !it.description.trim() || it.unitPrice < 0)
-              }
-            >
-              Crear borrador
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {createOpen && <NewInvoiceDialog onClose={() => setCreateOpen(false)} />}
     </div>
   );
 }

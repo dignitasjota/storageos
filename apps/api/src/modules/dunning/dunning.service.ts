@@ -1,10 +1,11 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma, type CustomerType } from '@storageos/database';
 import { Queue } from 'bullmq';
 
-import { emailLocale, formatDateLong, formatEur } from '../../common/format';
+import { emailLocale, formatDateLong, formatEur, todayInTimezone } from '../../common/format';
 import { subtractAmounts } from '../../common/money';
 import { invoiceInActivePlan } from '../../common/payment-plan-guard';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
@@ -15,6 +16,7 @@ import { AccessIntegrationsService } from '../access/access-integrations.service
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { InvoicesService } from '../billing/invoices.service';
+import { buildReminderSummary } from '../billing/reminder-summary';
 import { CollectionsService } from '../collections/collections.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -27,7 +29,6 @@ import {
 import { dunningCalendar } from './dunning-calendar';
 
 import type { Env } from '../../config/env.schema';
-import type { CustomerType, Prisma } from '@storageos/database';
 
 export interface ProcessInvoiceJobData {
   tenantId: string;
@@ -76,8 +77,8 @@ export class DunningService {
     private readonly events: EventEmitter2,
     private readonly invoices: InvoicesService,
     private readonly config: ConfigService<Env, true>,
-    @Optional() private readonly access: AccessIntegrationsService | null = null,
-    @Optional() private readonly collections: CollectionsService | null = null,
+    private readonly access: AccessIntegrationsService,
+    private readonly collections: CollectionsService,
   ) {}
 
   /**
@@ -172,7 +173,7 @@ export class DunningService {
   private async scheduleActions(data: ProcessInvoiceJobData): Promise<void> {
     const invoice = await this.admin.invoice.findUnique({
       where: { id: data.invoiceId },
-      select: { dueDate: true, status: true },
+      select: { dueDate: true, status: true, lateFeeForInvoiceId: true },
     });
     if (!invoice || (invoice.status !== 'issued' && invoice.status !== 'overdue')) return;
     if (!invoice.dueDate) return;
@@ -187,7 +188,11 @@ export class DunningService {
       },
     });
     const calendar = dunningCalendar(
-      { enabled: !!tenant?.lateFeeEnabled, graceDays: tenant?.lateFeeGraceDays ?? 0 },
+      // Un recargo no lleva otro recargo.
+      {
+        enabled: !!tenant?.lateFeeEnabled && !invoice.lateFeeForInvoiceId,
+        graceDays: tenant?.lateFeeGraceDays ?? 0,
+      },
       { mode: tenant?.accessCutMode ?? 'all', days: tenant?.accessCutDays ?? 14 },
     );
     for (const step of calendar) {
@@ -304,30 +309,48 @@ export class DunningService {
     //   - access_block: suspender credenciales del customer via
     //     AccessIntegrationsService.suspendForDunning (Fase 7+8).
     //   - legal_notice: alerta al admin via audit; sin efecto automatico.
-    let result: Record<string, string | boolean> = { action: action.actionType };
+    let result: Record<string, string | boolean | number> = { action: action.actionType };
     try {
       if (action.actionType === 'email_reminder' || action.actionType === 'email_reminder_final') {
-        const sent = await this.sendReminderEmail(
-          action.tenantId,
-          action.invoiceId,
-          invoice,
-          action.actionType === 'email_reminder_final' ? 'final' : 'first',
-        );
-        result = { ...result, emailEnqueued: sent };
-      }
-      if (action.actionType === 'access_block' && invoice.customerId && this.access) {
-        await this.access.suspendForDunning({
-          tenantId: action.tenantId,
-          customerId: invoice.customerId,
-          invoiceId: action.invoiceId,
+        // Varias facturas del inquilino con recordatorio hoy: un solo correo.
+        // Agrupar es una ayuda: si falla, sale el recordatorio de esta sola.
+        const merged = await this.sendMergedReminder(action, invoice).catch((err: unknown) => {
+          this.logger.warn(
+            `dunning.${action.actionType}: no se ha podido agrupar ${invoice.invoiceNumber} (${err instanceof Error ? err.message : String(err)}); va sola`,
+          );
+          return null;
         });
-        result = { ...result, accessBlocked: true };
+        if (merged) {
+          result = { ...result, emailEnqueued: true, invoicesInEmail: merged };
+        } else {
+          const sent = await this.sendReminderEmail(
+            action.tenantId,
+            action.invoiceId,
+            invoice,
+            action.actionType === 'email_reminder_final' ? 'final' : 'first',
+          );
+          result = { ...result, emailEnqueued: sent };
+        }
       }
-      if (action.actionType === 'legal_notice' && this.collections) {
+      if (action.actionType === 'access_block') {
+        // `accessBlocked` dice lo que pasó de verdad: el panel, el área de
+        // clientes y la vuelta del acceso al pagar se fían de este dato.
+        const cut = invoice.customerId
+          ? await this.access.suspendForDunning({
+              tenantId: action.tenantId,
+              customerId: invoice.customerId,
+              invoiceId: action.invoiceId,
+            })
+          : ({ applied: false, skipped: 'no_customer' } as const);
+        result = cut.applied
+          ? { ...result, accessBlocked: true, suspended: cut.suspended }
+          : { ...result, accessBlocked: false, accessCutSkipped: cut.skipped };
+      }
+      if (action.actionType === 'legal_notice') {
         // Abre un expediente de impago si el tenant activó los impagos físicos
         // (opt-in). Best-effort e idempotente (índice único por contrato).
-        await this.collections.openFromDunning(action.tenantId, action.invoiceId);
-        result = { ...result, collectionsCaseOpened: true };
+        const opened = await this.collections.openFromDunning(action.tenantId, action.invoiceId);
+        result = { ...result, collectionsCaseOpened: opened };
       }
       if (action.actionType === 'late_fee') {
         // Re-chequea el opt-in (pudo desactivarse tras agendar). Idempotente:
@@ -348,12 +371,20 @@ export class DunningService {
         }
       }
     } catch (err) {
-      result = {
-        ...result,
-        error: err instanceof Error ? err.message : String(err),
-      };
+      const message = err instanceof Error ? err.message : String(err);
+      // Un corte que falla no se da por hecho: sigue programado y se reintenta
+      // en el repaso del día siguiente.
+      if (action.actionType === 'access_block') {
+        this.logger.error(`dunning.access_block sin aplicar en ${action.invoiceId}: ${message}`);
+        await this.admin.dunningAction.update({
+          where: { id: action.id },
+          data: { notes: `Último intento fallido: ${message}`.slice(0, 500) },
+        });
+        return;
+      }
+      result = { ...result, error: message };
       this.logger.warn(
-        `dunning.${action.actionType} fallo lateral pero marcamos executed: ${result.error}`,
+        `dunning.${action.actionType} fallo lateral pero marcamos executed: ${message}`,
       );
     }
     await this.admin.dunningAction.update({
@@ -465,6 +496,152 @@ export class DunningService {
       `dunning.email_reminder: recordatorio encolado para invoice ${invoiceId} -> ${customer.email}`,
     );
     return true;
+  }
+
+  /**
+   * Un inquilino con varias facturas a las que les toca recordatorio en las
+   * próximas horas recibe UN correo que las lista; las demás acciones quedan
+   * hechas («en el mismo correo»). Devuelve cuántas facturas lleva, o null si
+   * no hay otras (sale el recordatorio de siempre).
+   */
+  private async sendMergedReminder(
+    action: { id: string; tenantId: string; invoiceId: string; actionType: string },
+    invoice: {
+      invoiceNumber: string;
+      total: Prisma.Decimal;
+      amountPaid: Prisma.Decimal;
+      amountRefunded: Prisma.Decimal;
+      dueDate: Date | null;
+      customerId: string | null;
+      customer: {
+        email: string | null;
+        billingEmail?: string | null;
+        firstName: string | null;
+        lastName: string | null;
+        companyName: string | null;
+        customerType: CustomerType;
+        locale?: string | null;
+      } | null;
+    },
+  ): Promise<number | null> {
+    const email = invoice.customer?.billingEmail ?? invoice.customer?.email;
+    if (!invoice.customerId || !email) return null;
+    const final = action.actionType === 'email_reminder_final';
+    const siblings = await this.admin.dunningAction.findMany({
+      where: {
+        tenantId: action.tenantId,
+        actionType: action.actionType as 'email_reminder' | 'email_reminder_final',
+        status: 'scheduled',
+        supersededAt: null,
+        id: { not: action.id },
+        invoiceId: { not: action.invoiceId },
+        scheduledFor: { lte: new Date(Date.now() + 18 * 3_600_000) },
+        invoice: {
+          customerId: invoice.customerId,
+          status: { in: ['issued', 'overdue'] },
+          deletedAt: null,
+          ...NO_PAYMENT_IN_FLIGHT,
+        },
+      },
+      select: {
+        id: true,
+        invoiceId: true,
+        invoice: {
+          select: {
+            invoiceNumber: true,
+            total: true,
+            amountPaid: true,
+            amountRefunded: true,
+            dueDate: true,
+          },
+        },
+      },
+    });
+    const eligible: typeof siblings = [];
+    for (const s of siblings) {
+      if (!(await invoiceInActivePlan(this.admin, s.invoiceId))) eligible.push(s);
+    }
+    if (eligible.length === 0) return null;
+    // El primer aviso lo sustituye una automatización propia si la hay.
+    if (!final && (await this.hasOverdueAutomation(action.tenantId))) return null;
+
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: action.tenantId },
+      select: {
+        name: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        timezone: true,
+      },
+    });
+    if (!tenant) return null;
+    const pending = (i: {
+      total: Prisma.Decimal;
+      amountPaid: Prisma.Decimal;
+      amountRefunded: Prisma.Decimal;
+    }) => subtractAmounts(subtractAmounts(i.total, i.amountPaid), i.amountRefunded);
+    // Se reservan antes de enviar: dos procesos a la vez no mandan dos correos,
+    // y si el envío falla vuelven a quedar programadas.
+    const claimed: typeof eligible = [];
+    for (const s of eligible) {
+      const { count } = await this.admin.dunningAction.updateMany({
+        where: { id: s.id, status: 'scheduled' },
+        data: {
+          status: 'executed',
+          executedAt: new Date(),
+          result: { action: action.actionType, emailEnqueued: true, mergedInto: action.id },
+        },
+      });
+      if (count === 1) claimed.push(s);
+    }
+    if (claimed.length === 0) return null;
+    const list = [
+      {
+        id: action.invoiceId,
+        number: invoice.invoiceNumber,
+        pending: pending(invoice),
+        dueDate: invoice.dueDate,
+      },
+      ...claimed.map((s) => ({
+        id: s.invoiceId,
+        number: s.invoice.invoiceNumber,
+        pending: pending(s.invoice),
+        dueDate: s.invoice.dueDate,
+      })),
+    ];
+    const summary = buildReminderSummary({
+      tenantName: tenant.name,
+      customerName:
+        (invoice.customer?.customerType === 'business'
+          ? invoice.customer.companyName
+          : invoice.customer?.firstName) ?? '',
+      locale: emailLocale(invoice.customer?.locale),
+      invoices: list,
+      portalUrl: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
+      final,
+      today: todayInTimezone(tenant.timezone),
+    });
+    try {
+      await this.communications.enqueue({
+        tenantId: action.tenantId,
+        channel: 'email',
+        recipient: email,
+        subject: summary.subject,
+        bodyText: summary.text,
+        customerId: invoice.customerId,
+        invoiceId: action.invoiceId,
+        variables: { invoiceIds: list.map((i) => i.id) },
+        source: 'dunning.reminder_summary',
+      });
+    } catch (err) {
+      await this.admin.dunningAction.updateMany({
+        where: { id: { in: claimed.map((s) => s.id) } },
+        data: { status: 'scheduled', executedAt: null, result: Prisma.DbNull },
+      });
+      throw err;
+    }
+    return list.length;
   }
 
   private async hasOverdueAutomation(tenantId: string): Promise<boolean> {

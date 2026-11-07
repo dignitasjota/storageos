@@ -1,6 +1,10 @@
 import { formatEur } from '../../common/format';
 import { brandButton, tenantEmailShell } from '../../common/tenant-email-layout';
 
+import type { InvoicePaymentHint } from '../../common/invoice-payment-hint';
+
+export type { InvoicePaymentHint } from '../../common/invoice-payment-hint';
+
 /** Datos comunes a todos los correos al inquilino. */
 export interface CustomerEmailBase {
   tenantName: string;
@@ -15,17 +19,6 @@ export interface CustomerEmailBase {
   brandColor?: string | null;
 }
 
-/**
- * Cómo se va a pagar una factura, para decírselo al inquilino en el correo:
- * cobro automático (tarjeta o adeudo por la pasarela), remesa SEPA del propio
- * tenant, o lo paga él (área de clientes y, si hay, transferencia).
- */
-export type InvoicePaymentHint =
-  | { via: 'auto_card'; brand: string | null; last4: string | null }
-  | { via: 'auto_debit'; last4: string | null }
-  | { via: 'sepa_remittance'; last4: string }
-  | { via: 'manual'; transferIban: string | null };
-
 export type CustomerEmailData =
   | {
       kind: 'invoice_issued';
@@ -33,6 +26,8 @@ export type CustomerEmailData =
       total: number;
       dueDate: Date | null;
       payment: InvoicePaymentHint;
+      /** Descarga del PDF sin iniciar sesión. */
+      pdfUrl?: string | null;
     }
   | {
       kind: 'payment_received';
@@ -41,8 +36,21 @@ export type CustomerEmailData =
       paidAt: Date;
       /** Justificante de fianza (FZ-…) cobrado aparte: no es una factura. */
       depositReceipt?: boolean;
+      /** Descarga del PDF (ya con el sello de pagada). */
+      pdfUrl?: string | null;
     }
   | { kind: 'payment_failed'; invoiceNumber: string; amount: number; reason: string | null }
+  | {
+      /** Copia que el equipo envía a mano desde la factura. */
+      kind: 'invoice_copy';
+      invoiceNumber: string;
+      total: number;
+      dueDate: Date | null;
+      paidAt: Date | null;
+      /** Cómo pagarla (solo si está pendiente). */
+      payment: InvoicePaymentHint | null;
+      pdfUrl: string | null;
+    }
   | {
       kind: 'contract_signed';
       contractNumber: string;
@@ -151,6 +159,14 @@ interface Content {
   /** Párrafos en texto plano (se escapan al pasar a HTML). */
   paragraphs: string[];
   cta: string;
+  /** Enlace secundario bajo el botón (p. ej. la factura en PDF). */
+  link?: { label: string; url: string } | null;
+}
+
+/** «Descargar la factura en PDF», si hay enlace. */
+function pdfLink(url: string | null | undefined, l: Locale): { label: string; url: string } | null {
+  if (!url) return null;
+  return { label: l === 'en' ? 'Download the invoice (PDF)' : 'Descargar la factura en PDF', url };
 }
 
 /** «ES9121000418450200051332» → «ES91 2100 0418 4502 0005 1332». */
@@ -222,6 +238,7 @@ function content(data: CustomerEmailData, l: Locale): Content {
             : '',
           ...paymentParagraphs(data.payment, data.invoiceNumber, l),
         ],
+        link: pdfLink(data.pdfUrl, l),
         cta:
           data.payment.via === 'manual'
             ? en
@@ -262,6 +279,30 @@ function content(data: CustomerEmailData, l: Locale): Content {
               `Hemos recibido el pago de ${eur(data.amount, l)} de la factura ${data.invoiceNumber} (${day(data.paidAt, l)}). ¡Gracias!`,
               'Este correo te sirve de justificante. Tienes la factura en tu área de clientes.',
             ],
+        link: pdfLink(data.pdfUrl, l),
+        cta: en ? 'View my invoices' : 'Ver mis facturas',
+      };
+    case 'invoice_copy':
+      return {
+        subject: en ? `Invoice ${data.invoiceNumber}` : `Factura ${data.invoiceNumber}`,
+        paragraphs: [
+          en
+            ? `Here is invoice ${data.invoiceNumber} for ${eur(data.total, l)}.`
+            : `Te enviamos la factura ${data.invoiceNumber} por ${eur(data.total, l)}.`,
+          data.paidAt
+            ? en
+              ? `It is paid (${day(data.paidAt, l)}). Thank you!`
+              : `Está pagada (${day(data.paidAt, l)}). ¡Gracias!`
+            : data.dueDate
+              ? en
+                ? `Due date: ${day(data.dueDate, l)}.`
+                : `Vencimiento: ${day(data.dueDate, l)}.`
+              : '',
+          ...(data.payment && !data.paidAt
+            ? paymentParagraphs(data.payment, data.invoiceNumber, l)
+            : []),
+        ].filter(Boolean),
+        link: pdfLink(data.pdfUrl, l),
         cta: en ? 'View my invoices' : 'Ver mis facturas',
       };
     case 'payment_failed':
@@ -509,6 +550,7 @@ export function renderCustomerEmail(
     greeting,
     ...paragraphs,
     `${c.cta}: ${base.portalUrl}`,
+    ...(c.link ? [`${c.link.label}: ${c.link.url}`] : []),
     `${regards}\n${base.tenantName}`,
   ].join('\n\n');
   const brand = {
@@ -521,6 +563,11 @@ export function renderCustomerEmail(
     `<p style="font-size:15px;line-height:24px">${escapeHtml(greeting)}</p>
 ${paragraphs.map((p) => `<p style="font-size:15px;line-height:24px">${escapeHtml(p)}</p>`).join('\n')}
 ${brandButton(brand, base.portalUrl, c.cta)}
+${
+  c.link
+    ? `<p style="font-size:14px;line-height:22px"><a href="${escapeHtml(c.link.url)}">${escapeHtml(c.link.label)}</a></p>`
+    : ''
+}
 <p style="font-size:15px;line-height:24px">${regards}<br>${escapeHtml(base.tenantName)}</p>`,
   );
   return { subject: c.subject, text, html };

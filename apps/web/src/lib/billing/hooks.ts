@@ -3,24 +3,38 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  LateFeePreviewDto,
   ReturnedReceiptsDto,
   BulkInvoiceActionResultDto,
   CancelInvoiceInput,
   ChargeInvoiceInput,
+  CorrectPaymentInput,
   CreateInvoiceInput,
   CreateInvoiceSeriesInput,
   DataSubjectRequestDto,
   DunningActionDto,
+  InvoiceActivityDto,
+  InvoiceCancelPreviewDto,
   InvoiceDto,
+  InvoiceRefundOptionsDto,
+  InvoiceSavedViewDto,
   InvoiceSeriesDto,
+  InvoiceTotalsDto,
   MarkPaidManuallyInput,
+  MonthCloseDto,
+  MonthCloseGenerateResultDto,
+  PageDto,
   PaymentDto,
   PaymentMethodDto,
   RectifyInvoiceInput,
   RefundInvoiceInput,
   RegisterPaymentMethodInput,
+  SaveInvoiceViewInput,
+  SendInvoiceEmailInput,
+  SendInvoiceEmailResultDto,
   SetupIntentResponseDto,
   SignedDownloadDto,
+  UpdateInvoiceInput,
   UpdateInvoiceSeriesInput,
 } from '@storageos/shared';
 
@@ -116,6 +130,22 @@ export function useCreateInvoice() {
   });
 }
 
+/** Lo que cambia al emitir, cobrar, devolver o anular una factura. */
+export function invalidateBilling(qc: ReturnType<typeof useQueryClient>): void {
+  for (const key of [
+    'invoices',
+    'payments',
+    'arrears',
+    'collections-month',
+    'dashboard',
+    'customers',
+    'contracts',
+    'access-cuts',
+  ]) {
+    void qc.invalidateQueries({ queryKey: [key] });
+  }
+}
+
 function makeInvoiceAction<T>(action: string) {
   return function useInvoiceAction() {
     const qc = useQueryClient();
@@ -125,11 +155,173 @@ function makeInvoiceAction<T>(action: string) {
           method: 'POST',
           json: args.body,
         }),
-      onSuccess: () => {
-        void qc.invalidateQueries({ queryKey: ['invoices'] });
-      },
+      onSuccess: () => invalidateBilling(qc),
     });
   };
+}
+
+/** Cuánto sería el recargo por mora de una factura vencida. */
+export function fetchLateFeePreview(id: string): Promise<LateFeePreviewDto> {
+  return apiFetch<LateFeePreviewDto>(`/invoices/${id}/late-fee-preview`);
+}
+
+/** Cambia el vencimiento (con motivo, si ya está emitida) o las notas. */
+export function useUpdateInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: UpdateInvoiceInput }) =>
+      apiFetch<InvoiceDto>(`/invoices/${args.id}`, { method: 'PATCH', json: args.input }),
+    onSuccess: () => invalidateBilling(qc),
+  });
+}
+
+/** Filtros de la lista de facturas, tal como los entiende el API. */
+export type InvoiceListParams = Record<string, string | undefined>;
+
+function query(params: InvoiceListParams): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+  const s = qs.toString();
+  return s ? `?${s}` : '';
+}
+
+/** Lo que suman las facturas de esos filtros. */
+export function useInvoiceTotals(params: InvoiceListParams) {
+  return useQuery({
+    queryKey: ['invoices', 'totals', params] as const,
+    queryFn: () => apiFetch<InvoiceTotalsDto>(`/invoices/totals${query(params)}`),
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Todas las facturas de esos filtros (para el CSV), hasta `max`. */
+export async function fetchAllInvoices(
+  params: InvoiceListParams,
+  max = 5000,
+): Promise<{ rows: InvoiceDto[]; truncated: boolean }> {
+  const rows: InvoiceDto[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await apiFetch<PageDto<InvoiceDto>>(
+      `/invoices/page${query({ ...params, limit: '100', cursor })}`,
+    );
+    rows.push(...page.items);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor && rows.length < max);
+  return { rows: rows.slice(0, max), truncated: !!cursor || rows.length > max };
+}
+
+export function useInvoiceViews() {
+  return useQuery({
+    queryKey: ['invoices', 'views'] as const,
+    queryFn: () => apiFetch<InvoiceSavedViewDto[]>('/invoices/views'),
+    staleTime: 60_000,
+  });
+}
+
+export function useSaveInvoiceView() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SaveInvoiceViewInput) =>
+      apiFetch<InvoiceSavedViewDto>('/invoices/views', { method: 'POST', json: input }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['invoices', 'views'] }),
+  });
+}
+
+export function useDeleteInvoiceView() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/invoices/views/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['invoices', 'views'] }),
+  });
+}
+
+/** Cobros, devoluciones, avisos, pasos del escalado e historial de una factura. */
+export function useInvoiceActivity(id: string | undefined) {
+  return useQuery({
+    queryKey: ['invoices', id ?? 'none', 'activity'] as const,
+    queryFn: () => apiFetch<InvoiceActivityDto>(`/invoices/${id}/activity`),
+    enabled: !!id,
+  });
+}
+
+/** Qué pasará al anular una factura (antes de confirmarlo). */
+export function fetchCancelPreview(id: string): Promise<InvoiceCancelPreviewDto> {
+  return apiFetch<InvoiceCancelPreviewDto>(`/invoices/${id}/cancel-preview`);
+}
+
+/** Cómo se devolvería el dinero de una factura. */
+export function fetchRefundOptions(id: string): Promise<InvoiceRefundOptionsDto> {
+  return apiFetch<InvoiceRefundOptionsDto>(`/invoices/${id}/refund-options`);
+}
+
+export function useDuplicateInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<InvoiceDto>(`/invoices/${id}/duplicate`, { method: 'POST' }),
+    onSuccess: () => invalidateBilling(qc),
+  });
+}
+
+export function useSendInvoiceEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: SendInvoiceEmailInput }) =>
+      apiFetch<SendInvoiceEmailResultDto>(`/invoices/${args.id}/send`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: (_res, args) =>
+      void qc.invalidateQueries({ queryKey: ['invoices', args.id, 'activity'] }),
+  });
+}
+
+/** Deshacer un cobro registrado a mano por error. */
+export function useUndoPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { invoiceId: string; paymentId: string; reason: string }) =>
+      apiFetch<InvoiceDto>(`/invoices/${args.invoiceId}/payments/${args.paymentId}/undo`, {
+        method: 'POST',
+        json: { reason: args.reason },
+      }),
+    onSuccess: () => invalidateBilling(qc),
+  });
+}
+
+/** Corregir la fecha o la forma de pago de un cobro registrado a mano. */
+export function useCorrectPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { invoiceId: string; paymentId: string; input: CorrectPaymentInput }) =>
+      apiFetch<InvoiceDto>(`/invoices/${args.invoiceId}/payments/${args.paymentId}`, {
+        method: 'PATCH',
+        json: args.input,
+      }),
+    onSuccess: () => invalidateBilling(qc),
+  });
+}
+
+/** Cierre del mes: lo que falta por generar, emitir y cobrar. */
+export function useMonthClose(month: string) {
+  return useQuery({
+    queryKey: ['invoices', 'month-close', month] as const,
+    queryFn: () => apiFetch<MonthCloseDto>(`/invoices/month-close?month=${month}`),
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useGenerateMonth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (month: string) =>
+      apiFetch<MonthCloseGenerateResultDto>('/invoices/month-close/generate', {
+        method: 'POST',
+        json: { month },
+      }),
+    onSuccess: () => invalidateBilling(qc),
+  });
 }
 
 export const useIssueInvoice = makeInvoiceAction<undefined>('issue');
@@ -210,11 +402,7 @@ export function useChargeInvoice() {
         method: 'POST',
         json: args.input,
       }),
-    onSuccess: (_d, args) => {
-      void qc.invalidateQueries({ queryKey: ['invoices'] });
-      void qc.invalidateQueries({ queryKey: ['payments'] });
-      void qc.invalidateQueries({ queryKey: invoiceKey(args.invoiceId) });
-    },
+    onSuccess: () => invalidateBilling(qc),
   });
 }
 
@@ -227,9 +415,7 @@ export function useBulkIssueInvoices() {
         method: 'POST',
         json: { ids },
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['invoices'] });
-    },
+    onSuccess: () => invalidateBilling(qc),
   });
 }
 
@@ -257,10 +443,7 @@ export function useBulkChargeInvoices() {
         method: 'POST',
         json: { ids },
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['invoices'] });
-      void qc.invalidateQueries({ queryKey: ['payments'] });
-    },
+    onSuccess: () => invalidateBilling(qc),
   });
 }
 

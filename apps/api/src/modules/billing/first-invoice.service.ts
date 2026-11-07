@@ -146,8 +146,6 @@ export class FirstInvoiceService {
       let billingStartsOn: Date | null = null;
       // Líneas de alquiler sobre las que se descuenta el saldo a favor.
       let rentLineCount = 1;
-      // El primer pago mensual incluye el mes siguiente completo.
-      let includesNextMonth = false;
       const line = (description: string, quantity: number, unitPrice: number) => ({
         description,
         quantity,
@@ -321,7 +319,6 @@ export class FirstInvoiceService {
           });
         }
         if (plan.includesNextMonth) {
-          includesNextMonth = true;
           rentLineCount = 2;
           billingStartsOn = new Date(`${plan.billingStartsOn}T00:00:00Z`);
         }
@@ -355,18 +352,13 @@ export class FirstInvoiceService {
         }
       }
 
-      // Un mes: vence a los 15 días del fin del mes (como la recurrente). Varios
-      // meses por adelantado: a los 15 días del inicio (si no, un anual vencía
-      // al cabo de un año y no entraba nunca en impagos).
-      // Con el mes siguiente incluido, igual que varios meses.
+      // Vence con el plazo del negocio desde la emisión (lo pone `issue`).
       // Reserva anticipada: se paga para reservar. La online (con plazo de pago,
       // a las 72 h se cancela sola) vence a los 3 días; la firmada en el panel,
       // a los 15 (si no, entraba en impagos a los pocos días).
       const dueDate = preOpening
         ? addDays(new Date(), contract.firstPaymentDeadline ? 3 : 15)
-        : months > 1 || includesNextMonth
-          ? addDays(periodStart, 15)
-          : addDays(periodEnd, 15);
+        : null;
       invoice = await this.invoices
         .create({
           tenantId,
@@ -377,11 +369,15 @@ export class FirstInvoiceService {
             contractId,
             seriesId: series.id,
             ...(preOpening ? {} : { periodStart: ymd(periodStart), periodEnd: ymd(periodEnd) }),
-            dueDate: ymd(dueDate),
+            ...(dueDate ? { dueDate: ymd(dueDate) } : {}),
             items,
             verifactuMode: 'verifactu',
           },
           meta: {},
+          // Si se cancela, la señal descontada vuelve al contrato.
+          ...(credit && credit.cents > 0
+            ? { consumedBenefits: { creditCents: credit.cents, creditReason: credit.reason } }
+            : {}),
         })
         .catch(async (err: unknown) => {
           await credit?.restore().catch(() => undefined);
@@ -393,7 +389,14 @@ export class FirstInvoiceService {
           data: { billingStartsOn },
         });
       }
-      await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
+      // A 0 € la deja saldada `settleIfZero`, después de crear la fianza.
+      const issued = await this.invoices.issue({
+        tenantId,
+        userId: null,
+        invoiceId: invoice.id,
+        meta: {},
+        settleZero: false,
+      });
       if (coupon) {
         await this.admin.couponRedemption.update({
           where: { id: coupon.id },
@@ -412,7 +415,11 @@ export class FirstInvoiceService {
           // llega con la factura pagada) y sin vencimiento (no entra en impagos).
           ...(cashDeposit
             ? { dueDate: null, bundledWithInvoiceId: null }
-            : { dueDate, bundledWithInvoiceId: invoice.id }),
+            : {
+                // Vence con la factura con la que se paga.
+                dueDate: issued.dueDate ? new Date(`${issued.dueDate}T00:00:00Z`) : dueDate,
+                bundledWithInvoiceId: invoice.id,
+              }),
         });
       }
       // Alquiler a 0 € (cupón del 100 % o que cubre todo el periodo): no hay nada

@@ -260,7 +260,7 @@ interface ContractFilters {
   unitId?: string;
 }
 
-export function useContracts(filters: ContractFilters = {}) {
+export function useContracts(filters: ContractFilters = {}, options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: contractsKey(filters as Record<string, string | undefined>),
     queryFn: () => {
@@ -270,6 +270,7 @@ export function useContracts(filters: ContractFilters = {}) {
       return apiFetch<ContractDto[]>(`/contracts${qs ? `?${qs}` : ''}`);
     },
     staleTime: 15_000,
+    enabled: options.enabled ?? true,
   });
 }
 

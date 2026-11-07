@@ -9,6 +9,7 @@ import {
   type PaymentPlanStatus,
 } from '@storageos/shared';
 
+import { accessCutApplied } from '../../common/access-cut';
 import { type FacilityScope, invoiceFacilityWhere } from '../../common/facility-scope';
 import { todayInTimezone, zonedDayStart } from '../../common/format';
 import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
@@ -336,6 +337,7 @@ export class CollectionsOpsService {
             status: true,
             scheduledFor: true,
             executedAt: true,
+            result: true,
           },
         }),
         tx.paymentMethod.findMany({
@@ -418,7 +420,7 @@ export class CollectionsOpsService {
           sepaMandate: mandate.has(c.id),
           lastReminderAt: reminders.length ? new Date(Math.max(...reminders)).toISOString() : null,
           lateFeeApplied: invs.some((i) => !!i.lateFeeInvoice),
-          accessBlocked: executed.some((a) => a.actionType === 'access_block'),
+          accessBlocked: executed.some(accessCutApplied),
           nextStep: next
             ? {
                 label: STEP_LABEL[next.actionType] ?? next.actionType,

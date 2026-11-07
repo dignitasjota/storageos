@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  AccessCutPendingDto,
   ArrearsDto,
   CreatePaymentPlanInput,
   MonthCollectionsDto,
@@ -61,5 +62,50 @@ export function useCancelPaymentPlan() {
     mutationFn: (id: string) =>
       apiFetch<PaymentPlanDto>(`/payment-plans/${id}/cancel`, { method: 'POST' }),
     onSuccess: () => invalidate(qc),
+  });
+}
+
+/** Inquilinos con deuda a los que el corte de acceso no llegó a aplicarse. */
+export function useAccessCutPending(facilityId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['access-cuts', facilityId ?? null] as const,
+    queryFn: () => apiFetch<AccessCutPendingDto>(`/access/debt-cuts${qs({ facilityId })}`),
+    enabled,
+  });
+}
+
+function invalidateCuts(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ['access-cuts'] });
+  void qc.invalidateQueries({ queryKey: ['arrears'] });
+  void qc.invalidateQueries({ queryKey: ['access'] });
+}
+
+export function useCutAccess() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (customerId: string) =>
+      apiFetch<{ suspended: number }>(`/access/debt-cuts/${customerId}/cut`, { method: 'POST' }),
+    onSuccess: () => invalidateCuts(qc),
+  });
+}
+
+export function useSkipAccessCut() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (customerId: string) =>
+      apiFetch<void>(`/access/debt-cuts/${customerId}/skip`, { method: 'POST' }),
+    onSuccess: () => invalidateCuts(qc),
+  });
+}
+
+export function useCutAllAccess() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (facilityId?: string) =>
+      apiFetch<{ customers: number; suspended: number }>(
+        `/access/debt-cuts/cut-all${qs({ facilityId })}`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => invalidateCuts(qc),
   });
 }
