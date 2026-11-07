@@ -41,6 +41,8 @@ const customerBase = {
   depositExempt: z.boolean().optional(),
   /** Empresas: a dónde van las facturas si no es el email de contacto. */
   billingEmail: z.string().trim().toLowerCase().email().optional().or(z.literal('')),
+  /** Días para pagar sus facturas; null = los del negocio. */
+  invoiceDueDays: z.number().int().min(0).max(120).nullable().optional(),
 };
 
 export const CreateCustomerSchema = z
