@@ -69,7 +69,9 @@ describe('Revisión de facturación (e2e)', () => {
     expect(await issueOn('2027-01-05')).toMatch(/\/2027\/00002$/);
   });
 
-  it('el pago de varios meses vence a los 15 días del inicio, no del fin del periodo', async () => {
+  it('los pagos de varios meses vencen con el plazo del negocio desde que se emiten', async () => {
+    const plus = (d: Date, days: number) =>
+      new Date(d.getTime() + days * 86_400_000).toISOString().slice(0, 10);
     const owner = await registerVerifiedUser(app, 'billdue');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await ensureDefaultSeries(app, owner.accessToken);
@@ -94,9 +96,9 @@ describe('Revisión de facturación (e2e)', () => {
       where: { contractId: threeMonths.body.id, kind: 'invoice' },
     });
     expect(first.periodEnd?.toISOString().slice(0, 10)).toBe('2026-06-09');
-    expect(first.dueDate?.toISOString().slice(0, 10)).toBe('2026-03-25');
+    expect(first.dueDate?.toISOString().slice(0, 10)).toBe(plus(first.issueDate!, 15));
 
-    // Prepago anual por la recurrente: vence a los 15 días del inicio.
+    // Prepago anual por la recurrente: el borrador no lleva vencimiento; lo pone la emisión.
     const annual = await http().post('/contracts').set(auth).send({
       customerId,
       unitId: unitIds[1],
@@ -116,7 +118,9 @@ describe('Revisión de facturación (e2e)', () => {
       where: { contractId: annual.body.id, kind: 'invoice' },
     });
     expect(yearly.periodEnd?.toISOString().slice(0, 10)).toBe('2027-01-09');
-    expect(yearly.dueDate?.toISOString().slice(0, 10)).toBe('2026-01-25');
+    expect(yearly.dueDate).toBeNull();
+    const issued = await http().post(`/invoices/${yearly.id}/issue`).set(auth).send({}).expect(200);
+    expect(issued.body.dueDate).toBe(plus(new Date(`${issued.body.issueDate}T00:00:00Z`), 15));
   });
 
   it('si la primera factura no se emite, el equipo recibe un aviso con el motivo', async () => {
