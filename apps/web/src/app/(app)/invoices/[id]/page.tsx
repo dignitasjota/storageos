@@ -33,6 +33,7 @@ import { toast } from 'sonner';
 
 import { EditDraftDialog } from './edit-draft-dialog';
 import { InvoiceActivityCard } from './invoice-activity';
+import { VerifactuRecords } from './verifactu-records';
 
 import { InvoiceCollectionBadges } from '@/components/billing/invoice-collection-badges';
 import { useConfirm } from '@/components/confirm-provider';
@@ -89,10 +90,11 @@ import {
   useRefundInvoice,
   useSendInvoiceEmail,
   useUpdateInvoice,
+  useVoidInvoice,
 } from '@/lib/billing/hooks';
 import { invoiceNumberLabel, isNumbered } from '@/lib/billing/labels';
 import { localDateString } from '@/lib/dates';
-import { formatDate, formatEur } from '@/lib/format';
+import { formatDate, formatDateTime, formatEur } from '@/lib/format';
 import { fetchRedsysRedirect, submitRedsysForm, useRedsysSettings } from '@/lib/payments/redsys';
 
 /**
@@ -220,6 +222,7 @@ export default function InvoiceDetailPage() {
   const updateInvoice = useUpdateInvoice();
   const duplicate = useDuplicateInvoice();
   const sendEmail = useSendInvoiceEmail();
+  const voidInvoice = useVoidInvoice();
   const canRefund = useHasPermission('invoices:refund');
   const canSend = useHasPermission('communications:send');
   const canManageInv = useHasPermission('invoices:manage');
@@ -257,6 +260,8 @@ export default function InvoiceDetailPage() {
   const [dueOpen, setDueOpen] = useState(false);
   const [dueDate, setDueDate] = useState<string | undefined>();
   const [dueReason, setDueReason] = useState('');
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
 
   if (invoice.isError) {
     const missing = invoice.error instanceof ApiError && invoice.error.statusCode === 404;
@@ -298,6 +303,28 @@ export default function InvoiceDetailPage() {
     Math.round((i.amountPaid - i.withholdingAmount - i.amountCompensated) * 100) / 100,
   );
   const refundable = Math.max(0, Math.round((collected - i.amountRefunded) * 100) / 100);
+  const canRectify =
+    canManageInv &&
+    (i.invoiceType === 'F1' || i.invoiceType === 'F2') &&
+    i.kind === 'invoice' &&
+    RECTIFIABLE_STATUSES.has(i.status);
+  function openRectify(method: CorrectionMethodValue) {
+    setRectifyType(i.invoiceType === 'F2' ? 'R5' : 'R1');
+    setRectifyMethod(method);
+    setRectifyReason('');
+    setRectifyItems(rectifyStart(i, method));
+    setRectifyOpen(true);
+  }
+  // Anular por error: solo una factura sin cobros, sin rectificar y que no sea
+  // rectificativa (lo demás se rectifica).
+  const showVoid =
+    canManageInv &&
+    i.kind === 'invoice' &&
+    (i.invoiceType === 'F1' || i.invoiceType === 'F2') &&
+    pendingStatus &&
+    collected === 0 &&
+    rectifiedBy.length === 0 &&
+    i.issuedBy !== 'holded';
   // Acciones del menú «Más».
   const showPdfAction = !isDraft && i.status !== 'cancelled' && canManageInv;
   const showDuplicate =
@@ -540,7 +567,7 @@ export default function InvoiceDetailPage() {
               <h1 className="font-mono text-2xl font-semibold tracking-tight">
                 {invoiceNumberLabel(i)}
               </h1>
-              <InvoiceStatusBadge status={i.status} total={i.total} />
+              <InvoiceStatusBadge status={i.status} total={i.total} voided={!!i.voidedAt} />
               <InvoiceCollectionBadges invoice={i} />
               {i.issuedBy === 'holded' && isDraft ? (
                 <Badge
@@ -555,7 +582,12 @@ export default function InvoiceDetailPage() {
                   Emitida en Holded
                 </Badge>
               ) : (
-                i.kind === 'invoice' && <VerifactuBadge invoice={i} />
+                i.kind === 'invoice' && (
+                  <VerifactuBadge
+                    invoice={i}
+                    onRectify={canRectify ? () => openRectify('by_substitution') : undefined}
+                  />
+                )
               )}
               {i.kind === 'deposit_receipt' && (
                 <Badge variant="outline" title="Garantía reembolsable: sin IVA ni Veri*Factu">
@@ -639,6 +671,13 @@ export default function InvoiceDetailPage() {
               )}
               {i.ownerName && <> · emitida por {i.ownerName}</>}
             </p>
+            {i.voidedAt && (
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                Anulada el {formatDateTime(i.voidedAt)} por haberse emitido por error
+                {i.voidReason ? `: ${i.voidReason}` : ''}. No cuenta en los libros ni en los
+                informes.
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             {isDraft && canManageInv && i.issuedBy !== 'holded' && (
@@ -727,23 +766,11 @@ export default function InvoiceDetailPage() {
                   <Ban className="mr-1 h-4 w-4" /> {isDraft ? 'Cancelar' : 'Anular'}
                 </Button>
               )}
-            {canManageInv &&
-              (i.invoiceType === 'F1' || i.invoiceType === 'F2') &&
-              i.kind === 'invoice' &&
-              RECTIFIABLE_STATUSES.has(i.status) && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setRectifyType(i.invoiceType === 'F2' ? 'R5' : 'R1');
-                    setRectifyMethod('by_differences');
-                    setRectifyReason('');
-                    setRectifyItems(rectifyStart(i, 'by_differences'));
-                    setRectifyOpen(true);
-                  }}
-                >
-                  <Receipt className="mr-1 h-4 w-4" /> Rectificar
-                </Button>
-              )}
+            {canRectify && (
+              <Button variant="outline" onClick={() => openRectify('by_differences')}>
+                <Receipt className="mr-1 h-4 w-4" /> Rectificar
+              </Button>
+            )}
             {i.hasPdf && (
               <Button variant="outline" onClick={onDownloadPdf} disabled={signedPdfUrl.isPending}>
                 {signedPdfUrl.isPending ? (
@@ -785,7 +812,10 @@ export default function InvoiceDetailPage() {
             {holdedEligible && i.holdedDocumentId && (
               <span className="self-center text-xs text-muted-foreground">Exportada a Holded</span>
             )}
-            {(showPdfAction || showDuplicate || (holdedEligible && !i.holdedDocumentId)) && (
+            {(showPdfAction ||
+              showDuplicate ||
+              showVoid ||
+              (holdedEligible && !i.holdedDocumentId)) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" aria-label="Más acciones">
@@ -823,6 +853,17 @@ export default function InvoiceDetailPage() {
                       onSelect={() => void exportToHolded()}
                     >
                       <Send className="mr-2 h-4 w-4" /> Exportar a Holded
+                    </DropdownMenuItem>
+                  )}
+                  {showVoid && (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={() => {
+                        setVoidReason('');
+                        setVoidOpen(true);
+                      }}
+                    >
+                      <Ban className="mr-2 h-4 w-4" /> Anular: se emitió por error
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>
@@ -890,7 +931,8 @@ export default function InvoiceDetailPage() {
             ) : (
               <p>Creada: {formatDate(i.createdAt)}</p>
             )}
-            {i.dueDate && i.total > 0 && (
+            {/* Anulada por error: ya no vence (el PDF tampoco lo pone). */}
+            {i.dueDate && i.total > 0 && !i.voidedAt && (
               <p className="flex flex-wrap items-center gap-x-2">
                 Vence: {formatDate(i.dueDate)}
                 {canWriteInv && pendingStatus && (
@@ -1026,6 +1068,7 @@ export default function InvoiceDetailPage() {
                   ))}
               </div>
             </div>
+            <VerifactuRecords invoiceId={i.id} />
           </CardContent>
         </Card>
       )}
@@ -1191,6 +1234,51 @@ export default function InvoiceDetailPage() {
             >
               {markPaid.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               Registrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={voidOpen} onOpenChange={setVoidOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Anular la factura emitida por error</DialogTitle>
+            <DialogDescription>
+              Solo si no debía existir: una factura de prueba, duplicada o de una operación que no
+              se hizo. Deja de contar en los libros y en los informes
+              {i.hash ? ', y se envía a la AEAT su registro de anulación' : ''}. Si la operación
+              existió y cambia el importe o algún dato, lo correcto es rectificarla.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="void-reason">Por qué se emitió por error</Label>
+            <Input
+              id="void-reason"
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              maxLength={500}
+              placeholder="Por ejemplo: factura duplicada de la FA/2026/00012"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={voidInvoice.isPending || voidReason.trim().length < 5}
+              onClick={() =>
+                void safe(async () => {
+                  await voidInvoice.mutateAsync({
+                    id: i.id,
+                    body: { reason: voidReason.trim() },
+                  });
+                  setVoidOpen(false);
+                }, 'Factura anulada.')
+              }
+            >
+              {voidInvoice.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Anular la factura
             </Button>
           </DialogFooter>
         </DialogContent>

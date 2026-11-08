@@ -16,9 +16,9 @@ export abstract class AeatClient {
   abstract get mode(): 'stub' | 'sandbox' | 'production';
 
   /**
-   * Envía a la AEAT los registros de varias facturas de un mismo emisor (el
-   * negocio o un propietario), en un solo mensaje y en el orden recibido.
-   * Devuelve el resultado del envío y el de cada factura. NO actualiza la BD:
+   * Envía a la AEAT varios registros de un mismo emisor (el negocio o un
+   * propietario), en un solo mensaje y en el orden recibido (el de su cadena).
+   * Devuelve el resultado del envío y el de cada registro. NO actualiza la BD:
    * lo hace `VerifactuService`.
    */
   abstract sendBatch(args: SendBatchArgs): Promise<SendBatchResult>;
@@ -31,8 +31,13 @@ export interface SendBatchArgs {
   tenantId: string;
   /** Emisor propietario (plan Administrador); null = el propio negocio. */
   ownerId: string | null;
-  /** Facturas del emisor, en el orden de su cadena (como mucho 1.000). */
-  invoiceIds: readonly string[];
+  /** Registros del emisor (`verifactu_records`), en el orden de su cadena (como mucho 1.000). */
+  recordIds: readonly string[];
+  /**
+   * `RemisionVoluntaria` de la cabecera: la renuncia a VERI*FACTU
+   * (`FechaFinVeriFactu`) y si los registros se retrasaron por una incidencia.
+   */
+  remision?: { fechaFinVerifactu?: Date | null; incidencia?: boolean } | null;
 }
 
 export interface SendBatchResult {
@@ -53,7 +58,7 @@ export interface SendBatchResult {
   /** Segundos que la AEAT pide esperar antes del siguiente envío (solo `sent`). */
   waitSeconds?: number | null;
   message?: string;
-  /** Lo que ha pasado con cada factura pedida (también las que no salieron). */
+  /** Lo que ha pasado con cada registro pedido, por su id (también los que no salieron). */
   results: Record<string, SendInvoiceResult>;
   raw?: Record<string, unknown>;
 }

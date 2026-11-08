@@ -528,7 +528,11 @@ export default function InvoicesPage() {
       accessorKey: 'status',
       header: 'Estado',
       cell: ({ row }) => (
-        <InvoiceStatusBadge status={row.original.status} total={row.original.total} />
+        <InvoiceStatusBadge
+          status={row.original.status}
+          total={row.original.total}
+          voided={!!row.original.voidedAt}
+        />
       ),
     },
   ];

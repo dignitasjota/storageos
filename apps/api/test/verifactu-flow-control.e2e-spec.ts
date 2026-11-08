@@ -9,7 +9,7 @@ import { PrismaAdminService } from '../src/modules/database/prisma-admin.service
 import { QUEUE_VERIFACTU } from '../src/modules/queues/queues.module';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { createDraftInvoice, waitForAeatStatus } from './helpers/billing-fixtures';
+import { createDraftInvoice, recordsOf, waitForAeatStatus } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -54,14 +54,23 @@ describe('Veri*Factu: envíos en lotes y control de flujo (e2e)', () => {
     return {
       outcome: 'sent',
       emitterTaxId: 'B12345674',
-      recordCount: args.invoiceIds.length,
+      recordCount: args.recordIds.length,
       status: 'accepted',
       csv,
       waitSeconds: 60,
       results: Object.fromEntries(
-        args.invoiceIds.map((id) => [id, { status: 'accepted' as const, csv }]),
+        args.recordIds.map((id) => [id, { status: 'accepted' as const, csv }]),
       ),
     };
+  }
+
+  /** Las facturas de unos registros, en el orden en que se enviaron. */
+  async function invoicesOf(recordIds: readonly string[]): Promise<string[]> {
+    const rows = await admin.verifactuRecord.findMany({
+      where: { id: { in: [...recordIds] } },
+      select: { id: true, invoiceId: true },
+    });
+    return recordIds.map((id) => rows.find((r) => r.id === id)!.invoiceId);
   }
 
   async function issue(token: string, customerId: string): Promise<string> {
@@ -80,7 +89,7 @@ describe('Veri*Factu: envíos en lotes y control de flujo (e2e)', () => {
     const customerId = await createCustomer(app, owner.accessToken);
     const calls: string[][] = [];
     jest.spyOn(aeat, 'sendBatch').mockImplementation(async (args) => {
-      calls.push([...args.invoiceIds]);
+      calls.push(await invoicesOf(args.recordIds));
       return accepted(args, `CSV-${calls.length}`);
     });
 
@@ -152,10 +161,10 @@ describe('Veri*Factu: envíos en lotes y control de flujo (e2e)', () => {
         ? {
             outcome: 'failed',
             emitterTaxId: 'B12345674',
-            recordCount: args.invoiceIds.length,
+            recordCount: args.recordIds.length,
             message: 'timeout',
             results: Object.fromEntries(
-              args.invoiceIds.map((id) => [id, { status: 'error' as const, message: 'timeout' }]),
+              args.recordIds.map((id) => [id, { status: 'error' as const, message: 'timeout' }]),
             ),
           }
         : accepted(args, 'CSV-B'),
@@ -179,13 +188,32 @@ describe('Veri*Factu: envíos en lotes y control de flujo (e2e)', () => {
       where: { tenantId: a.tenantId },
     });
     expect(failedSubmission).toMatchObject({ status: 'error', recordCount: 1, message: 'timeout' });
+    // Sale tarde por una incidencia: el registro queda marcado y el panel lo avisa
+    // con el número de facturas sin enviar (art. 16.4 de la Orden).
+    expect((await recordsOf(app, invA))[0]!.incident).toBe(true);
+    const alertA = await http()
+      .get('/billing/verifactu/alert')
+      .set({ Authorization: `Bearer ${a.accessToken}` })
+      .expect(200);
+    expect(alertA.body).toMatchObject({
+      unsentCount: 1,
+      lastError: 'No se ha podido conectar con la AEAT. Se vuelve a intentar.',
+    });
+    const alertB = await http()
+      .get('/billing/verifactu/alert')
+      .set({ Authorization: `Bearer ${b.accessToken}` })
+      .expect(200);
+    expect(alertB.body).toEqual({ unsentCount: 0, since: null, lastError: null });
 
-    // «Reenviar» no espera al reintento, pero sí la espera entre envíos.
+    // «Reenviar» no espera al reintento, pero sí la espera entre envíos. Lo que
+    // no llegó se repite tal cual (no es una subsanación).
     const schedule = jest.spyOn(app.get(VerifactuDispatcher), 'schedule');
-    await http()
+    const resent = await http()
       .post(`/billing/invoices/${invA}/resend-aeat`)
       .set({ Authorization: `Bearer ${a.accessToken}` })
       .expect(202);
+    expect(resent.body).toEqual({ queued: true, invoiceId: invA, subsanacion: false });
+    expect(await recordsOf(app, invA)).toHaveLength(1);
     expect(schedule).toHaveBeenCalledWith(a.tenantId, null, { retryNow: true });
     const afterResend = await admin.verifactuEmitter.findUniqueOrThrow({
       where: { id: emitterA.id },
@@ -203,7 +231,7 @@ describe('Veri*Factu: envíos en lotes y control de flujo (e2e)', () => {
     const id = await issue(owner.accessToken, customerId);
     expect(await waitForAeatStatus(app, owner.accessToken, id)).toBe('accepted');
     // Un registro que se quedó sin trabajo (Redis reiniciado…).
-    await admin.$executeRaw`UPDATE invoices SET aeat_status = 'pending', updated_at = now() - interval '1 hour' WHERE id = ${id}::uuid`;
+    await admin.$executeRaw`UPDATE verifactu_records SET status = 'pending', updated_at = now() - interval '1 hour' WHERE invoice_id = ${id}::uuid`;
 
     const schedule = jest.spyOn(app.get(VerifactuDispatcher), 'schedule');
     await app.get(VerifactuStatusPollerCron).requeueStalled();

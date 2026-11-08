@@ -32,7 +32,8 @@ function longDate(value: string): string {
 /**
  * Activar o desactivar el envío de las facturas a la AEAT. Apagado (por
  * defecto), las facturas salen sin QR y no se envían; cada negocio lo activa
- * cuando le toque.
+ * cuando le toque. Con facturas enviadas este año, desactivarlo programa la
+ * baja para el 31 de diciembre (art. 17 de la Orden HAC/1177/2024).
  */
 export function VerifactuSendingCard() {
   const settings = useVerifactuSettingsQuery();
@@ -57,7 +58,8 @@ export function VerifactuSendingCard() {
   }
   const s = settings.data;
   const last = s.lastSubmission ?? null;
-  const year = new Date().getFullYear();
+  const renuncia = s.renuncia ?? null;
+  // Con facturas enviadas este año, «Desactivar» programa la baja a fin de año.
   const locked = !!s.lockedUntil && localDateString() <= s.lockedUntil;
 
   async function change(enabled: boolean) {
@@ -65,21 +67,44 @@ export function VerifactuSendingCard() {
       enabled
         ? {
             title: '¿Activar Veri*Factu?',
-            description: `Desde ahora cada factura que emitas llevará el QR de la AEAT y se le enviará sola. No podrás desactivarlo hasta el 31 de diciembre de ${year}.`,
+            description:
+              'Desde ahora cada factura que emitas llevará el QR de la AEAT y se le enviará sola. Si emites facturas en un año, seguirá activado hasta el 31 de diciembre de ese año.',
             confirmLabel: 'Activar',
           }
-        : {
-            title: '¿Desactivar Veri*Factu?',
-            description:
-              'Tus facturas dejarán de enviarse a la AEAT. Desde la fecha en que te toque es obligatorio: hazlo solo si ya no te corresponde.',
-            confirmLabel: 'Desactivar',
-            destructive: true,
-          },
+        : locked
+          ? {
+              title: '¿Dejar Veri*Factu el 31 de diciembre?',
+              description: `Has enviado facturas este año, así que sigue activado hasta el ${longDate(s.lockedUntil!)} (art. 17 de la Orden HAC/1177/2024). La baja se le comunica a la AEAT con tu próximo envío; si no emites ninguna factura más este año, no le llegará y seguirás en Veri*Factu. Desde la fecha en que te toque es obligatorio: hazlo solo si ya no te corresponde.`,
+              confirmLabel: 'Programar la baja',
+              destructive: true,
+            }
+          : {
+              title: '¿Desactivar Veri*Factu?',
+              description:
+                'Tus facturas dejarán de enviarse a la AEAT. Desde la fecha en que te toque es obligatorio: hazlo solo si ya no te corresponde.',
+              confirmLabel: 'Desactivar',
+              destructive: true,
+            },
     );
     if (!ok) return;
     try {
-      await update.mutateAsync({ enabled });
-      toast.success(enabled ? 'Veri*Factu activado' : 'Veri*Factu desactivado');
+      const after = await update.mutateAsync({ enabled });
+      toast.success(
+        enabled
+          ? 'Veri*Factu activado'
+          : after.renuncia
+            ? 'Baja programada para el 31 de diciembre'
+            : 'Veri*Factu desactivado',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido guardar');
+    }
+  }
+
+  async function cancelRenuncia() {
+    try {
+      await update.mutateAsync({ enabled: true });
+      toast.success('Baja anulada: sigues en Veri*Factu');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido guardar');
     }
@@ -109,7 +134,26 @@ export function VerifactuSendingCard() {
               {s.enabledAt ? `Activado desde el ${longDate(s.enabledAt)}. ` : ''}
               Cada factura que emites lleva el QR de la AEAT y se le envía sola con tu certificado.
             </p>
-            {s.pendingCount > 0 && (
+            {s.incidentCount > 0 && (
+              <div className="space-y-1 rounded-md border border-red-500/40 bg-red-50 p-3 text-red-900 dark:bg-red-950/40 dark:text-red-200">
+                <p className="font-medium">
+                  {s.incidentCount === 1
+                    ? '1 factura no ha podido llegar a la AEAT'
+                    : `${s.incidentCount} facturas no han podido llegar a la AEAT`}
+                </p>
+                {s.lastError && <p>{s.lastError}</p>}
+                <p>
+                  {s.incidentCount === 1
+                    ? 'Saldrá marcada como enviada'
+                    : 'Saldrán marcadas como enviadas'}{' '}
+                  tarde por una incidencia (art. 16.4 de la Orden HAC/1177/2024); el envío se repite
+                  como mucho cada hora
+                  {s.nextSendAt ? `, el próximo ${nextSendText(s.nextSendAt)}` : ''}.
+                </p>
+              </div>
+            )}
+            {/* Las que esperan por una incidencia ya salen en el aviso de arriba. */}
+            {s.pendingCount > 0 && s.incidentCount === 0 && (
               <p className="text-amber-700 dark:text-amber-300">
                 {s.pendingCount === 1
                   ? '1 factura aún no consta registrada: '
@@ -154,11 +198,54 @@ export function VerifactuSendingCard() {
                 .
               </p>
             )}
-            {locked ? (
-              <p className="text-muted-foreground">
-                No se puede desactivar hasta el {longDate(s.lockedUntil!)}: quien envía sus facturas
-                a la AEAT tiene que hacerlo todo el año (art. 17 de la Orden HAC/1177/2024).
-              </p>
+            {renuncia ? (
+              <div className="space-y-2 rounded-md border border-amber-500/50 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                <p className="font-medium">
+                  Baja programada: dejas Veri*Factu el {longDate(renuncia.endDate)}.
+                </p>
+                {renuncia.communicatedAt ? (
+                  <p>
+                    La AEAT recibió la renuncia el {formatDateTime(renuncia.communicatedAt)}
+                    {renuncia.pendingEmitters > 0
+                      ? `; falta comunicarla por ${renuncia.pendingEmitters === 1 ? 'otro emisor' : `${renuncia.pendingEmitters} emisores más`} (sale con su próxima factura).`
+                      : '.'}{' '}
+                    El 1 de enero se apaga solo.
+                  </p>
+                ) : (
+                  <p>
+                    La renuncia se le comunica a la AEAT con tu próximo envío. Si no emites ninguna
+                    factura más este año no le llegará, y seguirás en Veri*Factu.
+                  </p>
+                )}
+                {canConfigure && !renuncia.communicatedAt && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={update.isPending}
+                    onClick={() => void cancelRenuncia()}
+                  >
+                    Anular la baja
+                  </Button>
+                )}
+              </div>
+            ) : locked ? (
+              <div className="space-y-2">
+                <p className="text-muted-foreground">
+                  Has enviado facturas este año: sigue activado hasta el {longDate(s.lockedUntil!)}{' '}
+                  (art. 17 de la Orden HAC/1177/2024). Si quieres dejarlo, la baja queda para ese
+                  día.
+                </p>
+                {canConfigure && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={update.isPending}
+                    onClick={() => void change(false)}
+                  >
+                    Programar la baja
+                  </Button>
+                )}
+              </div>
             ) : (
               canConfigure && (
                 <Button
@@ -190,7 +277,9 @@ export function VerifactuSendingCard() {
                 La primera factura que emitas abre tu registro en la AEAT: las anteriores no se
                 envían.
               </li>
-              <li>No se puede desactivar hasta el 31 de diciembre de ese año.</li>
+              <li>
+                Si envías facturas en un año, sigue activado hasta el 31 de diciembre de ese año.
+              </li>
             </ul>
             {s.blockers.length > 0 && (
               <div className="space-y-1 rounded-md border border-amber-500/50 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">

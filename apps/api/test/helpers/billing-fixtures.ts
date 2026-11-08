@@ -1,6 +1,39 @@
 import request from 'supertest';
 
+import { PrismaAdminService } from '../../src/modules/database/prisma-admin.service';
+
 import type { INestApplication } from '@nestjs/common';
+import type { AeatStatus } from '@storageos/database';
+
+/**
+ * Pone a mano el estado en la AEAT del último registro de una factura (y el de
+ * la factura, que enseña el de su último registro).
+ */
+export async function setAeatStatus(
+  app: INestApplication,
+  invoiceId: string,
+  status: AeatStatus,
+  message?: string,
+): Promise<void> {
+  const admin = app.get(PrismaAdminService);
+  const latest = await admin.verifactuRecord.findFirstOrThrow({
+    where: { invoiceId },
+    orderBy: { chainSeq: 'desc' },
+  });
+  await admin.verifactuRecord.update({
+    where: { id: latest.id },
+    data: { status, ...(message ? { response: { mode: 'stub', message } } : {}) },
+  });
+  await admin.invoice.update({ where: { id: invoiceId }, data: { aeatStatus: status } });
+}
+
+/** Los registros de Veri*Factu de una factura, en el orden de la cadena. */
+export async function recordsOf(app: INestApplication, invoiceId: string) {
+  return app.get(PrismaAdminService).verifactuRecord.findMany({
+    where: { invoiceId },
+    orderBy: { chainSeq: 'asc' },
+  });
+}
 
 export async function ensureDefaultSeries(
   app: INestApplication,

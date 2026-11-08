@@ -33,14 +33,14 @@ export class StubAeatClient extends AeatClient {
   async sendBatch(args: SendBatchArgs): Promise<SendBatchResult> {
     const csv = `STUB-${randomBytes(4).toString('hex').toUpperCase()}`;
     const results: Record<string, SendInvoiceResult> = {};
-    for (const id of args.invoiceIds) {
+    for (const id of args.recordIds) {
       results[id] = { status: 'accepted', csv, message: 'Stub: AEAT_MODE=stub, sin envio real' };
     }
-    this.logger.debug(`[aeat_stub] ${args.invoiceIds.length} registros aceptados con CSV=${csv}`);
+    this.logger.debug(`[aeat_stub] ${args.recordIds.length} registros aceptados con CSV=${csv}`);
     return {
       outcome: 'sent',
       emitterTaxId: await this.emitterTaxId(args),
-      recordCount: args.invoiceIds.length,
+      recordCount: args.recordIds.length,
       status: 'accepted',
       csv,
       waitSeconds: 0,

@@ -34,6 +34,8 @@ import { TenantAeatCredentialsController } from './tenant-aeat-credentials.contr
 import { TenantAeatCredentialsService } from './tenant-aeat-credentials.service';
 import { VerifactuAeatController } from './verifactu-aeat.controller';
 import { VerifactuDispatcher } from './verifactu-dispatcher.service';
+import { VerifactuRecordsService } from './verifactu-records.service';
+import { VerifactuRenunciaCron } from './verifactu-renuncia.cron';
 import { VerifactuSettingsController } from './verifactu-settings.controller';
 import { VerifactuSettingsService } from './verifactu-settings.service';
 import { VerifactuStatusPollerCron } from './verifactu-status-poller.cron';
@@ -80,6 +82,7 @@ import type { Env } from '../../config/env.schema';
     InvoiceToolsService,
     InvoicingModeService,
     VerifactuService,
+    VerifactuRecordsService,
     VerifactuDispatcher,
     VerifactuSettingsService,
     PricingRulesService,
@@ -95,7 +98,12 @@ import type { Env } from '../../config/env.schema';
       inject: [ConfigService, StubAeatClient, RealAeatClient],
     },
     ...(WORKERS_ENABLED_IN_API
-      ? [VerifactuProcessor, BillingRecurringProcessor, VerifactuStatusPollerCron]
+      ? [
+          VerifactuProcessor,
+          BillingRecurringProcessor,
+          VerifactuStatusPollerCron,
+          VerifactuRenunciaCron,
+        ]
       : []),
   ],
   exports: [

@@ -4,11 +4,10 @@ import request from 'supertest';
 import { VerifactuDispatcher } from '../src/modules/billing/verifactu-dispatcher.service';
 import { VerifactuProcessor } from '../src/modules/billing/verifactu.processor';
 import { VerifactuService } from '../src/modules/billing/verifactu.service';
-import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../src/modules/queues/queues.module';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { createDraftInvoice, waitForAeatStatus } from './helpers/billing-fixtures';
+import { createDraftInvoice, setAeatStatus, waitForAeatStatus } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
@@ -70,9 +69,7 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
       .post(`/billing/invoices/${id}/resend-aeat`)
       .set('Authorization', `Bearer ${owner.accessToken}`)
       .expect(400);
-    await app
-      .get(PrismaAdminService)
-      .invoice.update({ where: { id }, data: { aeatStatus: 'error' } });
+    await setAeatStatus(app, id, 'error');
     before = await request(app.getHttpServer())
       .get(`/invoices/${id}`)
       .set('Authorization', `Bearer ${owner.accessToken}`);
@@ -81,7 +78,7 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
       .post(`/billing/invoices/${id}/resend-aeat`)
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(resend.status).toBe(202);
-    expect(resend.body).toEqual({ queued: true, invoiceId: id });
+    expect(resend.body).toEqual({ queued: true, invoiceId: id, subsanacion: false });
 
     // El endpoint deja la factura pendiente y programa el envío de su emisor;
     // el worker la vuelve a enviar y queda 'accepted' con un aeat_sent_at nuevo.

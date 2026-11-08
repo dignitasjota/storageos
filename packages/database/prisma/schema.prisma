@@ -375,6 +375,10 @@ model Tenant {
   /// Número de instalación del sistema de este negocio en la AEAT: se fija al
   /// activar Veri*Factu y no se repite nunca (otra activación, otro número).
   verifactuInstallation        String?               @map("verifactu_installation")
+  /// Renuncia a VERI*FACTU (art. 17 de la Orden HAC/1177/2024): último día en
+  /// que se usa (siempre un 31 de diciembre). Mientras esté puesta, los envíos
+  /// la llevan en FechaFinVeriFactu; el 1 de enero se apaga si llegó a la AEAT.
+  verifactuEndDate             DateTime?             @map("verifactu_end_date") @db.Date
   autoChargeRetryEnabled       Boolean               @default(false) @map("auto_charge_retry_enabled")
   autoChargeRetryMax           Int                   @default(3) @map("auto_charge_retry_max")
   autoChargeRetryIntervalDays  Int                   @default(3) @map("auto_charge_retry_interval_days")
@@ -609,6 +613,7 @@ model Tenant {
   aeatCredentials         TenantAeatCredential[]
   verifactuEmitters       VerifactuEmitter[]
   verifactuSubmissions    VerifactuSubmission[]
+  verifactuRecords        VerifactuRecord[]
   holdedSettings          HoldedSettings?
   redsysSettings          RedsysSettings?
   redsysOrders            RedsysOrder[]
@@ -814,6 +819,8 @@ model User {
   supportTicketsCreated    SupportTicket[]           @relation("TicketCreatedBy")
   supportMessagesAuthored  SupportTicketMessage[]    @relation("MessageAuthorUser")
   aeatCredentialsUploaded  TenantAeatCredential[]    @relation("AeatCredentialUploadedBy")
+  verifactuRecordsCreated  VerifactuRecord[]         @relation("VerifactuRecordCreatedBy")
+  invoicesVoided           Invoice[]                 @relation("InvoiceVoidedBy")
   apiKeysCreated           ApiKey[]                  @relation("ApiKeyCreatedBy")
   aiConversations          AiConversation[]
   aiPendingActions         AiPendingAction[]
@@ -2212,6 +2219,11 @@ model Invoice {
   issuedBy            String            @default("app") @map("issued_by")
   paidAt              DateTime?         @map("paid_at") @db.Timestamptz(6)
   cancelledAt         DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  /// Anulada por haberse emitido por error (registro de anulación): queda
+  /// `cancelled` y deja de contar en libros e informes.
+  voidedAt            DateTime?         @map("voided_at") @db.Timestamptz(6)
+  voidReason          String?           @map("void_reason")
+  voidedByUserId      String?           @map("voided_by_user_id") @db.Uuid
   deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2250,6 +2262,9 @@ model Invoice {
   lateFeeInvoice     Invoice?                   @relation("InvoiceLateFee")
   sepaRemittanceItems SepaRemittanceItem[]
   bankStatementTxs   BankStatementTransaction[]
+  /// Sus registros de Veri*Factu (alta, subsanaciones, anulación).
+  verifactuRecords   VerifactuRecord[]
+  voidedBy           User?                      @relation("InvoiceVoidedBy", fields: [voidedByUserId], references: [id], onDelete: SetNull)
 
   // La unicidad de numeración vive en SQL como índice PARCIAL (solo
   // sequence_number > 0): los drafts llevan 0 y deben poder convivir.
@@ -4648,12 +4663,68 @@ model VerifactuSubmission {
   rejectedCount Int      @default(0) @map("rejected_count")
   message       String?
   sentAt        DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+  /// Renuncia a VERI*FACTU que llevaba en la cabecera (FechaFinVeriFactu).
+  fechaFinVerifactu DateTime? @map("fecha_fin_verifactu") @db.Date
+  /// Llevaba registros retrasados por una incidencia (Incidencia=S).
+  incident      Boolean  @default(false)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  owner  Owner? @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  tenant  Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner   Owner?            @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  records VerifactuRecord[]
 
   @@index([tenantId, sentAt(sort: Desc)], map: "verifactu_submissions_tenant_sent_idx")
   @@map("verifactu_submissions")
+}
+
+/// Registro de facturación de Veri*Factu: el alta de una factura, sus altas de
+/// subsanación y su anulación. Todos van en la cadena de su emisor, en el orden
+/// en que se generan, y se guardan tal como se generaron (no se modifican).
+/// La posición es única por emisor: índice `verifactu_records_chain_unique`
+/// con COALESCE(owner_id) en SQL (ver migración 20270105100000).
+model VerifactuRecord {
+  id                String      @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId          String      @map("tenant_id") @db.Uuid
+  ownerId           String?     @map("owner_id") @db.Uuid
+  invoiceId         String      @map("invoice_id") @db.Uuid
+  /// alta | anulacion
+  kind              String
+  /// Alta de subsanación (Subsanacion=S).
+  subsanacion       Boolean     @default(false)
+  /// RechazoPrevio que se informa: `S` o `X` en un alta, `S` en una anulación.
+  rechazoPrevio     String?     @map("rechazo_previo")
+  /// Anulación de una factura que la AEAT no tiene registrada.
+  sinRegistroPrevio Boolean     @default(false) @map("sin_registro_previo")
+  chainSeq          Int         @map("chain_seq")
+  previousRecordId  String?     @map("previous_record_id") @db.Uuid
+  hash              String
+  previousHash      String?     @map("previous_hash")
+  /// FechaHoraHusoGenRegistro tal cual entró en la huella.
+  recordTimestamp   String      @map("record_timestamp")
+  /// El RegistroFactura tal como se generó (null en los anteriores a 2026-11-08).
+  xml               String?
+  status            AeatStatus  @default(pending)
+  csv               String?
+  response          Json?
+  sentAt            DateTime?   @map("sent_at") @db.Timestamptz(6)
+  submissionId      String?     @map("submission_id") @db.Uuid
+  /// Generado o retrasado por una incidencia técnica (Incidencia=S).
+  incident          Boolean     @default(false)
+  /// Motivo de la subsanación o de la anulación.
+  reason            String?
+  createdByUserId   String?     @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner          Owner?               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  invoice        Invoice              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  previousRecord VerifactuRecord?     @relation("VerifactuRecordChain", fields: [previousRecordId], references: [id], onDelete: SetNull)
+  nextRecords    VerifactuRecord[]    @relation("VerifactuRecordChain")
+  submission     VerifactuSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  createdBy      User?                @relation("VerifactuRecordCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId, chainSeq], map: "verifactu_records_invoice_idx")
+  @@map("verifactu_records")
 }
 
 /// Integración contable con Holded por tenant (API key cifrada AES-GCM).
@@ -7011,6 +7082,7 @@ model Owner {
   aeatCredentials TenantAeatCredential[]
   verifactuEmitters VerifactuEmitter[]
   verifactuSubmissions VerifactuSubmission[]
+  verifactuRecords VerifactuRecord[]
   statements OwnerStatement[]
 
   @@unique([tenantId, taxId])

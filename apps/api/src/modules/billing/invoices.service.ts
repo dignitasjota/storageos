@@ -63,6 +63,7 @@ import { InvoiceSeriesService } from './invoice-series.service';
 import { InvoicingModeService } from './invoicing-mode.service';
 import { buildReminderSummary, remindersOfInvoice } from './reminder-summary';
 import { VerifactuDispatcher } from './verifactu-dispatcher.service';
+import { VerifactuRecordsService } from './verifactu-records.service';
 import { VerifactuService } from './verifactu.service';
 
 import type { Env } from '../../config/env.schema';
@@ -89,6 +90,8 @@ import type {
   RefundInvoiceInput,
   SignedDownloadDto,
   UpdateInvoiceInput,
+  VerifactuRecordDto,
+  VoidInvoiceInput,
 } from '@storageos/shared';
 
 /** Tipo fiscal de la línea: el indicado (validado) o el de por defecto según el tipo. */
@@ -101,6 +104,14 @@ function lineTaxCategory(taxRate: number, category?: InvoiceTaxCategory): Invoic
     });
   }
   return c;
+}
+
+/** El mensaje que dejó la AEAT en la respuesta del último registro (sin el del modo de pruebas). */
+function aeatResponseMessage(response: Prisma.JsonValue | null): string | null {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return null;
+  const { message, mode } = response as Record<string, unknown>;
+  if (mode === 'stub' || typeof message !== 'string' || !message.trim()) return null;
+  return message.trim();
 }
 
 const ALLOWED_TRANSITIONS: Record<InvoiceStatusValue, InvoiceStatusValue[]> = {
@@ -210,6 +221,7 @@ export class InvoicesService {
     private readonly verifactu: VerifactuService,
     private readonly events: EventEmitter2,
     private readonly verifactuDispatcher: VerifactuDispatcher,
+    private readonly verifactuRecords: VerifactuRecordsService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
     private readonly communications: CommunicationsService,
     private readonly goCardlessCharge: GoCardlessChargeService,
@@ -881,15 +893,15 @@ export class InvoicesService {
       }
       const record = verifactuOn
         ? await (async () => {
-            const chain = await this.verifactu.computeChainedHash(tx, {
+            // Su registro de alta, encadenado con el último del emisor y
+            // guardado tal como se envía.
+            const chain = await this.verifactuRecords.createAlta(tx, {
               tenantId: args.tenantId,
-              ownerId: existing.ownerId,
-              tenantTaxId: emitterTaxId || 'PENDIENTE',
+              invoiceId: args.invoiceId,
+              ownerId: existing.ownerId ?? null,
               invoiceNumber,
               issueDate,
-              invoiceType: existing.invoiceType,
-              taxAmount: Number(existing.taxAmount),
-              total,
+              userId: args.userId,
             });
             const qrCodeUrl = await this.verifactu.buildQrDataUrl({
               tenantTaxId: emitterTaxId || 'PENDIENTE',
@@ -1912,18 +1924,22 @@ export class InvoicesService {
   }
 
   /**
-   * Reencola el envio a AEAT de una factura ya emitida. Resetea los
-   * campos `aeat_*` para que el worker arranque desde cero. Usado desde
-   * el badge Verifactu del frontend cuando un envio quedo en `error` o
-   * `rejected` y queremos reintentar tras corregir datos.
+   * Vuelve a enviar a la AEAT el último registro de una factura:
+   *   - si no llegó o no se sabe (`pending`/`error`), el mismo registro;
+   *   - si la AEAT lo rechazó o lo aceptó con avisos, un registro nuevo de
+   *     subsanación con los datos corregidos (el original no se toca): alta
+   *     con Subsanacion=S —RechazoPrevio=X si la AEAT no tiene la factura, S
+   *     si la tiene— o, si era una anulación, otra anulación.
+   * Una aceptada no se reenvía (sería un alta duplicada).
    */
   async resendAeat(
     invoiceId: string,
     tenantId: string,
     facilityScope?: string[] | null,
-  ): Promise<{ queued: true; invoiceId: string }> {
+    opts: { userId?: string | null; reason?: string | null } = {},
+  ): Promise<{ queued: true; invoiceId: string; subsanacion: boolean }> {
     const existing = await this.findOrThrow(tenantId, invoiceId, facilityScope);
-    if (existing.status === 'draft' || existing.status === 'cancelled') {
+    if (existing.status === 'draft' || (existing.status === 'cancelled' && !existing.voidedAt)) {
       throw new BadRequestException({
         code: 'invoice_draft_not_sendable',
         message: 'No se puede reenviar a AEAT una factura en borrador',
@@ -1943,32 +1959,112 @@ export class InvoicesService {
       });
     }
     this.assertVerifactuRecord(existing);
-    // Ya registrada en la AEAT: reenviarla sería un alta duplicada.
-    if (existing.aeatStatus === 'accepted' || existing.aeatStatus === 'accepted_with_warnings') {
-      throw new BadRequestException({
-        code: 'already_accepted',
-        message: 'La AEAT ya aceptó esta factura: no se reenvía',
-      });
-    }
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.invoice.update({
-          where: { id: invoiceId },
-          // Se conserva `aeatSentAt` (el último intento). Si un envío anterior
-          // llegó, la AEAT contesta «duplicado» con lo que tiene.
-          data: {
-            aeatStatus: 'pending',
-            aeatCsv: null,
-            aeatResponse: Prisma.JsonNull,
+    const ownerId = existing.ownerId ?? null;
+    const reason = opts.reason?.trim() || null;
+    const subsanacion = await this.prisma.withTenant(async (tx) => {
+      await lockInvoiceRow(tx, invoiceId);
+      const latest = await this.verifactuRecords.latest(tx, invoiceId);
+      if (!latest) {
+        throw new BadRequestException({
+          code: 'not_a_verifactu_record',
+          message: 'Esta factura no tiene registro de Veri*Factu',
+        });
+      }
+      // Ya registrada en la AEAT: reenviarla sería un alta duplicada.
+      if (latest.status === 'accepted') {
+        throw new BadRequestException({
+          code: 'already_accepted',
+          message:
+            latest.kind === 'anulacion'
+              ? 'La AEAT ya registró la anulación de esta factura'
+              : 'La AEAT ya aceptó esta factura: no se reenvía',
+        });
+      }
+      if (latest.status === 'pending' || latest.status === 'error') {
+        // Se conserva `sentAt` (el último intento). Si un envío anterior llegó,
+        // la AEAT contesta «duplicado» con lo que tiene.
+        await tx.verifactuRecord.update({
+          where: { id: latest.id },
+          data: { status: 'pending', csv: null, response: Prisma.JsonNull },
+        });
+        await this.verifactuRecords.syncInvoices(tx, [invoiceId]);
+        return false;
+      }
+      if (existing.status === 'rectified') {
+        throw new BadRequestException({
+          code: 'invoice_rectified',
+          message:
+            'Esta factura ya se rectificó: vale su rectificativa, que lleva su propio registro',
+        });
+      }
+      // ¿La tiene la AEAT? (alguna de sus altas se registró)
+      const registered =
+        (await tx.verifactuRecord.count({
+          where: {
+            invoiceId,
+            kind: 'alta',
+            status: { in: ['accepted', 'accepted_with_warnings'] },
           },
-        }),
-      tenantId,
-    );
+        })) > 0;
+      if (latest.kind === 'anulacion') {
+        // Anulación rechazada: otra, por rechazo (la AEAT tiene la factura) o
+        // sin registro previo (no la tiene).
+        await this.verifactuRecords.createAnulacion(tx, {
+          tenantId,
+          invoiceId,
+          ownerId,
+          sinRegistroPrevio: !registered,
+          rechazoPrevio: registered,
+          reason,
+          userId: opts.userId ?? null,
+        });
+      } else {
+        await this.verifactuRecords.createAlta(tx, {
+          tenantId,
+          invoiceId,
+          ownerId,
+          subsanacion: true,
+          // Aceptada con avisos: subsanación sin rechazo previo.
+          rechazoPrevio: latest.status === 'rejected' ? (registered ? 'S' : 'X') : null,
+          reason,
+          userId: opts.userId ?? null,
+        });
+      }
+      await this.verifactuRecords.syncInvoices(tx, [invoiceId]);
+      return true;
+    }, tenantId);
     // Sin esperar al reintento de un envío fallido; la espera que pidió la AEAT
     // entre un envío y otro sí se respeta.
-    await this.verifactuDispatcher.schedule(tenantId, existing.ownerId ?? null, { retryNow: true });
-    this.logger.log(`[verifactu] reenvio encolado para invoice ${invoiceId} (tenant ${tenantId})`);
-    return { queued: true, invoiceId };
+    await this.verifactuDispatcher.schedule(tenantId, ownerId, { retryNow: true });
+    if (subsanacion) {
+      await this.audit.write({
+        tenantId,
+        userId: opts.userId ?? null,
+        action: 'invoice.verifactu_corrected',
+        entityType: 'Invoice',
+        entityId: invoiceId,
+        changes: { reason },
+        ipAddress: null,
+        userAgent: null,
+      });
+    }
+    this.logger.log(
+      `[verifactu] ${subsanacion ? 'subsanación' : 'reenvío'} encolado para invoice ${invoiceId} (tenant ${tenantId})`,
+    );
+    return { queued: true, invoiceId, subsanacion };
+  }
+
+  /** Los registros de Veri*Factu de una factura, en el orden de la cadena. */
+  async listVerifactuRecords(
+    invoiceId: string,
+    tenantId: string,
+    facilityScope?: string[] | null,
+  ): Promise<VerifactuRecordDto[]> {
+    await this.findOrThrow(tenantId, invoiceId, facilityScope);
+    return this.prisma.withTenant(
+      (tx) => this.verifactuRecords.listForInvoice(tx, invoiceId),
+      tenantId,
+    );
   }
 
   /** Emitida sin Veri*Factu (el negocio no lo tenía activado): no hay registro que enviar. */
@@ -2395,6 +2491,164 @@ export class InvoicesService {
       args.tenantId,
     );
     return this.toDto(updated);
+  }
+
+  /**
+   * Anula una factura emitida por error: de prueba, duplicada o de una
+   * operación que no existió (art. 11 del RRSIF; FAQ de la AEAT, n.º 17.2.d).
+   * Se genera su registro de anulación (sin registro previo si la AEAT no la
+   * tenía) y la factura queda `cancelled`, fuera de libros e informes.
+   *
+   * Es excepcional: si la operación existió, lo que toca es rectificar. Por eso
+   * solo con una factura sin cobros, sin rectificar y que no sea rectificativa.
+   */
+  async void(args: {
+    tenantId: string;
+    userId: string | null;
+    invoiceId: string;
+    facilityScope?: string[] | null;
+    input: VoidInvoiceInput;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
+    if (existing.kind === 'deposit_receipt') {
+      throw new BadRequestException({
+        code: 'not_an_invoice',
+        message: 'Un justificante de fianza no es una factura: se anula con «Anular»',
+      });
+    }
+    if (existing.issuedBy === 'holded') {
+      throw new BadRequestException({
+        code: 'issued_by_holded',
+        message: 'Esta factura la emitió Holded: anúlala allí',
+      });
+    }
+    const reason = args.input.reason.trim();
+    const done = await this.prisma.withTenant(async (tx) => {
+      await lockInvoiceRow(tx, args.invoiceId);
+      const fresh = await tx.invoice.findUniqueOrThrow({
+        where: { id: args.invoiceId },
+        select: {
+          status: true,
+          invoiceType: true,
+          amountPaid: true,
+          withholdingAmount: true,
+          ownerId: true,
+          rectifiedBy: { where: { status: { not: 'cancelled' } }, select: { id: true } },
+        },
+      });
+      if (fresh.status !== 'issued' && fresh.status !== 'overdue') {
+        throw new BadRequestException({
+          code: 'invoice_not_voidable',
+          message:
+            fresh.status === 'cancelled' || fresh.status === 'rectified'
+              ? 'La factura ya está anulada'
+              : fresh.status === 'draft'
+                ? 'Un borrador no se anula así: cancélalo'
+                : 'Una factura cobrada no se anula: si la operación no existió, devuelve el cobro y vuelve a intentarlo',
+        });
+      }
+      if (fresh.invoiceType !== 'F1' && fresh.invoiceType !== 'F2') {
+        throw new BadRequestException({
+          code: 'invoice_not_voidable',
+          message: 'Una rectificativa no se anula así: emite otra rectificativa',
+        });
+      }
+      if (fresh.rectifiedBy.length > 0) {
+        throw new BadRequestException({
+          code: 'invoice_rectified',
+          message: 'Esta factura tiene una rectificativa: lo que haya que corregir, con otra',
+        });
+      }
+      // La retención de IRPF no es un cobro: no impide anular.
+      if (isGreaterThan(subtractAmounts(fresh.amountPaid, fresh.withholdingAmount), 0)) {
+        throw new BadRequestException({
+          code: 'invoice_has_payments',
+          message: 'La factura tiene cobros: devuélvelos antes de anularla',
+        });
+      }
+      const inFlight = await tx.payment.count({
+        where: { invoiceId: args.invoiceId, status: { in: ['pending', 'processing'] } },
+      });
+      if (inFlight > 0) {
+        throw new ConflictException({
+          code: 'payment_in_progress',
+          message: 'Hay un cobro en curso para esta factura: espera a que se resuelva',
+        });
+      }
+      await assertNotInSepaRemittance(tx, args.invoiceId);
+
+      // Con Veri*Factu: el registro de anulación, encadenado como cualquier otro.
+      const latest = await this.verifactuRecords.latest(tx, args.invoiceId);
+      if (latest) {
+        if (latest.status === 'pending' || latest.status === 'error') {
+          throw new ConflictException({
+            code: 'verifactu_record_pending',
+            message:
+              'La factura se está enviando a la AEAT: espera a que responda y vuelve a intentarlo',
+          });
+        }
+        const registered =
+          (await tx.verifactuRecord.count({
+            where: {
+              invoiceId: args.invoiceId,
+              kind: 'alta',
+              status: { in: ['accepted', 'accepted_with_warnings'] },
+            },
+          })) > 0;
+        await this.verifactuRecords.createAnulacion(tx, {
+          tenantId: args.tenantId,
+          invoiceId: args.invoiceId,
+          ownerId: fresh.ownerId,
+          sinRegistroPrevio: !registered,
+          reason,
+          userId: args.userId,
+        });
+      }
+      const now = new Date();
+      await tx.invoice.update({
+        where: { id: args.invoiceId },
+        data: {
+          status: 'cancelled',
+          cancelledAt: now,
+          voidedAt: now,
+          voidReason: reason,
+          voidedByUserId: args.userId,
+        },
+      });
+      if (latest) await this.verifactuRecords.syncInvoices(tx, [args.invoiceId]);
+      return { record: Boolean(latest), ownerId: fresh.ownerId };
+    }, args.tenantId);
+
+    if (done.record) await this.verifactuDispatcher.schedule(args.tenantId, done.ownerId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.voided',
+      entityType: 'Invoice',
+      entityId: args.invoiceId,
+      changes: { reason, verifactu: done.record },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    await this.releaseConsumedBenefits(args.tenantId, args.invoiceId);
+    await this.cancelOrphanLateFee(args, args.invoiceId, existing.invoiceNumber);
+    // La copia de Holded se anula; el acceso cortado por esta deuda vuelve.
+    this.events.emit(DOMAIN_EVENTS.invoice_cancelled, {
+      tenantId: args.tenantId,
+      invoiceId: args.invoiceId,
+    } satisfies InvoiceCancelledPayload);
+    this.events.emit(DOMAIN_EVENTS.invoice_voided, {
+      tenantId: args.tenantId,
+      invoiceId: args.invoiceId,
+    } satisfies InvoiceVoidedPayload);
+    // El PDF sale con la marca «Anulada».
+    this.events.emit(INVOICE_PDF_REQUESTED, {
+      tenantId: args.tenantId,
+      invoiceId: args.invoiceId,
+      refresh: true,
+    } satisfies InvoicePdfRequestedPayload);
+    return this.toDto(await this.findOrThrow(args.tenantId, args.invoiceId));
   }
 
   /**
@@ -3959,10 +4213,13 @@ export class InvoicesService {
       aeatSentAt: row.aeatSentAt ? row.aeatSentAt.toISOString() : null,
       aeatStatus: row.aeatStatus,
       aeatCsv: row.aeatCsv,
+      aeatMessage: aeatResponseMessage(row.aeatResponse),
       holdedDocumentId: row.holdedDocumentId,
       issuedBy: row.issuedBy === 'holded' ? 'holded' : 'app',
       paidAt: row.paidAt ? row.paidAt.toISOString() : null,
       cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
+      voidedAt: row.voidedAt ? row.voidedAt.toISOString() : null,
+      voidReason: row.voidReason,
       items: row.items.map((it) => this.toItemDto(it)),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

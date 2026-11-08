@@ -371,7 +371,7 @@ function InvoiceRow({ invoice: i }: { invoice: InvoiceDto }) {
         <TableCell className="text-sm">{formatDate(i.dueDate)}</TableCell>
         <TableCell className="text-right tabular-nums">{formatCurrency(i.total)}</TableCell>
         <TableCell>
-          <InvoiceStatusBadge status={i.status} total={i.total} />
+          <InvoiceStatusBadge status={i.status} total={i.total} voided={!!i.voidedAt} />
         </TableCell>
         <TableCell className="text-sm">
           {punc ? (
@@ -424,7 +424,7 @@ function InvoiceCard({ invoice: i }: { invoice: InvoiceDto }) {
         </Link>
         <div className="flex items-center gap-2">
           <span className="font-medium tabular-nums">{formatCurrency(i.total)}</span>
-          <InvoiceStatusBadge status={i.status} total={i.total} />
+          <InvoiceStatusBadge status={i.status} total={i.total} voided={!!i.voidedAt} />
         </div>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">

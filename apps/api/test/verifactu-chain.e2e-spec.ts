@@ -4,7 +4,7 @@ import { VerifactuService } from '../src/modules/billing/verifactu.service';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { createDraftInvoice } from './helpers/billing-fixtures';
+import { createDraftInvoice, setAeatStatus } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -82,7 +82,7 @@ describe('Veri*Factu: cadena por emisor (e2e)', () => {
     const customerId = await createCustomer(app, owner.accessToken);
     const id = await createDraftInvoice(app, owner.accessToken, customerId);
     await request(app.getHttpServer()).post(`/invoices/${id}/issue`).set(auth).expect(200);
-    await admin.invoice.update({ where: { id }, data: { aeatStatus: 'accepted' } });
+    await setAeatStatus(app, id, 'accepted');
     const res = await request(app.getHttpServer())
       .post(`/billing/invoices/${id}/resend-aeat`)
       .set(auth)

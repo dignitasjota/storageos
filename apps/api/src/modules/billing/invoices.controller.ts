@@ -28,6 +28,7 @@ import {
   RefundInvoiceSchema,
   type SignedDownloadDto,
   UpdateInvoiceSchema,
+  VoidInvoiceSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -51,6 +52,7 @@ import type { Request } from 'express';
 class CreateInvoiceDto extends createZodDto(CreateInvoiceSchema) {}
 class UpdateInvoiceDto extends createZodDto(UpdateInvoiceSchema) {}
 class CancelInvoiceDto extends createZodDto(CancelInvoiceSchema) {}
+class VoidInvoiceDto extends createZodDto(VoidInvoiceSchema) {}
 class RefundInvoiceDto extends createZodDto(RefundInvoiceSchema) {}
 class MarkPaidManuallyDto extends createZodDto(MarkPaidManuallySchema) {}
 class BulkRemindCustomersDto extends createZodDto(BulkRemindCustomersSchema) {}
@@ -297,6 +299,30 @@ export class InvoicesController {
     @Req() req: Request,
   ): Promise<InvoiceDto> {
     return this.invoices.cancel({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+      facilityScope: user.facilityScope ?? null,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  /**
+   * Anular una factura emitida por error (de prueba, duplicada, de una
+   * operación que no existió): registro de anulación y fuera de los libros. Lo
+   * habitual, si la operación existió, es rectificarla (`/cancel`).
+   */
+  @RequirePermission('invoices:manage')
+  @Post(':id/void')
+  @HttpCode(HttpStatus.OK)
+  async void(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: VoidInvoiceDto,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.void({
       tenantId: user.tenantId,
       userId: user.sub,
       invoiceId: id,

@@ -941,7 +941,7 @@ Mejoras (PR B): PDF con logo, forma de pago y sello «PAGADA», y enlace de desc
 
 ### Veri\*Factu por negocio (2026-11-08)
 
-Cada negocio activa el envío de sus facturas a la AEAT cuando le toque (Configuración → Veri\*Factu). Apagado (por defecto), la factura sale sin huella, sin QR y sin envío; antes el panel decía «Aceptada» con un CSV simulado. Activado, su primera factura abre la cadena y no se apaga hasta el 31 de diciembre (art. 17 de la Orden HAC/1177/2024). La migración quita el registro simulado de las facturas ya emitidas.
+Cada negocio activa el envío de sus facturas a la AEAT cuando le toque (Configuración → Veri\*Factu). Apagado (por defecto), la factura sale sin huella, sin QR y sin envío; antes el panel decía «Aceptada» con un CSV simulado. Activado, su primera factura abre la cadena; con facturas enviadas en un año sigue hasta el 31 de diciembre de ese año (art. 17 de la Orden HAC/1177/2024). La migración quita el registro simulado de las facturas ya emitidas.
 
 #### Veri\*Factu: antes del envío real
 
@@ -952,12 +952,14 @@ Pendiente antes de poner `AEAT_MODE=production` y de firmar la declaración resp
 - ~~**Datos del productor en cada registro**~~ — hecho (2026-11-08): Urbanbox Soluciones SL (B05691886), TrasterOS, código `01`, versión `1.0` (`VERIFACTU_SYSTEM`), número de instalación por facturación e `IndicadorMultiplesOT` según el negocio tenga propietarios.
 - ~~**Control de flujo**~~ — hecho (2026-11-08): las facturas de cada emisor salen juntas (hasta 1.000 por envío, en el orden de la cadena), se espera entre envíos lo que pide la AEAT (60 s al principio) y un envío sin respuesta se repite con espera creciente, como mucho cada hora. Cada envío queda registrado con su CSV (Configuración → Veri\*Factu → «Ver los envíos»).
 - ~~**QR al principio de la factura**~~ — hecho (2026-11-08): arriba y centrado, con «QR tributario:» encima y la frase debajo, del tamaño del resto de datos.
-- **Registro de anulación** (art. 11) y **subsanación** de registros rechazados o con datos erróneos (`Subsanacion`, `RechazoPrevio`): no están; «Reenviar» manda el mismo registro.
-- **Incidencias**: marcar los registros enviados tarde tras un corte (`Incidencia`) y avisar en el panel de cuántos quedan por enviar mientras dure.
+- ~~**Registro de anulación** y **subsanación**~~ — hecho (2026-11-08): cada registro se guarda aparte con su XML; lo rechazado o aceptado con avisos se corrige con un registro de subsanación (`Subsanacion`, `RechazoPrevio`) y una factura emitida por error, sin cobros ni rectificativas, se anula con su registro de anulación (Factura → Más). El panel recomienda rectificar cuando el error está en algo que se ve en la factura.
+- ~~**Incidencias**~~ — hecho (2026-11-08): tras un envío sin respuesta, lo pendiente se marca como incidencia, sale aparte con `Incidencia=S` y el panel avisa de cuántas facturas faltan por llegar a la AEAT.
+- ~~**Renuncia**~~ — hecho (2026-11-08): con facturas enviadas en el año, desactivar programa la baja para el 31 de diciembre y los envíos hasta entonces llevan `FechaFinVeriFactu`; el 1 de enero se apaga si llegó a la AEAT y, si no, sigue activado y se avisa.
 - **Un envío que la AEAT rechaza entero** (un «SoapFault» por el formato) se repite cada hora como si no hubiera respuesta, con todos sus registros: si fuera por un solo registro, convendría apartarlo y mandar el resto.
 
 Por decidir con la asesoría:
 
+- **Reservas online caducadas**: hoy su factura se anula con una rectificativa de abono. Confirmar si conviene el registro de anulación (la operación no llegó a hacerse) en vez de la rectificativa.
 - **Colaboración social**: firmar el convenio con la AEAT (n.º 17 de las preguntas frecuentes) para que Urbanbox envíe los registros con su propio certificado y cada negocio lo autorice en la aplicación, en vez de que cada uno suba el suyo.
 - **Apagado por defecto**: las preguntas frecuentes dicen que desde el 29-7-2025 solo se pueden comercializar sistemas adaptados y que no cabe pasar de un modo a otro a voluntad. Revisar si el interruptor vale y si desde las fechas obligatorias debe quedar forzado (sociedades desde el 1-1-2027, el resto desde el 1-7-2027).
 

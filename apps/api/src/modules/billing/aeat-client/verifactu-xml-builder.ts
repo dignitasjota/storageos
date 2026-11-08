@@ -47,12 +47,17 @@ export class VerifactuXmlBuilder {
 
   /**
    * El mensaje de un envío (`RegFactuSistemaFacturacion`): la cabecera del
-   * obligado y hasta 1.000 registros suyos (`buildRegistroAltaRecord`), en el
-   * orden en que se generaron.
+   * obligado y hasta 1.000 registros suyos (`buildRegistroAltaRecord`,
+   * `buildRegistroAnulacionRecord`), en el orden en que se generaron.
+   *
+   * `remision` va en `RemisionVoluntaria`: la renuncia a VERI*FACTU
+   * (`FechaFinVeriFactu`, art. 17.3 de la Orden HAC/1177/2024) y la marca de
+   * registros retrasados por una incidencia (`Incidencia`, art. 16.4).
    */
   buildSubmission(args: {
     issuer: { name: string; taxId: string };
     representative?: { name: string; taxId: string } | null;
+    remision?: { fechaFinVerifactu?: Date | null; incidencia?: boolean } | null;
     records: readonly string[];
   }): string {
     const issuerName = escapeXml(clip(args.issuer.name, 120));
@@ -66,6 +71,22 @@ export class VerifactuXmlBuilder {
           <sum1:NIF>${escapeXml(args.representative.taxId)}</sum1:NIF>
         </sum1:Representante>`
       : '';
+    // RemisionVoluntaria va detrás del representante (CabeceraType) y solo si
+    // lleva algo: FechaFinVeriFactu y después Incidencia.
+    const fin = args.remision?.fechaFinVerifactu
+      ? `
+          <sum1:FechaFinVeriFactu>${formatSpanishDate(args.remision.fechaFinVerifactu)}</sum1:FechaFinVeriFactu>`
+      : '';
+    const incidencia = args.remision?.incidencia
+      ? `
+          <sum1:Incidencia>S</sum1:Incidencia>`
+      : '';
+    const remisionBlock =
+      fin || incidencia
+        ? `
+        <sum1:RemisionVoluntaria>${fin}${incidencia}
+        </sum1:RemisionVoluntaria>`
+        : '';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:sum="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroLR.xsd" xmlns:sum1="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd">
   <soapenv:Header/>
@@ -75,7 +96,7 @@ export class VerifactuXmlBuilder {
         <sum1:ObligadoEmision>
           <sum1:NombreRazon>${issuerName}</sum1:NombreRazon>
           <sum1:NIF>${issuerNif}</sum1:NIF>
-        </sum1:ObligadoEmision>${representanteBlock}
+        </sum1:ObligadoEmision>${representanteBlock}${remisionBlock}
       </sum:Cabecera>
 ${args.records.join('\n')}
     </sum:RegFactuSistemaFacturacion>
@@ -86,15 +107,6 @@ ${args.records.join('\n')}
   /** Un `RegistroFactura` con su registro de alta, para `buildSubmission`. */
   buildRegistroAltaRecord(args: BuildRegistroAltaArgs): string {
     const { tenant, invoice, recipient } = args;
-
-    // El fabricante y el sistema, como en la declaración responsable.
-    const productorNombre = escapeXml(VERIFACTU_SYSTEM.producerName);
-    const productorNif = escapeXml(VERIFACTU_SYSTEM.producerTaxId);
-    const sistemaNombre = escapeXml(VERIFACTU_SYSTEM.name);
-    const sistemaId = escapeXml(VERIFACTU_SYSTEM.id);
-    const sistemaVersion = escapeXml(VERIFACTU_SYSTEM.version);
-    const sistemaInstalacion = escapeXml(args.system.installationNumber);
-    const multiplesOT = args.system.multipleTaxpayers ? 'S' : 'N';
 
     const tenantName = escapeXml(clip(tenant.name, 120));
     const tenantNif = escapeXml(tenant.taxId);
@@ -107,6 +119,18 @@ ${args.records.join('\n')}
     const issueDate = formatSpanishDate(invoice.issueDate);
     const description = escapeXml(invoice.description);
     const invoiceType = escapeXml(invoice.invoiceType);
+    // Alta de subsanación: corrige un registro anterior de la misma factura.
+    // Con `X`, la AEAT no la tiene (el alta anterior se rechazó); con `S`, la
+    // tiene y lo rechazado fue una subsanación (L17 de la Orden).
+    const subsanacionBlock = invoice.subsanacion
+      ? `
+          <sum1:Subsanacion>S</sum1:Subsanacion>${
+            invoice.rechazoPrevio
+              ? `
+          <sum1:RechazoPrevio>${invoice.rechazoPrevio}</sum1:RechazoPrevio>`
+              : ''
+          }`
+      : '';
 
     // F2 sin destinatario: AEAT define el flag
     // `<FacturaSinIdentifDestinatarioArt61d>S</...>` para indicar que
@@ -163,7 +187,7 @@ ${recipientIdBlock(recipient)}
             <sum1:NumSerieFactura>${invoiceNumber}</sum1:NumSerieFactura>
             <sum1:FechaExpedicionFactura>${issueDate}</sum1:FechaExpedicionFactura>
           </sum1:IDFactura>${refExterna}
-          <sum1:NombreRazonEmisor>${tenantName}</sum1:NombreRazonEmisor>
+          <sum1:NombreRazonEmisor>${tenantName}</sum1:NombreRazonEmisor>${subsanacionBlock}
           <sum1:TipoFactura>${invoiceType}</sum1:TipoFactura>${rectificationBlocks}
           <sum1:DescripcionOperacion>${description}</sum1:DescripcionOperacion>
 ${destinatariosBlock}
@@ -175,21 +199,58 @@ ${desglose}
           <sum1:Encadenamiento>
 ${encadenamiento}
           </sum1:Encadenamiento>
-          <sum1:SistemaInformatico>
-            <sum1:NombreRazon>${productorNombre}</sum1:NombreRazon>
-            <sum1:NIF>${productorNif}</sum1:NIF>
-            <sum1:NombreSistemaInformatico>${sistemaNombre}</sum1:NombreSistemaInformatico>
-            <sum1:IdSistemaInformatico>${sistemaId}</sum1:IdSistemaInformatico>
-            <sum1:Version>${sistemaVersion}</sum1:Version>
-            <sum1:NumeroInstalacion>${sistemaInstalacion}</sum1:NumeroInstalacion>
-            <sum1:TipoUsoPosibleSoloVerifactu>S</sum1:TipoUsoPosibleSoloVerifactu>
-            <sum1:TipoUsoPosibleMultiOT>S</sum1:TipoUsoPosibleMultiOT>
-            <sum1:IndicadorMultiplesOT>${multiplesOT}</sum1:IndicadorMultiplesOT>
-          </sum1:SistemaInformatico>
+${sistemaInformatico(args.system)}
           <sum1:FechaHoraHusoGenRegistro>${generadoEn}</sum1:FechaHoraHusoGenRegistro>
           <sum1:TipoHuella>01</sum1:TipoHuella>
           <sum1:Huella>${huella}</sum1:Huella>
         </sum1:RegistroAlta>
+      </sum:RegistroFactura>`;
+  }
+
+  /**
+   * Un `RegistroFactura` con el registro de anulación de una factura (art. 11
+   * del RRSIF): la identifica por su emisor, número y fecha, y va en la misma
+   * cadena que las altas. Con `sinRegistroPrevio`, la AEAT no tiene esa
+   * factura (su alta se rechazó); con `rechazoPrevio`, se rechazó una anulación
+   * anterior y esta la corrige.
+   */
+  buildRegistroAnulacionRecord(args: BuildRegistroAnulacionArgs): string {
+    const refExterna = args.refExterna
+      ? `
+          <sum1:RefExterna>${escapeXml(clip(args.refExterna, 60))}</sum1:RefExterna>`
+      : '';
+    const sinRegistro = args.sinRegistroPrevio
+      ? `
+          <sum1:SinRegistroPrevio>S</sum1:SinRegistroPrevio>`
+      : '';
+    const rechazo = args.rechazoPrevio
+      ? `
+          <sum1:RechazoPrevio>S</sum1:RechazoPrevio>`
+      : '';
+    const encadenamiento = args.previous
+      ? this.buildRegistroAnterior({
+          previousHash: args.previous.hash,
+          previousInvoiceNumber: args.previous.invoiceNumber,
+          previousInvoiceDate: args.previous.issueDate,
+          previousEmitterNif: args.previous.emitterTaxId,
+        })
+      : `          <sum1:PrimerRegistro>S</sum1:PrimerRegistro>`;
+    return `      <sum:RegistroFactura>
+        <sum1:RegistroAnulacion>
+          <sum1:IDVersion>1.0</sum1:IDVersion>
+          <sum1:IDFactura>
+            <sum1:IDEmisorFacturaAnulada>${escapeXml(args.emitterTaxId)}</sum1:IDEmisorFacturaAnulada>
+            <sum1:NumSerieFacturaAnulada>${escapeXml(args.invoiceNumber)}</sum1:NumSerieFacturaAnulada>
+            <sum1:FechaExpedicionFacturaAnulada>${formatSpanishDate(args.issueDate)}</sum1:FechaExpedicionFacturaAnulada>
+          </sum1:IDFactura>${refExterna}${sinRegistro}${rechazo}
+          <sum1:Encadenamiento>
+${encadenamiento}
+          </sum1:Encadenamiento>
+${sistemaInformatico(args.system)}
+          <sum1:FechaHoraHusoGenRegistro>${escapeXml(args.recordTimestamp)}</sum1:FechaHoraHusoGenRegistro>
+          <sum1:TipoHuella>01</sum1:TipoHuella>
+          <sum1:Huella>${args.hash.toUpperCase()}</sum1:Huella>
+        </sum1:RegistroAnulacion>
       </sum:RegistroFactura>`;
   }
 
@@ -425,8 +486,8 @@ export interface BuildRegistroAltaArgs {
     recordTimestamp: string;
     /** SHA-256 hex (64 chars). Sera serializado en MAYUSCULAS. */
     hash: string;
-    /** Hash de la factura inmediatamente anterior de la misma serie; `null`
-     *  si es la primera (entonces el XML emite `<PrimerRegistro>S</PrimerRegistro>`). */
+    /** Huella del registro anterior del emisor (alta o anulación); `null` si es
+     *  el primero (entonces el XML emite `<PrimerRegistro>S</PrimerRegistro>`). */
     previousHash: string | null;
     previousInvoiceNumber?: string;
     previousInvoiceDate?: Date;
@@ -434,6 +495,10 @@ export interface BuildRegistroAltaArgs {
      *  con `tenant.taxId`. Lo dejamos parametrizable por si en el futuro se
      *  permiten facturas por terceros. */
     previousEmitterNif?: string;
+    /** Alta de subsanación de un registro anterior de la misma factura. */
+    subsanacion?: boolean;
+    /** Con `subsanacion`: `X` si la AEAT no tiene la factura, `S` si sí. */
+    rechazoPrevio?: 'S' | 'X' | null;
   };
   /**
    * Destinatario de la factura. Obligatorio para F1 y R1-R5; opcional en
@@ -449,6 +514,38 @@ export interface BuildRegistroAltaArgs {
     /** Identificación extranjera o sin NIF → `<IDOtro>`. */
     otherId?: { country: string; idType: '02' | '03' | '04' | '05' | '06'; id: string };
   };
+}
+
+/** Lo que necesita `buildRegistroAnulacionRecord`. */
+export interface BuildRegistroAnulacionArgs {
+  /** NIF del emisor de la factura anulada. */
+  emitterTaxId: string;
+  invoiceNumber: string;
+  issueDate: Date;
+  /** Para casar la línea de la respuesta con su registro. */
+  refExterna?: string;
+  sinRegistroPrevio?: boolean;
+  rechazoPrevio?: boolean;
+  system: BuildRegistroAltaArgs['system'];
+  /** El registro anterior del emisor (null = primero de la cadena). */
+  previous: { emitterTaxId: string; invoiceNumber: string; issueDate: Date; hash: string } | null;
+  recordTimestamp: string;
+  hash: string;
+}
+
+/** El bloque `SistemaInformatico`: el fabricante y el sistema, como en la declaración responsable. */
+function sistemaInformatico(system: BuildRegistroAltaArgs['system']): string {
+  return `          <sum1:SistemaInformatico>
+            <sum1:NombreRazon>${escapeXml(VERIFACTU_SYSTEM.producerName)}</sum1:NombreRazon>
+            <sum1:NIF>${escapeXml(VERIFACTU_SYSTEM.producerTaxId)}</sum1:NIF>
+            <sum1:NombreSistemaInformatico>${escapeXml(VERIFACTU_SYSTEM.name)}</sum1:NombreSistemaInformatico>
+            <sum1:IdSistemaInformatico>${escapeXml(VERIFACTU_SYSTEM.id)}</sum1:IdSistemaInformatico>
+            <sum1:Version>${escapeXml(VERIFACTU_SYSTEM.version)}</sum1:Version>
+            <sum1:NumeroInstalacion>${escapeXml(system.installationNumber)}</sum1:NumeroInstalacion>
+            <sum1:TipoUsoPosibleSoloVerifactu>S</sum1:TipoUsoPosibleSoloVerifactu>
+            <sum1:TipoUsoPosibleMultiOT>S</sum1:TipoUsoPosibleMultiOT>
+            <sum1:IndicadorMultiplesOT>${system.multipleTaxpayers ? 'S' : 'N'}</sum1:IndicadorMultiplesOT>
+          </sum1:SistemaInformatico>`;
 }
 
 /** `<NIF>` o `<IDOtro>` del destinatario. */

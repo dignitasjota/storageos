@@ -43,3 +43,36 @@ export function altaHashInput(i: AltaHashInput): string {
 export function computeAltaHash(i: AltaHashInput): string {
   return createHash('sha256').update(altaHashInput(i), 'utf8').digest('hex').toUpperCase();
 }
+
+/**
+ * Huella de un registro de anulación (misma especificación, apartado b):
+ *
+ *   IDEmisorFacturaAnulada=…&NumSerieFacturaAnulada=…
+ *   &FechaExpedicionFacturaAnulada=DD-MM-AAAA&Huella=<anterior>
+ *   &FechaHoraHusoGenRegistro=AAAA-MM-DDThh:mm:ss+hh:mm
+ *
+ * Va en la misma cadena que las altas: `Huella` es la del registro anterior
+ * del emisor, sea de alta o de anulación.
+ */
+export interface AnulacionHashInput {
+  emitterTaxId: string;
+  invoiceNumber: string;
+  /** Fecha de expedición de la factura anulada (DD-MM-AAAA). */
+  issueDate: string;
+  previousHash: string | null;
+  recordTimestamp: string;
+}
+
+export function anulacionHashInput(i: AnulacionHashInput): string {
+  return [
+    `IDEmisorFacturaAnulada=${i.emitterTaxId.trim()}`,
+    `NumSerieFacturaAnulada=${i.invoiceNumber.trim()}`,
+    `FechaExpedicionFacturaAnulada=${i.issueDate.trim()}`,
+    `Huella=${(i.previousHash ?? '').trim().toUpperCase()}`,
+    `FechaHoraHusoGenRegistro=${i.recordTimestamp.trim()}`,
+  ].join('&');
+}
+
+export function computeAnulacionHash(i: AnulacionHashInput): string {
+  return createHash('sha256').update(anulacionHashInput(i), 'utf8').digest('hex').toUpperCase();
+}

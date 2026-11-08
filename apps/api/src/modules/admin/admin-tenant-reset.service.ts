@@ -122,6 +122,8 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'product_sales' },
   { table: 'invoice_refunds' },
   { table: 'payments' },
+  // Sus registros de Veri*Factu (alta, subsanaciones y anulación).
+  { table: 'verifactu_records' },
   { table: 'invoice_items' },
   { table: 'invoices' },
   // Los envíos a la AEAT de esas facturas y la espera de cada emisor.
