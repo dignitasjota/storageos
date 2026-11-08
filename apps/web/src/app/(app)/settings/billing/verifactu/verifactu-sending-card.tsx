@@ -151,8 +151,9 @@ export function VerifactuSendingCard() {
             </p>
             <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
               <li>
-                Desde que lo actives, cada factura llevará el QR y la frase «VERI*FACTU» y se
-                enviará sola a la AEAT con tu certificado.
+                Desde que lo actives, cada factura llevará arriba el QR tributario con la frase
+                «Factura verificable en la sede electrónica de la AEAT» y se enviará sola a la AEAT
+                con tu certificado.
               </li>
               <li>
                 La primera factura que emitas abre tu registro en la AEAT: las anteriores no se

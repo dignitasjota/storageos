@@ -43,3 +43,25 @@ export interface VerifactuSettingsDto {
   /** Emite en Holded: Holded registra esas facturas en la AEAT. */
   invoicingInHolded: boolean;
 }
+
+/**
+ * El sistema informático de facturación tal como lo declara su fabricante.
+ * Va en el bloque `SistemaInformatico` de cada registro que se envía a la AEAT
+ * y en la declaración responsable (art. 15 de la Orden HAC/1177/2024): tienen
+ * que coincidir. La versión cambia cuando cambia la parte de facturación, y
+ * cada versión lleva su declaración.
+ */
+export const VERIFACTU_SYSTEM = {
+  producerName: 'Urbanbox Soluciones SL',
+  producerTaxId: 'B05691886',
+  name: 'TrasterOS',
+  /** Código de 2 caracteres que el fabricante da a su sistema. */
+  id: '01',
+  version: '1.0',
+} as const;
+
+/** Texto que va encima del QR en la factura (especificación del QR de la AEAT, apdo. 3). */
+export const VERIFACTU_QR_LABEL = 'QR tributario:';
+
+/** Frase que va justo debajo del QR en las facturas de un sistema VERI*FACTU (art. 20.1.b). */
+export const VERIFACTU_INVOICE_LEGEND = 'Factura verificable en la sede electrónica de la AEAT';

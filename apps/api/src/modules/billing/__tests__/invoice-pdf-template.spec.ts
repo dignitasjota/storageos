@@ -129,25 +129,42 @@ describe('PDF de la factura', () => {
     expect(b.exempt).toBe(0);
   });
 
-  it('el QR y la frase de VERI*FACTU solo en las facturas registradas', () => {
-    const registered = renderInvoiceHtml({
+  it('el QR va al principio, con «QR tributario:» encima y la frase debajo', () => {
+    const html = renderInvoiceHtml({
       invoice: invoice({ qrCodeUrl: 'data:image/png;base64,QR', aeatCsv: 'A-1' }),
       issuer,
       customer: null,
     });
-    expect(registered).toContain('Factura verificable en la sede electrónica de la AEAT');
-    expect(registered).toContain('data:image/png;base64,QR');
-    expect(registered).toContain('CSV AEAT: A-1');
-    // Sin Veri*Factu activado: ni QR, ni la frase, ni la huella.
+    const label = html.indexOf('QR tributario:');
+    const img = html.indexOf('data:image/png;base64,QR');
+    const legend = html.indexOf('Factura verificable en la sede electrónica de la AEAT');
+    expect(label).toBeGreaterThan(-1);
+    expect(label).toBeLessThan(img);
+    expect(img).toBeLessThan(legend);
+    // Antes del contenido de la factura (emisor, cliente, líneas).
+    expect(legend).toBeLessThan(html.indexOf('Emisor'));
+    expect(html).toContain('<header class="with-qr">');
+    expect(html).toContain('CSV de la AEAT: A-1');
+  });
+
+  it('sin Veri*Factu: ni QR, ni la frase, ni la huella', () => {
     const plain = renderInvoiceHtml({
       invoice: invoice({ hash: null, qrCodeUrl: null }),
       issuer,
       customer: null,
     });
+    expect(plain).not.toContain('QR tributario');
     expect(plain).not.toContain('verificable');
-    expect(plain).not.toContain('VERI*FACTU');
     expect(plain).not.toContain('Huella');
-    expect(plain).not.toContain('QR Verifactu');
+    expect(plain).toContain('<header>');
+    // Un QR que no es una imagen PNG en línea no se pinta.
+    const bad = renderInvoiceHtml({
+      invoice: invoice({ qrCodeUrl: 'https://evil.test/qr.png' }),
+      issuer,
+      customer: null,
+    });
+    expect(bad).not.toContain('evil.test');
+    expect(bad).not.toContain('QR tributario');
   });
 
   it('sin cobros ni forma de pago no dice lo que falta', () => {

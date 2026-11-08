@@ -772,13 +772,9 @@ AEAT_MODE=sandbox
 AEAT_SANDBOX_ENDPOINT=https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1
 AEAT_PRODUCTION_ENDPOINT=https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1
 AEAT_TIMEOUT_MS=30000
-
-# Identificación del Sistema Informático (TrasterOS) — comunes a todos los tenants
-AEAT_SISTEMA_NIF=B12345678         # NIF del desarrollador/operador del software
-AEAT_SISTEMA_NOMBRE=TrasterOS
-AEAT_SISTEMA_VERSION=1.0.0
-AEAT_SISTEMA_INSTALACION=001
 ```
+
+Los datos del sistema informático (fabricante Urbanbox Soluciones SL, TrasterOS, código y versión) no son variables: van en `VERIFACTU_SYSTEM` (`packages/shared/src/billing/verifactu.ts`) y tienen que coincidir con la declaración responsable (§110).
 
 Reinicia el contenedor API para recoger los cambios:
 
@@ -820,7 +816,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --force-rec
 ### 11.7. Incidencias conocidas
 
 - **Mantenimiento AEAT**: la sede tiene ventanas de mantenimiento programadas (ver `https://sede.agenciatributaria.gob.es/Sede/incidencias-comunicaciones.html`). Durante una ventana, los envíos pueden fallar; el retry BullMQ los recoge automáticamente.
-- **Versión del sistema informático**: si actualizas TrasterOS a una versión que altera el comportamiento del registro (campos, hash, formato XML), incrementa `AEAT_SISTEMA_VERSION` para que el campo declarado en el XML refleje la versión real desplegada.
+- **Versión del sistema informático**: si cambia la parte de facturación (campos, huella, formato del registro), sube `VERIFACTU_SYSTEM.version` en `packages/shared/src/billing/verifactu.ts` y firma la declaración responsable de esa versión.
 - **NIF mal formado**: si AEAT rechaza con error de validación, verifica que `customers.documentNumber` esté bien formateado (DNI sin guiones, CIF con letra inicial + 8 dígitos). El builder XML escapa pero no normaliza.
 - **Certificado caducado**: si el certificado del tenant expira, todas las facturas quedan en `error` con mensaje `cert_expired`. El tenant debe subir uno nuevo desde `/settings/billing/verifactu`. Las facturas en error se pueden reenviar manualmente una vez actualizado.
 
@@ -1954,3 +1950,14 @@ Migración `20270102100000_verifactu_toggle` (se aplica sola). Sin variables nue
 - Con la plataforma en modo de pruebas (`stub`, en desarrollo) las facturas de un negocio activado salen como «Simulada», no como «Aceptada».
 
 **Para empezar a enviar de verdad:** `AEAT_MODE=production` en Portainer (api y worker) y redesplegar; cada negocio sube su certificado y lo activa. Antes conviene resolver lo pendiente del envío real (ver ROADMAP → «Veri\*Factu: antes del envío real»).
+
+## 110. Veri\*Factu: datos del fabricante y QR arriba (2026-11-08)
+
+Migración `20270103100000_verifactu_installation` (se aplica sola). **Qué cambia al redesplegar:**
+
+- **El XML de los registros cumple ya el esquema de la AEAT.** Antes `RegistroAlta` iba en el espacio de nombres equivocado y las rectificativas llevaban bloques fuera de orden: cualquier envío real se habría rechazado. No hay que hacer nada; una prueba lo valida con xmllint contra los XSD oficiales.
+- Cada registro que se envía a la AEAT lleva al fabricante del sistema: **Urbanbox Soluciones SL (B05691886)**, sistema TrasterOS, código `01`, versión `1.0` (`VERIFACTU_SYSTEM` en `packages/shared/src/billing/verifactu.ts`; tiene que coincidir con la declaración responsable). Antes salía el nombre del sistema como razón social y el NIF `B00000000`.
+- **Se pueden borrar de Portainer** `AEAT_SISTEMA_NIF`, `AEAT_SISTEMA_NOMBRE`, `AEAT_SISTEMA_VERSION` y `AEAT_SISTEMA_INSTALACION`: ya no se leen.
+- **Número de instalación por facturación** (preguntas frecuentes de la AEAT a desarrolladores, n.º 4): el de cada negocio se fija al activar Veri\*Factu (fecha y hora de la activación + el principio de su id) y no se repite, ni al volver a activarlo; cada propietario del plan Administrador lleva el suyo. La migración se lo pone a los negocios que ya lo tenían activado. `IndicadorMultiplesOT` = `S` solo en los negocios con propietarios.
+- **El QR va arriba**: en el PDF de las facturas con Veri\*Factu, centrado en la cabecera, con «QR tributario:» encima y «Factura verificable en la sede electrónica de la AEAT» debajo, del tamaño del resto de datos (especificación del QR de la AEAT, apartado 3). Los PDF ya generados no cambian.
+- **Cambiar de versión**: cuando cambie la parte de facturación, se sube `VERIFACTU_SYSTEM.version` y se firma la declaración de esa versión.

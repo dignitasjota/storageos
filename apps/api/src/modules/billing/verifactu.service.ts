@@ -124,10 +124,11 @@ export class VerifactuService {
     url.searchParams.set('numserie', args.invoiceNumber);
     url.searchParams.set('fecha', formatSpanishDate(args.issueDate));
     url.searchParams.set('importe', args.total.toFixed(2));
+    // Nivel M (art. 21). Se imprime a 34 mm: con 440 px sale bien definido.
     const qrPng = await QRCode.toDataURL(url.toString(), {
       errorCorrectionLevel: 'M',
       margin: 1,
-      width: 220,
+      width: 440,
     });
     return qrPng;
   }

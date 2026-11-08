@@ -75,7 +75,7 @@ según lo que use el cliente.
 
 ### 5. Veri\*Factu / AEAT en producción → `DEPLOYMENT.md §11`
 
-- [ ] Variables del sistema informático (comunes a todos los tenants): `AEAT_SISTEMA_NIF/NOMBRE/VERSION/INSTALACION`, `AEAT_SANDBOX_ENDPOINT`, `AEAT_PRODUCTION_ENDPOINT`, `AEAT_TIMEOUT_MS`.
+- [ ] Variables del envío: `AEAT_SANDBOX_ENDPOINT`, `AEAT_PRODUCTION_ENDPOINT`, `AEAT_TIMEOUT_MS` (los datos del fabricante y del sistema van en el código, `VERIFACTU_SYSTEM`).
 - [ ] Subir el **certificado FNMT** del tenant (PKCS#12) en `/settings/billing/verifactu` del panel del cliente.
 - [ ] `AEAT_MODE=sandbox` para el dry-run; cuando valide, `AEAT_MODE=production`. Recrear el api.
 - [ ] Verificar: emitir una factura → `<VerifactuBadge>` pasa a `Aceptada (CSV: …)`.

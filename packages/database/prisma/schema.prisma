@@ -372,6 +372,9 @@ model Tenant {
   /// 31 de diciembre del año en que se activó (art. 17 Orden HAC/1177/2024).
   verifactuEnabled             Boolean               @default(false) @map("verifactu_enabled")
   verifactuEnabledAt           DateTime?             @map("verifactu_enabled_at") @db.Timestamptz(6)
+  /// Número de instalación del sistema de este negocio en la AEAT: se fija al
+  /// activar Veri*Factu y no se repite nunca (otra activación, otro número).
+  verifactuInstallation        String?               @map("verifactu_installation")
   autoChargeRetryEnabled       Boolean               @default(false) @map("auto_charge_retry_enabled")
   autoChargeRetryMax           Int                   @default(3) @map("auto_charge_retry_max")
   autoChargeRetryIntervalDays  Int                   @default(3) @map("auto_charge_retry_interval_days")

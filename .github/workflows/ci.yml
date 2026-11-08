@@ -66,6 +66,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # `verifactu-xsd.spec.ts` valida el XML de Veri*Factu contra los esquemas
+      # de la AEAT con xmllint; en la CI es obligatorio.
+      - name: Install xmllint
+        run: command -v xmllint || (sudo apt-get update -qq && sudo apt-get install -y -qq libxml2-utils)
+
       # Unit tests del API (jest con mocks, SIN base de datos ni Redis): corren
       # aquí porque no necesitan servicios. Antes no estaban en CI y varios specs
       # se rompían en silencio al cambiar constructores/queries en otros PRs.
@@ -207,10 +212,6 @@ jobs:
       COOKIE_SAMESITE: lax
       ALLOWED_ORIGINS: http://localhost:3000
       AEAT_MODE: stub
-      AEAT_SISTEMA_NIF: B00000000
-      AEAT_SISTEMA_NOMBRE: TrasterOS
-      AEAT_SISTEMA_VERSION: 1.0.0
-      AEAT_SISTEMA_INSTALACION: '001'
       AEAT_SANDBOX_ENDPOINT: https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1
       AEAT_PRODUCTION_ENDPOINT: https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1
       AEAT_TIMEOUT_MS: '30000'

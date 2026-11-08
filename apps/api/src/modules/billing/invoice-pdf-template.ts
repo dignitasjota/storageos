@@ -1,6 +1,8 @@
 import {
   INVOICE_TAX_CATEGORY_LEGAL_TEXT,
   isExemptCategory,
+  VERIFACTU_INVOICE_LEGEND,
+  VERIFACTU_QR_LABEL,
   type InvoiceDto,
   type InvoiceTaxCategory,
 } from '@storageos/shared';
@@ -272,6 +274,21 @@ export function renderInvoiceHtml(args: {
   // La justificación de una simplificada se guarda delante de las notas.
   const notes = (i.notes ?? '').replace(/^\[F2:[a-z_]+\]\s*/, '').trim();
 
+  // QR tributario, solo en los registros de Veri*Factu: al principio de la
+  // factura y centrado, con «QR tributario:» encima y la frase debajo, del
+  // tamaño del resto de datos (especificación técnica del QR de la AEAT, apdo. 3).
+  const qr =
+    !isReceipt &&
+    i.hash &&
+    i.qrCodeUrl &&
+    /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(i.qrCodeUrl)
+      ? `<div class="vf">
+    <div class="vf-text">${VERIFACTU_QR_LABEL}</div>
+    <img class="vf-qr" src="${i.qrCodeUrl}" alt="QR tributario" />
+    <div class="vf-text">${VERIFACTU_INVOICE_LEGEND}</div>
+  </div>`
+      : '';
+
   const customerBlock = c
     ? `
     <div class="row">${escapeHtml(customerName)}</div>
@@ -314,15 +331,18 @@ export function renderInvoiceHtml(args: {
   .totals { margin-top: 14pt; margin-left: auto; width: 280pt; }
   .totals .row { display: flex; justify-content: space-between; padding: 3pt 8pt; }
   .totals .row.grand { font-size: 12.5pt; font-weight: 600; border-top: 2px solid #111; margin-top: 4pt; padding-top: 6pt; }
+  header.with-qr { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16pt; }
+  .vf { text-align: center; width: 48mm; }
+  .vf-text { font-size: 10.5pt; color: #111; line-height: 1.25; }
+  .vf-qr { display: block; width: 34mm; height: 34mm; margin: 1.5mm auto; padding: 3mm; background: #fff; }
   .verifactu { margin-top: 26pt; display: flex; gap: 18pt; align-items: flex-end; border-top: 1px solid #ddd; padding-top: 14pt; }
-  .verifactu .qr img { width: 110pt; height: 110pt; }
-  .verifactu .legal { font-size: 8.5pt; color: #666; max-width: 380pt; }
+  .verifactu .legal { font-size: 8.5pt; color: #666; }
   .verifactu .hash { font-family: monospace; font-size: 7.5pt; color: #888; word-break: break-all; }
   .notes { margin-top: 14pt; font-size: 9pt; color: #444; }
 </style>
 </head>
 <body>
-<header>
+<header${qr ? ' class="with-qr"' : ''}>
   <div>
     <h1>${title}</h1>
     <div class="meta">N.º <strong>${escapeHtml(i.invoiceNumber)}</strong></div>
@@ -330,6 +350,7 @@ export function renderInvoiceHtml(args: {
     ${due}
     ${period}
   </div>
+  ${qr}
   <div class="issuer">
     ${logo ? `<img class="logo" src="${logo}" alt="" /><br />` : ''}
     <strong>${escapeHtml(issuer.name)}</strong>
@@ -384,14 +405,12 @@ ${
   isReceipt
     ? `<div class="verifactu"><div class="legal">Fianza en garantía del contrato: no es una factura ni una operación sujeta a IVA. Se devuelve al terminar el contrato, descontando lo que proceda.</div></div>`
     : i.hash
-      ? // Solo si es un registro de Veri*Factu (el negocio lo tiene activado):
-        // sin él, ni QR ni la frase (la factura no se ha enviado a la AEAT).
+      ? // Solo si es un registro de Veri*Factu (el QR va arriba); sin él, la
+        // factura no se ha enviado a la AEAT y no lleva nada de esto.
         `<div class="verifactu">
-  ${i.qrCodeUrl ? `<div class="qr"><img src="${i.qrCodeUrl}" alt="QR Verifactu" /></div>` : ''}
   <div class="legal">
-    Factura verificable en la sede electrónica de la AEAT (VERI*FACTU, RD 1007/2023).<br />
-    <span class="hash">Huella: ${escapeHtml(i.hash)}</span>
-    ${i.aeatCsv ? `<br /><span class="hash">CSV AEAT: ${escapeHtml(i.aeatCsv)}</span>` : ''}
+    <span class="hash">Huella del registro: ${escapeHtml(i.hash)}</span>
+    ${i.aeatCsv ? `<br /><span class="hash">CSV de la AEAT: ${escapeHtml(i.aeatCsv)}</span>` : ''}
   </div>
 </div>`
       : ''
