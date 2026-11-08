@@ -4,7 +4,7 @@ import { ApiError, apiFetch } from '../auth/api';
 
 import { invoiceKey } from './hooks';
 
-import type { InvoiceDto } from '@storageos/shared';
+import type { InvoiceDto, VerifactuSettingsDto } from '@storageos/shared';
 
 /**
  * Metadata pública del certificado AEAT cargado por el tenant. La definimos
@@ -39,6 +39,34 @@ export interface AeatCredentialMetadata {
 
 export const verifactuCredentialKey = ['billing', 'aeat-credential'] as const;
 export const verifactuCredentialHistoryKey = ['billing', 'aeat-credential', 'history'] as const;
+export const verifactuSettingsKey = ['billing', 'verifactu-settings'] as const;
+
+/** GET /billing/verifactu/settings: si el negocio envía sus facturas a la AEAT. */
+export function useVerifactuSettingsQuery() {
+  return useQuery({
+    queryKey: verifactuSettingsKey,
+    queryFn: () => apiFetch<VerifactuSettingsDto>('/billing/verifactu/settings'),
+  });
+}
+
+/** PUT /billing/verifactu/settings — activar o desactivar Veri*Factu. */
+export function useUpdateVerifactuSettingsMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { enabled: boolean }) =>
+      apiFetch<VerifactuSettingsDto>('/billing/verifactu/settings', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(verifactuSettingsKey, data);
+      // Cambian los avisos de Configuración, la puesta en marcha y el modo de emisión.
+      void qc.invalidateQueries({ queryKey: ['settings', 'tenant', 'health'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'onboarding'] });
+      void qc.invalidateQueries({ queryKey: ['invoicing-mode'] });
+    },
+  });
+}
 
 export interface UploadVerifactuCredentialInput {
   file: File;
@@ -85,6 +113,7 @@ export function useUploadVerifactuCredentialMutation() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: verifactuCredentialKey });
       void qc.invalidateQueries({ queryKey: verifactuCredentialHistoryKey });
+      void qc.invalidateQueries({ queryKey: verifactuSettingsKey });
     },
   });
 }
@@ -101,6 +130,7 @@ export function useRevokeVerifactuCredentialMutation() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: verifactuCredentialKey });
       void qc.invalidateQueries({ queryKey: verifactuCredentialHistoryKey });
+      void qc.invalidateQueries({ queryKey: verifactuSettingsKey });
     },
   });
 }

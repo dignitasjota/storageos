@@ -4,3 +4,4 @@ export * from './tax-category';
 export * from './collections-ops';
 export * from './first-month';
 export * from './invoice-tools';
+export * from './verifactu';

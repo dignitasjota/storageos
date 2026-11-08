@@ -1016,7 +1016,14 @@ export default function InvoiceDetailPage() {
                     </code>
                   </>
                 )}
-                {i.aeatCsv && <p>CSV de la AEAT: {i.aeatCsv}</p>}
+                {i.aeatCsv &&
+                  (i.aeatCsv.startsWith('STUB-') ? (
+                    <p className="text-muted-foreground">
+                      Envío simulado (la plataforma está en modo de pruebas): no hay CSV de la AEAT.
+                    </p>
+                  ) : (
+                    <p>CSV de la AEAT: {i.aeatCsv}</p>
+                  ))}
               </div>
             </div>
           </CardContent>

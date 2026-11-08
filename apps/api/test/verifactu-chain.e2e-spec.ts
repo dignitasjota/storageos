@@ -6,7 +6,7 @@ import { PrismaAdminService } from '../src/modules/database/prisma-admin.service
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -32,6 +32,7 @@ describe('Veri*Factu: cadena por emisor (e2e)', () => {
 
   it('dos series encadenan en el mismo emisor y la huella es verificable', async () => {
     const owner = await registerVerifiedUser(app, 'vfchain');
+    await enableVerifactu(owner.slug);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const http = () => request(app.getHttpServer());
     const customerId = await createCustomer(app, owner.accessToken);
@@ -76,6 +77,7 @@ describe('Veri*Factu: cadena por emisor (e2e)', () => {
 
   it('no se reenvía a la AEAT una factura ya aceptada', async () => {
     const owner = await registerVerifiedUser(app, 'vfresend');
+    await enableVerifactu(owner.slug);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const customerId = await createCustomer(app, owner.accessToken);
     const id = await createDraftInvoice(app, owner.accessToken, customerId);
@@ -90,6 +92,7 @@ describe('Veri*Factu: cadena por emisor (e2e)', () => {
 
   it('en envío real exige el NIF del emisor y un NIF válido del cliente', async () => {
     const owner = await registerVerifiedUser(app, 'vfnif');
+    await enableVerifactu(owner.slug);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const http = () => request(app.getHttpServer());
     const spy = jest.spyOn(app.get(VerifactuService), 'realMode', 'get').mockReturnValue(true);

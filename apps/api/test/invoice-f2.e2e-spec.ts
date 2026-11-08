@@ -4,7 +4,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -137,6 +137,7 @@ describe('Invoice F2 simplificada (e2e)', () => {
 
   it('issue de F2 sin customer asigna numero, hash y aeatStatus pendiente', async () => {
     const owner = await registerVerifiedUser(app, 'f2-issue');
+    await enableVerifactu(owner.slug);
     await ensureDefaultSeries(app, owner.accessToken);
 
     const created = await request(app.getHttpServer())

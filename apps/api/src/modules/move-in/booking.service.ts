@@ -330,10 +330,15 @@ export class BookingService {
         message: 'La fecha de entrada puede ser como mucho dentro de un año',
       });
     }
-    // Con envío real a la AEAT la factura de un cliente español exige un NIF o
-    // NIE válido: si no, la primera factura no se emitiría y la reserva
-    // caducaría sin que el inquilino pudiera pagar.
+    const tenant = await this.admin.tenant.findUnique({ where: { slug } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    }
+    // Con envío real a la AEAT (Veri*Factu activado) la factura de un cliente
+    // español exige un NIF o NIE válido: si no, la primera factura no se
+    // emitiría y la reserva caducaría sin que el inquilino pudiera pagar.
     if (
+      tenant.verifactuEnabled &&
       this.config.get('AEAT_MODE', { infer: true }) !== 'stub' &&
       !isValidSpanishTaxId(normalizeTaxId(input.customer.documentNumber))
     ) {
@@ -341,10 +346,6 @@ export class BookingService {
         code: 'invalid_tax_id',
         message: 'El DNI o NIE no es válido: revisa los números y la letra',
       });
-    }
-    const tenant = await this.admin.tenant.findUnique({ where: { slug } });
-    if (!tenant || tenant.deletedAt) {
-      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
     await this.assertBookable(tenant);
     const tenantId = tenant.id;

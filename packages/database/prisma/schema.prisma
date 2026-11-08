@@ -367,6 +367,11 @@ model Tenant {
   /// Cambio programado (no se cambia en mitad del año): modo y fecha de efecto.
   invoicingModePending         String?               @map("invoicing_mode_pending")
   invoicingModePendingFrom     DateTime?             @map("invoicing_mode_pending_from") @db.Date
+  /// Veri*Factu: lo activa cada negocio. Apagado, sus facturas salen sin
+  /// huella, sin QR y sin envío a la AEAT. Activado, no se apaga hasta el
+  /// 31 de diciembre del año en que se activó (art. 17 Orden HAC/1177/2024).
+  verifactuEnabled             Boolean               @default(false) @map("verifactu_enabled")
+  verifactuEnabledAt           DateTime?             @map("verifactu_enabled_at") @db.Timestamptz(6)
   autoChargeRetryEnabled       Boolean               @default(false) @map("auto_charge_retry_enabled")
   autoChargeRetryMax           Int                   @default(3) @map("auto_charge_retry_max")
   autoChargeRetryIntervalDays  Int                   @default(3) @map("auto_charge_retry_interval_days")

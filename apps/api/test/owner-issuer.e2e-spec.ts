@@ -5,7 +5,11 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
-import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-fixtures';
+import {
+  cleanupTestTenants,
+  enableVerifactu,
+  setTenantFeatureOverride,
+} from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -36,6 +40,7 @@ describe('Propietario como emisor (e2e)', () => {
 
   it('serie, cadena y recargo propios del propietario', async () => {
     const user = await registerVerifiedUser(app, 'ownissuer');
+    await enableVerifactu(user.slug);
     const auth = { Authorization: `Bearer ${user.accessToken}` };
     const http = () => request(app.getHttpServer());
     const tenantSeriesId = await ensureDefaultSeries(app, user.accessToken);

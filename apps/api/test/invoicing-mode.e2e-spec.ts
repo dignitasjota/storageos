@@ -6,7 +6,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { fakeHolded } from './helpers/fake-holded';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -51,6 +51,7 @@ describe('Modo de emisión de facturas (e2e)', () => {
 
   it('Holded emite: número de Holded, sin Veri*Factu propio, cobros y anulación', async () => {
     const owner = await registerVerifiedUser(app, 'invmodeh');
+    await enableVerifactu(owner.slug);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
 
     const start = await http().get('/settings/invoicing-mode').set(auth).expect(200);

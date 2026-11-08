@@ -64,12 +64,17 @@ export class InvoicingModeService {
   }
 
   async get(tenantId: string): Promise<InvoicingModeDto> {
-    const { mode, pending, pendingFrom, canChangeNow, hasCertificate } =
+    const { mode, pending, pendingFrom, canChangeNow, hasCertificate, verifactuEnabled } =
       await this.prisma.withTenant(async (tx) => {
         const m = await this.current(tx, tenantId);
         const t = await tx.tenant.findUniqueOrThrow({
           where: { id: tenantId },
-          select: { invoicingModePending: true, invoicingModePendingFrom: true, timezone: true },
+          select: {
+            invoicingModePending: true,
+            invoicingModePendingFrom: true,
+            timezone: true,
+            verifactuEnabled: true,
+          },
         });
         const cert = await tx.tenantAeatCredential.findFirst({
           where: { tenantId, ownerId: null, revokedAt: null, certValidTo: { gt: new Date() } },
@@ -81,6 +86,7 @@ export class InvoicingModeService {
           pendingFrom: t.invoicingModePendingFrom,
           canChangeNow: !(await this.issuedThisYear(tx, tenantId, t.timezone)),
           hasCertificate: !!cert,
+          verifactuEnabled: t.verifactuEnabled,
         };
       }, tenantId);
     const holded = await this.holded.resolveIssuing(tenantId);
@@ -90,7 +96,8 @@ export class InvoicingModeService {
       pendingFrom: pendingFrom ? pendingFrom.toISOString().slice(0, 10) : null,
       canChangeNow,
       holdedReady: !('reason' in holded),
-      certificateMissing: this.verifactu.realMode && !hasCertificate,
+      // Con Veri*Factu activado, sin certificado no se puede emitir.
+      certificateMissing: this.verifactu.realMode && verifactuEnabled && !hasCertificate,
     };
   }
 

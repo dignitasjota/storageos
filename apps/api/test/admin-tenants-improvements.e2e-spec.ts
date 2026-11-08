@@ -6,7 +6,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { waitForEmail } from './helpers/mailpit';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -202,6 +202,7 @@ describe('Admin: mejoras del apartado Tenants (e2e)', () => {
 
   it('historial con hitos, sesiones de un usuario, AEAT y vistas guardadas', async () => {
     const owner = await registerVerifiedUser(app, 'imptools');
+    await enableVerifactu(owner.slug);
     const timeline = await http()
       .get(`/admin/tenants/${owner.tenantId}/timeline?kinds=milestone`)
       .set(admin())

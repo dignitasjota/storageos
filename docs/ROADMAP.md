@@ -939,6 +939,21 @@ Arreglos (PR A): emitir exige los datos fiscales del emisor; el doble clic ya no
 
 Mejoras (PR B): PDF con logo, forma de pago y sello «PAGADA», y enlace de descarga sin sesión en los correos; ficha con la actividad de la factura (cobros, devoluciones, avisos, escalado e historial); deshacer o corregir un cobro registrado a mano; editar el borrador y duplicar; nueva factura con contrato, periodo, vencimiento, notas y catálogo; lista con fechas, tipo, forma de pago, orden, totales, CSV y vistas del equipo; estado real del cobro a la vista; enviar la factura por correo y ver si llegó; cierre del mes guiado; anular y rectificar diciendo lo que pasará; devoluciones según cómo se cobró y como saldo a favor; prórroga rápida, plazo de pago por inquilino y un solo recordatorio por inquilino. **Pendiente**: deshacer un cierre de caja (hoy un cobro en efectivo de un día cerrado no se puede tocar) y una página amable cuando el enlace de descarga ya no vale.
 
+### Veri\*Factu por negocio (2026-11-08)
+
+Cada negocio activa el envío de sus facturas a la AEAT cuando le toque (Configuración → Veri\*Factu). Apagado (por defecto), la factura sale sin huella, sin QR y sin envío; antes el panel decía «Aceptada» con un CSV simulado. Activado, su primera factura abre la cadena y no se apaga hasta el 31 de diciembre (art. 17 de la Orden HAC/1177/2024). La migración quita el registro simulado de las facturas ya emitidas.
+
+#### Veri\*Factu: antes del envío real
+
+Pendiente antes de poner `AEAT_MODE=production` y de firmar la declaración responsable como fabricantes:
+
+- **Declaración responsable** (art. 13 del RD 1007/2023 y art. 15 de la Orden): documento con el nombre, código y versión del sistema, sus componentes y funciones, «solo VERI\*FACTU» y «varios obligados», los datos del productor (razón social, NIF y dirección), la manifestación de que cumple y la fecha y el lugar de la firma. Debe estar dentro de la propia aplicación, a mano del usuario, y entregarse al cliente (PDF); una por versión.
+- **Datos del productor en cada registro** (`SistemaInformatico`): `NombreRazon` lleva hoy el nombre del sistema (`AEAT_SISTEMA_NOMBRE`) en vez de la razón social del productor, y `AEAT_SISTEMA_NIF` sigue en `B00000000`. La versión (`AEAT_SISTEMA_VERSION`) y el código (`IdSistemaInformatico` = `01`) tienen que coincidir con los de la declaración.
+- **Control de flujo** (art. 16): esperar entre envíos lo que indique la AEAT (60 s al principio) o juntar hasta 1.000 registros por envío. Hoy se envía un registro por petición, uno detrás de otro.
+- **QR al principio de la factura** (preguntas frecuentes de la AEAT: arriba, en la primera página) y la frase con un tamaño parecido al del resto de datos. Hoy va al pie y la frase en 8,5 pt gris.
+- **Registro de anulación** (art. 11) y **subsanación** de registros rechazados o con datos erróneos (`Subsanacion`, `RechazoPrevio`): no están; «Reenviar» manda el mismo registro.
+- **Incidencias**: marcar los registros enviados tarde tras un corte (`Incidencia`).
+
 ### Reservas online: factura con el pago y aviso al caducar (2026-11-08)
 
 La primera factura de una reserva online llega con el pago («Pago recibido» con el PDF), no al firmar. Si la reserva caduca sin pagar, el inquilino recibe un aviso con un botón para volver a reservar.

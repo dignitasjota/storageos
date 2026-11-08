@@ -128,6 +128,16 @@ export class AdminTenantConfigService {
         : warn('Series de facturación', 'Ninguna'),
     );
     if (tenant.invoicingMode === 'app') {
+      billing.push(
+        tenant.verifactuEnabled
+          ? on(
+              'Envío a la AEAT (Veri*Factu)',
+              tenant.verifactuEnabledAt
+                ? `Activado desde el ${date(tenant.verifactuEnabledAt)}`
+                : 'Activado',
+            )
+          : off('Envío a la AEAT (Veri*Factu)', 'Sin activar'),
+      );
       if (!cert) {
         billing.push(warn('Certificado de la AEAT', 'Sin subir'));
       } else {

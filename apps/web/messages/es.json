@@ -591,8 +591,8 @@
     },
     "billing": {
       "verifactu": {
-        "title": "Veri*Factu — Certificado digital",
-        "subtitle": "Sube el certificado digital de la empresa (FNMT u otro emisor admitido por AEAT). Lo necesitamos para firmar y enviar tus facturas a Hacienda según el Reglamento Veri*Factu.",
+        "title": "Veri*Factu",
+        "subtitle": "Cuándo se envían tus facturas a la AEAT y el certificado digital con el que se envían (el de la FNMT u otro emisor que admita la AEAT).",
         "current": {
           "title": "Certificado activo"
         },
@@ -616,7 +616,7 @@
         },
         "empty": {
           "title": "Aún no has subido un certificado",
-          "body": "Sin certificado digital no podemos enviar tus facturas a AEAT. Es un requisito de Veri*Factu."
+          "body": "Sin certificado digital no podemos enviar tus facturas a la AEAT: súbelo antes de activar Veri*Factu."
         },
         "actions": {
           "upload": "Subir certificado",
@@ -993,11 +993,15 @@
         "acceptedWithCsv": "Aceptada · CSV {csv}",
         "acceptedWithWarnings": "Aceptada con avisos",
         "rejected": "Rechazada",
-        "error": "Error de envío"
+        "error": "Error de envío",
+        "notEnabled": "Sin Veri*Factu",
+        "simulated": "Simulada"
       },
       "tooltip": {
         "sentAt": "Enviada a AEAT el {when}",
-        "notSent": "Aún no se ha enviado a AEAT"
+        "notSent": "Aún no se ha enviado a AEAT",
+        "notEnabled": "Se emitió con Veri*Factu sin activar: no se envía a la AEAT. Actívalo en Configuración → Veri*Factu cuando te toque.",
+        "simulated": "La plataforma está en modo de pruebas: no se ha enviado a la AEAT."
       },
       "actions": {
         "resend": "Reenviar a AEAT",
