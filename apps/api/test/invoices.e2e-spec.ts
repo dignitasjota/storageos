@@ -8,7 +8,7 @@ import {
 } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -48,6 +48,7 @@ describe('Invoices state machine + Verifactu hash (e2e)', () => {
 
   it('issue asigna numero + hash + previousHash encadenado entre dos facturas', async () => {
     const owner = await registerVerifiedUser(app, 'inv-issue');
+    await enableVerifactu(owner.slug);
     const customerId = await createCustomer(app, owner.accessToken);
     const id1 = await createDraftInvoice(app, owner.accessToken, customerId, {
       unitPrice: 50,

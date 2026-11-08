@@ -79,10 +79,38 @@ export function VerifactuBadge({ invoice }: { invoice: InvoiceWithAeatExtras }) 
     return null;
   }
 
+  // Emitida con Veri*Factu sin activar: no es un registro ni se envía a la AEAT.
+  if (!invoice.hash && !invoice.aeatStatus) {
+    return (
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline" className="text-muted-foreground">
+              <span className="mr-1 text-[10px] uppercase tracking-wide opacity-80">AEAT</span>
+              {t('status.notEnabled')}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs text-xs">
+            {t('tooltip.notEnabled')}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
   const status = invoice.aeatStatus;
-  const visual = visualForStatus(status);
+  // Con la plataforma en modo de pruebas el «envío» es simulado (CSV STUB-…):
+  // no se presenta como aceptada por la AEAT.
+  const simulated =
+    (status === 'accepted' || status === 'accepted_with_warnings') &&
+    (invoice.aeatCsv?.startsWith('STUB-') === true ||
+      (typeof invoice.aeatResponse === 'object' &&
+        invoice.aeatResponse !== null &&
+        (invoice.aeatResponse as { mode?: unknown }).mode === 'stub'));
+  const visual: StatusVisual = simulated ? { variant: 'secondary' } : visualForStatus(status);
 
   const label: string = (() => {
+    if (simulated) return t('status.simulated');
     if (status === 'accepted' && invoice.aeatCsv) {
       return t('status.acceptedWithCsv', { csv: invoice.aeatCsv });
     }
@@ -100,6 +128,7 @@ export function VerifactuBadge({ invoice }: { invoice: InvoiceWithAeatExtras }) 
   })();
 
   const tooltipBody = [
+    simulated ? t('tooltip.simulated') : null,
     invoice.aeatSentAt
       ? t('tooltip.sentAt', {
           when: format.dateTime(new Date(invoice.aeatSentAt), {

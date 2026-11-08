@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ONBOARDING_SKIPPABLE_STEPS } from '@storageos/shared';
+import { ONBOARDING_SKIPPABLE_STEPS, VERIFACTU_MANDATORY_FROM } from '@storageos/shared';
 
+import { formatDateLong } from '../../common/format';
 import { tenantFeatures } from '../../common/tenant-features';
 import { bookingReady, tenantReadiness, webPublished } from '../../common/tenant-readiness';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -92,6 +93,7 @@ export class OnboardingService {
             offlineTransferEnabled: true,
             offlineSepaEnabled: true,
             autoIssueRecurring: true,
+            verifactuEnabled: true,
             onboardingState: true,
             slug: true,
             customDomain: true,
@@ -293,9 +295,9 @@ export class OnboardingService {
         : [
             {
               key: 'verifactu',
-              label: 'Sube tu certificado para Veri*Factu',
-              hint: 'Tus facturas se registran solas en la AEAT con tu certificado digital.',
-              done: d.aeat > 0,
+              label: d.aeat > 0 ? 'Activa Veri*Factu' : 'Sube tu certificado y activa Veri*Factu',
+              hint: `Desde entonces tus facturas se registran solas en la AEAT. Es obligatorio desde el ${formatDateLong(new Date(`${VERIFACTU_MANDATORY_FROM.companies}T12:00:00Z`))} para las sociedades y desde el ${formatDateLong(new Date(`${VERIFACTU_MANDATORY_FROM.others}T12:00:00Z`))} para los demás.`,
+              done: !!t?.verifactuEnabled,
               group: 'recommended' as const,
               href: '/settings/billing/verifactu',
             },

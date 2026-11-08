@@ -11,7 +11,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -125,6 +125,7 @@ describe('Revisión de facturación (e2e)', () => {
 
   it('si la primera factura no se emite, el equipo recibe un aviso con el motivo', async () => {
     const owner = await registerVerifiedUser(app, 'billfirstfail');
+    await enableVerifactu(owner.slug);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await ensureDefaultSeries(app, owner.accessToken);
     const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
@@ -160,6 +161,7 @@ describe('Revisión de facturación (e2e)', () => {
 
   it('con envío real a la AEAT, la reserva online exige un DNI o NIE válido', async () => {
     const owner = await registerVerifiedUser(app, 'billbooknif');
+    await enableVerifactu(owner.slug);
     await ensureDefaultSeries(app, owner.accessToken);
     await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
     const avail = await http().get(`/public/move-in/book/${owner.slug}/availability`);

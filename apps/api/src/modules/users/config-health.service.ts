@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { VERIFACTU_MANDATORY_FROM } from '@storageos/shared';
 
+import { formatDateLong } from '../../common/format';
 import { PrismaService } from '../database/prisma.service';
 
 import type { ConfigHealthItemDto } from '@storageos/shared';
@@ -26,6 +28,7 @@ export class ConfigHealthService {
             billingAddress: true,
             transferIban: true,
             invoicingMode: true,
+            verifactuEnabled: true,
             customDomain: true,
             customDomainVerifiedAt: true,
             customDomainReadyAt: true,
@@ -70,15 +73,25 @@ export class ConfigHealthService {
       });
     }
     if (t.invoicingMode === 'app') {
-      if (!d.cert) {
+      if (!t.verifactuEnabled) {
+        const day = (iso: string) => formatDateLong(new Date(`${iso}T12:00:00Z`));
         out.push({
-          key: 'aeat_missing',
+          key: 'verifactu_off',
           level: 'warning',
-          title: 'No has subido el certificado de la AEAT',
-          detail: 'Lo necesitas para enviar tus facturas a Veri*Factu.',
+          title: 'Veri*Factu está sin activar',
+          detail: `Tus facturas no se envían a la AEAT. Es obligatorio desde el ${day(VERIFACTU_MANDATORY_FROM.companies)} para las sociedades y desde el ${day(VERIFACTU_MANDATORY_FROM.others)} para los demás: sube tu certificado y actívalo antes.`,
           href: '/settings/billing/verifactu',
         });
-      } else {
+      } else if (!d.cert) {
+        out.push({
+          key: 'aeat_missing',
+          level: 'error',
+          title: 'No has subido el certificado de la AEAT',
+          detail: 'Con Veri*Factu activado, sin certificado no se pueden emitir facturas.',
+          href: '/settings/billing/verifactu',
+        });
+      }
+      if (d.cert) {
         const days = Math.ceil((d.cert.certValidTo.getTime() - Date.now()) / DAY);
         if (days <= 30) {
           out.push({

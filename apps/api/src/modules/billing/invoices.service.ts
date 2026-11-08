@@ -757,6 +757,7 @@ export class InvoicesService {
           billingAddress: true,
           billingPostalCode: true,
           billingCity: true,
+          verifactuEnabled: true,
         },
       });
       // Plazo de pago: el del inquilino si tiene uno propio; si no, el del negocio.
@@ -837,8 +838,11 @@ export class InvoicesService {
       const invoiceNumber = this.series.formatInvoiceNumber(series, sequenceNumber, issueDate);
       const dueDate = existing.dueDate ?? this.computeDefaultDueDate(issueDate, dueDays);
 
-      // Veri*Factu: huella oficial encadenada con el último registro del emisor
-      // (el propietario en el plan Administrador; si no, el tenant).
+      // Veri*Factu (si el negocio lo tiene activado): huella oficial encadenada
+      // con el último registro del emisor (el propietario en el plan
+      // Administrador; si no, el tenant), QR y envío a la AEAT. Apagado, la
+      // factura se emite sin nada de eso.
+      const verifactuOn = tenant.verifactuEnabled;
       const owner = existing.ownerId
         ? await tx.owner.findUnique({
             where: { id: existing.ownerId },
@@ -849,7 +853,7 @@ export class InvoicesService {
       const emitterTaxId = issuerTaxId ? normalizeTaxId(issuerTaxId) : '';
       // Sin NIF, razón social y domicilio la factura no es válida (RD 1619/2012).
       await this.assertIssuerFiscalData(tx, existing.ownerId, tenant);
-      if (this.verifactu.realMode) {
+      if (verifactuOn && this.verifactu.realMode) {
         // Envío real a la AEAT: sin NIF válido del emisor el registro se
         // rechazaría (antes la huella llevaba «PENDIENTE»).
         if (!emitterTaxId || !isValidSpanishTaxId(emitterTaxId)) {
@@ -886,23 +890,35 @@ export class InvoicesService {
           });
         }
       }
-      const chain = await this.verifactu.computeChainedHash(tx, {
-        tenantId: args.tenantId,
-        ownerId: existing.ownerId,
-        tenantTaxId: emitterTaxId || 'PENDIENTE',
-        invoiceNumber,
-        issueDate,
-        invoiceType: existing.invoiceType,
-        taxAmount: Number(existing.taxAmount),
-        total,
-      });
-      const { hash, previousHash } = chain;
-      const qrCodeUrl = await this.verifactu.buildQrDataUrl({
-        tenantTaxId: emitterTaxId || 'PENDIENTE',
-        invoiceNumber,
-        issueDate,
-        total,
-      });
+      const record = verifactuOn
+        ? await (async () => {
+            const chain = await this.verifactu.computeChainedHash(tx, {
+              tenantId: args.tenantId,
+              ownerId: existing.ownerId,
+              tenantTaxId: emitterTaxId || 'PENDIENTE',
+              invoiceNumber,
+              issueDate,
+              invoiceType: existing.invoiceType,
+              taxAmount: Number(existing.taxAmount),
+              total,
+            });
+            const qrCodeUrl = await this.verifactu.buildQrDataUrl({
+              tenantTaxId: emitterTaxId || 'PENDIENTE',
+              invoiceNumber,
+              issueDate,
+              total,
+            });
+            return {
+              hash: chain.hash,
+              previousHash: chain.previousHash,
+              previousInvoiceId: chain.previousInvoiceId,
+              chainSeq: chain.chainSeq,
+              aeatRecordTimestamp: chain.recordTimestamp,
+              qrCodeUrl,
+              aeatStatus: 'pending' as const,
+            };
+          })()
+        : {};
 
       const issuedRow = await tx.invoice.update({
         where: { id: args.invoiceId },
@@ -913,13 +929,7 @@ export class InvoicesService {
           issueDate,
           dueDate: settled ? null : dueDate,
           ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
-          hash,
-          previousHash,
-          previousInvoiceId: chain.previousInvoiceId,
-          chainSeq: chain.chainSeq,
-          aeatRecordTimestamp: chain.recordTimestamp,
-          qrCodeUrl,
-          aeatStatus: 'pending',
+          ...record,
         },
         include: this.includeRelations(),
       });
@@ -1016,7 +1026,8 @@ export class InvoicesService {
     // Encolar el envio AEAT en BullMQ con retry exponencial. El worker
     // (VerifactuProcessor) consumira el job de forma asincrona. Solo
     // reintenta cuando AEAT devuelve `status='error'` (fallo tecnico).
-    if (!fromHolded) {
+    // Sin huella no es un registro de Veri*Factu (negocio sin activarlo).
+    if (!fromHolded && updated.hash) {
       await this.verifactuQueue.add(
         JOB_VERIFACTU_SEND,
         { invoiceId: updated.id, tenantId: args.tenantId },
@@ -1946,6 +1957,7 @@ export class InvoicesService {
         message: 'Esta factura la emitió Holded: su registro en Veri*Factu se gestiona allí',
       });
     }
+    this.assertVerifactuRecord(existing);
     // Ya registrada en la AEAT: reenviarla sería un alta duplicada.
     if (existing.aeatStatus === 'accepted' || existing.aeatStatus === 'accepted_with_warnings') {
       throw new BadRequestException({
@@ -1976,6 +1988,17 @@ export class InvoicesService {
     return { queued: true, invoiceId };
   }
 
+  /** Emitida sin Veri*Factu (el negocio no lo tenía activado): no hay registro que enviar. */
+  private assertVerifactuRecord(invoice: { hash: string | null }): void {
+    if (!invoice.hash) {
+      throw new BadRequestException({
+        code: 'not_a_verifactu_record',
+        message:
+          'Esta factura se emitió sin Veri*Factu (no estaba activado): no se envía a la AEAT',
+      });
+    }
+  }
+
   /**
    * Consulta a AEAT el estado actual de la factura (sub-bloque 15A.1).
    * Llama a `VerifactuService.refreshStatus` y devuelve el DTO actualizado
@@ -2001,6 +2024,7 @@ export class InvoicesService {
         message: 'No se puede consultar a AEAT una factura en borrador',
       });
     }
+    this.assertVerifactuRecord(existing);
     await this.verifactu.refreshStatus(invoiceId, tenantId);
     return this.toDto(await this.findOrThrow(tenantId, invoiceId));
   }

@@ -11,7 +11,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { SendInvoiceResult } from '../src/modules/billing/aeat-client/aeat-client';
@@ -53,6 +53,7 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
 
   it('resendAeat resetea aeat_* y devuelve { queued: true } sobre una factura emitida', async () => {
     const owner = await registerVerifiedUser(app, 'verif-resend-ok');
+    await enableVerifactu(owner.slug);
     const customerId = await createCustomer(app, owner.accessToken);
     const id = await createDraftInvoice(app, owner.accessToken, customerId, {
       unitPrice: 80,
@@ -214,6 +215,7 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
 
   it('issue de una invoice encola un job send-to-aeat en la cola verifactu', async () => {
     const owner = await registerVerifiedUser(app, 'verif-issue-enq');
+    await enableVerifactu(owner.slug);
     const customerId = await createCustomer(app, owner.accessToken);
     const id = await createDraftInvoice(app, owner.accessToken, customerId, {
       unitPrice: 60,

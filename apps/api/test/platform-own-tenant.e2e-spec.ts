@@ -5,7 +5,7 @@ import { PrismaAdminService } from '../src/modules/database/prisma-admin.service
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { cleanupSuperAdmins, seedSuperAdmin } from './helpers/super-admin';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -65,6 +65,7 @@ describe('Facturas de suscripción emitidas por el negocio propio (e2e)', () => 
 
   it('flujo completo', async () => {
     const own = await registerVerifiedUser(app, 'ownissuer');
+    await enableVerifactu(own.slug);
     const ownAuth = { Authorization: `Bearer ${own.accessToken}` };
     await ensureDefaultSeries(app, own.accessToken);
 

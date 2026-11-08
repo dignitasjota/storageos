@@ -76,8 +76,8 @@ export function InvoicingModeCard() {
                 <div className="text-sm">
                   <p className="font-medium">En TrasterOS, con Veri*Factu</p>
                   <p className="text-muted-foreground">
-                    TrasterOS numera tus facturas y las registra en la AEAT con tu certificado
-                    digital (súbelo en Veri*Factu). Holded, si lo usas, solo recibe una copia para
+                    TrasterOS numera tus facturas y, cuando actives Veri*Factu, las registra en la
+                    AEAT con tu certificado digital. Holded, si lo usas, solo recibe una copia para
                     la contabilidad.
                   </p>
                   {data.mode === 'app' && data.certificateMissing && (

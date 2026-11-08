@@ -4,7 +4,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages, extractToken, waitForEmail } from './helpers/mailpit';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -69,6 +69,7 @@ describe('Invoice rectifications R1-R5 (e2e)', () => {
 
   it('issue de la rectificativa asigna numero, hash encadenado y aeat_status accepted', async () => {
     const owner = await registerVerifiedUser(app, 'rect-issue');
+    await enableVerifactu(owner.slug);
     const customerId = await createCustomer(app, owner.accessToken);
     const originalId = await createDraftInvoice(app, owner.accessToken, customerId, {
       unitPrice: 50,
@@ -244,6 +245,7 @@ describe('Invoice rectifications R1-R5 (e2e)', () => {
 
   it('issue de rectificativa por sustitucion: aeatResponse refleja correctionMethod', async () => {
     const owner = await registerVerifiedUser(app, 'rect-sub-issue');
+    await enableVerifactu(owner.slug);
     const customerId = await createCustomer(app, owner.accessToken);
     const originalId = await createDraftInvoice(app, owner.accessToken, customerId, {
       unitPrice: 100,

@@ -19,6 +19,8 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
+import { VerifactuSendingCard } from './verifactu-sending-card';
+
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -106,6 +108,8 @@ export default function VerifactuSettingsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
         <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
       </header>
+
+      <VerifactuSendingCard />
 
       {credential.isLoading ? (
         <Skeleton className="h-48 w-full" />

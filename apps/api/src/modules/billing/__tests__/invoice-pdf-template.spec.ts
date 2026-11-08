@@ -129,6 +129,27 @@ describe('PDF de la factura', () => {
     expect(b.exempt).toBe(0);
   });
 
+  it('el QR y la frase de VERI*FACTU solo en las facturas registradas', () => {
+    const registered = renderInvoiceHtml({
+      invoice: invoice({ qrCodeUrl: 'data:image/png;base64,QR', aeatCsv: 'A-1' }),
+      issuer,
+      customer: null,
+    });
+    expect(registered).toContain('Factura verificable en la sede electrónica de la AEAT');
+    expect(registered).toContain('data:image/png;base64,QR');
+    expect(registered).toContain('CSV AEAT: A-1');
+    // Sin Veri*Factu activado: ni QR, ni la frase, ni la huella.
+    const plain = renderInvoiceHtml({
+      invoice: invoice({ hash: null, qrCodeUrl: null }),
+      issuer,
+      customer: null,
+    });
+    expect(plain).not.toContain('verificable');
+    expect(plain).not.toContain('VERI*FACTU');
+    expect(plain).not.toContain('Huella');
+    expect(plain).not.toContain('QR Verifactu');
+  });
+
   it('sin cobros ni forma de pago no dice lo que falta', () => {
     const html = renderInvoiceHtml({ invoice: invoice(), issuer, customer: null });
     expect(html).not.toContain('Pendiente');

@@ -383,14 +383,18 @@ ${howToPay}
 ${
   isReceipt
     ? `<div class="verifactu"><div class="legal">Fianza en garantía del contrato: no es una factura ni una operación sujeta a IVA. Se devuelve al terminar el contrato, descontando lo que proceda.</div></div>`
-    : `<div class="verifactu">
+    : i.hash
+      ? // Solo si es un registro de Veri*Factu (el negocio lo tiene activado):
+        // sin él, ni QR ni la frase (la factura no se ha enviado a la AEAT).
+        `<div class="verifactu">
   ${i.qrCodeUrl ? `<div class="qr"><img src="${i.qrCodeUrl}" alt="QR Verifactu" /></div>` : ''}
   <div class="legal">
     Factura verificable en la sede electrónica de la AEAT (VERI*FACTU, RD 1007/2023).<br />
-    <span class="hash">Huella: ${escapeHtml(i.hash ?? '—')}</span>
+    <span class="hash">Huella: ${escapeHtml(i.hash)}</span>
     ${i.aeatCsv ? `<br /><span class="hash">CSV AEAT: ${escapeHtml(i.aeatCsv)}</span>` : ''}
   </div>
 </div>`
+      : ''
 }
 
 ${
