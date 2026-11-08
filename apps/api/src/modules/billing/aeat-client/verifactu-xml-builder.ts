@@ -94,8 +94,9 @@ ${recipientIdBlock(recipient)}
         })
       : `          <sum1:PrimerRegistro>S</sum1:PrimerRegistro>`;
 
-    // Bloques especificos de rectificativas (R1-R5). Se ubican entre
-    // `Destinatarios` y `Desglose` segun el XSD AEAT.
+    // Bloques especificos de rectificativas (R1-R5). Van justo detrás de
+    // `TipoFactura` y antes de `DescripcionOperacion` (RegistroFacturacionAltaType
+    // del XSD de la AEAT); en otro sitio la AEAT rechaza el envío.
     const isRectification = invoice.invoiceType.startsWith('R');
     const includeOriginalAmounts =
       invoice.correctionMethod === 'S' && invoice.originalAmounts !== undefined;
@@ -122,7 +123,7 @@ ${recipientIdBlock(recipient)}
         </sum1:ObligadoEmision>${representanteBlock}
       </sum:Cabecera>
       <sum:RegistroFactura>
-        <sum:RegistroAlta>
+        <sum1:RegistroAlta>
           <sum1:IDVersion>1.0</sum1:IDVersion>
           <sum1:IDFactura>
             <sum1:IDEmisorFactura>${tenantNif}</sum1:IDEmisorFactura>
@@ -130,9 +131,9 @@ ${recipientIdBlock(recipient)}
             <sum1:FechaExpedicionFactura>${issueDate}</sum1:FechaExpedicionFactura>
           </sum1:IDFactura>
           <sum1:NombreRazonEmisor>${tenantName}</sum1:NombreRazonEmisor>
-          <sum1:TipoFactura>${invoiceType}</sum1:TipoFactura>
+          <sum1:TipoFactura>${invoiceType}</sum1:TipoFactura>${rectificationBlocks}
           <sum1:DescripcionOperacion>${description}</sum1:DescripcionOperacion>
-${destinatariosBlock}${rectificationBlocks}
+${destinatariosBlock}
           <sum1:Desglose>
 ${desglose}
           </sum1:Desglose>
@@ -155,7 +156,7 @@ ${encadenamiento}
           <sum1:FechaHoraHusoGenRegistro>${generadoEn}</sum1:FechaHoraHusoGenRegistro>
           <sum1:TipoHuella>01</sum1:TipoHuella>
           <sum1:Huella>${huella}</sum1:Huella>
-        </sum:RegistroAlta>
+        </sum1:RegistroAlta>
       </sum:RegistroFactura>
     </sum:RegFactuSistemaFacturacion>
   </soapenv:Body>
@@ -202,11 +203,11 @@ ${encadenamiento}
         const nif = escapeXml(r.emitterTaxId);
         const num = escapeXml(r.invoiceNumber);
         const fecha = formatSpanishDate(r.issueDate);
-        return `              <sum1:IDFacturaAnterior>
+        return `              <sum1:IDFacturaRectificada>
                 <sum1:IDEmisorFactura>${nif}</sum1:IDEmisorFactura>
                 <sum1:NumSerieFactura>${num}</sum1:NumSerieFactura>
                 <sum1:FechaExpedicionFactura>${fecha}</sum1:FechaExpedicionFactura>
-              </sum1:IDFacturaAnterior>`;
+              </sum1:IDFacturaRectificada>`;
       })
       .join('\n');
     const facturasRectificadas = items
@@ -219,7 +220,7 @@ ${items}
     // `<ImporteRectificacion>` solo aplica en sustitucion. AEAT exige
     // BaseRectificada + CuotaRectificada; CuotaRecargoRectificado es
     // opcional (recargo de equivalencia). El bloque va DESPUES de
-    // FacturasRectificadas y ANTES de Desglose.
+    // FacturasRectificadas y ANTES de DescripcionOperacion.
     let importeRectificacion = '';
     if (args.correctionMethod === 'S' && args.originalAmounts) {
       const base = args.originalAmounts.baseRectificada.toFixed(2);

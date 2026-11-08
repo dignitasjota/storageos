@@ -66,6 +66,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # `verifactu-xsd.spec.ts` valida el XML de Veri*Factu contra los esquemas
+      # de la AEAT con xmllint; en la CI es obligatorio.
+      - name: Install xmllint
+        run: command -v xmllint || (sudo apt-get update -qq && sudo apt-get install -y -qq libxml2-utils)
+
       # Unit tests del API (jest con mocks, SIN base de datos ni Redis): corren
       # aquí porque no necesitan servicios. Antes no estaban en CI y varios specs
       # se rompían en silencio al cambiar constructores/queries en otros PRs.

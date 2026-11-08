@@ -94,7 +94,10 @@ describe('VerifactuXmlBuilder', () => {
       expect(xml).toContain('xmlns:sum="https://www2.agenciatributaria.gob.es');
       expect(xml).toContain('xmlns:sum1="https://www2.agenciatributaria.gob.es');
       expect(xml).toContain('<sum:RegFactuSistemaFacturacion>');
-      expect(xml).toContain('<sum:RegistroAlta>');
+      // RegistroAlta es un elemento de SuministroInformacion.xsd (sum1), dentro
+      // de RegistroFactura de SuministroLR.xsd (sum).
+      expect(xml).toContain('<sum:RegistroFactura>\n        <sum1:RegistroAlta>');
+      expect(xml).not.toContain('<sum:RegistroAlta>');
 
       // Obligado emision.
       expect(xml).toContain('<sum1:NombreRazon>Trasteros Demo SL</sum1:NombreRazon>');
@@ -220,16 +223,24 @@ describe('VerifactuXmlBuilder', () => {
       expect(xml).toContain('<sum1:TipoFactura>R1</sum1:TipoFactura>');
       expect(xml).toContain('<sum1:TipoRectificativa>I</sum1:TipoRectificativa>');
       expect(xml).toContain('<sum1:FacturasRectificadas>');
-      expect(xml).toContain('<sum1:IDFacturaAnterior>');
+      expect(xml).toContain('<sum1:IDFacturaRectificada>');
+      expect(xml).not.toContain('IDFacturaAnterior');
       expect(xml).toContain('<sum1:NumSerieFactura>FA/2026/00001</sum1:NumSerieFactura>');
       expect(xml).toContain(
         '<sum1:FechaExpedicionFactura>10-05-2026</sum1:FechaExpedicionFactura>',
       );
-      // El TipoRectificativa va ANTES de Desglose en el XML.
-      const idxRect = xml.indexOf('<sum1:TipoRectificativa>');
-      const idxDesglose = xml.indexOf('<sum1:Desglose>');
-      expect(idxRect).toBeGreaterThan(-1);
-      expect(idxRect).toBeLessThan(idxDesglose);
+      // Orden de RegistroFacturacionAltaType: TipoFactura, TipoRectificativa,
+      // FacturasRectificadas, DescripcionOperacion, Destinatarios, Desglose.
+      const order = [
+        '<sum1:TipoFactura>',
+        '<sum1:TipoRectificativa>',
+        '<sum1:FacturasRectificadas>',
+        '<sum1:DescripcionOperacion>',
+        '<sum1:Destinatarios>',
+        '<sum1:Desglose>',
+      ].map((tag) => xml.indexOf(tag));
+      expect(order.every((idx) => idx > -1)).toBe(true);
+      expect([...order].sort((a, b) => a - b)).toEqual(order);
     });
 
     it('emite TipoRectificativa S cuando correctionMethod=S (sustitucion)', () => {
@@ -327,13 +338,13 @@ describe('VerifactuXmlBuilder', () => {
       expect(xml).toContain('<sum1:CuotaRectificada>21.00</sum1:CuotaRectificada>');
       expect(xml).toContain('<sum1:CuotaRecargoRectificado>0.00</sum1:CuotaRecargoRectificado>');
 
-      // El bloque va DESPUES de FacturasRectificadas y ANTES de Desglose.
+      // El bloque va DESPUES de FacturasRectificadas y ANTES de DescripcionOperacion.
       const idxFacturas = xml.indexOf('<sum1:FacturasRectificadas>');
       const idxImporte = xml.indexOf('<sum1:ImporteRectificacion>');
-      const idxDesglose = xml.indexOf('<sum1:Desglose>');
+      const idxDescripcion = xml.indexOf('<sum1:DescripcionOperacion>');
       expect(idxFacturas).toBeGreaterThan(-1);
       expect(idxImporte).toBeGreaterThan(idxFacturas);
-      expect(idxImporte).toBeLessThan(idxDesglose);
+      expect(idxImporte).toBeLessThan(idxDescripcion);
     });
 
     it('rectificativa por sustitucion sin originalAmounts no emite ImporteRectificacion', () => {
