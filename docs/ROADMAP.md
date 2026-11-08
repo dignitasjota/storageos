@@ -939,6 +939,10 @@ Arreglos (PR A): emitir exige los datos fiscales del emisor; el doble clic ya no
 
 Mejoras (PR B): PDF con logo, forma de pago y sello «PAGADA», y enlace de descarga sin sesión en los correos; ficha con la actividad de la factura (cobros, devoluciones, avisos, escalado e historial); deshacer o corregir un cobro registrado a mano; editar el borrador y duplicar; nueva factura con contrato, periodo, vencimiento, notas y catálogo; lista con fechas, tipo, forma de pago, orden, totales, CSV y vistas del equipo; estado real del cobro a la vista; enviar la factura por correo y ver si llegó; cierre del mes guiado; anular y rectificar diciendo lo que pasará; devoluciones según cómo se cobró y como saldo a favor; prórroga rápida, plazo de pago por inquilino y un solo recordatorio por inquilino. **Pendiente**: deshacer un cierre de caja (hoy un cobro en efectivo de un día cerrado no se puede tocar) y una página amable cuando el enlace de descarga ya no vale.
 
+### Reservas online: factura con el pago y aviso al caducar (2026-11-08)
+
+La primera factura de una reserva online llega con el pago («Pago recibido» con el PDF), no al firmar. Si la reserva caduca sin pagar, el inquilino recibe un aviso con un botón para volver a reservar.
+
 ### Corte de acceso por impago (2026-11-07)
 
 El escalado nunca cortaba el acceso (inyección `@Optional() … | null`) aunque lo daba por hecho. Se aplica de verdad, con resultado real por acción (`accessBlocked`), reintento si falla, vuelta del acceso al anular o sustituir la factura y lista en Deudores para decidir con quienes ya constaban como cortados.
