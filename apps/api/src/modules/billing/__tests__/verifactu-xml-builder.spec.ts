@@ -1,5 +1,3 @@
-import { ConfigService } from '@nestjs/config';
-
 import {
   breakdownFromItems,
   VerifactuXmlBuilder,
@@ -8,30 +6,6 @@ import {
   formatTimestampWithMadridTimezone,
   type BuildRegistroAltaArgs,
 } from '../aeat-client/verifactu-xml-builder';
-
-import type { Env } from '../../../config/env.schema';
-
-/**
- * Construye un `ConfigService` mock con los valores de sistema informatico
- * por defecto (placeholders dev). Cualquier override se pasa por `overrides`.
- */
-function createConfig(
-  overrides: Partial<Record<keyof Env, string>> = {},
-): ConfigService<Env, true> {
-  const values: Record<string, string> = {
-    AEAT_SISTEMA_NIF: 'B00000000',
-    AEAT_SISTEMA_NOMBRE: 'TrasterOS',
-    AEAT_SISTEMA_VERSION: '1.0.0',
-    AEAT_SISTEMA_INSTALACION: '001',
-    ...(overrides as Record<string, string>),
-  };
-  return {
-    get: (key: string) => {
-      if (key in values) return values[key];
-      throw new Error(`Unexpected config key in test: ${key}`);
-    },
-  } as unknown as ConfigService<Env, true>;
-}
 
 /**
  * Args base: primera factura de la serie F, IVA 21%, cliente con NIF
@@ -44,6 +18,7 @@ function baseArgs(): BuildRegistroAltaArgs {
       name: 'Trasteros Demo SL',
       taxId: 'B12345678',
     },
+    system: { installationNumber: '20261108153000-01a1bb39', multipleTaxpayers: false },
     invoice: {
       series: 'F',
       invoiceNumber: 'F-2026-0001',
@@ -108,7 +83,7 @@ function assertWellFormedXml(xml: string): void {
 describe('VerifactuXmlBuilder', () => {
   describe('buildRegistroAlta', () => {
     it('emite un primer registro (cadena vacia) con todos los campos clave', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const xml = builder.buildRegistroAlta(baseArgs());
 
       // Es well-formed.
@@ -155,17 +130,26 @@ describe('VerifactuXmlBuilder', () => {
       expect(xml).toContain('<sum1:PrimerRegistro>S</sum1:PrimerRegistro>');
       expect(xml).not.toContain('<sum1:RegistroAnterior>');
 
-      // Sistema informatico.
-      expect(xml).toContain(
+      // Sistema informatico: el fabricante y el sistema, como en la declaración.
+      const sistema = xml.slice(
+        xml.indexOf('<sum1:SistemaInformatico>'),
+        xml.indexOf('</sum1:SistemaInformatico>'),
+      );
+      expect(sistema).toContain('<sum1:NombreRazon>Urbanbox Soluciones SL</sum1:NombreRazon>');
+      expect(sistema).toContain('<sum1:NIF>B05691886</sum1:NIF>');
+      expect(sistema).toContain(
         '<sum1:NombreSistemaInformatico>TrasterOS</sum1:NombreSistemaInformatico>',
       );
-      expect(xml).toContain('<sum1:IdSistemaInformatico>01</sum1:IdSistemaInformatico>');
-      expect(xml).toContain('<sum1:Version>1.0.0</sum1:Version>');
-      expect(xml).toContain('<sum1:NumeroInstalacion>001</sum1:NumeroInstalacion>');
-      expect(xml).toContain(
+      expect(sistema).toContain('<sum1:IdSistemaInformatico>01</sum1:IdSistemaInformatico>');
+      expect(sistema).toContain('<sum1:Version>1.0</sum1:Version>');
+      expect(sistema).toContain(
+        '<sum1:NumeroInstalacion>20261108153000-01a1bb39</sum1:NumeroInstalacion>',
+      );
+      expect(sistema).toContain(
         '<sum1:TipoUsoPosibleSoloVerifactu>S</sum1:TipoUsoPosibleSoloVerifactu>',
       );
-      expect(xml).toContain('<sum1:IndicadorMultiplesOT>S</sum1:IndicadorMultiplesOT>');
+      expect(sistema).toContain('<sum1:TipoUsoPosibleMultiOT>S</sum1:TipoUsoPosibleMultiOT>');
+      expect(sistema).toContain('<sum1:IndicadorMultiplesOT>N</sum1:IndicadorMultiplesOT>');
 
       // Huella en mayusculas, tipo 01 (SHA-256).
       expect(xml).toContain('<sum1:TipoHuella>01</sum1:TipoHuella>');
@@ -173,7 +157,7 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('encadena con RegistroAnterior cuando hay previousHash', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const args = baseArgs();
       args.invoice.previousHash = 'b'.repeat(64);
       args.invoice.previousInvoiceNumber = 'F-2026-0000';
@@ -195,7 +179,7 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('escapa caracteres XML peligrosos en nombres y descripciones', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const args = baseArgs();
       args.recipient!.name = 'Juan & Maria <test>';
       args.invoice.description = 'Comilla " y apostrofe \' en descripcion';
@@ -218,7 +202,7 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('emite TipoFactura R1 + TipoRectificativa I + FacturasRectificadas para una rectificativa', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const args = baseArgs();
       args.invoice.invoiceType = 'R1';
       args.invoice.correctionMethod = 'I';
@@ -249,7 +233,7 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('emite TipoRectificativa S cuando correctionMethod=S (sustitucion)', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const args = baseArgs();
       args.invoice.invoiceType = 'R4';
       args.invoice.correctionMethod = 'S';
@@ -268,7 +252,7 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('rectificativa sin lista de facturas anteriores omite FacturasRectificadas', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const args = baseArgs();
       args.invoice.invoiceType = 'R5';
       args.invoice.correctionMethod = 'I';
@@ -282,12 +266,13 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('F2 sin destinatario emite FacturaSinIdentifDestinatarioArt61d y omite Destinatarios', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const base = baseArgs();
       // F2 simplificada sin destinatario identificado: construimos los
       // args sin `recipient`.
       const args: BuildRegistroAltaArgs = {
         tenant: base.tenant,
+        system: base.system,
         invoice: { ...base.invoice, invoiceType: 'F2' },
       };
 
@@ -303,7 +288,7 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('F2 con destinatario emite el bloque Destinatarios normalmente', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const args = baseArgs();
       args.invoice.invoiceType = 'F2';
       // Mantenemos `recipient` del baseArgs.
@@ -317,7 +302,7 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('rectificativa por sustitucion emite ImporteRectificacion con totales originales', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const args = baseArgs();
       args.invoice.invoiceType = 'R1';
       args.invoice.correctionMethod = 'S';
@@ -352,7 +337,7 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('rectificativa por sustitucion sin originalAmounts no emite ImporteRectificacion', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const args = baseArgs();
       args.invoice.invoiceType = 'R1';
       args.invoice.correctionMethod = 'S';
@@ -373,7 +358,7 @@ describe('VerifactuXmlBuilder', () => {
     });
 
     it('rectificativa por diferencias NUNCA emite ImporteRectificacion aunque vengan originalAmounts', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const args = baseArgs();
       args.invoice.invoiceType = 'R1';
       args.invoice.correctionMethod = 'I';
@@ -393,33 +378,24 @@ describe('VerifactuXmlBuilder', () => {
       expect(xml).not.toContain('<sum1:ImporteRectificacion>');
     });
 
-    it('respeta el NIF del sistema informatico configurado por env', () => {
-      const builder = new VerifactuXmlBuilder(
-        createConfig({
-          AEAT_SISTEMA_NIF: 'B99999999',
-          AEAT_SISTEMA_NOMBRE: 'CustomSaaS',
-          AEAT_SISTEMA_VERSION: '2.4.1',
-          AEAT_SISTEMA_INSTALACION: '042',
-        }),
-      );
-      const xml = builder.buildRegistroAlta(baseArgs());
-
-      // El bloque SistemaInformatico contiene un <sum1:NIF> propio. Como
-      // hay otro <sum1:NIF> (el del cliente), buscamos por contexto.
+    it('con varias facturaciones en el negocio, IndicadorMultiplesOT=S', () => {
+      const builder = new VerifactuXmlBuilder();
+      const args = baseArgs();
+      args.system = {
+        installationNumber: '20261108153000-01a1bb39-7e35a2b1',
+        multipleTaxpayers: true,
+      };
+      const xml = builder.buildRegistroAlta(args);
       expect(xml).toContain(
-        '<sum1:NombreSistemaInformatico>CustomSaaS</sum1:NombreSistemaInformatico>',
+        '<sum1:NumeroInstalacion>20261108153000-01a1bb39-7e35a2b1</sum1:NumeroInstalacion>',
       );
-      expect(xml).toContain('<sum1:Version>2.4.1</sum1:Version>');
-      expect(xml).toContain('<sum1:NumeroInstalacion>042</sum1:NumeroInstalacion>');
-      // El NIF del sistema aparece dentro de SistemaInformatico (no del
-      // emisor). Como verificacion sencilla: el XML contiene B99999999.
-      expect(xml).toContain('B99999999');
+      expect(xml).toContain('<sum1:IndicadorMultiplesOT>S</sum1:IndicadorMultiplesOT>');
     });
   });
 
   describe('representante', () => {
     it('añade <Representante> tras el obligado solo si lo hay', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const sin = builder.buildRegistroAlta(baseArgs());
       expect(sin).not.toContain('Representante');
 
@@ -439,7 +415,7 @@ describe('VerifactuXmlBuilder', () => {
 
   describe('buildConsultaFactu', () => {
     it('sigue ConsultaLR.xsd: cabecera con el obligado, periodo de imputación y fecha', () => {
-      const builder = new VerifactuXmlBuilder(createConfig());
+      const builder = new VerifactuXmlBuilder();
       const xml = builder.buildConsultaFactu({
         emitterName: 'Trasteros & Co',
         emitterTaxId: 'B12345678',
@@ -515,7 +491,7 @@ describe('VerifactuXmlBuilder', () => {
 });
 
 describe('VerifactuXmlBuilder — auditoría de facturación (PR 5)', () => {
-  const builder = new VerifactuXmlBuilder(createConfig());
+  const builder = new VerifactuXmlBuilder();
 
   it('una línea de desglose por tipo; el 0 % va como no sujeta (N1) sin tipo ni cuota', () => {
     const args = baseArgs();

@@ -110,13 +110,6 @@ const envSchemaBase = z.object({
   // --- Verifactu (Fase 4: stub; Fase 8: sandbox/production) ---
   AEAT_MODE: z.enum(['stub', 'sandbox', 'production']).default('stub'),
   AEAT_TENANT_TAX_ID: z.string().default(''),
-  /** NIF del desarrollador / proveedor del sistema informatico (autoconsumo
-   *  en nuestro caso). Veri*Factu lo exige en el bloque `SistemaInformatico`.
-   *  Default solo para dev/test; en produccion debe configurarse. */
-  AEAT_SISTEMA_NIF: z.string().default('B00000000'),
-  AEAT_SISTEMA_NOMBRE: z.string().default('TrasterOS'),
-  AEAT_SISTEMA_VERSION: z.string().default('1.0.0'),
-  AEAT_SISTEMA_INSTALACION: z.string().default('001'),
   /** Endpoint SOAP del entorno sandbox de AEAT (Veri*Factu). */
   AEAT_SANDBOX_ENDPOINT: z
     .string()

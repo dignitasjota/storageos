@@ -145,9 +145,14 @@ export async function setTenantPlan(tenantSlug: string, planSlug: string): Promi
 export async function enableVerifactu(tenantSlug: string): Promise<void> {
   const admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
   try {
+    const now = new Date();
     await admin.tenant.update({
       where: { slug: tenantSlug },
-      data: { verifactuEnabled: true, verifactuEnabledAt: new Date() },
+      data: {
+        verifactuEnabled: true,
+        verifactuEnabledAt: now,
+        verifactuInstallation: `${now.toISOString().replace(/[-:T]/g, '').slice(0, 14)}-e2e`,
+      },
     });
   } finally {
     await admin.$disconnect();

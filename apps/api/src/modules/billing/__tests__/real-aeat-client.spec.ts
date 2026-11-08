@@ -62,10 +62,6 @@ function createConfig(
     AEAT_PRODUCTION_ENDPOINT:
       'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1',
     AEAT_TIMEOUT_MS: 30_000,
-    AEAT_SISTEMA_NIF: 'B00000000',
-    AEAT_SISTEMA_NOMBRE: 'TrasterOS',
-    AEAT_SISTEMA_VERSION: '1.0.0',
-    AEAT_SISTEMA_INSTALACION: '001',
     ...overrides,
   };
   return {
@@ -114,6 +110,9 @@ function fakeTenant() {
     id: TENANT_ID,
     name: 'Trasteros Demo SL',
     taxId: 'B12345678',
+    verifactuInstallation: '20261108153000-11111111',
+    verifactuEnabledAt: new Date('2026-11-08T15:30:00.000Z'),
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 }
 
@@ -138,6 +137,7 @@ function buildClient(args: BuildClientArgs = {}): {
   adminMock: {
     invoice: { findUnique: jest.Mock; findFirst: jest.Mock };
     tenant: { findUnique: jest.Mock };
+    owner: { count: jest.Mock };
   };
 } {
   const credentialsMock = {
@@ -152,10 +152,11 @@ function buildClient(args: BuildClientArgs = {}): {
     tenant: {
       findUnique: jest.fn().mockResolvedValue(fakeTenant()),
     },
+    owner: { count: jest.fn().mockResolvedValue(0) },
   };
 
   const config = createConfig(args.config);
-  const xmlBuilder = new VerifactuXmlBuilder(config);
+  const xmlBuilder = new VerifactuXmlBuilder();
 
   const client = new RealAeatClient(
     config,
@@ -258,6 +259,62 @@ describe('RealAeatClient', () => {
     const res = await client.sendInvoice(baseSendArgs);
     expect(res.status).toBe('accepted');
     expect(res.csv).toBe('ABC123XYZ');
+  });
+
+  it('cada registro lleva al fabricante y el número de instalación del emisor', async () => {
+    const sent: string[] = [];
+    const accepted = `<?xml version="1.0"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body><RespuestaRegFactuSistemaFacturacion><RespuestaLinea>
+    <EstadoRegistro>Correcto</EstadoRegistro><CSV>X1</CSV>
+  </RespuestaLinea></RespuestaRegFactuSistemaFacturacion></soapenv:Body>
+</soapenv:Envelope>`;
+    nock(AEAT_HOST)
+      .post(AEAT_PATH, (body: string) => {
+        sent.push(body);
+        return true;
+      })
+      .times(2)
+      .reply(200, accepted, { 'content-type': 'text/xml; charset=utf-8' });
+
+    const { client, adminMock } = buildClient({
+      decryptedCert: {
+        p12Buffer: validCert.p12Buffer,
+        password: validCert.password,
+        record: {
+          certValidTo: validCert.notAfter,
+          certNif: 'B12345678',
+          certOrganizationNif: null,
+          certCommonName: 'TEST CERT',
+          representativeName: null,
+        },
+      },
+    });
+    await client.sendInvoice(baseSendArgs);
+    expect(sent[0]).toContain('<sum1:NombreRazon>Urbanbox Soluciones SL</sum1:NombreRazon>');
+    expect(sent[0]).toContain('<sum1:NIF>B05691886</sum1:NIF>');
+    expect(sent[0]).toContain('<sum1:Version>1.0</sum1:Version>');
+    expect(sent[0]).toContain(
+      '<sum1:NumeroInstalacion>20261108153000-11111111</sum1:NumeroInstalacion>',
+    );
+    // Una sola facturación en el negocio.
+    expect(sent[0]).toContain('<sum1:IndicadorMultiplesOT>N</sum1:IndicadorMultiplesOT>');
+
+    // Una factura de un propietario: su propio número y el negocio lleva varias.
+    adminMock.invoice.findUnique.mockResolvedValue({
+      ...fakeInvoice(),
+      owner: {
+        id: '33333333-3333-3333-3333-333333333333',
+        legalName: 'Propietaria SL',
+        taxId: 'B12345674',
+      },
+    });
+    adminMock.owner.count.mockResolvedValue(1);
+    await client.sendInvoice(baseSendArgs);
+    expect(sent[1]).toContain(
+      '<sum1:NumeroInstalacion>20261108153000-11111111-33333333</sum1:NumeroInstalacion>',
+    );
+    expect(sent[1]).toContain('<sum1:IndicadorMultiplesOT>S</sum1:IndicadorMultiplesOT>');
   });
 
   it('respuesta AceptadoConErrores -> accepted_with_warnings + CSV', async () => {

@@ -143,6 +143,17 @@ describe('Veri*Factu por negocio (e2e)', () => {
       .expect(200);
     expect(on.body).toMatchObject({ enabled: true, lockedUntil: `${madridYear()}-12-31` });
     expect(on.body.enabledAt).toEqual(expect.any(String));
+    // Su número de instalación en la AEAT: la activación y el principio del id.
+    const installed = await db.tenant.findUniqueOrThrow({
+      where: { id: owner.tenantId },
+      select: { verifactuInstallation: true },
+    });
+    expect(installed.verifactuInstallation).toBe(
+      `${new Date(on.body.enabledAt as string)
+        .toISOString()
+        .replace(/[-:T]/g, '')
+        .slice(0, 14)}-${owner.tenantId.slice(0, 8)}`,
+    );
 
     const first = await issue(owner.accessToken, customerId);
     expect(first.hash).toMatch(/^[0-9A-F]{64}$/);

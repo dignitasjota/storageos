@@ -207,10 +207,6 @@ jobs:
       COOKIE_SAMESITE: lax
       ALLOWED_ORIGINS: http://localhost:3000
       AEAT_MODE: stub
-      AEAT_SISTEMA_NIF: B00000000
-      AEAT_SISTEMA_NOMBRE: TrasterOS
-      AEAT_SISTEMA_VERSION: 1.0.0
-      AEAT_SISTEMA_INSTALACION: '001'
       AEAT_SANDBOX_ENDPOINT: https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1
       AEAT_PRODUCTION_ENDPOINT: https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1
       AEAT_TIMEOUT_MS: '30000'

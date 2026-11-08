@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { defaultTaxCategory, isExemptCategory, type InvoiceTaxCategory } from '@storageos/shared';
-
-import type { Env } from '../../../config/env.schema';
+import {
+  defaultTaxCategory,
+  isExemptCategory,
+  VERIFACTU_SYSTEM,
+  type InvoiceTaxCategory,
+} from '@storageos/shared';
 
 /**
  * Construye el XML SOAP de un `RegistroAlta` Veri*Factu listo para enviar
@@ -34,17 +36,17 @@ import type { Env } from '../../../config/env.schema';
  */
 @Injectable()
 export class VerifactuXmlBuilder {
-  constructor(private readonly config: ConfigService<Env, true>) {}
-
   buildRegistroAlta(args: BuildRegistroAltaArgs): string {
     const { tenant, invoice, recipient } = args;
 
-    const sistemaNif = escapeXml(this.config.get('AEAT_SISTEMA_NIF', { infer: true }));
-    const sistemaNombre = escapeXml(this.config.get('AEAT_SISTEMA_NOMBRE', { infer: true }));
-    const sistemaVersion = escapeXml(this.config.get('AEAT_SISTEMA_VERSION', { infer: true }));
-    const sistemaInstalacion = escapeXml(
-      this.config.get('AEAT_SISTEMA_INSTALACION', { infer: true }),
-    );
+    // El fabricante y el sistema, como en la declaración responsable.
+    const productorNombre = escapeXml(VERIFACTU_SYSTEM.producerName);
+    const productorNif = escapeXml(VERIFACTU_SYSTEM.producerTaxId);
+    const sistemaNombre = escapeXml(VERIFACTU_SYSTEM.name);
+    const sistemaId = escapeXml(VERIFACTU_SYSTEM.id);
+    const sistemaVersion = escapeXml(VERIFACTU_SYSTEM.version);
+    const sistemaInstalacion = escapeXml(args.system.installationNumber);
+    const multiplesOT = args.system.multipleTaxpayers ? 'S' : 'N';
 
     const tenantName = escapeXml(tenant.name);
     const tenantNif = escapeXml(tenant.taxId);
@@ -140,15 +142,15 @@ ${desglose}
 ${encadenamiento}
           </sum1:Encadenamiento>
           <sum1:SistemaInformatico>
-            <sum1:NombreRazon>${sistemaNombre}</sum1:NombreRazon>
-            <sum1:NIF>${sistemaNif}</sum1:NIF>
+            <sum1:NombreRazon>${productorNombre}</sum1:NombreRazon>
+            <sum1:NIF>${productorNif}</sum1:NIF>
             <sum1:NombreSistemaInformatico>${sistemaNombre}</sum1:NombreSistemaInformatico>
-            <sum1:IdSistemaInformatico>01</sum1:IdSistemaInformatico>
+            <sum1:IdSistemaInformatico>${sistemaId}</sum1:IdSistemaInformatico>
             <sum1:Version>${sistemaVersion}</sum1:Version>
             <sum1:NumeroInstalacion>${sistemaInstalacion}</sum1:NumeroInstalacion>
             <sum1:TipoUsoPosibleSoloVerifactu>S</sum1:TipoUsoPosibleSoloVerifactu>
             <sum1:TipoUsoPosibleMultiOT>S</sum1:TipoUsoPosibleMultiOT>
-            <sum1:IndicadorMultiplesOT>S</sum1:IndicadorMultiplesOT>
+            <sum1:IndicadorMultiplesOT>${multiplesOT}</sum1:IndicadorMultiplesOT>
           </sum1:SistemaInformatico>
           <sum1:FechaHoraHusoGenRegistro>${generadoEn}</sum1:FechaHoraHusoGenRegistro>
           <sum1:TipoHuella>01</sum1:TipoHuella>
@@ -326,6 +328,13 @@ export interface BuildRegistroAltaArgs {
   };
   /** Representante que envía con su certificado (administrador, gestoría). */
   representative?: { name: string; taxId: string } | null;
+  /**
+   * El sistema de este emisor dentro de TrasterOS. Cada facturación (el
+   * negocio y cada propietario) es un sistema con su número de instalación,
+   * que no se repite nunca; `multipleTaxpayers` = el negocio lleva más de una
+   * facturación (FAQ de la AEAT a desarrolladores, n.º 4).
+   */
+  system: { installationNumber: string; multipleTaxpayers: boolean };
   invoice: {
     /** Serie de facturacion (ej. `F`). */
     series: string;

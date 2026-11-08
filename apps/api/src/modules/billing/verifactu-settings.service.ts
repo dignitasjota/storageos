@@ -7,6 +7,8 @@ import { tenantFiscalDataMissing } from '../../common/tenant-readiness';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
+import { verifactuInstallationNumber } from './verifactu-installation';
+
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type { VerifactuBlockerDto, VerifactuSettingsDto } from '@storageos/shared';
@@ -166,12 +168,19 @@ export class VerifactuSettingsService {
       }
     }
 
+    const now = new Date();
     await this.prisma.withTenant(
       (tx) =>
         tx.tenant.update({
           where: { id: args.tenantId },
+          // Cada activación es un sistema nuevo con su número de instalación.
+          // Al apagarlo se conserva: lo usan los registros que queden por enviar.
           data: args.enabled
-            ? { verifactuEnabled: true, verifactuEnabledAt: new Date() }
+            ? {
+                verifactuEnabled: true,
+                verifactuEnabledAt: now,
+                verifactuInstallation: verifactuInstallationNumber(now, args.tenantId),
+              }
             : { verifactuEnabled: false, verifactuEnabledAt: null },
         }),
       args.tenantId,

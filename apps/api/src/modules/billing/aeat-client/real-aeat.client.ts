@@ -8,6 +8,7 @@ import * as forge from 'node-forge';
 
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { TenantAeatCredentialsService } from '../tenant-aeat-credentials.service';
+import { ownerInstallationNumber, verifactuInstallationNumber } from '../verifactu-installation';
 
 import {
   AeatClient,
@@ -230,9 +231,23 @@ export class RealAeatClient extends AeatClient {
 
     const hasRecipient = Boolean(invoice.customer);
 
+    // El sistema del emisor: el negocio y cada propietario son facturaciones
+    // distintas, cada una con su número de instalación (el del negocio se fija
+    // al activar Veri*Factu). Con propietarios, el negocio lleva varias.
+    const tenantInstallation =
+      tenant.verifactuInstallation ??
+      verifactuInstallationNumber(tenant.verifactuEnabledAt ?? tenant.createdAt, tenant.id);
+    const owners = await this.admin.owner.count({ where: { tenantId: args.tenantId } });
+
     const xml = this.xmlBuilder.buildRegistroAlta({
       tenant: issuer,
       representative: resolveRepresentative(issuer.taxId, cred.record),
+      system: {
+        installationNumber: invoice.owner
+          ? ownerInstallationNumber(tenantInstallation, invoice.owner.id)
+          : tenantInstallation,
+        multipleTaxpayers: owners > 0,
+      },
       invoice: {
         series: invoice.invoiceNumber.split('-')[0] ?? 'F',
         invoiceNumber: invoice.invoiceNumber,

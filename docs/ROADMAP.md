@@ -948,11 +948,16 @@ Cada negocio activa el envío de sus facturas a la AEAT cuando le toque (Configu
 Pendiente antes de poner `AEAT_MODE=production` y de firmar la declaración responsable como fabricantes:
 
 - **Declaración responsable** (art. 13 del RD 1007/2023 y art. 15 de la Orden): documento con el nombre, código y versión del sistema, sus componentes y funciones, «solo VERI\*FACTU» y «varios obligados», los datos del productor (razón social, NIF y dirección), la manifestación de que cumple y la fecha y el lugar de la firma. Debe estar dentro de la propia aplicación, a mano del usuario, y entregarse al cliente (PDF); una por versión.
-- **Datos del productor en cada registro** (`SistemaInformatico`): `NombreRazon` lleva hoy el nombre del sistema (`AEAT_SISTEMA_NOMBRE`) en vez de la razón social del productor, y `AEAT_SISTEMA_NIF` sigue en `B00000000`. La versión (`AEAT_SISTEMA_VERSION`) y el código (`IdSistemaInformatico` = `01`) tienen que coincidir con los de la declaración.
+- ~~**Datos del productor en cada registro**~~ — hecho (2026-11-08): Urbanbox Soluciones SL (B05691886), TrasterOS, código `01`, versión `1.0` (`VERIFACTU_SYSTEM`), número de instalación por facturación e `IndicadorMultiplesOT` según el negocio tenga propietarios.
 - **Control de flujo** (art. 16): esperar entre envíos lo que indique la AEAT (60 s al principio) o juntar hasta 1.000 registros por envío. Hoy se envía un registro por petición, uno detrás de otro.
-- **QR al principio de la factura** (preguntas frecuentes de la AEAT: arriba, en la primera página) y la frase con un tamaño parecido al del resto de datos. Hoy va al pie y la frase en 8,5 pt gris.
+- ~~**QR al principio de la factura**~~ — hecho (2026-11-08): arriba y centrado, con «QR tributario:» encima y la frase debajo, del tamaño del resto de datos.
 - **Registro de anulación** (art. 11) y **subsanación** de registros rechazados o con datos erróneos (`Subsanacion`, `RechazoPrevio`): no están; «Reenviar» manda el mismo registro.
 - **Incidencias**: marcar los registros enviados tarde tras un corte (`Incidencia`).
+
+Por decidir con la asesoría:
+
+- **Colaboración social**: firmar el convenio con la AEAT (n.º 17 de las preguntas frecuentes) para que Urbanbox envíe los registros con su propio certificado y cada negocio lo autorice en la aplicación, en vez de que cada uno suba el suyo.
+- **Apagado por defecto**: las preguntas frecuentes dicen que desde el 29-7-2025 solo se pueden comercializar sistemas adaptados y que no cabe pasar de un modo a otro a voluntad. Revisar si el interruptor vale y si desde las fechas obligatorias debe quedar forzado (sociedades desde el 1-1-2027, el resto desde el 1-7-2027).
 
 ### Reservas online: factura con el pago y aviso al caducar (2026-11-08)
 

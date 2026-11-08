@@ -70,9 +70,9 @@ XAdES sería necesario solo en el "sistema NO verificable" (offline batch + firm
 ## Trade-offs
 
 - **Operacional**: cada tenant debe gestionar su propio certificado (renovación cada 2-4 años según PSC). El onboarding incluye una pantalla específica (`/settings/billing/verifactu`) y un email de aviso al expirar. No es invisible para el cliente, pero es el modelo correcto: el emisor fiscal es el tenant.
-- **Legal**: el emisor real es el tenant; TrasterOS aparece declarado como "Sistema Informático" en cada registro (campos `AEAT_SISTEMA_*`). Esto encaja con la responsabilidad fiscal de cada empresa.
+- **Legal**: el emisor real es el tenant; TrasterOS aparece declarado como "Sistema Informático" en cada registro. Esto encaja con la responsabilidad fiscal de cada empresa. Actualización del 2026-11-08: los datos del sistema ya no son variables de entorno sino la constante `VERIFACTU_SYSTEM` de shared, con el fabricante Urbanbox Soluciones SL (DEPLOYMENT §110).
 - **Falta `getStatus` async**: actualmente no hay un endpoint de consulta de estado post-envío. La respuesta SOAP es síncrona (`accepted` o `rejected` en el mismo POST). Si en el futuro AEAT añade un flow asíncrono (CSV consultable a posteriori), habrá que implementar polling. Por ahora no hace falta.
-- **Multi-instalación**: `AEAT_SISTEMA_INSTALACION=001` es fijo en `.env`. Si un día desplegamos varias instalaciones del SaaS bajo el mismo NIF de desarrollador (TrasterOS), cada una necesita un identificador distinto.
+- **Multi-instalación**: el número de instalación era fijo en `.env`. Actualización del 2026-11-08: es por facturación; el de cada negocio se fija al activar Veri\*Factu y cada propietario lleva el suyo (preguntas frecuentes de la AEAT a desarrolladores, n.º 4).
 
 ## Implementación (fichero por bloque)
 
