@@ -36,6 +36,13 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
@@ -471,19 +478,22 @@ function DueDaysCard() {
           <label className="text-sm font-medium" htmlFor="invoice-due-days">
             Vence a los
           </label>
-          <select
-            id="invoice-due-days"
-            className="flex h-9 w-48 rounded-md border border-input bg-transparent px-3 text-base sm:text-sm"
-            value={days}
-            onChange={(e) => void save(Number(e.target.value))}
+          <Select
+            value={String(days)}
+            onValueChange={(v) => void save(Number(v))}
             disabled={update.isPending}
           >
-            {options.map((d) => (
-              <option key={d} value={d}>
-                {d === 0 ? 'El mismo día' : `${d} días`}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="invoice-due-days" className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((d) => (
+                <SelectItem key={d} value={String(d)}>
+                  {d === 0 ? 'El mismo día' : `${d} días`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <p className="text-xs text-muted-foreground">
           Vale para las facturas que se emitan a partir de ahora. Las reservas online sin pagar
@@ -537,20 +547,23 @@ function FirstPaymentCard() {
             <label className="text-sm font-medium" htmlFor="first-payment-day">
               Incluir el mes siguiente desde el día
             </label>
-            <select
-              id="first-payment-day"
-              className="flex h-9 w-40 rounded-md border border-input bg-transparent px-3 text-base sm:text-sm"
-              value={day ?? ''}
-              onChange={(e) => void save(e.target.value === '' ? null : Number(e.target.value))}
+            <Select
+              value={day === null ? 'never' : String(day)}
+              onValueChange={(v) => void save(v === 'never' ? null : Number(v))}
               disabled={update.isPending}
             >
-              <option value="">Nunca</option>
-              {Array.from({ length: 27 }, (_, i) => i + 2).map((d) => (
-                <option key={d} value={d}>
-                  Día {d}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="first-payment-day" className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="never">Nunca</SelectItem>
+                {Array.from({ length: 27 }, (_, i) => i + 2).map((d) => (
+                  <SelectItem key={d} value={String(d)}>
+                    Día {d}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -599,16 +612,22 @@ function LateFeeCard() {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="space-y-1">
-            <label className="text-sm font-medium">Tipo</label>
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            <label className="text-sm font-medium" htmlFor="late-fee-type">
+              Tipo
+            </label>
+            <Select
               value={s.lateFeeType}
-              onChange={(e) => save({ lateFeeType: e.target.value as 'percentage' | 'fixed' })}
+              onValueChange={(v) => void save({ lateFeeType: v as 'percentage' | 'fixed' })}
               disabled={update.isPending}
             >
-              <option value="percentage">Porcentaje (%)</option>
-              <option value="fixed">Importe fijo (€)</option>
-            </select>
+              <SelectTrigger id="late-fee-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="percentage">Porcentaje (%)</SelectItem>
+                <SelectItem value="fixed">Importe fijo (€)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium">

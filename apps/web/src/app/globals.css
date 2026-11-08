@@ -4,6 +4,9 @@
 
 @layer base {
   :root {
+    /* Los controles del navegador (lista de un <select>, calendario, barras de
+       desplazamiento) siguen el tema de la página, no el del sistema. */
+    color-scheme: light;
     --background: 0 0% 100%;
     --foreground: 222 47% 11%;
     --card: 0 0% 100%;
@@ -43,6 +46,7 @@
   }
 
   .dark {
+    color-scheme: dark;
     --background: 222 47% 7%;
     --foreground: 210 40% 98%;
     --card: 222 47% 9%;
@@ -84,6 +88,13 @@
   }
   body {
     @apply bg-background font-sans text-foreground antialiased;
+  }
+  /* Opciones de un <select> nativo con los colores del tema: con el fondo
+     transparente, en oscuro la lista salía blanca con letras claras. */
+  select option,
+  select optgroup {
+    background-color: hsl(var(--popover));
+    color: hsl(var(--popover-foreground));
   }
   /* iOS hace zoom al tocar un campo con letra de menos de 16 px. En el móvil
      todos los campos van a 16 px como mínimo (también los compactos). */
