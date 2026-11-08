@@ -1955,6 +1955,7 @@ Migración `20270102100000_verifactu_toggle` (se aplica sola). Sin variables nue
 
 Migración `20270103100000_verifactu_installation` (se aplica sola). **Qué cambia al redesplegar:**
 
+- **El XML de los registros cumple ya el esquema de la AEAT.** Antes `RegistroAlta` iba en el espacio de nombres equivocado y las rectificativas llevaban bloques fuera de orden: cualquier envío real se habría rechazado. No hay que hacer nada; una prueba lo valida con xmllint contra los XSD oficiales.
 - Cada registro que se envía a la AEAT lleva al fabricante del sistema: **Urbanbox Soluciones SL (B05691886)**, sistema TrasterOS, código `01`, versión `1.0` (`VERIFACTU_SYSTEM` en `packages/shared/src/billing/verifactu.ts`; tiene que coincidir con la declaración responsable). Antes salía el nombre del sistema como razón social y el NIF `B00000000`.
 - **Se pueden borrar de Portainer** `AEAT_SISTEMA_NIF`, `AEAT_SISTEMA_NOMBRE`, `AEAT_SISTEMA_VERSION` y `AEAT_SISTEMA_INSTALACION`: ya no se leen.
 - **Número de instalación por facturación** (preguntas frecuentes de la AEAT a desarrolladores, n.º 4): el de cada negocio se fija al activar Veri\*Factu (fecha y hora de la activación + el principio de su id) y no se repite, ni al volver a activarlo; cada propietario del plan Administrador lleva el suyo. La migración se lo pone a los negocios que ya lo tenían activado. `IndicadorMultiplesOT` = `S` solo en los negocios con propietarios.
