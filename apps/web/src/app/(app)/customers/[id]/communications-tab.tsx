@@ -1,6 +1,13 @@
 'use client';
 
 import {
+  CUSTOMER_EMAIL_LABELS,
+  type CommunicationDto,
+  type CustomerEmailKind,
+  type CustomerInteractionDto,
+  type InteractionTypeValue,
+} from '@storageos/shared';
+import {
   CalendarClock,
   Loader2,
   Mail,
@@ -13,12 +20,6 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-
-import type {
-  CommunicationDto,
-  CustomerInteractionDto,
-  InteractionTypeValue,
-} from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
@@ -82,6 +83,12 @@ const COMM_STATUS: Record<
 /** Traduce el `source` técnico de una comunicación a algo legible. */
 function sourceLabel(source: string | null): string {
   if (!source) return 'Sistema';
+  if (source.startsWith('customer_email.')) {
+    const kind = source.slice('customer_email.'.length) as CustomerEmailKind;
+    return CUSTOMER_EMAIL_LABELS[kind]?.label ?? 'Aviso automático';
+  }
+  if (source.startsWith('booking_recovery')) return 'Reserva sin terminar';
+  if (source === 'invoice.sent') return 'Factura enviada por correo';
   if (source.startsWith('dunning')) return 'Recordatorio de pago';
   if (source.startsWith('campaign')) return 'Campaña';
   if (source.startsWith('automation')) return 'Automatización';

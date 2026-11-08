@@ -17,6 +17,7 @@ export const CUSTOMER_EMAIL_KINDS = [
   'unit_request_resolved',
   'reservation_held',
   'reservation_expiring',
+  'booking_expired',
   'sepa_prenotification',
   'staff_message',
 ] as const;
@@ -28,7 +29,8 @@ export const CUSTOMER_EMAIL_LABELS: Record<
 > = {
   invoice_issued: {
     label: 'Factura emitida',
-    description: 'Aviso con el importe y el vencimiento de cada factura nueva.',
+    description:
+      'Aviso con el importe y el vencimiento de cada factura nueva. La primera de una reserva online no se envía: al pagarla le llega el justificante con la factura.',
   },
   payment_received: {
     label: 'Pago recibido',
@@ -74,6 +76,11 @@ export const CUSTOMER_EMAIL_LABELS: Record<
   reservation_expiring: {
     label: 'Reserva a punto de caducar',
     description: 'Recordatorio dos días antes de que se libere el trastero.',
+  },
+  booking_expired: {
+    label: 'Reserva online sin pagar',
+    description:
+      'Aviso cuando una reserva hecha desde la web o el área de clientes se cancela por no pagarse a tiempo, con un enlace para volver a reservar.',
   },
   sepa_prenotification: {
     label: 'Preaviso de domiciliación',

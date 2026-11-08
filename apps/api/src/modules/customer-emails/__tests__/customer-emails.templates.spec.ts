@@ -106,9 +106,55 @@ describe('resolveCustomerEmailSettings', () => {
       unit_request_resolved: true,
       reservation_held: true,
       reservation_expiring: true,
+      booking_expired: true,
     });
     expect(resolveCustomerEmailSettings({ invoice_issued: false }).invoice_issued).toBe(false);
     expect(resolveCustomerEmailSettings(null).payment_received).toBe(true);
+  });
+});
+
+describe('renderCustomerEmail — reserva online caducada', () => {
+  const data = {
+    kind: 'booking_expired' as const,
+    unitCode: 'T12',
+    facilityName: 'Centro',
+    signed: true,
+    invoiceCancelled: true,
+    bookingUrl: 'https://trasteros.example/reservar?facilityId=f1&unitTypeId=t1',
+  };
+
+  it('dice que se canceló, que no hay nada que pagar y el botón lleva a reservar de nuevo', () => {
+    const r = renderCustomerEmail(
+      { tenantName: 'Trasteros García', customerName: 'Ana', portalUrl: 'https://x/portal' },
+      data,
+    );
+    expect(r.subject).toBe('Tu reserva del trastero T12 se ha cancelado');
+    expect(r.text).toContain('No hemos recibido el pago de tu reserva del trastero T12 en Centro');
+    expect(r.text).toContain('No tienes que pagar nada');
+    expect(r.text).toContain(`Volver a reservar: ${data.bookingUrl}`);
+    expect(r.text).not.toContain('https://x/portal');
+    expect(r.html).toContain(
+      'href="https://trasteros.example/reservar?facilityId=f1&amp;unitTypeId=t1"',
+    );
+  });
+
+  it('sin firmar: dice que no se terminó y no habla de factura', () => {
+    const r = renderCustomerEmail(
+      { tenantName: 'T', customerName: 'Ana', portalUrl: 'https://x/portal' },
+      { ...data, signed: false, invoiceCancelled: false },
+    );
+    expect(r.text).toContain('no se terminó a tiempo (faltaba firmar el contrato y pagar)');
+    expect(r.text).toContain('No tienes que pagar nada.');
+    expect(r.text).not.toContain('factura');
+  });
+
+  it('en inglés si el inquilino tiene locale en', () => {
+    const r = renderCustomerEmail(
+      { tenantName: 'T', customerName: '', portalUrl: 'https://x/portal', locale: 'en' },
+      data,
+    );
+    expect(r.subject).toBe('Your booking of storage unit T12 has been cancelled');
+    expect(r.text).toContain(`Book again: ${data.bookingUrl}`);
   });
 });
 

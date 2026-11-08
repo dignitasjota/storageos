@@ -812,6 +812,11 @@ portal mínimo para que el inquilino consulte sus facturas.
 
 El escalado de impagos también agrupa: si el mismo día tocan recordatorios de varias facturas del inquilino, sale un solo correo (`dunning.reminder_summary`) y las demás acciones quedan hechas con `result.mergedInto`. `PortalInvoiceDto.hasPdf` es `true` en toda factura emitida (el área de clientes lo genera al pedirlo).
 
+### Reservas online: correos (2026-11-08)
+
+- La primera factura de una reserva online (contrato con `firstPaymentDeadline`, desde la web o el área de clientes) no dispara `customer_email.invoice_issued` ni las automatizaciones de `invoice_issued` (se saltan con «reserva online pendiente de pago»). Llega con `customer_email.payment_received` al pagarla, con el enlace del PDF. Las demás facturas, igual que antes.
+- Tipo nuevo en `GET/PATCH /settings/tenant/customer-emails`: `booking_expired` (activado por defecto). Lo envía `expireUnpaidBookings` al cancelar una reserva online sin pagar (evento `domain.booking_expired {tenantId, contractId, customerId}`), con un botón a la reserva online del negocio con el local y el tamaño elegidos (`/reservar` en el dominio propio o `/book/<slug>`).
+
 ### Endpoints — Payments
 
 | Metodo | Ruta                             | Auth | Roles                 | Descripcion                                                                                                                                   |

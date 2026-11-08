@@ -14,12 +14,14 @@ import {
 
 import { invoiceDownloadKey, invoiceDownloadUrl } from '../../common/invoice-download-token';
 import { loadInvoicePaymentHint } from '../../common/invoice-payment-hint';
-import { tenantPortalLoginUrl } from '../../common/portal-url';
+import { isPendingOnlineBookingInvoice } from '../../common/online-booking';
+import { tenantBookingUrl, tenantPortalLoginUrl } from '../../common/portal-url';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { claimAlert } from '../admin/alert-state';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
+  type BookingExpiredPayload,
   type ContractDepositSettledPayload,
   type ContractPriceNoticePayload,
   type ContractRenewedPayload,
@@ -135,6 +137,11 @@ export class CustomerEmailsService {
       // Rectificativas (importe negativo) y facturas a 0 € no se avisan. Las de
       // suscripción (negocio propio → tenant) ya llevan el correo de la plataforma.
       if (!inv?.customerId || Number(inv.total) <= 0 || inv.platformPaymentId) return;
+      // La primera de una reserva online se paga en la propia reserva y, si no
+      // se paga, se anula: la factura le llega con el justificante del pago.
+      if (await isPendingOnlineBookingInvoice(this.admin, p.tenantId, p.entityId, inv.contractId)) {
+        return;
+      }
       await this.send(p.tenantId, 'invoice_issued', 'invoice_issued', inv.customerId, {
         data: {
           kind: 'invoice_issued',
@@ -147,6 +154,56 @@ export class CustomerEmailsService {
         },
         invoiceId: p.entityId,
         contractId: inv.contractId,
+      });
+    });
+  }
+
+  /** Reserva online cancelada por no pagarse a tiempo: se le avisa y se le ofrece volver. */
+  @OnEvent(DOMAIN_EVENTS.booking_expired, { async: true, promisify: true })
+  async onBookingExpired(p: BookingExpiredPayload): Promise<void> {
+    await this.safe('booking_expired', p.tenantId, async () => {
+      const [contract, tenant, voided] = await Promise.all([
+        this.admin.contract.findFirst({
+          where: { id: p.contractId, tenantId: p.tenantId },
+          select: {
+            signedAt: true,
+            unit: {
+              select: {
+                code: true,
+                unitTypeId: true,
+                facility: { select: { id: true, name: true } },
+              },
+            },
+          },
+        }),
+        this.admin.tenant.findUnique({
+          where: { id: p.tenantId },
+          select: { slug: true, customDomain: true, customDomainVerifiedAt: true },
+        }),
+        // Factura ya numerada que se ha anulado con su rectificativa.
+        this.admin.invoice.count({
+          where: {
+            tenantId: p.tenantId,
+            contractId: p.contractId,
+            kind: 'invoice',
+            status: 'rectified',
+          },
+        }),
+      ]);
+      if (!contract || !tenant) return;
+      await this.send(p.tenantId, 'booking_expired', null, p.customerId, {
+        data: {
+          kind: 'booking_expired',
+          unitCode: contract.unit.code,
+          facilityName: contract.unit.facility.name,
+          signed: contract.signedAt !== null,
+          invoiceCancelled: voided > 0,
+          bookingUrl: tenantBookingUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant, {
+            facilityId: contract.unit.facility.id,
+            unitTypeId: contract.unit.unitTypeId,
+          }),
+        },
+        contractId: p.contractId,
       });
     });
   }

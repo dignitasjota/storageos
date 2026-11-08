@@ -44,6 +44,8 @@ export const DOMAIN_EVENTS = {
   incident_resolved: 'domain.incident_resolved',
   /** Una reserva confirmada está a punto de caducar (correo al inquilino). */
   reservation_expiring: 'domain.reservation_expiring',
+  /** Una reserva online se canceló por no pagarse a tiempo (correo al inquilino). */
+  booking_expired: 'domain.booking_expired',
   /** Se le ha guardado un trastero a alguien de la cola (WhatsApp si el negocio lo tiene). */
   waitlist_notified: 'domain.waitlist_notified',
   /** El equipo resolvió una petición de trastero del inquilino (correo y push). */
@@ -203,6 +205,12 @@ export interface CustomerMessagePayload {
 export interface ReservationExpiringPayload {
   tenantId: string;
   reservationId: string;
+}
+
+export interface BookingExpiredPayload {
+  tenantId: string;
+  contractId: string;
+  customerId: string;
 }
 
 export interface WaitlistNotifiedPayload {

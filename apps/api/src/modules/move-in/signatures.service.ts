@@ -9,6 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import {
@@ -23,6 +24,7 @@ import {
 import { todayInTimezone } from '../../common/format';
 import { preOpeningDto } from '../../common/pre-opening';
 import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
+import { DOMAIN_EVENTS, type BookingExpiredPayload } from '../automations/domain-events';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -76,6 +78,7 @@ export class SignaturesService {
     private readonly config: ConfigService<Env, true>,
     private readonly jwt: JwtService,
     private readonly generalTerms: GeneralTermsService,
+    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -998,6 +1001,12 @@ export class SignaturesService {
               this.logger.warn(`No se pudo anular la factura ${inv.id}: ${(err as Error).message}`),
             );
         }
+        // Se le avisa de que la reserva se ha cancelado y de cómo volver a reservar.
+        this.events.emit(DOMAIN_EVENTS.booking_expired, {
+          tenantId: c.tenantId,
+          contractId: c.id,
+          customerId: c.customerId,
+        } satisfies BookingExpiredPayload);
         cancelled += 1;
       } catch (err) {
         this.logger.warn(

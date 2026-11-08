@@ -1935,3 +1935,10 @@ Migración `20270101100000_invoices_features`, se aplica sola. Sin variables nue
 - **Quien use la API**: `GET /invoices/page` acepta `from`, `to`, `type`, `payment` y `sort` (valores desconocidos → 400) y trae `collection` en cada fila; rutas nuevas en `API.md` → «Mejoras de Facturas».
 
 **Comprobar tras el despliegue:** emitir una factura de prueba a un inquilino con email propio → le llega el correo y el enlace descarga el PDF con el logo; registrar un cobro en efectivo y deshacerlo desde la tarjeta «Actividad» de la ficha.
+
+## 108. Reservas online: la factura llega con el pago y aviso al caducar (2026-11-08)
+
+Sin migración ni variables. **Qué cambia al redesplegar:**
+
+- La primera factura de una reserva online (desde la web o el área de clientes) ya no se envía por correo al emitirse: el inquilino la paga en la propia reserva y la recibe con «Pago recibido», con el enlace del PDF. Si el negocio tiene una automatización de «factura emitida», tampoco la manda para esa factura. Las facturas de contratos firmados en el panel y las mensuales salen como siempre.
+- Si una reserva online caduca sin pagar (72 h), el inquilino recibe «Tu reserva del trastero X se ha cancelado»: no tiene que pagar nada (su factura queda anulada) y un botón para volver a reservar. Cada negocio lo puede apagar en Configuración → Correo («Reserva online sin pagar»).
