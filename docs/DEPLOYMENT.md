@@ -1942,3 +1942,15 @@ Sin migración ni variables. **Qué cambia al redesplegar:**
 
 - La primera factura de una reserva online (desde la web o el área de clientes) ya no se envía por correo al emitirse: el inquilino la paga en la propia reserva y la recibe con «Pago recibido», con el enlace del PDF. Si el negocio tiene una automatización de «factura emitida», tampoco la manda para esa factura. Las facturas de contratos firmados en el panel y las mensuales salen como siempre.
 - Si una reserva online caduca sin pagar (72 h), el inquilino recibe «Tu reserva del trastero X se ha cancelado»: no tiene que pagar nada (su factura queda anulada) y un botón para volver a reservar. Cada negocio lo puede apagar en Configuración → Correo («Reserva online sin pagar»).
+
+## 109. Veri\*Factu por negocio (2026-11-08)
+
+Migración `20270102100000_verifactu_toggle` (se aplica sola). Sin variables nuevas. **Qué cambia al redesplegar:**
+
+- Cada negocio decide cuándo envía sus facturas a la AEAT: **Configuración → Veri\*Factu → «Envío de tus facturas a la AEAT»**. Viene **apagado**. Apagado, la factura se emite sin huella, sin QR, sin la frase de VERI\*FACTU y sin envío; la insignia de la factura dice «Sin Veri\*Factu».
+- **La migración** deja activado a quien ya tenga facturas aceptadas de verdad por la AEAT (pruebas o producción). Al resto les quita el registro simulado de sus facturas (estado «Aceptada», CSV `STUB-…`, huella, cadena y QR) y su PDF, que se vuelve a generar sin el QR la primera vez que alguien lo pide (panel, área de clientes o el enlace del correo). Las facturas, sus números y sus importes no cambian.
+- **Activarlo** exige los datos fiscales del negocio y, con la plataforma enviando de verdad (`AEAT_MODE=sandbox|production`), un NIF válido y un certificado vigente. Con `AEAT_MODE=stub` en producción no se deja activar («TrasterOS aún no está conectado con la AEAT»). Desde que se activa, la primera factura abre su cadena de registros y todo se envía solo. **No se puede desactivar hasta el 31 de diciembre** del año en que se activó (art. 17 de la Orden HAC/1177/2024).
+- Es obligatorio desde el **1 de enero de 2027** (sociedades) y el **1 de julio de 2027** (los demás), según el Real Decreto-ley 15/2025. «Conviene revisar» y la puesta en marcha lo recuerdan mientras esté apagado. Si se aplaza, se cambia `VERIFACTU_MANDATORY_FROM` en `packages/shared/src/billing/verifactu.ts`.
+- Con la plataforma en modo de pruebas (`stub`, en desarrollo) las facturas de un negocio activado salen como «Simulada», no como «Aceptada».
+
+**Para empezar a enviar de verdad:** `AEAT_MODE=production` en Portainer (api y worker) y redesplegar; cada negocio sube su certificado y lo activa. Antes conviene resolver lo pendiente del envío real (ver ROADMAP → «Veri\*Factu: antes del envío real»).

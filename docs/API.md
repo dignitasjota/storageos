@@ -1504,6 +1504,17 @@ Modulo `apps/api/src/modules/billing/aeat-client/` y `tenant-aeat-credentials.{s
 - **Retry policy**: cola BullMQ `verifactu` con `attempts: 3, backoff: exponential 60s` (≈1m, 5m, 25m). Reintenta solo si `result.status='error'` (tecnico). `rejected` no reintenta (decision firme AEAT). `removeOnFail: false` para visibilidad manual.
 - **Reenvio manual**: `POST /billing/invoices/:id/resend-aeat` vuelve a `pending` y reencola (400 `already_accepted` si la AEAT ya la aceptó; si hubo un envío previo, antes de reenviar se consulta a la AEAT). Emitir en envío real (`AEAT_MODE` ≠ stub) exige NIF válido del emisor (400 `tenant_tax_id_required`) y, en facturas completas, NIF/NIE válido del cliente español (400 `customer_tax_id_required`).
 
+### Veri\*Factu por negocio (2026-11-08)
+
+Cada negocio activa el envío a la AEAT (`tenants.verifactu_enabled`, apagado por defecto). Apagado, `issue` emite sin huella, cadena, QR ni envío (`hash`, `chainSeq`, `qrCodeUrl` y `aeatStatus` a null) y sin las comprobaciones del envío real (NIF del emisor y del cliente, certificado). Activado, la primera factura abre la cadena del emisor (`PrimerRegistro`).
+
+| Metodo | Ruta                          | Permiso             | Descripcion                                                                                                                                                                                                                                                            |
+| ------ | ----------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/billing/verifactu/settings` | `invoices:manage`   | `VerifactuSettingsDto`: `enabled`, `enabledAt`, `lockedUntil` (AAAA-12-31 del año en que se activó), `platformMode`, `blockers` (lo que falta para activarlo: `{code, message, href}`), `pendingCount`, `rejectedCount`, `invoicingInHolded`                           |
+| PUT    | `/billing/verifactu/settings` | `billing:configure` | `{enabled}`. Activar: 409 `verifactu_platform_not_ready` (producción con `AEAT_MODE=stub`), 400 `issuer_fiscal_data_required`, y con envío real 400 `tenant_tax_id_required` / `aeat_certificate_required`. Desactivar antes de `lockedUntil` → 409 `verifactu_locked` |
+
+`POST /billing/invoices/:id/resend-aeat` y `…/refresh-aeat-status` sobre una factura emitida sin Veri\*Factu → 400 `not_a_verifactu_record`. La reserva online solo exige un DNI/NIE válido (400 `invalid_tax_id`) si el negocio tiene Veri\*Factu activado y la plataforma envía de verdad. `GET /settings/tenant/health` añade `verifactu_off` y `aeat_missing` pasa a ser un error solo con Veri\*Factu activado.
+
 ### Endpoints — Credenciales AEAT del tenant
 
 | Metodo | Ruta                           | Auth | Roles          | Descripcion                                                                          |
