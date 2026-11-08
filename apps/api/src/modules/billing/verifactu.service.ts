@@ -14,10 +14,44 @@ import {
   formatSpanishDate,
   formatTimestampWithMadridTimezone,
 } from './aeat-client/verifactu-xml-builder';
+import { PENDING_RECORD_WHERE, VerifactuDispatcher } from './verifactu-dispatcher.service';
+import {
+  DEFAULT_WAIT_SECONDS,
+  emitterKey,
+  MAX_RECORDS_PER_SUBMISSION,
+  retryDelayMs,
+  SEND_LEASE_MS,
+  sendableAt,
+} from './verifactu-flow';
 import { computeAltaHash } from './verifactu-hash';
 
 import type { Env } from '../../config/env.schema';
-import type { AeatStatus, Invoice, Prisma } from '@storageos/database';
+import type { AeatStatus, Invoice, Prisma, VerifactuEmitter } from '@storageos/database';
+
+/** Envíos seguidos de un emisor en una vuelta (con 1.000 registros acumulados cada vez). */
+const MAX_BATCHES_PER_RUN = 5;
+
+/** Lo que ha hecho una vuelta de `sendPending`. */
+export interface SendPendingResult {
+  /** Envíos hechos (o intentados) en esta vuelta. */
+  submissions: number;
+  /** Registros que llevaban. */
+  records: number;
+  /** Queda algo pendiente y sale a esta hora (ya programado). */
+  nextRunAt: Date | null;
+  /** Otro proceso estaba enviando lo de este emisor. */
+  busy?: boolean;
+}
+
+function toAeatStatus(status: SendInvoiceResult['status']): AeatStatus {
+  return status === 'accepted'
+    ? 'accepted'
+    : status === 'accepted_with_warnings'
+      ? 'accepted_with_warnings'
+      : status === 'rejected'
+        ? 'rejected'
+        : 'error';
+}
 
 /**
  * Veri*Factu (RD 1007/2023, Orden HAC/1177/2024).
@@ -28,10 +62,11 @@ import type { AeatStatus, Invoice, Prisma } from '@storageos/database';
  *   y se guarda para que el XML lleve exactamente la misma.
  * - **QR** con la URL de cotejo de la AEAT (pruebas o producción según
  *   `AEAT_MODE`) y la fecha en DD-MM-AAAA.
- * - **Envío** (cola `verifactu`, de uno en uno y en el orden de la cadena):
- *   no se reenvía lo ya aceptado; si un intento anterior pudo llegar, se
- *   consulta antes; un «duplicado» de la AEAT se resuelve consultando; y un
- *   registro espera a que el anterior esté resuelto.
+ * - **Envío** (cola `verifactu`, `sendPending`): por emisor, en lotes de hasta
+ *   1.000 registros en el orden de su cadena, esperando entre un envío y otro
+ *   lo que diga la AEAT (art. 16.2 de la Orden). Lo que no llegó se repite con
+ *   espera creciente, como mucho cada hora; si un envío anterior sí llegó, la
+ *   AEAT contesta «duplicado» con lo que tiene y se toma eso.
  */
 @Injectable()
 export class VerifactuService {
@@ -41,6 +76,7 @@ export class VerifactuService {
     private readonly admin: PrismaAdminService,
     @Inject(AEAT_CLIENT) private readonly aeat: AeatClient,
     private readonly config: ConfigService<Env, true>,
+    private readonly dispatcher: VerifactuDispatcher,
   ) {}
 
   /** Envío real a la AEAT (pruebas o producción): exige datos fiscales completos. */
@@ -134,107 +170,247 @@ export class VerifactuService {
   }
 
   /**
-   * Envia una factura a AEAT y actualiza `aeat_*` en BD. Llamado desde el
-   * worker BullMQ `verifactu/send-invoice`. Devuelve el `SendInvoiceResult`
-   * para que el worker pueda decidir si reintentar (lanzar excepcion solo
-   * cuando `status === 'error'`). Para `accepted` / `accepted_with_warnings`
-   * / `rejected` el worker NO reintenta (rejected es decision AEAT, no
-   * un fallo tecnico). Si la factura no es enviable (faltan campos), se
-   * devuelve `null`.
+   * Envía lo pendiente de un emisor (el negocio o un propietario): lotes de
+   * hasta 1.000 registros, en el orden de su cadena, y esperando entre uno y
+   * otro lo que pida la AEAT (o a juntar 1.000). Lo llama el trabajo de la
+   * cola; si aún no toca, deja programado el siguiente.
    */
-  async sendToAeat(invoiceId: string, tenantId: string): Promise<SendInvoiceResult | null> {
-    const invoice = await this.admin.invoice.findUnique({
-      where: { id: invoiceId },
-      select: {
-        id: true,
-        invoiceNumber: true,
-        issueDate: true,
-        total: true,
-        previousHash: true,
-        hash: true,
-        aeatStatus: true,
-        aeatSentAt: true,
-        aeatCsv: true,
-        owner: { select: { taxId: true } },
-        previousInvoice: { select: { id: true, aeatStatus: true } },
+  async sendPending(tenantId: string, ownerId: string | null): Promise<SendPendingResult> {
+    const out: SendPendingResult = { submissions: 0, records: 0, nextRunAt: null };
+    const first = await this.pendingIds(tenantId, ownerId, new Set());
+    if (first.length === 0) return out;
+    const emitter = await this.ensureEmitter(tenantId, ownerId);
+    const at = sendableAt(emitter, first.length);
+    if (at && at.getTime() > Date.now()) {
+      out.nextRunAt = await this.dispatcher.schedule(tenantId, ownerId);
+      return out;
+    }
+
+    // Dos envíos del mismo emisor nunca van a la vez (el orden de la cadena).
+    const leased = await this.admin.verifactuEmitter.updateMany({
+      where: { id: emitter.id, OR: [{ leaseUntil: null }, { leaseUntil: { lt: new Date() } }] },
+      data: { leaseUntil: new Date(Date.now() + SEND_LEASE_MS) },
+    });
+    if (leased.count === 0) {
+      out.busy = true;
+      out.nextRunAt = await this.dispatcher.schedule(tenantId, ownerId, {
+        notBefore: new Date(Date.now() + 30_000),
+      });
+      return out;
+    }
+
+    let followUp = false;
+    const attempted = new Set<string>();
+    try {
+      for (let batch = 0; ; batch++) {
+        const state = await this.admin.verifactuEmitter.findUniqueOrThrow({
+          where: { id: emitter.id },
+        });
+        const ids = await this.pendingIds(tenantId, ownerId, attempted);
+        if (ids.length === 0) break;
+        const next = sendableAt(state, ids.length);
+        if ((next && next.getTime() > Date.now()) || batch >= MAX_BATCHES_PER_RUN) {
+          followUp = true;
+          break;
+        }
+        for (const id of ids) attempted.add(id);
+        // Cada lote puede tardar lo que tarde la AEAT: se renueva la reserva.
+        await this.admin.verifactuEmitter.update({
+          where: { id: emitter.id },
+          data: { leaseUntil: new Date(Date.now() + SEND_LEASE_MS) },
+        });
+        const ok = await this.sendBatch(state, ids);
+        out.submissions += 1;
+        out.records += ids.length;
+        if (!ok) {
+          followUp = true;
+          break;
+        }
+      }
+    } finally {
+      await this.admin.verifactuEmitter.updateMany({
+        where: { id: emitter.id },
+        data: { leaseUntil: null },
+      });
+    }
+    if (followUp) out.nextRunAt = await this.dispatcher.schedule(tenantId, ownerId);
+    return out;
+  }
+
+  /** Registros por enviar del emisor, en el orden de su cadena (como mucho 1.000). */
+  private async pendingIds(
+    tenantId: string,
+    ownerId: string | null,
+    exclude: ReadonlySet<string>,
+  ): Promise<string[]> {
+    const rows = await this.admin.invoice.findMany({
+      where: {
+        tenantId,
+        ownerId,
+        ...PENDING_RECORD_WHERE,
+        ...(exclude.size > 0 ? { id: { notIn: [...exclude] } } : {}),
+      },
+      orderBy: [{ chainSeq: { sort: 'asc', nulls: 'last' } }, { issueDate: 'asc' }, { id: 'asc' }],
+      take: MAX_RECORDS_PER_SUBMISSION,
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
+  private async ensureEmitter(tenantId: string, ownerId: string | null): Promise<VerifactuEmitter> {
+    const where = { tenantId_emitterKey: { tenantId, emitterKey: emitterKey(ownerId) } };
+    const found = await this.admin.verifactuEmitter.findUnique({ where });
+    if (found) return found;
+    try {
+      return await this.admin.verifactuEmitter.create({
+        data: { tenantId, ownerId, emitterKey: emitterKey(ownerId) },
+      });
+    } catch (err) {
+      // Otro proceso lo acaba de crear.
+      if ((err as { code?: string }).code === 'P2002') {
+        return this.admin.verifactuEmitter.findUniqueOrThrow({ where });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Un envío y lo que deja: el resultado de cada factura, la constancia del
+   * envío y el estado del emisor (la espera que pide la AEAT o, si falló, el
+   * reintento). Devuelve false si hay que repetirlo.
+   */
+  private async sendBatch(state: VerifactuEmitter, invoiceIds: string[]): Promise<boolean> {
+    const { tenantId, ownerId } = state;
+    const result = await this.aeat.sendBatch({ tenantId, ownerId, invoiceIds });
+    const now = new Date();
+    const results = await this.resolveDuplicates(result.results);
+    const list = Object.values(results);
+    const accepted = list.filter(
+      (r) => r.status === 'accepted' || r.status === 'accepted_with_warnings',
+    ).length;
+    const rejected = list.filter((r) => r.status === 'rejected').length;
+    const went = result.outcome !== 'not_sent';
+
+    const submission = went
+      ? await this.admin.verifactuSubmission.create({
+          data: {
+            tenantId,
+            ownerId,
+            emitterTaxId: result.emitterTaxId,
+            mode: this.aeat.mode,
+            status: result.outcome === 'sent' ? (result.status ?? 'rejected') : 'error',
+            csv: result.csv ?? null,
+            waitSeconds: result.outcome === 'sent' ? (result.waitSeconds ?? null) : null,
+            recordCount: result.recordCount,
+            acceptedCount: accepted,
+            rejectedCount: rejected,
+            message: result.message?.slice(0, 500) ?? null,
+            sentAt: now,
+          },
+          select: { id: true },
+        })
+      : null;
+    await this.applyResults(tenantId, results, {
+      sentAt: went ? now : null,
+      submissionId: submission?.id ?? null,
+    });
+
+    // Un registro sin resultado claro se repite más tarde (los rechazados no:
+    // es la decisión de la AEAT).
+    const ok = result.outcome === 'sent' && !list.some((r) => r.status === 'error');
+    const failures = ok ? 0 : state.consecutiveFailures + 1;
+    const waitSeconds = result.waitSeconds ?? DEFAULT_WAIT_SECONDS;
+    await this.admin.verifactuEmitter.update({
+      where: { id: state.id },
+      data: {
+        ...(result.outcome === 'sent'
+          ? { nextSendAt: new Date(now.getTime() + waitSeconds * 1000), waitSeconds }
+          : {}),
+        // Un envío sin respuesta pudo llegar: también cuenta para la espera.
+        ...(result.outcome === 'failed'
+          ? {
+              nextSendAt: new Date(
+                Math.max(
+                  state.nextSendAt?.getTime() ?? 0,
+                  now.getTime() + DEFAULT_WAIT_SECONDS * 1000,
+                ),
+              ),
+            }
+          : {}),
+        consecutiveFailures: failures,
+        retryAt: ok ? null : new Date(now.getTime() + retryDelayMs(failures)),
+        lastError: ok
+          ? null
+          : (result.message ?? list.find((r) => r.status === 'error')?.message ?? 'error').slice(
+              0,
+              500,
+            ),
       },
     });
-    if (!invoice || !invoice.invoiceNumber || !invoice.issueDate || !invoice.hash) {
-      this.logger.warn(`[Verifactu] invoice ${invoiceId} no enviable (campos faltantes)`);
-      return null;
-    }
-    // Ya registrada: no se vuelve a enviar (un segundo alta sería un duplicado).
-    if (invoice.aeatStatus === 'accepted' || invoice.aeatStatus === 'accepted_with_warnings') {
-      return { status: invoice.aeatStatus, csv: invoice.aeatCsv, message: 'already_accepted' };
-    }
-    // En orden: el registro anterior del emisor tiene que estar resuelto
-    // (aceptado o rechazado) antes de enviar este. Si no, se reintenta luego.
-    const prev = invoice.previousInvoice;
-    if (
-      prev &&
-      (prev.aeatStatus === null || prev.aeatStatus === 'pending' || prev.aeatStatus === 'error')
-    ) {
-      return { status: 'error', message: 'previous_record_pending' };
-    }
-    // Un intento anterior pudo llegar a la AEAT aunque no tengamos respuesta
-    // (tiempo agotado): se consulta antes de volver a enviarla.
-    if (this.realMode && invoice.aeatSentAt) {
+    this.logger.debug(
+      `[Verifactu ${this.aeat.mode}] tenant ${tenantId} emisor ${emitterKey(ownerId)}: ` +
+        `${result.outcome} ${result.recordCount} registros (${accepted} aceptados, ${rejected} rechazados)` +
+        `${result.csv ? ` CSV=${result.csv}` : ''}`,
+    );
+    return ok;
+  }
+
+  /**
+   * «Registro duplicado» sin el detalle de lo guardado: ya estaba en la AEAT
+   * (llegó un envío anterior cuya respuesta se perdió) → su estado real.
+   */
+  private async resolveDuplicates(
+    results: Record<string, SendInvoiceResult>,
+  ): Promise<Record<string, SendInvoiceResult>> {
+    const out = { ...results };
+    for (const [invoiceId, r] of Object.entries(results)) {
+      if (r.status !== 'rejected' || !/\b3000\b/.test(r.message ?? '')) continue;
       const known = await this.aeat.getStatus({ invoiceId });
       if (known.status === 'accepted' || known.status === 'accepted_with_warnings') {
-        await this.saveStatus(invoiceId, known, 'status_before_resend');
-        return { status: known.status, csv: known.csv ?? null, message: 'already_registered' };
-      }
-    }
-    const tenant = await this.admin.tenant.findUnique({
-      where: { id: tenantId },
-      select: { taxId: true },
-    });
-    let result = await this.aeat.sendInvoice({
-      tenantId,
-      invoiceId: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      issueDate: invoice.issueDate,
-      total: Number(invoice.total),
-      previousHash: invoice.previousHash,
-      hash: invoice.hash,
-      emitterTaxId: invoice.owner?.taxId ?? tenant?.taxId ?? '',
-    });
-    // «Registro duplicado» (código 3000): ya estaba en la AEAT → su estado real.
-    if (result.status === 'rejected' && /\b3000\b/.test(result.message ?? '')) {
-      const known = await this.aeat.getStatus({ invoiceId });
-      if (known.status === 'accepted' || known.status === 'accepted_with_warnings') {
-        result = {
+        out[invoiceId] = {
           status: known.status,
           csv: known.csv ?? null,
           message: 'duplicate_already_registered',
         };
       }
     }
-    const status: AeatStatus =
-      result.status === 'accepted'
-        ? 'accepted'
-        : result.status === 'accepted_with_warnings'
-          ? 'accepted_with_warnings'
-          : result.status === 'rejected'
-            ? 'rejected'
-            : 'error';
-    await this.admin.invoice.update({
-      where: { id: invoiceId },
-      data: {
-        aeatSentAt: new Date(),
+    return out;
+  }
+
+  /** Guarda en cada factura su resultado (las que quedan igual, de una vez). */
+  private async applyResults(
+    tenantId: string,
+    results: Record<string, SendInvoiceResult>,
+    ctx: { sentAt: Date | null; submissionId: string | null },
+  ): Promise<void> {
+    const groups = new Map<
+      string,
+      { ids: string[]; data: Prisma.InvoiceUpdateManyMutationInput }
+    >();
+    for (const [invoiceId, r] of Object.entries(results)) {
+      const status = toAeatStatus(r.status);
+      const registered = status === 'accepted' || status === 'accepted_with_warnings';
+      const data: Prisma.InvoiceUpdateManyMutationInput = {
         aeatStatus: status,
-        aeatCsv: result.csv ?? null,
+        ...(ctx.sentAt ? { aeatSentAt: ctx.sentAt } : {}),
+        // El CSV acredita la remisión de lo registrado; un duplicado sin CSV
+        // conserva el que tenía.
+        ...(registered ? (r.csv ? { aeatCsv: r.csv } : {}) : { aeatCsv: null }),
         aeatResponse: {
           mode: this.aeat.mode,
-          ...(result.message ? { message: result.message } : {}),
-          ...(result.raw ?? {}),
+          ...(ctx.submissionId ? { submissionId: ctx.submissionId } : {}),
+          ...(r.message ? { message: r.message } : {}),
+          ...(r.raw ?? {}),
         } as Prisma.InputJsonValue,
-      },
-    });
-    this.logger.debug(
-      `[Verifactu ${this.aeat.mode}] invoice ${invoiceId} → ${status}${result.csv ? ` CSV=${result.csv}` : ''}`,
-    );
-    return result;
+      };
+      const key = JSON.stringify(data);
+      const group = groups.get(key);
+      if (group) group.ids.push(invoiceId);
+      else groups.set(key, { ids: [invoiceId], data });
+    }
+    for (const g of groups.values()) {
+      await this.admin.invoice.updateMany({ where: { id: { in: g.ids }, tenantId }, data: g.data });
+    }
   }
 
   /**
@@ -298,35 +474,6 @@ export class VerifactuService {
       `[Verifactu ${this.aeat.mode}] refreshStatus(${invoiceId}) -> ${status}${result.csv ? ` CSV=${result.csv}` : ''}`,
     );
     return result;
-  }
-
-  private async saveStatus(
-    invoiceId: string,
-    result: GetStatusResult,
-    source: string,
-  ): Promise<void> {
-    if (result.status === 'pending') return;
-    const status: AeatStatus =
-      result.status === 'accepted'
-        ? 'accepted'
-        : result.status === 'accepted_with_warnings'
-          ? 'accepted_with_warnings'
-          : result.status === 'rejected'
-            ? 'rejected'
-            : 'error';
-    await this.admin.invoice.update({
-      where: { id: invoiceId },
-      data: {
-        aeatStatus: status,
-        ...(result.csv ? { aeatCsv: result.csv } : {}),
-        aeatResponse: {
-          mode: this.aeat.mode,
-          source,
-          ...(result.message ? { message: result.message } : {}),
-          ...(result.raw ?? {}),
-        } as Prisma.InputJsonValue,
-      },
-    });
   }
 
   /** Comprueba la huella de una factura ya emitida (auditoría). */

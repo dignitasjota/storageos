@@ -36,7 +36,55 @@ import {
  */
 @Injectable()
 export class VerifactuXmlBuilder {
+  /** Un envío con un solo registro de alta. */
   buildRegistroAlta(args: BuildRegistroAltaArgs): string {
+    return this.buildSubmission({
+      issuer: args.tenant,
+      representative: args.representative ?? null,
+      records: [this.buildRegistroAltaRecord(args)],
+    });
+  }
+
+  /**
+   * El mensaje de un envío (`RegFactuSistemaFacturacion`): la cabecera del
+   * obligado y hasta 1.000 registros suyos (`buildRegistroAltaRecord`), en el
+   * orden en que se generaron.
+   */
+  buildSubmission(args: {
+    issuer: { name: string; taxId: string };
+    representative?: { name: string; taxId: string } | null;
+    records: readonly string[];
+  }): string {
+    const issuerName = escapeXml(clip(args.issuer.name, 120));
+    const issuerNif = escapeXml(args.issuer.taxId);
+    // Certificado de un representante (administrador, gestoría): va justo
+    // después del obligado, como pide CabeceraType.
+    const representanteBlock = args.representative
+      ? `
+        <sum1:Representante>
+          <sum1:NombreRazon>${escapeXml(clip(args.representative.name, 120))}</sum1:NombreRazon>
+          <sum1:NIF>${escapeXml(args.representative.taxId)}</sum1:NIF>
+        </sum1:Representante>`
+      : '';
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:sum="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroLR.xsd" xmlns:sum1="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <sum:RegFactuSistemaFacturacion>
+      <sum:Cabecera>
+        <sum1:ObligadoEmision>
+          <sum1:NombreRazon>${issuerName}</sum1:NombreRazon>
+          <sum1:NIF>${issuerNif}</sum1:NIF>
+        </sum1:ObligadoEmision>${representanteBlock}
+      </sum:Cabecera>
+${args.records.join('\n')}
+    </sum:RegFactuSistemaFacturacion>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+  }
+
+  /** Un `RegistroFactura` con su registro de alta, para `buildSubmission`. */
+  buildRegistroAltaRecord(args: BuildRegistroAltaArgs): string {
     const { tenant, invoice, recipient } = args;
 
     // El fabricante y el sistema, como en la declaración responsable.
@@ -48,16 +96,12 @@ export class VerifactuXmlBuilder {
     const sistemaInstalacion = escapeXml(args.system.installationNumber);
     const multiplesOT = args.system.multipleTaxpayers ? 'S' : 'N';
 
-    const tenantName = escapeXml(tenant.name);
+    const tenantName = escapeXml(clip(tenant.name, 120));
     const tenantNif = escapeXml(tenant.taxId);
-    // Certificado de un representante (administrador, gestoría): va justo
-    // después del obligado, como pide CabeceraType.
-    const representanteBlock = args.representative
+    // Para casar la línea de la respuesta con su factura.
+    const refExterna = invoice.refExterna
       ? `
-        <sum1:Representante>
-          <sum1:NombreRazon>${escapeXml(args.representative.name)}</sum1:NombreRazon>
-          <sum1:NIF>${escapeXml(args.representative.taxId)}</sum1:NIF>
-        </sum1:Representante>`
+          <sum1:RefExterna>${escapeXml(clip(invoice.refExterna, 60))}</sum1:RefExterna>`
       : '';
     const invoiceNumber = escapeXml(invoice.invoiceNumber);
     const issueDate = formatSpanishDate(invoice.issueDate);
@@ -74,7 +118,7 @@ export class VerifactuXmlBuilder {
       : recipient
         ? `          <sum1:Destinatarios>
             <sum1:IDDestinatario>
-              <sum1:NombreRazon>${escapeXml(recipient.name)}</sum1:NombreRazon>
+              <sum1:NombreRazon>${escapeXml(clip(recipient.name, 120))}</sum1:NombreRazon>
 ${recipientIdBlock(recipient)}
             </sum1:IDDestinatario>
           </sum1:Destinatarios>`
@@ -111,25 +155,14 @@ ${recipientIdBlock(recipient)}
     // La misma fecha-hora que entró en la huella (se fija al emitir).
     const generadoEn = escapeXml(invoice.recordTimestamp);
 
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:sum="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroLR.xsd" xmlns:sum1="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <sum:RegFactuSistemaFacturacion>
-      <sum:Cabecera>
-        <sum1:ObligadoEmision>
-          <sum1:NombreRazon>${tenantName}</sum1:NombreRazon>
-          <sum1:NIF>${tenantNif}</sum1:NIF>
-        </sum1:ObligadoEmision>${representanteBlock}
-      </sum:Cabecera>
-      <sum:RegistroFactura>
+    return `      <sum:RegistroFactura>
         <sum1:RegistroAlta>
           <sum1:IDVersion>1.0</sum1:IDVersion>
           <sum1:IDFactura>
             <sum1:IDEmisorFactura>${tenantNif}</sum1:IDEmisorFactura>
             <sum1:NumSerieFactura>${invoiceNumber}</sum1:NumSerieFactura>
             <sum1:FechaExpedicionFactura>${issueDate}</sum1:FechaExpedicionFactura>
-          </sum1:IDFactura>
+          </sum1:IDFactura>${refExterna}
           <sum1:NombreRazonEmisor>${tenantName}</sum1:NombreRazonEmisor>
           <sum1:TipoFactura>${invoiceType}</sum1:TipoFactura>${rectificationBlocks}
           <sum1:DescripcionOperacion>${description}</sum1:DescripcionOperacion>
@@ -157,10 +190,7 @@ ${encadenamiento}
           <sum1:TipoHuella>01</sum1:TipoHuella>
           <sum1:Huella>${huella}</sum1:Huella>
         </sum1:RegistroAlta>
-      </sum:RegistroFactura>
-    </sum:RegFactuSistemaFacturacion>
-  </soapenv:Body>
-</soapenv:Envelope>`;
+      </sum:RegistroFactura>`;
   }
 
   /**
@@ -339,6 +369,11 @@ export interface BuildRegistroAltaArgs {
   invoice: {
     /** Serie de facturacion (ej. `F`). */
     series: string;
+    /**
+     * Dato libre que la AEAT devuelve en la línea de la respuesta (`RefExterna`,
+     * 60 caracteres): el id de la factura, para casar cada resultado.
+     */
+    refExterna?: string;
     /** Numero completo (`F-2026-0001`). */
     invoiceNumber: string;
     issueDate: Date;
@@ -423,7 +458,7 @@ function recipientIdBlock(r: NonNullable<BuildRegistroAltaArgs['recipient']>): s
   return `              <sum1:IDOtro>
                 <sum1:CodigoPais>${escapeXml(o.country)}</sum1:CodigoPais>
                 <sum1:IDType>${o.idType}</sum1:IDType>
-                <sum1:ID>${escapeXml(o.id)}</sum1:ID>
+                <sum1:ID>${escapeXml(clip(o.id, 20))}</sum1:ID>
               </sum1:IDOtro>`;
 }
 
@@ -582,6 +617,15 @@ export function formatTimestampWithMadridTimezone(d: Date): string {
  * unica defensa contra XML injection en este builder (no usamos un DOM
  * builder real para mantener el output predecible y testeable byte a byte).
  */
+/**
+ * Recorta un texto al máximo que admite su campo en el esquema de la AEAT
+ * (`TextMax120Type`…): un nombre más largo haría rechazar el envío entero.
+ */
+function clip(s: string, max: number): string {
+  const t = s.trim();
+  return t.length > max ? t.slice(0, max).trimEnd() : t;
+}
+
 export function escapeXml(s: string): string {
   return s
     .replace(/&/g, '&amp;')

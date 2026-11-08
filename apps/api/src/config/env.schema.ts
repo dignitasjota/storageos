@@ -267,6 +267,8 @@ const envSchemaBase = z.object({
   RETENTION_IMPERSONATION_LOGS_DAYS: z.coerce.number().int().positive().default(730),
   /** Registro de acciones del super admin: 24 meses. */
   RETENTION_SUPER_ADMIN_AUDIT_DAYS: z.coerce.number().int().positive().default(730),
+  /** Envíos a la AEAT (Veri*Factu, con su CSV): 4 años, lo que prescribe una inspección. */
+  RETENTION_VERIFACTU_SUBMISSIONS_DAYS: z.coerce.number().int().positive().default(1461),
 
   // --- Control de accesos: anti-fuerza-bruta en /access/verify ---
   //     Además del throttle por IP (60/min), lockout por DISPOSITIVO (frena el

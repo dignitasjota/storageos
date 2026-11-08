@@ -950,10 +950,11 @@ Pendiente antes de poner `AEAT_MODE=production` y de firmar la declaración resp
 - **Declaración responsable** (art. 13 del RD 1007/2023 y art. 15 de la Orden): documento con el nombre, código y versión del sistema, sus componentes y funciones, «solo VERI\*FACTU» y «varios obligados», los datos del productor (razón social, NIF y dirección), la manifestación de que cumple y la fecha y el lugar de la firma. Debe estar dentro de la propia aplicación, a mano del usuario, y entregarse al cliente (PDF); una por versión.
 - ~~**XML conforme al esquema**~~ — hecho (2026-11-08): `RegistroAlta` iba en el espacio de nombres equivocado (la AEAT habría rechazado cualquier envío) y las rectificativas tenían bloques fuera de orden; una prueba valida ahora el XML con xmllint contra los XSD oficiales.
 - ~~**Datos del productor en cada registro**~~ — hecho (2026-11-08): Urbanbox Soluciones SL (B05691886), TrasterOS, código `01`, versión `1.0` (`VERIFACTU_SYSTEM`), número de instalación por facturación e `IndicadorMultiplesOT` según el negocio tenga propietarios.
-- **Control de flujo** (art. 16): esperar entre envíos lo que indique la AEAT (60 s al principio) o juntar hasta 1.000 registros por envío. Hoy se envía un registro por petición, uno detrás de otro.
+- ~~**Control de flujo**~~ — hecho (2026-11-08): las facturas de cada emisor salen juntas (hasta 1.000 por envío, en el orden de la cadena), se espera entre envíos lo que pide la AEAT (60 s al principio) y un envío sin respuesta se repite con espera creciente, como mucho cada hora. Cada envío queda registrado con su CSV (Configuración → Veri\*Factu → «Ver los envíos»).
 - ~~**QR al principio de la factura**~~ — hecho (2026-11-08): arriba y centrado, con «QR tributario:» encima y la frase debajo, del tamaño del resto de datos.
 - **Registro de anulación** (art. 11) y **subsanación** de registros rechazados o con datos erróneos (`Subsanacion`, `RechazoPrevio`): no están; «Reenviar» manda el mismo registro.
-- **Incidencias**: marcar los registros enviados tarde tras un corte (`Incidencia`).
+- **Incidencias**: marcar los registros enviados tarde tras un corte (`Incidencia`) y avisar en el panel de cuántos quedan por enviar mientras dure.
+- **Un envío que la AEAT rechaza entero** (un «SoapFault» por el formato) se repite cada hora como si no hubiera respuesta, con todos sus registros: si fuera por un solo registro, convendría apartarlo y mandar el resto.
 
 Por decidir con la asesoría:
 

@@ -14,11 +14,17 @@ import {
   AeatClient,
   type GetStatusArgs,
   type GetStatusResult,
-  type SendInvoiceArgs,
+  type SendBatchArgs,
+  type SendBatchResult,
   type SendInvoiceResult,
 } from './aeat-client';
 import { resolveRepresentative } from './representative';
-import { breakdownFromItems, VerifactuXmlBuilder } from './verifactu-xml-builder';
+import { parseSubmissionResponse, type SubmissionRecordRef } from './submission-response';
+import {
+  breakdownFromItems,
+  formatSpanishDate,
+  VerifactuXmlBuilder,
+} from './verifactu-xml-builder';
 
 import type { Env } from '../../../config/env.schema';
 
@@ -45,12 +51,14 @@ export function recipientId(
 /**
  * Cliente real para AEAT sandbox y produccion (Veri*Factu, RD 1007/2023).
  *
- * Flujo:
- *   1. Carga PKCS#12 del tenant via `TenantAeatCredentialsService` y extrae
+ * Flujo de un envío (`sendBatch`, hasta 1.000 registros de un mismo emisor):
+ *   1. Carga PKCS#12 del emisor via `TenantAeatCredentialsService` y extrae
  *      cert + clave en PEM con `node-forge`.
- *   2. Construye el SOAP envelope con `VerifactuXmlBuilder`.
+ *   2. Construye el SOAP envelope con `VerifactuXmlBuilder`: una cabecera y un
+ *      registro por factura, en el orden de la cadena.
  *   3. POST al endpoint AEAT usando `https.Agent` con `cert`+`key` (mTLS).
- *   4. Parsea la respuesta SOAP extrayendo `EstadoRegistro` + `CSV` + errores.
+ *   4. Lee la respuesta (`parseSubmissionResponse`): estado del envío, CSV,
+ *      la espera que pide la AEAT y el resultado de cada registro.
  *
  * Veri*Factu (modo verificable) NO requiere firma XAdES adicional: la
  * confianza viene del hash encadenado y la autenticacion TLS de cliente.
@@ -80,156 +88,100 @@ export class RealAeatClient extends AeatClient {
     return this.aeatMode;
   }
 
-  async sendInvoice(args: SendInvoiceArgs): Promise<SendInvoiceResult> {
-    // 1. Cargar credencial activa del tenant.
-    // El del propietario (plan Administrador) si lo tiene; si no, el del tenant.
-    const ownerRow = await this.admin.invoice.findUnique({
-      where: { id: args.invoiceId },
-      select: { ownerId: true },
-    });
-    const cred = await this.credentials.getDecrypted(args.tenantId, ownerRow?.ownerId ?? null);
-    if (!cred) {
-      this.logger.warn(
-        `[aeat_${this.aeatMode}] tenant ${args.tenantId} sin credencial AEAT activa`,
-      );
-      return {
-        status: 'error',
-        message: 'tenant_no_aeat_credential',
-        raw: { tenantId: args.tenantId },
-      };
-    }
+  async sendBatch(args: SendBatchArgs): Promise<SendBatchResult> {
+    const { tenantId } = args;
+    const ownerId = args.ownerId ?? null;
+    const notSent = (message: string, emitterTaxId = '', raw?: Record<string, unknown>) =>
+      ({
+        outcome: 'not_sent',
+        emitterTaxId,
+        recordCount: 0,
+        message,
+        results: Object.fromEntries(
+          args.invoiceIds.map((id) => [id, { status: 'error' as const, message }]),
+        ),
+        ...(raw ? { raw } : {}),
+      }) satisfies SendBatchResult;
 
-    // 2. Verificar vigencia (segundo cinturon; se valido al subir).
-    if (cred.record.certValidTo.getTime() < Date.now()) {
-      this.logger.warn(
-        `[aeat_${this.aeatMode}] certificado expirado para tenant ${args.tenantId} (notAfter=${cred.record.certValidTo.toISOString()})`,
-      );
-      return {
-        status: 'error',
-        message: 'certificate_expired',
-        raw: { certValidTo: cred.record.certValidTo.toISOString() },
-      };
-    }
-
-    // 3. Cargar invoice + customer + tenant para construir XML.
-    //    PrismaAdminService bypassa RLS pero ya validamos tenantId arriba.
-    const invoice = await this.admin.invoice.findUnique({
-      where: { id: args.invoiceId },
-      include: { items: true, customer: true, owner: true },
-    });
-    if (!invoice || invoice.tenantId !== args.tenantId) {
-      return {
-        status: 'error',
-        message: 'invoice_not_found',
-        raw: { invoiceId: args.invoiceId },
-      };
-    }
-    if (!invoice.invoiceNumber || !invoice.issueDate || !invoice.hash) {
-      return {
-        status: 'error',
-        message: 'invoice_missing_required_fields',
-        raw: {
-          hasInvoiceNumber: Boolean(invoice.invoiceNumber),
-          hasIssueDate: Boolean(invoice.issueDate),
-          hasHash: Boolean(invoice.hash),
-        },
-      };
-    }
-
+    // 1. Emisor: el propietario (plan Administrador) o el propio negocio.
     const tenant = await this.admin.tenant.findUnique({
-      where: { id: args.tenantId },
+      where: { id: tenantId },
+      select: {
+        id: true,
+        name: true,
+        billingLegalName: true,
+        taxId: true,
+        verifactuInstallation: true,
+        verifactuEnabledAt: true,
+        createdAt: true,
+      },
     });
-    if (!tenant) {
-      return {
-        status: 'error',
-        message: 'tenant_not_found',
-        raw: { tenantId: args.tenantId },
-      };
-    }
-
-    // Emisor: el propietario (plan Administrador) o el propio tenant.
-    const issuer = invoice.owner
-      ? { name: invoice.owner.legalName, taxId: invoice.owner.taxId }
+    if (!tenant) return notSent('tenant_not_found');
+    const owner = ownerId
+      ? await this.admin.owner.findUnique({
+          where: { id: ownerId },
+          select: { id: true, tenantId: true, legalName: true, taxId: true },
+        })
+      : null;
+    if (ownerId && (!owner || owner.tenantId !== tenantId)) return notSent('owner_not_found');
+    const issuer = owner
+      ? { name: owner.legalName, taxId: owner.taxId }
       : { name: tenant.billingLegalName || tenant.name, taxId: tenant.taxId ?? '' };
 
-    if (!invoice.aeatRecordTimestamp) {
-      return { status: 'error', message: 'invoice_missing_record_timestamp' };
+    // 2. Certificado: el del propietario si lo tiene; si no, el del negocio.
+    const cred = await this.credentials.getDecrypted(tenantId, ownerId);
+    if (!cred) {
+      this.logger.warn(`[aeat_${this.aeatMode}] tenant ${tenantId} sin credencial AEAT activa`);
+      return notSent('tenant_no_aeat_credential', issuer.taxId, { tenantId });
     }
-
-    // 4. Registro anterior del emisor (cadena por tenant) para `<RegistroAnterior>`.
-    let previousInvoiceNumber: string | undefined;
-    let previousInvoiceDate: Date | undefined;
-    if (invoice.previousInvoiceId) {
-      const prev = await this.admin.invoice.findUnique({
-        where: { id: invoice.previousInvoiceId },
-        select: { invoiceNumber: true, issueDate: true },
+    if (cred.record.certValidTo.getTime() < Date.now()) {
+      this.logger.warn(
+        `[aeat_${this.aeatMode}] certificado expirado para tenant ${tenantId} (notAfter=${cred.record.certValidTo.toISOString()})`,
+      );
+      return notSent('certificate_expired', issuer.taxId, {
+        certValidTo: cred.record.certValidTo.toISOString(),
       });
-      previousInvoiceNumber = prev?.invoiceNumber ?? undefined;
-      previousInvoiceDate = prev?.issueDate ?? undefined;
+    }
+    let pem: { cert: string; key: string };
+    try {
+      pem = this.extractPem(cred.p12Buffer, cred.password);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `[aeat_${this.aeatMode}] no se pudo extraer PEM del PKCS#12 del tenant ${tenantId}: ${message}`,
+      );
+      return notSent('invalid_certificate', issuer.taxId, { err: message });
     }
 
-    // 5. Si es una rectificativa, cargar la factura original para construir
-    //    el bloque `<FacturasRectificadas>` del XML. Usamos el NIF del propio
-    //    tenant como `emitterTaxId` (todas las facturas originales en MVP
-    //    han sido emitidas por el mismo tenant). Si la rectificacion es
-    //    por sustitucion (`by_substitution`), tambien necesitamos los
-    //    totales originales para el bloque `<ImporteRectificacion>`.
-    let rectifies:
-      | ReadonlyArray<{ emitterTaxId: string; invoiceNumber: string; issueDate: Date }>
-      | undefined;
-    let originalAmounts:
-      | { baseRectificada: number; cuotaRectificada: number; recargo?: number }
-      | undefined;
-    if (invoice.invoiceType.startsWith('R') && invoice.rectifiesInvoiceId) {
-      const originalRow = await this.admin.invoice.findUnique({
-        where: { id: invoice.rectifiesInvoiceId },
-        select: {
-          invoiceNumber: true,
-          issueDate: true,
-          tenantId: true,
-          subtotal: true,
-          taxAmount: true,
-        },
-      });
-      if (originalRow?.invoiceNumber && originalRow.issueDate) {
-        rectifies = [
-          {
-            emitterTaxId: issuer.taxId,
-            invoiceNumber: originalRow.invoiceNumber,
-            issueDate: originalRow.issueDate,
-          },
-        ];
-        if (invoice.correctionMethod === 'by_substitution') {
-          originalAmounts = {
-            baseRectificada: Number(originalRow.subtotal),
-            cuotaRectificada: Number(originalRow.taxAmount),
-          };
-        }
-      }
-    }
-
-    // 6. Construir XML.
-    const taxAmount = Number(invoice.taxAmount);
-    const total = Number(invoice.total);
-    // Una línea de desglose por tipo de IVA (antes un único tipo «deducido»
-    // de base/cuota: alquiler 21 % + fianza 0 % daba un 14 % inexistente).
-    const breakdown = breakdownFromItems(
-      invoice.items.map((it) => ({
-        taxRate: Number(it.taxRate),
-        taxAmount: Number(it.taxAmount),
-        total: Number(it.total),
-        taxCategory: it.taxCategory,
-      })),
+    // 3. Las facturas, sus registros anteriores y las facturas que rectifican.
+    const invoices = await this.admin.invoice.findMany({
+      where: { id: { in: [...args.invoiceIds] }, tenantId, ownerId },
+      include: { items: true, customer: true },
+    });
+    const byId = new Map(invoices.map((i) => [i.id, i]));
+    const refIds = [
+      ...new Set(
+        invoices.flatMap((i) => [
+          ...(i.previousInvoiceId ? [i.previousInvoiceId] : []),
+          ...(i.invoiceType.startsWith('R') && i.rectifiesInvoiceId ? [i.rectifiesInvoiceId] : []),
+        ]),
+      ),
+    ];
+    const refs = new Map(
+      (refIds.length > 0
+        ? await this.admin.invoice.findMany({
+            where: { id: { in: refIds } },
+            select: {
+              id: true,
+              invoiceNumber: true,
+              issueDate: true,
+              subtotal: true,
+              taxAmount: true,
+            },
+          })
+        : []
+      ).map((r) => [r.id, r]),
     );
-
-    // Para F2 sin customer (factura simplificada) omitimos `recipient`;
-    // el XML emite `<FacturaSinIdentifDestinatarioArt61d>`. Para
-    // rectificativas inferimos el `correctionMethod` (`I` por
-    // diferencias, `S` por sustitucion) del campo persistido.
-    const correctionMethodXml: 'I' | 'S' | undefined =
-      invoice.correctionMethod === 'by_substitution' ? 'S' : rectifies ? 'I' : undefined;
-
-    const hasRecipient = Boolean(invoice.customer);
 
     // El sistema del emisor: el negocio y cada propietario son facturaciones
     // distintas, cada una con su número de instalación (el del negocio se fija
@@ -237,93 +189,186 @@ export class RealAeatClient extends AeatClient {
     const tenantInstallation =
       tenant.verifactuInstallation ??
       verifactuInstallationNumber(tenant.verifactuEnabledAt ?? tenant.createdAt, tenant.id);
-    const owners = await this.admin.owner.count({ where: { tenantId: args.tenantId } });
+    const owners = await this.admin.owner.count({ where: { tenantId } });
+    const system = {
+      installationNumber: owner
+        ? ownerInstallationNumber(tenantInstallation, owner.id)
+        : tenantInstallation,
+      multipleTaxpayers: owners > 0,
+    };
 
-    const xml = this.xmlBuilder.buildRegistroAlta({
-      tenant: issuer,
-      representative: resolveRepresentative(issuer.taxId, cred.record),
-      system: {
-        installationNumber: invoice.owner
-          ? ownerInstallationNumber(tenantInstallation, invoice.owner.id)
-          : tenantInstallation,
-        multipleTaxpayers: owners > 0,
-      },
-      invoice: {
-        series: invoice.invoiceNumber.split('-')[0] ?? 'F',
-        invoiceNumber: invoice.invoiceNumber,
-        issueDate: invoice.issueDate,
-        description: this.buildDescription(invoice),
-        invoiceType: invoice.invoiceType as 'F1' | 'F2' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5',
-        breakdown,
-        taxAmount,
-        total,
-        recordTimestamp: invoice.aeatRecordTimestamp,
-        hash: args.hash,
-        previousHash: args.previousHash,
-        ...(previousInvoiceNumber !== undefined ? { previousInvoiceNumber } : {}),
-        ...(previousInvoiceDate !== undefined ? { previousInvoiceDate } : {}),
-        previousEmitterNif: issuer.taxId,
-        ...(rectifies ? { rectifies } : {}),
-        ...(correctionMethodXml ? { correctionMethod: correctionMethodXml } : {}),
-        ...(originalAmounts ? { originalAmounts } : {}),
-      },
-      ...(hasRecipient
-        ? {
-            recipient: {
-              name: this.buildRecipientName(invoice.customer),
-              ...recipientId(invoice.customer),
-            },
-          }
-        : {}),
-    });
+    // 4. Un registro por factura, en el orden de la cadena.
+    const results: Record<string, SendInvoiceResult> = {};
+    const fragments: string[] = [];
+    const sent: SubmissionRecordRef[] = [];
+    for (const id of args.invoiceIds) {
+      const invoice = byId.get(id);
+      if (!invoice) {
+        results[id] = { status: 'error', message: 'invoice_not_found' };
+        continue;
+      }
+      if (!invoice.invoiceNumber || !invoice.issueDate || !invoice.hash) {
+        results[id] = {
+          status: 'error',
+          message: 'invoice_missing_required_fields',
+          raw: {
+            hasInvoiceNumber: Boolean(invoice.invoiceNumber),
+            hasIssueDate: Boolean(invoice.issueDate),
+            hasHash: Boolean(invoice.hash),
+          },
+        };
+        continue;
+      }
+      if (!invoice.aeatRecordTimestamp) {
+        results[id] = { status: 'error', message: 'invoice_missing_record_timestamp' };
+        continue;
+      }
 
-    // 7. PEM cert + key para mTLS.
-    let pem: { cert: string; key: string };
-    try {
-      pem = this.extractPem(cred.p12Buffer, cred.password);
-    } catch (err) {
-      this.logger.error(
-        `[aeat_${this.aeatMode}] no se pudo extraer PEM del PKCS#12 del tenant ${args.tenantId}: ${err instanceof Error ? err.message : String(err)}`,
+      const previous = invoice.previousInvoiceId ? refs.get(invoice.previousInvoiceId) : undefined;
+      // Rectificativa: la factura original (`<FacturasRectificadas>`) y, si es
+      // por sustitución, sus importes (`<ImporteRectificacion>`).
+      const original =
+        invoice.invoiceType.startsWith('R') && invoice.rectifiesInvoiceId
+          ? refs.get(invoice.rectifiesInvoiceId)
+          : undefined;
+      const rectifies =
+        original?.invoiceNumber && original.issueDate
+          ? [
+              {
+                emitterTaxId: issuer.taxId,
+                invoiceNumber: original.invoiceNumber,
+                issueDate: original.issueDate,
+              },
+            ]
+          : undefined;
+      const originalAmounts =
+        rectifies && original && invoice.correctionMethod === 'by_substitution'
+          ? {
+              baseRectificada: Number(original.subtotal),
+              cuotaRectificada: Number(original.taxAmount),
+            }
+          : undefined;
+      // Rectificativas: `I` por diferencias, `S` por sustitución.
+      const correctionMethodXml: 'I' | 'S' | undefined =
+        invoice.correctionMethod === 'by_substitution' ? 'S' : rectifies ? 'I' : undefined;
+      // Una línea de desglose por tipo de IVA (antes un único tipo «deducido»
+      // de base/cuota: alquiler 21 % + fianza 0 % daba un 14 % inexistente).
+      const breakdown = breakdownFromItems(
+        invoice.items.map((it) => ({
+          taxRate: Number(it.taxRate),
+          taxAmount: Number(it.taxAmount),
+          total: Number(it.total),
+          taxCategory: it.taxCategory,
+        })),
       );
+
+      fragments.push(
+        this.xmlBuilder.buildRegistroAltaRecord({
+          tenant: issuer,
+          system,
+          invoice: {
+            series: invoice.invoiceNumber.split('-')[0] ?? 'F',
+            refExterna: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            issueDate: invoice.issueDate,
+            description: this.buildDescription(invoice),
+            invoiceType: invoice.invoiceType as 'F1' | 'F2' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5',
+            breakdown,
+            taxAmount: Number(invoice.taxAmount),
+            total: Number(invoice.total),
+            recordTimestamp: invoice.aeatRecordTimestamp,
+            hash: invoice.hash,
+            previousHash: invoice.previousHash,
+            ...(previous?.invoiceNumber ? { previousInvoiceNumber: previous.invoiceNumber } : {}),
+            ...(previous?.issueDate ? { previousInvoiceDate: previous.issueDate } : {}),
+            previousEmitterNif: issuer.taxId,
+            ...(rectifies ? { rectifies } : {}),
+            ...(correctionMethodXml ? { correctionMethod: correctionMethodXml } : {}),
+            ...(originalAmounts ? { originalAmounts } : {}),
+          },
+          // Una F2 sin cliente (simplificada) va sin destinatario.
+          ...(invoice.customer
+            ? {
+                recipient: {
+                  name: this.buildRecipientName(invoice.customer),
+                  ...recipientId(invoice.customer),
+                },
+              }
+            : {}),
+        }),
+      );
+      sent.push({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        issueDate: formatSpanishDate(invoice.issueDate),
+      });
+    }
+    if (fragments.length === 0) {
       return {
-        status: 'error',
-        message: 'invalid_certificate',
-        raw: { err: err instanceof Error ? err.message : String(err) },
+        outcome: 'not_sent',
+        emitterTaxId: issuer.taxId,
+        recordCount: 0,
+        message: 'no_records',
+        results,
       };
     }
 
-    // 8. POST a AEAT.
+    const xml = this.xmlBuilder.buildSubmission({
+      issuer,
+      representative: resolveRepresentative(issuer.taxId, cred.record),
+      records: fragments,
+    });
+
+    // 5. POST a la AEAT con el certificado (mTLS).
     const endpoint =
       this.aeatMode === 'production'
         ? this.config.get('AEAT_PRODUCTION_ENDPOINT', { infer: true })
         : this.config.get('AEAT_SANDBOX_ENDPOINT', { infer: true });
     const timeout = this.config.get('AEAT_TIMEOUT_MS', { infer: true });
 
+    let response: { status: number; body: string };
     try {
-      const response = await this.postSoap(endpoint, xml, pem, timeout);
-      return this.parseResponse(response);
+      response = await this.postSoap(endpoint, xml, pem, timeout);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = (err instanceof Error ? err.message : String(err)) || 'aeat_request_failed';
       this.logger.warn(
-        `[aeat_${this.aeatMode}] fallo en POST a ${endpoint} para invoice ${args.invoiceId}: ${message}`,
+        `[aeat_${this.aeatMode}] fallo en POST a ${endpoint} (${sent.length} registros del tenant ${tenantId}): ${message}`,
       );
+      for (const r of sent) results[r.invoiceId] = { status: 'error', message };
       return {
-        status: 'error',
-        message: message || 'aeat_request_failed',
+        outcome: 'failed',
+        emitterTaxId: issuer.taxId,
+        recordCount: sent.length,
+        message,
+        results,
         raw: { err: message },
       };
     }
+
+    const parsed = parseSubmissionResponse(response, sent);
+    Object.assign(results, parsed.results);
+    return {
+      outcome: parsed.outcome,
+      emitterTaxId: issuer.taxId,
+      recordCount: sent.length,
+      ...(parsed.status ? { status: parsed.status } : {}),
+      csv: parsed.csv,
+      waitSeconds: parsed.waitSeconds,
+      ...(parsed.message ? { message: parsed.message } : {}),
+      results,
+      raw: parsed.raw,
+    };
   }
 
   /**
    * Consulta a AEAT el estado actual de una factura previamente enviada
    * (`ConsultaFactuSistemaFacturacion`). Usado por
    * `VerifactuStatusPollerCron` para recuperar pendientes huerfanos cuyo
-   * `sendInvoice` quedo en `pending` por timeout o por respuesta sin
+   * envío quedó en `pending` por tiempo agotado o por respuesta sin
    * `EstadoRegistro`.
    *
    * Carga el certificado del tenant para mTLS y POSTea al mismo endpoint
-   * SOAP usado por `sendInvoice`. La respuesta se mapea a un
+   * SOAP de los envíos. La respuesta se mapea a un
    * `GetStatusResult` con el mismo set de estados.
    */
   async getStatus(args: GetStatusArgs): Promise<GetStatusResult> {
@@ -411,7 +456,7 @@ export class RealAeatClient extends AeatClient {
   /**
    * Parsea la respuesta SOAP de `ConsultaFactuSistemaFacturacion`. Mantiene
    * la misma estrategia tolerante a prefijos de namespace que
-   * `parseResponse` (alta).
+   * el lector de los envíos (`submission-response.ts`).
    *
    * Mapeo de estados:
    *   - `Correcto`            -> `accepted` + csv
@@ -569,83 +614,6 @@ export class RealAeatClient extends AeatClient {
       req.write(body);
       req.end();
     });
-  }
-
-  /**
-   * Extrae el estado, CSV y errores del SOAP de respuesta. AEAT usa
-   * elementos con namespaces (`tikR:...`) pero los nombres locales que
-   * miramos son consistentes; usamos regex tolerantes a prefijos.
-   */
-  private parseResponse(response: { status: number; body: string }): SendInvoiceResult {
-    if (response.status >= 500) {
-      return {
-        status: 'error',
-        message: 'aeat_server_error',
-        raw: { httpStatus: response.status, body: response.body.slice(0, 2_000) },
-      };
-    }
-
-    const body = response.body;
-
-    // SOAP fault explicito.
-    const faultMatch = body.match(/<faultstring[^>]*>([\s\S]*?)<\/[^>]*faultstring>/i);
-    if (faultMatch) {
-      return {
-        status: 'rejected',
-        message: faultMatch[1]?.trim() ?? 'soap_fault',
-        raw: { httpStatus: response.status, body: body.slice(0, 2_000) },
-      };
-    }
-
-    const estadoMatch = body.match(
-      /<(?:[\w-]+:)?EstadoRegistro>([^<]+)<\/(?:[\w-]+:)?EstadoRegistro>/,
-    );
-    const estado = estadoMatch?.[1]?.trim();
-    const csvMatch = body.match(/<(?:[\w-]+:)?CSV>([^<]+)<\/(?:[\w-]+:)?CSV>/i);
-    const csv = csvMatch?.[1]?.trim();
-
-    if (estado === 'Correcto') {
-      return {
-        status: 'accepted',
-        csv: csv ?? null,
-        message: 'Correcto',
-        raw: { httpStatus: response.status, estado },
-      };
-    }
-    if (estado === 'AceptadoConErrores' || estado === 'AceptadaConErrores') {
-      return {
-        status: 'accepted_with_warnings',
-        csv: csv ?? null,
-        message: estado,
-        raw: { httpStatus: response.status, estado },
-      };
-    }
-    if (estado === 'Incorrecto') {
-      const codeMatch = body.match(
-        /<(?:[\w-]+:)?CodigoErrorRegistro>([^<]+)<\/(?:[\w-]+:)?CodigoErrorRegistro>/,
-      );
-      const descMatch = body.match(
-        /<(?:[\w-]+:)?DescripcionErrorRegistro>([^<]+)<\/(?:[\w-]+:)?DescripcionErrorRegistro>/,
-      );
-      const code = codeMatch?.[1]?.trim();
-      const desc = descMatch?.[1]?.trim();
-      return {
-        status: 'rejected',
-        message: desc ? (code ? `[${code}] ${desc}` : desc) : 'Incorrecto',
-        raw: {
-          httpStatus: response.status,
-          estado,
-          code: code ?? null,
-          description: desc ?? null,
-        },
-      };
-    }
-
-    return {
-      status: 'error',
-      message: 'unrecognized_aeat_response',
-      raw: { httpStatus: response.status, body: body.slice(0, 2_000) },
-    };
   }
 
   /**

@@ -12,6 +12,7 @@ const RETENTION: Record<string, number> = {
   RETENTION_WHATSAPP_DAYS: 365,
   RETENTION_WEB_EVENTS_DAYS: 480,
   RETENTION_CONTACT_MESSAGES_DAYS: 730,
+  RETENTION_VERIFACTU_SUBMISSIONS_DAYS: 1461,
 };
 
 function build() {
@@ -32,6 +33,7 @@ function build() {
     superAdminAuditLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     webChatConversation: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     waitlistEntry: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    verifactuSubmission: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     platformContactMessage: {
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -96,7 +98,11 @@ describe('DataRetentionService', () => {
       adminSessions: 9,
       impersonationLogs: 1,
       superAdminAuditLogs: 1,
+      verifactuSubmissions: 2,
     });
+    // Los envíos a la AEAT se guardan 4 años.
+    const vfCutoff = admin.verifactuSubmission.deleteMany.mock.calls[0]![0].where.sentAt.lt as Date;
+    expect(Math.abs(vfCutoff.getTime() - (before - 1461 * 86_400_000))).toBeLessThan(5000);
     // Formulario de contacto: 730 días; la IP se quita a los 90.
     const contactCutoff = admin.platformContactMessage.deleteMany.mock.calls[0]![0].where.createdAt
       .lt as Date;

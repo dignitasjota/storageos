@@ -2,39 +2,37 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../queues/queues.module';
 
 import { VerifactuService } from './verifactu.service';
 
-export interface VerifactuSendJobData {
-  invoiceId: string;
-  tenantId: string;
-}
+import type { VerifactuSendJobData } from './verifactu-dispatcher.service';
+
+export type { VerifactuSendJobData } from './verifactu-dispatcher.service';
 
 /**
- * Worker de la cola `verifactu`. Procesa el envio de facturas a AEAT
- * de forma asincrona, fuera del request original que emite la factura.
+ * Worker de la cola `verifactu`: envía a la AEAT lo pendiente de un emisor (el
+ * negocio o un propietario) fuera de la petición que emite la factura.
  *
- * Politica de retry:
- *   - `accepted` / `accepted_with_warnings`: exito, no se reintenta.
- *   - `rejected`: decision firme de AEAT (datos invalidos, NIF incorrecto,
- *     etc.). NO se reintenta: requiere intervencion manual (corregir y
- *     usar `POST /billing/invoices/:id/resend-aeat`).
- *   - `error`: fallo tecnico (timeout, 5xx, problema de red). Lanzamos
- *     excepcion para que BullMQ aplique el backoff exponencial
- *     configurado al encolar (1m, 5m, 25m con 3 attempts).
+ * Cada trabajo es un emisor y una hora de salida (`VerifactuDispatcher`): las
+ * facturas que se emiten mientras se espera van en el mismo envío.
+ * `sendPending` guarda el resultado de cada registro y programa el siguiente
+ * envío (la espera que pide la AEAT o el reintento tras un fallo), así que el
+ * trabajo no lanza por un fallo de la AEAT; solo por uno inesperado (la base de
+ * datos caída…), y entonces lo reintenta la cola.
  *
- * El estado `aeat_*` en BD ya se ha actualizado dentro de `sendToAeat`
- * antes de devolver el resultado, asi que el ultimo intento siempre deja
- * la BD coherente con lo ocurrido.
+ * Varios a la vez: cada emisor va de uno en uno (lo reserva el propio envío) y
+ * emisores distintos no se esperan entre sí.
  */
-// De uno en uno: la AEAT recibe los registros en el orden de la cadena (con
-// concurrencia 2, un registro podía llegar antes que su anterior).
-@Processor(QUEUE_VERIFACTU, { concurrency: 1 })
+@Processor(QUEUE_VERIFACTU, { concurrency: 4 })
 export class VerifactuProcessor extends WorkerHost {
   private readonly logger = new Logger(VerifactuProcessor.name);
 
-  constructor(private readonly verifactu: VerifactuService) {
+  constructor(
+    private readonly verifactu: VerifactuService,
+    private readonly admin: PrismaAdminService,
+  ) {
     super();
   }
 
@@ -43,18 +41,18 @@ export class VerifactuProcessor extends WorkerHost {
       this.logger.warn(`Job desconocido en cola verifactu: ${job.name}`);
       return;
     }
-    const { invoiceId, tenantId } = job.data;
-    const result = await this.verifactu.sendToAeat(invoiceId, tenantId);
-    if (!result) {
-      // Factura no enviable (faltan campos). No reintentamos.
-      this.logger.warn(`[verifactu] invoice ${invoiceId} sin datos suficientes, no se reintenta`);
-      return;
+    const { tenantId } = job.data;
+    let ownerId = job.data.ownerId;
+    if (ownerId === undefined) {
+      // Trabajo de antes de enviar en lotes (uno por factura): su emisor.
+      if (!job.data.invoiceId) return;
+      const invoice = await this.admin.invoice.findUnique({
+        where: { id: job.data.invoiceId },
+        select: { tenantId: true, ownerId: true },
+      });
+      if (!invoice || invoice.tenantId !== tenantId) return;
+      ownerId = invoice.ownerId;
     }
-    if (result.status === 'error') {
-      // Solo los errores tecnicos detonan el retry exponencial de BullMQ.
-      throw new Error(result.message ?? 'aeat_error');
-    }
-    // accepted / accepted_with_warnings / rejected: el job termina con
-    // exito desde la perspectiva de la cola.
+    await this.verifactu.sendPending(tenantId, ownerId ?? null);
   }
 }

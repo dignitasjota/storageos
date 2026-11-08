@@ -26,6 +26,31 @@ export interface VerifactuBlockerDto {
   href: string | null;
 }
 
+/**
+ * Un envío a la AEAT: hasta 1.000 registros de un mismo emisor (el negocio o
+ * uno de sus propietarios), con el CSV que acredita la remisión.
+ */
+export interface VerifactuSubmissionDto {
+  id: string;
+  sentAt: string;
+  /** El propietario que emite (plan Administrador); null = el propio negocio. */
+  ownerName: string | null;
+  /**
+   * `accepted`: todos registrados · `partially_accepted`: alguno rechazado ·
+   * `rejected`: ninguno · `error`: sin respuesta válida de la AEAT (se repite).
+   */
+  status: 'accepted' | 'partially_accepted' | 'rejected' | 'error';
+  /** Código seguro de verificación del envío (no hay si se rechazó entero). */
+  csv: string | null;
+  recordCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  /** Segundos que la AEAT pidió esperar antes del siguiente envío. */
+  waitSeconds: number | null;
+  message: string | null;
+  mode: 'stub' | 'sandbox' | 'production';
+}
+
 /** GET /billing/verifactu/settings */
 export interface VerifactuSettingsDto {
   enabled: boolean;
@@ -42,6 +67,14 @@ export interface VerifactuSettingsDto {
   rejectedCount: number;
   /** Emite en Holded: Holded registra esas facturas en la AEAT. */
   invoicingInHolded: boolean;
+  /** El último envío a la AEAT (de cualquiera de tus emisores). */
+  lastSubmission: VerifactuSubmissionDto | null;
+  /**
+   * Con facturas por enviar, cuándo sale el siguiente envío: la AEAT pide
+   * esperar entre uno y otro, o tras un fallo se reintenta más tarde. Null si
+   * no hay nada pendiente o sale ya.
+   */
+  nextSendAt: string | null;
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   nifFromCertValue,
   resolveRepresentative,
 } from './aeat-client/representative';
+import { VerifactuDispatcher } from './verifactu-dispatcher.service';
 
 import type { TenantAeatCredential } from '@storageos/database';
 
@@ -109,6 +110,7 @@ export class TenantAeatCredentialsService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
+    private readonly verifactuDispatcher: VerifactuDispatcher,
   ) {}
 
   /**
@@ -247,6 +249,22 @@ export class TenantAeatCredentialsService {
         ...(ownerId ? { ownerId } : {}),
       },
     });
+
+    // Lo que no salió por falta de certificado (o por uno caducado) sale ya:
+    // el del negocio vale también para los propietarios sin certificado propio.
+    try {
+      if (ownerId) {
+        await this.verifactuDispatcher.schedule(tenantId, ownerId, { retryNow: true });
+      } else {
+        await this.verifactuDispatcher.scheduleTenant(tenantId, { retryNow: true });
+      }
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo programar el envío pendiente a la AEAT del tenant ${tenantId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
 
     return this.toMetadata(record, await this.issuerTaxId(tenantId, ownerId));
   }

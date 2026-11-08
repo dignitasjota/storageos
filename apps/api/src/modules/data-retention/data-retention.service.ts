@@ -168,6 +168,7 @@ export class DataRetentionService {
     adminSessions: number;
     impersonationLogs: number;
     superAdminAuditLogs: number;
+    verifactuSubmissions: number;
   }> {
     const now = Date.now();
     const cutoff = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000);
@@ -183,6 +184,7 @@ export class DataRetentionService {
     const adminSessionDays = this.config.get('RETENTION_ADMIN_SESSIONS_DAYS', { infer: true });
     const impersonationDays = this.config.get('RETENTION_IMPERSONATION_LOGS_DAYS', { infer: true });
     const adminAuditDays = this.config.get('RETENTION_SUPER_ADMIN_AUDIT_DAYS', { infer: true });
+    const verifactuDays = this.config.get('RETENTION_VERIFACTU_SUBMISSIONS_DAYS', { infer: true });
     const prenoticeDays = Math.max(
       this.config.get('RETENTION_SEPA_PRENOTICE_DAYS', { infer: true }),
       commsDays,
@@ -216,6 +218,7 @@ export class DataRetentionService {
       adminSessions,
       impersonationLogs,
       superAdminAuditLogs,
+      verifactuSubmissions,
     ] = await Promise.all([
       this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
       this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
@@ -268,6 +271,10 @@ export class DataRetentionService {
       this.admin.superAdminAuditLog.deleteMany({
         where: { occurredAt: { lt: cutoff(adminAuditDays) } },
       }),
+      // Envíos a la AEAT: el CSV de cada factura sigue en la factura.
+      this.admin.verifactuSubmission.deleteMany({
+        where: { sentAt: { lt: cutoff(verifactuDays) } },
+      }),
     ]);
     // La IP del visitante solo hace falta los primeros días (abusos).
     await this.admin.platformContactMessage.updateMany({
@@ -292,6 +299,7 @@ export class DataRetentionService {
       adminSessions: adminSessions.count,
       impersonationLogs: impersonationLogs.count,
       superAdminAuditLogs: superAdminAuditLogs.count,
+      verifactuSubmissions: verifactuSubmissions.count,
     };
     const total =
       result.auditLogs +
@@ -307,7 +315,8 @@ export class DataRetentionService {
       result.contactMessages +
       result.adminSessions +
       result.impersonationLogs +
-      result.superAdminAuditLogs;
+      result.superAdminAuditLogs +
+      result.verifactuSubmissions;
     if (total > 0) {
       this.logger.log(
         `data-retention: borradas ${total} filas ` +
@@ -317,7 +326,7 @@ export class DataRetentionService {
           `whatsapp=${result.whatsappConversations}/${result.whatsappMessages}, ` +
           `web_events=${result.webEvents}, web_chat=${result.webChatConversations}, lista_espera=${result.waitlistEntries}, contacto=${result.contactMessages}, ` +
           `admin_sessions=${result.adminSessions}, impersonations=${result.impersonationLogs}, ` +
-          `admin_audit=${result.superAdminAuditLogs})`,
+          `admin_audit=${result.superAdminAuditLogs}, verifactu=${result.verifactuSubmissions})`,
       );
     }
     return result;
