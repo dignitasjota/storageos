@@ -1,5 +1,9 @@
-import { Body, Controller, Get, Put, Req } from '@nestjs/common';
-import { UpdateVerifactuSettingsSchema, type VerifactuSettingsDto } from '@storageos/shared';
+import { Body, Controller, Get, Put, Query, Req } from '@nestjs/common';
+import {
+  UpdateVerifactuSettingsSchema,
+  type VerifactuSettingsDto,
+  type VerifactuSubmissionDto,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -23,6 +27,17 @@ export class VerifactuSettingsController {
   @Get('settings')
   get(@CurrentUser() user: AuthenticatedUser): Promise<VerifactuSettingsDto> {
     return this.settings.get(user.tenantId);
+  }
+
+  /** Los últimos envíos a la AEAT (con el CSV de cada uno). */
+  @RequirePermission('invoices:manage')
+  @Get('submissions')
+  submissions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('limit') limit?: string,
+  ): Promise<VerifactuSubmissionDto[]> {
+    const n = Number.parseInt(limit ?? '', 10);
+    return this.settings.submissions(user.tenantId, Number.isFinite(n) ? n : undefined);
   }
 
   @RequirePermission('billing:configure')

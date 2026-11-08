@@ -72,14 +72,17 @@ function createConfig(
   } as unknown as ConfigService<Env, true>;
 }
 
-/** Fixture base de invoice + tenant + customer que `findUnique` devolveria. */
+/** Fixtures de invoice + tenant + customer que devolverían las consultas. */
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const INVOICE_ID = '22222222-2222-2222-2222-222222222222';
+const INVOICE_2_ID = '44444444-4444-4444-4444-444444444444';
+const OWNER_ID = '33333333-3333-3333-3333-333333333333';
 
-function fakeInvoice() {
+function fakeInvoice(overrides: Record<string, unknown> = {}) {
   return {
     id: INVOICE_ID,
     tenantId: TENANT_ID,
+    ownerId: null,
     invoiceNumber: 'F-2026-0001',
     invoiceType: 'F1' as const,
     issueDate: new Date('2026-05-20T00:00:00.000Z'),
@@ -87,12 +90,15 @@ function fakeInvoice() {
     taxAmount: 21 as unknown as number,
     total: 121 as unknown as number,
     hash: 'A'.repeat(64),
+    previousHash: null,
     aeatRecordTimestamp: '2026-05-20T10:00:00+02:00',
     previousInvoiceId: null,
+    rectifiesInvoiceId: null,
+    correctionMethod: null,
     notes: 'Alquiler trastero T-12 mes mayo 2026',
     periodStart: new Date('2026-05-01T00:00:00.000Z'),
     periodEnd: new Date('2026-05-31T00:00:00.000Z'),
-    items: [{ taxRate: 21, taxAmount: 21, total: 121 }],
+    items: [{ taxRate: 21, taxAmount: 21, total: 121, taxCategory: 'S1' }],
     customer: {
       customerType: 'individual',
       companyName: null,
@@ -102,6 +108,7 @@ function fakeInvoice() {
       documentType: 'dni',
       country: 'ES',
     },
+    ...overrides,
   };
 }
 
@@ -109,12 +116,73 @@ function fakeTenant() {
   return {
     id: TENANT_ID,
     name: 'Trasteros Demo SL',
+    billingLegalName: null,
     taxId: 'B12345678',
     verifactuInstallation: '20261108153000-11111111',
     verifactuEnabledAt: new Date('2026-11-08T15:30:00.000Z'),
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 }
+
+interface AeatLine {
+  number: string;
+  date: string;
+  ref?: string;
+  estado: string;
+  code?: string;
+  desc?: string;
+}
+
+/** Respuesta de la AEAT a un envío (RespuestaSuministro.xsd). */
+function aeatResponse(args: {
+  estadoEnvio: string;
+  lines: AeatLine[];
+  csv?: string;
+  wait?: string;
+}): string {
+  const lines = args.lines
+    .map(
+      (l) => `      <tikR:RespuestaLinea>
+        <tikR:IDFactura>
+          <tik:IDEmisorFactura>B12345678</tik:IDEmisorFactura>
+          <tik:NumSerieFactura>${l.number}</tik:NumSerieFactura>
+          <tik:FechaExpedicionFactura>${l.date}</tik:FechaExpedicionFactura>
+        </tikR:IDFactura>
+        <tikR:Operacion><tik:TipoOperacion>Alta</tik:TipoOperacion></tikR:Operacion>${
+          l.ref ? `\n        <tikR:RefExterna>${l.ref}</tikR:RefExterna>` : ''
+        }
+        <tikR:EstadoRegistro>${l.estado}</tikR:EstadoRegistro>${
+          l.code ? `\n        <tikR:CodigoErrorRegistro>${l.code}</tikR:CodigoErrorRegistro>` : ''
+        }${l.desc ? `\n        <tikR:DescripcionErrorRegistro>${l.desc}</tikR:DescripcionErrorRegistro>` : ''}
+      </tikR:RespuestaLinea>`,
+    )
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<env:Envelope xmlns:env="http://schemas.xmlsoap.org/soap/envelope/">
+  <env:Header/>
+  <env:Body Id="Body">
+    <tikR:RespuestaRegFactuSistemaFacturacion xmlns:tikR="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/RespuestaSuministro.xsd" xmlns:tik="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd">${
+      args.csv ? `\n      <tikR:CSV>${args.csv}</tikR:CSV>` : ''
+    }
+      <tikR:Cabecera>
+        <tik:ObligadoEmision>
+          <tik:NombreRazon>Trasteros Demo SL</tik:NombreRazon>
+          <tik:NIF>B12345678</tik:NIF>
+        </tik:ObligadoEmision>
+      </tikR:Cabecera>
+      <tikR:TiempoEsperaEnvio>${args.wait ?? '60'}</tikR:TiempoEsperaEnvio>
+      <tikR:EstadoEnvio>${args.estadoEnvio}</tikR:EstadoEnvio>
+${lines}
+    </tikR:RespuestaRegFactuSistemaFacturacion>
+  </env:Body>
+</env:Envelope>`;
+}
+
+const ACCEPTED_ONE = aeatResponse({
+  estadoEnvio: 'Correcto',
+  csv: 'ABC123XYZ',
+  lines: [{ number: 'F-2026-0001', date: '20-05-2026', ref: INVOICE_ID, estado: 'Correcto' }],
+});
 
 interface BuildClientArgs {
   decryptedCert?: {
@@ -129,30 +197,38 @@ interface BuildClientArgs {
     };
   } | null;
   config?: Partial<Record<keyof Env, unknown>>;
+  invoices?: ReturnType<typeof fakeInvoice>[];
 }
 
 function buildClient(args: BuildClientArgs = {}): {
   client: RealAeatClient;
   credentialsMock: jest.Mocked<Pick<TenantAeatCredentialsService, 'getDecrypted'>>;
   adminMock: {
-    invoice: { findUnique: jest.Mock; findFirst: jest.Mock };
+    invoice: { findUnique: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock };
     tenant: { findUnique: jest.Mock };
-    owner: { count: jest.Mock };
+    owner: { findUnique: jest.Mock; count: jest.Mock };
   };
 } {
   const credentialsMock = {
     getDecrypted: jest.fn().mockResolvedValue(args.decryptedCert ?? null),
   } as unknown as jest.Mocked<Pick<TenantAeatCredentialsService, 'getDecrypted'>>;
 
+  const invoices = args.invoices ?? [fakeInvoice()];
   const adminMock = {
     invoice: {
       findUnique: jest.fn().mockResolvedValue(fakeInvoice()),
       findFirst: jest.fn().mockResolvedValue(null),
+      // Las facturas del envío (con `include`) y sus anteriores / rectificadas.
+      findMany: jest
+        .fn()
+        .mockImplementation((q: { include?: unknown }) =>
+          Promise.resolve(q.include ? invoices : []),
+        ),
     },
     tenant: {
       findUnique: jest.fn().mockResolvedValue(fakeTenant()),
     },
-    owner: { count: jest.fn().mockResolvedValue(0) },
+    owner: { findUnique: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
   };
 
   const config = createConfig(args.config);
@@ -167,16 +243,7 @@ function buildClient(args: BuildClientArgs = {}): {
   return { client, credentialsMock, adminMock };
 }
 
-const baseSendArgs = {
-  tenantId: TENANT_ID,
-  invoiceId: INVOICE_ID,
-  invoiceNumber: 'F-2026-0001',
-  issueDate: new Date('2026-05-20T00:00:00.000Z'),
-  total: 121,
-  previousHash: null,
-  hash: 'A'.repeat(64),
-  emitterTaxId: 'B12345678',
-};
+const baseBatch = { tenantId: TENANT_ID, ownerId: null, invoiceIds: [INVOICE_ID] };
 
 describe('RealAeatClient', () => {
   let validCert: ReturnType<typeof buildTestPkcs12>;
@@ -195,14 +262,35 @@ describe('RealAeatClient', () => {
     jest.restoreAllMocks();
   });
 
-  it('sin credencial AEAT -> error tenant_no_aeat_credential', async () => {
+  function certArgs() {
+    return {
+      decryptedCert: {
+        p12Buffer: validCert.p12Buffer,
+        password: validCert.password,
+        record: {
+          certValidTo: validCert.notAfter,
+          certNif: 'B12345678',
+          certOrganizationNif: null,
+          certCommonName: 'TEST CERT',
+          representativeName: null,
+        },
+      },
+    };
+  }
+
+  it('sin credencial AEAT -> no sale: tenant_no_aeat_credential en cada factura', async () => {
     const { client } = buildClient({ decryptedCert: null });
-    const res = await client.sendInvoice(baseSendArgs);
-    expect(res.status).toBe('error');
+    const res = await client.sendBatch(baseBatch);
+    expect(res.outcome).toBe('not_sent');
     expect(res.message).toBe('tenant_no_aeat_credential');
+    expect(res.recordCount).toBe(0);
+    expect(res.results[INVOICE_ID]).toEqual({
+      status: 'error',
+      message: 'tenant_no_aeat_credential',
+    });
   });
 
-  it('cert expirado -> error certificate_expired', async () => {
+  it('cert expirado -> no sale: certificate_expired', async () => {
     const expired = buildTestPkcs12({
       notAfter: new Date(Date.now() + 1_000), // valid p12 (forge exige not_after > not_before)
     });
@@ -219,78 +307,40 @@ describe('RealAeatClient', () => {
         },
       },
     });
-    const res = await client.sendInvoice(baseSendArgs);
-    expect(res.status).toBe('error');
+    const res = await client.sendBatch(baseBatch);
+    expect(res.outcome).toBe('not_sent');
     expect(res.message).toBe('certificate_expired');
+    expect(res.results[INVOICE_ID]?.status).toBe('error');
   });
 
-  it('respuesta Correcto + CSV -> accepted con csv', async () => {
+  it('respuesta Correcto -> registrada con el CSV del envío y la espera que pide la AEAT', async () => {
     nock(AEAT_HOST)
       .post(AEAT_PATH)
-      .reply(
-        200,
-        `<?xml version="1.0"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
-  <soapenv:Body>
-    <RespuestaRegFactuSistemaFacturacion>
-      <RespuestaLinea>
-        <EstadoRegistro>Correcto</EstadoRegistro>
-        <CSV>ABC123XYZ</CSV>
-      </RespuestaLinea>
-    </RespuestaRegFactuSistemaFacturacion>
-  </soapenv:Body>
-</soapenv:Envelope>`,
-        { 'content-type': 'text/xml; charset=utf-8' },
-      );
+      .reply(200, ACCEPTED_ONE, { 'content-type': 'text/xml; charset=utf-8' });
 
-    const { client } = buildClient({
-      decryptedCert: {
-        p12Buffer: validCert.p12Buffer,
-        password: validCert.password,
-        record: {
-          certValidTo: validCert.notAfter,
-          certNif: 'B12345678',
-          certOrganizationNif: null,
-          certCommonName: 'TEST CERT',
-          representativeName: null,
-        },
-      },
-    });
-    const res = await client.sendInvoice(baseSendArgs);
+    const { client } = buildClient(certArgs());
+    const res = await client.sendBatch(baseBatch);
+    expect(res.outcome).toBe('sent');
     expect(res.status).toBe('accepted');
     expect(res.csv).toBe('ABC123XYZ');
+    expect(res.waitSeconds).toBe(60);
+    expect(res.recordCount).toBe(1);
+    expect(res.emitterTaxId).toBe('B12345678');
+    expect(res.results[INVOICE_ID]).toMatchObject({ status: 'accepted', csv: 'ABC123XYZ' });
   });
 
   it('cada registro lleva al fabricante y el número de instalación del emisor', async () => {
     const sent: string[] = [];
-    const accepted = `<?xml version="1.0"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
-  <soapenv:Body><RespuestaRegFactuSistemaFacturacion><RespuestaLinea>
-    <EstadoRegistro>Correcto</EstadoRegistro><CSV>X1</CSV>
-  </RespuestaLinea></RespuestaRegFactuSistemaFacturacion></soapenv:Body>
-</soapenv:Envelope>`;
     nock(AEAT_HOST)
       .post(AEAT_PATH, (body: string) => {
         sent.push(body);
         return true;
       })
       .times(2)
-      .reply(200, accepted, { 'content-type': 'text/xml; charset=utf-8' });
+      .reply(200, ACCEPTED_ONE, { 'content-type': 'text/xml; charset=utf-8' });
 
-    const { client, adminMock } = buildClient({
-      decryptedCert: {
-        p12Buffer: validCert.p12Buffer,
-        password: validCert.password,
-        record: {
-          certValidTo: validCert.notAfter,
-          certNif: 'B12345678',
-          certOrganizationNif: null,
-          certCommonName: 'TEST CERT',
-          representativeName: null,
-        },
-      },
-    });
-    await client.sendInvoice(baseSendArgs);
+    const { client, adminMock } = buildClient(certArgs());
+    await client.sendBatch(baseBatch);
     expect(sent[0]).toContain('<sum1:NombreRazon>Urbanbox Soluciones SL</sum1:NombreRazon>');
     expect(sent[0]).toContain('<sum1:NIF>B05691886</sum1:NIF>');
     expect(sent[0]).toContain('<sum1:Version>1.0</sum1:Version>');
@@ -299,22 +349,91 @@ describe('RealAeatClient', () => {
     );
     // Una sola facturación en el negocio.
     expect(sent[0]).toContain('<sum1:IndicadorMultiplesOT>N</sum1:IndicadorMultiplesOT>');
+    // El id de la factura vuelve en la línea de la respuesta.
+    expect(sent[0]).toContain(`<sum1:RefExterna>${INVOICE_ID}</sum1:RefExterna>`);
 
-    // Una factura de un propietario: su propio número y el negocio lleva varias.
-    adminMock.invoice.findUnique.mockResolvedValue({
-      ...fakeInvoice(),
-      owner: {
-        id: '33333333-3333-3333-3333-333333333333',
-        legalName: 'Propietaria SL',
-        taxId: 'B12345674',
-      },
+    // Un propietario: su propio número, su NIF de obligado y el negocio lleva varias.
+    adminMock.owner.findUnique.mockResolvedValue({
+      id: OWNER_ID,
+      tenantId: TENANT_ID,
+      legalName: 'Propietaria SL',
+      taxId: 'B12345674',
     });
     adminMock.owner.count.mockResolvedValue(1);
-    await client.sendInvoice(baseSendArgs);
+    adminMock.invoice.findMany.mockImplementation((q: { include?: unknown }) =>
+      Promise.resolve(q.include ? [fakeInvoice({ ownerId: OWNER_ID })] : []),
+    );
+    adminMock.invoice.findMany.mockClear();
+    const owned = await client.sendBatch({ ...baseBatch, ownerId: OWNER_ID });
+    expect(owned.emitterTaxId).toBe('B12345674');
     expect(sent[1]).toContain(
       '<sum1:NumeroInstalacion>20261108153000-11111111-33333333</sum1:NumeroInstalacion>',
     );
     expect(sent[1]).toContain('<sum1:IndicadorMultiplesOT>S</sum1:IndicadorMultiplesOT>');
+    expect(sent[1]).toContain('<sum1:NIF>B12345674</sum1:NIF>');
+    // Solo se piden las facturas de ese emisor.
+    expect(adminMock.invoice.findMany.mock.calls[0]![0].where).toMatchObject({
+      tenantId: TENANT_ID,
+      ownerId: OWNER_ID,
+    });
+  });
+
+  it('varias facturas van en un mismo envío y cada una recibe su resultado', async () => {
+    const sent: string[] = [];
+    nock(AEAT_HOST)
+      .post(AEAT_PATH, (body: string) => {
+        sent.push(body);
+        return true;
+      })
+      .reply(
+        200,
+        aeatResponse({
+          estadoEnvio: 'ParcialmenteCorrecto',
+          csv: 'CSV-LOTE',
+          wait: '120',
+          lines: [
+            { number: 'F-2026-0001', date: '20-05-2026', ref: INVOICE_ID, estado: 'Correcto' },
+            {
+              number: 'F-2026-0002',
+              date: '21-05-2026',
+              ref: INVOICE_2_ID,
+              estado: 'Incorrecto',
+              code: '1105',
+              desc: 'El NIF del destinatario no está identificado',
+            },
+          ],
+        }),
+      );
+
+    const { client } = buildClient({
+      ...certArgs(),
+      invoices: [
+        fakeInvoice(),
+        fakeInvoice({
+          id: INVOICE_2_ID,
+          invoiceNumber: 'F-2026-0002',
+          issueDate: new Date('2026-05-21T00:00:00.000Z'),
+          previousInvoiceId: INVOICE_ID,
+          previousHash: 'A'.repeat(64),
+          hash: 'B'.repeat(64),
+        }),
+      ],
+    });
+    const res = await client.sendBatch({ ...baseBatch, invoiceIds: [INVOICE_ID, INVOICE_2_ID] });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.match(/<sum1:RegistroAlta>/g)).toHaveLength(2);
+    // En el orden de la cadena: la primera antes que la segunda.
+    expect(sent[0]!.indexOf('F-2026-0001')).toBeLessThan(sent[0]!.indexOf('F-2026-0002'));
+    expect(res.outcome).toBe('sent');
+    expect(res.status).toBe('partially_accepted');
+    expect(res.recordCount).toBe(2);
+    expect(res.waitSeconds).toBe(120);
+    expect(res.results[INVOICE_ID]).toMatchObject({ status: 'accepted', csv: 'CSV-LOTE' });
+    expect(res.results[INVOICE_2_ID]).toMatchObject({
+      status: 'rejected',
+      message: '[1105] El NIF del destinatario no está identificado',
+    });
   });
 
   it('respuesta AceptadoConErrores -> accepted_with_warnings + CSV', async () => {
@@ -322,86 +441,38 @@ describe('RealAeatClient', () => {
       .post(AEAT_PATH)
       .reply(
         200,
-        `<?xml version="1.0"?>
-<Envelope>
-  <Body>
-    <EstadoRegistro>AceptadoConErrores</EstadoRegistro>
-    <CSV>WARN-CSV-001</CSV>
-  </Body>
-</Envelope>`,
+        aeatResponse({
+          estadoEnvio: 'ParcialmenteCorrecto',
+          csv: 'WARN-CSV-001',
+          lines: [
+            {
+              number: 'F-2026-0001',
+              date: '20-05-2026',
+              ref: INVOICE_ID,
+              estado: 'AceptadoConErrores',
+              code: '2004',
+              desc: 'FechaHoraHusoGenRegistro fuera de margen',
+            },
+          ],
+        }),
       );
 
-    const { client } = buildClient({
-      decryptedCert: {
-        p12Buffer: validCert.p12Buffer,
-        password: validCert.password,
-        record: {
-          certValidTo: validCert.notAfter,
-          certNif: 'B12345678',
-          certOrganizationNif: null,
-          certCommonName: 'TEST CERT',
-          representativeName: null,
-        },
-      },
+    const { client } = buildClient(certArgs());
+    const res = await client.sendBatch(baseBatch);
+    expect(res.results[INVOICE_ID]).toMatchObject({
+      status: 'accepted_with_warnings',
+      csv: 'WARN-CSV-001',
     });
-    const res = await client.sendInvoice(baseSendArgs);
-    expect(res.status).toBe('accepted_with_warnings');
-    expect(res.csv).toBe('WARN-CSV-001');
   });
 
-  it('respuesta Incorrecto -> rejected con mensaje', async () => {
-    nock(AEAT_HOST)
-      .post(AEAT_PATH)
-      .reply(
-        200,
-        `<?xml version="1.0"?>
-<Envelope>
-  <Body>
-    <EstadoRegistro>Incorrecto</EstadoRegistro>
-    <CodigoErrorRegistro>1001</CodigoErrorRegistro>
-    <DescripcionErrorRegistro>NIF invalido</DescripcionErrorRegistro>
-  </Body>
-</Envelope>`,
-      );
-
-    const { client } = buildClient({
-      decryptedCert: {
-        p12Buffer: validCert.p12Buffer,
-        password: validCert.password,
-        record: {
-          certValidTo: validCert.notAfter,
-          certNif: 'B12345678',
-          certOrganizationNif: null,
-          certCommonName: 'TEST CERT',
-          representativeName: null,
-        },
-      },
-    });
-    const res = await client.sendInvoice(baseSendArgs);
-    expect(res.status).toBe('rejected');
-    expect(res.message).toContain('NIF invalido');
-    expect(res.raw?.code).toBe('1001');
-  });
-
-  it('HTTP 500 -> error aeat_server_error', async () => {
+  it('HTTP 500 -> falló: hay que repetir el envío', async () => {
     nock(AEAT_HOST).post(AEAT_PATH).reply(500, '<html>Internal Server Error</html>');
 
-    const { client } = buildClient({
-      decryptedCert: {
-        p12Buffer: validCert.p12Buffer,
-        password: validCert.password,
-        record: {
-          certValidTo: validCert.notAfter,
-          certNif: 'B12345678',
-          certOrganizationNif: null,
-          certCommonName: 'TEST CERT',
-          representativeName: null,
-        },
-      },
-    });
-    const res = await client.sendInvoice(baseSendArgs);
-    expect(res.status).toBe('error');
+    const { client } = buildClient(certArgs());
+    const res = await client.sendBatch(baseBatch);
+    expect(res.outcome).toBe('failed');
     expect(res.message).toBe('aeat_server_error');
+    expect(res.results[INVOICE_ID]?.status).toBe('error');
   });
 
   describe('getStatus', () => {
@@ -480,25 +551,14 @@ describe('RealAeatClient', () => {
   // lo que en lugar de simular un retraso real emitimos directamente un
   // `Error('timeout')` que es exactamente lo que `req.destroy(...)` haria al
   // agotarse el timer en condiciones reales.
-  it('timeout -> error con mensaje timeout', async () => {
+  it('timeout -> falló con mensaje timeout', async () => {
     nock(AEAT_HOST).post(AEAT_PATH).replyWithError(new Error('timeout'));
 
-    const { client } = buildClient({
-      decryptedCert: {
-        p12Buffer: validCert.p12Buffer,
-        password: validCert.password,
-        record: {
-          certValidTo: validCert.notAfter,
-          certNif: 'B12345678',
-          certOrganizationNif: null,
-          certCommonName: 'TEST CERT',
-          representativeName: null,
-        },
-      },
-      config: { AEAT_TIMEOUT_MS: 50 },
-    });
-    const res = await client.sendInvoice(baseSendArgs);
-    expect(res.status).toBe('error');
+    const { client } = buildClient({ ...certArgs(), config: { AEAT_TIMEOUT_MS: 50 } });
+    const res = await client.sendBatch(baseBatch);
+    expect(res.outcome).toBe('failed');
     expect(res.message).toMatch(/timeout/i);
+    expect(res.recordCount).toBe(1);
+    expect(res.results[INVOICE_ID]?.status).toBe('error');
   });
 });

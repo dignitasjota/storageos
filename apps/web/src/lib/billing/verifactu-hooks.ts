@@ -4,7 +4,7 @@ import { ApiError, apiFetch } from '../auth/api';
 
 import { invoiceKey } from './hooks';
 
-import type { InvoiceDto, VerifactuSettingsDto } from '@storageos/shared';
+import type { InvoiceDto, VerifactuSettingsDto, VerifactuSubmissionDto } from '@storageos/shared';
 
 /**
  * Metadata pública del certificado AEAT cargado por el tenant. La definimos
@@ -40,12 +40,22 @@ export interface AeatCredentialMetadata {
 export const verifactuCredentialKey = ['billing', 'aeat-credential'] as const;
 export const verifactuCredentialHistoryKey = ['billing', 'aeat-credential', 'history'] as const;
 export const verifactuSettingsKey = ['billing', 'verifactu-settings'] as const;
+export const verifactuSubmissionsKey = ['billing', 'verifactu-submissions'] as const;
 
 /** GET /billing/verifactu/settings: si el negocio envía sus facturas a la AEAT. */
 export function useVerifactuSettingsQuery() {
   return useQuery({
     queryKey: verifactuSettingsKey,
     queryFn: () => apiFetch<VerifactuSettingsDto>('/billing/verifactu/settings'),
+  });
+}
+
+/** GET /billing/verifactu/submissions: los últimos envíos a la AEAT, con su CSV. */
+export function useVerifactuSubmissionsQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: verifactuSubmissionsKey,
+    queryFn: () => apiFetch<VerifactuSubmissionDto[]>('/billing/verifactu/submissions'),
+    enabled,
   });
 }
 

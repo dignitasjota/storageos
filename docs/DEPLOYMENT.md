@@ -1961,3 +1961,16 @@ Migración `20270103100000_verifactu_installation` (se aplica sola). **Qué camb
 - **Número de instalación por facturación** (preguntas frecuentes de la AEAT a desarrolladores, n.º 4): el de cada negocio se fija al activar Veri\*Factu (fecha y hora de la activación + el principio de su id) y no se repite, ni al volver a activarlo; cada propietario del plan Administrador lleva el suyo. La migración se lo pone a los negocios que ya lo tenían activado. `IndicadorMultiplesOT` = `S` solo en los negocios con propietarios.
 - **El QR va arriba**: en el PDF de las facturas con Veri\*Factu, centrado en la cabecera, con «QR tributario:» encima y «Factura verificable en la sede electrónica de la AEAT» debajo, del tamaño del resto de datos (especificación del QR de la AEAT, apartado 3). Los PDF ya generados no cambian.
 - **Cambiar de versión**: cuando cambie la parte de facturación, se sube `VERIFACTU_SYSTEM.version` y se firma la declaración de esa versión.
+
+## 111. Veri\*Factu: envíos en lotes y control de flujo (2026-11-08)
+
+Migración `20270104100000_verifactu_submissions` (se aplica sola). Variable opcional `RETENTION_VERIFACTU_SUBMISSIONS_DAYS` (1461 días por defecto). **Qué cambia al redesplegar:**
+
+- **Las facturas de un mismo emisor (el negocio o cada propietario) salen juntas**, hasta 1.000 por envío y en el orden de su cadena. Antes salía una por envío.
+- **Se espera entre envíos lo que pide la AEAT** (`TiempoEsperaEnvio`, 60 segundos al principio; art. 16.2 de la Orden HAC/1177/2024). Lo que se emite mientras tanto va en el siguiente envío; con 1.000 registros acumulados sale sin esperar. Cada emisor lleva su propia espera: un negocio no frena a otro.
+- **Un envío sin respuesta se repite** al cabo de 1, 2, 4… minutos y, como mucho, cada hora (art. 16.4). Un «SoapFault» o un error del servidor de la AEAT cuentan como envío sin respuesta, no como rechazo. Si un envío anterior sí llegó, la AEAT contesta «duplicado» con lo que tiene registrado y se toma eso.
+- **Constancia de cada envío** en la tabla `verifactu_submissions` (fecha, facturas, resultado y el CSV de la AEAT), que se guarda 4 años. Se ve en **Configuración → Veri\*Factu** («Último envío… Ver los envíos»), junto con cuándo sale el siguiente si hay facturas pendientes.
+- «Reenviar» una factura y subir un certificado no esperan al reintento de un envío fallido (sí a la espera entre envíos).
+- Los trabajos `send-to-aeat` que hubiera en la cola al redesplegar (uno por factura) se siguen atendiendo: envían lo pendiente del emisor de esa factura.
+
+No hay que configurar nada. Con `AEAT_MODE=stub` el envío simulado no pide esperar.

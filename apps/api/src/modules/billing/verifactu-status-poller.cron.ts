@@ -1,18 +1,17 @@
-import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { Queue } from 'bullmq';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
-import { QUEUE_VERIFACTU } from '../queues/queue-names';
-import { JOB_VERIFACTU_SEND } from '../queues/queues.module';
 
+import { PENDING_RECORD_WHERE, VerifactuDispatcher } from './verifactu-dispatcher.service';
 import { VerifactuService } from './verifactu.service';
 
 /**
- * Cron que recupera facturas con `aeat_status='pending'` cuyo envio quedo
- * huerfano (timeout, respuesta sin `EstadoRegistro`, etc.) y consulta a
- * AEAT el estado actual. Se ejecuta cada 15 minutos.
+ * Crons de Veri*Factu, cada 15 minutos:
+ *   - `requeue`: vuelve a programar el envío de los emisores con registros
+ *     atascados (ver `requeueStalled`).
+ *   - `poll-orphans`: consulta a la AEAT las facturas `pending` que ya
+ *     salieron sin respuesta clara.
  *
  * Politica:
  *   - Solo consideramos pendientes con `aeat_sent_at` mas viejo de 5 min
@@ -37,55 +36,40 @@ export class VerifactuStatusPollerCron {
   /** Batch maximo de facturas por tick para acotar la carga. */
   private static readonly BATCH_SIZE = 50;
 
-  /** Errores que no se arreglan reintentando: necesitan intervención. */
-  private static readonly NOT_RETRYABLE = new Set([
-    'tenant_no_aeat_credential',
-    'certificate_expired',
-    'invalid_certificate',
-    'invoice_missing_required_fields',
-    'invoice_missing_record_timestamp',
-    'invoice_not_found',
-    'tenant_not_found',
-  ]);
+  /** Emisores que se vuelven a programar como mucho en cada vuelta. */
+  private static readonly EMITTERS_PER_TICK = 200;
 
   constructor(
     private readonly verifactu: VerifactuService,
     private readonly admin: PrismaAdminService,
-    @InjectQueue(QUEUE_VERIFACTU) private readonly queue: Queue,
+    private readonly dispatcher: VerifactuDispatcher,
   ) {}
 
   /**
-   * Vuelve a encolar lo que agotó sus reintentos por un fallo pasajero (red,
-   * AEAT caída) o porque esperaba a que se resolviera el registro anterior de
-   * la cadena: sin esto se quedaba parado hasta un «Reenviar» manual.
+   * Red de seguridad: vuelve a programar los emisores con registros por enviar
+   * que llevan un rato quietos (un trabajo perdido, Redis reiniciado…). Respeta
+   * la espera que pidió la AEAT y la del reintento tras un fallo, que como
+   * mucho es de una hora (art. 16.4 de la Orden HAC/1177/2024).
    */
   @Cron('*/15 * * * *', { name: 'verifactu-status.requeue' })
   async requeueStalled(): Promise<void> {
     const cutoff = new Date(Date.now() - VerifactuStatusPollerCron.COOLDOWN_MS);
-    const stalled = await this.admin.invoice.findMany({
-      where: {
-        hash: { not: null },
-        OR: [
-          { aeatStatus: 'error', aeatSentAt: { lt: cutoff } },
-          { aeatStatus: 'pending', aeatSentAt: null, updatedAt: { lt: cutoff } },
-        ],
-      },
-      select: { id: true, tenantId: true, aeatResponse: true, chainSeq: true },
-      orderBy: [{ tenantId: 'asc' }, { chainSeq: 'asc' }],
-      take: VerifactuStatusPollerCron.BATCH_SIZE,
+    const stalled = await this.admin.invoice.groupBy({
+      by: ['tenantId', 'ownerId'],
+      where: { ...PENDING_RECORD_WHERE, updatedAt: { lt: cutoff } },
+      orderBy: [{ tenantId: 'asc' }, { ownerId: 'asc' }],
+      take: VerifactuStatusPollerCron.EMITTERS_PER_TICK,
     });
-    for (const inv of stalled) {
-      const message = (inv.aeatResponse as { message?: string } | null)?.message ?? '';
-      if (VerifactuStatusPollerCron.NOT_RETRYABLE.has(message)) continue;
-      await this.queue.add(
-        JOB_VERIFACTU_SEND,
-        { invoiceId: inv.id, tenantId: inv.tenantId },
-        {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 60_000 },
-          removeOnComplete: { age: 86_400 },
-        },
-      );
+    for (const e of stalled) {
+      try {
+        await this.dispatcher.schedule(e.tenantId, e.ownerId);
+      } catch (err) {
+        this.logger.warn(
+          `[verifactu-status.requeue] no se pudo programar el envío del tenant ${e.tenantId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
   }
 

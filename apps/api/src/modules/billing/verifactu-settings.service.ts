@@ -7,11 +7,38 @@ import { tenantFiscalDataMissing } from '../../common/tenant-readiness';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
+import { PENDING_RECORD_WHERE } from './verifactu-dispatcher.service';
+import { sendableAt } from './verifactu-flow';
 import { verifactuInstallationNumber } from './verifactu-installation';
 
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
-import type { VerifactuBlockerDto, VerifactuSettingsDto } from '@storageos/shared';
+import type { VerifactuSubmission } from '@storageos/database';
+import type {
+  VerifactuBlockerDto,
+  VerifactuSettingsDto,
+  VerifactuSubmissionDto,
+} from '@storageos/shared';
+
+type SubmissionRow = VerifactuSubmission & { owner: { legalName: string } | null };
+
+const SUBMISSION_INCLUDE = { owner: { select: { legalName: true } } } as const;
+
+function toSubmissionDto(row: SubmissionRow): VerifactuSubmissionDto {
+  return {
+    id: row.id,
+    sentAt: row.sentAt.toISOString(),
+    ownerName: row.owner?.legalName ?? null,
+    status: row.status as VerifactuSubmissionDto['status'],
+    csv: row.csv,
+    recordCount: row.recordCount,
+    acceptedCount: row.acceptedCount,
+    rejectedCount: row.rejectedCount,
+    waitSeconds: row.waitSeconds,
+    message: row.message,
+    mode: row.mode as VerifactuSubmissionDto['mode'],
+  };
+}
 
 /** Último día en que no se puede apagar: el 31 de diciembre del año en que se activó. */
 export function verifactuLockedUntil(enabledAt: Date, timeZone: string): string {
@@ -56,35 +83,62 @@ export class VerifactuSettingsService {
     return (await this.snapshot(tenantId)).dto;
   }
 
+  /** Los últimos envíos a la AEAT, con el CSV que acredita cada uno. */
+  async submissions(tenantId: string, limit = 50): Promise<VerifactuSubmissionDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.verifactuSubmission.findMany({
+          where: { tenantId },
+          orderBy: { sentAt: 'desc' },
+          take: Math.min(Math.max(limit, 1), 200),
+          include: SUBMISSION_INCLUDE,
+        }),
+      tenantId,
+    );
+    return rows.map(toSubmissionDto);
+  }
+
   private async snapshot(
     tenantId: string,
   ): Promise<{ dto: VerifactuSettingsDto; timezone: string }> {
     const d = await this.prisma.withTenant(async (tx) => {
-      const [tenant, cert, pending, rejected] = await Promise.all([
-        tx.tenant.findUniqueOrThrow({
-          where: { id: tenantId },
-          select: {
-            verifactuEnabled: true,
-            verifactuEnabledAt: true,
-            timezone: true,
-            invoicingMode: true,
-            taxId: true,
-            billingLegalName: true,
-            billingAddress: true,
-            billingPostalCode: true,
-            billingCity: true,
-          },
-        }),
-        tx.tenantAeatCredential.findFirst({
-          where: { tenantId, ownerId: null, revokedAt: null, certValidTo: { gt: new Date() } },
-          select: { id: true },
-        }),
-        tx.invoice.count({
-          where: { tenantId, hash: { not: null }, aeatStatus: { in: ['pending', 'error'] } },
-        }),
-        tx.invoice.count({ where: { tenantId, hash: { not: null }, aeatStatus: 'rejected' } }),
-      ]);
-      return { tenant, cert, pending, rejected };
+      const [tenant, cert, pending, rejected, lastSubmission, emitters, pendingByEmitter] =
+        await Promise.all([
+          tx.tenant.findUniqueOrThrow({
+            where: { id: tenantId },
+            select: {
+              verifactuEnabled: true,
+              verifactuEnabledAt: true,
+              timezone: true,
+              invoicingMode: true,
+              taxId: true,
+              billingLegalName: true,
+              billingAddress: true,
+              billingPostalCode: true,
+              billingCity: true,
+            },
+          }),
+          tx.tenantAeatCredential.findFirst({
+            where: { tenantId, ownerId: null, revokedAt: null, certValidTo: { gt: new Date() } },
+            select: { id: true },
+          }),
+          tx.invoice.count({
+            where: { tenantId, hash: { not: null }, aeatStatus: { in: ['pending', 'error'] } },
+          }),
+          tx.invoice.count({ where: { tenantId, hash: { not: null }, aeatStatus: 'rejected' } }),
+          tx.verifactuSubmission.findFirst({
+            where: { tenantId },
+            orderBy: { sentAt: 'desc' },
+            include: SUBMISSION_INCLUDE,
+          }),
+          tx.verifactuEmitter.findMany({ where: { tenantId } }),
+          tx.invoice.groupBy({
+            by: ['ownerId'],
+            where: { tenantId, ...PENDING_RECORD_WHERE },
+            _count: { _all: true },
+          }),
+        ]);
+      return { tenant, cert, pending, rejected, lastSubmission, emitters, pendingByEmitter };
     }, tenantId);
     const t = d.tenant;
     const realMode = this.platformMode !== 'stub';
@@ -133,8 +187,30 @@ export class VerifactuSettingsService {
       pendingCount: d.pending,
       rejectedCount: d.rejected,
       invoicingInHolded: t.invoicingMode === 'holded',
+      lastSubmission: d.lastSubmission ? toSubmissionDto(d.lastSubmission) : null,
+      nextSendAt: this.nextSendAt(d.emitters, d.pendingByEmitter),
     };
     return { dto, timezone: t.timezone };
+  }
+
+  /**
+   * El siguiente envío de lo pendiente: el más próximo entre los emisores que
+   * aún esperan (la espera de la AEAT o el reintento tras un fallo). Null si no
+   * hay nada pendiente o alguno puede salir ya.
+   */
+  private nextSendAt(
+    emitters: { ownerId: string | null; nextSendAt: Date | null; retryAt: Date | null }[],
+    pending: { ownerId: string | null; _count: { _all: number } }[],
+  ): string | null {
+    const now = Date.now();
+    let next: number | null = null;
+    for (const group of pending) {
+      const state = emitters.find((e) => e.ownerId === group.ownerId);
+      const at = state ? sendableAt(state, group._count._all) : null;
+      if (!at || at.getTime() <= now) return null;
+      next = next === null ? at.getTime() : Math.min(next, at.getTime());
+    }
+    return next === null ? null : new Date(next).toISOString();
   }
 
   async set(args: {

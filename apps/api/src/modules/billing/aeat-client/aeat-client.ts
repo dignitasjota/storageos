@@ -16,26 +16,46 @@ export abstract class AeatClient {
   abstract get mode(): 'stub' | 'sandbox' | 'production';
 
   /**
-   * Envia una factura a AEAT. Devuelve el resultado del envio. NO
-   * actualiza la BD: el caller (VerifactuService) actualiza el estado
-   * `aeat_*` de la factura con los datos devueltos.
+   * Envía a la AEAT los registros de varias facturas de un mismo emisor (el
+   * negocio o un propietario), en un solo mensaje y en el orden recibido.
+   * Devuelve el resultado del envío y el de cada factura. NO actualiza la BD:
+   * lo hace `VerifactuService`.
    */
-  abstract sendInvoice(args: SendInvoiceArgs): Promise<SendInvoiceResult>;
+  abstract sendBatch(args: SendBatchArgs): Promise<SendBatchResult>;
 
   /** Consulta el estado de una factura ya enviada. */
   abstract getStatus(args: GetStatusArgs): Promise<GetStatusResult>;
 }
 
-export interface SendInvoiceArgs {
+export interface SendBatchArgs {
   tenantId: string;
-  invoiceId: string;
-  invoiceNumber: string;
-  issueDate: Date;
-  total: number;
-  previousHash: string | null;
-  hash: string;
-  /** NIF del emisor (tenant.taxId). */
+  /** Emisor propietario (plan Administrador); null = el propio negocio. */
+  ownerId: string | null;
+  /** Facturas del emisor, en el orden de su cadena (como mucho 1.000). */
+  invoiceIds: readonly string[];
+}
+
+export interface SendBatchResult {
+  /**
+   * `sent`: la AEAT respondió al envío · `failed`: salió pero sin respuesta
+   * válida (red, tiempo agotado, error de la AEAT): hay que repetirlo ·
+   * `not_sent`: no llegó a salir (sin certificado, caducado…).
+   */
+  outcome: 'sent' | 'failed' | 'not_sent';
+  /** NIF del obligado del envío. */
   emitterTaxId: string;
+  /** Registros que llevó el mensaje (0 si no salió). */
+  recordCount: number;
+  /** Resultado del envío en conjunto (solo `sent`). */
+  status?: 'accepted' | 'partially_accepted' | 'rejected';
+  /** CSV del envío: lo da la AEAT si registró algún registro. */
+  csv?: string | null;
+  /** Segundos que la AEAT pide esperar antes del siguiente envío (solo `sent`). */
+  waitSeconds?: number | null;
+  message?: string;
+  /** Lo que ha pasado con cada factura pedida (también las que no salieron). */
+  results: Record<string, SendInvoiceResult>;
+  raw?: Record<string, unknown>;
 }
 
 export interface SendInvoiceResult {

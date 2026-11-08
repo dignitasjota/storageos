@@ -1,36 +1,30 @@
 import { Job } from 'bullmq';
 import request from 'supertest';
 
-import { InvoicesService } from '../src/modules/billing/invoices.service';
+import { VerifactuDispatcher } from '../src/modules/billing/verifactu-dispatcher.service';
 import { VerifactuProcessor } from '../src/modules/billing/verifactu.processor';
 import { VerifactuService } from '../src/modules/billing/verifactu.service';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../src/modules/queues/queues.module';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { createDraftInvoice } from './helpers/billing-fixtures';
+import { createDraftInvoice, waitForAeatStatus } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
-import type { SendInvoiceResult } from '../src/modules/billing/aeat-client/aeat-client';
+import type { VerifactuSendJobData } from '../src/modules/billing/verifactu-dispatcher.service';
 import type { INestApplication } from '@nestjs/common';
 
 /**
- * Fase 10A.4 — cola BullMQ `verifactu` con retry exponencial + endpoint
- * `POST /billing/invoices/:id/resend-aeat`.
+ * Cola BullMQ `verifactu` + endpoint `POST /billing/invoices/:id/resend-aeat`.
  *
- * Estos tests cubren dos planos:
- *   1. El endpoint HTTP `resend-aeat` (validacion de estado, aislamiento
- *      por tenant via RLS, respuesta `{ queued: true }`).
- *   2. El handler del worker `VerifactuProcessor` aislado: se mockea
- *      `VerifactuService.sendToAeat` con `jest.spyOn` y se comprueba la
- *      politica de retry: `error` lanza (BullMQ reintentara), `accepted` /
- *      `rejected` resuelven sin lanzar.
- *
- * No instanciamos workers de BullMQ contra Redis para evitar
- * dependencias de timing.
+ *   1. El endpoint `resend-aeat` (validación de estado, aislamiento por tenant
+ *      vía RLS, respuesta `{ queued: true }`).
+ *   2. El worker `VerifactuProcessor` aislado: un trabajo es un emisor (el
+ *      negocio o un propietario) y envía lo pendiente con `sendPending`; un
+ *      fallo de la AEAT no lanza (el propio envío programa el reintento).
  */
 describe('Verifactu queue + resend-aeat (e2e)', () => {
   let app: INestApplication;
@@ -63,12 +57,8 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(issued.status).toBe(200);
 
-    // El issue encola, pero como el envio real (stub) corre asincrono en
-    // BullMQ y aqui no esperamos al worker, podemos forzar nosotros un
-    // estado conocido invocando sendToAeat directamente. No es necesario
-    // para el test, pero asegura que aeat_status no sea null.
-    const service = app.get(VerifactuService);
-    await service.sendToAeat(id, owner.tenantId);
+    // El envío corre en el worker (in-process en los tests).
+    expect(await waitForAeatStatus(app, owner.accessToken, id)).toBe('accepted');
 
     let before = await request(app.getHttpServer())
       .get(`/invoices/${id}`)
@@ -93,11 +83,8 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
     expect(resend.status).toBe(202);
     expect(resend.body).toEqual({ queued: true, invoiceId: id });
 
-    // El endpoint resetea aeat_* de forma síncrona y encola un re-envío. Como
-    // el worker BullMQ corre in-process (ENABLE_WORKERS_IN_API=true), re-procesa
-    // la cola y vuelve a dejar la factura 'accepted' (stub) — observar el estado
-    // null es una carrera. Verificamos el ciclo completo: tras el resend la
-    // factura se re-envía y acaba de nuevo 'accepted' con un aeat_sent_at nuevo.
+    // El endpoint deja la factura pendiente y programa el envío de su emisor;
+    // el worker la vuelve a enviar y queda 'accepted' con un aeat_sent_at nuevo.
     let after: { aeatStatus: string | null; aeatSentAt: string | null } | undefined;
     for (let i = 0; i < 30; i++) {
       const res = await request(app.getHttpServer())
@@ -146,84 +133,81 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
   // VerifactuProcessor (handler aislado)
   // ────────────────────────────────────────────────────────────────────
 
-  it('worker handler con result.status="accepted" NO lanza (no se reintenta)', async () => {
+  function job(data: VerifactuSendJobData, name = JOB_VERIFACTU_SEND): Job<VerifactuSendJobData> {
+    return { name, data } as unknown as Job<VerifactuSendJobData>;
+  }
+
+  it('el trabajo envía lo pendiente de su emisor', async () => {
     const service = app.get(VerifactuService);
     const processor = app.get(VerifactuProcessor);
-    const spy = jest.spyOn(service, 'sendToAeat').mockResolvedValueOnce({
-      status: 'accepted',
-      csv: 'CSV-FAKE-OK',
-    } satisfies SendInvoiceResult);
+    const spy = jest
+      .spyOn(service, 'sendPending')
+      .mockResolvedValue({ submissions: 1, records: 3, nextRunAt: null });
 
-    const job = {
-      name: JOB_VERIFACTU_SEND,
-      data: { invoiceId: 'inv-1', tenantId: 'tenant-1' },
-    } as unknown as Job<{ invoiceId: string; tenantId: string }>;
-
-    await expect(processor.process(job)).resolves.toBeUndefined();
-    expect(spy).toHaveBeenCalledWith('inv-1', 'tenant-1');
+    await expect(
+      processor.process(job({ tenantId: 'tenant-1', ownerId: null })),
+    ).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('tenant-1', null);
+    await processor.process(job({ tenantId: 'tenant-1', ownerId: 'owner-1' }));
+    expect(spy).toHaveBeenLastCalledWith('tenant-1', 'owner-1');
     spy.mockRestore();
   });
 
-  it('worker handler con result.status="rejected" NO lanza (decision firme de AEAT)', async () => {
+  it('un fallo de la AEAT no lanza: el propio envío deja programado el reintento', async () => {
     const service = app.get(VerifactuService);
     const processor = app.get(VerifactuProcessor);
-    const spy = jest.spyOn(service, 'sendToAeat').mockResolvedValueOnce({
-      status: 'rejected',
-      message: 'NIF emisor invalido',
-    } satisfies SendInvoiceResult);
+    const spy = jest
+      .spyOn(service, 'sendPending')
+      .mockResolvedValue({ submissions: 1, records: 1, nextRunAt: new Date(Date.now() + 60_000) });
 
-    const job = {
-      name: JOB_VERIFACTU_SEND,
-      data: { invoiceId: 'inv-2', tenantId: 'tenant-2' },
-    } as unknown as Job<{ invoiceId: string; tenantId: string }>;
-
-    await expect(processor.process(job)).resolves.toBeUndefined();
+    await expect(
+      processor.process(job({ tenantId: 'tenant-2', ownerId: null })),
+    ).resolves.toBeUndefined();
     spy.mockRestore();
   });
 
-  it('worker handler con result.status="error" lanza para que BullMQ reintente', async () => {
+  it('un trabajo de antes (uno por factura) envía lo pendiente del emisor de esa factura', async () => {
+    const owner = await registerVerifiedUser(app, 'verif-legacy-job');
+    const customerId = await createCustomer(app, owner.accessToken);
+    const id = await createDraftInvoice(app, owner.accessToken, customerId, { unitPrice: 30 });
+    const other = await registerVerifiedUser(app, 'verif-legacy-other');
+
     const service = app.get(VerifactuService);
     const processor = app.get(VerifactuProcessor);
-    const spy = jest.spyOn(service, 'sendToAeat').mockResolvedValueOnce({
-      status: 'error',
-      message: 'AEAT timeout',
-    } satisfies SendInvoiceResult);
+    const spy = jest
+      .spyOn(service, 'sendPending')
+      .mockResolvedValue({ submissions: 0, records: 0, nextRunAt: null });
 
-    const job = {
-      name: JOB_VERIFACTU_SEND,
-      data: { invoiceId: 'inv-3', tenantId: 'tenant-3' },
-    } as unknown as Job<{ invoiceId: string; tenantId: string }>;
-
-    await expect(processor.process(job)).rejects.toThrow(/AEAT timeout/);
+    await processor.process(job({ invoiceId: id, tenantId: owner.tenantId }));
+    expect(spy).toHaveBeenCalledWith(owner.tenantId, null);
+    // Una factura de otro negocio no sirve para el trabajo de este.
+    spy.mockClear();
+    await processor.process(job({ invoiceId: id, tenantId: other.tenantId }));
+    expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
   it('worker handler ignora jobs con nombre distinto a send-to-aeat', async () => {
     const service = app.get(VerifactuService);
     const processor = app.get(VerifactuProcessor);
-    const spy = jest.spyOn(service, 'sendToAeat');
+    const spy = jest.spyOn(service, 'sendPending');
 
-    const job = {
-      name: 'unknown-job',
-      data: { invoiceId: 'inv-x', tenantId: 'tenant-x' },
-    } as unknown as Job<{ invoiceId: string; tenantId: string }>;
-
-    await expect(processor.process(job)).resolves.toBeUndefined();
+    await expect(
+      processor.process(job({ tenantId: 'tenant-x', ownerId: null }, 'unknown-job')),
+    ).resolves.toBeUndefined();
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
-  it('issue de una invoice encola un job send-to-aeat en la cola verifactu', async () => {
+  it('emitir una factura programa el envío de su emisor en la cola verifactu', async () => {
     const owner = await registerVerifiedUser(app, 'verif-issue-enq');
     await enableVerifactu(owner.slug);
     const customerId = await createCustomer(app, owner.accessToken);
     const id = await createDraftInvoice(app, owner.accessToken, customerId, {
       unitPrice: 60,
     });
-    // Espia el queue.add antes de issue.
-    const invoicesService = app.get(InvoicesService);
     // @ts-expect-error acceso al campo privado para inspeccion en test.
-    const queue = invoicesService.verifactuQueue;
+    const queue = app.get(VerifactuDispatcher).queue;
     const addSpy = jest.spyOn(queue, 'add');
 
     const res = await request(app.getHttpServer())
@@ -231,12 +215,14 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(res.status).toBe(200);
 
+    // Un trabajo por emisor y hora de salida (lo que se emite mientras
+    // tanto va en el mismo envío).
     expect(addSpy).toHaveBeenCalledWith(
       JOB_VERIFACTU_SEND,
-      expect.objectContaining({ invoiceId: id, tenantId: owner.tenantId }),
+      { tenantId: owner.tenantId, ownerId: null },
       expect.objectContaining({
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 60_000 },
+        jobId: expect.stringMatching(new RegExp(`^vf-${owner.tenantId}-self-\\d+$`)),
+        removeOnComplete: true,
       }),
     );
     expect(QUEUE_VERIFACTU).toBe('verifactu');

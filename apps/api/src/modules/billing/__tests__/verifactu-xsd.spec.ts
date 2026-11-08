@@ -163,6 +163,32 @@ describeXsd('XML de Veri*Factu contra los esquemas de la AEAT', () => {
     expect(validate(doc, 'SuministroLR.xsd')).toBe('ok');
   });
 
+  it('un envío con varios registros del mismo emisor, cada uno con su RefExterna', () => {
+    const records = CASES.map(([, build], i) => {
+      const a = build();
+      a.invoice.refExterna = `0000000${i}-2222-4222-8222-222222222222`;
+      a.invoice.invoiceNumber = `FA/2026/0001${i}`;
+      return builder.buildRegistroAltaRecord(a);
+    });
+    const doc = bodyDocument(
+      builder.buildSubmission({
+        issuer: baseArgs().tenant,
+        representative: { name: 'Gestoría SL', taxId: 'B87654321' },
+        records,
+      }),
+    );
+    expect(doc.match(/<sum1:RegistroAlta>/g)).toHaveLength(CASES.length);
+    expect(validate(doc, 'SuministroLR.xsd')).toBe('ok');
+  });
+
+  it('un nombre más largo que lo que admite la AEAT se recorta (no tumba el envío)', () => {
+    const a = baseArgs();
+    a.tenant.name = 'Trasteros '.repeat(20);
+    a.recipient = { name: 'Cliente '.repeat(30), taxId: '12345678Z' };
+    const doc = bodyDocument(builder.buildRegistroAlta(a));
+    expect(validate(doc, 'SuministroLR.xsd')).toBe('ok');
+  });
+
   it.each([
     ['del propio emisor', false],
     ['como representante', true],

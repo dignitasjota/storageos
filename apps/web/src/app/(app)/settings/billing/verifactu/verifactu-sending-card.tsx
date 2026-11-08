@@ -3,7 +3,10 @@
 import { VERIFACTU_MANDATORY_FROM } from '@storageos/shared';
 import { AlertTriangle, CheckCircle2, Loader2, Send } from 'lucide-react';
 import Link from 'next/link';
+import { useState } from 'react';
 import { toast } from 'sonner';
+
+import { VerifactuSubmissionsDialog, submissionResultLabel } from './verifactu-submissions-dialog';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -18,6 +21,7 @@ import {
   useVerifactuSettingsQuery,
 } from '@/lib/billing/verifactu-hooks';
 import { localDateString } from '@/lib/dates';
+import { formatDateTime } from '@/lib/format';
 
 /** «1 de enero de 2027» (las fechas vienen como AAAA-MM-DD o ISO). */
 function longDate(value: string): string {
@@ -35,6 +39,7 @@ export function VerifactuSendingCard() {
   const update = useUpdateVerifactuSettingsMutation();
   const canConfigure = useHasPermission('billing:configure');
   const ask = useConfirm();
+  const [showSubmissions, setShowSubmissions] = useState(false);
 
   if (settings.isLoading) return <Skeleton className="h-48 w-full" />;
   if (settings.isError || !settings.data) {
@@ -51,6 +56,7 @@ export function VerifactuSendingCard() {
     );
   }
   const s = settings.data;
+  const last = s.lastSubmission ?? null;
   const year = new Date().getFullYear();
   const locked = !!s.lockedUntil && localDateString() <= s.lockedUntil;
 
@@ -108,7 +114,32 @@ export function VerifactuSendingCard() {
                 {s.pendingCount === 1
                   ? '1 factura aún no consta registrada: '
                   : `${s.pendingCount} facturas aún no constan registradas: `}
-                se vuelven a enviar solas cada 15 minutos.
+                {s.nextSendAt
+                  ? `${s.pendingCount === 1 ? 'sale sola' : 'salen solas'} en el siguiente envío, ${nextSendText(s.nextSendAt)}. La AEAT pide esperar un poco entre un envío y otro, y lo que no llega se repite.`
+                  : s.pendingCount === 1
+                    ? 'se está enviando.'
+                    : 'se están enviando.'}
+              </p>
+            )}
+            {last && (
+              <p className="text-muted-foreground">
+                Último envío: {formatDateTime(last.sentAt)},{' '}
+                {last.recordCount === 1 ? '1 factura' : `${last.recordCount} facturas`} (
+                {submissionResultLabel(last)})
+                {last.csv && (
+                  <>
+                    {' '}
+                    · CSV <span className="font-mono">{last.csv}</span>
+                  </>
+                )}
+                .{' '}
+                <button
+                  type="button"
+                  className="underline"
+                  onClick={() => setShowSubmissions(true)}
+                >
+                  Ver los envíos
+                </button>
               </p>
             )}
             {s.rejectedCount > 0 && (
@@ -211,6 +242,16 @@ export function VerifactuSendingCard() {
           </p>
         )}
       </CardContent>
+      <VerifactuSubmissionsDialog open={showSubmissions} onOpenChange={setShowSubmissions} />
     </Card>
   );
+}
+
+/** «hacia las 10:32» (hoy) o «el 09/11/2026, 10:32». */
+function nextSendText(value: string): string {
+  const date = new Date(value);
+  const today = new Date().toDateString() === date.toDateString();
+  return today
+    ? `hacia las ${date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`
+    : `el ${formatDateTime(date)}`;
 }

@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 
-import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadGatewayException,
   BadRequestException,
@@ -21,7 +20,6 @@ import {
   type InvoiceTaxCategory,
   NON_CASH_PAYMENT_METHODS,
 } from '@storageos/shared';
-import { Queue } from 'bullmq';
 
 import { customerScopeWhere } from '../../common/customer-scope';
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
@@ -60,14 +58,13 @@ import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { GoCardlessChargeService } from '../payments/gocardless/gocardless-charge.service';
 import { PAYMENT_GATEWAY, type PaymentGateway } from '../payments/payment-gateway.interface';
-import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../queues/queues.module';
 
 import { InvoiceSeriesService } from './invoice-series.service';
 import { InvoicingModeService } from './invoicing-mode.service';
 import { buildReminderSummary, remindersOfInvoice } from './reminder-summary';
+import { VerifactuDispatcher } from './verifactu-dispatcher.service';
 import { VerifactuService } from './verifactu.service';
 
-import type { VerifactuSendJobData } from './verifactu.processor';
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type { Invoice, InvoiceItem, InvoiceStatus, InvoiceType } from '@storageos/database';
@@ -206,21 +203,13 @@ export interface InvoicePdfRequestedPayload {
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
 
-  /** Opciones de retry para el envio Verifactu: 3 intentos con backoff exponencial. */
-  private static readonly VERIFACTU_JOB_OPTS = {
-    attempts: 3,
-    backoff: { type: 'exponential' as const, delay: 60_000 },
-    removeOnComplete: { age: 86_400 },
-    removeOnFail: false,
-  };
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly series: InvoiceSeriesService,
     private readonly verifactu: VerifactuService,
     private readonly events: EventEmitter2,
-    @InjectQueue(QUEUE_VERIFACTU) private readonly verifactuQueue: Queue<VerifactuSendJobData>,
+    private readonly verifactuDispatcher: VerifactuDispatcher,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
     private readonly communications: CommunicationsService,
     private readonly goCardlessCharge: GoCardlessChargeService,
@@ -1023,16 +1012,12 @@ export class InvoicesService {
       } satisfies DomainEventPayload);
     }
 
-    // Encolar el envio AEAT en BullMQ con retry exponencial. El worker
-    // (VerifactuProcessor) consumira el job de forma asincrona. Solo
-    // reintenta cuando AEAT devuelve `status='error'` (fallo tecnico).
-    // Sin huella no es un registro de Veri*Factu (negocio sin activarlo).
+    // Envío a la AEAT en segundo plano (VerifactuProcessor): sale con el
+    // siguiente envío de su emisor, junto con lo que se emita mientras la
+    // AEAT pide esperar. Sin huella no es un registro de Veri*Factu (negocio
+    // sin activarlo).
     if (!fromHolded && updated.hash) {
-      await this.verifactuQueue.add(
-        JOB_VERIFACTU_SEND,
-        { invoiceId: updated.id, tenantId: args.tenantId },
-        InvoicesService.VERIFACTU_JOB_OPTS,
-      );
+      await this.verifactuDispatcher.schedule(args.tenantId, existing.ownerId ?? null);
     }
 
     await this.audit.write({
@@ -1969,8 +1954,8 @@ export class InvoicesService {
       (tx) =>
         tx.invoice.update({
           where: { id: invoiceId },
-          // Se conserva `aeatSentAt`: si ya hubo un envío, antes de reenviar se
-          // consulta a la AEAT por si llegó (evita el alta duplicada).
+          // Se conserva `aeatSentAt` (el último intento). Si un envío anterior
+          // llegó, la AEAT contesta «duplicado» con lo que tiene.
           data: {
             aeatStatus: 'pending',
             aeatCsv: null,
@@ -1979,11 +1964,9 @@ export class InvoicesService {
         }),
       tenantId,
     );
-    await this.verifactuQueue.add(
-      JOB_VERIFACTU_SEND,
-      { invoiceId, tenantId },
-      InvoicesService.VERIFACTU_JOB_OPTS,
-    );
+    // Sin esperar al reintento de un envío fallido; la espera que pidió la AEAT
+    // entre un envío y otro sí se respeta.
+    await this.verifactuDispatcher.schedule(tenantId, existing.ownerId ?? null, { retryNow: true });
     this.logger.log(`[verifactu] reenvio encolado para invoice ${invoiceId} (tenant ${tenantId})`);
     return { queued: true, invoiceId };
   }

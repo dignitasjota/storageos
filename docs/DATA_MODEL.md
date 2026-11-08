@@ -571,6 +571,14 @@ Histórico de PKCS#12 por tenant. **Fase 11A.2 elimina la restricción `UNIQUE` 
 - **Credencial activa**: la única fila del tenant con `revoked_at IS NULL`. El upload nuevo hace `updateMany { revokedAt: null } → set revokedAt: now()` + `create new` dentro de una `$transaction` (atómico). `DELETE /billing/aeat-credentials/me` setea `revoked_at` con motivo, no borra físicamente.
 - Endpoint `GET /billing/aeat-credentials/history` (owner/manager) lista todas las filas (activa + revocadas) cronológicamente.
 
+### `verifactu_emitters` y `verifactu_submissions` (2026-11-08)
+
+Envío de los registros en lotes con control de flujo (art. 16 de la Orden HAC/1177/2024; migración `20270104100000_verifactu_submissions`, RLS).
+
+- **`verifactu_emitters`**: una fila por emisor (`tenant_id` + `emitter_key` = `self` o el id del propietario, único). `next_send_at` y `wait_seconds` (la espera entre envíos que pidió la AEAT en la última respuesta), `retry_at`, `consecutive_failures` y `last_error` (envíos sin respuesta: se repiten a los 1, 2, 4… minutos, como mucho cada hora) y `lease_until` (quien envía reserva el emisor unos minutos: dos envíos del mismo emisor nunca van a la vez).
+- **`verifactu_submissions`**: cada envío (hasta 1.000 registros de un emisor): `owner_id`, `emitter_tax_id`, `mode`, `status` (`accepted` | `partially_accepted` | `rejected` | `error` = sin respuesta válida), `csv` (el de la AEAT, acredita la remisión), `wait_seconds`, `record_count`, `accepted_count`, `rejected_count`, `message`, `sent_at`. Se guarda 4 años (`RETENTION_VERIFACTU_SUBMISSIONS_DAYS`).
+- En `invoices`, `aeat_csv` es el CSV del envío que la registró y `aeat_response.submissionId` apunta a su envío. Índice parcial `invoices_verifactu_pending_idx` sobre `(tenant_id, owner_id, chain_seq) WHERE hash IS NOT NULL AND aeat_status IN ('pending','error')`.
+
 ### Convención de `audit_logs`
 
 Toda emisión de factura genera un `audit_log` con el hash y el `aeat_status` final.

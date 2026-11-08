@@ -124,6 +124,9 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'payments' },
   { table: 'invoice_items' },
   { table: 'invoices' },
+  // Los envíos a la AEAT de esas facturas y la espera de cada emisor.
+  { table: 'verifactu_submissions' },
+  { table: 'verifactu_emitters' },
   { table: 'contract_inspection_photos' },
   { table: 'contract_signatures' },
   { table: 'contract_events' },

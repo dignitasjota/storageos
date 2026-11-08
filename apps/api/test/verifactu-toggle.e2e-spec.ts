@@ -2,8 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
-import { InvoicesService } from '../src/modules/billing/invoices.service';
-import { JOB_VERIFACTU_SEND } from '../src/modules/queues/queues.module';
+import { VerifactuDispatcher } from '../src/modules/billing/verifactu-dispatcher.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import {
@@ -89,17 +88,14 @@ describe('Veri*Factu por negocio (e2e)', () => {
       pendingCount: 0,
     });
 
-    // @ts-expect-error acceso al campo privado para inspeccionar la cola.
-    const queue = app.get(InvoicesService).verifactuQueue;
-    const addSpy = jest.spyOn(queue, 'add');
+    const scheduleSpy = jest.spyOn(app.get(VerifactuDispatcher), 'schedule');
     try {
       const inv = await issue(owner.accessToken, customerId);
       expect(inv).toMatchObject({ hash: null, previousHash: null, qrCodeUrl: null });
       expect(inv.aeatStatus).toBeNull();
-      expect(addSpy).not.toHaveBeenCalledWith(
-        JOB_VERIFACTU_SEND,
-        expect.objectContaining({ invoiceId: inv.id }),
-        expect.anything(),
+      // No se programa ningún envío a la AEAT para este negocio.
+      expect(scheduleSpy.mock.calls.filter(([tenantId]) => tenantId === owner.tenantId)).toEqual(
+        [],
       );
       const row = await db.invoice.findUniqueOrThrow({ where: { id: inv.id } });
       expect(row.chainSeq).toBeNull();
@@ -116,7 +112,7 @@ describe('Veri*Factu por negocio (e2e)', () => {
         .expect(400);
       expect(refresh.body.code).toBe('not_a_verifactu_record');
     } finally {
-      addSpy.mockRestore();
+      scheduleSpy.mockRestore();
     }
 
     // Configuración avisa y la puesta en marcha lo da por pendiente.

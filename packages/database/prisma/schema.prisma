@@ -607,6 +607,8 @@ model Tenant {
   supportTickets          SupportTicket[]
   impersonationLogs       ImpersonationLog[]
   aeatCredentials         TenantAeatCredential[]
+  verifactuEmitters       VerifactuEmitter[]
+  verifactuSubmissions    VerifactuSubmission[]
   holdedSettings          HoldedSettings?
   redsysSettings          RedsysSettings?
   redsysOrders            RedsysOrder[]
@@ -4599,6 +4601,61 @@ model TenantAeatCredential {
   @@map("tenant_aeat_credentials")
 }
 
+/// Envío a la AEAT de cada emisor de Veri*Factu (el negocio o un propietario):
+/// cuándo puede salir el siguiente envío (control de flujo, art. 16.2 de la
+/// Orden HAC/1177/2024) y si está fallando.
+model VerifactuEmitter {
+  id                  String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  ownerId             String?   @map("owner_id") @db.Uuid
+  /// `self` (el propio negocio) o el id del propietario.
+  emitterKey          String    @map("emitter_key")
+  /// Antes de esta hora no sale otro envío (salvo con 1.000 registros).
+  nextSendAt          DateTime? @map("next_send_at") @db.Timestamptz(6)
+  /// Último `TiempoEsperaEnvio` de la AEAT.
+  waitSeconds         Int?      @map("wait_seconds")
+  /// Tras un envío fallido, cuándo se vuelve a intentar.
+  retryAt             DateTime? @map("retry_at") @db.Timestamptz(6)
+  consecutiveFailures Int       @default(0) @map("consecutive_failures")
+  lastError           String?   @map("last_error")
+  /// Quien envía lo reserva un rato: dos envíos del mismo emisor nunca van a la vez.
+  leaseUntil          DateTime? @map("lease_until") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner  Owner? @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, emitterKey])
+  @@map("verifactu_emitters")
+}
+
+/// Cada envío a la AEAT: hasta 1.000 registros de un emisor, su resultado y el
+/// CSV que lo acredita.
+model VerifactuSubmission {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  ownerId       String?  @map("owner_id") @db.Uuid
+  emitterTaxId  String   @map("emitter_tax_id")
+  /// stub | sandbox | production
+  mode          String
+  /// accepted | partially_accepted | rejected | error (sin respuesta válida)
+  status        String
+  csv           String?
+  waitSeconds   Int?     @map("wait_seconds")
+  recordCount   Int      @map("record_count")
+  acceptedCount Int      @default(0) @map("accepted_count")
+  rejectedCount Int      @default(0) @map("rejected_count")
+  message       String?
+  sentAt        DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner  Owner? @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, sentAt(sort: Desc)], map: "verifactu_submissions_tenant_sent_idx")
+  @@map("verifactu_submissions")
+}
+
 /// Integración contable con Holded por tenant (API key cifrada AES-GCM).
 model HoldedSettings {
   id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
@@ -6952,6 +7009,8 @@ model Owner {
   invoices   Invoice[]
   invoiceSeries InvoiceSeries[]
   aeatCredentials TenantAeatCredential[]
+  verifactuEmitters VerifactuEmitter[]
+  verifactuSubmissions VerifactuSubmission[]
   statements OwnerStatement[]
 
   @@unique([tenantId, taxId])

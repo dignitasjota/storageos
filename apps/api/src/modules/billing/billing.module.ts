@@ -33,6 +33,7 @@ import { PricingRulesService } from './pricing-rules.service';
 import { TenantAeatCredentialsController } from './tenant-aeat-credentials.controller';
 import { TenantAeatCredentialsService } from './tenant-aeat-credentials.service';
 import { VerifactuAeatController } from './verifactu-aeat.controller';
+import { VerifactuDispatcher } from './verifactu-dispatcher.service';
 import { VerifactuSettingsController } from './verifactu-settings.controller';
 import { VerifactuSettingsService } from './verifactu-settings.service';
 import { VerifactuStatusPollerCron } from './verifactu-status-poller.cron';
@@ -79,6 +80,7 @@ import type { Env } from '../../config/env.schema';
     InvoiceToolsService,
     InvoicingModeService,
     VerifactuService,
+    VerifactuDispatcher,
     VerifactuSettingsService,
     PricingRulesService,
     BillingJobsService,
