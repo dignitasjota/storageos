@@ -87,11 +87,13 @@ export function VerifactuSendingCard() {
           <CardTitle className="text-base">Envío de tus facturas a la AEAT</CardTitle>
         </div>
         {s.enabled ? (
-          <Badge className="bg-emerald-600 text-white hover:bg-emerald-600 dark:bg-emerald-500">
+          <Badge className="shrink-0 whitespace-nowrap bg-emerald-600 text-white hover:bg-emerald-600 dark:bg-emerald-500">
             Activado
           </Badge>
         ) : (
-          <Badge variant="secondary">Sin activar</Badge>
+          <Badge variant="secondary" className="shrink-0 whitespace-nowrap">
+            Sin activar
+          </Badge>
         )}
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
