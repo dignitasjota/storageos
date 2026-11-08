@@ -5,6 +5,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
 import { type EmailLocale, emailLocale, formatDateLong, formatEur } from '../../common/format';
+import { isPendingOnlineBookingInvoice } from '../../common/online-booking';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
@@ -419,10 +420,23 @@ export class AutomationsService {
     if (job.entityType === 'invoice') {
       const inv = await this.admin.invoice.findFirst({
         where,
-        select: { platformPaymentId: true },
+        select: { platformPaymentId: true, contractId: true },
       });
       // Factura de suscripción (negocio propio → tenant): no es de un inquilino.
       if (inv?.platformPaymentId) return 'factura de suscripción';
+      // Primera factura de una reserva online aún sin pagar: llega con el pago.
+      if (
+        inv &&
+        job.trigger === 'invoice_issued' &&
+        (await isPendingOnlineBookingInvoice(
+          this.admin,
+          job.tenantId,
+          job.entityId,
+          inv.contractId,
+        ))
+      ) {
+        return 'reserva online pendiente de pago';
+      }
     }
     if (job.entityType === 'contract') {
       const c = await this.admin.contract.findFirst({

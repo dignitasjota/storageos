@@ -121,6 +121,18 @@ export type CustomerEmailData =
       signalDue: number;
     }
   | {
+      /** Reserva online cancelada por no pagarse a tiempo. */
+      kind: 'booking_expired';
+      unitCode: string;
+      facilityName: string;
+      /** Había firmado (solo faltaba pagar). */
+      signed: boolean;
+      /** Tenía factura y se ha anulado. */
+      invoiceCancelled: boolean;
+      /** Reserva online del negocio, con el local y el tamaño ya elegidos. */
+      bookingUrl: string;
+    }
+  | {
       kind: 'unit_request_resolved';
       request: 'change' | 'additional';
       outcome: 'moved' | 'handled' | 'rejected';
@@ -159,6 +171,8 @@ interface Content {
   /** Párrafos en texto plano (se escapan al pasar a HTML). */
   paragraphs: string[];
   cta: string;
+  /** A dónde lleva el botón (por defecto, el área de clientes). */
+  ctaUrl?: string;
   /** Enlace secundario bajo el botón (p. ej. la factura en PDF). */
   link?: { label: string; url: string } | null;
 }
@@ -485,6 +499,33 @@ function content(data: CustomerEmailData, l: Locale): Content {
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };
     }
+    case 'booking_expired':
+      return {
+        subject: en
+          ? `Your booking of storage unit ${data.unitCode} has been cancelled`
+          : `Tu reserva del trastero ${data.unitCode} se ha cancelado`,
+        paragraphs: en
+          ? [
+              data.signed
+                ? `We haven't received the payment for your booking of storage unit ${data.unitCode} at ${data.facilityName}, so it has been cancelled and the unit is available again.`
+                : `Your booking of storage unit ${data.unitCode} at ${data.facilityName} wasn't completed in time (the contract was not signed and paid), so it has been cancelled and the unit is available again.`,
+              data.invoiceCancelled
+                ? "You don't need to pay anything: the booking and its invoice have been cancelled."
+                : "You don't need to pay anything.",
+              'If you still need it, you can book again whenever you like.',
+            ]
+          : [
+              data.signed
+                ? `No hemos recibido el pago de tu reserva del trastero ${data.unitCode} en ${data.facilityName}, así que se ha cancelado y el trastero ha vuelto a quedar libre.`
+                : `Tu reserva del trastero ${data.unitCode} en ${data.facilityName} no se terminó a tiempo (faltaba firmar el contrato y pagar), así que se ha cancelado y el trastero ha vuelto a quedar libre.`,
+              data.invoiceCancelled
+                ? 'No tienes que pagar nada: la reserva y su factura quedan anuladas.'
+                : 'No tienes que pagar nada.',
+              'Si todavía lo necesitas, puedes volver a reservarlo cuando quieras.',
+            ],
+        cta: en ? 'Book again' : 'Volver a reservar',
+        ctaUrl: data.bookingUrl,
+      };
     case 'unit_request_resolved': {
       const change = data.request === 'change';
       const what = en
@@ -546,10 +587,11 @@ export function renderCustomerEmail(
   const greeting = base.customerName ? `${hello} ${base.customerName},` : `${hello},`;
   const regards = l === 'en' ? 'Kind regards,' : 'Un saludo,';
   const paragraphs = c.paragraphs.filter(Boolean);
+  const ctaUrl = c.ctaUrl ?? base.portalUrl;
   const text = [
     greeting,
     ...paragraphs,
-    `${c.cta}: ${base.portalUrl}`,
+    `${c.cta}: ${ctaUrl}`,
     ...(c.link ? [`${c.link.label}: ${c.link.url}`] : []),
     `${regards}\n${base.tenantName}`,
   ].join('\n\n');
@@ -562,7 +604,7 @@ export function renderCustomerEmail(
     brand,
     `<p style="font-size:15px;line-height:24px">${escapeHtml(greeting)}</p>
 ${paragraphs.map((p) => `<p style="font-size:15px;line-height:24px">${escapeHtml(p)}</p>`).join('\n')}
-${brandButton(brand, base.portalUrl, c.cta)}
+${brandButton(brand, ctaUrl, c.cta)}
 ${
   c.link
     ? `<p style="font-size:14px;line-height:22px"><a href="${escapeHtml(c.link.url)}">${escapeHtml(c.link.label)}</a></p>`
