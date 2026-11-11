@@ -329,6 +329,31 @@ export const CancelInvoiceSchema = z.object({
 });
 export type CancelInvoiceInput = z.infer<typeof CancelInvoiceSchema>;
 
+/**
+ * POST /invoices/:id/void — anular una factura emitida por error (de prueba,
+ * duplicada, de una operación que no existió): se envía el registro de
+ * anulación y deja de contar en libros e informes. Lo habitual, si la operación
+ * existió, es rectificar.
+ */
+export const VoidInvoiceSchema = z.object({
+  reason: z
+    .string()
+    .trim()
+    .min(5, 'Explica por qué se emitió por error (al menos 5 caracteres)')
+    .max(500),
+});
+export type VoidInvoiceInput = z.infer<typeof VoidInvoiceSchema>;
+
+/**
+ * POST /billing/invoices/:id/resend-aeat — volver a enviar. Si la AEAT la
+ * rechazó o la aceptó con avisos, se genera un registro de subsanación con los
+ * datos corregidos; el motivo queda en el registro.
+ */
+export const ResendAeatSchema = z
+  .object({ reason: z.string().trim().max(500).optional() })
+  .default({});
+export type ResendAeatInput = z.infer<typeof ResendAeatSchema>;
+
 export const RefundInvoiceSchema = z.object({
   amount: positiveDecimal.max(10_000_000),
   reason: optionalText(500),

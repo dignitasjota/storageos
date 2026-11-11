@@ -30,11 +30,9 @@ const JOB_OPTS = {
   removeOnFail: { age: 7 * 86_400 },
 };
 
-/** Registros de Veri*Factu que aún hay que enviar. */
-export const PENDING_RECORD_WHERE: Prisma.InvoiceWhereInput = {
-  hash: { not: null },
-  issuedBy: 'app',
-  aeatStatus: { in: ['pending', 'error'] },
+/** Registros de Veri*Factu (`verifactu_records`) que aún hay que enviar. */
+export const PENDING_RECORD_WHERE: Prisma.VerifactuRecordWhereInput = {
+  status: { in: ['pending', 'error'] },
 };
 
 /**
@@ -87,7 +85,7 @@ export class VerifactuDispatcher {
 
   /** Programa todos los emisores del negocio con registros por enviar. */
   async scheduleTenant(tenantId: string, opts: { retryNow?: boolean } = {}): Promise<number> {
-    const emitters = await this.admin.invoice.findMany({
+    const emitters = await this.admin.verifactuRecord.findMany({
       where: { tenantId, ...PENDING_RECORD_WHERE },
       distinct: ['ownerId'],
       select: { ownerId: true },

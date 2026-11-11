@@ -995,7 +995,8 @@
         "rejected": "Rechazada",
         "error": "Error de envío",
         "notEnabled": "Sin Veri*Factu",
-        "simulated": "Simulada"
+        "simulated": "Simulada",
+        "annulment": "Anulación · {status}"
       },
       "tooltip": {
         "sentAt": "Enviada a AEAT el {when}",
@@ -1006,19 +1007,39 @@
       "actions": {
         "resend": "Reenviar a AEAT",
         "refresh": "Consultar AEAT",
-        "viewResponse": "Ver respuesta"
+        "viewResponse": "Ver respuesta",
+        "correct": "Corregir y volver a enviar",
+        "resendAnnulment": "Volver a enviar la anulación"
       },
       "toasts": {
         "resendQueued": "Reenvío encolado.",
         "resendError": "No hemos podido lanzar el reenvío.",
-        "endpointPending": "El endpoint de reenvío aún no está disponible (llega en Fase 10A.4).",
         "refreshSuccess": "Estado actualizado desde AEAT.",
         "refreshPending": "AEAT aún no ha procesado la factura.",
-        "refreshError": "No hemos podido consultar AEAT."
+        "refreshError": "No hemos podido consultar AEAT.",
+        "correctQueued": "Se envía a la AEAT el registro de subsanación.",
+        "annulmentQueued": "Se envía a la AEAT otra vez la anulación."
       },
       "responseDialog": {
         "title": "Respuesta de AEAT",
         "close": "Cerrar"
+      },
+      "correctDialog": {
+        "title": "Corregir lo que dijo la AEAT",
+        "annulmentTitle": "Volver a enviar la anulación",
+        "rejected": "La AEAT ha rechazado esta factura.",
+        "warnings": "La AEAT ha aceptado esta factura con avisos.",
+        "visibleTitle": "¿Está mal algo que se ve en la factura?",
+        "visibleBody": "El NIF o el nombre del cliente, un importe, el concepto: corrige el dato y rectifica la factura por sustitución. La rectificativa lleva su propio registro y esta se queda como está.",
+        "rectify": "Rectificar la factura",
+        "internalTitle": "¿Es un dato del registro que la factura no muestra?",
+        "internalBody": "Se envía un registro de subsanación con los datos de ahora (si has corregido algo, ya lo lleva). El registro anterior no se toca: la AEAT tiene los dos.",
+        "annulmentBody": "Se envía otra anulación de la factura. Si la AEAT no la tiene registrada, va como anulación sin registro previo.",
+        "reason": "Qué se ha corregido (opcional)",
+        "reasonPlaceholder": "Por ejemplo: mal indicado el tipo de operación",
+        "cancel": "Cancelar",
+        "confirm": "Enviar la subsanación",
+        "annulmentConfirm": "Enviar la anulación"
       }
     }
   },

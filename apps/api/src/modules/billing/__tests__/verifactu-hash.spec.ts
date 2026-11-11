@@ -1,4 +1,9 @@
-import { altaHashInput, computeAltaHash } from '../verifactu-hash';
+import {
+  altaHashInput,
+  anulacionHashInput,
+  computeAltaHash,
+  computeAnulacionHash,
+} from '../verifactu-hash';
 
 /** Ejemplos de la especificación de la AEAT (huella de registros de alta). */
 describe('Huella Veri*Factu (registro de alta)', () => {
@@ -37,5 +42,25 @@ describe('Huella Veri*Factu (registro de alta)', () => {
     expect(
       altaHashInput({ ...first, cuotaTotal: 21, importeTotal: -121, previousHash: 'abc' }),
     ).toContain('CuotaTotal=21.00&ImporteTotal=-121.00&Huella=ABC&');
+  });
+});
+
+/** Ejemplo de la especificación de la AEAT (caso 3: anulación encadenada). */
+describe('Huella Veri*Factu (registro de anulación)', () => {
+  const anulacion = {
+    emitterTaxId: '89890001K',
+    invoiceNumber: '12345679/G34',
+    issueDate: '01-01-2024',
+    previousHash: 'F7B94CFD8924EDFF273501B01EE5153E4CE8F259766F88CF6ACB8935802A2B97',
+    recordTimestamp: '2024-01-01T19:20:40+01:00',
+  };
+
+  it('va encadenada con la huella del registro anterior', () => {
+    expect(anulacionHashInput(anulacion)).toBe(
+      'IDEmisorFacturaAnulada=89890001K&NumSerieFacturaAnulada=12345679/G34&FechaExpedicionFacturaAnulada=01-01-2024&Huella=F7B94CFD8924EDFF273501B01EE5153E4CE8F259766F88CF6ACB8935802A2B97&FechaHoraHusoGenRegistro=2024-01-01T19:20:40+01:00',
+    );
+    expect(computeAnulacionHash(anulacion)).toBe(
+      '177547C0D57AC74748561D054A9CEC14B4C4EA23D1BEFD6F2E69E3A388F90C68',
+    );
   });
 });

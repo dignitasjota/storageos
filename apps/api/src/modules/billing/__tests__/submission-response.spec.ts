@@ -4,8 +4,8 @@ import { parseSubmissionResponse } from '../aeat-client/submission-response';
  * La respuesta de la AEAT a un envío de varios registros: el estado del envío,
  * el CSV, la espera que pide y una línea por registro.
  */
-const A = { invoiceId: 'inv-a', invoiceNumber: 'FA/2026/00001', issueDate: '07-11-2026' };
-const B = { invoiceId: 'inv-b', invoiceNumber: 'FA/2026/00002', issueDate: '08-11-2026' };
+const A = { recordId: 'inv-a', invoiceNumber: 'FA/2026/00001', issueDate: '07-11-2026' };
+const B = { recordId: 'inv-b', invoiceNumber: 'FA/2026/00002', issueDate: '08-11-2026' };
 
 function line(args: {
   number: string;
@@ -63,13 +63,13 @@ describe('parseSubmissionResponse', () => {
           line({
             number: A.invoiceNumber,
             date: A.issueDate,
-            ref: A.invoiceId,
+            ref: A.recordId,
             estado: 'Correcto',
           }),
           line({
             number: B.invoiceNumber,
             date: B.issueDate,
-            ref: B.invoiceId,
+            ref: B.recordId,
             estado: 'Correcto',
           }),
         ],
@@ -94,13 +94,13 @@ describe('parseSubmissionResponse', () => {
           line({
             number: A.invoiceNumber,
             date: A.issueDate,
-            ref: A.invoiceId,
+            ref: A.recordId,
             estado: 'Correcto',
           }),
           line({
             number: B.invoiceNumber,
             date: B.issueDate,
-            ref: B.invoiceId,
+            ref: B.recordId,
             estado: 'Incorrecto',
             code: '1105',
             desc: 'NIF &amp; nombre no identificados',
@@ -142,7 +142,7 @@ describe('parseSubmissionResponse', () => {
           line({
             number: A.invoiceNumber,
             date: A.issueDate,
-            ref: A.invoiceId,
+            ref: A.recordId,
             estado: 'Incorrecto',
             code: '3000',
             desc: 'Registro de facturación duplicado.',
@@ -151,7 +151,7 @@ describe('parseSubmissionResponse', () => {
           line({
             number: B.invoiceNumber,
             date: B.issueDate,
-            ref: B.invoiceId,
+            ref: B.recordId,
             estado: 'Incorrecto',
             code: '3000',
             duplicate: 'Anulada',
@@ -165,6 +165,26 @@ describe('parseSubmissionResponse', () => {
       message: 'duplicate_already_registered',
     });
     expect(res.results['inv-b']?.status).toBe('rejected');
+  });
+
+  it('una anulación que la AEAT ya tenía dada de baja (3001) cuenta como hecha', () => {
+    const res = parseSubmissionResponse(
+      response({
+        estado: 'Incorrecto',
+        lines: [
+          line({
+            number: A.invoiceNumber,
+            date: A.issueDate,
+            ref: A.recordId,
+            estado: 'Incorrecto',
+            code: '3001',
+            desc: 'El registro de facturación ya ha sido dado de baja.',
+          }),
+        ],
+      }),
+      [{ ...A, kind: 'anulacion' }],
+    );
+    expect(res.results['inv-a']).toMatchObject({ status: 'accepted', message: 'already_annulled' });
   });
 
   it('un registro sin su línea: aceptado si el envío fue correcto; si no, se repite', () => {

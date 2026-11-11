@@ -577,7 +577,19 @@ Envío de los registros en lotes con control de flujo (art. 16 de la Orden HAC/1
 
 - **`verifactu_emitters`**: una fila por emisor (`tenant_id` + `emitter_key` = `self` o el id del propietario, único). `next_send_at` y `wait_seconds` (la espera entre envíos que pidió la AEAT en la última respuesta), `retry_at`, `consecutive_failures` y `last_error` (envíos sin respuesta: se repiten a los 1, 2, 4… minutos, como mucho cada hora) y `lease_until` (quien envía reserva el emisor unos minutos: dos envíos del mismo emisor nunca van a la vez).
 - **`verifactu_submissions`**: cada envío (hasta 1.000 registros de un emisor): `owner_id`, `emitter_tax_id`, `mode`, `status` (`accepted` | `partially_accepted` | `rejected` | `error` = sin respuesta válida), `csv` (el de la AEAT, acredita la remisión), `wait_seconds`, `record_count`, `accepted_count`, `rejected_count`, `message`, `sent_at`. Se guarda 4 años (`RETENTION_VERIFACTU_SUBMISSIONS_DAYS`).
-- En `invoices`, `aeat_csv` es el CSV del envío que la registró y `aeat_response.submissionId` apunta a su envío. Índice parcial `invoices_verifactu_pending_idx` sobre `(tenant_id, owner_id, chain_seq) WHERE hash IS NOT NULL AND aeat_status IN ('pending','error')`.
+- En `invoices`, `aeat_csv` es el CSV del envío que la registró y `aeat_response.submissionId` apunta a su envío. Desde la migración `20270105100000` lo pendiente se lee de `verifactu_records` (el índice `invoices_verifactu_pending_idx` se quitó). `verifactu_submissions` gana `fecha_fin_verifactu` (la renuncia que llevaba) e `incident` (salió con `Incidencia=S`).
+
+### `verifactu_records` (2026-11-08)
+
+Cada registro de facturación de Veri\*Factu (migración `20270105100000_verifactu_records`, RLS): el alta de una factura y, si los hay, sus registros de subsanación y su anulación.
+
+- `tenant_id`, `owner_id` (emisor; null = el negocio), `invoice_id` (CASCADE), `kind` (`alta` | `anulacion`), `subsanacion`, `rechazo_previo` (`X` = la AEAT nunca registró la factura, `S` = la tenía y rechazó el registro anterior), `sin_registro_previo` (anulación de una factura que la AEAT no tiene).
+- Cadena por emisor: `chain_seq` (único por `tenant_id` + emisor, sigue la numeración que ya tenían las facturas), `previous_record_id` y `previous_hash`, `hash`, `record_timestamp` (FechaHoraHusoGenRegistro) y `xml` (el registro tal como se generó: se envía ese, no se rehace).
+- Estado en la AEAT: `status` (`pending` | `accepted` | `accepted_with_warnings` | `rejected` | `error`), `csv`, `response`, `sent_at`, `submission_id` (su envío) e `incident` (pendiente por una incidencia, art. 16.4). `reason` y `created_by_user_id` en las subsanaciones y anulaciones hechas a mano.
+- Índice parcial `verifactu_records_pending_idx` sobre `(tenant_id, owner_id, chain_seq) WHERE status IN ('pending','error')`.
+- `invoices.aeat_status/aeat_csv/aeat_response/aeat_sent_at` copian los del último registro de la factura. La migración crea el alta de cada factura que ya tenía huella.
+- `invoices.voided_at`, `void_reason`, `voided_by_user_id`: anulada por haberse emitido por error (`status = 'cancelled'`; fuera de los libros como cualquier cancelada).
+- `tenants.verifactu_end_date`: la baja programada (31-12 del año con registros); los envíos que salen hasta entonces llevan `FechaFinVeriFactu` (art. 17.3).
 
 ### Convención de `audit_logs`
 

@@ -250,17 +250,20 @@ export function renderInvoiceHtml(args: {
       ? `<div class="meta">Periodo: del ${day(i.periodStart)} al ${day(i.periodEnd)}</div>`
       : '';
   const due =
-    i.dueDate && i.total > 0 && !isRectification
+    i.dueDate && i.total > 0 && !isRectification && !i.voidedAt
       ? `<div class="meta">Vencimiento: ${day(i.dueDate)}</div>`
       : '';
 
-  const stamp = args.paid
-    ? `<div class="stamp">PAGADA<small>${day(args.paid.at)}${
-        args.paid.method && METHOD_WORDS[args.paid.method]
-          ? ` · ${METHOD_WORDS[args.paid.method]}`
-          : ''
-      }</small></div>`
-    : '';
+  // Anulada por haberse emitido por error (registro de anulación): no vale.
+  const stamp = i.voidedAt
+    ? `<div class="stamp void">ANULADA<small>${day(i.voidedAt.slice(0, 10))} · emitida por error</small></div>`
+    : args.paid
+      ? `<div class="stamp">PAGADA<small>${day(args.paid.at)}${
+          args.paid.method && METHOD_WORDS[args.paid.method]
+            ? ` · ${METHOD_WORDS[args.paid.method]}`
+            : ''
+        }</small></div>`
+      : '';
   const howToPay =
     args.payment && !args.paid && (i.status === 'issued' || i.status === 'overdue') && i.total > 0
       ? `<div class="box pay"><strong>Forma de pago</strong>${paymentLines(
@@ -314,6 +317,7 @@ export function renderInvoiceHtml(args: {
   .logo { max-height: 48pt; max-width: 160pt; margin-bottom: 6pt; }
   .stamp { display: inline-block; margin-top: 8pt; border: 2.5pt solid #15803d; color: #15803d; border-radius: 6pt; padding: 4pt 10pt; font-weight: 700; font-size: 14pt; letter-spacing: 2pt; transform: rotate(-4deg); }
   .stamp small { display: block; font-size: 8pt; letter-spacing: 0; font-weight: 500; text-align: center; }
+  .stamp.void { border-color: #b91c1c; color: #b91c1c; }
   .box.pay { margin-top: 16pt; }
   .meta { color: #555; font-size: 9.5pt; }
   .issuer { text-align: right; }

@@ -10,8 +10,8 @@ import { VerifactuService } from './verifactu.service';
  * Crons de Veri*Factu, cada 15 minutos:
  *   - `requeue`: vuelve a programar el envío de los emisores con registros
  *     atascados (ver `requeueStalled`).
- *   - `poll-orphans`: consulta a la AEAT las facturas `pending` que ya
- *     salieron sin respuesta clara.
+ *   - `poll-orphans`: consulta a la AEAT las facturas con un registro
+ *     `pending` que ya salió sin respuesta clara.
  *
  * Politica:
  *   - Solo consideramos pendientes con `aeat_sent_at` mas viejo de 5 min
@@ -54,7 +54,7 @@ export class VerifactuStatusPollerCron {
   @Cron('*/15 * * * *', { name: 'verifactu-status.requeue' })
   async requeueStalled(): Promise<void> {
     const cutoff = new Date(Date.now() - VerifactuStatusPollerCron.COOLDOWN_MS);
-    const stalled = await this.admin.invoice.groupBy({
+    const stalled = await this.admin.verifactuRecord.groupBy({
       by: ['tenantId', 'ownerId'],
       where: { ...PENDING_RECORD_WHERE, updatedAt: { lt: cutoff } },
       orderBy: [{ tenantId: 'asc' }, { ownerId: 'asc' }],
@@ -76,12 +76,10 @@ export class VerifactuStatusPollerCron {
   @Cron('*/15 * * * *', { name: 'verifactu-status.poll-orphans' })
   async pollOrphans(): Promise<void> {
     const cutoff = new Date(Date.now() - VerifactuStatusPollerCron.COOLDOWN_MS);
-    const pending = await this.admin.invoice.findMany({
-      where: {
-        aeatStatus: 'pending',
-        aeatSentAt: { lt: cutoff },
-      },
-      select: { id: true, tenantId: true },
+    const pending = await this.admin.verifactuRecord.findMany({
+      where: { status: 'pending', sentAt: { lt: cutoff } },
+      select: { invoiceId: true, tenantId: true },
+      distinct: ['invoiceId'],
       take: VerifactuStatusPollerCron.BATCH_SIZE,
     });
 
@@ -89,12 +87,12 @@ export class VerifactuStatusPollerCron {
 
     this.logger.debug(`[verifactu-status.poll] ${pending.length} pendiente(s) a consultar`);
 
-    for (const inv of pending) {
+    for (const rec of pending) {
       try {
-        await this.verifactu.refreshStatus(inv.id, inv.tenantId);
+        await this.verifactu.refreshStatus(rec.invoiceId, rec.tenantId);
       } catch (err) {
         this.logger.warn(
-          `[verifactu-status.poll] error consultando invoice ${inv.id}: ${
+          `[verifactu-status.poll] error consultando invoice ${rec.invoiceId}: ${
             err instanceof Error ? err.message : String(err)
           }`,
         );

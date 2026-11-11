@@ -8,6 +8,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import {
   createDraftInvoice,
   ensureDefaultSeries,
+  quiesceVerifactuQueue,
   waitForAeatStatus,
 } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
@@ -41,6 +42,7 @@ describe('Veri*Factu por negocio (e2e)', () => {
   });
 
   afterAll(async () => {
+    await quiesceVerifactuQueue(app);
     await app.close();
     await db.$disconnect();
     await cleanupTestTenants();
@@ -124,7 +126,7 @@ describe('Veri*Factu por negocio (e2e)', () => {
     );
   });
 
-  it('activado: la primera factura abre la cadena y no se apaga hasta el 31 de diciembre', async () => {
+  it('activado: la primera factura abre la cadena; con facturas este año, la baja queda para el 31 de diciembre', async () => {
     const owner = await registerVerifiedUser(app, 'vfton');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const customerId = await createCustomer(app, owner.accessToken);
@@ -137,7 +139,8 @@ describe('Veri*Factu por negocio (e2e)', () => {
       .set(auth)
       .send({ enabled: true })
       .expect(200);
-    expect(on.body).toMatchObject({ enabled: true, lockedUntil: `${madridYear()}-12-31` });
+    // Sin ningún registro aún: se podría apagar en el momento.
+    expect(on.body).toMatchObject({ enabled: true, lockedUntil: null, renuncia: null });
     expect(on.body.enabledAt).toEqual(expect.any(String));
     // Su número de instalación en la AEAT: la activación y el principio del id.
     const installed = await db.tenant.findUniqueOrThrow({
@@ -165,13 +168,19 @@ describe('Veri*Factu por negocio (e2e)', () => {
     expect(rows.find((r) => r.id === first.id)?.chainSeq).toBe(1);
     expect(rows.find((r) => r.id === second.id)?.chainSeq).toBe(2);
 
-    // Activado este año: no se puede apagar hasta el 31 de diciembre.
-    const locked = await http()
+    // Con facturas enviadas este año sigue hasta el 31 de diciembre (art. 17.2):
+    // desactivarlo programa la baja para ese día.
+    const year = madridYear();
+    const scheduled = await http()
       .put('/billing/verifactu/settings')
       .set(auth)
       .send({ enabled: false })
-      .expect(409);
-    expect(locked.body.code).toBe('verifactu_locked');
+      .expect(200);
+    expect(scheduled.body).toMatchObject({
+      enabled: true,
+      lockedUntil: `${year}-12-31`,
+      renuncia: { endDate: `${year}-12-31`, communicatedAt: null },
+    });
 
     const health = await http().get('/settings/tenant/health').set(auth).expect(200);
     expect(health.body.map((i: { key: string }) => i.key)).not.toContain('verifactu_off');
@@ -180,10 +189,12 @@ describe('Veri*Factu por negocio (e2e)', () => {
       { done: true },
     );
 
-    // Activado el año pasado: ya se puede desactivar y las nuevas salen sin huella.
-    await db.tenant.update({
-      where: { id: owner.tenantId },
-      data: { verifactuEnabledAt: new Date(Date.UTC(madridYear() - 1, 5, 1)) },
+    // Sin facturas este año (las suyas, del año pasado): se apaga ya y las nuevas
+    // salen sin huella. Antes se anula la baja programada (aún no salió).
+    await http().put('/billing/verifactu/settings').set(auth).send({ enabled: true }).expect(200);
+    await db.verifactuRecord.updateMany({
+      where: { tenantId: owner.tenantId },
+      data: { createdAt: new Date(Date.UTC(year - 1, 5, 1)) },
     });
     const off = await http()
       .put('/billing/verifactu/settings')
@@ -200,6 +211,8 @@ describe('Veri*Factu por negocio (e2e)', () => {
     expect(audit.map((a) => a.action).sort()).toEqual([
       'tenant.verifactu_disabled',
       'tenant.verifactu_enabled',
+      'tenant.verifactu_renuncia_cancelled',
+      'tenant.verifactu_renuncia_scheduled',
     ]);
   });
 

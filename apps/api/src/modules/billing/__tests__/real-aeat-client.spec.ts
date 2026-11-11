@@ -14,6 +14,7 @@ import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { RealAeatClient } from '../aeat-client/real-aeat.client';
 import { VerifactuXmlBuilder } from '../aeat-client/verifactu-xml-builder';
 import { TenantAeatCredentialsService } from '../tenant-aeat-credentials.service';
+import { VerifactuRecordsService } from '../verifactu-records.service';
 
 import type { Env } from '../../../config/env.schema';
 
@@ -77,6 +78,8 @@ const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const INVOICE_ID = '22222222-2222-2222-2222-222222222222';
 const INVOICE_2_ID = '44444444-4444-4444-4444-444444444444';
 const OWNER_ID = '33333333-3333-3333-3333-333333333333';
+const RECORD_ID = '55555555-5555-5555-5555-555555555555';
+const RECORD_2_ID = '66666666-6666-6666-6666-666666666666';
 
 function fakeInvoice(overrides: Record<string, unknown> = {}) {
   return {
@@ -108,6 +111,29 @@ function fakeInvoice(overrides: Record<string, unknown> = {}) {
       documentType: 'dni',
       country: 'ES',
     },
+    ...overrides,
+  };
+}
+
+/** El registro de alta de una factura, tal como lo guarda `verifactu_records`. */
+function fakeRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: RECORD_ID,
+    tenantId: TENANT_ID,
+    ownerId: null as string | null,
+    invoiceId: INVOICE_ID,
+    kind: 'alta',
+    subsanacion: false,
+    rechazoPrevio: null,
+    sinRegistroPrevio: false,
+    chainSeq: 1,
+    previousRecordId: null as string | null,
+    hash: 'A'.repeat(64),
+    previousHash: null as string | null,
+    recordTimestamp: '2026-05-20T10:00:00+02:00',
+    // Sin XML guardado: se arma con los datos de su factura.
+    xml: null as string | null,
+    invoice: { invoiceNumber: 'F-2026-0001', issueDate: new Date('2026-05-20T00:00:00.000Z') },
     ...overrides,
   };
 }
@@ -181,7 +207,7 @@ ${lines}
 const ACCEPTED_ONE = aeatResponse({
   estadoEnvio: 'Correcto',
   csv: 'ABC123XYZ',
-  lines: [{ number: 'F-2026-0001', date: '20-05-2026', ref: INVOICE_ID, estado: 'Correcto' }],
+  lines: [{ number: 'F-2026-0001', date: '20-05-2026', ref: RECORD_ID, estado: 'Correcto' }],
 });
 
 interface BuildClientArgs {
@@ -198,15 +224,22 @@ interface BuildClientArgs {
   } | null;
   config?: Partial<Record<keyof Env, unknown>>;
   invoices?: ReturnType<typeof fakeInvoice>[];
+  records?: ReturnType<typeof fakeRecord>[];
 }
 
 function buildClient(args: BuildClientArgs = {}): {
   client: RealAeatClient;
   credentialsMock: jest.Mocked<Pick<TenantAeatCredentialsService, 'getDecrypted'>>;
   adminMock: {
-    invoice: { findUnique: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock };
-    tenant: { findUnique: jest.Mock };
-    owner: { findUnique: jest.Mock; count: jest.Mock };
+    invoice: {
+      findUnique: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+    };
+    tenant: { findUnique: jest.Mock; findUniqueOrThrow: jest.Mock };
+    owner: { findUnique: jest.Mock; findUniqueOrThrow: jest.Mock; count: jest.Mock };
+    verifactuRecord: { findMany: jest.Mock; findUnique: jest.Mock };
   };
 } {
   const credentialsMock = {
@@ -214,21 +247,37 @@ function buildClient(args: BuildClientArgs = {}): {
   } as unknown as jest.Mocked<Pick<TenantAeatCredentialsService, 'getDecrypted'>>;
 
   const invoices = args.invoices ?? [fakeInvoice()];
+  const records = args.records ?? [fakeRecord()];
+  const invoiceById = (id: string) => invoices.find((i) => i.id === id) ?? fakeInvoice();
   const adminMock = {
     invoice: {
       findUnique: jest.fn().mockResolvedValue(fakeInvoice()),
-      findFirst: jest.fn().mockResolvedValue(null),
-      // Las facturas del envío (con `include`) y sus anteriores / rectificadas.
-      findMany: jest
+      // La factura de cada registro (con sus líneas y su cliente).
+      findUniqueOrThrow: jest
         .fn()
-        .mockImplementation((q: { include?: unknown }) =>
-          Promise.resolve(q.include ? invoices : []),
+        .mockImplementation((q: { where: { id: string } }) =>
+          Promise.resolve(invoiceById(q.where.id)),
         ),
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     tenant: {
       findUnique: jest.fn().mockResolvedValue(fakeTenant()),
+      findUniqueOrThrow: jest.fn().mockResolvedValue(fakeTenant()),
     },
-    owner: { findUnique: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
+    owner: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findUniqueOrThrow: jest.fn().mockResolvedValue(null),
+      count: jest.fn().mockResolvedValue(0),
+    },
+    verifactuRecord: {
+      findMany: jest.fn().mockResolvedValue(records),
+      // El registro anterior de la cadena.
+      findUnique: jest.fn().mockImplementation((q: { where: { id: string } }) => {
+        const prev = records.find((r) => r.id === q.where.id);
+        return Promise.resolve(prev ? { invoice: prev.invoice } : null);
+      }),
+    },
   };
 
   const config = createConfig(args.config);
@@ -239,11 +288,12 @@ function buildClient(args: BuildClientArgs = {}): {
     credentialsMock as unknown as TenantAeatCredentialsService,
     xmlBuilder,
     adminMock as unknown as PrismaAdminService,
+    new VerifactuRecordsService(xmlBuilder),
   );
   return { client, credentialsMock, adminMock };
 }
 
-const baseBatch = { tenantId: TENANT_ID, ownerId: null, invoiceIds: [INVOICE_ID] };
+const baseBatch = { tenantId: TENANT_ID, ownerId: null, recordIds: [RECORD_ID] };
 
 describe('RealAeatClient', () => {
   let validCert: ReturnType<typeof buildTestPkcs12>;
@@ -284,7 +334,7 @@ describe('RealAeatClient', () => {
     expect(res.outcome).toBe('not_sent');
     expect(res.message).toBe('tenant_no_aeat_credential');
     expect(res.recordCount).toBe(0);
-    expect(res.results[INVOICE_ID]).toEqual({
+    expect(res.results[RECORD_ID]).toEqual({
       status: 'error',
       message: 'tenant_no_aeat_credential',
     });
@@ -310,7 +360,7 @@ describe('RealAeatClient', () => {
     const res = await client.sendBatch(baseBatch);
     expect(res.outcome).toBe('not_sent');
     expect(res.message).toBe('certificate_expired');
-    expect(res.results[INVOICE_ID]?.status).toBe('error');
+    expect(res.results[RECORD_ID]?.status).toBe('error');
   });
 
   it('respuesta Correcto -> registrada con el CSV del envío y la espera que pide la AEAT', async () => {
@@ -326,7 +376,7 @@ describe('RealAeatClient', () => {
     expect(res.waitSeconds).toBe(60);
     expect(res.recordCount).toBe(1);
     expect(res.emitterTaxId).toBe('B12345678');
-    expect(res.results[INVOICE_ID]).toMatchObject({ status: 'accepted', csv: 'ABC123XYZ' });
+    expect(res.results[RECORD_ID]).toMatchObject({ status: 'accepted', csv: 'ABC123XYZ' });
   });
 
   it('cada registro lleva al fabricante y el número de instalación del emisor', async () => {
@@ -349,21 +399,21 @@ describe('RealAeatClient', () => {
     );
     // Una sola facturación en el negocio.
     expect(sent[0]).toContain('<sum1:IndicadorMultiplesOT>N</sum1:IndicadorMultiplesOT>');
-    // El id de la factura vuelve en la línea de la respuesta.
-    expect(sent[0]).toContain(`<sum1:RefExterna>${INVOICE_ID}</sum1:RefExterna>`);
+    // El id del registro vuelve en la línea de la respuesta.
+    expect(sent[0]).toContain(`<sum1:RefExterna>${RECORD_ID}</sum1:RefExterna>`);
 
     // Un propietario: su propio número, su NIF de obligado y el negocio lleva varias.
-    adminMock.owner.findUnique.mockResolvedValue({
+    const ownerRow = {
       id: OWNER_ID,
       tenantId: TENANT_ID,
       legalName: 'Propietaria SL',
       taxId: 'B12345674',
-    });
+    };
+    adminMock.owner.findUnique.mockResolvedValue(ownerRow);
+    adminMock.owner.findUniqueOrThrow.mockResolvedValue(ownerRow);
     adminMock.owner.count.mockResolvedValue(1);
-    adminMock.invoice.findMany.mockImplementation((q: { include?: unknown }) =>
-      Promise.resolve(q.include ? [fakeInvoice({ ownerId: OWNER_ID })] : []),
-    );
-    adminMock.invoice.findMany.mockClear();
+    adminMock.verifactuRecord.findMany.mockResolvedValue([fakeRecord({ ownerId: OWNER_ID })]);
+    adminMock.verifactuRecord.findMany.mockClear();
     const owned = await client.sendBatch({ ...baseBatch, ownerId: OWNER_ID });
     expect(owned.emitterTaxId).toBe('B12345674');
     expect(sent[1]).toContain(
@@ -371,8 +421,8 @@ describe('RealAeatClient', () => {
     );
     expect(sent[1]).toContain('<sum1:IndicadorMultiplesOT>S</sum1:IndicadorMultiplesOT>');
     expect(sent[1]).toContain('<sum1:NIF>B12345674</sum1:NIF>');
-    // Solo se piden las facturas de ese emisor.
-    expect(adminMock.invoice.findMany.mock.calls[0]![0].where).toMatchObject({
+    // Solo se piden los registros de ese emisor.
+    expect(adminMock.verifactuRecord.findMany.mock.calls[0]![0].where).toMatchObject({
       tenantId: TENANT_ID,
       ownerId: OWNER_ID,
     });
@@ -392,11 +442,11 @@ describe('RealAeatClient', () => {
           csv: 'CSV-LOTE',
           wait: '120',
           lines: [
-            { number: 'F-2026-0001', date: '20-05-2026', ref: INVOICE_ID, estado: 'Correcto' },
+            { number: 'F-2026-0001', date: '20-05-2026', ref: RECORD_ID, estado: 'Correcto' },
             {
               number: 'F-2026-0002',
               date: '21-05-2026',
-              ref: INVOICE_2_ID,
+              ref: RECORD_2_ID,
               estado: 'Incorrecto',
               code: '1105',
               desc: 'El NIF del destinatario no está identificado',
@@ -413,13 +463,25 @@ describe('RealAeatClient', () => {
           id: INVOICE_2_ID,
           invoiceNumber: 'F-2026-0002',
           issueDate: new Date('2026-05-21T00:00:00.000Z'),
-          previousInvoiceId: INVOICE_ID,
+        }),
+      ],
+      records: [
+        fakeRecord(),
+        fakeRecord({
+          id: RECORD_2_ID,
+          invoiceId: INVOICE_2_ID,
+          chainSeq: 2,
+          previousRecordId: RECORD_ID,
           previousHash: 'A'.repeat(64),
           hash: 'B'.repeat(64),
+          invoice: {
+            invoiceNumber: 'F-2026-0002',
+            issueDate: new Date('2026-05-21T00:00:00.000Z'),
+          },
         }),
       ],
     });
-    const res = await client.sendBatch({ ...baseBatch, invoiceIds: [INVOICE_ID, INVOICE_2_ID] });
+    const res = await client.sendBatch({ ...baseBatch, recordIds: [RECORD_ID, RECORD_2_ID] });
 
     expect(sent).toHaveLength(1);
     expect(sent[0]!.match(/<sum1:RegistroAlta>/g)).toHaveLength(2);
@@ -429,11 +491,49 @@ describe('RealAeatClient', () => {
     expect(res.status).toBe('partially_accepted');
     expect(res.recordCount).toBe(2);
     expect(res.waitSeconds).toBe(120);
-    expect(res.results[INVOICE_ID]).toMatchObject({ status: 'accepted', csv: 'CSV-LOTE' });
-    expect(res.results[INVOICE_2_ID]).toMatchObject({
+    expect(res.results[RECORD_ID]).toMatchObject({ status: 'accepted', csv: 'CSV-LOTE' });
+    expect(res.results[RECORD_2_ID]).toMatchObject({
       status: 'rejected',
       message: '[1105] El NIF del destinatario no está identificado',
     });
+  });
+
+  it('un registro guardado sale tal como se generó (no se rehace con los datos de hoy)', async () => {
+    const sent: string[] = [];
+    nock(AEAT_HOST)
+      .post(AEAT_PATH, (body: string) => {
+        sent.push(body);
+        return true;
+      })
+      .reply(200, ACCEPTED_ONE, { 'content-type': 'text/xml; charset=utf-8' });
+    const stored =
+      '      <sum:RegistroFactura><sum1:RegistroAlta><sum1:RefExterna>GUARDADO</sum1:RefExterna></sum1:RegistroAlta></sum:RegistroFactura>';
+    const { client, adminMock } = buildClient({
+      ...certArgs(),
+      records: [fakeRecord({ xml: stored })],
+    });
+    await client.sendBatch(baseBatch);
+    expect(sent[0]).toContain(stored);
+    // Ni la factura ni el cliente se vuelven a leer.
+    expect(adminMock.invoice.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it('la cabecera lleva la renuncia (FechaFinVeriFactu) y la marca de incidencia', async () => {
+    const sent: string[] = [];
+    nock(AEAT_HOST)
+      .post(AEAT_PATH, (body: string) => {
+        sent.push(body);
+        return true;
+      })
+      .reply(200, ACCEPTED_ONE, { 'content-type': 'text/xml; charset=utf-8' });
+    const { client } = buildClient(certArgs());
+    await client.sendBatch({
+      ...baseBatch,
+      remision: { fechaFinVerifactu: new Date('2026-12-31T00:00:00.000Z'), incidencia: true },
+    });
+    expect(sent[0]).toMatch(
+      /<sum1:RemisionVoluntaria>\s*<sum1:FechaFinVeriFactu>31-12-2026<\/sum1:FechaFinVeriFactu>\s*<sum1:Incidencia>S<\/sum1:Incidencia>\s*<\/sum1:RemisionVoluntaria>\s*<\/sum:Cabecera>/,
+    );
   });
 
   it('respuesta AceptadoConErrores -> accepted_with_warnings + CSV', async () => {
@@ -448,7 +548,7 @@ describe('RealAeatClient', () => {
             {
               number: 'F-2026-0001',
               date: '20-05-2026',
-              ref: INVOICE_ID,
+              ref: RECORD_ID,
               estado: 'AceptadoConErrores',
               code: '2004',
               desc: 'FechaHoraHusoGenRegistro fuera de margen',
@@ -459,7 +559,7 @@ describe('RealAeatClient', () => {
 
     const { client } = buildClient(certArgs());
     const res = await client.sendBatch(baseBatch);
-    expect(res.results[INVOICE_ID]).toMatchObject({
+    expect(res.results[RECORD_ID]).toMatchObject({
       status: 'accepted_with_warnings',
       csv: 'WARN-CSV-001',
     });
@@ -472,7 +572,7 @@ describe('RealAeatClient', () => {
     const res = await client.sendBatch(baseBatch);
     expect(res.outcome).toBe('failed');
     expect(res.message).toBe('aeat_server_error');
-    expect(res.results[INVOICE_ID]?.status).toBe('error');
+    expect(res.results[RECORD_ID]?.status).toBe('error');
   });
 
   describe('getStatus', () => {
@@ -559,6 +659,6 @@ describe('RealAeatClient', () => {
     expect(res.outcome).toBe('failed');
     expect(res.message).toMatch(/timeout/i);
     expect(res.recordCount).toBe(1);
-    expect(res.results[INVOICE_ID]?.status).toBe('error');
+    expect(res.results[RECORD_ID]?.status).toBe('error');
   });
 });

@@ -1,6 +1,55 @@
+import { getQueueToken } from '@nestjs/bullmq';
 import request from 'supertest';
 
+import { PrismaAdminService } from '../../src/modules/database/prisma-admin.service';
+import { QUEUE_VERIFACTU } from '../../src/modules/queues/queues.module';
+
 import type { INestApplication } from '@nestjs/common';
+import type { AeatStatus } from '@storageos/database';
+import type { Queue } from 'bullmq';
+
+/**
+ * Deja quieta la cola `verifactu` antes de cerrar la app: espera a que acabe el
+ * envío que esté en marcha (el de la última factura emitida) y quita los
+ * programados. Cerrar con un envío a medias puede dejar el cierre esperándolo.
+ */
+export async function quiesceVerifactuQueue(app: INestApplication): Promise<void> {
+  const queue = app.get<Queue>(getQueueToken(QUEUE_VERIFACTU), { strict: false });
+  for (let i = 0; i < 100 && (await queue.getActiveCount()) > 0; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await queue.drain(true);
+}
+
+/**
+ * Pone a mano el estado en la AEAT del último registro de una factura (y el de
+ * la factura, que enseña el de su último registro).
+ */
+export async function setAeatStatus(
+  app: INestApplication,
+  invoiceId: string,
+  status: AeatStatus,
+  message?: string,
+): Promise<void> {
+  const admin = app.get(PrismaAdminService);
+  const latest = await admin.verifactuRecord.findFirstOrThrow({
+    where: { invoiceId },
+    orderBy: { chainSeq: 'desc' },
+  });
+  await admin.verifactuRecord.update({
+    where: { id: latest.id },
+    data: { status, ...(message ? { response: { mode: 'stub', message } } : {}) },
+  });
+  await admin.invoice.update({ where: { id: invoiceId }, data: { aeatStatus: status } });
+}
+
+/** Los registros de Veri*Factu de una factura, en el orden de la cadena. */
+export async function recordsOf(app: INestApplication, invoiceId: string) {
+  return app.get(PrismaAdminService).verifactuRecord.findMany({
+    where: { invoiceId },
+    orderBy: { chainSeq: 'asc' },
+  });
+}
 
 export async function ensureDefaultSeries(
   app: INestApplication,

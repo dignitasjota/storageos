@@ -4,7 +4,13 @@ import { ApiError, apiFetch } from '../auth/api';
 
 import { invoiceKey } from './hooks';
 
-import type { InvoiceDto, VerifactuSettingsDto, VerifactuSubmissionDto } from '@storageos/shared';
+import type {
+  InvoiceDto,
+  VerifactuAlertDto,
+  VerifactuRecordDto,
+  VerifactuSettingsDto,
+  VerifactuSubmissionDto,
+} from '@storageos/shared';
 
 /**
  * Metadata pública del certificado AEAT cargado por el tenant. La definimos
@@ -41,6 +47,33 @@ export const verifactuCredentialKey = ['billing', 'aeat-credential'] as const;
 export const verifactuCredentialHistoryKey = ['billing', 'aeat-credential', 'history'] as const;
 export const verifactuSettingsKey = ['billing', 'verifactu-settings'] as const;
 export const verifactuSubmissionsKey = ['billing', 'verifactu-submissions'] as const;
+export const verifactuAlertKey = ['billing', 'verifactu-alert'] as const;
+export const verifactuRecordsKey = (invoiceId: string) =>
+  ['invoices', invoiceId, 'verifactu-records'] as const;
+
+/**
+ * GET /billing/verifactu/alert: lo que no ha podido salir hacia la AEAT por una
+ * incidencia (el aviso de la cabecera, art. 16.4 de la Orden).
+ */
+export function useVerifactuAlertQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: verifactuAlertKey,
+    queryFn: () => apiFetch<VerifactuAlertDto>('/billing/verifactu/alert'),
+    enabled,
+    refetchInterval: 5 * 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** GET /billing/invoices/:id/verifactu-records: alta, subsanaciones y anulación. */
+export function useVerifactuRecordsQuery(invoiceId: string, enabled = true) {
+  return useQuery({
+    queryKey: verifactuRecordsKey(invoiceId),
+    queryFn: () =>
+      apiFetch<VerifactuRecordDto[]>(`/billing/invoices/${invoiceId}/verifactu-records`),
+    enabled,
+  });
+}
 
 /** GET /billing/verifactu/settings: si el negocio envía sus facturas a la AEAT. */
 export function useVerifactuSettingsQuery() {
@@ -175,20 +208,22 @@ export function useVerifactuCredentialHistoryQuery(options: { enabled?: boolean 
 }
 
 /**
- * POST /billing/invoices/:id/resend-aeat. Endpoint pendiente de 10A.4.
- * Por ahora la llamada existe para no romper la integración cuando el
- * backend la habilite. Si responde 404 lo mapeamos a un error específico
- * que la UI traduce a "Endpoint pendiente".
+ * POST /billing/invoices/:id/resend-aeat: el mismo registro si no llegó, o uno
+ * de subsanación (con el motivo) si la AEAT lo rechazó o lo aceptó con avisos.
  */
 export function useResendVerifactuMutation(invoiceId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiFetch<unknown>(`/billing/invoices/${invoiceId}/resend-aeat`, {
-        method: 'POST',
-      }),
+    mutationFn: (input: { reason?: string } = {}) =>
+      apiFetch<{ queued: true; invoiceId: string; subsanacion: boolean }>(
+        `/billing/invoices/${invoiceId}/resend-aeat`,
+        { method: 'POST', json: input },
+      ),
     onSuccess: () => {
+      // La clave de la factura cubre también sus registros.
       void qc.invalidateQueries({ queryKey: invoiceKey(invoiceId) });
+      void qc.invalidateQueries({ queryKey: verifactuSettingsKey });
+      void qc.invalidateQueries({ queryKey: verifactuAlertKey });
     },
   });
 }

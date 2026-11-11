@@ -137,11 +137,16 @@ export interface InvoiceDto {
   aeatSentAt: string | null;
   aeatStatus: AeatStatusValue | null;
   aeatCsv: string | null;
+  /** Lo que dijo la AEAT del último registro (motivo del rechazo o de los avisos). */
+  aeatMessage: string | null;
   holdedDocumentId: string | null;
   /** Sistema que emitió la factura: la app (Veri*Factu) o Holded. */
   issuedBy: InvoicingModeValue;
   paidAt: string | null;
   cancelledAt: string | null;
+  /** Anulada por haberse emitido por error (queda `cancelled`, fuera de los libros). */
+  voidedAt: string | null;
+  voidReason: string | null;
   items: InvoiceItemDto[];
   createdAt: string;
   updatedAt: string;

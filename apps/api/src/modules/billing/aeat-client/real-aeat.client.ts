@@ -3,12 +3,12 @@ import { URL } from 'node:url';
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { isValidSpanishTaxId, normalizeTaxId } from '@storageos/shared';
+import { normalizeTaxId } from '@storageos/shared';
 import * as forge from 'node-forge';
 
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { TenantAeatCredentialsService } from '../tenant-aeat-credentials.service';
-import { ownerInstallationNumber, verifactuInstallationNumber } from '../verifactu-installation';
+import { VerifactuRecordsService } from '../verifactu-records.service';
 
 import {
   AeatClient,
@@ -20,33 +20,9 @@ import {
 } from './aeat-client';
 import { resolveRepresentative } from './representative';
 import { parseSubmissionResponse, type SubmissionRecordRef } from './submission-response';
-import {
-  breakdownFromItems,
-  formatSpanishDate,
-  VerifactuXmlBuilder,
-} from './verifactu-xml-builder';
+import { formatSpanishDate, VerifactuXmlBuilder } from './verifactu-xml-builder';
 
 import type { Env } from '../../../config/env.schema';
-
-/**
- * NIF español válido → `<NIF>`; si no, `<IDOtro>` con el país del cliente
- * (pasaporte → 03; documento extranjero → 04).
- */
-export function recipientId(
-  customer: {
-    documentNumber: string | null;
-    documentType: string | null;
-    country: string | null;
-  } | null,
-): { taxId: string } | { otherId: { country: string; idType: '03' | '04' | '06'; id: string } } {
-  const doc = (customer?.documentNumber ?? '').trim();
-  if (doc && isValidSpanishTaxId(doc)) return { taxId: normalizeTaxId(doc) };
-  const country = (customer?.country ?? 'ES').toUpperCase();
-  const passport = /pasaporte|passport/i.test(customer?.documentType ?? '');
-  return {
-    otherId: { country, idType: passport ? '03' : country === 'ES' ? '06' : '04', id: doc },
-  };
-}
 
 /**
  * Cliente real para AEAT sandbox y produccion (Veri*Factu, RD 1007/2023).
@@ -54,8 +30,8 @@ export function recipientId(
  * Flujo de un envío (`sendBatch`, hasta 1.000 registros de un mismo emisor):
  *   1. Carga PKCS#12 del emisor via `TenantAeatCredentialsService` y extrae
  *      cert + clave en PEM con `node-forge`.
- *   2. Construye el SOAP envelope con `VerifactuXmlBuilder`: una cabecera y un
- *      registro por factura, en el orden de la cadena.
+ *   2. Construye el SOAP envelope con `VerifactuXmlBuilder`: una cabecera y
+ *      cada registro tal como se guardó al generarlo, en el orden de la cadena.
  *   3. POST al endpoint AEAT usando `https.Agent` con `cert`+`key` (mTLS).
  *   4. Lee la respuesta (`parseSubmissionResponse`): estado del envío, CSV,
  *      la espera que pide la AEAT y el resultado de cada registro.
@@ -78,6 +54,7 @@ export class RealAeatClient extends AeatClient {
     private readonly credentials: TenantAeatCredentialsService,
     private readonly xmlBuilder: VerifactuXmlBuilder,
     private readonly admin: PrismaAdminService,
+    private readonly records: VerifactuRecordsService,
   ) {
     super();
     const mode = config.get('AEAT_MODE', { infer: true });
@@ -98,7 +75,7 @@ export class RealAeatClient extends AeatClient {
         recordCount: 0,
         message,
         results: Object.fromEntries(
-          args.invoiceIds.map((id) => [id, { status: 'error' as const, message }]),
+          args.recordIds.map((id) => [id, { status: 'error' as const, message }]),
         ),
         ...(raw ? { raw } : {}),
       }) satisfies SendBatchResult;
@@ -106,15 +83,7 @@ export class RealAeatClient extends AeatClient {
     // 1. Emisor: el propietario (plan Administrador) o el propio negocio.
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: {
-        id: true,
-        name: true,
-        billingLegalName: true,
-        taxId: true,
-        verifactuInstallation: true,
-        verifactuEnabledAt: true,
-        createdAt: true,
-      },
+      select: { id: true, name: true, billingLegalName: true, taxId: true },
     });
     if (!tenant) return notSent('tenant_not_found');
     const owner = ownerId
@@ -124,9 +93,11 @@ export class RealAeatClient extends AeatClient {
         })
       : null;
     if (ownerId && (!owner || owner.tenantId !== tenantId)) return notSent('owner_not_found');
-    const issuer = owner
-      ? { name: owner.legalName, taxId: owner.taxId }
-      : { name: tenant.billingLegalName || tenant.name, taxId: tenant.taxId ?? '' };
+    const rawTaxId = owner ? owner.taxId : (tenant.taxId ?? '');
+    const issuer = {
+      name: owner ? owner.legalName : tenant.billingLegalName || tenant.name,
+      taxId: rawTaxId ? normalizeTaxId(rawTaxId) : '',
+    };
 
     // 2. Certificado: el del propietario si lo tiene; si no, el del negocio.
     const cred = await this.credentials.getDecrypted(tenantId, ownerId);
@@ -153,154 +124,40 @@ export class RealAeatClient extends AeatClient {
       return notSent('invalid_certificate', issuer.taxId, { err: message });
     }
 
-    // 3. Las facturas, sus registros anteriores y las facturas que rectifican.
-    const invoices = await this.admin.invoice.findMany({
-      where: { id: { in: [...args.invoiceIds] }, tenantId, ownerId },
-      include: { items: true, customer: true },
+    // 3. Los registros, tal como se guardaron al generarlos (los anteriores a
+    // guardarlos aparte se arman con los datos de su factura).
+    const rows = await this.admin.verifactuRecord.findMany({
+      where: { id: { in: [...args.recordIds] }, tenantId, ownerId },
+      include: { invoice: { select: { invoiceNumber: true, issueDate: true } } },
     });
-    const byId = new Map(invoices.map((i) => [i.id, i]));
-    const refIds = [
-      ...new Set(
-        invoices.flatMap((i) => [
-          ...(i.previousInvoiceId ? [i.previousInvoiceId] : []),
-          ...(i.invoiceType.startsWith('R') && i.rectifiesInvoiceId ? [i.rectifiesInvoiceId] : []),
-        ]),
-      ),
-    ];
-    const refs = new Map(
-      (refIds.length > 0
-        ? await this.admin.invoice.findMany({
-            where: { id: { in: refIds } },
-            select: {
-              id: true,
-              invoiceNumber: true,
-              issueDate: true,
-              subtotal: true,
-              taxAmount: true,
-            },
-          })
-        : []
-      ).map((r) => [r.id, r]),
-    );
-
-    // El sistema del emisor: el negocio y cada propietario son facturaciones
-    // distintas, cada una con su número de instalación (el del negocio se fija
-    // al activar Veri*Factu). Con propietarios, el negocio lleva varias.
-    const tenantInstallation =
-      tenant.verifactuInstallation ??
-      verifactuInstallationNumber(tenant.verifactuEnabledAt ?? tenant.createdAt, tenant.id);
-    const owners = await this.admin.owner.count({ where: { tenantId } });
-    const system = {
-      installationNumber: owner
-        ? ownerInstallationNumber(tenantInstallation, owner.id)
-        : tenantInstallation,
-      multipleTaxpayers: owners > 0,
-    };
-
-    // 4. Un registro por factura, en el orden de la cadena.
+    const byId = new Map(rows.map((r) => [r.id, r]));
     const results: Record<string, SendInvoiceResult> = {};
     const fragments: string[] = [];
     const sent: SubmissionRecordRef[] = [];
-    for (const id of args.invoiceIds) {
-      const invoice = byId.get(id);
-      if (!invoice) {
-        results[id] = { status: 'error', message: 'invoice_not_found' };
+    for (const id of args.recordIds) {
+      const record = byId.get(id);
+      if (!record) {
+        results[id] = { status: 'error', message: 'record_not_found' };
         continue;
       }
-      if (!invoice.invoiceNumber || !invoice.issueDate || !invoice.hash) {
+      if (!record.invoice.issueDate) {
+        results[id] = { status: 'error', message: 'invoice_missing_required_fields' };
+        continue;
+      }
+      try {
+        fragments.push(await this.records.recordXml(this.admin, record));
+      } catch (err) {
         results[id] = {
           status: 'error',
-          message: 'invoice_missing_required_fields',
-          raw: {
-            hasInvoiceNumber: Boolean(invoice.invoiceNumber),
-            hasIssueDate: Boolean(invoice.issueDate),
-            hasHash: Boolean(invoice.hash),
-          },
+          message: err instanceof Error ? err.message : 'record_xml_failed',
         };
         continue;
       }
-      if (!invoice.aeatRecordTimestamp) {
-        results[id] = { status: 'error', message: 'invoice_missing_record_timestamp' };
-        continue;
-      }
-
-      const previous = invoice.previousInvoiceId ? refs.get(invoice.previousInvoiceId) : undefined;
-      // Rectificativa: la factura original (`<FacturasRectificadas>`) y, si es
-      // por sustitución, sus importes (`<ImporteRectificacion>`).
-      const original =
-        invoice.invoiceType.startsWith('R') && invoice.rectifiesInvoiceId
-          ? refs.get(invoice.rectifiesInvoiceId)
-          : undefined;
-      const rectifies =
-        original?.invoiceNumber && original.issueDate
-          ? [
-              {
-                emitterTaxId: issuer.taxId,
-                invoiceNumber: original.invoiceNumber,
-                issueDate: original.issueDate,
-              },
-            ]
-          : undefined;
-      const originalAmounts =
-        rectifies && original && invoice.correctionMethod === 'by_substitution'
-          ? {
-              baseRectificada: Number(original.subtotal),
-              cuotaRectificada: Number(original.taxAmount),
-            }
-          : undefined;
-      // Rectificativas: `I` por diferencias, `S` por sustitución.
-      const correctionMethodXml: 'I' | 'S' | undefined =
-        invoice.correctionMethod === 'by_substitution' ? 'S' : rectifies ? 'I' : undefined;
-      // Una línea de desglose por tipo de IVA (antes un único tipo «deducido»
-      // de base/cuota: alquiler 21 % + fianza 0 % daba un 14 % inexistente).
-      const breakdown = breakdownFromItems(
-        invoice.items.map((it) => ({
-          taxRate: Number(it.taxRate),
-          taxAmount: Number(it.taxAmount),
-          total: Number(it.total),
-          taxCategory: it.taxCategory,
-        })),
-      );
-
-      fragments.push(
-        this.xmlBuilder.buildRegistroAltaRecord({
-          tenant: issuer,
-          system,
-          invoice: {
-            series: invoice.invoiceNumber.split('-')[0] ?? 'F',
-            refExterna: invoice.id,
-            invoiceNumber: invoice.invoiceNumber,
-            issueDate: invoice.issueDate,
-            description: this.buildDescription(invoice),
-            invoiceType: invoice.invoiceType as 'F1' | 'F2' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5',
-            breakdown,
-            taxAmount: Number(invoice.taxAmount),
-            total: Number(invoice.total),
-            recordTimestamp: invoice.aeatRecordTimestamp,
-            hash: invoice.hash,
-            previousHash: invoice.previousHash,
-            ...(previous?.invoiceNumber ? { previousInvoiceNumber: previous.invoiceNumber } : {}),
-            ...(previous?.issueDate ? { previousInvoiceDate: previous.issueDate } : {}),
-            previousEmitterNif: issuer.taxId,
-            ...(rectifies ? { rectifies } : {}),
-            ...(correctionMethodXml ? { correctionMethod: correctionMethodXml } : {}),
-            ...(originalAmounts ? { originalAmounts } : {}),
-          },
-          // Una F2 sin cliente (simplificada) va sin destinatario.
-          ...(invoice.customer
-            ? {
-                recipient: {
-                  name: this.buildRecipientName(invoice.customer),
-                  ...recipientId(invoice.customer),
-                },
-              }
-            : {}),
-        }),
-      );
       sent.push({
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        issueDate: formatSpanishDate(invoice.issueDate),
+        recordId: record.id,
+        invoiceNumber: record.invoice.invoiceNumber,
+        issueDate: formatSpanishDate(record.invoice.issueDate),
+        kind: record.kind === 'anulacion' ? 'anulacion' : 'alta',
       });
     }
     if (fragments.length === 0) {
@@ -316,6 +173,7 @@ export class RealAeatClient extends AeatClient {
     const xml = this.xmlBuilder.buildSubmission({
       issuer,
       representative: resolveRepresentative(issuer.taxId, cred.record),
+      remision: args.remision ?? null,
       records: fragments,
     });
 
@@ -334,7 +192,7 @@ export class RealAeatClient extends AeatClient {
       this.logger.warn(
         `[aeat_${this.aeatMode}] fallo en POST a ${endpoint} (${sent.length} registros del tenant ${tenantId}): ${message}`,
       );
-      for (const r of sent) results[r.invoiceId] = { status: 'error', message };
+      for (const r of sent) results[r.recordId] = { status: 'error', message };
       return {
         outcome: 'failed',
         emitterTaxId: issuer.taxId,
@@ -481,7 +339,13 @@ export class RealAeatClient extends AeatClient {
     const estado = estadoMatch?.[1]?.trim();
     const csv = csvMatch?.[1]?.trim();
 
+    // Sin registros de esa factura en la AEAT: aún no ha llegado (o no llegó).
+    if (!estado && /<(?:[\w-]+:)?ResultadoConsulta>\s*SinDatos\s*</.test(response.body)) {
+      return { status: 'pending', message: 'aeat_not_registered_yet', raw: { estado: 'SinDatos' } };
+    }
     switch (estado) {
+      case 'Anulado':
+        return { status: 'accepted', csv: csv ?? null, message: 'Anulado', raw: { estado } };
       case 'Correcto':
         return {
           status: 'accepted',
@@ -614,47 +478,5 @@ export class RealAeatClient extends AeatClient {
       req.write(body);
       req.end();
     });
-  }
-
-  /**
-   * Descripcion corta de la operacion para `<DescripcionOperacion>`. AEAT
-   * limita a 500 chars; truncamos defensivamente. Si la factura no tiene
-   * `notes`, generamos algo a partir del periodo facturado.
-   */
-  private buildDescription(invoice: {
-    notes: string | null;
-    periodStart: Date | null;
-    periodEnd: Date | null;
-    issueDate: Date | null;
-  }): string {
-    if (invoice.notes && invoice.notes.trim().length > 0) {
-      return invoice.notes.slice(0, 500);
-    }
-    const ref = invoice.periodStart ?? invoice.issueDate ?? new Date();
-    const yyyy = ref.getUTCFullYear();
-    const mm = String(ref.getUTCMonth() + 1).padStart(2, '0');
-    return `Alquiler trasteros mes ${yyyy}-${mm}`;
-  }
-
-  /**
-   * Nombre del destinatario para el bloque `<IDDestinatario>`. Empresa
-   * usa `companyName`; particular concatena `firstName lastName`. Si todo
-   * faltase devolvemos un placeholder para que el XML siga siendo valido
-   * (AEAT exige el campo siempre).
-   */
-  private buildRecipientName(
-    customer: {
-      customerType: string;
-      companyName: string | null;
-      firstName: string | null;
-      lastName: string | null;
-    } | null,
-  ): string {
-    if (!customer) return 'Cliente sin identificar';
-    if (customer.customerType === 'business') {
-      return customer.companyName ?? 'Empresa sin nombre';
-    }
-    const full = [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim();
-    return full || 'Cliente sin identificar';
   }
 }

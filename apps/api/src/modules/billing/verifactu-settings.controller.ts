@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Put, Query, Req } from '@nestjs/common';
 import {
   UpdateVerifactuSettingsSchema,
+  type VerifactuAlertDto,
   type VerifactuSettingsDto,
   type VerifactuSubmissionDto,
 } from '@storageos/shared';
@@ -27,6 +28,17 @@ export class VerifactuSettingsController {
   @Get('settings')
   get(@CurrentUser() user: AuthenticatedUser): Promise<VerifactuSettingsDto> {
     return this.settings.get(user.tenantId);
+  }
+
+  /**
+   * Lo que no ha podido salir hacia la AEAT por una incidencia (lo avisa el
+   * panel mientras quede algo, art. 16.4 de la Orden). Lo pide el aviso de la
+   * cabecera en todas las páginas: basta con poder ver las facturas.
+   */
+  @RequirePermission('invoices:read')
+  @Get('alert')
+  alert(@CurrentUser() user: AuthenticatedUser): Promise<VerifactuAlertDto> {
+    return this.settings.alert(user.tenantId);
   }
 
   /** Los últimos envíos a la AEAT (con el CSV de cada uno). */

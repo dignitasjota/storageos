@@ -7,6 +7,7 @@ import type {
   ReturnedReceiptsDto,
   BulkInvoiceActionResultDto,
   CancelInvoiceInput,
+  VoidInvoiceInput,
   ChargeInvoiceInput,
   CorrectPaymentInput,
   CreateInvoiceInput,
@@ -326,6 +327,8 @@ export function useGenerateMonth() {
 
 export const useIssueInvoice = makeInvoiceAction<undefined>('issue');
 export const useCancelInvoice = makeInvoiceAction<CancelInvoiceInput>('cancel');
+/** Anular una factura emitida por error (registro de anulación, fuera de los libros). */
+export const useVoidInvoice = makeInvoiceAction<VoidInvoiceInput>('void');
 export const useRefundInvoice = makeInvoiceAction<RefundInvoiceInput>('refund');
 export const useMarkInvoicePaid = makeInvoiceAction<MarkPaidManuallyInput>('mark-paid');
 /** Emite una factura de recargo por mora sobre una factura vencida. */

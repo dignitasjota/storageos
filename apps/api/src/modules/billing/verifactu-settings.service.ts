@@ -1,10 +1,11 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { isValidSpanishTaxId, normalizeTaxId } from '@storageos/shared';
 
 import { formatDateLong, todayInTimezone } from '../../common/format';
 import { tenantFiscalDataMissing } from '../../common/tenant-readiness';
 import { AuditService } from '../auth/audit.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { PENDING_RECORD_WHERE } from './verifactu-dispatcher.service';
@@ -13,9 +14,11 @@ import { verifactuInstallationNumber } from './verifactu-installation';
 
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
-import type { VerifactuSubmission } from '@storageos/database';
+import type { Prisma, VerifactuSubmission } from '@storageos/database';
 import type {
+  VerifactuAlertDto,
   VerifactuBlockerDto,
+  VerifactuRenunciaDto,
   VerifactuSettingsDto,
   VerifactuSubmissionDto,
 } from '@storageos/shared';
@@ -23,6 +26,13 @@ import type {
 type SubmissionRow = VerifactuSubmission & { owner: { legalName: string } | null };
 
 const SUBMISSION_INCLUDE = { owner: { select: { legalName: true } } } as const;
+
+/** Un envío con la renuncia cuenta como comunicada si la AEAT lo procesó. */
+const PROCESSED_SUBMISSION = ['accepted', 'partially_accepted'];
+
+function dateOnly(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
 
 function toSubmissionDto(row: SubmissionRow): VerifactuSubmissionDto {
   return {
@@ -37,13 +47,47 @@ function toSubmissionDto(row: SubmissionRow): VerifactuSubmissionDto {
     waitSeconds: row.waitSeconds,
     message: row.message,
     mode: row.mode as VerifactuSubmissionDto['mode'],
+    fechaFinVerifactu: row.fechaFinVerifactu ? dateOnly(row.fechaFinVerifactu) : null,
+    incident: row.incident,
   };
 }
 
-/** Último día en que no se puede apagar: el 31 de diciembre del año en que se activó. */
-export function verifactuLockedUntil(enabledAt: Date, timeZone: string): string {
-  const year = todayInTimezone(timeZone, enabledAt).getUTCFullYear();
+/**
+ * Hasta cuándo sigue en VERI*FACTU quien generó un registro en esta fecha: el
+ * 31 de diciembre de ese año, en la zona del negocio (art. 17.2 de la Orden).
+ */
+export function verifactuLockedUntil(recordAt: Date, timeZone: string): string {
+  const year = todayInTimezone(timeZone, recordAt).getUTCFullYear();
   return `${year}-12-31`;
+}
+
+/**
+ * El último fallo al enviar, en palabras (lo que se guarda es el código o el
+ * texto de la AEAT).
+ */
+export function verifactuErrorText(message: string | null | undefined): string | null {
+  if (!message) return null;
+  const known: Record<string, string> = {
+    tenant_no_aeat_credential: 'Falta el certificado digital: súbelo en esta página.',
+    certificate_expired: 'El certificado digital ha caducado: sube uno vigente.',
+    invalid_certificate: 'No se ha podido leer el certificado digital: vuelve a subirlo.',
+    aeat_server_error: 'La AEAT no responde (error en su servidor). Se vuelve a intentar.',
+    unrecognized_aeat_response:
+      'La AEAT ha dado una respuesta que no se entiende. Se vuelve a intentar.',
+    tenant_not_found: 'No se encuentra el negocio.',
+    owner_not_found: 'No se encuentra el propietario que emite.',
+  };
+  if (known[message]) return known[message];
+  if (message.startsWith('aeat_fault:')) {
+    const text = message.slice('aeat_fault:'.length).trim();
+    const code = text.match(/Codigo\[(\d+)\]\.?\s*/i);
+    const rest = code ? text.replace(code[0], '').trim() : text;
+    return `La AEAT ha rechazado el envío${code ? ` (${code[1]})` : ''}: ${rest || 'sin detalle'}`;
+  }
+  if (/timeout|ECONN|ENOTFOUND|EAI_AGAIN|socket|network/i.test(message)) {
+    return 'No se ha podido conectar con la AEAT. Se vuelve a intentar.';
+  }
+  return message;
 }
 
 /**
@@ -52,14 +96,20 @@ export function verifactuLockedUntil(enabledAt: Date, timeZone: string): string 
  * tener aún el certificado. Cada negocio lo activa cuando le toque (o antes);
  * desde entonces se envía todo y su primera factura abre la cadena.
  *
- * Activado, no se apaga hasta el 31 de diciembre de ese año: quien remite sus
- * registros a la AEAT debe hacerlo todo el año natural (art. 17 de la Orden
- * HAC/1177/2024).
+ * Quien ha generado registros en un año sigue en VERI*FACTU hasta el 31 de
+ * diciembre de ese año (art. 17.2 de la Orden HAC/1177/2024): desactivarlo
+ * programa la baja para ese día y los envíos que salgan hasta entonces llevan
+ * la renuncia (`FechaFinVeriFactu`, art. 17.3). El 1 de enero se apaga si ha
+ * llegado a la AEAT; si no (no salió ningún envío más ese año), sigue activado
+ * y se avisa. Quien aún no ha generado nada lo apaga en el momento.
  */
 @Injectable()
 export class VerifactuSettingsService {
+  private readonly logger = new Logger(VerifactuSettingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
     private readonly config: ConfigService<Env, true>,
     private readonly audit: AuditService,
   ) {}
@@ -98,47 +148,111 @@ export class VerifactuSettingsService {
     return rows.map(toSubmissionDto);
   }
 
+  /**
+   * Lo que no ha podido salir hacia la AEAT por una incidencia técnica: el
+   * panel lo avisa con el número mientras quede algo (art. 16.4 de la Orden).
+   */
+  async alert(tenantId: string): Promise<VerifactuAlertDto> {
+    const where: Prisma.VerifactuRecordWhereInput = {
+      tenantId,
+      ...PENDING_RECORD_WHERE,
+      incident: true,
+    };
+    const [unsentCount, oldest, failing] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.verifactuRecord.count({ where }),
+          tx.verifactuRecord.findFirst({
+            where,
+            orderBy: { createdAt: 'asc' },
+            select: { createdAt: true },
+          }),
+          tx.verifactuEmitter.findFirst({
+            where: { tenantId, consecutiveFailures: { gt: 0 } },
+            orderBy: { updatedAt: 'desc' },
+            select: { lastError: true },
+          }),
+        ]),
+      tenantId,
+    );
+    return {
+      unsentCount,
+      since: oldest?.createdAt.toISOString() ?? null,
+      lastError: unsentCount > 0 ? verifactuErrorText(failing?.lastError) : null,
+    };
+  }
+
   private async snapshot(
     tenantId: string,
   ): Promise<{ dto: VerifactuSettingsDto; timezone: string }> {
     const d = await this.prisma.withTenant(async (tx) => {
-      const [tenant, cert, pending, rejected, lastSubmission, emitters, pendingByEmitter] =
-        await Promise.all([
-          tx.tenant.findUniqueOrThrow({
-            where: { id: tenantId },
-            select: {
-              verifactuEnabled: true,
-              verifactuEnabledAt: true,
-              timezone: true,
-              invoicingMode: true,
-              taxId: true,
-              billingLegalName: true,
-              billingAddress: true,
-              billingPostalCode: true,
-              billingCity: true,
-            },
-          }),
-          tx.tenantAeatCredential.findFirst({
-            where: { tenantId, ownerId: null, revokedAt: null, certValidTo: { gt: new Date() } },
-            select: { id: true },
-          }),
-          tx.invoice.count({
-            where: { tenantId, hash: { not: null }, aeatStatus: { in: ['pending', 'error'] } },
-          }),
-          tx.invoice.count({ where: { tenantId, hash: { not: null }, aeatStatus: 'rejected' } }),
-          tx.verifactuSubmission.findFirst({
-            where: { tenantId },
-            orderBy: { sentAt: 'desc' },
-            include: SUBMISSION_INCLUDE,
-          }),
-          tx.verifactuEmitter.findMany({ where: { tenantId } }),
-          tx.invoice.groupBy({
-            by: ['ownerId'],
-            where: { tenantId, ...PENDING_RECORD_WHERE },
-            _count: { _all: true },
-          }),
-        ]);
-      return { tenant, cert, pending, rejected, lastSubmission, emitters, pendingByEmitter };
+      const [
+        tenant,
+        cert,
+        pending,
+        rejected,
+        incident,
+        lastSubmission,
+        emitters,
+        pendingByEmitter,
+        lastRecord,
+      ] = await Promise.all([
+        tx.tenant.findUniqueOrThrow({
+          where: { id: tenantId },
+          select: {
+            verifactuEnabled: true,
+            verifactuEnabledAt: true,
+            verifactuEndDate: true,
+            timezone: true,
+            invoicingMode: true,
+            taxId: true,
+            billingLegalName: true,
+            billingAddress: true,
+            billingPostalCode: true,
+            billingCity: true,
+          },
+        }),
+        tx.tenantAeatCredential.findFirst({
+          where: { tenantId, ownerId: null, revokedAt: null, certValidTo: { gt: new Date() } },
+          select: { id: true },
+        }),
+        tx.verifactuRecord.count({ where: { tenantId, ...PENDING_RECORD_WHERE } }),
+        tx.invoice.count({ where: { tenantId, hash: { not: null }, aeatStatus: 'rejected' } }),
+        tx.verifactuRecord.count({ where: { tenantId, ...PENDING_RECORD_WHERE, incident: true } }),
+        tx.verifactuSubmission.findFirst({
+          where: { tenantId },
+          orderBy: { sentAt: 'desc' },
+          include: SUBMISSION_INCLUDE,
+        }),
+        tx.verifactuEmitter.findMany({ where: { tenantId } }),
+        tx.verifactuRecord.groupBy({
+          by: ['ownerId'],
+          where: { tenantId, ...PENDING_RECORD_WHERE },
+          _count: { _all: true },
+          orderBy: { ownerId: 'asc' },
+        }),
+        tx.verifactuRecord.findFirst({
+          where: { tenantId },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+      ]);
+      const renuncia =
+        tenant.verifactuEnabled && tenant.verifactuEndDate
+          ? await this.renunciaState(tx, tenantId, tenant.verifactuEndDate)
+          : null;
+      return {
+        tenant,
+        cert,
+        pending,
+        rejected,
+        incident,
+        lastSubmission,
+        emitters,
+        pendingByEmitter,
+        lastRecord,
+        renuncia,
+      };
     }, tenantId);
     const t = d.tenant;
     const realMode = this.platformMode !== 'stub';
@@ -175,22 +289,69 @@ export class VerifactuSettingsService {
       });
     }
 
+    // Con registros generados este año (en la zona del negocio), sigue hasta
+    // el 31 de diciembre.
+    const thisYear = todayInTimezone(t.timezone).getUTCFullYear();
+    const recordLock = d.lastRecord
+      ? verifactuLockedUntil(d.lastRecord.createdAt, t.timezone)
+      : null;
+    const lockedUntil =
+      t.verifactuEnabled && recordLock && Number(recordLock.slice(0, 4)) >= thisYear
+        ? recordLock
+        : null;
+    const failing = d.emitters.find((e) => e.consecutiveFailures > 0);
+
     const dto: VerifactuSettingsDto = {
       enabled: t.verifactuEnabled,
       enabledAt: t.verifactuEnabledAt?.toISOString() ?? null,
-      lockedUntil:
-        t.verifactuEnabled && t.verifactuEnabledAt
-          ? verifactuLockedUntil(t.verifactuEnabledAt, t.timezone)
-          : null,
+      lockedUntil,
+      renuncia: d.renuncia,
       platformMode: this.platformMode,
       blockers,
       pendingCount: d.pending,
       rejectedCount: d.rejected,
+      incidentCount: d.incident,
+      lastError: failing ? verifactuErrorText(failing.lastError) : null,
       invoicingInHolded: t.invoicingMode === 'holded',
       lastSubmission: d.lastSubmission ? toSubmissionDto(d.lastSubmission) : null,
       nextSendAt: this.nextSendAt(d.emitters, d.pendingByEmitter),
     };
     return { dto, timezone: t.timezone };
+  }
+
+  /**
+   * La baja programada: si la AEAT ya la ha recibido (un envío con la
+   * renuncia que procesó) y cuántos emisores con facturas ese año no la han
+   * mandado aún.
+   */
+  private async renunciaState(
+    db: Prisma.TransactionClient,
+    tenantId: string,
+    endDate: Date,
+  ): Promise<VerifactuRenunciaDto> {
+    const yearStart = new Date(Date.UTC(endDate.getUTCFullYear(), 0, 1));
+    const [withRecords, sent] = await Promise.all([
+      db.verifactuRecord.findMany({
+        where: { tenantId, createdAt: { gte: yearStart } },
+        distinct: ['ownerId'],
+        select: { ownerId: true },
+      }),
+      db.verifactuSubmission.findMany({
+        where: {
+          tenantId,
+          fechaFinVerifactu: endDate,
+          status: { in: PROCESSED_SUBMISSION },
+        },
+        orderBy: { sentAt: 'asc' },
+        select: { ownerId: true, sentAt: true },
+      }),
+    ]);
+    const communicated = new Set(sent.map((s) => s.ownerId ?? 'self'));
+    return {
+      endDate: dateOnly(endDate),
+      communicatedAt: sent[0]?.sentAt.toISOString() ?? null,
+      pendingEmitters: withRecords.filter((e) => !communicated.has(e.ownerId ?? 'self')).length,
+    };
   }
 
   /**
@@ -200,13 +361,14 @@ export class VerifactuSettingsService {
    */
   private nextSendAt(
     emitters: { ownerId: string | null; nextSendAt: Date | null; retryAt: Date | null }[],
-    pending: { ownerId: string | null; _count: { _all: number } }[],
+    pending: { ownerId: string | null; _count: { _all: number } | true | undefined }[],
   ): string | null {
     const now = Date.now();
     let next: number | null = null;
     for (const group of pending) {
+      const count = typeof group._count === 'object' ? group._count._all : 0;
       const state = emitters.find((e) => e.ownerId === group.ownerId);
-      const at = state ? sendableAt(state, group._count._all) : null;
+      const at = state ? sendableAt(state, count) : null;
       if (!at || at.getTime() <= now) return null;
       next = next === null ? at.getTime() : Math.min(next, at.getTime());
     }
@@ -220,9 +382,27 @@ export class VerifactuSettingsService {
     meta: RequestMeta;
   }): Promise<VerifactuSettingsDto> {
     const { dto: current, timezone: tz } = await this.snapshot(args.tenantId);
-    if (args.enabled === current.enabled) return current;
 
     if (args.enabled) {
+      if (current.enabled) {
+        // Activado con la baja programada: se anula si aún no salió.
+        if (!current.renuncia) return current;
+        if (current.renuncia.communicatedAt) {
+          throw new ConflictException({
+            code: 'verifactu_renuncia_sent',
+            message: `La baja ya se comunicó a la AEAT el ${formatDateLong(new Date(current.renuncia.communicatedAt), tz)}: dejarás Veri*Factu el 1 de enero.`,
+          });
+        }
+        await this.prisma.withTenant(
+          (tx) =>
+            tx.tenant.update({ where: { id: args.tenantId }, data: { verifactuEndDate: null } }),
+          args.tenantId,
+        );
+        await this.writeAudit(args, 'tenant.verifactu_renuncia_cancelled', {
+          endDate: current.renuncia.endDate,
+        });
+        return this.get(args.tenantId);
+      }
       const blocker = current.blockers[0];
       if (blocker) {
         const body = { code: blocker.code, message: blocker.message };
@@ -230,47 +410,122 @@ export class VerifactuSettingsService {
           ? new ConflictException(body)
           : new BadRequestException(body);
       }
-    } else if (current.lockedUntil) {
-      const today = todayInTimezone(tz).toISOString().slice(0, 10);
-      if (today <= current.lockedUntil) {
-        const since = current.enabledAt
-          ? ` desde el ${formatDateLong(new Date(current.enabledAt), tz)}`
-          : '';
-        throw new ConflictException({
-          code: 'verifactu_locked',
-          message: `Veri*Factu está activado${since}: no se puede desactivar hasta el 31 de diciembre de ${current.lockedUntil.slice(0, 4)}. Quien envía sus facturas a la AEAT tiene que hacerlo durante todo el año (art. 17 de la Orden HAC/1177/2024).`,
-          details: { lockedUntil: current.lockedUntil },
-        });
-      }
+      const now = new Date();
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.tenant.update({
+            where: { id: args.tenantId },
+            // Cada activación es un sistema nuevo con su número de instalación.
+            data: {
+              verifactuEnabled: true,
+              verifactuEnabledAt: now,
+              verifactuEndDate: null,
+              verifactuInstallation: verifactuInstallationNumber(now, args.tenantId),
+            },
+          }),
+        args.tenantId,
+      );
+      await this.writeAudit(args, 'tenant.verifactu_enabled', {});
+      return this.get(args.tenantId);
     }
 
-    const now = new Date();
+    if (!current.enabled || current.renuncia) return current;
+    if (current.lockedUntil) {
+      // Con registros este año: baja al 31 de diciembre, con la renuncia en
+      // los envíos que salgan hasta entonces.
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.tenant.update({
+            where: { id: args.tenantId },
+            data: { verifactuEndDate: new Date(`${current.lockedUntil}T00:00:00Z`) },
+          }),
+        args.tenantId,
+      );
+      await this.writeAudit(args, 'tenant.verifactu_renuncia_scheduled', {
+        endDate: current.lockedUntil,
+      });
+      return this.get(args.tenantId);
+    }
     await this.prisma.withTenant(
       (tx) =>
         tx.tenant.update({
           where: { id: args.tenantId },
-          // Cada activación es un sistema nuevo con su número de instalación.
-          // Al apagarlo se conserva: lo usan los registros que queden por enviar.
-          data: args.enabled
-            ? {
-                verifactuEnabled: true,
-                verifactuEnabledAt: now,
-                verifactuInstallation: verifactuInstallationNumber(now, args.tenantId),
-              }
-            : { verifactuEnabled: false, verifactuEnabledAt: null },
+          // El número de instalación se conserva: lo usan los registros que
+          // queden por enviar.
+          data: { verifactuEnabled: false, verifactuEnabledAt: null, verifactuEndDate: null },
         }),
       args.tenantId,
     );
+    await this.writeAudit(args, 'tenant.verifactu_disabled', {});
+    return this.get(args.tenantId);
+  }
+
+  /**
+   * El 1 de enero (en la zona de cada negocio) se aplica la baja programada:
+   * se apaga si la renuncia llegó a la AEAT desde todos sus emisores con
+   * facturas ese año; si no, sigue activado y se le avisa. Lo llama el cron
+   * diario `verifactu.renuncia`.
+   */
+  async applyDueRenuncias(): Promise<{ disabled: number; kept: number }> {
+    const tenants = await this.admin.tenant.findMany({
+      where: { verifactuEnabled: true, verifactuEndDate: { not: null } },
+      select: { id: true, timezone: true, verifactuEndDate: true },
+    });
+    let disabled = 0;
+    let kept = 0;
+    for (const t of tenants) {
+      const end = t.verifactuEndDate!;
+      if (dateOnly(todayInTimezone(t.timezone)) <= dateOnly(end)) continue;
+      const state = await this.renunciaState(this.admin, t.id, end);
+      if (state.pendingEmitters === 0) {
+        // Se conserva la fecha: lo de diciembre que salga en enero la lleva.
+        await this.admin.tenant.update({
+          where: { id: t.id },
+          data: { verifactuEnabled: false, verifactuEnabledAt: null },
+        });
+        await this.audit.write({
+          tenantId: t.id,
+          userId: null,
+          action: 'tenant.verifactu_disabled',
+          entityType: 'Tenant',
+          entityId: t.id,
+          changes: { renuncia: dateOnly(end) },
+          ipAddress: null,
+          userAgent: null,
+        });
+        disabled += 1;
+        continue;
+      }
+      await this.admin.tenant.update({ where: { id: t.id }, data: { verifactuEndDate: null } });
+      await this.admin.notification.create({
+        data: {
+          tenantId: t.id,
+          type: 'verifactu.renuncia_not_sent',
+          title: 'Sigues en Veri*Factu',
+          body: `No se pudo comunicar a la AEAT tu baja de Veri*Factu del ${formatDateLong(end, t.timezone)}: ningún envío la llevó antes de acabar el año (no se emitió ninguna factura más). Sigues enviando tus facturas. Si quieres dejarlo, vuelve a programar la baja.`,
+          link: '/settings/billing/verifactu',
+        },
+      });
+      this.logger.warn(`[verifactu] renuncia del tenant ${t.id} sin comunicar: sigue activado`);
+      kept += 1;
+    }
+    return { disabled, kept };
+  }
+
+  private async writeAudit(
+    args: { tenantId: string; userId: string; meta: RequestMeta },
+    action: string,
+    changes: Record<string, unknown>,
+  ): Promise<void> {
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
-      action: args.enabled ? 'tenant.verifactu_enabled' : 'tenant.verifactu_disabled',
+      action,
       entityType: 'Tenant',
       entityId: args.tenantId,
-      changes: { platformMode: this.platformMode },
+      changes: { platformMode: this.platformMode, ...changes },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return this.get(args.tenantId);
   }
 }

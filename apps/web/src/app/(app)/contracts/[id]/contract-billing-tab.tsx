@@ -61,7 +61,7 @@ export function ContractBillingTab({
                   </Link>
                   <span className="text-muted-foreground">{formatDate(i.issueDate)}</span>
                   <span className="tabular-nums">{formatEur(i.total)}</span>
-                  <InvoiceStatusBadge status={i.status} total={i.total} />
+                  <InvoiceStatusBadge status={i.status} total={i.total} voided={!!i.voidedAt} />
                 </li>
               ))}
             </ul>

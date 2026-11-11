@@ -143,6 +143,26 @@ const CASES: Array<[string, () => BuildRegistroAltaArgs]> = [
     },
   ],
   [
+    'alta de subsanación tras un rechazo (Subsanacion S, RechazoPrevio X)',
+    () => {
+      const a = baseArgs();
+      a.invoice.subsanacion = true;
+      a.invoice.rechazoPrevio = 'X';
+      a.invoice.previousHash = 'B'.repeat(64);
+      a.invoice.previousInvoiceNumber = 'FA/2026/00007';
+      a.invoice.previousInvoiceDate = new Date('2026-11-07T00:00:00.000Z');
+      return a;
+    },
+  ],
+  [
+    'alta de subsanación de una aceptada con avisos (Subsanacion S)',
+    () => {
+      const a = baseArgs();
+      a.invoice.subsanacion = true;
+      return a;
+    },
+  ],
+  [
     'R5 de una simplificada',
     () => {
       const a = baseArgs();
@@ -178,6 +198,62 @@ describeXsd('XML de Veri*Factu contra los esquemas de la AEAT', () => {
       }),
     );
     expect(doc.match(/<sum1:RegistroAlta>/g)).toHaveLength(CASES.length);
+    expect(validate(doc, 'SuministroLR.xsd')).toBe('ok');
+  });
+
+  const anulacion = (extra: { sinRegistroPrevio?: boolean; rechazoPrevio?: boolean } = {}) =>
+    builder.buildRegistroAnulacionRecord({
+      emitterTaxId: 'B12345674',
+      invoiceNumber: 'FA/2026/00007',
+      issueDate: new Date('2026-11-07T00:00:00.000Z'),
+      refExterna: '00000009-2222-4222-8222-222222222222',
+      system: baseArgs().system,
+      previous: {
+        emitterTaxId: 'B12345674',
+        invoiceNumber: 'FA/2026/00007',
+        issueDate: new Date('2026-11-07T00:00:00.000Z'),
+        hash: 'C'.repeat(64),
+      },
+      recordTimestamp: '2026-11-08T10:00:00+01:00',
+      hash: 'D'.repeat(64),
+      ...extra,
+    });
+
+  it.each([
+    ['de una factura registrada', {}],
+    ['sin registro previo en la AEAT', { sinRegistroPrevio: true }],
+    ['tras el rechazo de otra anulación', { rechazoPrevio: true }],
+  ])('registro de anulación %s', (_name, extra) => {
+    const doc = bodyDocument(
+      builder.buildSubmission({ issuer: baseArgs().tenant, records: [anulacion(extra)] }),
+    );
+    expect(doc).toContain('<sum1:RegistroAnulacion>');
+    expect(validate(doc, 'SuministroLR.xsd')).toBe('ok');
+  });
+
+  it('un envío con altas y una anulación, con la renuncia y la incidencia en la cabecera', () => {
+    const doc = bodyDocument(
+      builder.buildSubmission({
+        issuer: baseArgs().tenant,
+        representative: { name: 'Gestoría SL', taxId: 'B87654321' },
+        remision: { fechaFinVerifactu: new Date('2026-12-31T00:00:00.000Z'), incidencia: true },
+        records: [builder.buildRegistroAltaRecord(baseArgs()), anulacion()],
+      }),
+    );
+    expect(doc).toContain('<sum1:FechaFinVeriFactu>31-12-2026</sum1:FechaFinVeriFactu>');
+    expect(doc).toContain('<sum1:Incidencia>S</sum1:Incidencia>');
+    expect(validate(doc, 'SuministroLR.xsd')).toBe('ok');
+  });
+
+  it('solo la incidencia, sin renuncia', () => {
+    const doc = bodyDocument(
+      builder.buildSubmission({
+        issuer: baseArgs().tenant,
+        remision: { incidencia: true },
+        records: [builder.buildRegistroAltaRecord(baseArgs())],
+      }),
+    );
+    expect(doc).not.toContain('FechaFinVeriFactu');
     expect(validate(doc, 'SuministroLR.xsd')).toBe('ok');
   });
 

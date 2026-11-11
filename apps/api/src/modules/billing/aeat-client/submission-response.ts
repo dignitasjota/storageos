@@ -4,10 +4,12 @@ import type { SendInvoiceResult } from './aeat-client';
 
 /** Un registro del envío: así se casa con su línea de la respuesta. */
 export interface SubmissionRecordRef {
-  invoiceId: string;
+  /** Id del registro (va en `RefExterna`). */
+  recordId: string;
   invoiceNumber: string;
   /** Fecha de expedición tal como se envió (DD-MM-AAAA). */
   issueDate: string;
+  kind?: 'alta' | 'anulacion';
 }
 
 export interface ParsedSubmission {
@@ -73,7 +75,7 @@ export function parseSubmissionResponse(
     waitSeconds: null,
     message,
     results: Object.fromEntries(
-      records.map((r) => [r.invoiceId, { status: 'error' as const, message }]),
+      records.map((r) => [r.recordId, { status: 'error' as const, message }]),
     ),
     raw: { httpStatus: response.status, body: body.slice(0, 2_000) },
   });
@@ -99,7 +101,7 @@ export function parseSubmissionResponse(
   const csv = tag(body, 'CSV');
   const waitSeconds = parseWaitSeconds(tag(body, 'TiempoEsperaEnvio'));
 
-  const byRef = new Map(records.map((r) => [r.invoiceId, r]));
+  const byRef = new Map(records.map((r) => [r.recordId, r]));
   const byNumber = new Map(records.map((r) => [`${r.invoiceNumber}|${r.issueDate}`, r]));
   const results: Record<string, SendInvoiceResult> = {};
 
@@ -122,9 +124,9 @@ export function parseSubmissionResponse(
     const lineRaw = { estado, code, description: desc };
 
     if (estado === 'Correcto') {
-      results[record.invoiceId] = { status: 'accepted', csv, message: 'Correcto', raw: lineRaw };
+      results[record.recordId] = { status: 'accepted', csv, message: 'Correcto', raw: lineRaw };
     } else if (estado === 'AceptadoConErrores' || estado === 'AceptadaConErrores') {
-      results[record.invoiceId] = {
+      results[record.recordId] = {
         status: 'accepted_with_warnings',
         csv,
         message: errorText(code, desc, estado),
@@ -143,7 +145,7 @@ export function parseSubmissionResponse(
           description: tag(duplicate[1] ?? '', 'DescripcionErrorRegistro'),
         },
       };
-      results[record.invoiceId] =
+      results[record.recordId] =
         stored === 'Correcta'
           ? { status: 'accepted', csv: null, message: 'duplicate_already_registered', raw: dupRaw }
           : stored === 'AceptadaConErrores'
@@ -158,14 +160,23 @@ export function parseSubmissionResponse(
                 message: errorText(code, desc, 'Registro duplicado'),
                 raw: dupRaw,
               };
+    } else if (estado === 'Incorrecto' && code === '3001' && record.kind === 'anulacion') {
+      // «Ya ha sido dado de baja»: una anulación anterior llegó aunque no
+      // tuviéramos la respuesta.
+      results[record.recordId] = {
+        status: 'accepted',
+        csv: null,
+        message: 'already_annulled',
+        raw: lineRaw,
+      };
     } else if (estado === 'Incorrecto') {
-      results[record.invoiceId] = {
+      results[record.recordId] = {
         status: 'rejected',
         message: errorText(code, desc, 'Incorrecto'),
         raw: lineRaw,
       };
     } else {
-      results[record.invoiceId] = {
+      results[record.recordId] = {
         status: 'error',
         message: 'aeat_unknown_line_status',
         raw: lineRaw,
@@ -176,8 +187,8 @@ export function parseSubmissionResponse(
   // Un registro sin su línea: con el envío correcto, registrado; si no, no se
   // sabe y se vuelve a enviar (un duplicado se resuelve solo).
   for (const r of records) {
-    if (results[r.invoiceId]) continue;
-    results[r.invoiceId] =
+    if (results[r.recordId]) continue;
+    results[r.recordId] =
       status === 'accepted'
         ? { status: 'accepted', csv, message: 'Correcto' }
         : { status: 'error', message: 'aeat_line_missing' };

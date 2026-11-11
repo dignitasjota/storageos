@@ -1974,3 +1974,15 @@ Migración `20270104100000_verifactu_submissions` (se aplica sola). Variable opc
 - Los trabajos `send-to-aeat` que hubiera en la cola al redesplegar (uno por factura) se siguen atendiendo: envían lo pendiente del emisor de esa factura.
 
 No hay que configurar nada. Con `AEAT_MODE=stub` el envío simulado no pide esperar.
+
+## 112. Veri\*Factu: subsanación, anulación, renuncia e incidencias (2026-11-08)
+
+Migración `20270105100000_verifactu_records` (se aplica sola). Sin variables nuevas. **Qué cambia al redesplegar:**
+
+- **Cada registro de facturación se guarda por separado** (tabla `verifactu_records`) con el XML tal como se generó: el que se envía es ese, aunque después cambien los datos del cliente. La migración crea el registro de alta de cada factura que ya estaba en la cadena (con su estado, CSV y envío). La factura conserva su huella y su QR; el estado que se ve es el de su último registro.
+- **Corregir lo que la AEAT rechazó o aceptó con avisos**: «Corregir y volver a enviar» genera un registro de subsanación al final de la cadena (antes se volvía a mandar el mismo registro con los datos cambiados, que la AEAT no admite). Si el error está en algo que se ve en la factura (NIF del cliente, un importe), el panel recomienda rectificarla. Lo que no llegó (sin respuesta) se vuelve a mandar igual.
+- **Anular una factura emitida por error** (propietario y gestor; Factura → Más): solo una sin cobros, sin rectificar y que no sea una rectificativa. Queda «Anulada por error», fuera de los libros y los informes, con el sello «ANULADA» en el PDF y, con Veri\*Factu, su registro de anulación. Es excepcional: si la operación existió, se rectifica. Las reservas online caducadas siguen anulándose con su rectificativa de abono hasta que la asesoría diga otra cosa.
+- **Dejar Veri\*Factu**: quien ya ha enviado facturas este año sigue hasta el 31 de diciembre (art. 17 de la Orden HAC/1177/2024). «Desactivar» programa la baja para ese día y los envíos que salgan hasta entonces llevan la renuncia (`FechaFinVeriFactu`). El 1 de enero se apaga solo (tarea `verifactu.renuncia`, en el worker) si la renuncia llegó a la AEAT; si no salió ningún envío más ese año, sigue activado y se avisa al negocio. Sin facturas este año se apaga en el momento. (Antes no se podía apagar hasta el 31 de diciembre del año en que se activó.)
+- **Incidencias** (art. 16.4): mientras los envíos de un emisor fallan, lo pendiente se marca como incidencia, sale aparte con `Incidencia=S` y el panel muestra un aviso con cuántas facturas faltan por llegar a la AEAT.
+
+No hay que configurar nada. Para comprobarlo tras desplegar: Configuración → Veri\*Factu (la baja y las incidencias) y la ficha de una factura (la tarjeta Veri\*Factu lista sus registros).

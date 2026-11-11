@@ -26,17 +26,21 @@ const variants: Record<InvoiceStatusValue, 'default' | 'secondary' | 'destructiv
 
 /**
  * `total` opcional: una rectificativa de abono pagada (importe negativo) se
- * muestra como «Compensada» (se saldó con la factura que anula).
+ * muestra como «Compensada» (se saldó con la factura que anula). `voided`: se
+ * anuló por haberse emitido por error (registro de anulación).
  */
 export function InvoiceStatusBadge({
   status,
   total,
+  voided,
 }: {
   status: InvoiceStatusValue;
   total?: number;
+  voided?: boolean;
 }) {
-  const label =
-    status === 'paid' && total !== undefined && total < 0
+  const label = voided
+    ? 'Anulada por error'
+    : status === 'paid' && total !== undefined && total < 0
       ? 'Compensada'
       : INVOICE_STATUS_LABELS[status];
   return <Badge variant={variants[status]}>{label}</Badge>;

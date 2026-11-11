@@ -61,10 +61,13 @@ function invoice(overrides: Partial<InvoiceDto> = {}): InvoiceDto {
     aeatSentAt: null,
     aeatStatus: null,
     aeatCsv: null,
+    aeatMessage: null,
     holdedDocumentId: null,
     issuedBy: 'app',
     paidAt: null,
     cancelledAt: null,
+    voidedAt: null,
+    voidReason: null,
     items: [
       {
         id: 'l1',
@@ -224,6 +227,24 @@ describe('PDF de la factura', () => {
     expect(html).toContain('PAGADA');
     expect(html).toContain('08/11/2026 · transferencia');
     expect(html).not.toContain('Forma de pago');
+  });
+
+  it('anulada por error: sello «ANULADA» y sin vencimiento ni forma de pago', () => {
+    const html = renderInvoiceHtml({
+      invoice: invoice({
+        status: 'cancelled',
+        voidedAt: '2026-11-08T10:00:00.000Z',
+        voidReason: 'Factura de prueba',
+      }),
+      issuer,
+      customer: null,
+      payment: { via: 'manual', transferIban: 'ES9121000418450200051332' },
+    });
+    expect(html).toContain('ANULADA');
+    expect(html).toContain('08/11/2026 · emitida por error');
+    expect(html).not.toContain('Vencimiento:');
+    expect(html).not.toContain('Forma de pago');
+    expect(html).not.toContain('PAGADA');
   });
 
   it('pendiente: dice cómo pagarla', () => {
