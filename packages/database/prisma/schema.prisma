@@ -512,6 +512,9 @@ model Tenant {
   nightPassPrice               Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
   collectionsEnabled           Boolean               @default(false) @map("collections_enabled")
   collectionsOpenAfterDays     Int                   @default(30) @map("collections_open_after_days")
+  /// Días de los dos recordatorios del escalado.
+  dunningFirstReminderDays     Int                   @default(1) @map("dunning_first_reminder_days")
+  dunningSecondReminderDays    Int                   @default(7) @map("dunning_second_reminder_days")
   collectionsNoticeDays        Int                   @default(15) @map("collections_notice_days")
   collectionsClauseRef         String?               @map("collections_clause_ref")
   winbackEnabled               Boolean               @default(false) @map("winback_enabled")
@@ -734,6 +737,7 @@ model Tenant {
   messageHours              Json?    @map("message_hours")
   messageAutoReplyEnabled   Boolean  @default(false) @map("message_auto_reply_enabled")
   messageAutoReply          String?  @map("message_auto_reply")
+  delinquencyPickupRequests DelinquencyPickupRequest[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -867,6 +871,7 @@ model User {
   supportTicketReads        SupportTicketRead[]
   platformMessageRead       TenantPlatformMessageRead?
   assignedConversations     CustomerConversation[] @relation("ConversationAssignee")
+  delinquencyPickupsResolved DelinquencyPickupRequest[] @relation("DelinquencyPickupResolver")
   @@unique([tenantId, email])
   @@index([tenantId])
   webChatMessages WebChatMessage[]
@@ -1588,6 +1593,7 @@ model Customer {
   messageReads         CustomerMessageRead[]
   legalDocAcceptances LegalDocAcceptance[]
   conversation      CustomerConversation?
+  delinquencyPickupRequests DelinquencyPickupRequest[]
   @@index([tenantId])
   @@index([tenantId, deletedAt])
   @@index([tenantId, documentNumber])
@@ -4244,6 +4250,7 @@ model AccessCredential {
   logs        AccessLog[]
   syncEntries AccessCredentialSync[]
 
+  delinquencyPickups DelinquencyPickupRequest[]
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, customerId])
@@ -6088,6 +6095,7 @@ model PaymentPlan {
   customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   createdBy User?    @relation("PaymentPlanAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
+  delinquencyCases DelinquencyCase[]
   @@index([tenantId, status])
   @@index([customerId])
   @@map("payment_plans")
@@ -7045,6 +7053,15 @@ model DelinquencyCase {
   custodyLocation     String?               @map("custody_location")
   disposedAt          DateTime?             @map("disposed_at") @db.Timestamptz(6)
   closedAt            DateTime?             @map("closed_at") @db.Timestamptz(6)
+  /// En pausa mientras el inquilino cumple un plan de pagos.
+  pausedAt            DateTime?             @map("paused_at") @db.Timestamptz(6)
+  paymentPlanId       String?               @map("payment_plan_id") @db.Uuid
+  overlockRemovedAt   DateTime?             @map("overlock_removed_at") @db.Timestamptz(6)
+  /// Lo que sobró al liquidar con la disposición (céntimos) y cuándo se devolvió.
+  surplusCents        Int?                  @map("surplus_cents")
+  surplusReturnedAt   DateTime?             @map("surplus_returned_at") @db.Timestamptz(6)
+  /// Avisos ya enviados al equipo (clave → día), para no repetirlos.
+  alertsSent          Json                  @default("{}") @map("alerts_sent")
   openedByUserId      String?               @map("opened_by_user_id") @db.Uuid
   notes               String?
   createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -7055,13 +7072,46 @@ model DelinquencyCase {
   customer Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
   unit     Unit?                  @relation(fields: [unitId], references: [id], onDelete: SetNull)
   openedBy User?                  @relation("DelinquencyCaseOpenedBy", fields: [openedByUserId], references: [id], onDelete: SetNull)
+  paymentPlan PaymentPlan?        @relation(fields: [paymentPlanId], references: [id], onDelete: SetNull)
   events   DelinquencyCaseEvent[]
   files    DelinquencyCaseFile[]
+  pickupRequests DelinquencyPickupRequest[]
 
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([contractId])
   @@map("delinquency_cases")
+}
+
+/// Cita para retirar los bienes: la pide el inquilino y el equipo la concede
+/// con una franja y un código de un solo uso.
+model DelinquencyPickupRequest {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  caseId           String    @map("case_id") @db.Uuid
+  customerId       String    @map("customer_id") @db.Uuid
+  preferredDate    DateTime  @map("preferred_date") @db.Date
+  /// morning | afternoon | any
+  preferredTime    String    @default("any") @map("preferred_time")
+  note             String?
+  /// pending | approved | rejected | done | cancelled
+  status           String    @default("pending")
+  approvedFrom     DateTime? @map("approved_from") @db.Timestamptz(6)
+  approvedUntil    DateTime? @map("approved_until") @db.Timestamptz(6)
+  credentialId     String?   @map("credential_id") @db.Uuid
+  resolutionNote   String?   @map("resolution_note")
+  resolvedByUserId String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case       DelinquencyCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  customer   Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  credential AccessCredential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+  resolvedBy User?             @relation("DelinquencyPickupResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@map("delinquency_pickup_requests")
 }
 
 /// Timeline inmutable del expediente (patrón contract_events).

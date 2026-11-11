@@ -725,6 +725,12 @@ export default function TodayPage() {
                       section={extras.cashUnclosed}
                       href="/cash"
                     />
+                    <AttentionCard
+                      title="Impagos que piden algo"
+                      icon={Lock}
+                      section={extras.collectionsAlerts}
+                      href="/collections"
+                    />
                   </>
                 )}
                 <SectionCard

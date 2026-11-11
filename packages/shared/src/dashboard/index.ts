@@ -397,6 +397,8 @@ export interface TodayExtrasDto {
   chatsWaiting: TodayAttentionSectionDto;
   /** Cajas de días anteriores con movimientos en efectivo y sin cerrar. */
   cashUnclosed: TodayAttentionSectionDto;
+  /** Expedientes de impago que piden algo (plazo, candado, cita, sobrante…). */
+  collectionsAlerts: TodayAttentionSectionDto;
   debts: { count: number; totalAmount: number; rows: TodayDebtDto[] };
   tomorrow: TodayTomorrowItemDto[];
   week: TodayWeekItemDto[];

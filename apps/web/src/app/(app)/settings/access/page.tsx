@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -200,6 +201,11 @@ function CutPolicyCard() {
         <CardTitle className="text-base">Corte del acceso por impago</CardTitle>
         <CardDescription>
           Se aplica a las facturas que venzan a partir de ahora. Al pagar, el acceso vuelve solo.
+          Todo el calendario de impagos, en{' '}
+          <Link href="/settings/dunning" className="font-medium underline-offset-2 hover:underline">
+            Escalado de impagos
+          </Link>
+          .
         </CardDescription>
       </CardHeader>
       <CardContent>

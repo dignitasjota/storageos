@@ -8,6 +8,7 @@ import {
   resolveFacilityFilter,
 } from '../../common/facility-scope';
 import { formatEur, todayInTimezone, zonedDayStart } from '../../common/format';
+import { CollectionsExtrasService } from '../collections/collections-extras.service';
 import { CollectionsOpsService } from '../collections-ops/collections-ops.service';
 import { PaymentPlansService } from '../collections-ops/payment-plans.service';
 import { PrismaService } from '../database/prisma.service';
@@ -79,6 +80,7 @@ export class TodayExtrasService {
     private readonly inventory: InventoryService,
     private readonly collections: CollectionsOpsService,
     private readonly plans: PaymentPlansService,
+    private readonly cases: CollectionsExtrasService,
   ) {}
 
   async snooze(
@@ -240,13 +242,16 @@ export class TodayExtrasService {
 
     const { isSnoozed, section, ...rest } = data;
     const allowed = can('payments:read') && !me;
-    const [plansLate, inventoryIssues, debts, cashUnclosed] = await Promise.all([
+    const [plansLate, inventoryIssues, debts, cashUnclosed, collectionsAlerts] = await Promise.all([
       allowed ? this.plansLate(tenantId, scope, facilityId, today) : [],
       !me && can('units:read') ? this.inventoryItems(tenantId, scope, facilityId) : [],
       allowed
         ? this.debts(tenantId, scope, facilityId, (id) => isSnoozed('customer_debt', id))
         : { count: 0, totalAmount: 0, rows: [] as TodayDebtDto[] },
       allowed ? this.cashUnclosed(tenantId, scope, facilityId, today, timezone) : [],
+      !me && can('collections:read')
+        ? this.cases.todayItems(tenantId, scope, facilityId).catch(() => [])
+        : [],
     ]);
     const lateSection = section(plansLate);
     const inventorySection = section(inventoryIssues);
@@ -256,6 +261,7 @@ export class TodayExtrasService {
       plansLate: lateSection,
       inventoryIssues: inventorySection,
       cashUnclosed: section(cashUnclosed),
+      collectionsAlerts: section(collectionsAlerts),
       debts,
       urgentCount:
         rest.chatsWaiting.count +

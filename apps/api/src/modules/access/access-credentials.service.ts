@@ -1169,6 +1169,10 @@ export class AccessCredentialsService {
     input: CreateTemporaryAccessInput;
     facilityScope: string[] | null;
     meta: RequestMeta;
+    /** Uso interno: veces que abre (la cita para retirar bienes, una). */
+    maxUses?: number;
+    /** Uso interno: de dónde sale (queda en `metadata.source`). */
+    source?: string;
   }): Promise<AccessCredentialWithSecretDto> {
     const { input } = args;
     for (const id of input.allowedFacilityIds) assertFacilityAllowed(args.facilityScope, id);
@@ -1207,7 +1211,8 @@ export class AccessCredentialsService {
             validFrom: input.validFrom ? new Date(input.validFrom) : null,
             expiresAt: new Date(input.expiresAt),
             activatedAt: new Date(),
-            metadata: { source: 'temporary' },
+            ...(args.maxUses ? { maxUses: args.maxUses } : {}),
+            metadata: { source: args.source ?? 'temporary' },
           },
           include: CUSTOMER_SELECT,
         }),

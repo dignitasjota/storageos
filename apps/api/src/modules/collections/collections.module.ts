@@ -1,10 +1,14 @@
 import { Module } from '@nestjs/common';
 
+import { AccessModule } from '../access/access.module';
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
+import { CommunicationsModule } from '../communications/communications.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
+import { CollectionsDocumentsService } from './collections-documents.service';
+import { CollectionsExtrasService } from './collections-extras.service';
 import { CollectionsListenersService } from './collections-listeners.service';
 import { CollectionsRequirementPdfService } from './collections-requirement-pdf.service';
 import { CollectionsController } from './collections.controller';
@@ -19,9 +23,22 @@ import { CollectionsService } from './collections.service';
  * al resolverlo.
  */
 @Module({
-  imports: [AuthModule, BillingModule, ContractsModule, NotificationsModule],
+  imports: [
+    AuthModule,
+    AccessModule,
+    BillingModule,
+    CommunicationsModule,
+    ContractsModule,
+    NotificationsModule,
+  ],
   controllers: [CollectionsController],
-  providers: [CollectionsService, CollectionsListenersService, CollectionsRequirementPdfService],
-  exports: [CollectionsService],
+  providers: [
+    CollectionsService,
+    CollectionsExtrasService,
+    CollectionsDocumentsService,
+    CollectionsListenersService,
+    CollectionsRequirementPdfService,
+  ],
+  exports: [CollectionsService, CollectionsExtrasService],
 })
 export class CollectionsModule {}

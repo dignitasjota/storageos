@@ -9,6 +9,7 @@ import { CollectionsModule } from '../collections/collections.module';
 import { QUEUE_DUNNING } from '../queues/queues.module';
 
 import { DunningRestartService } from './dunning-restart.service';
+import { DunningSettingsService } from './dunning-settings.service';
 import { DunningController } from './dunning.controller';
 import { DunningProcessor } from './dunning.processor';
 import { DunningService } from './dunning.service';
@@ -34,6 +35,7 @@ import { DunningService } from './dunning.service';
   // webhooks y la conciliación del API, con o sin workers).
   providers: [
     DunningRestartService,
+    DunningSettingsService,
     ...(WORKERS_ENABLED_IN_API ? [DunningService, DunningProcessor] : []),
   ],
   exports: [DunningRestartService],

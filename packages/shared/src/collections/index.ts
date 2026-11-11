@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export * from './dunning';
+
 // ============================================================================
 // Expedientes de impago (overlock → requerimiento → disposición)
 // ============================================================================
@@ -72,6 +74,9 @@ export const CASE_FILE_KINDS = [
   'inventory',
   'custody_act',
   'disposal_act',
+  // Generados por el sistema (PDF).
+  'dossier',
+  'monitorio_draft',
   'other',
 ] as const;
 export type CaseFileKind = (typeof CASE_FILE_KINDS)[number];
@@ -83,6 +88,8 @@ export const CASE_FILE_KIND_LABELS: Record<CaseFileKind, string> = {
   inventory: 'Inventario (fotos y lista)',
   custody_act: 'Acta del traslado',
   disposal_act: 'Documento del cauce legal (sentencia, acuerdo…)',
+  dossier: 'Dossier del expediente (PDF)',
+  monitorio_draft: 'Borrador de monitorio (PDF)',
   other: 'Otro',
 };
 
@@ -103,6 +110,15 @@ export const CASE_EVENT_TYPES = [
   'settlement_done',
   'closed',
   'note',
+  'paused',
+  'resumed',
+  'charge_added',
+  'surplus_returned',
+  'pickup_requested',
+  'pickup_approved',
+  'pickup_rejected',
+  'pickup_done',
+  'document_generated',
 ] as const;
 export type CaseEventType = (typeof CASE_EVENT_TYPES)[number];
 
@@ -215,6 +231,85 @@ export const CaseNoteSchema = z.object({
 });
 export type CaseNoteInput = z.infer<typeof CaseNoteSchema>;
 
+/** Se quita el candado (pagó, plan de pagos, retiró los bienes…). */
+export const RemoveOverlockSchema = z.object({
+  notes: z.string().trim().max(2000).optional(),
+});
+export type RemoveOverlockInput = z.infer<typeof RemoveOverlockSchema>;
+
+/** Ya se le devolvió lo que sobró de la liquidación. */
+export const SurplusReturnedSchema = z.object({
+  notes: z.string().trim().max(500).optional(),
+});
+export type SurplusReturnedInput = z.infer<typeof SurplusReturnedSchema>;
+
+/** Gastos del expediente que se facturan al inquilino (traslado, custodia). */
+export const CASE_CHARGE_KINDS = ['transfer', 'custody', 'other'] as const;
+export type CaseChargeKind = (typeof CASE_CHARGE_KINDS)[number];
+export const CASE_CHARGE_LABELS: Record<CaseChargeKind, string> = {
+  transfer: 'Traslado de los bienes',
+  custody: 'Custodia de los bienes',
+  other: 'Otros gastos del expediente',
+};
+
+export const CaseChargeSchema = z.object({
+  kind: z.enum(CASE_CHARGE_KINDS),
+  /** Base sin IVA. */
+  amount: z.number().positive().max(100_000),
+  description: z.string().trim().max(200).optional(),
+});
+export type CaseChargeInput = z.infer<typeof CaseChargeSchema>;
+
+/** Acta del traslado y la custodia (PDF): lo que se trasladó y quién estuvo. */
+export const CustodyActSchema = z.object({
+  /** Una línea por bien o lote («2 cajas de libros», «bicicleta roja»…). */
+  items: z.string().trim().min(3).max(8000),
+  /** Testigos o quién hizo el traslado. */
+  witnesses: z.string().trim().max(500).optional(),
+});
+export type CustodyActInput = z.infer<typeof CustodyActSchema>;
+
+/** Cita para retirar los bienes, pedida desde el área de clientes. */
+export const PICKUP_TIMES = ['morning', 'afternoon', 'any'] as const;
+export type PickupTime = (typeof PICKUP_TIMES)[number];
+export const PICKUP_TIME_LABELS: Record<PickupTime, string> = {
+  morning: 'Por la mañana',
+  afternoon: 'Por la tarde',
+  any: 'Cualquier hora',
+};
+
+const realDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((s) => {
+    const d = new Date(`${s}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  }, 'Fecha no válida');
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora no válida (HH:MM)');
+
+export const RequestPickupSchema = z.object({
+  preferredDate: realDay,
+  preferredTime: z.enum(PICKUP_TIMES).default('any'),
+  note: z.string().trim().max(500).optional(),
+});
+export type RequestPickupInput = z.infer<typeof RequestPickupSchema>;
+
+/** El equipo concede la cita: un día y una franja (hora del local). */
+export const ApprovePickupSchema = z
+  .object({
+    date: realDay,
+    from: hhmm,
+    to: hhmm,
+    notes: z.string().trim().max(500).optional(),
+  })
+  .refine((v) => v.from < v.to, { message: 'La franja acaba antes de empezar', path: ['to'] });
+export type ApprovePickupInput = z.infer<typeof ApprovePickupSchema>;
+
+export const RejectPickupSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+export type RejectPickupInput = z.infer<typeof RejectPickupSchema>;
+
 /** Config del tenant para impagos físicos (opt-in; plazos por su asesoría). */
 export const UpdateCollectionsSettingsSchema = z.object({
   collectionsEnabled: z.boolean().optional(),
@@ -275,6 +370,46 @@ export interface DelinquencyCaseFileDto {
   createdAt: string;
 }
 
+export type PickupStatus = 'pending' | 'approved' | 'rejected' | 'done' | 'cancelled';
+
+/** Una cita para retirar los bienes. */
+export interface DelinquencyPickupDto {
+  id: string;
+  preferredDate: string;
+  preferredTime: PickupTime;
+  note: string | null;
+  status: PickupStatus;
+  approvedFrom: string | null;
+  approvedUntil: string | null;
+  /** El código de un solo uso de la cita (solo al inquilino, mientras vale). */
+  code: string | null;
+  /** Se le dio un código para entrar (si no, le atiende alguien del equipo). */
+  hasCode: boolean;
+  resolutionNote: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+/** Lo que conviene tener antes de enviar el requerimiento. */
+export interface NoticeChecklistItemDto {
+  key: 'address' | 'document' | 'contract_signed' | 'reminded' | 'issuer' | 'debt';
+  label: string;
+  ok: boolean;
+  detail: string | null;
+  /** Sin esto el requerimiento no se puede generar. */
+  blocking: boolean;
+}
+
+/** Un gasto del expediente facturado al inquilino. */
+export interface DelinquencyCaseChargeDto {
+  invoiceId: string;
+  invoiceNumber: string;
+  kind: CaseChargeKind;
+  /** Total con IVA. */
+  total: number;
+  status: string;
+}
+
 /** Fila de la lista de expedientes. */
 export interface DelinquencyCaseDto {
   id: string;
@@ -306,6 +441,13 @@ export interface DelinquencyCaseDto {
   abandonmentFrom: string | null;
   closedAt: string | null;
   notes: string | null;
+  /** En pausa mientras cumple un plan de pagos. */
+  pausedAt: string | null;
+  paymentPlanId: string | null;
+  overlockRemovedAt: string | null;
+  /** Lo que sobró al liquidar (céntimos) y cuándo se le devolvió. */
+  surplusCents: number | null;
+  surplusReturnedAt: string | null;
 }
 
 /** Una factura vencida del expediente. */
@@ -324,6 +466,27 @@ export interface DelinquencyCaseDetailDto extends DelinquencyCaseDto {
   invoices: DelinquencyCaseInvoiceDto[];
   /** Ya se le avisó del impago (requisito para poner el candado). */
   reminded: boolean;
+  /** Lo que conviene tener antes de enviar el requerimiento. */
+  noticeChecklist: NoticeChecklistItemDto[];
+  pickups: DelinquencyPickupDto[];
+  charges: DelinquencyCaseChargeDto[];
+}
+
+/** Un expediente visto por el inquilino en su área de clientes. */
+export interface PortalCollectionsCaseDto {
+  id: string;
+  status: DelinquencyCaseStatus;
+  unitCode: string | null;
+  facilityName: string | null;
+  /** Deuda vencida (céntimos). */
+  debtCents: number;
+  finalNoticeDeadline: string | null;
+  contractResolvedAt: string | null;
+  goodsMovedAt: string | null;
+  custodyLocation: string | null;
+  /** Puede pedir una cita para retirar sus bienes. */
+  canRequestPickup: boolean;
+  pickups: DelinquencyPickupDto[];
 }
 
 /** Resultado de generar el requerimiento fehaciente (PDF) del expediente. */

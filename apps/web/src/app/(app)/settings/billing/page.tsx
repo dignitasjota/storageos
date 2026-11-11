@@ -8,6 +8,7 @@ import {
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Plus } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -607,7 +608,11 @@ function LateFeeCard() {
         <CardDescription>
           A los días indicados de vencimiento, el escalado de impagos emite una factura de recargo
           (separada, conforme a Veri*Factu). También puedes aplicarlo a mano desde una factura
-          vencida.
+          vencida. Todo el calendario de impagos, en{' '}
+          <Link href="/settings/dunning" className="font-medium underline-offset-2 hover:underline">
+            Escalado de impagos
+          </Link>
+          .
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

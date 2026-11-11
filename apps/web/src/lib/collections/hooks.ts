@@ -18,6 +18,11 @@ import {
   type SendNoticeInput,
   type StartDisposalInput,
   type UpdateCollectionsSettingsInput,
+  type ApprovePickupInput,
+  type CaseChargeInput,
+  type CustodyActInput,
+  type DunningSettingsDto,
+  type DunningSettingsInput,
 } from '@storageos/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -172,5 +177,71 @@ export function useUploadCaseFile(caseId: string) {
       await apiFetch(`/collections/${caseId}/files`, { method: 'POST', json: body });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [...key, 'detail', caseId] }),
+  });
+}
+
+/** Lo que rodea al expediente: candado, sobrante, gastos y citas de retirada. */
+type CaseExtraBody =
+  | { action: 'remove-overlock'; input: { notes?: string } }
+  | { action: 'surplus-returned'; input: { notes?: string } }
+  | { action: 'charges'; input: CaseChargeInput }
+  | { action: `pickups/${string}/approve`; input: ApprovePickupInput }
+  | { action: `pickups/${string}/reject`; input: { reason: string } }
+  | { action: `pickups/${string}/done`; input?: undefined };
+
+export function useCaseExtra(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CaseExtraBody) =>
+      apiFetch<{ invoiceId?: string; invoiceNumber?: string } | undefined>(
+        `/collections/${caseId}/${body.action}`,
+        { method: 'POST', json: body.input ?? {} },
+      ),
+    onSuccess: (_data, body) => {
+      void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+      if (body.action === 'charges') void qc.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
+}
+
+/** Documentos del expediente en PDF; quedan en las evidencias. */
+export function useCaseDocument(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      body:
+        | { kind: 'custody-act-pdf'; input: CustodyActInput }
+        | { kind: 'dossier-pdf' | 'monitorio-pdf'; input?: undefined },
+    ) =>
+      apiFetch<{ url: string }>(`/collections/${caseId}/${body.kind}`, {
+        method: 'POST',
+        json: body.input ?? {},
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [...key, 'detail', caseId] }),
+  });
+}
+
+const dunningKey = ['dunning', 'settings'] as const;
+
+export function useDunningSettings(enabled = true) {
+  return useQuery({
+    queryKey: dunningKey,
+    queryFn: () => apiFetch<DunningSettingsDto>('/dunning/settings'),
+    enabled,
+  });
+}
+
+export function useUpdateDunningSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: DunningSettingsInput) =>
+      apiFetch<DunningSettingsDto>('/dunning/settings', { method: 'PUT', json: input }),
+    onSuccess: (data) => {
+      qc.setQueryData(dunningKey, data);
+      // El recargo y el corte también se ven en sus pantallas de ajustes.
+      void qc.invalidateQueries({ queryKey: ['settings'] });
+      void qc.invalidateQueries({ queryKey: [...key, 'settings'] });
+    },
   });
 }

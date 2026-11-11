@@ -1,6 +1,9 @@
 import { CASE_STATUS_LABELS } from '@storageos/shared';
+import { PauseCircle } from 'lucide-react';
 
 import type { DelinquencyCaseStatus } from '@storageos/shared';
+
+import { Badge } from '@/components/ui/badge';
 
 export { CASE_STATUS_LABELS };
 
@@ -34,6 +37,22 @@ export const CASE_EVENT_LABELS: Record<string, string> = {
   settlement_done: 'Liquidación',
   closed: 'Expediente cerrado',
   note: 'Nota',
+  paused: 'En pausa: tiene un plan de pagos',
+  resumed: 'Sigue el expediente',
+  charge_added: 'Gastos facturados',
+  surplus_returned: 'Sobrante devuelto',
+  pickup_requested: 'Pide cita para retirar sus bienes',
+  pickup_approved: 'Cita concedida',
+  pickup_rejected: 'Cita rechazada',
+  pickup_done: 'Retiró sus bienes',
+  document_generated: 'Documento generado',
+};
+
+/** Por qué sigue el expediente tras una pausa. */
+export const RESUME_REASON_LABELS: Record<string, string> = {
+  broken: 'Plan de pagos incumplido',
+  cancelled: 'Plan de pagos cancelado',
+  completed: 'Plan de pagos terminado',
 };
 
 /** Motivo del cierre automático, legible. */
@@ -44,3 +63,12 @@ export const CLOSE_REASON_LABELS: Record<string, string> = {
 
 export const eur = (cents: number): string =>
   (cents / 100).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+
+/** El expediente está en pausa por un plan de pagos. */
+export function PausedBadge() {
+  return (
+    <Badge variant="outline" className="gap-1">
+      <PauseCircle className="size-3" /> En pausa
+    </Badge>
+  );
+}

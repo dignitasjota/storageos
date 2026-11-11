@@ -1,14 +1,18 @@
 'use client';
 
 import {
+  CASE_CHARGE_LABELS,
   CASE_FILE_KIND_LABELS,
   CUSTODY_WEEKS_BEFORE_ABANDONMENT,
+  PICKUP_TIME_LABELS,
   DISPOSAL_TYPE_LABELS,
   DISPOSAL_TYPES,
   MIN_NOTICE_DAYS,
+  type CaseChargeKind,
   type CaseFileKind,
   type DelinquencyCaseDetailDto,
   type DisposalType,
+  type PickupTime,
 } from '@storageos/shared';
 import { ArrowLeft, FileText, FileUp, Loader2, Lock } from 'lucide-react';
 import Link from 'next/link';
@@ -21,8 +25,11 @@ import {
   CASE_STATUS_CLASSES,
   CASE_STATUS_LABELS,
   CLOSE_REASON_LABELS,
+  RESUME_REASON_LABELS,
   eur,
 } from '../status';
+
+import { CaseAlerts, Charges, Documents, NoticeChecklist, Pickups } from './case-extras';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
@@ -107,12 +114,17 @@ export default function CollectionsDetailPage() {
     <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
       <BackLink />
       <CaseHeader c={c} />
+      <CaseAlerts c={c} />
       {!isClosed && (
         <Can permission="collections:manage">
           <NextStep c={c} />
         </Can>
       )}
+      {(c.status === 'open' || c.status === 'overlocked') && <NoticeChecklist c={c} />}
+      <Pickups c={c} />
       <OverdueInvoices c={c} />
+      <Charges c={c} isClosed={isClosed} />
+      <Documents c={c} />
       {/* Al cambiar de paso, el tipo de evidencia propuesto es el del paso nuevo. */}
       <Evidence key={c.status} c={c} isClosed={isClosed} />
       <History c={c} isClosed={isClosed} />
@@ -282,7 +294,14 @@ function NextStep({ c }: { c: Case }) {
   );
 
   let body: ReactNode = null;
-  if (c.status === 'open') {
+  if (c.pausedAt) {
+    body = (
+      <p>
+        El expediente está en pausa: tiene un plan de pagos al día. Si lo cumple, el expediente se
+        cierra al saldar la deuda; si lo incumple, sigue donde se quedó.
+      </p>
+    );
+  } else if (c.status === 'open') {
     body = (
       <>
         <p>
@@ -771,6 +790,34 @@ function eventTitle(e: Case['events'][number]): string {
 function eventDetail(e: Case['events'][number]): string[] {
   const p = e.payload;
   const out: string[] = [];
+  if (e.eventType === 'resumed' && typeof p.reason === 'string') {
+    return [RESUME_REASON_LABELS[p.reason] ?? p.reason];
+  }
+  if (e.eventType === 'charge_added' && typeof p.kind === 'string') {
+    return [
+      `${CASE_CHARGE_LABELS[p.kind as CaseChargeKind] ?? p.kind}${
+        typeof p.amount === 'number' ? ` · ${eur(Math.round(p.amount * 100))} sin IVA` : ''
+      }`,
+    ];
+  }
+  if (e.eventType === 'document_generated' && typeof p.kind === 'string') {
+    return [CASE_FILE_KIND_LABELS[p.kind as CaseFileKind] ?? p.kind];
+  }
+  if (e.eventType === 'surplus_returned' && typeof p.amountCents === 'number') {
+    out.push(eur(p.amountCents));
+  }
+  if (e.eventType === 'pickup_requested' && typeof p.preferredDate === 'string') {
+    out.push(
+      `Para el ${formatDate(p.preferredDate)}${
+        typeof p.preferredTime === 'string'
+          ? ` · ${PICKUP_TIME_LABELS[p.preferredTime as PickupTime] ?? p.preferredTime}`
+          : ''
+      }`,
+    );
+  }
+  if (e.eventType === 'pickup_approved' && typeof p.from === 'string') {
+    out.push(`El ${formatDateTime(p.from)}`);
+  }
   if (typeof p.note === 'string') out.push(p.note);
   if (typeof p.notes === 'string' && p.notes) out.push(p.notes);
   if (typeof p.priorNotice === 'string' && p.priorNotice)

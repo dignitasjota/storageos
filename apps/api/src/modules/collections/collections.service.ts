@@ -32,6 +32,8 @@ import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
+import { CollectionsExtrasService } from './collections-extras.service';
+
 import type { Prisma, PrismaClient } from '@storageos/database';
 import type {
   CancelCaseInput,
@@ -41,8 +43,10 @@ import type {
   CompleteDisposalInput,
   DelinquencyCaseDetailDto,
   DelinquencyCaseDto,
+  DelinquencyCaseChargeDto,
   DelinquencyCaseInvoiceDto,
   DelinquencyCaseStatus,
+  NoticeChecklistItemDto,
   DelinquencySettlementDto,
   MoveGoodsInput,
   NoticeReceivedInput,
@@ -139,6 +143,7 @@ export class CollectionsService {
     private readonly invoices: InvoicesService,
     private readonly contracts: ContractsService,
     private readonly events: EventEmitter2,
+    private readonly extras: CollectionsExtrasService,
   ) {}
 
   /** Hoy (medianoche UTC del día del calendario) en la zona del negocio. */
@@ -261,6 +266,11 @@ export class CollectionsService {
         : null,
       closedAt: row.closedAt?.toISOString() ?? null,
       notes: row.notes,
+      pausedAt: row.pausedAt?.toISOString() ?? null,
+      paymentPlanId: row.paymentPlanId,
+      overlockRemovedAt: row.overlockRemovedAt?.toISOString() ?? null,
+      surplusCents: row.surplusCents,
+      surplusReturnedAt: row.surplusReturnedAt?.toISOString() ?? null,
     };
   }
 
@@ -350,10 +360,18 @@ export class CollectionsService {
         this.wasReminded(tx, tenantId, row.contractId, today),
       ]);
       const debtCents = invoices.reduce((sum, i) => sum + i.pendingCents, 0);
+      const [noticeChecklist, pickups, charges] = await Promise.all([
+        this.noticeChecklist(tx, tenantId, row, reminded, debtCents),
+        this.extras.pickupsOf(tx, tenantId, caseId, false),
+        this.charges(tx, tenantId, caseId),
+      ]);
       return {
         ...this.toDto(row, debtCents),
         invoices,
         reminded,
+        noticeChecklist,
+        pickups,
+        charges,
         events: events.map((e) => ({
           id: e.id,
           eventType: e.eventType,
@@ -372,6 +390,202 @@ export class CollectionsService {
         ),
       };
     }, tenantId);
+  }
+
+  /**
+   * Lo que conviene tener antes de enviar el requerimiento: a dónde enviarlo,
+   * a quién, el contrato firmado, el aviso previo, quién lo firma y la deuda.
+   */
+  private async noticeChecklist(
+    tx: Tx,
+    tenantId: string,
+    row: CaseRow,
+    reminded: boolean,
+    debtCents: number,
+  ): Promise<NoticeChecklistItemDto[]> {
+    const [customer, contract, tenant] = await Promise.all([
+      tx.customer.findUnique({
+        where: { id: row.customerId },
+        select: { address: true, city: true, postalCode: true, documentNumber: true },
+      }),
+      tx.contract.findUnique({
+        where: { id: row.contractId },
+        select: {
+          signedAt: true,
+          owner: { select: { legalName: true, taxId: true, address: true } },
+        },
+      }),
+      tx.tenant.findUnique({
+        where: { id: tenantId },
+        select: { billingLegalName: true, taxId: true, billingAddress: true },
+      }),
+    ]);
+    const owner = contract?.owner ?? null;
+    const issuerOk = owner
+      ? !!(owner.legalName && owner.taxId && owner.address)
+      : !!(tenant?.billingLegalName && tenant.taxId && tenant.billingAddress);
+    const addressOk = !!(customer?.address && (customer.city || customer.postalCode));
+    return [
+      {
+        key: 'address',
+        label: 'Dirección del inquilino',
+        ok: addressOk,
+        detail: addressOk ? null : 'Sin dirección no se puede enviar el burofax.',
+        blocking: true,
+      },
+      {
+        key: 'document',
+        label: 'DNI, NIE o CIF del inquilino',
+        ok: !!customer?.documentNumber,
+        detail: customer?.documentNumber
+          ? null
+          : 'Conviene para identificarle en el requerimiento.',
+        blocking: false,
+      },
+      {
+        key: 'contract_signed',
+        label: 'Contrato firmado',
+        ok: !!contract?.signedAt,
+        detail: contract?.signedAt ? null : 'La condición 12 está en el contrato que firmó.',
+        blocking: false,
+      },
+      {
+        key: 'reminded',
+        label: 'Aviso previo del impago',
+        ok: reminded,
+        detail: reminded ? null : 'Envíale antes un recordatorio de pago.',
+        blocking: false,
+      },
+      {
+        key: 'issuer',
+        label: owner ? 'Datos fiscales del propietario' : 'Datos fiscales de tu empresa',
+        ok: issuerOk,
+        detail: issuerOk
+          ? null
+          : owner
+            ? 'Completa la razón social, el NIF y el domicilio del propietario.'
+            : 'Completa la razón social, el NIF y el domicilio en Datos de tu empresa.',
+        blocking: false,
+      },
+      {
+        key: 'debt',
+        label: 'Deuda vencida',
+        ok: debtCents > 0,
+        detail: debtCents > 0 ? null : 'No debe nada vencido.',
+        blocking: true,
+      },
+    ];
+  }
+
+  /** Los gastos del expediente facturados al inquilino. */
+  private async charges(
+    tx: Tx,
+    tenantId: string,
+    caseId: string,
+  ): Promise<DelinquencyCaseChargeDto[]> {
+    const events = await tx.delinquencyCaseEvent.findMany({
+      where: { tenantId, caseId, eventType: 'charge_added' },
+      orderBy: { occurredAt: 'asc' },
+      select: { payload: true },
+    });
+    const refs = events
+      .map((e) => e.payload as { invoiceId?: string; kind?: string })
+      .filter((p): p is { invoiceId: string; kind: string } => !!p.invoiceId);
+    if (refs.length === 0) return [];
+    const invoices = await tx.invoice.findMany({
+      where: { id: { in: refs.map((r) => r.invoiceId) } },
+      select: { id: true, invoiceNumber: true, total: true, status: true },
+    });
+    const byId = new Map(invoices.map((i) => [i.id, i]));
+    return refs.flatMap((r) => {
+      const inv = byId.get(r.invoiceId);
+      return inv
+        ? [
+            {
+              invoiceId: inv.id,
+              invoiceNumber: inv.invoiceNumber,
+              kind: r.kind as DelinquencyCaseChargeDto['kind'],
+              total: Number(inv.total),
+              status: inv.status,
+            },
+          ]
+        : [];
+    });
+  }
+
+  /**
+   * Un plan de pagos del inquilino pausa sus expedientes abiertos; si se rompe
+   * o se cancela (o se completa sin saldar todo), siguen.
+   */
+  async onPaymentPlanStatus(p: {
+    tenantId: string;
+    planId: string;
+    customerId: string;
+    status: 'active' | 'broken' | 'cancelled' | 'completed';
+  }): Promise<void> {
+    if (p.status === 'active') {
+      const paused = await this.prisma.withTenant(async (tx) => {
+        const rows = await tx.delinquencyCase.findMany({
+          where: {
+            tenantId: p.tenantId,
+            customerId: p.customerId,
+            pausedAt: null,
+            status: { notIn: CLOSED_CASE_STATUSES },
+          },
+          select: { id: true },
+        });
+        for (const r of rows) {
+          await tx.delinquencyCase.updateMany({
+            where: { id: r.id, pausedAt: null },
+            data: { pausedAt: new Date(), paymentPlanId: p.planId },
+          });
+          await this.recordEvent(tx, p.tenantId, r.id, 'paused', { planId: p.planId }, null);
+        }
+        return rows.length;
+      }, p.tenantId);
+      if (paused > 0) this.logger.log(`collections paused by plan ${p.planId}: ${paused}`);
+      return;
+    }
+    const resumed = await this.prisma.withTenant(async (tx) => {
+      const rows = await tx.delinquencyCase.findMany({
+        where: {
+          tenantId: p.tenantId,
+          paymentPlanId: p.planId,
+          pausedAt: { not: null },
+          status: { notIn: CLOSED_CASE_STATUSES },
+        },
+        include: caseInclude,
+      });
+      for (const r of rows) {
+        await tx.delinquencyCase.updateMany({
+          where: { id: r.id },
+          data: { pausedAt: null },
+        });
+        await this.recordEvent(
+          tx,
+          p.tenantId,
+          r.id,
+          'resumed',
+          { planId: p.planId, reason: p.status },
+          null,
+        );
+      }
+      return rows;
+    }, p.tenantId);
+    if (p.status !== 'broken') return;
+    for (const r of resumed) {
+      await this.notifications
+        .create(p.tenantId, {
+          type: 'collections.plan_broken',
+          title: `Plan de pagos incumplido — ${customerName(r.customer)}`,
+          body: 'El expediente de impago sigue donde se quedó.',
+          link: `/collections/${r.id}`,
+          facilityId: r.facilityId,
+        })
+        .catch((err: unknown) =>
+          this.logger.warn(`collections.plan_broken: ${(err as Error).message}`),
+        );
+    }
   }
 
   /** Las facturas vencidas que forman la deuda del contrato. */
@@ -708,6 +922,14 @@ export class CollectionsService {
     const dto = await this.prisma.withTenant(async (tx) => {
       const row = await this.findOrThrow(tx, tenantId, caseId, facilityScope);
       this.assertTransition(row.status, to);
+      // Con un plan de pagos al día, el expediente no avanza (sí se puede cerrar).
+      if (row.pausedAt && !(CLOSED_CASE_STATUSES as string[]).includes(to)) {
+        throw new ConflictException({
+          code: 'case_paused',
+          message:
+            'El expediente está en pausa: el inquilino tiene un plan de pagos al día. Si lo incumple, sigue solo.',
+        });
+      }
       if (check) await check(row);
       const claimed = await tx.delinquencyCase.updateMany({
         where: { id: caseId, status: row.status },
@@ -1106,6 +1328,8 @@ export class CollectionsService {
         message: 'El expediente ha cambiado mientras tanto: vuelve a cargarlo.',
       });
     }
+    // Ya no hay bienes que retirar: las citas abiertas se anulan.
+    await this.extras.cancelOpenPickups(tenantId, caseId);
 
     const settlement = await this.applyFineSettlement(
       tenantId,
@@ -1123,6 +1347,14 @@ export class CollectionsService {
     };
     const toReturn = settlement.surplusCents + settlement.depositReturnedCents;
     if (toReturn > 0) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.delinquencyCase.updateMany({
+            where: { id: caseId },
+            data: { surplusCents: toReturn },
+          }),
+        tenantId,
+      );
       await this.notifications
         .create(tenantId, {
           type: 'collections.surplus_to_return',

@@ -5,6 +5,7 @@ import { AccessModule } from '../access/access.module';
 import { AiModule } from '../ai/ai.module';
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
+import { CollectionsModule } from '../collections/collections.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { CustomerMessagesModule } from '../customer-messages/customer-messages.module';
 import { CustomerAuthorizedPersonsService } from '../customers/customer-authorized-persons.service';
@@ -54,6 +55,8 @@ import { PortalService } from './portal.service';
     ReferralsModule,
     // ContractsModule: el inquilino ve sus contratos y solicita la baja (move-out).
     ContractsModule,
+    // CollectionsModule: sus expedientes de impago y la cita para retirar sus bienes.
+    CollectionsModule,
     // LandingModule: condiciones generales que se aceptan antes de pagar.
     LandingModule,
     // OperationsModule: el inquilino reporta incidencias desde el portal.
