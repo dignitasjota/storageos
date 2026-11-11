@@ -32,7 +32,8 @@ export async function cleanupTestTenants(): Promise<void> {
     const ids = testTenants.map((t) => t.id);
     if (ids.length === 0) return;
 
-    await admin.$transaction([
+    // Se construye en cada intento: Prisma no repite una consulta ya lanzada.
+    const steps = () => [
       // Fase 14A.3: webhooks + api keys (api_keys FK a users ON DELETE
       // RESTRICT, hay que borrar antes de users).
       admin.webhookDelivery.deleteMany({ where: { tenantId: { in: ids } } }),
@@ -99,7 +100,20 @@ export async function cleanupTestTenants(): Promise<void> {
       admin.tenantSubscription.deleteMany({ where: { tenantId: { in: ids } } }),
       admin.user.deleteMany({ where: { tenantId: { in: ids } } }),
       admin.tenant.deleteMany({ where: { id: { in: ids } } }),
-    ]);
+    ];
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await admin.$transaction(steps());
+        break;
+      } catch (err) {
+        // Lo que la app recién cerrada aún hace en segundo plano (un aviso, un
+        // correo) puede crear filas de estos tenants mientras se borran: la
+        // clave ajena falla y se vuelve a borrar todo.
+        const code = (err as { code?: string }).code;
+        if (attempt >= 3 || (code !== 'P2003' && code !== 'P2034')) throw err;
+        await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
+    }
   } finally {
     await admin.$disconnect();
   }
