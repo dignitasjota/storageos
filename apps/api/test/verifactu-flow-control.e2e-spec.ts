@@ -1,4 +1,3 @@
-import { getQueueToken } from '@nestjs/bullmq';
 import request from 'supertest';
 
 import { AEAT_CLIENT, type AeatClient } from '../src/modules/billing/aeat-client';
@@ -6,10 +5,14 @@ import { VerifactuDispatcher } from '../src/modules/billing/verifactu-dispatcher
 import { VerifactuStatusPollerCron } from '../src/modules/billing/verifactu-status-poller.cron';
 import { VerifactuService } from '../src/modules/billing/verifactu.service';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
-import { QUEUE_VERIFACTU } from '../src/modules/queues/queues.module';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { createDraftInvoice, recordsOf, waitForAeatStatus } from './helpers/billing-fixtures';
+import {
+  createDraftInvoice,
+  quiesceVerifactuQueue,
+  recordsOf,
+  waitForAeatStatus,
+} from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -19,7 +22,6 @@ import type {
   SendBatchResult,
 } from '../src/modules/billing/aeat-client/aeat-client';
 import type { INestApplication } from '@nestjs/common';
-import type { Queue } from 'bullmq';
 
 /**
  * Control de flujo de Veri*Factu (art. 16.2 de la Orden HAC/1177/2024): lo
@@ -43,7 +45,7 @@ describe('Veri*Factu: envíos en lotes y control de flujo (e2e)', () => {
 
   afterAll(async () => {
     // Los envíos que quedaron esperando a la AEAT simulada no salen ya.
-    await app.get<Queue>(getQueueToken(QUEUE_VERIFACTU), { strict: false }).drain(true);
+    await quiesceVerifactuQueue(app);
     await app.close();
     await cleanupTestTenants();
   });

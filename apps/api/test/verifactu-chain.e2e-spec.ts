@@ -4,7 +4,11 @@ import { VerifactuService } from '../src/modules/billing/verifactu.service';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { createDraftInvoice, setAeatStatus } from './helpers/billing-fixtures';
+import {
+  createDraftInvoice,
+  quiesceVerifactuQueue,
+  setAeatStatus,
+} from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -26,6 +30,7 @@ describe('Veri*Factu: cadena por emisor (e2e)', () => {
   });
 
   afterAll(async () => {
+    await quiesceVerifactuQueue(app);
     await app.close();
     await cleanupTestTenants();
   });

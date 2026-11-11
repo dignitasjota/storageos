@@ -7,7 +7,12 @@ import { VerifactuService } from '../src/modules/billing/verifactu.service';
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../src/modules/queues/queues.module';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { createDraftInvoice, setAeatStatus, waitForAeatStatus } from './helpers/billing-fixtures';
+import {
+  createDraftInvoice,
+  quiesceVerifactuQueue,
+  setAeatStatus,
+  waitForAeatStatus,
+} from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
@@ -35,6 +40,7 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
   });
 
   afterAll(async () => {
+    await quiesceVerifactuQueue(app);
     await app.close();
     await cleanupTestTenants();
     await deleteAllMessages();
@@ -224,5 +230,7 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
     );
     expect(QUEUE_VERIFACTU).toBe('verifactu');
     addSpy.mockRestore();
+    // Y el envío sale (no se deja a medias para el cierre de la app).
+    expect(await waitForAeatStatus(app, owner.accessToken, id)).toBe('accepted');
   });
 });

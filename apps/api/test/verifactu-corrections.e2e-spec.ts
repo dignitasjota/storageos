@@ -1,4 +1,3 @@
-import { getQueueToken } from '@nestjs/bullmq';
 import request from 'supertest';
 
 import { AEAT_CLIENT, type AeatClient } from '../src/modules/billing/aeat-client';
@@ -7,11 +6,11 @@ import { computeAltaHash } from '../src/modules/billing/verifactu-hash';
 import { VerifactuSettingsService } from '../src/modules/billing/verifactu-settings.service';
 import { VerifactuService } from '../src/modules/billing/verifactu.service';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
-import { QUEUE_VERIFACTU } from '../src/modules/queues/queues.module';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import {
   createDraftInvoice,
+  quiesceVerifactuQueue,
   recordsOf,
   setAeatStatus,
   waitForAeatStatus,
@@ -22,7 +21,6 @@ import { createTestApp } from './helpers/test-app.factory';
 
 import type { SendBatchArgs } from '../src/modules/billing/aeat-client/aeat-client';
 import type { INestApplication } from '@nestjs/common';
-import type { Queue } from 'bullmq';
 
 /**
  * Registros de Veri*Factu por separado: subsanación de lo rechazado o
@@ -45,7 +43,8 @@ describe('Veri*Factu: subsanación, anulación, renuncia e incidencias (e2e)', (
   afterEach(() => jest.restoreAllMocks());
 
   afterAll(async () => {
-    await app.get<Queue>(getQueueToken(QUEUE_VERIFACTU), { strict: false }).drain(true);
+    // Los envíos que quedaron esperando a la AEAT simulada no salen ya.
+    await quiesceVerifactuQueue(app);
     await app.close();
     await cleanupTestTenants();
   });

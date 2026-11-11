@@ -8,6 +8,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import {
   createDraftInvoice,
   ensureDefaultSeries,
+  quiesceVerifactuQueue,
   waitForAeatStatus,
 } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
@@ -41,6 +42,7 @@ describe('Veri*Factu por negocio (e2e)', () => {
   });
 
   afterAll(async () => {
+    await quiesceVerifactuQueue(app);
     await app.close();
     await db.$disconnect();
     await cleanupTestTenants();
