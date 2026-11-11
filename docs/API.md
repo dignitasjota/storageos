@@ -1508,6 +1508,7 @@ Modulo `apps/api/src/modules/billing/aeat-client/` y `tenant-aeat-credentials.{s
 - **Anular por error**: `POST /invoices/:id/void {reason}` (ver Facturas) genera el **registro de anulación** (`SinRegistroPrevio=S` si la AEAT no tenía la factura).
 - **Incidencias** (art. 16.4): mientras un emisor tiene envíos sin respuesta, lo que queda pendiente se marca como incidencia y sale en envíos aparte con `Incidencia=S` en `RemisionVoluntaria`; `GET /billing/verifactu/alert` da cuántos y desde cuándo para el aviso del panel.
 - **Renuncia** (art. 17): un negocio con registros en el año sigue en VERI\*FACTU hasta el 31 de diciembre; desactivarlo programa la baja (`tenants.verifactu_end_date`) y los envíos que salgan hasta entonces llevan `FechaFinVeriFactu`. El 1 de enero el cron `verifactu.renuncia` (00:20 Madrid, en el worker) lo apaga si la renuncia llegó a la AEAT por todos sus emisores; si no, sigue activado y avisa (`verifactu.renuncia_not_sent`).
+- **Declaración responsable** (art. 13 del RD 1007/2023 y art. 15 de la Orden): `GET /v1/public/verifactu/declaration/pdf?version=` (público, 30/min; sin `version`, la de la versión en uso) devuelve el PDF (`attachment`); se genera una vez por versión y se guarda en memoria. 404 `declaration_not_found` si esa versión no tiene declaración. El texto sale de `verifactuDeclaration()` (shared `billing/verifactu-declaration.ts`, una entrada de `VERIFACTU_DECLARATIONS` por versión): la web lo enseña en `/declaracion-responsable` y en Configuración → Veri\*Factu.
 
 ### Veri\*Factu por negocio (2026-11-08)
 

@@ -19,6 +19,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
+import { VerifactuDeclarationCard } from './verifactu-declaration-card';
 import { VerifactuSendingCard } from './verifactu-sending-card';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -124,6 +125,8 @@ export default function VerifactuSettingsPage() {
       )}
 
       <CredentialHistory />
+
+      <VerifactuDeclarationCard />
 
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
       <RevokeDialog open={revokeOpen} onOpenChange={setRevokeOpen} />

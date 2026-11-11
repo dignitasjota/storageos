@@ -5,3 +5,4 @@ export * from './collections-ops';
 export * from './first-month';
 export * from './invoice-tools';
 export * from './verifactu';
+export * from './verifactu-declaration';
