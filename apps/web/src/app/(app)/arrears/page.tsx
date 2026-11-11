@@ -319,7 +319,7 @@ export default function ArrearsPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {eur(p.paidSoFar)} de {eur(p.totalAmount)} ·{' '}
                       {p.installments.filter((i) => i.status === 'paid').length}/
-                      {p.installments.length} cuotas
+                      {p.installments.length} {p.installments.length === 1 ? 'cuota' : 'cuotas'}
                     </p>
                   </div>
                   <Badge variant={p.status === 'broken' ? 'destructive' : 'secondary'}>

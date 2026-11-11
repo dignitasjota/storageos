@@ -394,7 +394,7 @@ function CreateRemittanceDialog() {
       const r = await create.mutateAsync({ name, collectionDate, invoiceIds: [...selected] });
       if (r.omitted && r.omitted.length > 0) {
         toast.warning(
-          `Remesa generada con ${r.itemCount} facturas. ${r.omitted.length} no se incluyeron: ${r.omitted
+          `Remesa generada con ${r.itemCount} ${r.itemCount === 1 ? 'factura' : 'facturas'}. ${r.omitted.length === 1 ? 'Una no se incluyó' : `${r.omitted.length} no se incluyeron`}: ${r.omitted
             .map((o) => o.invoiceNumber)
             .join(', ')} (${r.omitted[0]!.reason})`,
           { duration: 12_000 },
@@ -555,8 +555,9 @@ function CreateRemittanceDialog() {
                 <details className="text-xs text-amber-700 dark:text-amber-300">
                   <summary className="cursor-pointer">
                     <FileText className="mr-1 inline h-3 w-3" />
-                    {data.withoutMandate.length} factura(s) pendiente(s) sin mandato SEPA firmado
-                    (no se incluyen)
+                    {data.withoutMandate.length === 1
+                      ? '1 factura pendiente sin mandato SEPA firmado (no se incluye)'
+                      : `${data.withoutMandate.length} facturas pendientes sin mandato SEPA firmado (no se incluyen)`}
                   </summary>
                   <ul className="mt-1 space-y-0.5 pl-4">
                     {data.withoutMandate.map((w) => (

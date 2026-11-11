@@ -78,6 +78,11 @@ function Tile({
  * Cobros del mes: lo que vence este mes por cómo se cobra (solo, por remesa o a
  * mano), lo cobrado, lo que falló o se devolvió, y lo que hay que reclamar.
  */
+/** «1 factura», «3 facturas». */
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 export default function CollectionsMonthPage() {
   const [month, setMonth] = useState(thisMonth());
   const facilityId = useHeaderFacilityId();
@@ -171,25 +176,25 @@ export default function CollectionsMonthPage() {
             <Tile
               label="Previsto (vence este mes)"
               value={eur(d.expected.total.amount)}
-              hint={`${d.expected.total.count} facturas`}
+              hint={plural(d.expected.total.count, 'factura', 'facturas')}
             />
             <Tile
               label="Cobrado en el mes"
               value={eur(d.collected.amount)}
               tone="green"
-              hint={`${d.collected.count} cobros, de facturas de cualquier mes`}
+              hint={`${plural(d.collected.count, 'cobro', 'cobros')}, de facturas de cualquier mes`}
             />
             <Tile
               label="Pendiente de lo previsto"
               value={eur(d.outstanding.amount)}
               tone={d.outstanding.amount > 0 ? 'amber' : undefined}
-              hint={`${d.outstanding.count} facturas`}
+              hint={plural(d.outstanding.count, 'factura', 'facturas')}
             />
             <Tile
               label="Fallidos y devueltos"
               value={eur(d.failed.amount + d.returned.amount)}
               tone={d.failed.count + d.returned.count > 0 ? 'red' : undefined}
-              hint={`${d.failed.count} fallidos · ${d.returned.count} devueltos`}
+              hint={`${plural(d.failed.count, 'fallido', 'fallidos')} · ${plural(d.returned.count, 'devuelto', 'devueltos')}`}
             />
           </div>
 
