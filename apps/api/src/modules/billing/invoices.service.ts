@@ -181,7 +181,26 @@ type InvoiceWithRelations = Invoice & {
   payments: { amount: Prisma.Decimal }[];
   rectifiedBy: { id: string; invoiceNumber: string; status: string; total: Prisma.Decimal }[];
   lateFeeInvoice: { id: string } | null;
+  /** Local de una factura sin contrato (pase nocturno, factura a mano…). */
+  facility?: { id: string; name: string } | null;
+  productSale?: { facility: { id: string; name: string } } | null;
 };
+
+/** El local de una factura: el de su contrato, el suyo o el de su venta. */
+function invoiceFacilityOf(row: {
+  facilityId?: string | null;
+  contract?: { unit?: { facility?: { id: string } | null; facilityId?: string } | null } | null;
+  productSale?: { facility?: { id: string } | null; facilityId?: string } | null;
+}): string | null {
+  return (
+    row.contract?.unit?.facility?.id ??
+    row.contract?.unit?.facilityId ??
+    row.facilityId ??
+    row.productSale?.facility?.id ??
+    row.productSale?.facilityId ??
+    null
+  );
+}
 
 export interface ListFilters {
   status?: InvoiceStatusValue;
@@ -473,6 +492,15 @@ export class InvoicesService {
             assertFacilityAllowed(args.facilityScope, contract.unit.facilityId);
           if (args.ownerId === undefined) ownerId = contract.ownerId;
         }
+        // Sin contrato, la factura lleva su local: el indicado o, si no, el
+        // único del negocio (o de quien la crea). Con contrato, el de su trastero.
+        const facilityId = args.input.contractId
+          ? null
+          : await this.resolveInvoiceFacility(
+              tx,
+              args.input.facilityId,
+              args.facilityScope ?? null,
+            );
         let series = args.input.seriesId
           ? await tx.invoiceSeries.findUniqueOrThrow({ where: { id: args.input.seriesId } })
           : ownerId
@@ -514,6 +542,7 @@ export class InvoicesService {
             tenantId: args.tenantId,
             ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
             ...(args.input.contractId ? { contractId: args.input.contractId } : {}),
+            ...(facilityId ? { facilityId } : {}),
             ...(ownerId ? { ownerId } : {}),
             seriesId: series.id,
             sequenceNumber: 0,
@@ -563,6 +592,36 @@ export class InvoicesService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(created);
+  }
+
+  /**
+   * Local de una factura sin contrato. null = de toda la empresa (pedido así o
+   * con varios locales y sin indicar ninguno).
+   */
+  private async resolveInvoiceFacility(
+    tx: Prisma.TransactionClient,
+    requested: string | null | undefined,
+    scope: string[] | null,
+  ): Promise<string | null> {
+    if (requested === null) return null;
+    if (requested) {
+      const facility = await tx.facility.findFirst({
+        where: { id: requested, deletedAt: null },
+        select: { id: true },
+      });
+      if (!facility) {
+        throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+      }
+      if (scope) assertFacilityAllowed(scope, facility.id);
+      return facility.id;
+    }
+    if (scope?.length === 1) return scope[0]!;
+    const facilities = await tx.facility.findMany({
+      where: { deletedAt: null },
+      select: { id: true },
+      take: 2,
+    });
+    return facilities.length === 1 ? facilities[0]!.id : null;
   }
 
   async update(args: {
@@ -1512,7 +1571,9 @@ export class InvoicesService {
           total: true,
           amountPaid: true,
           dueDate: true,
+          facilityId: true,
           contract: { select: { unit: { select: { facilityId: true } } } },
+          productSale: { select: { facilityId: true } },
         },
       });
       if (!invoice) return null;
@@ -1535,7 +1596,7 @@ export class InvoicesService {
     if (!row) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
-    const facilityId = row.invoice.contract?.unit?.facilityId;
+    const facilityId = invoiceFacilityOf(row.invoice);
     if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
     if (row.invoice.status !== 'issued' && row.invoice.status !== 'overdue') {
       throw new BadRequestException({
@@ -1603,7 +1664,9 @@ export class InvoicesService {
               locale: true,
             },
           },
+          facilityId: true,
           contract: { select: { unit: { select: { facilityId: true } } } },
+          productSale: { select: { facilityId: true } },
         },
       });
       if (!invoice) return null;
@@ -1642,7 +1705,7 @@ export class InvoicesService {
     }
     const { invoice, tenant, inFlight, inPlan, recentlyReminded, today } = data;
 
-    const facilityId = invoice.contract?.unit?.facilityId;
+    const facilityId = invoiceFacilityOf(invoice);
     if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
 
     if (invoice.status !== 'issued' && invoice.status !== 'overdue') {
@@ -1883,7 +1946,7 @@ export class InvoicesService {
   }): Promise<InvoiceDto> {
     const { tenantId, invoiceId } = args;
     // Alcance por local: asertar antes de crear el recargo.
-    await this.findOrThrow(tenantId, invoiceId, args.facilityScope);
+    const overdueRow = await this.findOrThrow(tenantId, invoiceId, args.facilityScope);
     const { customerId, contractId, invoiceLabel, fee, ownerId } = await this.prisma.withTenant(
       (tx) => this.lateFeeFor(tx, tenantId, invoiceId),
       tenantId,
@@ -1905,8 +1968,9 @@ export class InvoicesService {
       input: {
         invoiceType: 'F1',
         customerId,
-        // Del contrato de la vencida: sale en su ficha y en su local.
-        ...(contractId ? { contractId } : {}),
+        // Del contrato de la vencida: sale en su ficha y en su local (sin
+        // contrato, en el local de la vencida).
+        ...(contractId ? { contractId } : { facilityId: invoiceFacilityOf(overdueRow) }),
         ...(series ? { seriesId: series.id } : {}),
         items: [
           {
@@ -3228,7 +3292,14 @@ export class InvoicesService {
       const [original, tenant, payment, item, existing] = await Promise.all([
         tx.invoice.findFirst({
           where: { id: invoiceId },
-          select: { invoiceNumber: true, customerId: true, contractId: true, ownerId: true },
+          select: {
+            invoiceNumber: true,
+            customerId: true,
+            contractId: true,
+            ownerId: true,
+            facilityId: true,
+            productSale: { select: { facilityId: true } },
+          },
         }),
         tx.tenant.findFirst({ where: { id: tenantId }, select: { returnedPaymentFee: true } }),
         tx.payment.findFirst({
@@ -3288,7 +3359,9 @@ export class InvoicesService {
       input: {
         invoiceType: 'F1',
         customerId: ctx.original.customerId,
-        ...(ctx.original.contractId ? { contractId: ctx.original.contractId } : {}),
+        ...(ctx.original.contractId
+          ? { contractId: ctx.original.contractId }
+          : { facilityId: invoiceFacilityOf(ctx.original) }),
         ...(series ? { seriesId: series.id } : {}),
         items: [
           {
@@ -4024,6 +4097,10 @@ export class InvoicesService {
           ...(original.ownerId ? { ownerId: original.ownerId } : {}),
           ...(original.customerId ? { customerId: original.customerId } : {}),
           ...(original.contractId ? { contractId: original.contractId } : {}),
+          // Sin contrato, en el local de la original (el suyo o el de su venta).
+          ...(!original.contractId && invoiceFacilityOf(original)
+            ? { facilityId: invoiceFacilityOf(original) }
+            : {}),
           seriesId: rectSeries.id,
           sequenceNumber: 0,
           invoiceNumber: placeholderNumber,
@@ -4248,9 +4325,9 @@ export class InvoicesService {
       });
     }
     // Alcance por local: un usuario restringido no puede ver ni mutar por id una
-    // factura de un contrato de un local fuera de su scope. Las facturas sin
-    // contrato (F2/ventas de producto, sin local) se permiten.
-    const facilityId = row.contract?.unit?.facility?.id;
+    // factura de un local fuera de su scope (la del contrato, la suya o la de su
+    // venta). Las de toda la empresa, sin local, se permiten.
+    const facilityId = invoiceFacilityOf(row);
     if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
     return row;
   }
@@ -4298,6 +4375,8 @@ export class InvoicesService {
         orderBy: { createdAt: 'asc' },
       },
       lateFeeInvoice: { select: { id: true } },
+      facility: { select: { id: true, name: true } },
+      productSale: { select: { facility: { select: { id: true, name: true } } } },
     } as const;
   }
 
@@ -4606,8 +4685,12 @@ export class InvoicesService {
       bundledWithInvoiceId: row.bundledWithInvoiceId,
       unitId: row.contract?.unit?.id ?? null,
       unitCode: row.contract?.unit?.code ?? null,
-      facilityId: row.contract?.unit?.facility?.id ?? null,
-      facilityName: row.contract?.unit?.facility?.name ?? null,
+      facilityId: invoiceFacilityOf(row),
+      facilityName:
+        row.contract?.unit?.facility?.name ??
+        row.facility?.name ??
+        row.productSale?.facility?.name ??
+        null,
       offlinePaymentMethod:
         (row.contract?.offlinePaymentMethod as InvoiceDto['offlinePaymentMethod']) ?? null,
       status: row.status as InvoiceStatusValue,

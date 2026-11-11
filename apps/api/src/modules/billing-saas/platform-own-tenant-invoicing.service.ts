@@ -145,6 +145,8 @@ export class PlatformOwnTenantInvoicingService {
             invoiceType: 'F1',
             verifactuMode: 'verifactu',
             customerId,
+            // La suscripción de un tenant no es de ningún local del negocio propio.
+            facilityId: null,
             ...(periodStart ? { periodStart } : {}),
             ...(periodEnd ? { periodEnd } : {}),
             items: args.lines.map((l) => ({

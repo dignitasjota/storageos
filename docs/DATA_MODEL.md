@@ -304,7 +304,7 @@ Reservas previas a la firma.
 ### `invoices`
 
 - id, tenant_id, `customer_id` (**NULLABLE desde Fase 13A.3** para soportar F2 sin destinatario identificado), contract_id (nullable, p.ej. ventas sueltas), invoice_number (único por tenant, secuencial conforme a normativa), issue_date, due_date, status (draft/issued/sent/paid/overdue/cancelled/refunded), subtotal, tax_amount, total, currency, pdf_url, notes, deleted_at
-- **`facility_id`** (2026-09-27, nullable, FK `ON DELETE SET NULL`): local al que se imputa una factura que no cuelga de un contrato ni de una venta de producto (hoy, el **pase nocturno**, que el inquilino compra para un local concreto). El cierre de caja por local la cuenta junto a las de contrato y venta.
+- **`facility_id`** (2026-09-27, nullable, FK `ON DELETE SET NULL`): local de una factura que no cuelga de un contrato (el pase nocturno, la señal de una reserva, una venta, una factura hecha a mano…; con contrato, el local es el de su trastero). Desde 2026-11-12 se pone al crearla: el indicado o el único local del negocio (`20270110100000_invoice_facility_backfill` lo rellenó en los negocios de un solo local). null = de toda la empresa. El cierre de caja por local la cuenta junto a las de contrato y venta.
 - **Fase 11A.4 + 13A.3 — Tipo de factura y rectificativas**:
   - `invoice_type` (enum `F1 | F2 | R1 | R2 | R3 | R4 | R5`, default `F1`). F1 = completa con destinatario; F2 = simplificada (sin destinatario obligatorio, limites AEAT 400€/3000€). R1-R5 = rectificativas según causa AEAT.
   - `rectifies_invoice_id` (UUID, FK self, nullable). Apunta a la factura que está rectificando (solo en R1-R5).

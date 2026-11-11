@@ -37,7 +37,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useCreateInvoice } from '@/lib/billing/hooks';
 import { useContracts } from '@/lib/customers/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatEur } from '@/lib/format';
+
+/** En el desplegable de local: la factura es de toda la empresa. */
+const COMPANY = 'company';
 
 const SIMPLIFIED_JUSTIFICATION_LABELS: Record<SimplifiedJustificationValue, string> = {
   reparation: 'Reparación',
@@ -76,6 +81,22 @@ export function NewInvoiceDialog({ onClose }: { onClose: () => void }) {
   const customerContracts = customerId
     ? (contracts.data ?? []).filter((c) => c.status !== 'cancelled')
     : [];
+  // Local de una factura sin contrato. Con un solo local no se pregunta: la
+  // toma el servidor. Con varios, se propone el de arriba o el del inquilino.
+  const facilities = useFacilities();
+  const headerFacilityId = useHeaderFacilityId();
+  const facilityList = facilities.data ?? [];
+  const askFacility = facilityList.length > 1 && !(type === 'F1' && contractId);
+  const customerFacilities = [...new Set(customerContracts.map((c) => c.facilityId))];
+  const suggestedFacility =
+    headerFacilityId && facilityList.some((f) => f.id === headerFacilityId)
+      ? headerFacilityId
+      : type === 'F1' && customerFacilities.length === 1
+        ? customerFacilities[0]!
+        : COMPANY;
+  // undefined = sin tocar: sigue a la propuesta (cambia con el inquilino).
+  const [facilityChoice, setFacilityChoice] = useState<string | undefined>();
+  const facility = facilityChoice ?? suggestedFacility;
 
   const total = invoiceLinesTotal(items);
   const exceedsBasicF2 = type === 'F2' && total > 400;
@@ -89,6 +110,7 @@ export function NewInvoiceDialog({ onClose }: { onClose: () => void }) {
         invoiceType: type,
         ...(type === 'F1' && customerId ? { customerId } : {}),
         ...(type === 'F1' && contractId ? { contractId } : {}),
+        ...(askFacility ? { facilityId: facility === COMPANY ? null : facility } : {}),
         ...(type === 'F2' && justification ? { simplifiedJustification: justification } : {}),
         ...(periodStart && periodEnd ? { periodStart, periodEnd } : {}),
         ...(dueDate ? { dueDate } : {}),
@@ -191,6 +213,28 @@ export function NewInvoiceDialog({ onClose }: { onClose: () => void }) {
               <p className="text-xs text-muted-foreground">
                 Con contrato, la factura sale con su trastero y su local, y cuenta en la deuda de
                 ese contrato.
+              </p>
+            </div>
+          )}
+
+          {askFacility && (
+            <div className="space-y-1">
+              <Label>Local</Label>
+              <Select value={facility} onValueChange={setFacilityChoice}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {facilityList.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={COMPANY}>Toda la empresa (sin local)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Sale al filtrar por ese local y, si se cobra en efectivo, cuenta en su caja.
               </p>
             </div>
           )}

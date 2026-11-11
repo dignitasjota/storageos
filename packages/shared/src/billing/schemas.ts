@@ -342,6 +342,12 @@ export const CreateInvoiceSchema = z.object({
    */
   customerId: z.string().uuid().optional(),
   contractId: z.string().uuid().optional(),
+  /**
+   * Local de una factura sin contrato (con contrato, es el del contrato). Sin
+   * indicar: el único local del negocio (o de quien la crea). null = de toda la
+   * empresa.
+   */
+  facilityId: z.string().uuid().nullable().optional(),
   seriesId: z.string().uuid().optional(),
   issueDate: dateOnly.optional(),
   dueDate: dateOnly.optional(),

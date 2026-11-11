@@ -657,7 +657,11 @@ export class ReservationsService {
       (tx) =>
         tx.unit.findUniqueOrThrow({
           where: { id: existing.unitId },
-          select: { code: true, unitType: { select: { propertyKind: true } } },
+          select: {
+            code: true,
+            facilityId: true,
+            unitType: { select: { propertyKind: true } },
+          },
         }),
       args.tenantId,
     );
@@ -668,6 +672,8 @@ export class ReservationsService {
       input: {
         invoiceType: 'F1',
         customerId: existing.customerId,
+        // El local del trastero reservado.
+        facilityId: unit.facilityId,
         items: [
           {
             description: `Señal de reserva — trastero ${unit.code} (se descuenta del alquiler)`,

@@ -289,6 +289,8 @@ export class NightPassService {
       input: {
         invoiceType: 'F1',
         customerId,
+        // El local del pase (cierre de caja por local).
+        ...(facilityId ? { facilityId } : {}),
         seriesId: series.id,
         dueDate: due.toISOString().slice(0, 10),
         items: [
@@ -303,10 +305,6 @@ export class NightPassService {
       },
       meta: {},
     });
-    // Imputa la factura al local del pase (cierre de caja por local).
-    if (facilityId) {
-      await this.admin.invoice.update({ where: { id: invoice.id }, data: { facilityId } });
-    }
     await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
     return invoice.id;
   }
