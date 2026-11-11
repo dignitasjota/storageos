@@ -2829,6 +2829,11 @@ model SepaSettings {
   creditorPostalCode    String?  @map("creditor_postal_code")
   creditorCity          String?  @map("creditor_city")
   creditorCountry       String   @default("ES") @map("creditor_country")
+  /// Remesa automática mensual: el día elegido se prepara sola, sin confirmar.
+  autoPrepare           Boolean  @default(false) @map("auto_prepare")
+  autoPrepareDay        Int      @default(1) @map("auto_prepare_day")
+  /// `AAAA-MM` del último mes en que se preparó (una vez al mes).
+  lastAutoPreparedMonth String?  @map("last_auto_prepared_month")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2851,6 +2856,8 @@ model SepaMandate {
   sequenceType  String   @default("FRST") @map("sequence_type")
   /// Fecha del último adeudo presentado (caduca a los 36 meses sin cobros).
   lastCollectedAt DateTime? @map("last_collected_at") @db.Date
+  /// Fecha de caducidad de la que ya se avisó (60 días antes).
+  expiryNotifiedFor DateTime? @map("expiry_notified_for") @db.Date
   /// active | cancelled
   status        String   @default("active")
   /// pending (falta la firma del deudor) | signed (firmado aquí) | external (papel o migrado)
@@ -2904,6 +2911,12 @@ model SepaRemittance {
   createdByUserId String?   @map("created_by_user_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  /// La preparó la remesa automática mensual.
+  autoPrepared    Boolean   @default(false) @map("auto_prepared")
+  /// Ya se avisó de que sigue sin confirmar pasada la fecha de cobro.
+  staleNotifiedAt DateTime? @map("stale_notified_at") @db.Timestamptz(6)
+  /// Última respuesta del banco (pain.002) cargada.
+  bankResponseAt  DateTime? @map("bank_response_at") @db.Timestamptz(6)
 
   tenant Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   items  SepaRemittanceItem[]

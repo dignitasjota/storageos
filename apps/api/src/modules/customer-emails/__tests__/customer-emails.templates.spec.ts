@@ -176,6 +176,25 @@ describe('renderCustomerEmail — preaviso SEPA', () => {
     expect(r.text).toContain('MND-ABC');
   });
 
+  it('varias facturas del inquilino en la remesa: un aviso con todos los cargos', () => {
+    const r = renderCustomerEmail(base, {
+      kind: 'sepa_prenotification',
+      invoiceNumber: 'FA-9',
+      amount: 181.5,
+      collectionDate: new Date('2026-11-05T00:00:00Z'),
+      ibanLast4: '4321',
+      mandateReference: 'MND-ABC',
+      creditorName: 'Trasteros García SL',
+      creditorId: 'ES97ZZZB12345678',
+      invoices: [
+        { number: 'FA-9', amount: 60.5 },
+        { number: 'FA-10', amount: 121 },
+      ],
+    });
+    expect(r.subject).toMatch(/181,50\s€ el 05\/11\/2026/);
+    expect(r.text).toMatch(/en 2 cargos: factura FA-9 \(60,50\s€\), factura FA-10 \(121,00\s€\)/);
+  });
+
   it('en inglés si el inquilino tiene locale en', () => {
     const r = renderCustomerEmail(
       { ...base, locale: 'en' },

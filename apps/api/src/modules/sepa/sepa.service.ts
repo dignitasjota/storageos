@@ -23,6 +23,8 @@ import {
   maskIban,
   returnCodeLabel,
   sepaMandateText,
+  SepaReturnCodeEnum,
+  type SepaBankResponseResultDto,
   type SepaMandateDocument,
 } from '@storageos/shared';
 
@@ -45,6 +47,7 @@ import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import { markSepaItemReturned } from './sepa-items';
+import { isRejectedStatus, parsePain002 } from './sepa-pain002';
 import { buildPain008, type Pain008Transaction } from './sepa-pain008';
 
 import type { FacilityScope } from '../../common/facility-scope';
@@ -146,6 +149,8 @@ export class SepaService {
         creditorPostalCode: null,
         creditorCity: null,
         creditorCountry: 'ES',
+        autoPrepare: false,
+        autoPrepareDay: 1,
       };
     }
     const iban = this.crypto.decryptString(s.creditorIbanEncrypted, tenantId);
@@ -161,6 +166,8 @@ export class SepaService {
       creditorPostalCode: s.creditorPostalCode,
       creditorCity: s.creditorCity,
       creditorCountry: s.creditorCountry,
+      autoPrepare: s.autoPrepare,
+      autoPrepareDay: s.autoPrepareDay,
     };
   }
 
@@ -197,6 +204,8 @@ export class SepaService {
         : {}),
       ...(input.creditorCity !== undefined ? { creditorCity: input.creditorCity || null } : {}),
       ...(input.creditorCountry ? { creditorCountry: input.creditorCountry } : {}),
+      ...(input.autoPrepare !== undefined ? { autoPrepare: input.autoPrepare } : {}),
+      ...(input.autoPrepareDay !== undefined ? { autoPrepareDay: input.autoPrepareDay } : {}),
     };
     await this.prisma.withTenant(
       (tx) =>
@@ -879,8 +888,10 @@ export class SepaService {
 
   async createRemittance(args: {
     tenantId: string;
-    userId: string;
+    /** null: la prepara sola la remesa automática mensual. */
+    userId: string | null;
     input: CreateRemittanceInput;
+    autoPrepared?: boolean;
   }): Promise<SepaRemittanceDto> {
     const { tenantId, input } = args;
     const settings = await this.prisma.withTenant(
@@ -1058,6 +1069,7 @@ export class SepaService {
             totalAmount: totalCents,
             xml,
             createdByUserId: args.userId,
+            autoPrepared: args.autoPrepared ?? false,
             items: {
               create: items.map((i) => ({
                 tenantId,
@@ -1155,8 +1167,174 @@ export class SepaService {
         failureReason: i.failureReason,
         endToEndId: i.endToEndId,
         mandateReference: i.mandate.reference,
+        returnCode: i.returnCode,
       };
     });
+  }
+
+  /** Una remesa con sus recuentos (la ficha de la remesa). */
+  async getRemittance(tenantId: string, id: string): Promise<SepaRemittanceDto> {
+    return this.dtoWithCounts(tenantId, await this.findOrThrow(tenantId, id));
+  }
+
+  /**
+   * La respuesta del banco a una remesa (fichero pain.002): los adeudos que
+   * rechaza antes del cargo quedan fallidos (la factura vuelve a estar
+   * pendiente) y los que devuelve después de cobrarse dejan de contar, con su
+   * código (AM04, MD06…). Lo aceptado no cambia nada; volver a cargar el mismo
+   * fichero no hace nada dos veces.
+   */
+  async importBankResponse(
+    tenantId: string,
+    userId: string,
+    content: string,
+  ): Promise<SepaBankResponseResultDto> {
+    const report = parsePain002(content);
+    if (!report) {
+      throw new BadRequestException({
+        code: 'invalid_pain002',
+        message:
+          'No es un fichero de respuesta del banco (pain.002). Descárgalo del apartado de remesas o devoluciones de tu banca online.',
+      });
+    }
+    const remittance = report.originalMessageId
+      ? await this.prisma.withTenant(
+          (tx) =>
+            tx.sepaRemittance.findFirst({
+              where: { tenantId, messageId: report.originalMessageId! },
+            }),
+          tenantId,
+        )
+      : null;
+    const result: SepaBankResponseResultDto = {
+      remittanceId: remittance?.id ?? null,
+      remittanceName: remittance?.name ?? null,
+      rejected: 0,
+      returned: 0,
+      accepted: 0,
+      alreadyProcessed: 0,
+      unmatched: [],
+    };
+
+    // Las referencias que trae el fichero; si el banco rechaza la remesa (o un
+    // bloque) entera sin listarlas, todas las de esa remesa (o bloque).
+    type Entry = {
+      endToEndId: string;
+      status: string | null;
+      code: string | null;
+      text: string | null;
+    };
+    const entries: Entry[] = report.transactions.map((t) => ({
+      endToEndId: t.endToEndId,
+      status: t.status,
+      code: t.reasonCode,
+      text: t.reasonText,
+    }));
+    const wholeRejected =
+      isRejectedStatus(report.groupStatus) ||
+      report.paymentInfos.some((p) => isRejectedStatus(p.status));
+    if (remittance && entries.length === 0 && wholeRejected) {
+      const all = await this.prisma.withTenant(
+        (tx) =>
+          tx.sepaRemittanceItem.findMany({
+            where: { remittanceId: remittance.id },
+            select: { endToEndId: true, sequenceType: true },
+          }),
+        tenantId,
+      );
+      for (const item of all) {
+        const block = report.paymentInfos.find((p) => p.id?.endsWith(`-${item.sequenceType}`));
+        const rejected =
+          isRejectedStatus(report.groupStatus) || isRejectedStatus(block?.status ?? null);
+        if (!rejected) continue;
+        entries.push({
+          endToEndId: item.endToEndId,
+          status: 'RJCT',
+          code: block?.reasonCode ?? report.groupReasonCode,
+          text: null,
+        });
+      }
+    }
+
+    const tz = await this.tenantTimezone(tenantId);
+    for (const e of entries) {
+      if (!isRejectedStatus(e.status)) {
+        result.accepted++;
+        continue;
+      }
+      const item = await this.prisma.withTenant(
+        (tx) =>
+          tx.sepaRemittanceItem.findFirst({
+            where: {
+              tenantId,
+              endToEndId: e.endToEndId,
+              ...(remittance ? { remittanceId: remittance.id } : {}),
+            },
+            orderBy: { id: 'desc' },
+          }),
+        tenantId,
+      );
+      if (!item) {
+        result.unmatched.push(e.endToEndId);
+        continue;
+      }
+      const known = SepaReturnCodeEnum.safeParse(e.code);
+      const label = (known.success ? returnCodeLabel(known.data) : null) ?? e.code;
+      const detail = [label, e.text].filter(Boolean).join(' · ');
+      if (item.status === 'pending') {
+        const { count } = await this.prisma.withTenant(
+          (tx) =>
+            tx.sepaRemittanceItem.updateMany({
+              where: { id: item.id, status: 'pending' },
+              data: {
+                status: 'failed',
+                failureReason: detail ? `${BANK_REJECTED}: ${detail}` : BANK_REJECTED,
+                returnCode: known.success ? known.data : (e.code ?? null),
+              },
+            }),
+          tenantId,
+        );
+        if (count > 0) result.rejected++;
+        else result.alreadyProcessed++;
+        continue;
+      }
+      if (item.status === 'collected') {
+        try {
+          await this.markItemReturned({
+            tenantId,
+            userId,
+            remittanceId: item.remittanceId,
+            itemId: item.id,
+            input: {
+              ...(known.success ? { returnCode: known.data } : {}),
+              ...(e.text || (!known.success && e.code)
+                ? { reason: (e.text ?? `Código ${e.code}`).slice(0, 200) }
+                : {}),
+              returnedOn: todayInTimezone(tz).toISOString().slice(0, 10),
+            },
+          });
+          result.returned++;
+        } catch (err) {
+          this.logger.warn(
+            `[sepa] devolución del adeudo ${item.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          result.alreadyProcessed++;
+        }
+        continue;
+      }
+      result.alreadyProcessed++;
+    }
+    if (remittance) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.sepaRemittance.updateMany({
+            where: { id: remittance.id },
+            data: { bankResponseAt: new Date() },
+          }),
+        tenantId,
+      );
+    }
+    return result;
   }
 
   private async prenoticeCounts(
@@ -1637,6 +1815,8 @@ export class SepaService {
       returnedCount: items.returned,
       pendingCount: items.pending,
       unappliedCount: items.unapplied,
+      autoPrepared: r.autoPrepared,
+      bankResponseAt: r.bankResponseAt?.toISOString() ?? null,
     };
   }
 }

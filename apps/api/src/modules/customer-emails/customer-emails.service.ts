@@ -576,28 +576,45 @@ export class CustomerEmailsService {
         select: { creditorName: true, creditorId: true },
       });
       if (!remittance || !settings) return;
+      // Un solo preaviso por inquilino (y mandato): con varias facturas en la
+      // misma remesa, un correo con todos sus cargos.
+      const groups = new Map<string, typeof remittance.items>();
       for (const item of remittance.items) {
+        const k = `${item.mandate.customerId}:${item.mandate.reference}`;
+        groups.set(k, [...(groups.get(k) ?? []), item]);
+      }
+      for (const items of groups.values()) {
+        const first = items[0]!;
+        // La remesa guarda el importe en céntimos.
+        const totalCents = items.reduce((s, i) => s + Number(i.amount), 0);
         let outcome: SendOutcome;
         try {
           outcome = await this.send(
             p.tenantId,
             'sepa_prenotification',
             null,
-            item.mandate.customerId,
+            first.mandate.customerId,
             {
               data: {
                 kind: 'sepa_prenotification',
-                invoiceNumber: item.invoice.invoiceNumber,
-                // La remesa guarda el importe en céntimos.
-                amount: Number(item.amount) / 100,
+                invoiceNumber: first.invoice.invoiceNumber,
+                amount: totalCents / 100,
                 collectionDate: remittance.collectionDate,
-                ibanLast4: item.mandate.ibanLast4,
-                mandateReference: item.mandate.reference,
+                ibanLast4: first.mandate.ibanLast4,
+                mandateReference: first.mandate.reference,
                 creditorName: settings.creditorName,
                 creditorId: settings.creditorId,
+                ...(items.length > 1
+                  ? {
+                      invoices: items.map((i) => ({
+                        number: i.invoice.invoiceNumber,
+                        amount: Number(i.amount) / 100,
+                      })),
+                    }
+                  : {}),
               },
-              invoiceId: item.invoiceId,
-              contractId: item.invoice.contractId,
+              invoiceId: first.invoiceId,
+              contractId: first.invoice.contractId,
             },
           );
         } catch (err) {
@@ -606,7 +623,9 @@ export class CustomerEmailsService {
           );
           outcome = { status: 'failed' };
         }
-        await this.recordPrenotice(p.tenantId, p.remittanceId, item.invoiceId, outcome);
+        for (const item of items) {
+          await this.recordPrenotice(p.tenantId, p.remittanceId, item.invoiceId, outcome);
+        }
       }
     });
   }

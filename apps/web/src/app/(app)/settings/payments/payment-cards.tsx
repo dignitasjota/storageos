@@ -337,6 +337,8 @@ export function SepaSettingsCard() {
   const [creditorAddress, setCreditorAddress] = useState('');
   const [creditorPostalCode, setCreditorPostalCode] = useState('');
   const [creditorCity, setCreditorCity] = useState('');
+  const [autoPrepare, setAutoPrepare] = useState(false);
+  const [autoPrepareDay, setAutoPrepareDay] = useState('1');
   const [loaded, setLoaded] = useState(false);
 
   // Se rellena una vez al cargar (no en el render, y sin pisar lo que se escribe).
@@ -351,6 +353,8 @@ export function SepaSettingsCard() {
       setCreditorAddress(s.creditorAddress ?? '');
       setCreditorPostalCode(s.creditorPostalCode ?? '');
       setCreditorCity(s.creditorCity ?? '');
+      setAutoPrepare(s.autoPrepare);
+      setAutoPrepareDay(String(s.autoPrepareDay));
     }
     setLoaded(true);
   }, [settings.data, loaded]);
@@ -359,6 +363,8 @@ export function SepaSettingsCard() {
   const s = settings.data;
   const prenotice = Number(prenoticeDays);
   const prenoticeValid = Number.isInteger(prenotice) && prenotice >= 1 && prenotice <= 30;
+  const autoDay = Number(autoPrepareDay);
+  const autoDayValid = Number.isInteger(autoDay) && autoDay >= 1 && autoDay <= 28;
 
   async function save(enabled: boolean) {
     if (!creditorName.trim() || !creditorId.trim()) {
@@ -367,6 +373,10 @@ export function SepaSettingsCard() {
     }
     if (!prenoticeValid) {
       toast.error('El preaviso debe ser de 1 a 30 días.');
+      return;
+    }
+    if (!autoDayValid) {
+      toast.error('El día de la remesa automática va del 1 al 28.');
       return;
     }
     if (!s.configured && !creditorIban.trim()) {
@@ -385,6 +395,8 @@ export function SepaSettingsCard() {
         creditorAddress: creditorAddress.trim(),
         creditorPostalCode: creditorPostalCode.trim(),
         creditorCity: creditorCity.trim(),
+        autoPrepare,
+        autoPrepareDay: autoDay,
       });
       toast.success('Ajustes SEPA guardados.');
     } catch (err) {
@@ -486,6 +498,37 @@ export function SepaSettingsCard() {
               La normativa SEPA exige 14 días salvo que se pacte otro plazo: el que pongas aquí
               figura en la orden de domiciliación que firma el inquilino. Al generar una remesa te
               avisamos si la fecha de cargo no lo respeta.
+            </p>
+          </div>
+          <div className="space-y-2 rounded-md border p-3 sm:col-span-2">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={autoPrepare}
+                onChange={(e) => setAutoPrepare(e.target.checked)}
+              />
+              Preparar la remesa del mes automáticamente
+            </label>
+            {autoPrepare && (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span>El día</span>
+                <Input
+                  className="w-20"
+                  inputMode="numeric"
+                  value={autoPrepareDay}
+                  onChange={(e) => setAutoPrepareDay(e.target.value.replace(/[^\d]/g, ''))}
+                  aria-invalid={!autoDayValid}
+                />
+                <span>de cada mes</span>
+              </div>
+            )}
+            {autoPrepare && !autoDayValid && (
+              <p className="text-xs text-destructive">Del 1 al 28.</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Ese día se genera con todo lo domiciliable y la primera fecha de cobro que respeta el
+              preaviso, y salen los preavisos. Queda sin registrar: te avisamos para que descargues
+              el fichero y lo subas a tu banco.
             </p>
           </div>
         </div>

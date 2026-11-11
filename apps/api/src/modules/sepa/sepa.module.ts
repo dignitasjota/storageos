@@ -6,6 +6,7 @@ import { BillingModule } from '../billing/billing.module';
 import { CommunicationsModule } from '../communications/communications.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
+import { SepaAutomationService } from './sepa-automation.service';
 import { SepaMandateExpiryCron } from './sepa-mandate-expiry.cron';
 import { SepaMandatePublicController } from './sepa-mandate-public.controller';
 import { SepaController } from './sepa.controller';
@@ -20,7 +21,9 @@ import { SepaService } from './sepa.service';
 @Module({
   imports: [AuthModule, BillingModule, CommunicationsModule, NotificationsModule],
   controllers: [SepaController, SepaMandatePublicController],
-  providers: [SepaService, SepaMandatePdfService, SepaMandateExpiryCron],
+  // La remesa automática y los avisos corren en el API, una vez al día entre
+  // réplicas (`claimDailyCronRun`), como la caducidad de los mandatos.
+  providers: [SepaService, SepaMandatePdfService, SepaMandateExpiryCron, SepaAutomationService],
   exports: [SepaService],
 })
 export class SepaModule {}

@@ -78,6 +78,9 @@ export const UpdateSepaSettingsSchema = z.object({
     .toUpperCase()
     .regex(/^[A-Z]{2}$/)
     .optional(),
+  /** Remesa automática mensual: el día elegido se prepara sola, sin confirmar. */
+  autoPrepare: z.boolean().optional(),
+  autoPrepareDay: z.number().int().min(1).max(28).optional(),
 });
 export type UpdateSepaSettingsInput = z.infer<typeof UpdateSepaSettingsSchema>;
 
@@ -93,6 +96,8 @@ export interface SepaSettingsDto {
   creditorPostalCode: string | null;
   creditorCity: string | null;
   creditorCountry: string;
+  autoPrepare: boolean;
+  autoPrepareDay: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +223,10 @@ export interface SepaRemittanceDto {
   unappliedCount: number;
   /** Al generarla: facturas elegidas que ya no se podían domiciliar. */
   omitted?: { invoiceId: string; invoiceNumber: string; reason: string }[];
+  /** La preparó la remesa automática mensual. */
+  autoPrepared: boolean;
+  /** Última respuesta del banco (pain.002) cargada. */
+  bankResponseAt: string | null;
 }
 
 /**
@@ -275,6 +284,31 @@ export interface SepaRemittancePrenoticeDto {
   /** Lo que el banco usa para identificar el adeudo en su respuesta. */
   endToEndId: string;
   mandateReference: string;
+  /** Código de devolución o rechazo del banco (AM04, MD06…). */
+  returnCode: string | null;
+}
+
+/** La respuesta del banco a una remesa (fichero pain.002), como texto. */
+export const ImportSepaBankResponseSchema = z.object({
+  filename: z.string().trim().max(200).optional(),
+  content: z.string().min(20).max(5_000_000),
+});
+export type ImportSepaBankResponseInput = z.infer<typeof ImportSepaBankResponseSchema>;
+
+/** Lo que se hizo con la respuesta del banco. */
+export interface SepaBankResponseResultDto {
+  remittanceId: string | null;
+  remittanceName: string | null;
+  /** Rechazados antes del cargo: el adeudo queda fallido y la factura, pendiente. */
+  rejected: number;
+  /** Devueltos tras cobrarse: el cobro deja de contar. */
+  returned: number;
+  /** Aceptados o cobrados según el banco. */
+  accepted: number;
+  /** Ya estaban fallidos o devueltos. */
+  alreadyProcessed: number;
+  /** Referencias que no son de ningún adeudo de tus remesas. */
+  unmatched: string[];
 }
 
 /**

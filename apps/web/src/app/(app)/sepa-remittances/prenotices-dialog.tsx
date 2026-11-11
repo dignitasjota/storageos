@@ -37,7 +37,7 @@ import {
   useResendPrenotices,
 } from '@/lib/sepa/hooks';
 
-const STATUS: Record<SepaPrenoticeStatus, { label: string; className: string }> = {
+export const PRENOTICE_STATUS: Record<SepaPrenoticeStatus, { label: string; className: string }> = {
   sent: {
     label: 'Preaviso enviado',
     className: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
@@ -162,8 +162,8 @@ export function PrenoticesDialog({
                       {ITEM_STATUS[p.itemStatus].label}
                     </Badge>
                     {p.status ? (
-                      <Badge variant="outline" className={STATUS[p.status].className}>
-                        {STATUS[p.status].label}
+                      <Badge variant="outline" className={PRENOTICE_STATUS[p.status].className}>
+                        {PRENOTICE_STATUS[p.status].label}
                       </Badge>
                     ) : (
                       <Badge variant="outline">Preaviso enviándose</Badge>

@@ -98,12 +98,15 @@ export type CustomerEmailData =
   | {
       kind: 'sepa_prenotification';
       invoiceNumber: string;
+      /** El total de los cargos de ese día. */
       amount: number;
       collectionDate: Date;
       ibanLast4: string;
       mandateReference: string;
       creditorName: string;
       creditorId: string;
+      /** Varias facturas del inquilino en la remesa: un cargo por factura. */
+      invoices?: { number: string; amount: number }[];
     }
   | {
       kind: 'move_out_confirmed';
@@ -434,24 +437,39 @@ function content(data: CustomerEmailData, l: Locale): Content {
         ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };
-    case 'sepa_prenotification':
+    case 'sepa_prenotification': {
+      const several = data.invoices && data.invoices.length > 1 ? data.invoices : null;
+      const charges = several
+        ? several
+            .map((i) =>
+              en
+                ? `invoice ${i.number} (${eur(i.amount, l)})`
+                : `factura ${i.number} (${eur(i.amount, l)})`,
+            )
+            .join(', ')
+        : null;
       return {
         subject: en
           ? `Upcoming debit: ${eur(data.amount, l)} on ${day(data.collectionDate, l)}`
           : `Aviso de cargo en tu cuenta: ${eur(data.amount, l)} el ${day(data.collectionDate, l)}`,
         paragraphs: en
           ? [
-              `On ${day(data.collectionDate, l)} we will debit ${eur(data.amount, l)} from your account ending in ${data.ibanLast4}, for invoice ${data.invoiceNumber}.`,
+              several
+                ? `On ${day(data.collectionDate, l)} we will debit ${eur(data.amount, l)} from your account ending in ${data.ibanLast4}, in ${several.length} charges: ${charges}.`
+                : `On ${day(data.collectionDate, l)} we will debit ${eur(data.amount, l)} from your account ending in ${data.ibanLast4}, for invoice ${data.invoiceNumber}.`,
               `Creditor: ${data.creditorName} (identifier ${data.creditorId}). Mandate reference: ${data.mandateReference}.`,
               "You don't need to do anything. If you spot a mistake, please contact us before that date.",
             ]
           : [
-              `El ${day(data.collectionDate, l)} cargaremos ${eur(data.amount, l)} en tu cuenta terminada en ${data.ibanLast4}, correspondiente a la factura ${data.invoiceNumber}.`,
+              several
+                ? `El ${day(data.collectionDate, l)} cargaremos ${eur(data.amount, l)} en tu cuenta terminada en ${data.ibanLast4}, en ${several.length} cargos: ${charges}.`
+                : `El ${day(data.collectionDate, l)} cargaremos ${eur(data.amount, l)} en tu cuenta terminada en ${data.ibanLast4}, correspondiente a la factura ${data.invoiceNumber}.`,
               `Acreedor: ${data.creditorName} (identificador ${data.creditorId}). Referencia del mandato: ${data.mandateReference}.`,
               'No tienes que hacer nada. Si ves algún error, contacta con nosotros antes de esa fecha.',
             ],
         cta: en ? 'View my invoices' : 'Ver mis facturas',
       };
+    }
     case 'move_out_confirmed':
       return {
         subject: en

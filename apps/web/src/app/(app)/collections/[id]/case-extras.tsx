@@ -115,7 +115,7 @@ export function CaseAlerts({ c }: { c: Case }) {
           día. El expediente no avanza mientras lo cumpla; si lo incumple, sigue donde se quedó.
         </p>
         <Link
-          href={`/customers/${c.customerId}?tab=account`}
+          href={`/customers/${c.customerId}`}
           className="text-xs font-medium underline-offset-2 hover:underline"
         >
           Ver su cuenta y el plan
