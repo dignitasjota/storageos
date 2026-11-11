@@ -6,7 +6,9 @@ import { PaymentsService } from '../src/modules/payments/payments.service';
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
+import { buildN43File } from './helpers/n43';
 import { futureCollectionDate } from './helpers/platform-sepa';
+import { reachCollectionDate } from './helpers/sepa';
 import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -14,45 +16,6 @@ import type { INestApplication } from '@nestjs/common';
 
 const CREDITOR_IBAN = 'ES9121000418450200051332';
 const DEBTOR_IBAN = 'ES7921000813610123456789';
-
-/** Línea N43 de 80 caracteres a partir de tramos [posición 1-based, texto]. */
-function n43Line(segments: [number, string][]): string {
-  const buf = ' '.repeat(80).split('');
-  for (const [pos, text] of segments) {
-    for (let i = 0; i < text.length; i++) buf[pos - 1 + i] = text[i]!;
-  }
-  return buf.join('');
-}
-
-function n43WithCredit(amountCents: string, reference: string): string {
-  return [
-    n43Line([
-      [1, '11'],
-      [3, '2100'],
-      [7, '0418'],
-      [11, '0200051332'],
-      [21, '260601'],
-      [27, '260630'],
-      [33, '2'],
-      [34, '00000000100000'],
-      [48, '978'],
-    ]),
-    n43Line([
-      [1, '22'],
-      [7, '260615'],
-      [13, '260615'],
-      [24, '2'],
-      [25, amountCents],
-      [61, reference],
-    ]),
-    n43Line([
-      [1, '33'],
-      [49, '2'],
-      [50, '00000000112100'],
-    ]),
-    n43Line([[1, '88']]),
-  ].join('\n');
-}
 
 /**
  * Operaciones de dinero lanzadas DOS VECES A LA VEZ (doble clic, dos personas,
@@ -207,7 +170,10 @@ describe('Facturación: operaciones simultáneas (e2e)', () => {
     const imported = await request(app.getHttpServer())
       .post('/bank-statements/import')
       .set(auth)
-      .send({ filename: 'extracto.n43', content: n43WithCredit('00000000012100', number) })
+      .send({
+        filename: 'extracto.n43',
+        content: buildN43File({ movements: [{ amountCents: 12100, reference2: number }] }),
+      })
       .expect(201);
     const detail = await request(app.getHttpServer())
       .get(`/bank-statements/${imported.body.statements[0].id as string}`)
@@ -251,6 +217,7 @@ describe('Facturación: operaciones simultáneas (e2e)', () => {
       .set(auth)
       .send({ name: 'Remesa', collectionDate: futureCollectionDate(20), invoiceIds: [id] })
       .expect(201);
+    await reachCollectionDate(app, rem.body.id as string);
 
     const rs = await Promise.all(
       [0, 1].map(() =>

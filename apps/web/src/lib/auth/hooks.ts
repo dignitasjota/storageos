@@ -56,6 +56,15 @@ export function useHasPermission(permission: Permission): boolean {
   return usePermissions().includes(permission);
 }
 
+/**
+ * ¿Ve todos los locales? Las pantallas de toda la empresa (remesas SEPA,
+ * conciliación bancaria) son solo para ellos. Mientras carga, se da por sí.
+ */
+export function useCompanyWide(): boolean {
+  const { data } = useMe();
+  return !Array.isArray(data?.facilityScope);
+}
+
 /** Features premium incluidas en el plan del tenant. */
 export function useFeatures(): TenantFeature[] {
   const { data } = useMe();

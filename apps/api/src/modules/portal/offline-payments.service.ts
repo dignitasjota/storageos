@@ -187,6 +187,7 @@ export class OfflinePaymentsService {
       .join(' y ');
     let emailSentTo: string | null = null;
     let mandateSigningUrl: string | null = null;
+    let replacesIbanLast4: string | null = null;
 
     if (input.method === 'bank_transfer') {
       if (!customer?.email) {
@@ -209,7 +210,11 @@ export class OfflinePaymentsService {
       });
       emailSentTo = customer.email;
     } else if (input.method === 'sepa_debit') {
-      mandateSigningUrl = await this.ensureMandate(tenantId, customerId, input);
+      ({ url: mandateSigningUrl, replacesIbanLast4 } = await this.ensureMandate(
+        tenantId,
+        customerId,
+        input,
+      ));
     }
 
     const name =
@@ -221,7 +226,9 @@ export class OfflinePaymentsService {
       : '';
     const next =
       input.method === 'sepa_debit'
-        ? ' Cuando firme el mandato, inclúyela en la próxima remesa SEPA.'
+        ? replacesIbanLast4
+          ? ` Ya tenía un mandato firmado en la cuenta …${replacesIbanLast4}: hasta que firme el de la cuenta nueva, se sigue cobrando en esa.`
+          : ' Cuando firme el mandato, inclúyela en la próxima remesa SEPA.'
         : ' Cuando recibas el dinero, márcala como pagada indicando cómo se ha cobrado.';
     await this.notifications
       .create(tenantId, {
@@ -244,28 +251,37 @@ export class OfflinePaymentsService {
 
   /**
    * Mandato SEPA del inquilino: si ya tiene uno firmado de esa cuenta, sirve;
-   * si no, se da de alta y se devuelve el enlace para firmarlo ahora.
+   * si tiene uno de esa cuenta por firmar, se le reenvía el enlace; si no, se
+   * da de alta y se devuelve el enlace para firmarlo ahora. Un mandato firmado
+   * de otra cuenta sigue cobrando hasta que firme el nuevo.
    */
   private async ensureMandate(
     tenantId: string,
     customerId: string,
     input: PortalOfflinePaymentInput,
-  ): Promise<string | null> {
+  ): Promise<{ url: string | null; replacesIbanLast4: string | null }> {
     const iban = input.iban!;
     const current = await this.prisma.withTenant(
       (tx) =>
-        tx.sepaMandate.findFirst({
-          where: { tenantId, customerId, status: 'active' },
-          select: { ibanLast4: true, signatureStatus: true },
+        tx.sepaMandate.findMany({
+          where: { tenantId, customerId, status: { in: ['active', 'replacing'] } },
+          select: { id: true, ibanLast4: true, signatureStatus: true, status: true },
         }),
       tenantId,
     );
-    if (
-      current &&
-      current.ibanLast4 === iban.slice(-4) &&
-      ['signed', 'external'].includes(current.signatureStatus)
-    ) {
-      return null;
+    const signed = current.find(
+      (m) => m.status === 'active' && ['signed', 'external'].includes(m.signatureStatus),
+    );
+    if (signed && signed.ibanLast4 === iban.slice(-4)) {
+      return { url: null, replacesIbanLast4: null };
+    }
+    const replacesIbanLast4 = signed?.ibanLast4 ?? null;
+    const pendingSame = current.find(
+      (m) => m.signatureStatus === 'pending' && m.ibanLast4 === iban.slice(-4),
+    );
+    if (pendingSame) {
+      const resent = await this.sepa.resendSigningLink(tenantId, pendingSame.id);
+      return { url: resent.signingUrl ?? null, replacesIbanLast4 };
     }
     const mandate = await this.sepa.createMandate(tenantId, {
       customerId,
@@ -273,7 +289,7 @@ export class OfflinePaymentsService {
       bic: input.bic ?? '',
       signedOutside: false,
     });
-    return mandate.signingUrl ?? null;
+    return { url: mandate.signingUrl ?? null, replacesIbanLast4 };
   }
 
   private async sendTransferEmail(args: {

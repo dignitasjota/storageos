@@ -12,11 +12,13 @@ import {
   Put,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ConfirmRemittanceSchema,
   CreateRemittanceSchema,
   CreateSepaMandateSchema,
+  MarkSepaItemReturnedSchema,
   type RemittancePreviewDto,
   type SepaMandateDto,
   type SepaRemittanceDto,
@@ -32,6 +34,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { CompanyWideGuard } from '../../common/guards/company-wide.guard';
 
 import { SepaService } from './sepa.service';
 
@@ -40,7 +43,13 @@ import type { Response } from 'express';
 class UpdateSepaSettingsDto extends createZodDto(UpdateSepaSettingsSchema) {}
 class CreateSepaMandateDto extends createZodDto(CreateSepaMandateSchema) {}
 class CreateRemittanceDto extends createZodDto(CreateRemittanceSchema) {}
+class MarkSepaItemReturnedDto extends createZodDto(MarkSepaItemReturnedSchema) {}
 
+/**
+ * Remesas SEPA y mandatos. La remesa es de toda la empresa: solo la usa quien
+ * ve todos los locales (403 `company_wide_only`). Los mandatos son de cada
+ * inquilino: quien ve algunos locales gestiona los de sus inquilinos.
+ */
 @Controller('sepa')
 @RequireFeature('sepa')
 export class SepaController {
@@ -69,9 +78,9 @@ export class SepaController {
   @Get('mandates')
   listMandates(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('customerId') customerId?: string,
+    @Query('customerId', new ParseUUIDPipe({ optional: true })) customerId?: string,
   ): Promise<SepaMandateDto[]> {
-    return this.sepa.listMandates(user.tenantId, customerId);
+    return this.sepa.listMandates(user.tenantId, customerId, user.facilityScope ?? null);
   }
 
   @RequirePermission('payments:charge')
@@ -80,7 +89,7 @@ export class SepaController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateSepaMandateDto,
   ): Promise<SepaMandateDto> {
-    return this.sepa.createMandate(user.tenantId, body);
+    return this.sepa.createMandate(user.tenantId, body, { scope: user.facilityScope ?? null });
   }
 
   /** Vuelve a enviar al inquilino el enlace para firmar el mandato (y lo devuelve). */
@@ -91,7 +100,7 @@ export class SepaController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<SepaMandateDto> {
-    return this.sepa.resendSigningLink(user.tenantId, id);
+    return this.sepa.resendSigningLink(user.tenantId, id, user.facilityScope ?? null);
   }
 
   /** PDF del mandato firmado en la app, con la constancia de la firma. */
@@ -102,7 +111,11 @@ export class SepaController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Res() res: Response,
   ): Promise<void> {
-    const { filename, pdf } = await this.sepa.mandatePdf(user.tenantId, id);
+    const { filename, pdf } = await this.sepa.mandatePdf(
+      user.tenantId,
+      id,
+      user.facilityScope ?? null,
+    );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.end(pdf);
@@ -115,11 +128,12 @@ export class SepaController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.sepa.cancelMandate(user.tenantId, id);
+    await this.sepa.cancelMandate(user.tenantId, id, user.facilityScope ?? null);
   }
 
   // -------- remesas --------
 
+  @UseGuards(CompanyWideGuard)
   @RequirePermission('invoices:manage')
   @Post('remittances/preview')
   @HttpCode(HttpStatus.OK)
@@ -127,12 +141,14 @@ export class SepaController {
     return this.sepa.previewRemittance(user.tenantId);
   }
 
+  @UseGuards(CompanyWideGuard)
   @RequirePermission('payments:read')
   @Get('remittances')
   listRemittances(@CurrentUser() user: AuthenticatedUser): Promise<SepaRemittanceDto[]> {
     return this.sepa.listRemittances(user.tenantId);
   }
 
+  @UseGuards(CompanyWideGuard)
   @RequirePermission('invoices:manage')
   @Post('remittances')
   createRemittance(
@@ -142,6 +158,7 @@ export class SepaController {
     return this.sepa.createRemittance({ tenantId: user.tenantId, userId: user.sub, input: body });
   }
 
+  @UseGuards(CompanyWideGuard)
   @RequirePermission('payments:read')
   @Get('remittances/:id/prenotices')
   prenotices(
@@ -151,6 +168,7 @@ export class SepaController {
     return this.sepa.listPrenotices(user.tenantId, id);
   }
 
+  @UseGuards(CompanyWideGuard)
   @RequirePermission('invoices:manage')
   @Get('remittances/:id/xml')
   getXml(
@@ -160,6 +178,7 @@ export class SepaController {
     return this.sepa.getXml(user.tenantId, id);
   }
 
+  @UseGuards(CompanyWideGuard)
   @RequirePermission('invoices:manage')
   @Post('remittances/:id/confirm')
   @HttpCode(HttpStatus.OK)
@@ -180,6 +199,7 @@ export class SepaController {
   }
 
   /** Cancela una remesa sin confirmar: sus facturas vuelven a poder cobrarse. */
+  @UseGuards(CompanyWideGuard)
   @RequirePermission('invoices:manage')
   @Post('remittances/:id/cancel')
   @HttpCode(HttpStatus.OK)
@@ -188,5 +208,37 @@ export class SepaController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<SepaRemittanceDto> {
     return this.sepa.cancelRemittance(user.tenantId, id);
+  }
+
+  /** Un adeudo cobrado que el banco devolvió (sin fichero N43). */
+  @UseGuards(CompanyWideGuard)
+  @RequirePermission('invoices:manage')
+  @Post('remittances/:id/items/:itemId/return')
+  @HttpCode(HttpStatus.OK)
+  markItemReturned(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('itemId', new ParseUUIDPipe()) itemId: string,
+    @Body() body: MarkSepaItemReturnedDto,
+  ): Promise<SepaRemittanceDto> {
+    return this.sepa.markItemReturned({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      remittanceId: id,
+      itemId,
+      input: body,
+    });
+  }
+
+  /** Reenvía los preavisos que no salieron (remesa sin confirmar). */
+  @UseGuards(CompanyWideGuard)
+  @RequirePermission('invoices:manage')
+  @Post('remittances/:id/prenotices/resend')
+  @HttpCode(HttpStatus.OK)
+  resendPrenotices(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ resent: number }> {
+    return this.sepa.resendPrenotices(user.tenantId, id);
   }
 }

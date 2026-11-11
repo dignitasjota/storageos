@@ -49,6 +49,8 @@ const METHOD_LABELS: Record<string, string> = {
   sepa: 'Domiciliación SEPA',
   bank_transfer: 'Transferencia',
   cash: 'Efectivo',
+  bizum: 'Bizum',
+  deposit: 'Fianza aplicada',
   paypal: 'PayPal',
   other: 'Otro',
 };

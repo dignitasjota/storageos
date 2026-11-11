@@ -125,8 +125,15 @@ describe('Mandato SEPA firmado por el inquilino (e2e)', () => {
       .set('User-Agent', 'e2e-browser')
       .send(signBody)
       .expect(200);
-    // El enlace ya no vale: se gasta al firmar.
-    await http().post(`/public/sepa-mandates/${token}/sign`).send(signBody).expect(401);
+    // El enlace sigue abriendo la página (dice que ya está firmado), pero no
+    // se puede volver a firmar.
+    const again = await http()
+      .post(`/public/sepa-mandates/${token}/sign`)
+      .send(signBody)
+      .expect(400);
+    expect(again.body.code).toBe('mandate_already_signed');
+    const reopened = await http().get(`/public/sepa-mandates/${token}`).expect(200);
+    expect(reopened.body.signed).toBe(true);
 
     const row = await app.get(PrismaAdminService).sepaMandate.findUniqueOrThrow({
       where: { id: created.body.id as string },

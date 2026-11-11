@@ -54,5 +54,7 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   sepa_debit: 'Domiciliación',
   bank_transfer: 'Transferencia',
   cash: 'Efectivo',
+  bizum: 'Bizum',
+  deposit: 'Fianza aplicada',
   other: 'Otros',
 };

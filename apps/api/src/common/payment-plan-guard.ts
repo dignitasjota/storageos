@@ -1,4 +1,4 @@
-import type { PrismaAdminService } from '../modules/database/prisma-admin.service';
+import type { Prisma } from '@storageos/database';
 
 /**
  * ¿Está esta factura en un plan de pago activo? Mientras lo esté, el escalado
@@ -6,7 +6,7 @@ import type { PrismaAdminService } from '../modules/database/prisma-admin.servic
  * se paga por cuotas.
  */
 export async function invoiceInActivePlan(
-  db: Pick<PrismaAdminService, 'paymentPlan'>,
+  db: { paymentPlan: Prisma.TransactionClient['paymentPlan'] },
   invoiceId: string,
 ): Promise<boolean> {
   const found = await db.paymentPlan.findFirst({

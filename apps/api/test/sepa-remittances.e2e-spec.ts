@@ -5,6 +5,7 @@ import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtu
 import { createCustomer } from './helpers/customer-fixtures';
 import { waitForEmail } from './helpers/mailpit';
 import { futureCollectionDate } from './helpers/platform-sepa';
+import { reachCollectionDate } from './helpers/sepa';
 import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -191,6 +192,14 @@ describe('Remesas SEPA (e2e)', () => {
     expect(xml).toContain('<InstdAmt Ccy="EUR">121.00</InstdAmt>');
     expect(xml).toContain('<CtrlSum>121.00</CtrlSum>');
     expect(xml).toContain('<NbOfTxs>1</NbOfTxs>');
+
+    // Antes del día del cargo no se registra el resultado del banco.
+    const early = await request(app.getHttpServer())
+      .post(`/sepa/remittances/${remittanceId}/confirm`)
+      .set(auth);
+    expect(early.status).toBe(400);
+    expect(early.body.code).toBe('collection_date_not_reached');
+    await reachCollectionDate(app, remittanceId);
 
     // Confirmar cobro → factura pagada + mandato RCUR.
     const confirm = await request(app.getHttpServer())

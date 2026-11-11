@@ -9,6 +9,11 @@ export const DELINQUENCY_CASE_STATUSES = [
   'overlocked',
   'final_notice',
   'resolution_pending',
+  // Condición 12 del contrato: pasado el plazo se resuelve el contrato y los
+  // bienes se trasladan (con inventario) a un lugar de custodia; solo después,
+  // y por los cauces legales, se puede disponer de ellos.
+  'contract_resolved',
+  'goods_moved',
   'disposal',
   'closed_paid',
   'closed_disposed',

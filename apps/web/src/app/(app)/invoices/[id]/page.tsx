@@ -122,9 +122,10 @@ const RECTIFIABLE_STATUSES = new Set<InvoiceDto['status']>([
 const METHOD_LABELS: Record<string, string> = {
   cash: 'Efectivo',
   bank_transfer: 'Transferencia',
+  bizum: 'Bizum',
   sepa_debit: 'Domiciliación SEPA',
   card: 'Tarjeta (TPV del local)',
-  other: 'Otro (Bizum, cheque…)',
+  other: 'Otro (cheque…)',
 };
 
 interface RectifyDraftItem {

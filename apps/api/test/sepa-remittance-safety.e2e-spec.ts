@@ -8,6 +8,7 @@ import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtu
 import { createCustomer } from './helpers/customer-fixtures';
 import { buildN43 } from './helpers/n43';
 import { futureCollectionDate } from './helpers/platform-sepa';
+import { reachCollectionDate } from './helpers/sepa';
 import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -45,6 +46,8 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
       .set(auth())
       .send({ name: `Remesa ${Date.now()}`, collectionDate: futureCollectionDate(20), invoiceIds })
       .expect(201);
+    // El resultado del banco se registra a partir del día del cargo.
+    await reachCollectionDate(app, r.body.id as string);
     return r.body.id as string;
   }
 
@@ -199,7 +202,9 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
       .set(auth())
       .send({ rejectedItemIds: [itemOf(rejected)] })
       .expect(200);
-    expect(confirmed.body).toMatchObject({ collectedCount: 1, failedCount: 2 });
+    // El ya pagado por otra vía: el banco lo cobró igualmente → «cobrado sin
+    // aplicar» (hay que devolverlo), no un rechazo.
+    expect(confirmed.body).toMatchObject({ collectedCount: 1, failedCount: 1, unappliedCount: 1 });
 
     const after = await items(rem);
     expect(after.find((i) => i.invoiceId === ok)!.itemStatus).toBe('collected');
@@ -207,7 +212,10 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
       itemStatus: 'failed',
       failureReason: 'Rechazado por el banco',
     });
-    expect(after.find((i) => i.invoiceId === paidElsewhere)!.itemStatus).toBe('failed');
+    expect(after.find((i) => i.invoiceId === paidElsewhere)!.itemStatus).toBe('unapplied');
+    expect(after.find((i) => i.invoiceId === paidElsewhere)!.failureReason).toContain(
+      'ya estaba pagada',
+    );
 
     const invRejected = await admin.invoice.findUniqueOrThrow({ where: { id: rejected } });
     expect(Number(invRejected.amountPaid)).toBe(0);

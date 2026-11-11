@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { invalidateBilling } from '../billing/hooks';
 
 import type {
   CreateRemittanceInput,
   CreateSepaMandateInput,
+  MarkSepaItemReturnedInput,
   RemittancePreviewDto,
   SepaMandateDto,
   SepaRemittanceDto,
@@ -76,10 +78,18 @@ export function useRemittancePreview() {
   });
 }
 
-export function useSepaRemittances() {
+export function useSepaRemittances(enabled = true) {
   return useQuery({
     queryKey: remittancesKey,
     queryFn: () => apiFetch<SepaRemittanceDto[]>('/sepa/remittances'),
+    enabled,
+    // Mientras salen los preavisos de una remesa recién generada.
+    refetchInterval: (q) =>
+      q.state.data?.some(
+        (r) => r.status === 'generated' && r.prenoticesSent + r.prenoticesMissing < r.itemCount,
+      )
+        ? 5000
+        : false,
   });
 }
 
@@ -93,34 +103,72 @@ export function useRemittancePrenotices(id: string | null) {
   });
 }
 
-export function useCreateRemittance() {
+/** Tras generar, confirmar, cancelar o devolver: la remesa y lo que mira los cobros. */
+function useAfterRemittance() {
   const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: remittancesKey });
+    invalidateBilling(qc);
+  };
+}
+
+export function useCreateRemittance() {
+  const onSuccess = useAfterRemittance();
   return useMutation({
     mutationFn: (input: CreateRemittanceInput) =>
       apiFetch<SepaRemittanceDto>('/sepa/remittances', { method: 'POST', json: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: remittancesKey }),
+    onSuccess,
   });
 }
 
-/** Confirma el cobro; `rejectedItemIds` = adeudos que el banco rechazó (no se cobran). */
+/** Registra el resultado del banco; `rejectedItemIds` = adeudos que rechazó (no se cobran). */
 export function useConfirmRemittance() {
-  const qc = useQueryClient();
+  const onSuccess = useAfterRemittance();
   return useMutation({
     mutationFn: (args: { id: string; rejectedItemIds: string[] }) =>
       apiFetch<SepaRemittanceDto>(`/sepa/remittances/${args.id}/confirm`, {
         method: 'POST',
         json: { rejectedItemIds: args.rejectedItemIds },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: remittancesKey }),
+    onSuccess,
   });
 }
 
 /** Cancela una remesa sin confirmar: sus facturas vuelven a poder cobrarse. */
 export function useCancelRemittance() {
-  const qc = useQueryClient();
+  const onSuccess = useAfterRemittance();
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch<SepaRemittanceDto>(`/sepa/remittances/${id}/cancel`, { method: 'POST' }),
+    onSuccess,
+  });
+}
+
+/** Un adeudo cobrado que el banco devolvió (sin fichero N43). */
+export function useMarkSepaItemReturned() {
+  const onSuccess = useAfterRemittance();
+  return useMutation({
+    mutationFn: (args: {
+      remittanceId: string;
+      itemId: string;
+      input: MarkSepaItemReturnedInput;
+    }) =>
+      apiFetch<SepaRemittanceDto>(
+        `/sepa/remittances/${args.remittanceId}/items/${args.itemId}/return`,
+        { method: 'POST', json: args.input },
+      ),
+    onSuccess,
+  });
+}
+
+/** Reenvía los preavisos que no salieron de una remesa sin confirmar. */
+export function useResendPrenotices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (remittanceId: string) =>
+      apiFetch<{ resent: number }>(`/sepa/remittances/${remittanceId}/prenotices/resend`, {
+        method: 'POST',
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: remittancesKey }),
   });
 }

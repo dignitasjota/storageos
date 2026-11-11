@@ -49,6 +49,8 @@ const METHOD_WORDS: Record<string, string> = {
   sepa_debit: 'domiciliación',
   bank_transfer: 'transferencia',
   cash: 'efectivo',
+  bizum: 'Bizum',
+  deposit: 'la fianza',
   other: 'otro medio',
 };
 

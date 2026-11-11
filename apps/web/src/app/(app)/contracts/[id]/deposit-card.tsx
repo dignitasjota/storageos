@@ -33,6 +33,7 @@ import { formatDate, formatEur } from '@/lib/format';
 const RETURN_METHOD_LABEL: Record<string, string> = {
   bank_transfer: 'transferencia',
   cash: 'efectivo',
+  bizum: 'Bizum',
   card: 'tarjeta',
   other: 'otro medio',
 };

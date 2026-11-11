@@ -199,6 +199,10 @@ export class InvoiceToolsService {
           take: 200,
         }),
       ]);
+      const locks = await paymentLocks(
+        tx,
+        payments.map((p) => p.id),
+      );
       // Los deshechos (registrados por error) los marca el registro.
       const undone = new Set<string>();
       for (const h of history) {
@@ -221,7 +225,8 @@ export class InvoiceToolsService {
             failureReason: p.failureReason,
             notes: p.notes,
             createdAt: p.createdAt.toISOString(),
-            editable: isEditable(p) && !isUndone,
+            editable: isEditable(p) && !isUndone && !locks.has(p.id),
+            lockedReason: locks.get(p.id) ?? null,
             undone: isUndone,
           };
         }),
@@ -230,6 +235,7 @@ export class InvoiceToolsService {
           amount: Number(r.amount),
           via: r.via as InvoiceRefundVia,
           paymentMethod: (r.payment?.methodType as PaymentRecordMethodValue | undefined) ?? null,
+          method: (r.method as PaymentRecordMethodValue | null) ?? null,
           reason: r.reason,
           createdAt: r.createdAt.toISOString(),
           createdByName: r.createdBy?.fullName ?? null,
@@ -408,6 +414,12 @@ export class InvoiceToolsService {
         message:
           'Solo se corrige o deshace un cobro registrado a mano y sin devolver. Los de tarjeta o domiciliación se devuelven.',
       });
+    }
+    const lock = (
+      await this.prisma.withTenant((tx) => paymentLocks(tx, [payment.id]), tenantId)
+    ).get(payment.id);
+    if (lock) {
+      throw new BadRequestException({ code: 'payment_locked', message: lock });
     }
     return payment;
   }
@@ -961,9 +973,60 @@ function isEditable(p: {
   return (
     p.gateway === MANUAL_MONEY.gateway &&
     !(NON_CASH_PAYMENT_METHODS as readonly string[]).includes(p.methodType) &&
+    // La fianza aplicada se corrige desde la fianza del contrato.
+    p.methodType !== 'deposit' &&
     p.status === 'succeeded' &&
     Number(p.refundedAmount) === 0
   );
+}
+
+/**
+ * Cobros que se gestionan desde otra pantalla y no se corrigen ni deshacen en
+ * la factura (se quedaría desconectado de su origen): los de una remesa SEPA
+ * (se marcan devueltos en la remesa) y los de la conciliación bancaria (se
+ * deshacen en el extracto).
+ */
+async function paymentLocks(
+  tx: Prisma.TransactionClient,
+  paymentIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (paymentIds.length === 0) return out;
+  const [items, bank] = await Promise.all([
+    tx.sepaRemittanceItem.findMany({
+      where: { paymentId: { in: paymentIds } },
+      select: { paymentId: true, remittance: { select: { name: true } } },
+    }),
+    tx.bankStatementTransaction.findMany({
+      where: {
+        OR: [
+          { matchedPaymentIds: { hasSome: paymentIds } },
+          { matchedPaymentId: { in: paymentIds } },
+        ],
+      },
+      select: { matchedPaymentIds: true, matchedPaymentId: true },
+    }),
+  ]);
+  for (const i of items) {
+    if (!i.paymentId) continue;
+    out.set(
+      i.paymentId,
+      `Viene de la remesa SEPA «${i.remittance.name}»: si el banco lo devolvió, márcalo como devuelto en la remesa.`,
+    );
+  }
+  for (const b of bank) {
+    for (const id of [
+      ...b.matchedPaymentIds,
+      ...(b.matchedPaymentId ? [b.matchedPaymentId] : []),
+    ]) {
+      if (!paymentIds.includes(id) || out.has(id)) continue;
+      out.set(
+        id,
+        'Viene de la conciliación bancaria: deshazlo desde el extracto en Conciliación bancaria.',
+      );
+    }
+  }
+  return out;
 }
 
 /** `2026-11` → 1 y 30 de noviembre (fechas UTC a medianoche, como las columnas DATE). */

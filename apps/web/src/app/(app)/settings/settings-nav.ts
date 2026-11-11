@@ -343,6 +343,12 @@ export const MODULE_SETTINGS: SettingsNavItem[] = [
     permission: 'collections:read',
   },
   {
+    href: '/bank-reconciliation',
+    label: 'Conciliación bancaria',
+    description: 'Conciliar solos los ingresos del extracto que casan con una factura.',
+    permission: 'payments:read',
+  },
+  {
     href: '/marketing/channels',
     label: 'Google y Meta Ads',
     description: 'Conexiones para importar el gasto de tus campañas.',

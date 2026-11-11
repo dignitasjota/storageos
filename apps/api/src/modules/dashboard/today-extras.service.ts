@@ -40,6 +40,8 @@ const METHOD_LABELS: Record<string, string> = {
   card: 'Tarjeta',
   sepa_debit: 'Domiciliación',
   bank_transfer: 'Transferencia',
+  bizum: 'Bizum',
+  deposit: 'Fianza aplicada',
   other: 'Otros',
 };
 

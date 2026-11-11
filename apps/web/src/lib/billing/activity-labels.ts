@@ -8,9 +8,11 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   bank_transfer: 'Transferencia',
   sepa_debit: 'Domiciliación',
   card: 'Tarjeta',
+  bizum: 'Bizum',
   other: 'Otra forma',
   credit_note: 'Saldo a favor o abono',
   withholding: 'Retención de IRPF',
+  deposit: 'Fianza aplicada',
 };
 
 export const PAYMENT_STATUS_LABELS: Record<string, { label: string; variant: BadgeVariant }> = {

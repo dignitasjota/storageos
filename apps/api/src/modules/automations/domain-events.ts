@@ -114,6 +114,8 @@ export interface InvoiceRefundedPayload {
 export interface SepaRemittanceCreatedPayload {
   tenantId: string;
   remittanceId: string;
+  /** Solo estos adeudos (reenvío de los preavisos que no salieron). */
+  itemIds?: string[];
 }
 
 export interface BookingCreatedPayload {

@@ -81,7 +81,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { useWebChatPending } from '@/lib/ai/web-chat-hooks';
-import { useFeatures, usePanelBrand, usePermissions } from '@/lib/auth/hooks';
+import { useCompanyWide, useFeatures, usePanelBrand, usePermissions } from '@/lib/auth/hooks';
 import { useCustomerUnreadSummary } from '@/lib/customers/hooks';
 import { useIncidentPendingCounts } from '@/lib/operations/hooks';
 import { appInitials, appName, brandColorOf, textColorOn } from '@/lib/portal/tenant-app';
@@ -100,6 +100,8 @@ interface NavItem {
   permission?: Permission;
   /** Si se define, solo si el plan del tenant incluye esta feature. */
   feature?: TenantFeature;
+  /** Pantalla de toda la empresa: no la ve quien está restringido a algunos locales. */
+  companyWide?: boolean;
   /** Sub-items desplegables; si está, el item agrupa y no navega él mismo. */
   children?: NavItem[];
 }
@@ -267,6 +269,7 @@ const GROUPS: NavGroup[] = [
             icon: Landmark,
             permission: 'payments:read',
             feature: 'sepa',
+            companyWide: true,
           },
           {
             href: '/bank-reconciliation',
@@ -274,6 +277,7 @@ const GROUPS: NavGroup[] = [
             icon: ArrowLeftRight,
             permission: 'payments:read',
             feature: 'bank_reconciliation',
+            companyWide: true,
           },
         ],
       },
@@ -477,8 +481,11 @@ export function AppSidebar() {
   const permissions = usePermissions();
   const features = useFeatures();
   const panelBrand = usePanelBrand();
+  const companyWide = useCompanyWide();
   const can = (p?: Permission) => !p || permissions.includes(p);
   const hasFeature = (f?: TenantFeature) => !f || features.includes(f);
+  const visibleItem = (i: NavItem) =>
+    can(i.permission) && hasFeature(i.feature) && (!i.companyWide || companyWide);
 
   // Tenant recién creado: menú corto y progreso de la puesta en marcha.
   const onboarding = useOnboarding().data;
@@ -657,7 +664,7 @@ export function AppSidebar() {
 
     // Item con sub-items desplegables (p. ej. «Peticiones de trastero»).
     if (item.children && item.children.length > 0) {
-      const children = item.children.filter((c) => can(c.permission) && hasFeature(c.feature));
+      const children = item.children.filter(visibleItem);
       if (children.length === 0) return null;
       // Con un solo hijo visible (p. ej. Accesos sin cámaras) no hace falta desplegable.
       if (children.length === 1) return renderItem(children[0]!);
@@ -771,9 +778,7 @@ export function AppSidebar() {
             (item) =>
               shown(item.href) &&
               // Un submenú solo cuenta si le queda algún hijo visible.
-              (item.children
-                ? item.children.some((c) => can(c.permission) && hasFeature(c.feature))
-                : can(item.permission) && hasFeature(item.feature)),
+              (item.children ? item.children.some(visibleItem) : visibleItem(item)),
           );
           if (items.length === 0) return null;
           const isCollapsed = collapsed.has(group.labelKey);

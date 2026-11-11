@@ -21,6 +21,7 @@ import {
   NON_CASH_PAYMENT_METHODS,
 } from '@storageos/shared';
 
+import { assertCashDayOpen, invoiceFacilityId } from '../../common/cash-day';
 import { customerScopeWhere } from '../../common/customer-scope';
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
 import { emailLocale, formatDateLong, formatEur, todayInTimezone } from '../../common/format';
@@ -33,6 +34,7 @@ import {
   toCents,
 } from '../../common/money';
 import { pageArgs, type PageRequest } from '../../common/pagination';
+import { invoiceInActivePlan } from '../../common/payment-plan-guard';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import {
@@ -93,6 +95,21 @@ import type {
   VerifactuRecordDto,
   VoidInvoiceInput,
 } from '@storageos/shared';
+
+/** Registro de un cobro a mano (efectivo, transferencia, Bizum…). */
+export interface ManualPaymentArgs {
+  tenantId: string;
+  userId: string | null;
+  invoiceId: string;
+  facilityScope?: string[] | null;
+  input: MarkPaidManuallyInput;
+  meta: RequestMeta;
+  /**
+   * Registro a mano desde el panel: el mismo cobro dos veces en unos segundos
+   * es un doble clic (409), no dos cobros.
+   */
+  rejectDuplicate?: boolean;
+}
 
 /** Tipo fiscal de la línea: el indicado (validado) o el de por defecto según el tipo. */
 function lineTaxCategory(taxRate: number, category?: InvoiceTaxCategory): InvoiceTaxCategory {
@@ -2761,19 +2778,14 @@ export class InvoicesService {
   }
 
   /** Marca una factura como pagada manualmente (cobro en efectivo, transferencia...). */
-  async markPaidManually(args: {
-    tenantId: string;
-    userId: string | null;
-    invoiceId: string;
-    facilityScope?: string[] | null;
-    input: MarkPaidManuallyInput;
-    meta: RequestMeta;
-    /**
-     * Registro a mano desde el panel: el mismo cobro dos veces en unos segundos
-     * es un doble clic (409), no dos cobros.
-     */
-    rejectDuplicate?: boolean;
-  }): Promise<InvoiceDto> {
+  async markPaidManually(args: ManualPaymentArgs): Promise<InvoiceDto> {
+    return (await this.registerManualPayment(args)).invoice;
+  }
+
+  /** Igual que `markPaidManually`, y además devuelve el cobro creado. */
+  async registerManualPayment(
+    args: ManualPaymentArgs,
+  ): Promise<{ invoice: InvoiceDto; paymentId: string }> {
     // Alcance por local y existencia (fuera de la transacción: solo lectura).
     const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     const amount = args.input.amount;
@@ -2787,6 +2799,7 @@ export class InvoicesService {
     }
     let total = 0;
     let fullyPaid = false;
+    let paymentId = '';
 
     // Todas las comprobaciones de importe se hacen DENTRO de la transacción,
     // sobre la fila bloqueada: dos cobros a la vez (Redsys + el staff, remesa SEPA
@@ -2803,6 +2816,15 @@ export class InvoicesService {
         throw new BadRequestException({
           code: 'invoice_not_payable',
           message: 'La factura no esta en estado pagable',
+        });
+      }
+      // Efectivo en un día con la caja ya cerrada: el arqueo dejaría de cuadrar.
+      if (args.input.methodType === 'cash') {
+        await assertCashDayOpen(tx, {
+          tenantId: args.tenantId,
+          facilityId: await invoiceFacilityId(tx, args.invoiceId),
+          at: [paidAt],
+          what: 'un cobro en efectivo',
         });
       }
       total = Number(fresh.total);
@@ -2860,11 +2882,14 @@ export class InvoicesService {
       }
       // Pagos parciales solo en efectivo: por cualquier otra vía la factura se
       // salda de una vez (evita cobros parciales fantasma por pasarela/transferencia).
-      // Excepción: cobros bancarios reales ya confirmados (N43/SEPA) con `allowPartialNonCash`.
+      // Excepciones: cobros bancarios reales ya confirmados (N43/SEPA) con
+      // `allowPartialNonCash`, y las cuotas de un plan de pagos activo (se
+      // pagan por transferencia o Bizum, como se le dijo al inquilino).
       if (
         isGreaterThan(total, newPaid) &&
         args.input.methodType !== 'cash' &&
-        !args.input.allowPartialNonCash
+        !args.input.allowPartialNonCash &&
+        !(await invoiceInActivePlan(tx, args.invoiceId))
       ) {
         throw new BadRequestException({
           code: 'partial_only_cash',
@@ -2874,7 +2899,7 @@ export class InvoicesService {
       }
       // También en una F2 sin destinatario (pago sin cliente): así cuenta en
       // lo cobrado y en el cierre de caja.
-      await tx.payment.create({
+      const created = await tx.payment.create({
         data: {
           tenantId: args.tenantId,
           invoiceId: args.invoiceId,
@@ -2886,7 +2911,9 @@ export class InvoicesService {
           paidAt,
           notes: args.input.notes?.trim() || null,
         },
+        select: { id: true },
       });
+      paymentId = created.id;
       return tx.invoice.update({
         where: { id: args.invoiceId },
         data: {
@@ -2924,7 +2951,7 @@ export class InvoicesService {
       };
       this.events.emit(DOMAIN_EVENTS.invoice_paid, payload);
     }
-    return this.toDto(updated);
+    return { invoice: this.toDto(updated), paymentId };
   }
 
   /**
@@ -2947,6 +2974,8 @@ export class InvoicesService {
      * automática): no cuenta como recibo devuelto.
      */
     undo?: boolean;
+    /** Cuándo lo devolvió el banco (por defecto, ahora). */
+    returnedAt?: Date;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
     await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
@@ -3019,7 +3048,7 @@ export class InvoicesService {
           data: {
             status: 'failed',
             failureReason: args.reason,
-            ...(args.undo ? {} : { returnedAt: new Date() }),
+            ...(args.undo ? {} : { returnedAt: args.returnedAt ?? new Date() }),
           },
         });
       }
@@ -3056,6 +3085,99 @@ export class InvoicesService {
         tenantId: args.tenantId,
         invoiceId: args.invoiceId,
       } satisfies InvoicePaymentRevertedPayload);
+    }
+    return this.toDto(updated);
+  }
+
+  /**
+   * Vuelve a dar por bueno un cobro revertido: una devolución registrada por
+   * error en la conciliación bancaria o una disputa de tarjeta que se ganó. El
+   * cobro vuelve a «cobrado» y suma otra vez a la factura (que, si queda
+   * saldada, pasa a pagada y avisa como cualquier cobro).
+   */
+  async restorePayment(args: {
+    tenantId: string;
+    userId: string | null;
+    invoiceId: string;
+    paymentId: string;
+    reason: string;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    let fullyPaid = false;
+    let total = 0;
+    let paidAt = new Date();
+    const updated = await this.prisma.withTenant(async (tx) => {
+      await lockInvoiceRow(tx, args.invoiceId);
+      const payment = await tx.payment.findFirst({
+        where: { id: args.paymentId, invoiceId: args.invoiceId, status: 'failed' },
+        select: { amount: true, paidAt: true },
+      });
+      if (!payment) {
+        throw new BadRequestException({
+          code: 'payment_not_reverted',
+          message: 'Ese cobro no está revertido: no hay nada que restaurar',
+        });
+      }
+      const fresh = await tx.invoice.findUniqueOrThrow({
+        where: { id: args.invoiceId },
+        select: { status: true, total: true, amountPaid: true },
+      });
+      if (fresh.status !== 'issued' && fresh.status !== 'overdue' && fresh.status !== 'paid') {
+        throw new ConflictException({
+          code: 'invoice_not_payable',
+          message: 'La factura ya no admite cobros (anulada, rectificada o devuelta)',
+        });
+      }
+      total = Number(fresh.total);
+      const newPaid = addAmounts(fresh.amountPaid, payment.amount);
+      if (isGreaterThan(newPaid, total)) {
+        throw new ConflictException({
+          code: 'overpayment',
+          message:
+            'La factura ya se ha cobrado de otra forma: este cobro no puede volver a contar. Devuelve la diferencia al inquilino.',
+        });
+      }
+      fullyPaid = isAtLeast(newPaid, total);
+      paidAt = payment.paidAt ?? new Date();
+      await tx.payment.update({
+        where: { id: args.paymentId },
+        data: { status: 'succeeded', failureReason: null, returnedAt: null },
+      });
+      return tx.invoice.update({
+        where: { id: args.invoiceId },
+        data: {
+          amountPaid: newPaid,
+          ...(fullyPaid ? { status: 'paid', paidAt } : {}),
+        },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.payment_restored',
+      entityType: 'Invoice',
+      entityId: args.invoiceId,
+      changes: { paymentId: args.paymentId, reason: args.reason },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    if (fullyPaid) {
+      this.events.emit(DOMAIN_EVENTS.invoice_paid, {
+        tenantId: args.tenantId,
+        entityType: 'invoice',
+        entityId: args.invoiceId,
+        customerId: existing.customerId,
+        recipientEmail: null,
+        scope: {
+          invoice: {
+            number: updated.invoiceNumber,
+            total: total.toFixed(2),
+            paidAt: paidAt.toISOString(),
+          },
+        },
+      } satisfies DomainEventPayload);
     }
     return this.toDto(updated);
   }
