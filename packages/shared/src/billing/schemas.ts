@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { calendarDate } from '../common/calendar-date';
+import { SepaReturnCodeEnum } from '../sepa/return-codes';
 
 import { InvoiceTaxCategoryEnum, taxCategoryAllowsRate } from './tax-category';
 
@@ -719,3 +720,24 @@ export const CreateUnitOfferSchema = z.object({
   validDays: z.number().int().min(1).max(180).default(30),
 });
 export type CreateUnitOfferInput = z.infer<typeof CreateUnitOfferSchema>;
+
+/**
+ * Un cobro por banco (transferencia o domiciliación) que el banco devolvió, sin
+ * fichero N43: vuelve a quedar pendiente y cuenta como recibo devuelto.
+ */
+export const MarkPaymentReturnedSchema = z.object({
+  /** Código de devolución SEPA (AM04, MD06…). */
+  returnCode: SepaReturnCodeEnum.optional(),
+  /** Lo que dice el banco, si no hay código. */
+  reason: z.string().trim().max(200).optional(),
+  /** Día en que el banco lo devolvió; por defecto hoy. */
+  returnedOn: dateOnly.optional(),
+});
+export type MarkPaymentReturnedInput = z.infer<typeof MarkPaymentReturnedSchema>;
+
+/** Gastos por un recibo devuelto (los que fija la plantilla del contrato). */
+export const ApplyReturnFeeSchema = z.object({
+  /** El cobro devuelto o el adeudo rechazado. */
+  sourceId: z.string().uuid(),
+});
+export type ApplyReturnFeeInput = z.infer<typeof ApplyReturnFeeSchema>;

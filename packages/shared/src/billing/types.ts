@@ -462,17 +462,29 @@ export interface ReturnedReceiptDto {
   facilityName: string | null;
   /** Remesa SEPA del adeudo, si viene de una. */
   remittanceName: string | null;
+  /** Código de devolución SEPA (AM04, MD06…), si se sabe. */
+  returnCode: string | null;
+  /** Devoluciones de este inquilino en los últimos 12 meses (esta incluida). */
+  customerReturns12m: number;
+  /** El inquilino tiene una tarjeta o domiciliación guardada para volver a cobrar. */
+  chargeable: boolean;
+  /** La factura de gastos por esta devolución, si ya se aplicaron. */
+  returnFeeInvoiceId: string | null;
 }
 
 export interface ReturnedReceiptsDto {
   from: string;
   to: string;
+  /** Gastos por recibo devuelto de la plantilla del contrato; null = ninguno. */
+  returnFee: number | null;
   items: ReturnedReceiptDto[];
   totals: {
     count: number;
     amount: number;
     /** Importe que sigue sin cobrar de las facturas afectadas. */
     stillPending: number;
+    /** Inquilinos con 2 o más devoluciones en los últimos 12 meses. */
+    repeatCustomers: number;
     byKind: { kind: ReturnedReceiptKind; count: number; amount: number }[];
   };
 }

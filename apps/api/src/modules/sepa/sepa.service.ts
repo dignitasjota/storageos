@@ -21,6 +21,7 @@ import {
   mandateIsSigned,
   sepaMandateExpiresOn,
   maskIban,
+  returnCodeLabel,
   sepaMandateText,
   type SepaMandateDocument,
 } from '@storageos/shared';
@@ -1420,9 +1421,9 @@ export class SepaService {
         message: 'El cobro de este adeudo ya no cuenta: no hay nada que devolver',
       });
     }
-    const reason = args.input.reason?.trim()
-      ? `Devuelto por el banco: ${args.input.reason.trim()}`
-      : 'Devuelto por el banco';
+    const detail = args.input.reason?.trim() || returnCodeLabel(args.input.returnCode ?? null);
+    const reason = detail ? `Devuelto por el banco: ${detail}` : 'Devuelto por el banco';
+    const returnCode = args.input.returnCode ?? null;
     await this.invoices.revertPayment({
       tenantId,
       userId: args.userId,
@@ -1431,10 +1432,11 @@ export class SepaService {
       paymentId: payment.id,
       returnedAt: args.input.returnedOn ? this.dayInstant(args.input.returnedOn, tz) : new Date(),
       reason,
+      returnCode,
       meta: {},
     });
     await this.prisma.withTenant(
-      (tx) => markSepaItemReturned(tx, item.invoiceId, { itemId: item.id, reason }),
+      (tx) => markSepaItemReturned(tx, item.invoiceId, { itemId: item.id, reason, returnCode }),
       tenantId,
     );
     const updated = await this.findOrThrow(tenantId, args.remittanceId);

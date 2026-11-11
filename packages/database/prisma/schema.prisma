@@ -2208,6 +2208,8 @@ model Invoice {
   /// Si esta factura es un recargo por mora, apunta a la factura vencida que
   /// lo originó (idempotencia: única por factura original).
   lateFeeForInvoiceId String?           @unique @map("late_fee_for_invoice_id") @db.Uuid
+  /// Factura de gastos por un recibo devuelto: la devolución (cobro o adeudo).
+  returnFeeSourceId   String?           @map("return_fee_source_id") @db.Uuid
   issueDate           DateTime?         @map("issue_date") @db.Date
   dueDate             DateTime?         @map("due_date") @db.Date
   /// Periodo facturado (p.ej. mes natural si es un alquiler mensual).
@@ -2403,6 +2405,8 @@ model Payment {
   holdedReviewedAt DateTime?              @map("holded_reviewed_at") @db.Timestamptz(6)
   refundedAmount   Decimal                @default(0) @map("refunded_amount") @db.Decimal(12, 2)
   failureReason    String?                @map("failure_reason")
+  /// Código de devolución SEPA (AM04, MD06…) de un cobro devuelto.
+  returnCode       String?                @map("return_code")
   notes            String?
   createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2917,6 +2921,8 @@ model SepaRemittanceItem {
   /// pending | collected | failed | returned | cancelled (ver migración sepa_remittance_item_status).
   status        String  @default("pending")
   failureReason String? @map("failure_reason")
+  /// Código de devolución SEPA (AM04, MD06…) si el banco lo rechazó.
+  returnCode    String? @map("return_code")
   /// El cobro que registró este adeudo al confirmar la remesa.
   paymentId     String? @map("payment_id") @db.Uuid
   /// Constancia del preaviso: null = pendiente | sent | disabled | no_email | failed.

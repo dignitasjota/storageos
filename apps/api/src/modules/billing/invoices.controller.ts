@@ -15,6 +15,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   BulkInvoiceActionSchema,
+  ApplyReturnFeeSchema,
   BulkRemindCustomersSchema,
   type BulkInvoiceActionResultDto,
   CancelInvoiceSchema,
@@ -24,6 +25,7 @@ import {
   type LateFeePreviewDto,
   LinkHoldedCreditNoteSchema,
   MarkPaidManuallySchema,
+  MarkPaymentReturnedSchema,
   RectifyInvoiceSchema,
   RefundInvoiceSchema,
   type SignedDownloadDto,
@@ -59,6 +61,8 @@ class BulkRemindCustomersDto extends createZodDto(BulkRemindCustomersSchema) {}
 class BulkInvoiceActionDto extends createZodDto(BulkInvoiceActionSchema) {}
 class LinkHoldedCreditNoteDto extends createZodDto(LinkHoldedCreditNoteSchema) {}
 class RectifyInvoiceDto extends createZodDto(RectifyInvoiceSchema) {}
+class MarkPaymentReturnedDto extends createZodDto(MarkPaymentReturnedSchema) {}
+class ApplyReturnFeeDto extends createZodDto(ApplyReturnFeeSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -285,6 +289,46 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       invoiceId: id,
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Un cobro por banco que el banco devolvió (sin fichero N43). */
+  @RequirePermission('invoices:manage')
+  @Post(':id/payments/:paymentId/returned')
+  @HttpCode(HttpStatus.OK)
+  async markPaymentReturned(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('paymentId', new ParseUUIDPipe()) paymentId: string,
+    @Body() input: MarkPaymentReturnedDto,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.markPaymentReturned({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+      paymentId,
+      input,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Gastos por un recibo devuelto (los de la plantilla del contrato). */
+  @RequirePermission('invoices:manage')
+  @Post(':id/return-fee')
+  @HttpCode(HttpStatus.OK)
+  async returnFee(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: ApplyReturnFeeDto,
+  ): Promise<InvoiceDto> {
+    return this.invoices.createReturnFee({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+      sourceId: input.sourceId,
       facilityScope: user.facilityScope ?? null,
     });
   }

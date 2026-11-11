@@ -1,8 +1,11 @@
 import { z } from 'zod';
 
 import { isValidCreditorId, normalizeCreditorId } from './collection';
+import { SepaReturnCodeEnum } from './return-codes';
 
 import type { SepaMandateSignatureStatus } from './mandate';
+
+export * from './return-codes';
 
 /** Normaliza un IBAN (sin espacios, mayúsculas). */
 export function normalizeIban(raw: string): string {
@@ -237,6 +240,8 @@ export const MarkSepaItemReturnedSchema = z.object({
   reason: z.string().trim().max(200).optional(),
   /** Día en que el banco lo devolvió; por defecto hoy. */
   returnedOn: dateOnly.optional(),
+  /** Código de devolución SEPA (AM04, MD06…). */
+  returnCode: SepaReturnCodeEnum.optional(),
 });
 export type MarkSepaItemReturnedInput = z.infer<typeof MarkSepaItemReturnedSchema>;
 

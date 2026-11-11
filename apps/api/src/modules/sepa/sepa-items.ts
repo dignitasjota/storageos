@@ -9,8 +9,8 @@ import type { Prisma } from '@storageos/database';
 export async function markSepaItemReturned(
   tx: Prisma.TransactionClient,
   invoiceId: string,
-  /** Un adeudo concreto y el motivo que da el banco. */
-  opts: { itemId?: string; reason?: string } = {},
+  /** Un adeudo concreto, el motivo que da el banco y su código (AM04…). */
+  opts: { itemId?: string; reason?: string; returnCode?: string | null } = {},
 ): Promise<void> {
   const item = await tx.sepaRemittanceItem.findFirst({
     where: { invoiceId, status: 'collected', ...(opts.itemId ? { id: opts.itemId } : {}) },
@@ -19,7 +19,11 @@ export async function markSepaItemReturned(
   if (!item) return;
   await tx.sepaRemittanceItem.update({
     where: { id: item.id },
-    data: { status: 'returned', failureReason: opts.reason ?? 'Devuelto por el banco' },
+    data: {
+      status: 'returned',
+      failureReason: opts.reason ?? 'Devuelto por el banco',
+      ...(opts.returnCode ? { returnCode: opts.returnCode } : {}),
+    },
   });
   if (item.sequenceType !== 'FRST') return;
   const stillCollected = await tx.sepaRemittanceItem.count({

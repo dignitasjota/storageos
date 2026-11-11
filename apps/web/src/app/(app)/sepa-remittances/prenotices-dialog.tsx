@@ -10,8 +10,10 @@ import type {
   SepaRemittanceDto,
   SepaRemittanceItemStatus,
   SepaRemittancePrenoticeDto,
+  SepaReturnCode,
 } from '@storageos/shared';
 
+import { ReturnCodeSelect } from '@/components/billing/return-code-select';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -234,6 +236,7 @@ function ReturnItemDialog({
 }) {
   const mark = useMarkSepaItemReturned();
   const [reason, setReason] = useState('');
+  const [returnCode, setReturnCode] = useState<SepaReturnCode | null>(null);
   const [returnedOn, setReturnedOn] = useState(localDateString());
 
   async function submit() {
@@ -243,6 +246,7 @@ function ReturnItemDialog({
         itemId: item.itemId,
         input: {
           ...(reason.trim() ? { reason: reason.trim() } : {}),
+          ...(returnCode ? { returnCode } : {}),
           ...(returnedOn ? { returnedOn } : {}),
         },
       });
@@ -272,12 +276,16 @@ function ReturnItemDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="ret-reason">Motivo que da el banco (opcional)</Label>
+            <Label>Código de devolución</Label>
+            <ReturnCodeSelect value={returnCode} onChange={setReturnCode} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="ret-reason">Otro motivo que da el banco (opcional)</Label>
             <Input
               id="ret-reason"
               value={reason}
               maxLength={200}
-              placeholder="AC04 cuenta cancelada, MD06 devuelto por el cliente…"
+              placeholder="Lo que diga el banco si no hay código"
               onChange={(e) => setReason(e.target.value)}
             />
           </div>

@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { findReturnCode, returnCodeLabel } from '@storageos/shared';
 
 import { zonedDayStart } from '../../common/format';
 import { toCents } from '../../common/money';
@@ -606,6 +607,12 @@ export class BankReconciliationService {
       matchedPaymentIds: [payment.id],
       matchedPaymentId: payment.id,
     });
+    // El código de devolución (AM04, MD06…) si el banco lo pone en el concepto.
+    const returnCode = findReturnCode(
+      [txRow.description, txRow.conceptOwn, txRow.reference1, txRow.reference2]
+        .filter(Boolean)
+        .join(' '),
+    );
     try {
       await this.invoices.revertPayment({
         tenantId,
@@ -614,7 +621,10 @@ export class BankReconciliationService {
         amount: Number(payment.amount),
         paymentId: payment.id,
         returnedAt: await this.movementInstant(tenantId, txRow),
-        reason: 'Devolución (conciliación N43)',
+        reason: returnCode
+          ? `Devolución (conciliación N43): ${returnCodeLabel(returnCode)}`
+          : 'Devolución (conciliación N43)',
+        returnCode,
         meta: args.meta ?? {},
       });
     } catch (err) {
@@ -624,7 +634,10 @@ export class BankReconciliationService {
     // Si era un adeudo de remesa, queda «devuelto»: la factura puede volver
     // a presentarse en otra remesa.
     if (payment.methodType === 'sepa_debit') {
-      await this.prisma.withTenant((tx) => markSepaItemReturned(tx, invoiceId), tenantId);
+      await this.prisma.withTenant(
+        (tx) => markSepaItemReturned(tx, invoiceId, { returnCode }),
+        tenantId,
+      );
     }
     await this.audit.write({
       tenantId,

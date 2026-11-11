@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { returnCodeLabel } from '@storageos/shared';
 
 import { zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { subtractAmounts } from '../../common/money';
@@ -126,7 +127,11 @@ export class ReturnedReceiptsService {
     const now = new Date();
     // Días en la zona del negocio (los cobros y devoluciones llevan hora).
     const tenant = await this.prisma.withTenant(
-      (tx) => tx.tenant.findUnique({ where: { id: tenantId }, select: { timezone: true } }),
+      (tx) =>
+        tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: { timezone: true, returnedPaymentFee: true },
+        }),
       tenantId,
     );
     const tz = tenant?.timezone ?? 'Europe/Madrid';
@@ -178,6 +183,7 @@ export class ReturnedReceiptsService {
               methodType: true,
               gateway: true,
               failureReason: true,
+              returnCode: true,
               returnedAt: true,
               invoice: { select: INVOICE_SELECT },
             },
@@ -193,6 +199,7 @@ export class ReturnedReceiptsService {
               id: true,
               amount: true,
               failureReason: true,
+              returnCode: true,
               remittance: { select: { name: true, confirmedAt: true } },
               invoice: { select: INVOICE_SELECT },
             },
@@ -201,24 +208,89 @@ export class ReturnedReceiptsService {
       tenantId,
     );
 
+    // Lo que hace falta para actuar sobre cada devolución: cuántas lleva el
+    // inquilino en un año (reincidentes), si se le puede volver a cobrar con lo
+    // que tiene guardado y si ya se le cargaron los gastos.
+    const customerIds = [
+      ...new Set(
+        [...payments, ...rejected]
+          .map((r) => (r.invoice as InvoiceRef | null)?.customer?.id)
+          .filter((c): c is string => !!c),
+      ),
+    ];
+    const sourceIds = [...payments.map((p) => p.id), ...rejected.map((r) => r.id)];
+    const yearAgo = new Date(now.getTime() - 365 * DAY);
+    const [paidBack, rejectedBack, methods, fees] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.payment.groupBy({
+            by: ['customerId'],
+            where: { customerId: { in: customerIds }, returnedAt: { gte: yearAgo } },
+            _count: { _all: true },
+          }),
+          tx.sepaRemittanceItem.findMany({
+            where: {
+              status: 'failed',
+              remittance: { confirmedAt: { gte: yearAgo } },
+              invoice: { customerId: { in: customerIds } },
+            },
+            select: { invoice: { select: { customerId: true } } },
+          }),
+          tx.paymentMethod.findMany({
+            where: {
+              customerId: { in: customerIds },
+              deletedAt: null,
+              type: { in: ['card', 'sepa_debit'] },
+            },
+            select: { customerId: true },
+          }),
+          tx.invoice.findMany({
+            where: { returnFeeSourceId: { in: sourceIds }, status: { not: 'cancelled' } },
+            select: { id: true, returnFeeSourceId: true },
+          }),
+        ]),
+      tenantId,
+    );
+    const returnsOf = new Map<string, number>();
+    for (const g of paidBack) {
+      if (g.customerId) returnsOf.set(g.customerId, g._count._all);
+    }
+    for (const r of rejectedBack) {
+      const c = r.invoice.customerId;
+      if (c) returnsOf.set(c, (returnsOf.get(c) ?? 0) + 1);
+    }
+    const chargeable = new Set(methods.map((m) => m.customerId));
+    const feeOf = new Map(fees.map((f) => [f.returnFeeSourceId!, f.id]));
+    const extra = (id: string, inv: InvoiceRef | null, returnCode: string | null) => {
+      const customerId = inv?.customer?.id ?? null;
+      return {
+        returnCode,
+        customerReturns12m: customerId ? Math.max(1, returnsOf.get(customerId) ?? 0) : 1,
+        chargeable: customerId ? chargeable.has(customerId) : false,
+        returnFeeInvoiceId: feeOf.get(id) ?? null,
+      };
+    };
+
     let items: ReturnedReceiptDto[] = [
       ...payments.map((p) => ({
         id: p.id,
         kind: returnKind(p),
         date: (p.returnedAt ?? now).toISOString(),
         amount: Number(p.amount),
-        reason: returnReasonLabel(p.failureReason),
+        reason: returnReasonLabel(p.failureReason) ?? returnCodeLabel(p.returnCode),
         remittanceName: null,
         ...invoiceFields(p.invoice as InvoiceRef | null),
+        ...extra(p.id, p.invoice as InvoiceRef | null, p.returnCode),
       })),
       ...rejected.map((r) => ({
         id: r.id,
         kind: 'sepa_rejected' as const,
         date: (r.remittance.confirmedAt ?? now).toISOString(),
         amount: r.amount / 100,
-        reason: r.failureReason ?? 'Rechazado por el banco',
+        reason: r.failureReason ?? returnCodeLabel(r.returnCode) ?? 'Rechazado por el banco',
         remittanceName: r.remittance.name,
         ...invoiceFields(r.invoice as InvoiceRef),
+        ...extra(r.id, r.invoice as InvoiceRef, r.returnCode),
       })),
     ];
     if (filters.kind) items = items.filter((i) => i.kind === filters.kind);
@@ -238,15 +310,21 @@ export class ReturnedReceiptsService {
       if (i.invoiceId) pendingByInvoice.set(i.invoiceId, Math.round(i.invoicePending * 100));
     }
     const pendingCents = [...pendingByInvoice.values()].reduce((a, b) => a + b, 0);
+    const repeat = new Set(
+      items.filter((i) => i.customerId && i.customerReturns12m >= 2).map((i) => i.customerId),
+    );
+    const fee = Number(tenant?.returnedPaymentFee ?? 0);
 
     return {
       from: dayIn(from, tz),
       to: dayIn(to, tz),
+      returnFee: fee > 0 ? fee : null,
       items,
       totals: {
         count: items.length,
         amount: cents / 100,
         stillPending: pendingCents / 100,
+        repeatCustomers: repeat.size,
         byKind: [...byKind.entries()].map(([kind, v]) => ({
           kind,
           count: v.count,
