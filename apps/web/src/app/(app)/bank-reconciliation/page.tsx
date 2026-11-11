@@ -652,25 +652,37 @@ function StatementTotals({ statement }: { statement: BankStatementDetailDto }) {
   const credits = statement.transactions.filter((t) => t.type === 'credit');
   const debits = statement.transactions.filter((t) => t.type === 'debit');
   const sum = (rows: BankTransactionDto[]) => rows.reduce((s, t) => s + t.amount, 0);
+  const known = statement.balancesKnown;
   return (
-    <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-      <div>
-        <dt className="text-muted-foreground">Saldo inicial</dt>
-        <dd className="font-medium tabular-nums">{formatEur(statement.initialBalance)}</dd>
-      </div>
-      <div>
-        <dt className="text-muted-foreground">Ingresos ({credits.length})</dt>
-        <dd className="font-medium tabular-nums text-emerald-600">{formatEur(sum(credits))}</dd>
-      </div>
-      <div>
-        <dt className="text-muted-foreground">Cargos ({debits.length})</dt>
-        <dd className="font-medium tabular-nums">{formatEur(sum(debits))}</dd>
-      </div>
-      <div>
-        <dt className="text-muted-foreground">Saldo final</dt>
-        <dd className="font-medium tabular-nums">{formatEur(statement.finalBalance)}</dd>
-      </div>
-    </dl>
+    <div className="space-y-1">
+      <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        {known && (
+          <div>
+            <dt className="text-muted-foreground">Saldo inicial</dt>
+            <dd className="font-medium tabular-nums">{formatEur(statement.initialBalance)}</dd>
+          </div>
+        )}
+        <div>
+          <dt className="text-muted-foreground">Ingresos ({credits.length})</dt>
+          <dd className="font-medium tabular-nums text-emerald-600">{formatEur(sum(credits))}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Cargos ({debits.length})</dt>
+          <dd className="font-medium tabular-nums">{formatEur(sum(debits))}</dd>
+        </div>
+        {known && (
+          <div>
+            <dt className="text-muted-foreground">Saldo final</dt>
+            <dd className="font-medium tabular-nums">{formatEur(statement.finalBalance)}</dd>
+          </div>
+        )}
+      </dl>
+      {!known && (
+        <p className="text-xs text-muted-foreground">
+          El fichero no trae los saldos, así que no se pueden comprobar los totales.
+        </p>
+      )}
+    </div>
   );
 }
 

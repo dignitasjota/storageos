@@ -253,8 +253,6 @@ export function parseBankCsv(content: string, mapping?: BankCsvMapping): BankCsv
         `Los saldos del fichero no cuadran con los importes en ${mismatches} ${mismatches === 1 ? 'movimiento' : 'movimientos'}.`,
       );
     }
-  } else {
-    warnings.push('El fichero no trae los saldos: no se pueden comprobar.');
   }
   return {
     headers,
@@ -267,6 +265,7 @@ export function parseBankCsv(content: string, mapping?: BankCsvMapping): BankCsv
       endDate: out[out.length - 1]!.date,
       initialBalance,
       finalBalance,
+      balancesKnown: withBalance,
       warnings,
       transactions: out.map((r) => ({
         operationDate: r.date,

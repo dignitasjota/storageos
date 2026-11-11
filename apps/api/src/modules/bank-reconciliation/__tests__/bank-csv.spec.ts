@@ -43,6 +43,7 @@ describe('CSV de movimientos de la banca online', () => {
     expect(a.transactions[2]!.description).toBe('TRANSFERENCIA DE GARCIA LOPEZ JOSE');
     expect(a.initialBalance).toBe(10000);
     expect(a.finalBalance).toBe(137100);
+    expect(a.balancesKnown).toBe(true);
     expect(a.warnings).toEqual([]);
   });
 
@@ -67,8 +68,8 @@ describe('CSV de movimientos de la banca online', () => {
     expect(manual.account!.transactions).toEqual([
       expect.objectContaining({ operationDate: '2026-11-05', amount: 1000, description: 'PAGO' }),
     ]);
-    expect(manual.account!.warnings).toEqual([
-      'El fichero no trae los saldos: no se pueden comprobar.',
-    ]);
+    // Sin columna de saldo no hay nada que comprobar: no es que no cuadre.
+    expect(manual.account!.warnings).toEqual([]);
+    expect(manual.account!.balancesKnown).toBe(false);
   });
 });

@@ -292,7 +292,7 @@ export default function ReturnedReceiptsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">

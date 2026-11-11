@@ -2983,6 +2983,8 @@ model BankStatement {
   /// saldos en céntimos.
   initialBalance   Int       @default(0) @map("initial_balance")
   finalBalance     Int       @default(0) @map("final_balance")
+  /// false = un CSV sin columna de saldo: los saldos no se conocen.
+  balancesKnown    Boolean   @default(true) @map("balances_known")
   transactionCount Int       @default(0) @map("transaction_count")
   /// Huella del fichero: el mismo extracto no se importa dos veces.
   fileHash         String?   @map("file_hash")

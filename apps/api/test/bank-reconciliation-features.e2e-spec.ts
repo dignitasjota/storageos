@@ -97,7 +97,13 @@ describe('Conciliación bancaria: mejoras (e2e)', () => {
     );
     const { result, detail } = await importCsv(content);
     expect(result.statements[0]).toEqual(
-      expect.objectContaining({ source: 'csv', transactionCount: 2 }),
+      // Sin saldos en el fichero: no se enseñan ni se toma por un fichero que no cuadra.
+      expect.objectContaining({
+        source: 'csv',
+        transactionCount: 2,
+        balancesKnown: false,
+        warnings: [],
+      }),
     );
     expect(detail.transactions.map((t) => t.amount)).toEqual([200, -5]);
     const again = await http()

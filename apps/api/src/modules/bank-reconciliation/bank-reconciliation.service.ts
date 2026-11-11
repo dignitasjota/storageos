@@ -292,6 +292,7 @@ export class BankReconciliationService {
                 endDate: acc.endDate ? new Date(`${acc.endDate}T00:00:00Z`) : null,
                 initialBalance: acc.initialBalance,
                 finalBalance: acc.finalBalance,
+                balancesKnown: acc.balancesKnown ?? true,
                 transactionCount: 0,
                 fileHash,
                 warnings: [...acc.warnings, ...parsed.warnings],
@@ -1914,6 +1915,7 @@ export class BankReconciliationService {
       endDate: Date | null;
       initialBalance: number;
       finalBalance: number;
+      balancesKnown: boolean;
       warnings: string[];
       transactionCount: number;
       createdAt: Date;
@@ -1931,6 +1933,7 @@ export class BankReconciliationService {
       endDate: isoDate(s.endDate),
       initialBalance: s.initialBalance / 100,
       finalBalance: s.finalBalance / 100,
+      balancesKnown: s.balancesKnown,
       transactionCount: s.transactionCount,
       matchedCount,
       pendingCount,

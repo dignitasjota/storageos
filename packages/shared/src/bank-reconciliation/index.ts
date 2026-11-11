@@ -124,6 +124,8 @@ export interface BankStatementDto {
   /** Saldos del fichero, en euros. */
   initialBalance: number;
   finalBalance: number;
+  /** false = el fichero no trae los saldos (CSV sin esa columna): no se enseñan. */
+  balancesKnown: boolean;
   transactionCount: number;
   matchedCount: number;
   /** Movimientos sin revisar (ni conciliados, ni devueltos, ni ignorados). */
