@@ -107,6 +107,15 @@ XAdES sería necesario solo en el "sistema NO verificable" (offline batch + firm
 
 ### 10A.7 — Este ADR + actualización ROADMAP/CLAUDE.md + vault Obsidian.
 
+## Actualización (2026-11-08/11, #925–#929)
+
+Parte de lo anterior quedó superado; el flujo vigente está en `docs/ARCHITECTURE.md` («Veri\*Factu: arquitectura del envío AEAT»):
+
+- El envío ya no es un trabajo por factura con tres reintentos, sino uno por emisor con **control de flujo**: lotes de hasta 1.000 registros, la espera que pide la AEAT y reintentos de 1 minuto hasta una hora (`sendBatch` sustituye a `sendInvoice`).
+- Los registros se guardan aparte (`verifactu_records`) con su XML, y hay **subsanación, anulación, renuncia e incidencias**.
+- El XML cumple los XSD oficiales (antes `RegistroAlta` iba en el espacio de nombres equivocado) y lleva los datos del fabricante (Urbanbox Soluciones SL) y el número de instalación.
+- Cada negocio activa Veri\*Factu, y la **declaración responsable** del sistema está publicada.
+
 ## Referencias
 
 - **RD 1007/2023** sobre el reglamento que establece los requisitos que deben adoptar los sistemas informáticos de facturación: <https://www.boe.es/eli/es/rd/2023/12/05/1007>

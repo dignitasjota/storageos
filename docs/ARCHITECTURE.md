@@ -189,26 +189,39 @@ Todos los servicios viven en una red Docker interna; solo NPM expone puertos al 
 
 ## Veri\*Factu: arquitectura del envío AEAT (Fase 10)
 
-A partir del **RD 1007/2023** (entrada en vigor 2026-07-01) cada factura emitida por un tenant español debe enviarse al AEAT en tiempo real (modo "verificable"). TrasterOS implementa el envío end-to-end con cliente propio mTLS y certificado por tenant.
+Con el **RD 1007/2023** y la **Orden HAC/1177/2024**, los sistemas de facturación generan un registro por cada factura y, en modo VERI\*FACTU, se los remiten a la AEAT (obligatorio desde el 1-1-2027 para las sociedades y el 1-7-2027 para el resto). TrasterOS lo hace con cliente propio mTLS y el certificado de cada negocio, y **cada negocio lo activa** (`tenants.verifactu_enabled`, apagado por defecto).
 
-### Flujo de envío
+### Flujo de envío (2026-11-08/11)
 
 ```
-InvoicesService.issue
-    ├─ genera hash encadenado (VerifactuService.computeChainedHash)
-    ├─ persiste invoice con aeatStatus = null
-    └─ encola job `send-to-aeat` en la cola BullMQ `verifactu`
+InvoicesService.issue (con Veri*Factu activado)
+    ├─ VerifactuRecordsService.createAlta
+    │    ├─ bloqueo de la cadena del emisor (pg_advisory_xact_lock por negocio o propietario)
+    │    ├─ huella encadenada con el registro anterior y FechaHoraHusoGenRegistro
+    │    └─ guarda el registro en verifactu_records con su XML tal como se generó
+    └─ VerifactuDispatcher.schedule → un trabajo por emisor y hora de salida (cola `verifactu`)
 
-VerifactuProcessor (worker, concurrency 2, retry 3× exponencial 60s base)
-    └─ VerifactuService.sendToAeat(invoiceId)
-        ├─ carga el cert del tenant (TenantAeatCredentialsService.getDecrypted)
-        ├─ construye XML (VerifactuXmlBuilder.buildRegistroAlta)
-        ├─ POST mTLS al endpoint AEAT (RealAeatClient.sendInvoice)
-        ├─ parsea respuesta SOAP (EstadoRegistro + CSV + mensaje)
-        ├─ persiste aeat_status / aeat_sent_at / aeat_response en invoice
-        ├─ si error técnico (timeout, 5xx, TLS) → throw → BullMQ retry (1m, 5m, 25m aprox)
-        └─ si rejected (decisión firme AEAT) → no retry, requiere revisión manual
+VerifactuProcessor (worker, concurrencia 4)
+    └─ VerifactuService.sendPending(tenant, emisor)
+        ├─ respeta la espera del emisor (next_send_at, retry_at) y lo reserva (lease_until)
+        ├─ lotes de hasta 1.000 registros en el orden de la cadena; los de una incidencia van aparte
+        ├─ AeatClient.sendBatch: el XML guardado de cada registro + cabecera (FechaFinVeriFactu, Incidencia)
+        ├─ parseSubmissionResponse: resultado por registro, CSV y TiempoEsperaEnvio
+        ├─ verifactu_submissions (constancia de cada envío, 4 años) y estado de cada registro
+        ├─ syncInvoices: la factura enseña el estado de su último registro
+        ├─ sin respuesta (red, 5xx, SoapFault) → se repite a los 1, 2, 4… minutos, como mucho cada hora
+        └─ rechazado → no se repite: se corrige con un registro de subsanación
 ```
+
+### Registros, correcciones y baja
+
+- **Un registro por fila** (`verifactu_records`): alta, subsanación o anulación, con `RefExterna` = id del registro. El XML no se rehace al enviar: si cambian después los datos del cliente, sale lo que se registró.
+- **Subsanación** (`POST /billing/invoices/:id/resend-aeat`): lo rechazado o aceptado con avisos se corrige con un registro nuevo al final de la cadena (`Subsanacion=S`, `RechazoPrevio` X si la AEAT nunca tuvo la factura y S si la tenía). Si el error está en algo que se ve en la factura, se rectifica.
+- **Anulación** de una factura emitida por error (`POST /invoices/:id/void`): solo sin cobros ni rectificativas; registro de anulación (`SinRegistroPrevio` si la AEAT no la tenía) y la factura sale de los libros.
+- **Renuncia** (art. 17): con registros en el año, desactivar programa la baja al 31-12; los envíos hasta entonces llevan `FechaFinVeriFactu` y el cron `verifactu.renuncia` la aplica el 1 de enero si llegó a la AEAT.
+- **Incidencias** (art. 16.4): con un emisor fallando, lo pendiente sale marcado (`Incidencia=S`) y el panel avisa de cuántas facturas faltan por llegar.
+- **XML validado contra los XSD oficiales** con xmllint en las pruebas (`verifactu-xsd.spec.ts`, XSD en `__tests__/fixtures/aeat-xsd`): cualquier cambio en el XML tiene que pasarla.
+- **Declaración responsable** del sistema (art. 15 de la Orden): una por versión (`VERIFACTU_DECLARATIONS` en shared), en `/declaracion-responsable`, en Configuración → Veri\*Factu y en PDF.
 
 ### Modos `AEAT_MODE`
 
