@@ -1,21 +1,33 @@
+/** Forma de cobro tal como la cuenta la caja. */
+export type CashMethodKey = 'cash' | 'card' | 'sepaDebit' | 'bankTransfer' | 'bizum' | 'other';
+
 /** Resumen de cobros de un día por método de pago (para el arqueo de caja). */
 export interface CashDaySummaryDto {
   date: string;
   /** Local del resumen; null = caja global del tenant. */
   facilityId: string | null;
+  /** Cobrado ese día por forma de pago (un cobro devuelto después sigue contando el día que se cobró). */
   cash: number;
   card: number;
   sepaDebit: number;
   bankTransfer: number;
+  bizum: number;
   other: number;
   total: number;
-  /** Reembolsos EN EFECTIVO del día (restan del efectivo esperado en caja). */
+  /** Devoluciones a inquilinos hechas ese día, por la forma en que salió el dinero. */
+  refunds: Record<CashMethodKey, number>;
+  refundsTotal: number;
+  /** Cobros que el banco devolvió ese día (recibos devueltos y contracargos). */
+  returned: number;
+  /** Devoluciones EN EFECTIVO del día (facturas): restan del efectivo esperado. */
   cashRefunds: number;
-  /** Efectivo neto esperado en caja = `cash` − `cashRefunds`. */
+  /** Fianzas devueltas en efectivo ese día: también salen del cajón. */
+  depositReturnsCash: number;
+  /** Efectivo esperado en caja = `cash` − `cashRefunds` − `depositReturnsCash`. */
   expectedCash: number;
   /** Nº de cobros del día. */
   count: number;
-  /** El cierre ya registrado de ese día, si existe. */
+  /** El cierre vigente de ese día, si existe (los reabiertos no cuentan). */
   closure: CashClosureDto | null;
 }
 
@@ -31,4 +43,8 @@ export interface CashClosureDto {
   notes: string | null;
   closedByName: string | null;
   closedAt: string;
+  /** Reabierto para registrar un movimiento de ese día (queda de constancia). */
+  reopenedAt: string | null;
+  reopenedByName: string | null;
+  reopenReason: string | null;
 }

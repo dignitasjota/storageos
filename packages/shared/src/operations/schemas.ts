@@ -166,6 +166,6 @@ export const CreateProductSaleSchema = z.object({
    * queda pagada en el acto; `pending` deja la factura pendiente (solo con
    * inquilino: la paga después como cualquier otra).
    */
-  paymentMethod: z.enum(['cash', 'card', 'bank_transfer', 'pending']).default('cash'),
+  paymentMethod: z.enum(['cash', 'card', 'bank_transfer', 'bizum', 'pending']).default('cash'),
 });
 export type CreateProductSaleInput = z.infer<typeof CreateProductSaleSchema>;

@@ -728,6 +728,7 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
                   <SelectItem value="cash">Efectivo</SelectItem>
                   <SelectItem value="card">Tarjeta (datáfono)</SelectItem>
                   <SelectItem value="bank_transfer">Transferencia</SelectItem>
+                  <SelectItem value="bizum">Bizum</SelectItem>
                   {customerId && (
                     <SelectItem value="pending">Pendiente: se cobra con la factura</SelectItem>
                   )}

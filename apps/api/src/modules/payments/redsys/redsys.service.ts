@@ -206,9 +206,14 @@ export class RedsysService {
       });
       const sameExtras =
         !!existing && [...existing.extraInvoiceIds].sort().join() === [...extraIds].sort().join();
+      const orderPayMethod = payMethod ?? null;
       if (existing && existing.amountCents === amountCents && sameExtras) {
-        if (existing.saveCard === saveCard) return existing;
-        return tx.redsysOrder.update({ where: { order: existing.order }, data: { saveCard } });
+        if (existing.saveCard === saveCard && existing.payMethod === orderPayMethod)
+          return existing;
+        return tx.redsysOrder.update({
+          where: { order: existing.order },
+          data: { saveCard, payMethod: orderPayMethod },
+        });
       }
       // Lo pendiente cambió (cobro parcial entre medias): la orden anterior se
       // sustituye por otra con el importe actual. Si aun así llega su pago,
@@ -228,6 +233,7 @@ export class RedsysService {
           status: 'pending',
           saveCard,
           extraInvoiceIds: extraIds,
+          payMethod: orderPayMethod,
         },
       });
     }, tenantId);
@@ -416,7 +422,8 @@ export class RedsysService {
             invoiceId: part.invoiceId,
             input: {
               amount: part.cents / 100,
-              methodType: 'card',
+              // Con Bizum el TPV solo ofrece Bizum: el cobro es Bizum.
+              methodType: orderRow.payMethod === 'bizum' ? 'bizum' : 'card',
               notes: `Redsys ${order}`,
               // Confirmación de un pago real por Redsys: salta el guard de adeudo en vuelo.
               overridePaymentInFlight: true,

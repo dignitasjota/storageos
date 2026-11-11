@@ -217,6 +217,31 @@ describe('Redsys (e2e)', () => {
       Buffer.from(card.body.merchantParameters, 'base64').toString('utf8'),
     );
     expect(cardParams.DS_MERCHANT_PAYMETHODS).toBe('C');
+
+    // Vuelve a Bizum y paga: el cobro queda anotado como Bizum (no como tarjeta).
+    const again = await request(app.getHttpServer())
+      .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+      .set(auth)
+      .send({ payMethod: 'bizum' });
+    const order = JSON.parse(Buffer.from(again.body.merchantParameters, 'base64').toString('utf8'))
+      .DS_MERCHANT_ORDER as string;
+    const notif = encodeMerchantParameters({
+      Ds_Order: order,
+      Ds_Response: '0000',
+      Ds_Amount: '12100',
+    });
+    await request(app.getHttpServer())
+      .post('/webhooks/redsys')
+      .send({
+        Ds_SignatureVersion: 'HMAC_SHA256_V1',
+        Ds_MerchantParameters: notif,
+        Ds_Signature: signRequest(notif, order, TEST_KEY),
+      })
+      .expect(200);
+    const pays = await request(app.getHttpServer())
+      .get(`/payments?invoiceId=${invoiceId}`)
+      .set(auth);
+    expect((pays.body as { methodType: string }[]).map((p) => p.methodType)).toEqual(['bizum']);
   });
 
   it('portal (pago tras firmar la reserva): disponibilidad de Bizum + redirect del propio inquilino', async () => {

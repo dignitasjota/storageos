@@ -75,3 +75,7 @@ ALTER TABLE "sepa_remittance_items"
   ADD CONSTRAINT "sepa_remittance_items_payment_id_fkey"
   FOREIGN KEY ("payment_id") REFERENCES "payments"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 CREATE INDEX "sepa_remittance_items_payment_id_idx" ON "sepa_remittance_items" ("payment_id");
+
+-- Redsys: con qué pidió pagar el inquilino (tarjeta o Bizum), para anotar el
+-- cobro con su forma real (antes todo salía como tarjeta).
+ALTER TABLE "redsys_orders" ADD COLUMN "pay_method" TEXT;

@@ -164,9 +164,17 @@ describe('InvoicesService.refund — reembolso real vía pasarela', () => {
     expect(result.status).toBe('partially_refunded');
   });
 
-  it('sin pago de pasarela (cobro manual): NO llama al gateway, solo actualiza la factura', async () => {
+  it('sin pago de pasarela (cobro manual): NO llama al gateway; anota la devolución y cómo salió el dinero', async () => {
     const gatewayRefund = jest.fn();
     const { service, tx } = buildService({ gatewayPayment: null, gatewayRefund });
+    // Cobros a mano de la factura (los que no tienen id de pasarela).
+    tx.payment.findMany.mockImplementation(({ where }: { where: { gatewayPaymentId?: null } }) =>
+      Promise.resolve(
+        where.gatewayPaymentId === null
+          ? [{ id: 'pay-tr', amount: 100, refundedAmount: 0, methodType: 'bank_transfer' }]
+          : [{ amount: 1000 }],
+      ),
+    );
 
     await service.refund({
       tenantId: TENANT,
@@ -177,7 +185,21 @@ describe('InvoicesService.refund — reembolso real vía pasarela', () => {
     });
 
     expect(gatewayRefund).not.toHaveBeenCalled();
-    expect(tx.payment.update).not.toHaveBeenCalled();
+    expect(tx.payment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'pay-tr' },
+        data: expect.objectContaining({ refundedAmount: 30, status: 'partially_refunded' }),
+      }),
+    );
+    expect(tx.invoiceRefund.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          via: 'manual',
+          method: 'bank_transfer',
+          paymentId: 'pay-tr',
+        }),
+      }),
+    );
     expect(tx.invoice.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ amountRefunded: 30 }) }),
     );

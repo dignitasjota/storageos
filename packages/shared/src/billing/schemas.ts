@@ -113,6 +113,11 @@ export const ManualPaymentMethodEnum = z.enum([
 ]);
 export type ManualPaymentMethodValue = z.infer<typeof ManualPaymentMethodEnum>;
 
+/** Formas de pago en las que se mueve dinero (las que se registran a mano). */
+export function isManualPaymentMethod(m: string): m is ManualPaymentMethodValue {
+  return (ManualPaymentMethodEnum.options as readonly string[]).includes(m);
+}
+
 /**
  * Método de un pago registrado: además de los anteriores, los que crea la app
  * y no se eligen a mano: `credit_note` = compensación con una rectificativa de
@@ -400,6 +405,12 @@ export const RefundInvoiceSchema = z.object({
    * en el contrato). Por defecto, por la misma vía del cobro.
    */
   method: z.enum(['original', 'credit']).optional(),
+  /**
+   * Devolución a mano (cobros en efectivo, transferencia, Bizum o TPV del
+   * local): cómo sale el dinero. Por defecto, la forma del cobro. La caja
+   * descuenta las devueltas en efectivo el día en que se devuelven.
+   */
+  refundMethod: ManualPaymentMethodEnum.optional(),
 });
 export type RefundInvoiceInput = z.infer<typeof RefundInvoiceSchema>;
 

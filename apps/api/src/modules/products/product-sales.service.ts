@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
+import { assertCashDayOpen } from '../../common/cash-day';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
@@ -337,6 +338,28 @@ export class ProductSalesService {
         code: 'product_sale_not_cancellable',
         message: 'La venta no se puede cancelar en su estado actual',
       });
+    }
+    // Cobrada en efectivo: devolver el dinero sale del cajón de hoy. Con la caja
+    // cerrada no se cancela (antes se cancelaba sin devolver nada).
+    if (existing.invoiceId) {
+      const invoiceId = existing.invoiceId;
+      await this.prisma.withTenant(async (tx) => {
+        const cashPaid = await tx.payment.count({
+          where: {
+            invoiceId,
+            methodType: 'cash',
+            status: { in: ['succeeded', 'partially_refunded'] },
+          },
+        });
+        if (cashPaid > 0) {
+          await assertCashDayOpen(tx, {
+            tenantId: args.tenantId,
+            facilityId: existing.facilityId,
+            at: [new Date()],
+            what: 'devolver una venta cobrada en efectivo',
+          });
+        }
+      }, args.tenantId);
     }
 
     await this.prisma.withTenant(async (tx) => {

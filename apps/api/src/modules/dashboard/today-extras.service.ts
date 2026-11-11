@@ -846,7 +846,8 @@ export class TodayExtrasService {
                 invoice: invWhere,
                 status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
                 paidAt: since,
-                methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+                // La fianza aplicada no es dinero cobrado hoy.
+                methodType: { notIn: [...NON_CASH_PAYMENT_METHODS, 'deposit'] },
               },
               _sum: { amount: true },
               _count: { _all: true },
@@ -854,7 +855,7 @@ export class TodayExtrasService {
           : [],
         money
           ? tx.cashClosure.findFirst({
-              where: { closureDate: today, facilityId },
+              where: { closureDate: today, facilityId, reopenedAt: null },
               select: { id: true },
             })
           : null,

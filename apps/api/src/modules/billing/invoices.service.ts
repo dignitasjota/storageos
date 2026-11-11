@@ -14,6 +14,7 @@ import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import {
   defaultTaxCategory,
+  isManualPaymentMethod,
   isValidSpanishTaxId,
   normalizeTaxId,
   taxCategoryAllowsRate,
@@ -52,6 +53,7 @@ import {
   type InvoiceCancelledPayload,
   type InvoicePaymentRevertedPayload,
   type InvoiceRefundedPayload,
+  type PaymentDisputeWonPayload,
   type InvoiceVoidedPayload,
 } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
@@ -70,7 +72,13 @@ import { VerifactuService } from './verifactu.service';
 
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
-import type { Invoice, InvoiceItem, InvoiceStatus, InvoiceType } from '@storageos/database';
+import type {
+  Invoice,
+  InvoiceItem,
+  InvoiceStatus,
+  InvoiceType,
+  PaymentMethodType,
+} from '@storageos/database';
 import type {
   BulkInvoiceActionResultDto,
   CancelInvoiceInput,
@@ -3205,6 +3213,8 @@ export class InvoicesService {
     let fullyRefunded = false;
     let gatewayRefundId: string | null = null;
     let usedGateway = false;
+    /** Cómo salió el dinero (null: saldo a favor, no sale nada). */
+    let refundMethod: PaymentMethodType | null = null;
 
     // Todo el reembolso va en UNA transacción con la factura bloqueada, que
     // incluye la llamada a la pasarela: un doble clic (o dos personas a la vez)
@@ -3330,6 +3340,7 @@ export class InvoicesService {
           });
           via = 'bank';
           refundedPaymentId = gatewayPayment.id;
+          refundMethod = gatewayPayment.methodType;
         } else if (gatewayPayment?.gatewayPaymentId) {
           const paymentRefundable = subtractAmounts(
             gatewayPayment.amount,
@@ -3379,6 +3390,7 @@ export class InvoicesService {
           usedGateway = true;
           via = 'gateway';
           refundedPaymentId = gatewayPayment.id;
+          refundMethod = gatewayPayment.methodType;
           // `payment.refundedAmount` al día: el webhook `charge.refunded`
           // sincroniza por delta contra este campo, así no se cuenta dos veces.
           await tx.payment.update({
@@ -3392,10 +3404,11 @@ export class InvoicesService {
             },
           });
         } else {
-          // Cobro manual (efectivo/transferencia): no hay pasarela que devuelva el
-          // dinero, pero registramos el reembolso en el `payment` para que el arqueo
-          // de caja lo descuente por su método (p. ej. una devolución en efectivo).
-          const manualPayment = await tx.payment.findFirst({
+          // Cobros a mano (efectivo, transferencia, Bizum, TPV del local): no hay
+          // pasarela que devuelva el dinero; se anota en esos cobros (sin pasar
+          // de lo cobrado en cada uno), empezando por los de la misma forma en
+          // que se devuelve y por los más recientes.
+          const manualPayments = await tx.payment.findMany({
             where: {
               invoiceId: args.invoiceId,
               gatewayPaymentId: null,
@@ -3404,20 +3417,43 @@ export class InvoicesService {
             },
             orderBy: { createdAt: 'desc' },
           });
-          if (manualPayment) {
-            const newPaymentRefunded = addAmounts(manualPayment.refundedAmount, amount);
+          const first = manualPayments[0];
+          refundMethod =
+            args.input.refundMethod ??
+            (first && isManualPaymentMethod(first.methodType) ? first.methodType : 'bank_transfer');
+          const ordered = [
+            ...manualPayments.filter((p) => p.methodType === refundMethod),
+            ...manualPayments.filter((p) => p.methodType !== refundMethod),
+          ];
+          let left = toCents(amount);
+          for (const payment of ordered) {
+            if (left <= 0) break;
+            const room = toCents(payment.amount) - toCents(payment.refundedAmount);
+            if (room <= 0) continue;
+            const take = Math.min(room, left);
+            const newPaymentRefunded = addAmounts(payment.refundedAmount, take / 100);
             await tx.payment.update({
-              where: { id: manualPayment.id },
+              where: { id: payment.id },
               data: {
                 refundedAmount: newPaymentRefunded,
                 refundedAt: new Date(),
-                status: isAtLeast(newPaymentRefunded, manualPayment.amount)
+                status: isAtLeast(newPaymentRefunded, payment.amount)
                   ? 'refunded'
                   : 'partially_refunded',
               },
             });
-            refundedPaymentId = manualPayment.id;
+            refundedPaymentId ??= payment.id;
+            left -= take;
           }
+        }
+        // Dinero devuelto en efectivo: sale del cajón de hoy (no con la caja cerrada).
+        if (refundMethod === 'cash') {
+          await assertCashDayOpen(tx, {
+            tenantId: args.tenantId,
+            facilityId: await invoiceFacilityId(tx, args.invoiceId),
+            at: [new Date()],
+            what: 'una devolución en efectivo',
+          });
         }
         // Constancia de cada devolución: cuánto, cómo y quién.
         await tx.invoiceRefund.create({
@@ -3427,6 +3463,7 @@ export class InvoicesService {
             paymentId: refundedPaymentId,
             amount,
             via,
+            method: refundMethod,
             reason: args.input.reason?.trim() || null,
             gatewayRefundId,
             createdByUserId: args.userId,
@@ -3459,6 +3496,7 @@ export class InvoicesService {
         gateway: usedGateway,
         gatewayRefundId,
         method: args.input.method ?? 'original',
+        refundMethod,
       },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
@@ -3471,6 +3509,41 @@ export class InvoicesService {
       amount,
     } satisfies InvoiceRefundedPayload);
     return this.toDto(updated);
+  }
+
+  /** Disputa ganada en la pasarela: el cobro revertido vuelve a contar. */
+  @OnEvent(DOMAIN_EVENTS.payment_dispute_won, { async: true, promisify: true })
+  async onPaymentDisputeWon(p: PaymentDisputeWonPayload): Promise<void> {
+    try {
+      await this.restorePayment({
+        tenantId: p.tenantId,
+        userId: null,
+        invoiceId: p.invoiceId,
+        paymentId: p.paymentId,
+        reason: 'Disputa ganada en la pasarela',
+        meta: {},
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`[invoices] disputa ganada sin aplicar en ${p.invoiceId}: ${reason}`);
+      // El dinero volvió al negocio: si no puede volver a contar (la factura se
+      // pagó de otra forma o se anuló), alguien tiene que decidir qué hacer.
+      await this.prisma
+        .withTenant(
+          (tx) =>
+            tx.notification.create({
+              data: {
+                tenantId: p.tenantId,
+                type: 'payment.dispute_won_unapplied',
+                title: 'Disputa ganada sin aplicar',
+                body: `La pasarela ha devuelto ${formatEur(p.amount)} de una disputa ganada, pero el cobro no puede volver a contar en la factura: ${reason.slice(0, 300)} Si el inquilino ya la pagó de otra forma, devuélvele la diferencia.`,
+                link: `/invoices/${p.invoiceId}`,
+              },
+            }),
+          p.tenantId,
+        )
+        .catch(() => undefined);
+    }
   }
 
   @OnEvent(DOMAIN_EVENTS.invoice_refunded, { async: true, promisify: true })

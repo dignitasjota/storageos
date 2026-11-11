@@ -1,22 +1,77 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
-import { zonedDayStart, zonedNextDayStart } from '../../common/format';
-import { subtractAmounts } from '../../common/money';
+import { todayInTimezone, zonedDayStart, zonedNextDayStart } from '../../common/format';
+import { toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma } from '@storageos/database';
-import type { CashClosureDto, CashDaySummaryDto, CloseCashInput } from '@storageos/shared';
+import type {
+  CashClosureDto,
+  CashDaySummaryDto,
+  CashMethodKey,
+  CloseCashInput,
+  ReopenCashClosureInput,
+} from '@storageos/shared';
+
+const CLOSURE_INCLUDE = {
+  closedBy: { select: { fullName: true } },
+  reopenedBy: { select: { fullName: true } },
+  facility: { select: { name: true } },
+} satisfies Prisma.CashClosureInclude;
+
+type ClosureRow = Prisma.CashClosureGetPayload<{ include: typeof CLOSURE_INCLUDE }>;
+
+/** La forma de un cobro tal como la cuenta la caja. */
+function methodKey(methodType: string | null): CashMethodKey {
+  switch (methodType) {
+    case 'cash':
+      return 'cash';
+    case 'card':
+      return 'card';
+    case 'sepa_debit':
+      return 'sepaDebit';
+    case 'bank_transfer':
+      return 'bankTransfer';
+    case 'bizum':
+      return 'bizum';
+    default:
+      return 'other';
+  }
+}
+
+const emptyByMethod = (): Record<CashMethodKey, number> => ({
+  cash: 0,
+  card: 0,
+  sepaDebit: 0,
+  bankTransfer: 0,
+  bizum: 0,
+  other: 0,
+});
+
+/** `YYYY-MM-DD` que existe en el calendario. */
+function isRealDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
 
 /**
- * Cierre de caja diario (arqueo de efectivo). Agrega los cobros del día por
- * método de pago (para cuadrar el efectivo) y registra el cierre: el operador
- * introduce el efectivo contado físicamente y se guarda la diferencia respecto
- * al esperado (suma de pagos `cash` del día). Uno por día, GLOBAL del tenant o
- * por LOCAL (`facilityId`); respeta el alcance por local del usuario.
+ * Cierre de caja diario (arqueo de efectivo). Agrega lo cobrado ese día por
+ * forma de pago y lo que salió (devoluciones, fianzas devueltas en efectivo) y
+ * registra el cierre: el operador introduce el efectivo contado y se guarda la
+ * diferencia con el esperado. Uno por día, GLOBAL del negocio o por LOCAL; un
+ * cierre se puede reabrir con motivo para registrar algo de ese día.
+ *
+ * El día es el del calendario del negocio (su zona horaria).
  */
 @Injectable()
 export class CashService {
@@ -25,19 +80,53 @@ export class CashService {
     private readonly audit: AuditService,
   ) {}
 
-  /** Rango [00:00, 24:00) del día `YYYY-MM-DD` en hora de España. */
-  private dayRange(date: string): { gte: Date; lt: Date } {
-    return { gte: zonedDayStart(date), lt: zonedNextDayStart(date) };
-  }
-
   /** El día como valor de la columna DATE del cierre (medianoche UTC). */
   private closureDay(date: string): Date {
     return new Date(`${date}T00:00:00.000Z`);
   }
 
+  private async tenantTimezone(tenantId: string): Promise<string> {
+    const tenant = await this.prisma.withTenant(
+      (tx) => tx.tenant.findUnique({ where: { id: tenantId }, select: { timezone: true } }),
+      tenantId,
+    );
+    return tenant?.timezone ?? 'Europe/Madrid';
+  }
+
+  /** Día pedido (o hoy en la zona del negocio), comprobado. */
+  private async resolveDay(
+    tenantId: string,
+    date: string | undefined,
+  ): Promise<{ day: string; tz: string }> {
+    const tz = await this.tenantTimezone(tenantId);
+    const today = todayInTimezone(tz).toISOString().slice(0, 10);
+    if (!date) return { day: today, tz };
+    if (!isRealDate(date)) {
+      throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
+    }
+    if (date > today) {
+      throw new BadRequestException({
+        code: 'date_in_future',
+        message: 'La caja de un día que aún no ha llegado no se consulta ni se cierra',
+      });
+    }
+    return { day: date, tz };
+  }
+
+  private async assertFacility(tenantId: string, facilityId: string): Promise<void> {
+    const found = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findFirst({ where: { id: facilityId, deletedAt: null }, select: { id: true } }),
+      tenantId,
+    );
+    if (!found) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
+  }
+
   async getDaySummary(
     tenantId: string,
-    date: string,
+    date: string | undefined,
     facilityId?: string | null,
     facilityScope?: string[] | null,
   ): Promise<CashDaySummaryDto> {
@@ -46,95 +135,122 @@ export class CashService {
     if (facilityScope && !facilityId) {
       throw new BadRequestException({
         code: 'facility_required',
-        message: 'Debes seleccionar un local (tu acceso está limitado por local)',
+        message: 'Elige un local: tu acceso está limitado a unos locales',
       });
     }
-    if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
-    const { gte, lt } = this.dayRange(date);
-    // Filtro por local: una factura pertenece a un local por su contrato
-    // (alquiler), por su venta de producto (tienda, sin contrato) o por su local
-    // imputado directamente (pase nocturno).
-    const facilityFilter: Prisma.PaymentWhereInput = facilityId
-      ? {
-          invoice: {
-            OR: [
-              { contract: { unit: { facilityId } } },
-              { productSale: { facilityId } },
-              // Facturas imputadas a un local sin contrato ni venta (pase nocturno).
-              { facilityId },
-            ],
-          },
-        }
-      : {};
-    // Ingresos del día: un cobro cuenta como entrada de caja el día en que se
-    // cobró aunque más tarde se reembolse (por eso también `refunded`/parcial);
-    // el reembolso se descuenta aparte el día en que se produce.
-    const incomeWhere: Prisma.PaymentWhereInput = {
-      status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
-      paidAt: { gte, lt },
-      // Una compensación con abono no es dinero que entre en caja.
-      methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
-      ...facilityFilter,
-    };
-    // Reembolsos del día: pagos con importe devuelto en esta fecha (restan de la
-    // caja física por su método original).
-    const refundWhere: Prisma.PaymentWhereInput = {
-      refundedAt: { gte, lt },
-      refundedAmount: { gt: 0 },
-      ...facilityFilter,
-    };
-    const [rows, refundRows, closureRow] = await this.prisma.withTenant(
-      (tx) =>
-        Promise.all([
-          tx.payment.groupBy({
-            by: ['methodType'],
-            where: incomeWhere,
-            _sum: { amount: true },
-            _count: { _all: true },
-          }),
-          tx.payment.groupBy({
-            by: ['methodType'],
-            where: refundWhere,
-            _sum: { refundedAmount: true },
-          }),
-          tx.cashClosure.findFirst({
-            where: { closureDate: this.closureDay(date), facilityId: facilityId ?? null },
-            include: {
-              closedBy: { select: { fullName: true } },
-              facility: { select: { name: true } },
-            },
-          }),
-        ]),
-      tenantId,
-    );
+    if (facilityId) {
+      assertFacilityAllowed(facilityScope, facilityId);
+      await this.assertFacility(tenantId, facilityId);
+    }
+    const { day, tz } = await this.resolveDay(tenantId, date);
+    const gte = zonedDayStart(day, tz);
+    const lt = zonedNextDayStart(day, tz);
 
-    const byMethod: Record<string, number> = {};
+    // Una factura es de un local por su contrato (alquiler), por su venta de
+    // producto (tienda) o por su local imputado (pase nocturno).
+    const invoiceOfFacility: Prisma.InvoiceWhereInput | null = facilityId
+      ? {
+          OR: [
+            { contract: { unit: { facilityId } } },
+            { productSale: { facilityId } },
+            { facilityId },
+          ],
+        }
+      : null;
+    // Lo cobrado ese día: cuenta aunque después se devuelva (reembolso o
+    // devolución del banco), que se descuenta el día en que ocurre. La fianza
+    // aplicada a una factura no es dinero nuevo: entró al cobrar la fianza.
+    const incomeWhere: Prisma.PaymentWhereInput = {
+      paidAt: { gte, lt },
+      methodType: { notIn: [...NON_CASH_PAYMENT_METHODS, 'deposit'] },
+      OR: [
+        { status: { in: ['succeeded', 'partially_refunded', 'refunded'] } },
+        { status: 'failed', returnedAt: { not: null } },
+      ],
+      ...(invoiceOfFacility ? { invoice: invoiceOfFacility } : {}),
+    };
+    const dayDate = this.closureDay(day);
+
+    const [incomeRows, refundRows, returnedSum, depositReturns, closureRow] =
+      await this.prisma.withTenant(
+        (tx) =>
+          Promise.all([
+            tx.payment.groupBy({
+              by: ['methodType'],
+              where: incomeWhere,
+              _sum: { amount: true },
+              _count: { _all: true },
+            }),
+            // Devoluciones del día por la forma en que salió el dinero (una
+            // devolución como saldo a favor no tiene forma: no sale dinero).
+            tx.invoiceRefund.groupBy({
+              by: ['method'],
+              where: {
+                createdAt: { gte, lt },
+                method: { not: null },
+                ...(invoiceOfFacility ? { invoice: invoiceOfFacility } : {}),
+              },
+              _sum: { amount: true },
+            }),
+            tx.payment.aggregate({
+              where: {
+                returnedAt: { gte, lt },
+                ...(invoiceOfFacility ? { invoice: invoiceOfFacility } : {}),
+              },
+              _sum: { amount: true },
+            }),
+            // Fianzas devueltas en efectivo ese día (el día que se indicó al
+            // liquidar o, si no, el de la liquidación).
+            tx.contract.aggregate({
+              where: {
+                depositReturnMethod: 'cash',
+                depositReturnedAmount: { gt: 0 },
+                OR: [
+                  { depositReturnedOn: dayDate },
+                  { depositReturnedOn: null, depositSettledAt: { gte, lt } },
+                ],
+                ...(facilityId ? { unit: { facilityId } } : {}),
+              },
+              _sum: { depositReturnedAmount: true },
+            }),
+            tx.cashClosure.findFirst({
+              where: { closureDate: dayDate, facilityId: facilityId ?? null, reopenedAt: null },
+              include: CLOSURE_INCLUDE,
+            }),
+          ]),
+        tenantId,
+      );
+
+    const incomeCents = emptyByMethod();
     let count = 0;
-    for (const r of rows) {
-      byMethod[r.methodType] = Number(r._sum.amount ?? 0);
+    for (const r of incomeRows) {
+      incomeCents[methodKey(r.methodType)] += toCents(r._sum.amount ?? 0);
       count += r._count._all;
     }
-    const refundsByMethod: Record<string, number> = {};
+    const refundCents = emptyByMethod();
     for (const r of refundRows) {
-      refundsByMethod[r.methodType] = Number(r._sum.refundedAmount ?? 0);
+      refundCents[methodKey(r.method)] += toCents(r._sum.amount ?? 0);
     }
-    const cash = byMethod.cash ?? 0;
-    const card = byMethod.card ?? 0;
-    const sepaDebit = byMethod.sepa_debit ?? 0;
-    const bankTransfer = byMethod.bank_transfer ?? 0;
-    const other = byMethod.other ?? 0;
-    const cashRefunds = refundsByMethod.cash ?? 0;
+    const sum = (m: Record<CashMethodKey, number>) => Object.values(m).reduce((a, b) => a + b, 0);
+    const toEuros = (m: Record<CashMethodKey, number>) =>
+      Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v / 100])) as Record<
+        CashMethodKey,
+        number
+      >;
+    const depositReturnsCashCents = toCents(depositReturns._sum.depositReturnedAmount ?? 0);
+    const expectedCents = incomeCents.cash - refundCents.cash - depositReturnsCashCents;
+
     return {
-      date,
+      date: day,
       facilityId: facilityId ?? null,
-      cash,
-      card,
-      sepaDebit,
-      bankTransfer,
-      other,
-      total: cash + card + sepaDebit + bankTransfer + other,
-      cashRefunds,
-      expectedCash: subtractAmounts(cash, cashRefunds),
+      ...toEuros(incomeCents),
+      total: sum(incomeCents) / 100,
+      refunds: toEuros(refundCents),
+      refundsTotal: sum(refundCents) / 100,
+      returned: toCents(returnedSum._sum.amount ?? 0) / 100,
+      cashRefunds: refundCents.cash / 100,
+      depositReturnsCash: depositReturnsCashCents / 100,
+      expectedCash: expectedCents / 100,
       count,
       closure: closureRow ? this.toDto(closureRow) : null,
     };
@@ -148,8 +264,7 @@ export class CashService {
     meta: RequestMeta;
   }): Promise<CashClosureDto> {
     const facilityId = args.input.facilityId ?? null;
-    if (facilityId) assertFacilityAllowed(args.facilityScope, facilityId);
-    // Esperado = efectivo cobrado ese día (pagos `cash` succeeded) en ese ámbito.
+    // El resumen comprueba el día, el local y el alcance.
     const summary = await this.getDaySummary(
       args.tenantId,
       args.input.date,
@@ -162,10 +277,9 @@ export class CashService {
         message: 'La caja de ese día ya está cerrada',
       });
     }
-    // Esperado = efectivo cobrado − reembolsos en efectivo del día.
-    const expected = summary.expectedCash;
-    const counted = args.input.countedCash;
-    const difference = subtractAmounts(counted, expected);
+    const expectedCents = toCents(summary.expectedCash);
+    const countedCents = toCents(args.input.countedCash);
+    const differenceCents = countedCents - expectedCents;
 
     const created = await this.prisma
       .withTenant(
@@ -174,17 +288,14 @@ export class CashService {
             data: {
               tenantId: args.tenantId,
               facilityId,
-              closureDate: this.closureDay(args.input.date),
-              expectedCash: expected,
-              countedCash: counted,
-              difference,
+              closureDate: this.closureDay(summary.date),
+              expectedCash: expectedCents / 100,
+              countedCash: countedCents / 100,
+              difference: differenceCents / 100,
               notes: args.input.notes?.trim() || null,
               closedByUserId: args.userId,
             },
-            include: {
-              closedBy: { select: { fullName: true } },
-              facility: { select: { name: true } },
-            },
+            include: CLOSURE_INCLUDE,
           }),
         args.tenantId,
       )
@@ -204,45 +315,92 @@ export class CashService {
       action: 'cash.day_closed',
       entityType: 'CashClosure',
       entityId: created.id,
-      changes: { date: args.input.date, facilityId, expected, counted, difference },
+      changes: {
+        date: summary.date,
+        facilityId,
+        expected: expectedCents / 100,
+        counted: countedCents / 100,
+        difference: differenceCents / 100,
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(created);
   }
 
+  /**
+   * Reabre un cierre para registrar un cobro o una devolución en efectivo de
+   * ese día. El cierre queda de constancia (reabierto, con quién y por qué) y
+   * el día se vuelve a cerrar con el arqueo nuevo.
+   */
+  async reopen(args: {
+    tenantId: string;
+    userId: string;
+    closureId: string;
+    input: ReopenCashClosureInput;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<CashClosureDto> {
+    const closure = await this.prisma.withTenant(
+      (tx) => tx.cashClosure.findFirst({ where: { id: args.closureId } }),
+      args.tenantId,
+    );
+    // Quien solo ve unos locales no ve (ni reabre) la caja global.
+    if (!closure || (args.facilityScope && !closure.facilityId)) {
+      throw new NotFoundException({ code: 'closure_not_found', message: 'Cierre no encontrado' });
+    }
+    if (closure.facilityId) assertFacilityAllowed(args.facilityScope, closure.facilityId);
+    const reason = args.input.reason.trim();
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const claimed = await tx.cashClosure.updateMany({
+        where: { id: args.closureId, reopenedAt: null },
+        data: { reopenedAt: new Date(), reopenedByUserId: args.userId, reopenReason: reason },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException({
+          code: 'closure_already_reopened',
+          message: 'Ese cierre ya está reabierto',
+        });
+      }
+      return tx.cashClosure.findUniqueOrThrow({
+        where: { id: args.closureId },
+        include: CLOSURE_INCLUDE,
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'cash.closure_reopened',
+      entityType: 'CashClosure',
+      entityId: args.closureId,
+      changes: {
+        date: closure.closureDate.toISOString().slice(0, 10),
+        facilityId: closure.facilityId,
+        reason,
+      },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
   async listClosures(tenantId: string, facilityScope?: string[] | null): Promise<CashClosureDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.cashClosure.findMany({
-          // El usuario restringido solo ve los cierres globales + los de sus locales.
-          where: facilityScope
-            ? { OR: [{ facilityId: null }, { facilityId: { in: facilityScope } }] }
-            : {},
-          orderBy: { closureDate: 'desc' },
+          // Quien solo ve unos locales ve los cierres de esos locales (la caja
+          // global es de toda la empresa).
+          where: facilityScope ? { facilityId: { in: facilityScope } } : {},
+          orderBy: [{ closureDate: 'desc' }, { closedAt: 'desc' }],
           take: 90,
-          include: {
-            closedBy: { select: { fullName: true } },
-            facility: { select: { name: true } },
-          },
+          include: CLOSURE_INCLUDE,
         }),
       tenantId,
     );
     return rows.map((r) => this.toDto(r));
   }
 
-  private toDto(row: {
-    id: string;
-    facilityId: string | null;
-    closureDate: Date;
-    expectedCash: Prisma.Decimal;
-    countedCash: Prisma.Decimal;
-    difference: Prisma.Decimal;
-    notes: string | null;
-    closedAt: Date;
-    closedBy: { fullName: string } | null;
-    facility: { name: string } | null;
-  }): CashClosureDto {
+  private toDto(row: ClosureRow): CashClosureDto {
     return {
       id: row.id,
       date: row.closureDate.toISOString().slice(0, 10),
@@ -254,6 +412,9 @@ export class CashService {
       notes: row.notes,
       closedByName: row.closedBy?.fullName ?? null,
       closedAt: row.closedAt.toISOString(),
+      reopenedAt: row.reopenedAt?.toISOString() ?? null,
+      reopenedByName: row.reopenedBy?.fullName ?? null,
+      reopenReason: row.reopenReason,
     };
   }
 }

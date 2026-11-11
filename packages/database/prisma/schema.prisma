@@ -4986,6 +4986,8 @@ model RedsysOrder {
   saveCard    Boolean   @default(false) @map("save_card")
   /// Otras facturas que se pagan en la misma orden («Pagar todo»).
   extraInvoiceIds String[] @default([]) @map("extra_invoice_ids") @db.Uuid
+  /// Con qué pidió pagar: "card" | "bizum" (null = lo que ofrezca el TPV).
+  payMethod   String?   @map("pay_method")
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
 

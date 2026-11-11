@@ -1,13 +1,9 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
 import { ACCESS_CUT_APPLIED_WHERE } from '../../common/access-cut';
+import { assertCashDayOpen, invoiceFacilityId } from '../../common/cash-day';
 import { todayInTimezone } from '../../common/format';
 import { toCents } from '../../common/money';
 import { CHARGEABLE_MANDATE_WHERE, hasPaymentInFlight } from '../../common/sepa-remittance-guard';
@@ -432,37 +428,16 @@ export class InvoiceToolsService {
     days: (Date | null)[],
   ): Promise<void> {
     if (methodType !== 'cash') return;
-    const dates = [
-      ...new Set(
-        days
-          .filter((d): d is Date => !!d)
-          .map((d) => todayInTimezone('Europe/Madrid', d).getTime()),
-      ),
-    ].map((t) => new Date(t));
-    if (dates.length === 0) return;
-    const closed = await this.prisma.withTenant(async (tx) => {
-      const invoice = await tx.invoice.findUnique({
-        where: { id: invoiceId },
-        select: {
-          facilityId: true,
-          contract: { select: { unit: { select: { facilityId: true } } } },
-        },
-      });
-      const facilityId = invoice?.contract?.unit?.facilityId ?? invoice?.facilityId ?? null;
-      return tx.cashClosure.findFirst({
-        where: {
-          closureDate: { in: dates },
-          OR: [{ facilityId: null }, ...(facilityId ? [{ facilityId }] : [])],
-        },
-        select: { closureDate: true },
-      });
-    }, tenantId);
-    if (closed) {
-      throw new ConflictException({
-        code: 'cash_day_closed',
-        message: `La caja del ${closed.closureDate.toISOString().slice(0, 10).split('-').reverse().join('/')} ya está cerrada: un cobro en efectivo de ese día no se puede cambiar.`,
-      });
-    }
+    await this.prisma.withTenant(
+      async (tx) =>
+        assertCashDayOpen(tx, {
+          tenantId,
+          facilityId: await invoiceFacilityId(tx, invoiceId),
+          at: days,
+          what: 'un cobro en efectivo',
+        }),
+      tenantId,
+    );
   }
 
   // -------------------------------------------------------------------------

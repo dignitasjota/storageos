@@ -746,25 +746,33 @@ export class CollectionsService {
       );
       if (pendingCents <= 0) continue;
       const payCents = Math.min(pendingCents, fundsCents);
-      // Reparte el pago entre fianza (primero) y producto para el desglose.
+      // Reparte el pago entre fianza (primero) y producto para el desglose. La
+      // fianza va con su forma propia: no es dinero nuevo y no cuenta en caja.
       const fromDeposit = Math.min(payCents, depositCents - depositAppliedCents);
+      const fromProceeds = payCents - fromDeposit;
       depositAppliedCents += fromDeposit;
-      proceedsAppliedCents += payCents - fromDeposit;
-      await this.invoices.markPaidManually({
-        tenantId,
-        userId,
-        invoiceId: inv.id,
-        facilityScope,
-        input: {
-          amount: payCents / 100,
-          methodType: 'other',
-          notes: `Liquidación expediente ${caseId} (fianza + disposición)`,
-          allowPartialNonCash: true,
-          overridePaymentInFlight: true,
-          allowInSepaRemittance: true,
-        },
-        meta: {},
-      });
+      proceedsAppliedCents += fromProceeds;
+      for (const [cents, methodType, label] of [
+        [fromDeposit, 'deposit', 'fianza'],
+        [fromProceeds, 'other', 'disposición'],
+      ] as const) {
+        if (cents <= 0) continue;
+        await this.invoices.markPaidManually({
+          tenantId,
+          userId,
+          invoiceId: inv.id,
+          facilityScope,
+          input: {
+            amount: cents / 100,
+            methodType,
+            notes: `Liquidación expediente ${caseId} (${label})`,
+            allowPartialNonCash: true,
+            overridePaymentInFlight: true,
+            allowInSepaRemittance: true,
+          },
+          meta: {},
+        });
+      }
       fundsCents -= payCents;
       invoicesSettled += 1;
     }

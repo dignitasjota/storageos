@@ -154,6 +154,16 @@ export class StripeConnectWebhookController {
         });
         break;
       }
+      case 'charge.dispute.closed': {
+        const intentId = refId(obj.payment_intent);
+        if (!intentId) break;
+        await this.payments.syncDisputeClosedFromWebhook({
+          tenantId,
+          gatewayPaymentId: intentId,
+          status: typeof obj.status === 'string' ? obj.status : undefined,
+        });
+        break;
+      }
       default:
         this.logger.debug(`Evento de Stripe Connect sin handler: ${event.type}`);
     }
