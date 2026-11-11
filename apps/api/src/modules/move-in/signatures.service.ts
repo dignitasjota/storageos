@@ -19,10 +19,12 @@ import {
   rentTax,
   type FirstPaymentMonths,
   type FirstPaymentQuoteDto,
+  needsImmediateStartRequest,
+  withdrawalDeadline,
 } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
-import { preOpeningDto } from '../../common/pre-opening';
+import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
 import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
 import { DOMAIN_EVENTS, type BookingExpiredPayload } from '../automations/domain-events';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
@@ -276,9 +278,14 @@ export class SignaturesService {
     });
     const propertyKind = contract.unit.unitType?.propertyKind ?? 'storage';
     // Firmado: el texto congelado. Borrador: el mismo que se congelará al firmar.
+    const withdrawal = this.withdrawalFor(contract);
     const termsText =
       contract.signedTermsText ??
-      (await composeContractTerms(this.admin, contract.tenantId, contract.id)).text;
+      (
+        await composeContractTerms(this.admin, contract.tenantId, contract.id, {
+          withdrawalForm: withdrawal.applies,
+        })
+      ).text;
     const signed = contract.status !== 'draft';
     return {
       isTest: contract.customer.isTest,
@@ -308,6 +315,47 @@ export class SignaturesService {
       firstPayment: await this.firstPaymentOf(contract.id, propertyKind),
       generalTerms: await this.generalTerms.toAccept(contract.tenantId, contract.id),
       preOpening: preOpeningDto(contract),
+      withdrawal,
+    };
+  }
+
+  /**
+   * Desistimiento de una firma por enlace (contrato a distancia): lo tiene un
+   * particular en un trastero (la ley excluye el alquiler de vivienda, art. 93
+   * TRLGDCU). Si el alquiler empieza dentro del plazo, para empezar ya hay que
+   * pedirlo expresamente (art. 98.8). Una reserva antes de la apertura empieza
+   * el día que abra el local: se cancela como reserva, sin casilla.
+   */
+  private withdrawalFor(contract: {
+    status: string;
+    startDate: Date;
+    withdrawalDeadline: Date | null;
+    preOpening: boolean;
+    preOpeningStartedAt: Date | null;
+    customer: { customerType: string };
+    unit: {
+      facility: { timezone: string };
+      unitType: { propertyKind: string } | null;
+    };
+  }): ContractSignViewDto['withdrawal'] {
+    const consumer =
+      contract.customer.customerType !== 'business' &&
+      (contract.unit.unitType?.propertyKind ?? 'storage') !== 'housing';
+    if (!consumer) return { applies: false, deadline: null, immediateStartRequired: false };
+    if (contract.status !== 'draft') {
+      const deadline = contract.withdrawalDeadline?.toISOString().slice(0, 10) ?? null;
+      return { applies: !!deadline, deadline, immediateStartRequired: false };
+    }
+    const signedOn = todayInTimezone(contract.unit.facility.timezone).toISOString().slice(0, 10);
+    return {
+      applies: true,
+      deadline: withdrawalDeadline(signedOn),
+      immediateStartRequired:
+        !isPendingPreOpening(contract) &&
+        needsImmediateStartRequest({
+          startDate: contract.startDate.toISOString().slice(0, 10),
+          signedOn,
+        }),
     };
   }
 
@@ -405,10 +453,29 @@ export class SignaturesService {
         signingTokenHash: true,
         signingTokenExpiresAt: true,
         firstPaymentDeadline: true,
+        withdrawalDeadline: true,
+        immediateStartRequestedAt: true,
+        withdrawnAt: true,
+        startDate: true,
+        preOpening: true,
+        preOpeningStartedAt: true,
+        customer: { select: { customerType: true } },
+        unit: {
+          select: {
+            facility: { select: { timezone: true } },
+            unitType: { select: { propertyKind: true } },
+          },
+        },
       },
     });
+    // Borrador: el texto que verá el inquilino por el enlace.
     const text =
-      c.signedTermsText ?? (await composeContractTerms(this.admin, tenantId, contractId)).text;
+      c.signedTermsText ??
+      (
+        await composeContractTerms(this.admin, tenantId, contractId, {
+          withdrawalForm: this.withdrawalFor(c).applies,
+        })
+      ).text;
     const hash = termsHash(text);
     const rows = await this.admin.contractSignature.findMany({
       where: { tenantId, contractId },
@@ -453,6 +520,9 @@ export class SignaturesService {
           : null,
       holdUntil: holdActive ? c.firstPaymentDeadline!.toISOString() : null,
       generalTerms: await this.generalTerms.listForContract(tenantId, contractId),
+      withdrawalDeadline: c.withdrawalDeadline?.toISOString().slice(0, 10) ?? null,
+      immediateStartRequestedAt: c.immediateStartRequestedAt?.toISOString() ?? null,
+      withdrawnAt: c.withdrawnAt?.toISOString() ?? null,
     };
   }
 
@@ -562,6 +632,15 @@ export class SignaturesService {
         message: 'Debes aceptar las condiciones generales de contratación',
       });
     }
+    // Empieza dentro del plazo de desistimiento: hay que pedirlo expresamente.
+    const withdrawal = this.withdrawalFor(contract);
+    if (withdrawal.immediateStartRequired && input.immediateStart !== true) {
+      throw new BadRequestException({
+        code: 'immediate_start_required',
+        message:
+          'Para empezar a usar el trastero antes de que acaben los 14 días para desistir, marca la casilla',
+      });
+    }
     // Se guarda la aceptación ANTES de firmar: si después falla la firma, el
     // contrato sigue en borrador; nunca queda firmado sin ella.
     await this.acceptGeneralTerms(contract, input.generalTermsHash, meta);
@@ -583,6 +662,14 @@ export class SignaturesService {
       // El inquilino de prueba no paga: lo recibe al firmar.
       deferAccessUntilPaid: !contract.customer.isTest,
       ...(input.termsHash ? { expectedTermsHash: input.termsHash } : {}),
+      ...(withdrawal.applies && withdrawal.deadline
+        ? {
+            withdrawal: {
+              deadline: withdrawal.deadline,
+              immediateStartRequestedAt: withdrawal.immediateStartRequired ? new Date() : null,
+            },
+          }
+        : {}),
     });
 
     if (!contract.customer.isTest) {
@@ -649,7 +736,7 @@ export class SignaturesService {
         unit: {
           select: {
             code: true,
-            facility: { select: { name: true } },
+            facility: { select: { name: true, timezone: true } },
             unitType: { select: { propertyKind: true } },
           },
         },

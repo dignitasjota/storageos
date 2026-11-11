@@ -118,6 +118,7 @@ import { AccessVerifyService } from '../access/access-verify.service';
 import { AiService } from '../ai/ai.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { PreOpeningService } from '../contracts/pre-opening.service';
+import { WithdrawalService } from '../contracts/withdrawal.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
 import { CustomerAuthorizedPersonsService } from '../customers/customer-authorized-persons.service';
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
@@ -143,7 +144,7 @@ import { PortalAccountService } from './portal-account.service';
 import { PortalInvoiceExportService } from './portal-invoice-export.service';
 import { PortalService } from './portal.service';
 
-import type { PreOpeningCancelPreviewDto } from '@storageos/shared';
+import type { ContractWithdrawalDto, PreOpeningCancelPreviewDto } from '@storageos/shared';
 import type { Request, Response } from 'express';
 
 class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchema) {}
@@ -210,6 +211,7 @@ export class PortalController {
     private readonly ai: AiService,
     private readonly accessVerify: AccessVerifyService,
     private readonly preOpening: PreOpeningService,
+    private readonly withdrawal: WithdrawalService,
     private readonly offline: OfflinePaymentsService,
     private readonly authorized: CustomerAuthorizedPersonsService,
     private readonly notifications: NotificationsService,
@@ -788,6 +790,42 @@ export class PortalController {
       },
     });
     return { cancelled: true };
+  }
+
+  /** Lo que se le devolvería si desiste hoy de un contrato firmado a distancia. */
+  @Public()
+  @Get('me/contracts/:id/withdrawal')
+  async withdrawalPreview(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ContractWithdrawalDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.withdrawal.preview(tenantId, id, { customerId });
+  }
+
+  /** El inquilino desiste del contrato en los 14 días siguientes a la firma. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/contracts/:id/withdraw')
+  @HttpCode(HttpStatus.OK)
+  async withdraw(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<{ withdrawn: true }> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.withdrawal.withdraw({
+      tenantId,
+      userId: null,
+      contractId: id,
+      customerId,
+      input: { note: 'Desde su área de clientes' },
+      meta: {
+        ...(req.header('user-agent') ? { userAgent: req.header('user-agent')! } : {}),
+        ...(req.ip ? { ipAddress: req.ip } : {}),
+      },
+    });
+    return { withdrawn: true };
   }
 
   /** Cambia la fecha de una baja ya pedida. */

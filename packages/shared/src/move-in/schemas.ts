@@ -31,6 +31,12 @@ export const PublicSignSubmitSchema = z
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .optional(),
+    /**
+     * Pide expresamente empezar a usar el trastero antes de que acabe el plazo
+     * de desistimiento (art. 98.8 TRLGDCU). Obligatoria si el alquiler empieza
+     * dentro de ese plazo (400 `immediate_start_required`).
+     */
+    immediateStart: z.boolean().optional(),
   })
   .refine((v) => (v.method === 'drawn' ? !!v.signatureImage : !!v.typedSignature?.trim()), {
     message: 'Falta la firma',

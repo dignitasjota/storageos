@@ -125,6 +125,7 @@ describe('Rendimiento de los anuncios (e2e)', () => {
     await http()
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Marta Ruiz',
         method: 'typed',
         typedSignature: 'Marta Ruiz',

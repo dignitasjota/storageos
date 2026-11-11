@@ -75,6 +75,7 @@ describe('Reservas antes de la apertura: extras (e2e)', () => {
     await http()
       .post(`/public/move-in/sign/${res.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Ana Sanz',
         method: 'typed',
         typedSignature: 'Ana Sanz',

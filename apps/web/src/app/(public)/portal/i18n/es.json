@@ -718,6 +718,20 @@
         "note": "Los avisos importantes (facturas, pagos, tu acceso) te llegan siempre por correo.",
         "saved": "Preferencias guardadas.",
         "error": "No se ha podido guardar."
+      },
+      "withdrawal": {
+        "deadline": "Puedes desistir de este contrato sin dar explicaciones hasta el {date}.",
+        "withdraw": "Desistir del contrato",
+        "title": "¿Desistir del contrato?",
+        "description": "El contrato se cancela hoy y se da de baja tu acceso al local. Te devolvemos lo pagado por el mismo medio de pago en un plazo máximo de 14 días.",
+        "refundRent": "Cuotas: se te devuelven {amount}.",
+        "keptRent": "Se descuentan {amount} por {days, plural, one {el día} other {los # días}} que has tenido el trastero, porque pediste empezar antes de que acabara el plazo para desistir.",
+        "refundDeposit": "Fianza: se te devuelven {amount}.",
+        "nothing": "No has pagado nada: no hay nada que devolver.",
+        "keep": "Mantener el contrato",
+        "confirm": "Desistir",
+        "done": "Desistimiento registrado. Te hemos enviado un correo con lo que se te devuelve.",
+        "error": "No se pudo registrar el desistimiento."
       }
     },
     "gocardless": {

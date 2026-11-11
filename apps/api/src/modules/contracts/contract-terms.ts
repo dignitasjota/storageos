@@ -82,6 +82,12 @@ export interface ContractTermsInput {
    */
   lateFee?: { type: string; value: number; graceDays: number } | null;
   returnedPaymentFee?: number | null;
+  /**
+   * A quién se dirige el modelo de formulario de desistimiento (nombre,
+   * domicilio y correo). Solo con un particular en un trastero: la ley excluye
+   * el alquiler de vivienda (art. 93 TRLGDCU).
+   */
+  withdrawalFormTo?: string | null;
 }
 
 const CYCLE_LABEL: Record<string, string> = {
@@ -291,6 +297,19 @@ export function buildContractTermsText(t: ContractTermsInput): string {
       ]
     : [];
   const reservation = t.preOpening ? ['', ...preOpeningClauses(t, t.preOpening)] : [];
+  const withdrawalForm = t.withdrawalFormTo
+    ? [
+        '',
+        'Modelo de formulario de desistimiento (solo si quiere desistir del contrato; también puede hacerlo desde el área de clientes):',
+        `A la atención de ${t.withdrawalFormTo}:`,
+        `Por la presente le comunico que desisto de mi contrato de prestación del siguiente servicio: alquiler del trastero ${t.unitCode} (contrato ${t.contractNumber}).`,
+        'Celebrado el: ________',
+        'Nombre del consumidor: ________',
+        'Domicilio del consumidor: ________',
+        'Firma del consumidor (solo si el presente formulario se presenta en papel): ________',
+        'Fecha: ________',
+      ]
+    : [];
   const consent = [
     '',
     'El firmante declara haber leído y aceptado las condiciones del contrato de',
@@ -298,7 +317,7 @@ export function buildContractTermsText(t: ContractTermsInput): string {
     'expresión de su consentimiento (firma electrónica simple, art. 25 Reglamento',
     'eIDAS y Ley 6/2020).',
   ];
-  return [...header, ...custom, ...reservation, ...consent].join('\n');
+  return [...header, ...custom, ...reservation, ...withdrawalForm, ...consent].join('\n');
 }
 
 /** Condiciones de la reserva antes de la apertura (se añaden a las del contrato). */
@@ -429,6 +448,8 @@ export async function composeContractTerms(
   db: TermsDb,
   tenantId: string,
   contractId: string,
+  /** Firma a distancia de un particular: lleva el modelo de formulario de desistimiento. */
+  opts: { withdrawalForm?: boolean } = {},
 ): Promise<{
   text: string;
   clauses: string | null;
@@ -503,6 +524,15 @@ export async function composeContractTerms(
   const returnedPaymentFee =
     tenant.returnedPaymentFee != null && Number(tenant.returnedPaymentFee) > 0
       ? Number(tenant.returnedPaymentFee)
+      : null;
+  const landlordName = c.owner?.legalName ?? tenantLegal;
+  const landlordAddress = c.owner
+    ? joinAddress(c.owner.address, c.owner.postalCode, c.owner.city)
+    : joinAddress(tenant.billingAddress, tenant.billingPostalCode, tenant.billingCity);
+  const contactEmail = facility.contactEmail || tenant.contactEmail || tenant.billingEmail;
+  const withdrawalFormTo =
+    opts.withdrawalForm && propertyKind !== 'housing' && c.customer.customerType !== 'business'
+      ? [landlordName, landlordAddress, contactEmail].filter(Boolean).join(', ')
       : null;
 
   const area = c.unit.areaM2 != null ? Number(c.unit.areaM2) : null;
@@ -596,6 +626,7 @@ export async function composeContractTerms(
         }
       : null,
     returnedPaymentFee,
+    withdrawalFormTo,
     preOpening:
       c.preOpening && !c.preOpeningStartedAt
         ? {

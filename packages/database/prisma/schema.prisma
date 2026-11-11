@@ -1762,6 +1762,14 @@ model Contract {
   /// Al irse antes de usar lo pagado por adelantado, los meses usados se cobran a la
   /// cuota mensual (sin el descuento). False en los firmados antes: en proporción.
   prepaidCreditAtListPrice Boolean             @default(false) @map("prepaid_credit_at_list_price")
+  /// Último día para desistir (14 días naturales desde la firma). Solo en los
+  /// contratos que un particular firma a distancia (por enlace); null = no aplica.
+  withdrawalDeadline     DateTime?             @map("withdrawal_deadline") @db.Date
+  /// Cuándo pidió expresamente empezar antes de que acabe el plazo de
+  /// desistimiento (art. 98.8 TRLGDCU): si desiste, paga los días usados.
+  immediateStartRequestedAt DateTime?          @map("immediate_start_requested_at") @db.Timestamptz(6)
+  /// Cuándo se registró el desistimiento (el contrato queda cancelado).
+  withdrawnAt            DateTime?             @map("withdrawn_at") @db.Timestamptz(6)
   /// Firma remota: hash del token de firma (argon2) + expiración. Null si no hay solicitud activa.
   signingTokenHash       String?               @map("signing_token_hash")
   signingTokenExpiresAt  DateTime?             @map("signing_token_expires_at") @db.Timestamptz(6)

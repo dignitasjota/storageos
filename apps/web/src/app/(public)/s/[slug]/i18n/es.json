@@ -503,7 +503,10 @@
       "signedDoneBody": "Tu contrato {contractNumber} ya está firmado. Tienes una copia en tu área de clientes.",
       "viewSignedTerms": "Ver el contrato firmado",
       "preOpeningDate": "Reserva antes de la apertura: tu alquiler empieza el día que abra el local, previsto para el {date} (fecha aproximada). Ese día recibirás tu código de acceso.",
-      "preOpeningNoDate": "Reserva antes de la apertura: tu alquiler empieza el día que abra el local. Aún no hay fecha; te la enviaremos por correo y ese día recibirás tu código de acceso."
+      "preOpeningNoDate": "Reserva antes de la apertura: tu alquiler empieza el día que abra el local. Aún no hay fecha; te la enviaremos por correo y ese día recibirás tu código de acceso.",
+      "withdrawalNotice": "Tienes 14 días naturales, hasta el {date}, para desistir del contrato sin dar explicaciones: desde tu área de clientes o por escrito. Se te devuelve lo pagado, también la fianza.",
+      "immediateStart": "Quiero empezar a usar el trastero ya, antes de que acaben los 14 días para desistir. Si desisto, pagaré la parte proporcional de los días que lo haya tenido.",
+      "immediateStartLabel": "Solicitud de empezar antes de que acabe el plazo para desistir"
     },
     "blog": {
       "title": "Blog",

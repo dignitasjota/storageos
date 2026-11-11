@@ -53,6 +53,7 @@ describe('Condiciones generales de contratación (e2e)', () => {
     method: 'typed',
     typedSignature: 'Ana Ruiz',
     accept: true,
+    immediateStart: true,
   };
 
   it('hay que aceptarlas para firmar, se guarda la versión y una nueva si cambian', async () => {

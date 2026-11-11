@@ -718,6 +718,20 @@
         "note": "Important notices (invoices, payments, your access) always reach you by email.",
         "saved": "Preferences saved.",
         "error": "Couldn't save."
+      },
+      "withdrawal": {
+        "deadline": "You can withdraw from this contract without giving any reason until {date}.",
+        "withdraw": "Withdraw from the contract",
+        "title": "Withdraw from the contract?",
+        "description": "The contract is cancelled today and your access to the facility is removed. We refund what you have paid using the same payment method within 14 days at the latest.",
+        "refundRent": "Payments: {amount} will be refunded.",
+        "keptRent": "{amount} is deducted for the {days, plural, one {day} other {# days}} you have had the unit, because you asked to start before the withdrawal period ended.",
+        "refundDeposit": "Deposit: {amount} will be refunded.",
+        "nothing": "You haven't paid anything: there is nothing to refund.",
+        "keep": "Keep the contract",
+        "confirm": "Withdraw",
+        "done": "Withdrawal registered. We have sent you an email with what will be refunded.",
+        "error": "The withdrawal could not be registered."
       }
     },
     "gocardless": {

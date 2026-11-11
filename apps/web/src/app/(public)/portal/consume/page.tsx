@@ -79,6 +79,7 @@ import { ShopCard } from './shop-card';
 import { UnitChangeCard } from './unit-change-card';
 import { VisitorsCard } from './visitors-card';
 import { WaitlistCard } from './waitlist-card';
+import { WithdrawalNotice } from './withdrawal-notice';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
@@ -1269,6 +1270,16 @@ function PortalConsumeContent() {
                           onCancelled={() =>
                             setContracts((prev) => (prev ?? []).filter((x) => x.id !== c.id))
                           }
+                        />
+                      )}
+                      {session && (
+                        <WithdrawalNotice
+                          session={session}
+                          contract={c}
+                          onWithdrawn={() => {
+                            setContracts((prev) => (prev ?? []).filter((x) => x.id !== c.id));
+                            void reloadInvoices();
+                          }}
                         />
                       )}
                       {c.overlocked && (

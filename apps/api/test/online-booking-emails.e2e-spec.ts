@@ -63,6 +63,7 @@ describe('Reserva online: correos de la factura y de la caducidad (e2e)', () => 
       await request(app.getHttpServer())
         .post(`/public/move-in/sign/${booking.body.signingToken}`)
         .send({
+          immediateStart: true,
           signerName: 'Ana Ruiz',
           method: 'typed',
           typedSignature: 'Ana Ruiz',

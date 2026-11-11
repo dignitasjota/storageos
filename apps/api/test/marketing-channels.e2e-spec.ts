@@ -134,6 +134,7 @@ describe('Canales de marketing (e2e)', () => {
     const signed = await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Marta Ruiz',
         method: 'typed',
         typedSignature: 'Marta Ruiz',

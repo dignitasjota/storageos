@@ -503,7 +503,10 @@
       "signedDoneBody": "Your contract {contractNumber} is already signed. You have a copy in your customer area.",
       "viewSignedTerms": "View the signed contract",
       "preOpeningDate": "Booking before opening: your rental starts the day the site opens, expected on {date} (approximate date). You will get your access code that day.",
-      "preOpeningNoDate": "Booking before opening: your rental starts the day the site opens. There is no date yet; we will email it to you and you will get your access code that day."
+      "preOpeningNoDate": "Booking before opening: your rental starts the day the site opens. There is no date yet; we will email it to you and you will get your access code that day.",
+      "withdrawalNotice": "You have 14 calendar days, until {date}, to withdraw from the contract without giving any reason: from your customer area or in writing. Everything you have paid is refunded, including the deposit.",
+      "immediateStart": "I want to start using the storage unit now, before the 14-day withdrawal period ends. If I withdraw, I will pay the proportional part for the days I have had it.",
+      "immediateStartLabel": "Request to start before the withdrawal period ends"
     },
     "blog": {
       "title": "Blog",

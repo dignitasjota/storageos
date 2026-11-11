@@ -27,6 +27,8 @@ export interface PortalContractDto {
   cancellationNoticeDays: number;
   /** La baja surte efecto el último día del mes en que se cumple el preaviso. */
   moveOutEndOfMonth: boolean;
+  /** Último día para desistir, mientras pueda hacerlo (null si no aplica o ya pasó). */
+  withdrawalDeadline: string | null;
   endingRequestedAt: string | null;
   /** Fianza/depósito y su estado. */
   depositAmount: number;

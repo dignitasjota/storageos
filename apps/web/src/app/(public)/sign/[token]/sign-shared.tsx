@@ -60,6 +60,8 @@ export function SignPageBody({
   const [accept, setAccept] = useState(false);
   // Condiciones generales de contratación: casilla obligatoria antes de pagar.
   const [acceptGeneral, setAcceptGeneral] = useState(false);
+  // Empieza dentro del plazo de desistimiento: hay que pedir empezar ya.
+  const [immediateStart, setImmediateStart] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SignResultDto | null>(null);
   const [pending, setPending] = useState<PortalInvoiceDto[]>([]);
@@ -172,6 +174,7 @@ export function SignPageBody({
           ...(view?.termsHash ? { termsHash: view.termsHash } : {}),
           // Las condiciones generales que ha aceptado con la casilla.
           ...(view ? { generalTermsHash: view.generalTerms.hash } : {}),
+          ...(view?.withdrawal.immediateStartRequired ? { immediateStart } : {}),
         },
       });
       trackEvent('sign_completed');
@@ -280,6 +283,7 @@ export function SignPageBody({
   const canSubmit =
     accept &&
     acceptGeneral &&
+    (!view.withdrawal.immediateStartRequired || immediateStart) &&
     signerName.trim().length >= 2 &&
     (method === 'drawn' ? !!drawn : typed.trim().length >= 2);
 
@@ -402,6 +406,26 @@ export function SignPageBody({
             onChange={setAcceptGeneral}
             url={view.generalTerms.url}
           />
+          {view.withdrawal.immediateStartRequired && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={immediateStart}
+                onCheckedChange={(v) => setImmediateStart(v === true)}
+                aria-label={t('immediateStartLabel')}
+              />
+              <span>{t('immediateStart')}</span>
+            </label>
+          )}
+          {view.withdrawal.applies && view.withdrawal.deadline && (
+            <p className="text-xs text-muted-foreground">
+              {t('withdrawalNotice', {
+                date: new Date(`${view.withdrawal.deadline}T12:00:00Z`).toLocaleDateString(
+                  locale === 'en' ? 'en-GB' : 'es-ES',
+                  { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' },
+                ),
+              })}
+            </p>
+          )}
 
           <Button
             onClick={submit}

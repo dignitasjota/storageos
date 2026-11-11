@@ -107,6 +107,8 @@ export class ContractPdfService implements OnModuleDestroy {
             status: true,
             signedAt: true,
             signedTermsText: true,
+            withdrawalDeadline: true,
+            immediateStartRequestedAt: true,
             unit: { select: { unitType: { select: { propertyKind: true } } } },
           },
         }),
@@ -146,6 +148,12 @@ export class ContractPdfService implements OnModuleDestroy {
         })),
         tenantName: tenant.billingLegalName?.trim() || tenant.name,
         generatedAt: new Date(),
+        withdrawal: contract.withdrawalDeadline
+          ? {
+              deadline: contract.withdrawalDeadline.toISOString().slice(0, 10),
+              immediateStartRequestedAt: contract.immediateStartRequestedAt,
+            }
+          : null,
       };
     }, args.tenantId);
     const html = renderContractHtml(input);

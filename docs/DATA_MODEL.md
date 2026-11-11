@@ -1163,3 +1163,7 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 `tenants.move_out_end_of_month` (bool, `true`): la baja surte efecto el último día del mes en que se cumple el preaviso (false = el día que elija el inquilino). `tenants.deposit_return_days` (int, 15): días para devolver la fianza desde la entrega del trastero. `tenants.returned_payment_fee` (DECIMAL(10,2), null = ninguno): gastos por recibo devuelto o pago rechazado, sin IVA. Los tres salen en el contrato.
 
 `contracts.move_out_end_of_month` (bool, null) y `contracts.prepaid_credit_at_list_price` (bool, `false`) (`20270106110000_contract_signed_rules`): las reglas que dice el texto firmado, guardadas al firmar. Null/false = contrato firmado antes del contrato v2 (o importado): baja cualquier día con el preaviso y abono de lo prepagado en proporción (el primer pago de varios meses no se abona).
+
+### Desistimiento (`20270107100000_contract_withdrawal`)
+
+`contracts.withdrawal_deadline` (DATE, null): último día para desistir (14 días naturales desde la firma). Solo en los contratos que un particular firma por enlace (no en viviendas); null = no tiene derecho de desistimiento. `contracts.immediate_start_requested_at` (TIMESTAMPTZ, null): cuándo pidió expresamente empezar antes de que acabara ese plazo (art. 98.8 TRLGDCU); con ella, al desistir paga los días usados. `contracts.withdrawn_at` (TIMESTAMPTZ, null): cuándo se registró el desistimiento (el contrato queda cancelado; el día en que lo comunicó va en el evento `note_added` con `kind: 'withdrawn'`).

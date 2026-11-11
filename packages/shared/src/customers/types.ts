@@ -204,6 +204,12 @@ export interface ContractDto {
   cancellationNoticeDays: number;
   /** La baja surte efecto a final de mes (la regla con la que se firmó). */
   moveOutEndOfMonth: boolean;
+  /** Último día para desistir (contrato firmado a distancia por un particular). */
+  withdrawalDeadline: string | null;
+  /** Cuándo pidió empezar antes de que acabara el plazo de desistimiento. */
+  immediateStartRequestedAt: string | null;
+  /** Cuándo desistió (el contrato queda cancelado). */
+  withdrawnAt: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;

@@ -89,6 +89,7 @@ describe('Fianza: sin fianza y en efectivo (e2e)', () => {
     await http()
       .post(`/public/move-in/sign/${token}`)
       .send({
+        immediateStart: true,
         signerName: 'Ana',
         method: 'typed',
         typedSignature: 'Ana',
