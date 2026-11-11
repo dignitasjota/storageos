@@ -188,7 +188,9 @@ function daysUntil(isoDate: string): number {
 
 function matches(c: Row, f: Filters): boolean {
   const live = c.contractStatus !== 'none';
-  if (f.facilityId !== 'all' && !c.facilityIds.includes(f.facilityId)) return false;
+  // Los que no tienen trastero no son de ningún local: salen siempre.
+  if (f.facilityId !== 'all' && c.facilityIds.length > 0 && !c.facilityIds.includes(f.facilityId))
+    return false;
   if (f.tag !== 'all' && !c.tags.includes(f.tag)) return false;
   if (f.overdue && c.overdue <= 0) return false;
   if (f.noPayVia && (c.payVia || !live)) return false;
@@ -430,7 +432,9 @@ export default function CustomersPage() {
       header: 'Trastero',
       cell: ({ row }) =>
         row.original.units.length === 0 ? (
-          <span className="text-xs text-muted-foreground">—</span>
+          <Badge variant="outline" className="whitespace-nowrap font-normal text-muted-foreground">
+            Sin trastero
+          </Badge>
         ) : (
           <span className="text-xs">
             {row.original.units.map((u) => u.code).join(', ')}
