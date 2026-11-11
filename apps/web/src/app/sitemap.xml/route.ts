@@ -40,6 +40,7 @@ export async function GET(): Promise<Response> {
     { loc: `${base}/privacidad`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/cookies`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/eliminar-datos`, changefreq: 'yearly', priority: 0.2 },
+    { loc: `${base}/declaracion-responsable`, changefreq: 'yearly', priority: 0.2 },
   ];
   for (const entry of data.entries) {
     // Con dominio propio, su web va en el sitemap de su dominio (la canónica

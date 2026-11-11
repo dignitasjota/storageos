@@ -8,6 +8,7 @@ import {
   type InvoiceRefundOptionsDto,
   type InvoiceTaxCategory,
   type RectificationTypeValue,
+  VERIFACTU_SYSTEM,
 } from '@storageos/shared';
 import {
   ArrowLeft,
@@ -96,6 +97,7 @@ import { invoiceNumberLabel, isNumbered } from '@/lib/billing/labels';
 import { localDateString } from '@/lib/dates';
 import { formatDate, formatDateTime, formatEur } from '@/lib/format';
 import { fetchRedsysRedirect, submitRedsysForm, useRedsysSettings } from '@/lib/payments/redsys';
+import { DECLARATION_PATH } from '@/lib/verifactu-declaration';
 
 /**
  * Tipos de factura rectificativa (RD 1619/2012 art. 15), con palabras de la
@@ -1069,6 +1071,12 @@ export default function InvoiceDetailPage() {
               </div>
             </div>
             <VerifactuRecords invoiceId={i.id} />
+            <p className="text-xs text-muted-foreground">
+              Sistema de facturación: {VERIFACTU_SYSTEM.name} {VERIFACTU_SYSTEM.version} ·{' '}
+              <a href={DECLARATION_PATH} target="_blank" rel="noreferrer" className="underline">
+                declaración responsable
+              </a>
+            </p>
           </CardContent>
         </Card>
       )}

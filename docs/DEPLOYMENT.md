@@ -1986,3 +1986,13 @@ Migración `20270105100000_verifactu_records` (se aplica sola). Sin variables nu
 - **Incidencias** (art. 16.4): mientras los envíos de un emisor fallan, lo pendiente se marca como incidencia, sale aparte con `Incidencia=S` y el panel muestra un aviso con cuántas facturas faltan por llegar a la AEAT.
 
 No hay que configurar nada. Para comprobarlo tras desplegar: Configuración → Veri\*Factu (la baja y las incidencias) y la ficha de una factura (la tarjeta Veri\*Factu lista sus registros).
+
+## 113. Veri\*Factu: declaración responsable (2026-11-11)
+
+Sin migración ni variables nuevas. **Qué cambia al redesplegar:**
+
+- La **declaración responsable** de TrasterOS (art. 15 de la Orden HAC/1177/2024), firmada por Urbanbox Soluciones SL: nombre, código y versión del sistema, componentes y funciones, uso por varios obligados, datos del productor, declaración de cumplimiento, y fecha y lugar de la firma.
+- Se ve en **trasteros.pro/declaracion-responsable** (enlazada en el pie y en el mapa del sitio) y, dentro del panel, en **Configuración → Veri\*Factu** (entera y en PDF) y en la tarjeta Veri\*Factu de cada factura.
+- El PDF lo genera el API (`/v1/public/verifactu/declaration/pdf`) con el mismo Chromium que las facturas, una vez por versión.
+- **Cada versión del sistema lleva la suya**: al subir `VERIFACTU_SYSTEM.version` hay que añadir su declaración en `VERIFACTU_DECLARATIONS` (con el día en que se publica); una prueba lo exige.
+- No incluye si el sistema funciona solo como VERI\*FACTU ni los tipos de firma (letras e y g del art. 15.1): decisión de Jota mientras el interruptor por negocio esté pendiente de la asesoría.

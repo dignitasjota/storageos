@@ -213,6 +213,9 @@ export function PublicFooter({
             <Link href="/eliminar-datos" className="hover:text-white">
               {t('dataDeletion')}
             </Link>
+            <Link href="/declaracion-responsable" className="hover:text-white">
+              {t('verifactuDeclaration')}
+            </Link>
             {analytics && <CookieSettingsLink label={t('cookieSettings')} />}
           </nav>
         </div>
