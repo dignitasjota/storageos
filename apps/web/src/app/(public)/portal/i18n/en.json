@@ -155,7 +155,9 @@
           "dateLabel": "Move-out date",
           "cancel": "Cancel",
           "confirm": "Confirm move-out",
-          "changeTitle": "Change the move-out date"
+          "changeTitle": "Change the move-out date",
+          "descriptionEndOfMonth": "{days, plural, one {The notice period is # day} other {The notice period is # days}} and the move-out takes effect at the end of the month, which is paid in full. The earliest date is {minDate}.",
+          "endOfMonthLabel": "Last day of the contract"
         },
         "viewContract": "View contract",
         "termsTitle": "Contract {number}",

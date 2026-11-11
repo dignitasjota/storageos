@@ -155,7 +155,9 @@
           "dateLabel": "Fecha de salida",
           "cancel": "Cancelar",
           "confirm": "Confirmar baja",
-          "changeTitle": "Cambiar la fecha de la baja"
+          "changeTitle": "Cambiar la fecha de la baja",
+          "descriptionEndOfMonth": "{days, plural, one {El preaviso es de # día} other {El preaviso es de # días}} y la baja surte efecto a final de mes, que se paga entero. La fecha más temprana es el {minDate}.",
+          "endOfMonthLabel": "Último día del contrato"
         },
         "viewContract": "Ver contrato",
         "termsTitle": "Contrato {number}",

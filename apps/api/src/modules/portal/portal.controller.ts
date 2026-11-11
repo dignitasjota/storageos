@@ -811,7 +811,7 @@ export class PortalController {
       .create(tenantId, {
         type: 'contract.move_out_date_changed',
         title: `Nueva fecha de baja — ${updated.unitCode}`,
-        body: `El inquilino cambia la salida al ${input.endDate.split('-').reverse().join('/')}.`,
+        body: `El inquilino cambia la salida al ${(updated.endDate ?? input.endDate).split('-').reverse().join('/')}.`,
         link: `/contracts/${id}`,
         contractId: id,
       })

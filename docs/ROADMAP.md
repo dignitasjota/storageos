@@ -963,6 +963,16 @@ Por decidir con la asesoría:
 - **Colaboración social**: firmar el convenio con la AEAT (n.º 17 de las preguntas frecuentes) para que Urbanbox envíe los registros con su propio certificado y cada negocio lo autorice en la aplicación, en vez de que cada uno suba el suyo.
 - **Apagado por defecto**: las preguntas frecuentes dicen que desde el 29-7-2025 solo se pueden comercializar sistemas adaptados y que no cabe pasar de un modo a otro a voluntad. Revisar si el interruptor vale y si desde las fechas obligatorias debe quedar forzado (sociedades desde el 1-1-2027, el resto desde el 1-7-2027).
 
+### Contrato del trastero v2 (2026-11-11)
+
+Revisado con un análisis externo del contrato. Condiciones generales nuevas (baja a final de mes, autorización de cobros, recargos solo los del contrato, prohibidos objetivos con baterías de litio, carga máxima y pasillos libres, sin asegurar los bienes salvo la protección de contenido, averías, normas del local, apertura con aviso y acta, impago por pasos sin dar los bienes por abandonados, fianza con plazo, promociones, videovigilancia y datos, contratación electrónica), con las Condiciones Generales de la web y la privacidad alineadas. Ficha con contactos, IVA incluido, total al mes, horario de acceso y recargos. Baja a final de mes (ajustable) y abono de lo pagado por adelantado cobrando lo usado a la cuota mensual. Capturas de cámara borradas al mes.
+
+Pendiente:
+
+- **Desistimiento** (siguiente PR): casilla «quiero empezar ya» al firmar online (sin ella, quien desiste en 14 días no paga lo usado, art. 108 TRLGDCU), formulario de desistimiento y desistir desde el área de clientes cobrando solo los días usados.
+- **Revisión del abogado** de las condiciones 6 (seguro y responsabilidad) y 12 (impago), y del preaviso de un mes cuando termina el arrendador.
+- **Gastos por recibo devuelto**: hoy figuran en el contrato y se cobran a mano; cargarlos solos al marcar una devolución.
+
 ### Reservas online: factura con el pago y aviso al caducar (2026-11-08)
 
 La primera factura de una reserva online llega con el pago («Pago recibido» con el PDF), no al firmar. Si la reserva caduca sin pagar, el inquilino recibe un aviso con un botón para volver a reservar.

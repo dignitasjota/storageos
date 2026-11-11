@@ -172,4 +172,23 @@ describe('DataRetentionService.cleanupDeletedFacilityImages', () => {
       data: { images: [], imageAlts: {} },
     });
   });
+
+  it('borra los eventos de cámara de más de un mes y sus capturas, salvo los de una incidencia', async () => {
+    const { service, admin, files } = build();
+    const camera = {
+      findMany: jest.fn().mockResolvedValue([{ snapshotKey: 't/cameras/e1.jpg' }]),
+      deleteMany: jest.fn().mockResolvedValue({ count: 3 }),
+    };
+    (admin as Record<string, unknown>).cameraEvent = camera;
+    const now = new Date('2026-11-11T04:00:00Z');
+
+    expect(await service.cleanupCameraEvents(now)).toBe(3);
+
+    const where = camera.deleteMany.mock.calls[0]![0].where;
+    expect(where.incidentId).toBeNull();
+    const cutoff = where.OR[0].occurredAt.lt as Date;
+    expect(cutoff.toISOString()).toBe('2026-10-12T04:00:00.000Z');
+    expect(camera.findMany.mock.calls[0]![0].where.snapshotKey).toEqual({ not: null });
+    expect(files.deleteObjects).toHaveBeenCalledWith('uploads', ['t/cameras/e1.jpg']);
+  });
 });

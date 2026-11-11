@@ -491,6 +491,13 @@ model Tenant {
   housingContractClauses String? @map("housing_contract_clauses")
   /// Un contrato en baja se finaliza solo el día siguiente a su fecha de fin.
   autoEndContracts Boolean @default(true) @map("auto_end_contracts")
+  /// La baja surte efecto el último día del mes en que se cumple el preaviso
+  /// (false = el día que elija el inquilino, respetando el preaviso).
+  moveOutEndOfMonth Boolean @default(true) @map("move_out_end_of_month")
+  /// Días máximos para devolver la fianza desde que se entrega el trastero.
+  depositReturnDays Int @default(15) @map("deposit_return_days")
+  /// Gastos por recibo devuelto o pago rechazado (sin IVA); null = ninguno.
+  returnedPaymentFee Decimal? @map("returned_payment_fee") @db.Decimal(10, 2)
   /// Tareas automáticas por evento de contrato (null = apagadas).
   taskAutoRules Json? @map("task_auto_rules")
   customDomain                 String?               @unique @map("custom_domain")
@@ -1749,6 +1756,12 @@ model Contract {
   /// (subconjunto de `signedTermsText`). El PDF lo usa para mostrar las cláusulas
   /// exactas de un contrato firmado aunque la plantilla del tenant cambie luego.
   signedClausesText      String?               @map("signed_clauses_text")
+  /// Regla de baja que se firmó: true = surte efecto a final de mes. Null en los
+  /// contratos firmados antes de existir (o importados): cualquier día con preaviso.
+  moveOutEndOfMonth      Boolean?              @map("move_out_end_of_month")
+  /// Al irse antes de usar lo pagado por adelantado, los meses usados se cobran a la
+  /// cuota mensual (sin el descuento). False en los firmados antes: en proporción.
+  prepaidCreditAtListPrice Boolean             @default(false) @map("prepaid_credit_at_list_price")
   /// Firma remota: hash del token de firma (argon2) + expiración. Null si no hay solicitud activa.
   signingTokenHash       String?               @map("signing_token_hash")
   signingTokenExpiresAt  DateTime?             @map("signing_token_expires_at") @db.Timestamptz(6)

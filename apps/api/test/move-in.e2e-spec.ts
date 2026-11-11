@@ -246,7 +246,9 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
       .expect(200);
     expect(view.body.termsText).toContain('Arrendador:');
     expect(view.body.termsText).toContain('Condiciones generales:');
-    expect(view.body.termsText).toContain('Cuota mensual: 60,00 € + IVA (21 %)');
+    expect(view.body.termsText).toContain(
+      'Cuota mensual: 72,60 € IVA incluido (60,00 € + IVA del 21 %)',
+    );
     expect(view.body.termsHash).toMatch(/^[0-9a-f]{64}$/);
 
     // Registro en la ficha: borrador con el enlace vigente.
@@ -294,7 +296,7 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     const fresh = await request(app.getHttpServer())
       .get(`/public/move-in/sign/${token}`)
       .expect(200);
-    expect(fresh.body.termsText).toContain('Cuota mensual: 65,00 €');
+    expect(fresh.body.termsText).toContain('(65,00 € + IVA del 21 %)');
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${token}`)
       .send({ ...signBody, termsHash: fresh.body.termsHash })

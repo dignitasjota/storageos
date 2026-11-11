@@ -1,5 +1,6 @@
 import { getQueueToken } from '@nestjs/bullmq';
 import { PrismaClient } from '@storageos/database';
+import { monthEndOf } from '@storageos/shared';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -264,7 +265,8 @@ describe('Portal del inquilino: mejoras (e2e)', () => {
       .set(portal)
       .send({ endDate: day(45) })
       .expect(200);
-    expect(moved.body.endDate).toBe(day(45));
+    // La baja surte efecto a final de mes (ajuste por defecto del negocio).
+    expect(moved.body.endDate).toBe(monthEndOf(day(45)));
     expect(moved.body.status).toBe('ending');
   });
 

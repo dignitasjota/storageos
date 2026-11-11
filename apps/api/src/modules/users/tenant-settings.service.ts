@@ -647,19 +647,10 @@ export class TenantSettingsService {
   async getContractTemplate(tenantId: string): Promise<ContractTemplateDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: {
-        contractClauses: true,
-        housingContractClauses: true,
-        autoEndContracts: true,
-        deletedAt: true,
-      },
+      select: { ...CONTRACT_TEMPLATE_SELECT, deletedAt: true },
     });
     if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
-    return {
-      clauses: tenant.contractClauses,
-      housingClauses: tenant.housingContractClauses,
-      autoEndContracts: tenant.autoEndContracts,
-    };
+    return toContractTemplateDto(tenant);
   }
 
   async updateContractTemplate(args: {
@@ -676,9 +667,24 @@ export class TenantSettingsService {
       contractClauses?: string | null;
       housingContractClauses?: string | null;
       autoEndContracts?: boolean;
+      moveOutEndOfMonth?: boolean;
+      depositReturnDays?: number;
+      returnedPaymentFee?: number | null;
     } = {};
     if (args.input.autoEndContracts !== undefined) {
       data.autoEndContracts = args.input.autoEndContracts;
+    }
+    if (args.input.moveOutEndOfMonth !== undefined) {
+      data.moveOutEndOfMonth = args.input.moveOutEndOfMonth;
+    }
+    if (args.input.depositReturnDays !== undefined) {
+      data.depositReturnDays = args.input.depositReturnDays;
+    }
+    if (args.input.returnedPaymentFee !== undefined) {
+      // 0 = ninguno: el contrato no los menciona.
+      data.returnedPaymentFee = args.input.returnedPaymentFee
+        ? args.input.returnedPaymentFee
+        : null;
     }
     if (args.input.clauses !== undefined) data.contractClauses = norm(args.input.clauses);
     if (args.input.housingClauses !== undefined) {
@@ -687,7 +693,7 @@ export class TenantSettingsService {
     const updated = await this.admin.tenant.update({
       where: { id: args.tenantId },
       data,
-      select: { contractClauses: true, housingContractClauses: true, autoEndContracts: true },
+      select: CONTRACT_TEMPLATE_SELECT,
     });
     const clauses = updated.contractClauses;
     await this.audit.write({
@@ -700,15 +706,15 @@ export class TenantSettingsService {
         hasCustomClauses: clauses !== null,
         hasHousingClauses: updated.housingContractClauses !== null,
         autoEndContracts: updated.autoEndContracts,
+        moveOutEndOfMonth: updated.moveOutEndOfMonth,
+        depositReturnDays: updated.depositReturnDays,
+        returnedPaymentFee:
+          updated.returnedPaymentFee != null ? Number(updated.returnedPaymentFee) : null,
       },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return {
-      clauses,
-      housingClauses: updated.housingContractClauses,
-      autoEndContracts: updated.autoEndContracts,
-    };
+    return toContractTemplateDto(updated);
   }
 
   async getWebSettings(tenantId: string): Promise<WebSettingsResponse> {
@@ -1085,4 +1091,26 @@ export class TenantSettingsService {
       accessAlerts: accessAlertSettings(updated.accessAlerts),
     };
   }
+}
+
+const CONTRACT_TEMPLATE_SELECT = {
+  contractClauses: true,
+  housingContractClauses: true,
+  autoEndContracts: true,
+  moveOutEndOfMonth: true,
+  depositReturnDays: true,
+  returnedPaymentFee: true,
+} satisfies Prisma.TenantSelect;
+
+function toContractTemplateDto(
+  t: Prisma.TenantGetPayload<{ select: typeof CONTRACT_TEMPLATE_SELECT }>,
+): ContractTemplateDto {
+  return {
+    clauses: t.contractClauses,
+    housingClauses: t.housingContractClauses,
+    autoEndContracts: t.autoEndContracts,
+    moveOutEndOfMonth: t.moveOutEndOfMonth,
+    depositReturnDays: t.depositReturnDays,
+    returnedPaymentFee: t.returnedPaymentFee != null ? Number(t.returnedPaymentFee) : null,
+  };
 }

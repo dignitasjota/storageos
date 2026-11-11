@@ -4,15 +4,20 @@ import {
   CONTRACT_TEMPLATE_VARIABLES,
   DEFAULT_HOUSING_CLAUSES,
   DEFAULT_STORAGE_CLAUSES,
+  moveOutRuleText,
   renderContractClauses,
+  type ContractTemplateDto,
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature } from '@/lib/auth/hooks';
@@ -35,6 +40,12 @@ export default function ContractTemplatePage() {
     );
   }
 
+  // La vista previa usa los ajustes reales del negocio (baja, plazo de la fianza).
+  const previewVars = {
+    ...PREVIEW_VARS,
+    moveOutRule: moveOutRuleText(data.moveOutEndOfMonth),
+    depositReturnDays: String(data.depositReturnDays),
+  };
   const storageEditor = (
     <ClausesEditor
       field="clauses"
@@ -42,6 +53,7 @@ export default function ContractTemplatePage() {
       defaultText={DEFAULT_STORAGE_CLAUSES}
       emptyText="Sin texto: se usarán las condiciones generales de trastero."
       placeholder=""
+      previewVars={previewVars}
     />
   );
 
@@ -51,13 +63,15 @@ export default function ContractTemplatePage() {
         <h1 className="text-2xl font-semibold tracking-tight">Plantilla de contrato</h1>
         <p className="text-sm text-muted-foreground">
           Las condiciones que firma el inquilino. Parten de unas condiciones generales que puedes
-          cambiar a tu medida; los datos del contrato (partes, trastero, cuota, IVA, fianza,
-          preaviso, descuentos y seguro) se añaden solos encima. La firma electrónica y su huella
-          son la prueba de cada contrato; editar la plantilla no cambia los ya firmados.
+          cambiar a tu medida; los datos del contrato (partes y contacto, trastero, cuota con IVA,
+          fianza, preaviso, horario de acceso, recargos, descuentos y seguro) se añaden solos
+          encima. La firma electrónica y su huella son la prueba de cada contrato; editar la
+          plantilla no cambia los ya firmados.
         </p>
       </div>
 
-      <AutoEndCard enabled={data.autoEndContracts} />
+      <MoveOutCard data={data} />
+      <DepositAndFeesCard data={data} />
 
       {hasHousing || data.housingClauses ? (
         <Tabs defaultValue="storage">
@@ -80,6 +94,7 @@ export default function ContractTemplatePage() {
               defaultText={DEFAULT_HOUSING_CLAUSES}
               emptyText="Sin texto: se usará la base LAU."
               placeholder=""
+              previewVars={previewVars}
             />
           </TabsContent>
         </Tabs>
@@ -90,13 +105,16 @@ export default function ContractTemplatePage() {
   );
 }
 
-/** Las bajas que llegan a su fecha se cierran solas (o se dejan para cerrarlas a mano). */
-function AutoEndCard({ enabled }: { enabled: boolean }) {
+/** Cuándo surte efecto la baja y si los contratos se cierran solos. */
+function MoveOutCard({ data }: { data: ContractTemplateDto }) {
   const update = useUpdateContractTemplate();
-  async function toggle(next: boolean) {
+  async function save(
+    input: { moveOutEndOfMonth?: boolean; autoEndContracts?: boolean },
+    ok: string,
+  ) {
     try {
-      await update.mutateAsync({ autoEndContracts: next });
-      toast.success(next ? 'Las bajas se cerrarán solas.' : 'Cerrarás las bajas a mano.');
+      await update.mutateAsync(input);
+      toast.success(ok);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
     }
@@ -106,21 +124,136 @@ function AutoEndCard({ enabled }: { enabled: boolean }) {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Bajas</CardTitle>
         <CardDescription>
-          Cuando un contrato en baja llega a su fecha de fin, al día siguiente se finaliza solo: el
-          trastero queda libre, se revoca el acceso del inquilino (si no tiene otro contrato) y se
-          avisa a la lista de espera. Te avisaremos para que hagas el check-out y liquides la
-          fianza.
+          El inquilino avisa con el preaviso de su contrato. A final de mes, se va el último día del
+          mes en que se cumple el preaviso y ese mes lo paga entero; si no, elige el día y el último
+          mes se cobra hasta esa fecha. Si pagó varios meses por adelantado, se le abonan los meses
+          enteros sin usar, cobrando los usados a la cuota mensual. Cada contrato conserva la regla
+          con la que se firmó: cambiarla aquí vale para los que se firmen a partir de ahora.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
-            checked={enabled}
+            checked={data.moveOutEndOfMonth}
             disabled={update.isPending}
-            onCheckedChange={(v) => void toggle(v === true)}
+            onCheckedChange={(v) =>
+              void save(
+                { moveOutEndOfMonth: v === true },
+                v === true
+                  ? 'Las bajas terminarán a final de mes.'
+                  : 'El inquilino elegirá el día de la baja.',
+              )
+            }
+          />
+          La baja surte efecto a final de mes
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={data.autoEndContracts}
+            disabled={update.isPending}
+            onCheckedChange={(v) =>
+              void save(
+                { autoEndContracts: v === true },
+                v === true ? 'Las bajas se cerrarán solas.' : 'Cerrarás las bajas a mano.',
+              )
+            }
           />
           Finalizar automáticamente los contratos al llegar su fecha de baja
         </label>
+        <p className="text-xs text-muted-foreground">
+          Al finalizar, el trastero queda libre, se revoca el acceso del inquilino (si no tiene otro
+          contrato) y se avisa a la lista de espera. Te avisaremos para que hagas el check-out y
+          liquides la fianza.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Plazo para devolver la fianza y gastos por recibo devuelto, que figuran en el contrato. */
+function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
+  const update = useUpdateContractTemplate();
+  const [days, setDays] = useState(String(data.depositReturnDays));
+  const [fee, setFee] = useState(data.returnedPaymentFee ? String(data.returnedPaymentFee) : '');
+  useEffect(() => setDays(String(data.depositReturnDays)), [data.depositReturnDays]);
+  useEffect(
+    () => setFee(data.returnedPaymentFee ? String(data.returnedPaymentFee) : ''),
+    [data.returnedPaymentFee],
+  );
+  const daysValue = Number(days);
+  const feeValue = fee.trim() === '' ? 0 : Number(fee.replace(',', '.'));
+  const valid =
+    Number.isInteger(daysValue) &&
+    daysValue >= 1 &&
+    daysValue <= 60 &&
+    Number.isFinite(feeValue) &&
+    feeValue >= 0 &&
+    feeValue <= 100;
+  const changed =
+    daysValue !== data.depositReturnDays || feeValue !== (data.returnedPaymentFee ?? 0);
+
+  async function save() {
+    try {
+      await update.mutateAsync({
+        depositReturnDays: daysValue,
+        returnedPaymentFee: feeValue || null,
+      });
+      toast.success('Guardado. Se aplicará a los contratos que se firmen a partir de ahora.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Fianza y gastos por impago</CardTitle>
+        <CardDescription>
+          Figuran en los datos de cada contrato nuevo. El recargo por demora se configura en{' '}
+          <Link href="/settings/billing" className="underline">
+            Facturación
+          </Link>
+          .
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="deposit-days">Días para devolver la fianza</Label>
+            <Input
+              id="deposit-days"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={60}
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Desde que el inquilino entrega el trastero vacío (entre 1 y 60).
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="returned-fee">Gastos por recibo devuelto o pago rechazado (€)</Label>
+            <Input
+              id="returned-fee"
+              inputMode="decimal"
+              placeholder="Ninguno"
+              value={fee}
+              onChange={(e) => setFee(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Sin IVA. No pueden superar lo que te cuesta gestionarlo. No se cobran solos: los
+              añades a mano en una factura. Vacío o 0, el contrato dice que no hay.
+            </p>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button onClick={() => void save()} disabled={!valid || !changed || update.isPending}>
+            {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
+            Guardar
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -132,6 +265,7 @@ function ClausesEditor({
   defaultText,
   emptyText,
   placeholder,
+  previewVars,
 }: {
   field: 'clauses' | 'housingClauses';
   initial: string;
@@ -139,11 +273,12 @@ function ClausesEditor({
   defaultText?: string;
   emptyText: string;
   placeholder: string;
+  previewVars: Record<string, string>;
 }) {
   const update = useUpdateContractTemplate();
   const [value, setValue] = useState(initial);
   useEffect(() => setValue(initial), [initial]);
-  const preview = useMemo(() => renderContractClauses(value, PREVIEW_VARS), [value]);
+  const preview = useMemo(() => renderContractClauses(value, previewVars), [value, previewVars]);
 
   async function save() {
     const toSave = defaultText !== undefined && value.trim() === defaultText.trim() ? '' : value;

@@ -38,6 +38,8 @@ const TENANT_SELECT = {
   customDomainVerifiedAt: true,
   googleAnalyticsId: true,
   webChatEnabled: true,
+  moveOutEndOfMonth: true,
+  depositReturnDays: true,
   webLegal: true,
 } satisfies Prisma.TenantSelect;
 
@@ -196,6 +198,9 @@ export class WebLegalService {
           return where ? `${f.name}: ${where}` : '';
         })
         .filter(Boolean),
+      moveOutEndOfMonth: t.moveOutEndOfMonth,
+      depositReturnDays: t.depositReturnDays,
+      accessLogDays: this.config.get('RETENTION_ACCESS_LOGS_DAYS', { infer: true }),
     };
   }
 }

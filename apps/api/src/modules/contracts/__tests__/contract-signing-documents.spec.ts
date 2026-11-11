@@ -1,5 +1,10 @@
 import { renderContractHtml } from '../contract-pdf-template';
-import { buildContractTermsText, termsHash } from '../contract-terms';
+import {
+  PREPAID_EARLY_END_LINE,
+  accessHoursText,
+  buildContractTermsText,
+  termsHash,
+} from '../contract-terms';
 
 const base = {
   contractNumber: 'C-2026-0001',
@@ -39,17 +44,69 @@ describe('texto del contrato que se firma', () => {
     );
     expect(text).toContain('Inquilino: Ana Ruiz · DNI 12345678Z');
     expect(text).toContain('Trastero: A-12 (Mediano, 6 m²) — Trasteros Centro');
-    expect(text).toContain('Inicio: 01/02/2026');
+    expect(text).toContain('Inicio y entrega del trastero: 01/02/2026');
     expect(text).toContain('se renueva en cada periodo');
     expect(text).toContain('Preaviso de baja: 15 días');
-    expect(text).toContain('Cuota mensual: 75,00 € + IVA (21 %)');
-    expect(text).toContain('Descuento: −5,00 € al mes (Fidelidad)');
+    // Con el IVA incluido, que es lo que paga un consumidor.
+    expect(text).toContain('Cuota mensual: 90,75 € IVA incluido (75,00 € + IVA del 21 %)');
+    expect(text).toContain('Descuento: −6,05 € al mes, IVA incluido (Fidelidad)');
     expect(text).toContain('Primer pago: 3 meses por adelantado');
-    expect(text).toContain('Cupón BIENVENIDA: −20,00 € en el primer pago');
-    expect(text).toContain('Protección de contenido: Básico — 4,50 € al mes');
+    // Lo que pasa si se va antes de usar lo pagado por adelantado.
+    expect(text).toContain(PREPAID_EARLY_END_LINE);
+    expect(buildContractTermsText(base)).not.toContain(PREPAID_EARLY_END_LINE);
+    expect(text).toContain('Cupón BIENVENIDA: −24,20 € en el primer pago, IVA incluido');
+    expect(text).toContain(
+      'Protección de contenido: Básico — 5,45 € al mes, IVA incluido (4,50 € + IVA del 21 %)',
+    );
+    // (75 − 5) × 1,21 + 4,50 × 1,21 = 84,70 + 5,45
+    expect(text).toContain('Total al mes: 90,15 € IVA incluido');
     expect(text).toContain('Fianza: 150,00 € (sin IVA)');
     expect(text).toContain('Condiciones generales:');
     expect(text).toContain('eIDAS');
+  });
+
+  it('la ficha recoge contactos, baja a final de mes, plazo de la fianza, horario y recargos', () => {
+    const text = buildContractTermsText({
+      ...base,
+      landlord: { name: 'Trasteros García SL', taxId: 'B12345674' },
+      landlordContact: 'hola@garcia.es · 960 000 000',
+      customer: { documentLabel: 'DNI', documentNumber: '12345678Z', email: 'ana@ruiz.es' },
+      cancellationNoticeDays: 15,
+      moveOutEndOfMonth: true,
+      depositReturnDays: 15,
+      accessHours: 'de 06:00 a 23:00, todos los días',
+      lateFee: { type: 'percentage', value: 5, graceDays: 7 },
+      returnedPaymentFee: 4,
+      vatRate: 21,
+    });
+    expect(text).toContain('Contacto para este contrato: hola@garcia.es · 960 000 000');
+    expect(text).toContain('Inquilino: Ana Ruiz · DNI 12345678Z · ana@ruiz.es');
+    expect(text).toContain('Preaviso de baja: 15 días; la baja surte efecto a final de mes');
+    expect(text).toContain(
+      'Fianza: 150,00 € (sin IVA); se devuelve en un plazo máximo de 15 días desde la entrega del trastero',
+    );
+    expect(text).toContain('Horario de acceso: de 06:00 a 23:00, todos los días');
+    expect(text).toContain(
+      'Recargo por demora: 5 % de lo pendiente de la factura vencida, pasados 7 días de su vencimiento (sin IVA)',
+    );
+    expect(text).toContain(
+      'Gastos por recibo devuelto o pago rechazado: 4,00 € cada uno (sin IVA)',
+    );
+
+    const none = buildContractTermsText({ ...base, lateFee: null, returnedPaymentFee: null });
+    expect(none).toContain('Recargos por impago: ninguno');
+  });
+
+  it('el horario de acceso sale del toque de queda del local', () => {
+    expect(accessHoursText({ enabled: true, start: '23:00', end: '06:00' })).toBe(
+      'de 06:00 a 23:00, todos los días',
+    );
+    expect(accessHoursText({ enabled: true, start: '14:00', end: '16:00' })).toBe(
+      'todos los días, salvo de 14:00 a 16:00',
+    );
+    expect(accessHoursText({ enabled: false, start: '23:00', end: '06:00' })).toBe(
+      'el publicado para el local',
+    );
   });
 
   it('vivienda: exenta de IVA y con su título; propietario gestionado por el negocio', () => {

@@ -157,10 +157,13 @@ export default function ContractMoveOutPage() {
       </Step>
 
       {s.prepaidCredit && (
-        <Step n={5} title="Abono del prepago" done={false}>
+        <Step n={5} title="Abono de lo pagado por adelantado" done={false}>
           <p className="text-sm">
-            Quedan {s.prepaidCredit.months} meses sin consumir ({formatEur(s.prepaidCredit.amount)}
-            ). Al cerrar se crea el abono en borrador: revísalo, emítelo y devuelve el importe.
+            Quedan {s.prepaidCredit.months}{' '}
+            {s.prepaidCredit.months === 1 ? 'mes entero' : 'meses enteros'} sin usar: se abonan{' '}
+            {formatEur(s.prepaidCredit.amount)}, cobrando los meses usados a la cuota mensual, sin
+            el descuento del pago por adelantado. Al cerrar se crea el abono en borrador: revísalo,
+            emítelo y devuelve el importe.
           </p>
         </Step>
       )}

@@ -173,6 +173,20 @@ describe('Prepago anual/semestral del inquilino (e2e)', () => {
       where: { id: contractId },
       data: { endDate: new Date('2026-03-05') },
     });
+    // Firmado antes del contrato v2: se abonaba en proporción, con el descuento.
+    await adminClient.contract.update({
+      where: { id: contractId },
+      data: { prepaidCreditAtListPrice: false },
+    });
+    const legacy = await request(app.getHttpServer())
+      .get(`/contracts/${contractId}/move-out`)
+      .set(auth)
+      .expect(200);
+    expect(legacy.body.prepaidCredit).toEqual({ months: 10, amount: 1089 });
+    await adminClient.contract.update({
+      where: { id: contractId },
+      data: { prepaidCreditAtListPrice: true },
+    });
     await request(app.getHttpServer()).post(`/contracts/${contractId}/end`).set(auth).expect(200);
 
     const credit = await adminClient.invoice.findFirstOrThrow({
@@ -181,9 +195,10 @@ describe('Prepago anual/semestral del inquilino (e2e)', () => {
     });
     expect(credit.status).toBe('draft');
     expect(credit.invoiceType).toBe('R1');
-    // 1080 € × 10/12 = 900 € de base; con IVA 21% → −1089 €.
-    expect(Number(credit.items[0]!.unitPrice)).toBe(-900);
-    expect(Number(credit.total)).toBe(-1089);
+    // Usados 2 meses a la cuota mensual, sin el 10 %: 1080 − 2 × 100 = 880 € de
+    // base (no 900, la parte proporcional con el descuento); con IVA → −1064,80 €.
+    expect(Number(credit.items[0]!.unitPrice)).toBe(-880);
+    expect(Number(credit.total)).toBe(-1064.8);
 
     const events = await request(app.getHttpServer())
       .get(`/contracts/${contractId}/events`)
