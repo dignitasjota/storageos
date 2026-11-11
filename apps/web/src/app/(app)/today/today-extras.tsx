@@ -1,12 +1,11 @@
 'use client';
 
-import { BellOff, CalendarDays, CheckCircle2, MessageCircle, Phone, Wallet } from 'lucide-react';
+import { CalendarDays, CheckCircle2, Wallet } from 'lucide-react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import type {
-  TenantTodaySnoozeKind,
   TodayAttentionSectionDto,
   TodayDebtDto,
   TodayDoneDto,
@@ -16,6 +15,7 @@ import type {
 } from '@storageos/shared';
 import type { Clock } from 'lucide-react';
 
+import { PhoneLinks, SnoozeMenu } from '@/components/dashboard/today-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,12 +26,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -42,84 +36,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { apiFetch, ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
-import { useSnoozeToday, useUnsnoozeToday } from '@/lib/dashboard/hooks';
+import { useUnsnoozeToday } from '@/lib/dashboard/hooks';
 import { formatDate, formatEur } from '@/lib/format';
 
-/** Teléfono en formato de WhatsApp: solo cifras y con el prefijo de España. */
-function whatsappNumber(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  return digits.length === 9 ? `34${digits}` : digits;
-}
-
-export function PhoneLinks({ phone }: { phone?: string | null | undefined }) {
-  if (!phone) return null;
-  return (
-    <>
-      <Button asChild variant="ghost" size="icon" className="size-7 shrink-0">
-        <a href={`tel:${phone}`} aria-label="Llamar" title="Llamar">
-          <Phone className="size-3.5" />
-        </a>
-      </Button>
-      <Button asChild variant="ghost" size="icon" className="size-7 shrink-0">
-        <a
-          href={`https://wa.me/${whatsappNumber(phone)}`}
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Escribir por WhatsApp"
-          title="Escribir por WhatsApp"
-        >
-          <MessageCircle className="size-3.5" />
-        </a>
-      </Button>
-    </>
-  );
-}
-
-/** Aparta un aviso unos días: no sale ni cuenta hasta entonces. */
-export function SnoozeMenu({
-  kind,
-  refId,
-  label,
-}: {
-  kind: TenantTodaySnoozeKind;
-  refId: string;
-  label: string;
-}) {
-  const snooze = useSnoozeToday();
-  const canSnooze = useHasPermission('tasks:write');
-  if (!canSnooze) return null;
-  const run = async (days: number) => {
-    try {
-      await snooze.mutateAsync({ kind, refId, days, label });
-      toast.success(days === 1 ? 'Apartado hasta mañana.' : `Apartado ${days} días.`);
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
-    }
-  };
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0"
-          aria-label="Apartar"
-          title="Apartar"
-        >
-          <BellOff className="size-3.5" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {[1, 3, 7, 30].map((days) => (
-          <DropdownMenuItem key={days} onSelect={() => void run(days)}>
-            {days === 1 ? 'Hasta mañana' : `${days} días`}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
+// Los usa también la página de «Hoy».
+export { PhoneLinks, SnoozeMenu };
 
 export function AttentionCard({
   title,

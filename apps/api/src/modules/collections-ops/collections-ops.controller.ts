@@ -9,8 +9,9 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
-import { CreatePaymentPlanSchema } from '@storageos/shared';
+import { CreatePaymentPlanSchema, DebtorPaymentSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -22,9 +23,26 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { CollectionsOpsService } from './collections-ops.service';
 import { PaymentPlansService } from './payment-plans.service';
 
-import type { ArrearsDto, MonthCollectionsDto, PaymentPlanDto } from '@storageos/shared';
+import type { RequestMeta } from '../auth/auth.service';
+import type {
+  ArrearsDto,
+  DebtorPaymentResultDto,
+  MonthCollectionsDto,
+  PaymentPlanDto,
+} from '@storageos/shared';
+import type { Request } from 'express';
 
 class CreatePaymentPlanDto extends createZodDto(CreatePaymentPlanSchema) {}
+class DebtorPaymentDto extends createZodDto(DebtorPaymentSchema) {}
+
+function extractMeta(req: Request): RequestMeta {
+  const ua = req.header('user-agent');
+  const ip = req.ip;
+  return {
+    ...(ua ? { userAgent: ua } : {}),
+    ...(ip ? { ipAddress: ip } : {}),
+  };
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -67,6 +85,26 @@ export class CollectionsOpsController {
     @Query('facilityId') facilityId?: string,
   ): Promise<ArrearsDto> {
     return this.ops.arrears(user.tenantId, user.facilityScope ?? null, facilityParam(facilityId));
+  }
+
+  /** Pago recibido de un deudor: se aplica a sus facturas vencidas, la más antigua primero. */
+  @Post('arrears/:customerId/payment')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('invoices:write')
+  debtorPayment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('customerId', new ParseUUIDPipe()) customerId: string,
+    @Body() body: DebtorPaymentDto,
+    @Req() req: Request,
+  ): Promise<DebtorPaymentResultDto> {
+    return this.ops.registerDebtorPayment({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      customerId,
+      input: body,
+      scope: user.facilityScope ?? null,
+      meta: extractMeta(req),
+    });
   }
 
   @Get('payment-plans')

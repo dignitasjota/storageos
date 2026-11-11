@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { ManualPaymentMethodEnum } from './schemas';
+
 /**
  * Cobros del mes, impagos y planes de pago del operador.
  */
@@ -31,6 +33,24 @@ export interface MonthCollectionsDto {
   expected: Record<ExpectedVia, MonthCollectionsBucketDto> & { total: MonthCollectionsBucketDto };
   /** De lo que vence en el mes, lo que sigue sin cobrar. */
   outstanding: MonthCollectionsBucketDto;
+  /**
+   * Lo que sigue sin cobrar por vía: lo `auto` y lo de `remittance` se
+   * cobrará solo; lo `manual` hay que reclamarlo.
+   */
+  outstandingByVia: Record<ExpectedVia, MonthCollectionsBucketDto>;
+  /**
+   * Tasa de cobro: de lo que ya ha vencido en el mes (hasta hoy), la parte
+   * cobrada (0-1). Null si aún no ha vencido nada.
+   */
+  collectionRate: number | null;
+  /** El mes anterior, para comparar. */
+  previous: {
+    month: string;
+    expected: MonthCollectionsBucketDto;
+    outstanding: MonthCollectionsBucketDto;
+    collected: MonthCollectionsBucketDto;
+    collectionRate: number | null;
+  };
   /**
    * Cobros recibidos en el mes (de facturas de cualquier mes, sin fianzas y
    * descontando lo devuelto), por forma de pago. Es la cifra «Cobrado» del Resumen.
@@ -103,6 +123,15 @@ export interface ArrearsStepDto {
   postponed: boolean;
 }
 
+/** Una factura vencida de un deudor. */
+export interface ArrearsInvoiceDto {
+  id: string;
+  invoiceNumber: string;
+  /** Lo que queda por pagar (€). */
+  pending: number;
+  dueDate: string | null;
+}
+
 /** Una fila de `GET /arrears`: un inquilino con deuda vencida. */
 export interface ArrearsRowDto {
   customerId: string;
@@ -114,6 +143,10 @@ export interface ArrearsRowDto {
   days: number;
   invoiceIds: string[];
   invoiceCount: number;
+  /** Las facturas vencidas, de la más antigua a la más nueva. */
+  invoices: ArrearsInvoiceDto[];
+  /** Apartado (desde aquí o desde «Hoy») hasta `until`: no cuenta como por reclamar. */
+  snoozed: { id: string; until: string } | null;
   /** Hay un cobro automático posible (tarjeta o adeudo guardados). */
   chargeable: boolean;
   /** Va en la remesa SEPA (mandato activo). */
@@ -138,11 +171,53 @@ export interface ArrearsRowDto {
 export interface ArrearsDto {
   totalAmount: number;
   customers: number;
-  /** Los que piden algo hoy: sin cobro en curso ni plan de pago activo (como «Hoy»). */
+  /**
+   * Los que piden algo hoy: sin cobro en curso, sin plan de pago activo y sin
+   * apartar (como «Hoy»).
+   */
   actionable: number;
+  /** El área de clientes, para mandarle el enlace al reclamar. */
+  portalUrl: string;
   /** Por antigüedad de cada factura (como Analítica): 0-30, 30-60, 60-90, +90 días. */
   aging: { label: string; amount: number; count: number }[];
   rows: ArrearsRowDto[];
+}
+
+/**
+ * Pago recibido de un deudor (`POST /arrears/:customerId/payment`): se aplica a
+ * sus facturas vencidas de la más antigua a la más nueva. Pagar solo una parte
+ * de una factura se admite en efectivo, como en la ficha de la factura.
+ */
+export const DebtorPaymentSchema = z.object({
+  amount: z.number().positive().max(10_000_000),
+  methodType: ManualPaymentMethodEnum,
+  notes: z.string().trim().max(500).optional(),
+});
+export type DebtorPaymentInput = z.infer<typeof DebtorPaymentSchema>;
+
+export interface DebtorPaymentResultDto {
+  applied: { invoiceId: string; invoiceNumber: string; amount: number; status: string }[];
+  /** La factura en la que se paró, si alguna falló (las anteriores quedan cobradas). */
+  failed: { invoiceId: string; invoiceNumber: string; error: string } | null;
+  /** Lo que sigue debiendo de lo vencido. */
+  remaining: number;
+}
+
+/** Reparte `amountCents` entre las facturas, de la primera a la última. */
+export function allocateOldestFirst<T extends { pendingCents: number }>(
+  invoices: T[],
+  amountCents: number,
+): { invoice: T; cents: number }[] {
+  let left = amountCents;
+  const out: { invoice: T; cents: number }[] = [];
+  for (const invoice of invoices) {
+    if (left <= 0) break;
+    const cents = Math.min(invoice.pendingCents, left);
+    if (cents <= 0) continue;
+    out.push({ invoice, cents });
+    left -= cents;
+  }
+  return out;
 }
 
 /** Lo que se ha pagado de las cuotas, en orden, con lo cobrado hasta hoy. */

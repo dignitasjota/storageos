@@ -6,6 +6,8 @@ import type {
   AccessCutPendingDto,
   ArrearsDto,
   CreatePaymentPlanInput,
+  DebtorPaymentInput,
+  DebtorPaymentResultDto,
   MonthCollectionsDto,
   PaymentPlanDto,
 } from '@storageos/shared';
@@ -55,6 +57,24 @@ function invalidate(qc: ReturnType<typeof useQueryClient>) {
   ]) {
     void qc.invalidateQueries({ queryKey: [key] });
   }
+}
+
+/** Pago recibido de un deudor, repartido entre sus facturas vencidas. */
+export function useDebtorPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { customerId: string; input: DebtorPaymentInput }) =>
+      apiFetch<DebtorPaymentResultDto>(`/arrears/${args.customerId}/payment`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: () => {
+      invalidate(qc);
+      // Un cobro en efectivo cambia el arqueo del día.
+      void qc.invalidateQueries({ queryKey: ['cash'] });
+      void qc.invalidateQueries({ queryKey: ['payments'] });
+    },
+  });
 }
 
 export function useCreatePaymentPlan() {

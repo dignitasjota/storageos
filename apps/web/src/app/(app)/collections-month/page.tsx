@@ -1,7 +1,7 @@
 'use client';
 
 import { PAYMENT_RECORD_METHOD_LABELS, type MonthCollectionsItemDto } from '@storageos/shared';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import {
@@ -24,6 +24,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useBulkChargeInvoices, useBulkRemindInvoices } from '@/lib/billing/hooks';
 import { useMonthCollections } from '@/lib/collections-ops/hooks';
+import { downloadCsv } from '@/lib/csv';
 import { localDateString } from '@/lib/dates';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
@@ -44,16 +45,47 @@ function shift(month: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function monthName(month: string): string {
+  return new Date(`${month}-01T12:00:00`).toLocaleDateString('es-ES', { month: 'long' });
+}
+
+/**
+ * Comparación con el mes anterior: «+12 % frente a octubre». `goodWhenUp` dice
+ * si subir es bueno (cobrado) o malo (pendiente, fallidos).
+ */
+function compare(
+  current: number,
+  previous: number,
+  prevMonth: string,
+  goodWhenUp: boolean,
+): { text: string; tone: 'good' | 'bad' | 'flat' } {
+  const name = monthName(prevMonth);
+  if (previous === 0) {
+    return current === 0
+      ? { text: `igual que en ${name}`, tone: 'flat' }
+      : { text: `en ${name}, nada`, tone: 'flat' };
+  }
+  const pct = Math.round(((current - previous) / previous) * 100);
+  if (pct === 0) return { text: `igual que en ${name}`, tone: 'flat' };
+  const up = pct > 0;
+  return {
+    text: `${up ? '+' : '−'}${Math.abs(pct)} % frente a ${name}`,
+    tone: up === goodWhenUp ? 'good' : 'bad',
+  };
+}
+
 function Tile({
   label,
   value,
   hint,
   tone,
+  vs,
 }: {
   label: string;
   value: string;
   hint?: string;
   tone?: 'red' | 'amber' | 'green';
+  vs?: { text: string; tone: 'good' | 'bad' | 'flat' };
 }) {
   const color =
     tone === 'red'
@@ -69,6 +101,19 @@ function Tile({
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className={`text-xl font-semibold tabular-nums ${color}`}>{value}</p>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        {vs && (
+          <p
+            className={`text-xs ${
+              vs.tone === 'good'
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : vs.tone === 'bad'
+                  ? 'text-destructive'
+                  : 'text-muted-foreground'
+            }`}
+          >
+            {vs.text}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -172,17 +217,55 @@ export default function CollectionsMonthPage() {
         <p className="text-sm text-muted-foreground">Cargando…</p>
       ) : (
         <div className={data.isPlaceholderData ? 'space-y-4 opacity-60' : 'space-y-4'}>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Tile
               label="Previsto (vence este mes)"
               value={eur(d.expected.total.amount)}
               hint={plural(d.expected.total.count, 'factura', 'facturas')}
+              vs={compare(
+                d.expected.total.amount,
+                d.previous.expected.amount,
+                d.previous.month,
+                true,
+              )}
             />
             <Tile
               label="Cobrado en el mes"
               value={eur(d.collected.amount)}
               tone="green"
               hint={`${plural(d.collected.count, 'cobro', 'cobros')}, de facturas de cualquier mes`}
+              vs={compare(d.collected.amount, d.previous.collected.amount, d.previous.month, true)}
+            />
+            <Tile
+              label="Tasa de cobro"
+              value={d.collectionRate === null ? '—' : `${Math.round(d.collectionRate * 100)} %`}
+              tone={
+                d.collectionRate === null
+                  ? undefined
+                  : d.collectionRate >= 0.95
+                    ? 'green'
+                    : d.collectionRate >= 0.8
+                      ? 'amber'
+                      : 'red'
+              }
+              hint={
+                d.collectionRate === null
+                  ? 'Aún no ha vencido nada este mes'
+                  : 'De lo ya vencido, lo cobrado'
+              }
+              {...(d.collectionRate !== null && d.previous.collectionRate !== null
+                ? {
+                    vs: {
+                      text: `${Math.round(d.previous.collectionRate * 100)} % en ${monthName(d.previous.month)}`,
+                      tone:
+                        d.collectionRate > d.previous.collectionRate
+                          ? ('good' as const)
+                          : d.collectionRate < d.previous.collectionRate
+                            ? ('bad' as const)
+                            : ('flat' as const),
+                    },
+                  }
+                : {})}
             />
             <Tile
               label="Pendiente de lo previsto"
@@ -241,6 +324,36 @@ export default function CollectionsMonthPage() {
                     </span>
                   </div>
                 ))}
+                {d.outstanding.amount > 0 && (
+                  <>
+                    <div className="border-t pt-2 text-xs font-medium text-muted-foreground">
+                      {month >= current
+                        ? 'Lo que falta hasta fin de mes'
+                        : 'Lo que sigue sin cobrar'}
+                    </div>
+                    {(
+                      [
+                        ['auto', 'Se cobrará solo'],
+                        ['remittance', 'Va en la remesa SEPA'],
+                        ['manual', 'Hay que reclamarlo'],
+                      ] as const
+                    )
+                      .filter(([k]) => d.outstandingByVia[k].count > 0)
+                      .map(([k, l]) => (
+                        <div key={k} className="flex justify-between">
+                          <span className="text-muted-foreground">{l}</span>
+                          <span
+                            className={`tabular-nums ${k === 'manual' ? 'text-amber-600 dark:text-amber-400' : ''}`}
+                          >
+                            {eur(d.outstandingByVia[k].amount)}{' '}
+                            <span className="text-xs text-muted-foreground">
+                              ({d.outstandingByVia[k].count})
+                            </span>
+                          </span>
+                        </div>
+                      ))}
+                  </>
+                )}
                 <div className="border-t pt-2 text-xs font-medium text-muted-foreground">
                   Cobrado por forma de pago
                 </div>
@@ -283,15 +396,36 @@ export default function CollectionsMonthPage() {
             empty="Nada pendiente de cobro a mano."
             items={d.manualPending}
             headerAction={
-              canRemind && d.manualPending.some((i) => i.date < today) ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={remind.isPending}
-                  onClick={() => void remindAll(d.manualPending.filter((i) => i.date < today))}
-                >
-                  Recordar las vencidas ({d.manualPending.filter((i) => i.date < today).length})
-                </Button>
+              d.manualPending.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      downloadCsv(`pendiente-a-mano-${month}.csv`, [
+                        ['Inquilino', 'Factura', 'Vence', 'Pendiente (€)'],
+                        ...d.manualPending.map((i) => [
+                          i.customerName,
+                          i.invoiceNumber,
+                          day(i.date),
+                          i.amount,
+                        ]),
+                      ])
+                    }
+                  >
+                    <Download className="mr-1 size-4" /> CSV
+                  </Button>
+                  {canRemind && d.manualPending.some((i) => i.date < today) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={remind.isPending}
+                      onClick={() => void remindAll(d.manualPending.filter((i) => i.date < today))}
+                    >
+                      Recordar las vencidas ({d.manualPending.filter((i) => i.date < today).length})
+                    </Button>
+                  )}
+                </div>
               ) : undefined
             }
           />
@@ -323,7 +457,7 @@ function ItemsCard({
 }) {
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-base">
           {title}{' '}
           {items.length > 0 && <span className="text-muted-foreground">({items.length})</span>}
