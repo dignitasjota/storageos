@@ -88,11 +88,13 @@ export default function CollectionsPage() {
         </Can>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
+      {/* En el móvil, una tira que se desliza en vez de cuatro filas de botones. */}
+      <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
         {FILTERS.map((f) => (
           <Button
             key={f.value}
             size="sm"
+            className="shrink-0"
             variant={filter === f.value ? 'default' : 'outline'}
             onClick={() => setFilter(f.value)}
           >

@@ -758,6 +758,15 @@ function Evidence({ c, isClosed }: { c: Case; isClosed: boolean }) {
   );
 }
 
+/** Título del evento (las notas automáticas dicen qué fueron). */
+function eventTitle(e: Case['events'][number]): string {
+  if (e.eventType === 'note' && typeof e.payload.file === 'string') return 'Evidencia subida';
+  if (e.eventType === 'note' && e.payload.requirementPdf === true) {
+    return 'Requerimiento generado (PDF)';
+  }
+  return CASE_EVENT_LABELS[e.eventType] ?? e.eventType;
+}
+
 /** Lo que dice cada evento, en palabras. */
 function eventDetail(e: Case['events'][number]): string[] {
   const p = e.payload;
@@ -773,9 +782,8 @@ function eventDetail(e: Case['events'][number]): string[] {
     out.push(`Cauce: ${DISPOSAL_TYPE_LABELS[p.disposalType] ?? p.disposalType}`);
   }
   if (typeof p.file === 'string') {
-    out.push(`Evidencia: ${CASE_FILE_KIND_LABELS[p.file as CaseFileKind] ?? p.file}`);
+    out.push(CASE_FILE_KIND_LABELS[p.file as CaseFileKind] ?? p.file);
   }
-  if (p.requirementPdf === true) out.push('Requerimiento (PDF) generado');
   if (typeof p.reason === 'string')
     out.push(`Motivo: ${CLOSE_REASON_LABELS[p.reason] ?? p.reason}`);
   const s = p.settlement as
@@ -841,7 +849,7 @@ function History({ c, isClosed }: { c: Case; isClosed: boolean }) {
             <li key={e.id} className="flex gap-3 text-sm">
               <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
               <div className="min-w-0">
-                <div className="font-medium">{CASE_EVENT_LABELS[e.eventType] ?? e.eventType}</div>
+                <div className="font-medium">{eventTitle(e)}</div>
                 {eventDetail(e).map((line, i) => (
                   <div key={i} className="break-words text-muted-foreground">
                     {line}
