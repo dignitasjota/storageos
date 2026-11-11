@@ -567,6 +567,7 @@ model Tenant {
   paymentPlans            PaymentPlan[]
   customerInterestEvents  CustomerInterestEvent[]
   cashClosures            CashClosure[]
+  cashMovements            CashMovement[]
   featureOverrides        TenantFeatureOverride[]
   tenantFollowups         TenantFollowup[]
   auditLogs               AuditLog[]
@@ -849,6 +850,7 @@ model User {
   paymentPlansCreated      PaymentPlan[]             @relation("PaymentPlanAuthor")
   cashClosures             CashClosure[]             @relation("CashClosureAuthor")
   cashClosuresReopened    CashClosure[]                  @relation("CashClosureReopener")
+  cashMovements           CashMovement[]                 @relation("CashMovementAuthor")
   delinquencyCasesOpened   DelinquencyCase[]         @relation("DelinquencyCaseOpenedBy")
   retentionOffers          RetentionOffer[]
   expenses                 Expense[]
@@ -1251,6 +1253,7 @@ model Facility {
   cameraDevices        CameraDevice[]
   userFacilities       UserFacility[]
   cashClosures         CashClosure[]
+  cashMovements         CashMovement[]
   expenses             Expense[]
   recurringExpenses    RecurringExpense[]
   marketingChannels    MarketingChannel[]
@@ -6145,6 +6148,10 @@ model CashClosure {
   reopenedAt       DateTime? @map("reopened_at") @db.Timestamptz(6)
   reopenedByUserId String?   @map("reopened_by_user_id") @db.Uuid
   reopenReason     String?   @map("reopen_reason")
+  /// Recuento por billetes y monedas: { "<céntimos>": unidades }.
+  denominations  Json?
+  /// De dónde salía el esperado al cerrar (cobros, devoluciones, movimientos).
+  breakdown      Json?
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -6156,6 +6163,29 @@ model CashClosure {
   // en SQL (migración 20260708150000): Prisma no representa índices parciales.
   @@index([tenantId, closureDate])
   @@map("cash_closures")
+}
+
+/// Lo que entra o sale del cajón sin ser un cobro: fondo de apertura, entrada
+/// de cambio o retirada al banco. Cuenta en el efectivo esperado de su día.
+model CashMovement {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  /// NULL = caja de toda la empresa.
+  facilityId      String?  @map("facility_id") @db.Uuid
+  movementDate    DateTime @map("movement_date") @db.Date
+  /// opening_float | change_in | bank_withdrawal
+  kind            String
+  amount          Decimal  @db.Decimal(10, 2)
+  notes           String?
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility  Facility? @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  createdBy User?     @relation("CashMovementAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, movementDate])
+  @@map("cash_movements")
 }
 
 /// Seguimiento/recordatorio del super admin sobre un tenant ("llamar el día X",

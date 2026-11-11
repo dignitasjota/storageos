@@ -24,6 +24,7 @@ import {
   FileWarning,
   Package,
   ShieldCheck,
+  Wallet,
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -717,6 +718,12 @@ export default function TodayPage() {
                       icon={CalendarClock}
                       section={extras.plansLate}
                       href="/arrears"
+                    />
+                    <AttentionCard
+                      title="Cajas sin cerrar"
+                      icon={Wallet}
+                      section={extras.cashUnclosed}
+                      href="/cash"
                     />
                   </>
                 )}

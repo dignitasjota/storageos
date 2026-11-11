@@ -1,15 +1,24 @@
 'use client';
 
-import { Loader2, LockOpen, Wallet } from 'lucide-react';
+import { FileDown, Loader2, LockOpen, Wallet } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
+
+import {
+  CashLinesCard,
+  denominationsCents,
+  DenominationsInput,
+  type Denominations,
+} from './cash-count';
+import { ClosuresHistory } from './closures-history';
+import { CashMovementsCard } from './movements-card';
 
 import type { CashClosureDto, CashMethodKey } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DateSelect } from '@/components/month-year-select';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -33,7 +42,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useMe } from '@/lib/auth/hooks';
 import {
-  useCashClosures,
+  downloadClosurePdf,
   useCashSummary,
   useCloseCash,
   useReopenCashClosure,
@@ -64,24 +73,39 @@ function parseCents(v: string): number | null {
 
 export default function CashPage() {
   const me = useMe();
+  const params = useSearchParams();
   const companyWide = !Array.isArray(me.data?.facilityScope);
-  const [date, setDate] = useState(localDateString());
-  // Empieza con el local de la cabecera; quien ve todos los locales puede
-  // elegir la caja global, el resto solo la de sus locales.
+  // Desde «Hoy» se llega con el día y la caja que faltan por cerrar.
+  const [date, setDate] = useState(() => {
+    const d = params.get('date');
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : localDateString();
+  });
+  // Empieza con el local de la cabecera (o el del enlace); quien ve todos los
+  // locales puede elegir la caja global, el resto solo la de sus locales.
   const [facilityFilterId, setFacilityFilterId] = useFacilityFilterState();
+  const [linkFacility] = useState(() => params.get('facilityId'));
   const facilities = useFacilities();
-  const facilityId = facilityFilterId ?? (companyWide ? '' : (facilities.data?.[0]?.id ?? ''));
+  const fallback = companyWide ? '' : (facilities.data?.[0]?.id ?? '');
+  // Hasta que se elige otra caja, manda la del enlace (sin local = la global).
+  const facilityId =
+    params.get('date') !== null ? (linkFacility ?? fallback) : (facilityFilterId ?? fallback);
   const ready = !!me.data && (companyWide || !!facilityId);
   const summary = useCashSummary(date, facilityId || undefined, ready);
-  const closures = useCashClosures();
   const close = useCloseCash();
   const [counted, setCounted] = useState('');
+  const [byNotes, setByNotes] = useState(false);
+  const [denominations, setDenominations] = useState<Denominations>({});
   const [notes, setNotes] = useState('');
   const [reopening, setReopening] = useState<CashClosureDto | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const s = summary.data;
   const closure = s?.closure ?? null;
-  const countedCents = counted ? parseCents(counted) : null;
+  const countedCents = byNotes
+    ? denominationsCents(denominations)
+    : counted
+      ? parseCents(counted)
+      : null;
   const diffCents =
     countedCents !== null && s ? countedCents - Math.round(s.expectedCash * 100) : null;
 
@@ -96,9 +120,11 @@ export default function CashPage() {
         countedCash: countedCents / 100,
         ...(facilityId ? { facilityId } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        ...(byNotes ? { denominations } : {}),
       });
       toast.success('Caja cerrada.');
       setCounted('');
+      setDenominations({});
       setNotes('');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cerrar la caja.');
@@ -123,7 +149,10 @@ export default function CashPage() {
             <Label className="text-xs">Caja</Label>
             <Select
               value={facilityId || GLOBAL}
-              onValueChange={(v) => setFacilityFilterId(v === GLOBAL ? undefined : v)}
+              onValueChange={(v) => {
+                if (params.get('date')) window.history.replaceState(null, '', '/cash');
+                setFacilityFilterId(v === GLOBAL ? undefined : v);
+              }}
             >
               <SelectTrigger className="w-56">
                 <SelectValue placeholder="Elige un local" />
@@ -202,6 +231,14 @@ export default function CashPage() {
                   )}
                 </div>
               )}
+              {(s.movementsIn > 0 || s.movementsOut > 0) && (
+                <div className="mt-1 space-y-1.5 border-t pt-1.5">
+                  {s.movementsIn > 0 && <Row label="Fondo y cambio" value={s.movementsIn} />}
+                  {s.movementsOut > 0 && (
+                    <Row label="Retiradas al banco" value={-s.movementsOut} negative />
+                  )}
+                </div>
+              )}
               <div className="mt-1 flex items-center justify-between border-t pt-1.5 font-semibold">
                 <span>Esperado en caja (efectivo)</span>
                 <span className="tabular-nums">{formatEur(s.expectedCash)}</span>
@@ -245,11 +282,26 @@ export default function CashPage() {
                     Con la caja cerrada no se registran cobros ni devoluciones en efectivo de ese
                     día.
                   </p>
-                  <Can permission="invoices:manage">
-                    <Button variant="outline" size="sm" onClick={() => setReopening(closure)}>
-                      <LockOpen className="mr-1 size-4" /> Reabrir la caja
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={pdfLoading}
+                      onClick={() => {
+                        setPdfLoading(true);
+                        downloadClosurePdf(closure)
+                          .catch(() => toast.error('No se pudo generar el PDF del cierre.'))
+                          .finally(() => setPdfLoading(false));
+                      }}
+                    >
+                      <FileDown className="mr-1 size-4" /> PDF para firmar
                     </Button>
-                  </Can>
+                    <Can permission="invoices:manage">
+                      <Button variant="outline" size="sm" onClick={() => setReopening(closure)}>
+                        <LockOpen className="mr-1 size-4" /> Reabrir la caja
+                      </Button>
+                    </Can>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -258,17 +310,39 @@ export default function CashPage() {
                     <span className="font-medium text-foreground">{formatEur(s.expectedCash)}</span>
                     .
                   </p>
-                  <div>
-                    <Label className="text-xs" htmlFor="cash-counted">
-                      Efectivo contado (€)
-                    </Label>
-                    <Input
-                      id="cash-counted"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={counted}
-                      onChange={(e) => setCounted(e.target.value)}
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={byNotes}
+                      onChange={(e) => setByNotes(e.target.checked)}
                     />
+                    Contar por billetes y monedas
+                  </label>
+                  <div>
+                    {byNotes ? (
+                      <>
+                        <DenominationsInput value={denominations} onChange={setDenominations} />
+                        <p className="mt-2 text-sm">
+                          Contado:{' '}
+                          <span className="font-medium tabular-nums">
+                            {formatEur(denominationsCents(denominations) / 100)}
+                          </span>
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <Label className="text-xs" htmlFor="cash-counted">
+                          Efectivo contado (€)
+                        </Label>
+                        <Input
+                          id="cash-counted"
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          value={counted}
+                          onChange={(e) => setCounted(e.target.value)}
+                        />
+                      </>
+                    )}
                     {diffCents !== null ? (
                       <p className="mt-1 text-xs text-muted-foreground">
                         Diferencia:{' '}
@@ -280,7 +354,7 @@ export default function CashPage() {
                           {formatEur(diffCents / 100)}
                         </span>
                       </p>
-                    ) : counted ? (
+                    ) : counted && !byNotes ? (
                       <p className="mt-1 text-xs text-destructive">Importe no válido.</p>
                     ) : null}
                   </div>
@@ -297,7 +371,10 @@ export default function CashPage() {
                     />
                   </div>
                   <Can permission="payments:charge">
-                    <Button onClick={() => void onClose()} disabled={close.isPending || !counted}>
+                    <Button
+                      onClick={() => void onClose()}
+                      disabled={close.isPending || (!byNotes && !counted)}
+                    >
                       Cerrar la caja del día
                     </Button>
                   </Can>
@@ -308,76 +385,19 @@ export default function CashPage() {
         </div>
       ) : null}
 
-      {/* Historial de cierres. */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Cierres recientes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {closures.isLoading ? (
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          ) : closures.isError ? (
-            <SectionError onRetry={() => void closures.refetch()} />
-          ) : (closures.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aún no hay cierres.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs text-muted-foreground">
-                  <tr>
-                    <th className="py-1">Día</th>
-                    <th className="py-1">Caja</th>
-                    <th className="py-1 text-right">Esperado</th>
-                    <th className="py-1 text-right">Contado</th>
-                    <th className="py-1 text-right">Diferencia</th>
-                    <th className="py-1 pl-3">Cierre</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(closures.data ?? []).map((c) => (
-                    <tr key={c.id} className={`border-t ${c.reopenedAt ? 'opacity-70' : ''}`}>
-                      <td className="py-1.5 align-top">
-                        {formatDate(c.date)}
-                        {c.reopenedAt && (
-                          <Badge variant="outline" className="ml-1">
-                            Reabierto
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="py-1.5 align-top text-muted-foreground">
-                        {c.facilityName ?? 'Toda la empresa'}
-                      </td>
-                      <td className="py-1.5 text-right align-top tabular-nums">
-                        {formatEur(c.expectedCash)}
-                      </td>
-                      <td className="py-1.5 text-right align-top tabular-nums">
-                        {formatEur(c.countedCash)}
-                      </td>
-                      <td
-                        className={`py-1.5 text-right align-top tabular-nums ${
-                          c.difference === 0 ? '' : 'text-destructive'
-                        }`}
-                      >
-                        {formatEur(c.difference)}
-                      </td>
-                      <td className="py-1.5 pl-3 align-top text-xs text-muted-foreground">
-                        {c.closedByName ?? '—'} · {formatDateTime(c.closedAt)}
-                        {c.notes && <p className="text-foreground">{c.notes}</p>}
-                        {c.reopenedAt && (
-                          <p>
-                            Reabierto por {c.reopenedByName ?? '—'} el{' '}
-                            {formatDateTime(c.reopenedAt)}: {c.reopenReason}
-                          </p>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {s && ready && !summary.isError && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <CashMovementsCard
+            key={`${date}|${facilityId}|${s.closure?.id ?? 'open'}`}
+            date={date}
+            facilityId={facilityId}
+            summary={s}
+          />
+          <CashLinesCard summary={s} />
+        </div>
+      )}
+
+      <ClosuresHistory companyWide={companyWide} facilities={facilities.data ?? []} />
 
       {reopening && <ReopenDialog closure={reopening} onClose={() => setReopening(null)} />}
     </div>

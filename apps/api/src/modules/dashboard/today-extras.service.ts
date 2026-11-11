@@ -240,12 +240,13 @@ export class TodayExtrasService {
 
     const { isSnoozed, section, ...rest } = data;
     const allowed = can('payments:read') && !me;
-    const [plansLate, inventoryIssues, debts] = await Promise.all([
+    const [plansLate, inventoryIssues, debts, cashUnclosed] = await Promise.all([
       allowed ? this.plansLate(tenantId, scope, facilityId, today) : [],
       !me && can('units:read') ? this.inventoryItems(tenantId, scope, facilityId) : [],
       allowed
         ? this.debts(tenantId, scope, facilityId, (id) => isSnoozed('customer_debt', id))
         : { count: 0, totalAmount: 0, rows: [] as TodayDebtDto[] },
+      allowed ? this.cashUnclosed(tenantId, scope, facilityId, today, timezone) : [],
     ]);
     const lateSection = section(plansLate);
     const inventorySection = section(inventoryIssues);
@@ -254,6 +255,7 @@ export class TodayExtrasService {
       ...rest,
       plansLate: lateSection,
       inventoryIssues: inventorySection,
+      cashUnclosed: section(cashUnclosed),
       debts,
       urgentCount:
         rest.chatsWaiting.count +
@@ -913,6 +915,123 @@ export class TodayExtrasService {
           href: `/customers/${p.customerId}`,
         };
       });
+  }
+
+  /**
+   * Cajas de los 7 días anteriores con efectivo (cobros, devoluciones o
+   * movimientos) y sin cerrar. Solo las cajas que el negocio cierra (las que
+   * tienen algún cierre en los últimos 60 días): quien no usa el cierre de caja
+   * no recibe el aviso.
+   */
+  private async cashUnclosed(
+    tenantId: string,
+    scope: string[] | null,
+    facilityId: string | undefined,
+    today: Date,
+    tz: string,
+  ): Promise<TodayAttentionItemDto[]> {
+    const dayOf = (d: Date) => d.toISOString().slice(0, 10);
+    const from = new Date(today.getTime() - 7 * DAY);
+    return this.prisma.withTenant(async (tx) => {
+      const used = await tx.cashClosure.findMany({
+        where: { closureDate: { gte: new Date(today.getTime() - 60 * DAY) } },
+        select: { facilityId: true },
+        distinct: ['facilityId'],
+      });
+      let cajas = used.map((u) => u.facilityId);
+      if (scope) cajas = cajas.filter((f) => f !== null && scope.includes(f));
+      if (facilityId) cajas = cajas.filter((f) => f === facilityId);
+      if (cajas.length === 0) return [];
+
+      const gte = zonedDayStart(dayOf(from), tz);
+      const lt = zonedDayStart(dayOf(today), tz);
+      const invoiceFacility = {
+        select: {
+          facilityId: true,
+          contract: { select: { unit: { select: { facilityId: true } } } },
+          productSale: { select: { facilityId: true } },
+        },
+      } as const;
+      const [payments, refunds, movements, closures, facilities] = await Promise.all([
+        tx.payment.findMany({
+          where: {
+            paidAt: { gte, lt },
+            methodType: 'cash',
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+          },
+          select: { paidAt: true, invoice: invoiceFacility },
+        }),
+        tx.invoiceRefund.findMany({
+          where: { createdAt: { gte, lt }, method: 'cash' },
+          select: { createdAt: true, invoice: invoiceFacility },
+        }),
+        tx.cashMovement.findMany({
+          where: { movementDate: { gte: from, lt: today } },
+          select: { movementDate: true, facilityId: true },
+        }),
+        tx.cashClosure.findMany({
+          where: { closureDate: { gte: from, lt: today }, reopenedAt: null },
+          select: { closureDate: true, facilityId: true },
+        }),
+        tx.facility.findMany({
+          where: { id: { in: cajas.filter((f): f is string => !!f) } },
+          select: { id: true, name: true },
+        }),
+      ]);
+
+      type Inv = {
+        facilityId: string | null;
+        contract: { unit: { facilityId: string } | null } | null;
+        productSale: { facilityId: string } | null;
+      } | null;
+      const facOf = (i: Inv) =>
+        i?.contract?.unit?.facilityId ?? i?.productSale?.facilityId ?? i?.facilityId ?? null;
+      // Día y local de cada movimiento de efectivo.
+      const activity: { day: string; facility: string | null }[] = [
+        ...payments.map((p) => ({
+          day: dayOf(todayInTimezone(tz, p.paidAt!)),
+          facility: facOf(p.invoice),
+        })),
+        ...refunds.map((r) => ({
+          day: dayOf(todayInTimezone(tz, r.createdAt)),
+          facility: facOf(r.invoice),
+        })),
+        ...movements.map((m) => ({ day: dayOf(m.movementDate), facility: m.facilityId })),
+      ];
+      const closed = new Set(
+        closures.map((c) => `${c.facilityId ?? 'global'}|${dayOf(c.closureDate)}`),
+      );
+      const names = new Map(facilities.map((f) => [f.id, f.name]));
+
+      const items: TodayAttentionItemDto[] = [];
+      for (const caja of cajas) {
+        // La caja global cubre todo el efectivo; la de un local, solo el suyo.
+        const days = new Set(
+          activity.filter((a) => caja === null || a.facility === caja).map((a) => a.day),
+        );
+        const open = [...days]
+          .filter(
+            (d) => !closed.has(`global|${d}`) && (caja === null || !closed.has(`${caja}|${d}`)),
+          )
+          .sort();
+        if (open.length === 0) continue;
+        const label = (d: string) =>
+          new Date(`${d}T12:00:00Z`).toLocaleDateString('es-ES', {
+            day: 'numeric',
+            month: 'short',
+            timeZone: 'UTC',
+          });
+        items.push({
+          kind: 'cash',
+          refId: caja ?? tenantId,
+          label: caja ? `Caja de ${names.get(caja) ?? 'un local'}` : 'Caja de toda la empresa',
+          detail: `Sin cerrar: ${open.slice(0, 3).map(label).join(', ')}${open.length > 3 ? ` y ${open.length - 3} más` : ''}`,
+          date: open[0]!,
+          href: `/cash?date=${open[0]!}${caja ? `&facilityId=${caja}` : ''}`,
+        });
+      }
+      return items;
+    }, tenantId);
   }
 
   private async inventoryItems(
