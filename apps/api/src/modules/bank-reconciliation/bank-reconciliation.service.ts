@@ -67,6 +67,21 @@ interface RuleRow {
   expenseCategory: string | null;
 }
 
+/** El texto de una regla en mayúsculas y sin acentos (400 si no llega a 3 letras). */
+function rulePattern(text: string): string {
+  const pattern = normalizeBankText(text);
+  if (pattern.length < 3) {
+    throw new BadRequestException({
+      code: 'rule_pattern_too_short',
+      message: 'El texto que identifica al ordenante tiene que tener al menos 3 letras',
+    });
+  }
+  return pattern;
+}
+
+/** Inquilinos con los que se buscan facturas que sumen un ingreso sin pistas del ordenante. */
+const SUM_SEARCH_CUSTOMERS = 40;
+
 interface RemittanceCandidate {
   id: string;
   name: string;
@@ -545,6 +560,8 @@ export class BankReconciliationService {
   }): Promise<BankStatementDetailDto> {
     const { tenantId, transactionId } = args;
     const invoiceIds = [...new Set(args.invoiceIds)];
+    // Antes de tocar nada: un texto que no sirve como regla no deja la conciliación a medias.
+    if (args.rememberPattern !== undefined) rulePattern(args.rememberPattern);
     const txRow = await this.findTransaction(tenantId, transactionId);
     if (txRow.status !== 'pending') throw this.notPending();
     if (txRow.amount <= 0) {
@@ -797,6 +814,7 @@ export class BankReconciliationService {
     meta?: RequestMeta;
   }): Promise<BankStatementDetailDto> {
     const { tenantId, transactionId, input } = args;
+    if (input.rememberPattern !== undefined) rulePattern(input.rememberPattern);
     const txRow = await this.findTransaction(tenantId, transactionId);
     if (txRow.status !== 'pending') throw this.notPending();
     if (txRow.amount >= 0) {
@@ -932,13 +950,7 @@ export class BankReconciliationService {
       expenseCategory?: string | undefined;
     },
   ): Promise<void> {
-    const pattern = normalizeBankText(rule.pattern);
-    if (pattern.length < 3) {
-      throw new BadRequestException({
-        code: 'rule_pattern_too_short',
-        message: 'El texto que identifica al ordenante tiene que tener al menos 3 letras',
-      });
-    }
+    const pattern = rulePattern(rule.pattern);
     const data = {
       customerId: rule.kind === 'customer' ? (rule.customerId ?? null) : null,
       expenseCategory: rule.kind === 'expense' ? (rule.expenseCategory ?? 'other') : null,
@@ -1582,10 +1594,13 @@ export class BankReconciliationService {
         .filter((r) => r.kind === 'customer' && r.customerId && bankTextContains(text, r.pattern))
         .map((r) => r.customerId!),
     );
+    // El nombre del ordenante, una vez por inquilino (no por factura).
+    const names = new Map<string, string>();
+    for (const c of candidates) {
+      if (c.customerId && !names.has(c.customerId)) names.set(c.customerId, c.customerName);
+    }
     const payerCustomers = new Set(
-      candidates
-        .filter((c) => c.customerId && nameMatches(text, c.customerName))
-        .map((c) => c.customerId!),
+      [...names].filter(([, name]) => nameMatches(text, name)).map(([id]) => id),
     );
     const reasonOf = (c: CandidateInvoice): NonNullable<BankTransactionSuggestionDto['reason']> =>
       containsInvoiceNumber(haystack, c.invoiceNumber)
@@ -1617,10 +1632,17 @@ export class BankReconciliationService {
     const byCustomer = new Map<string, CandidateInvoice[]>();
     for (const c of candidates) {
       if (!c.customerId) continue;
-      byCustomer.set(c.customerId, [...(byCustomer.get(c.customerId) ?? []), c]);
+      const list = byCustomer.get(c.customerId);
+      if (list) list.push(c);
+      else byCustomer.set(c.customerId, [c]);
     }
     const known = [...ruleCustomers, ...payerCustomers];
-    const pool = out.length > 0 || known.length > 0 ? known : [...byCustomer.keys()];
+    // Sin pistas del ordenante se prueba con cualquiera, con tope: un extracto
+    // grande no se queda calculando.
+    const pool =
+      out.length > 0 || known.length > 0
+        ? known
+        : [...byCustomer.keys()].slice(0, SUM_SEARCH_CUSTOMERS);
     for (const customerId of new Set(pool)) {
       if (out.length >= 4) break;
       const list = byCustomer.get(customerId) ?? [];

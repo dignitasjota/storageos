@@ -54,4 +54,18 @@ describe('facturas de un inquilino que suman el ingreso', () => {
     expect(findInvoiceSubset(invoices, 6050)).toBeNull();
     expect(findInvoiceSubset(invoices, 100)).toBeNull();
   });
+  it('con muchas facturas la búsqueda tiene un tope', () => {
+    const many = Array.from({ length: 15 }, (_, i) => ({ id: `f${i}`, cents: 100 + i }));
+    expect(findInvoiceSubset(many, 615)).toEqual(['f0', 'f1', 'f2', 'f3', 'f4', 'f5']);
+    // Solo las seis más altas suman 669: con pocos pasos no se llega.
+    expect(findInvoiceSubset(many, 669, 6, 50)).toBeNull();
+    expect(findInvoiceSubset(many, 669, 6, 1_000_000)).toEqual([
+      'f9',
+      'f10',
+      'f11',
+      'f12',
+      'f13',
+      'f14',
+    ]);
+  });
 });

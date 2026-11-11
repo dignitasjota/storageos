@@ -319,6 +319,14 @@ describe('Conciliación bancaria: mejoras (e2e)', () => {
 
     const debit = tx(detail, 'RECIBO IBERDROLA CLIENTES SAU');
     expect(debit.payerPattern).toBe('IBERDROLA CLIENTES SAU');
+    // Un texto que no sirve como regla no deja el gasto a medias.
+    const shortRule = await http()
+      .post(`/bank-statements/transactions/${debit.id}/expense`)
+      .set(auth())
+      .send({ category: 'utilities', rememberPattern: '--x' });
+    expect(shortRule.status).toBe(400);
+    expect(shortRule.body.code).toBe('rule_pattern_too_short');
+    expect(await admin.expense.count({ where: { tenantId: owner.tenantId } })).toBe(0);
     const after = (
       await http()
         .post(`/bank-statements/transactions/${debit.id}/expense`)

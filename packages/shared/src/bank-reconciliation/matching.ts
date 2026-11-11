@@ -130,19 +130,25 @@ export function guessPayerPattern(text: string): string {
 
 /**
  * Facturas (en el orden dado, la más antigua primero) que suman justo el
- * importe: dos o más, como mucho `maxItems`. null si ninguna combinación cuadra.
+ * importe: dos o más, como mucho `maxItems`. null si ninguna combinación cuadra
+ * o si la búsqueda pasa de `budget` pasos (un extracto grande no se atasca).
  */
 export function findInvoiceSubset(
   invoices: { id: string; cents: number }[],
   targetCents: number,
   maxItems = 6,
+  budget = 5000,
 ): string[] | null {
   const list = invoices.filter((i) => i.cents > 0).slice(0, 15);
+  if (list.length < 2) return null;
+  if (list.reduce((sum, i) => sum + i.cents, 0) < targetCents) return null;
   const pick: string[] = [];
+  let steps = 0;
   const walk = (start: number, left: number): boolean => {
     if (left === 0) return pick.length >= 2;
     if (pick.length === maxItems) return false;
     for (let k = start; k < list.length; k++) {
+      if (++steps > budget) return false;
       const inv = list[k]!;
       if (inv.cents > left) continue;
       pick.push(inv.id);
