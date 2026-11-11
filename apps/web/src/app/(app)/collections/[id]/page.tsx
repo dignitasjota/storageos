@@ -113,7 +113,8 @@ export default function CollectionsDetailPage() {
         </Can>
       )}
       <OverdueInvoices c={c} />
-      <Evidence c={c} isClosed={isClosed} />
+      {/* Al cambiar de paso, el tipo de evidencia propuesto es el del paso nuevo. */}
+      <Evidence key={c.status} c={c} isClosed={isClosed} />
       <History c={c} isClosed={isClosed} />
     </div>
   );
@@ -253,7 +254,8 @@ function NextStep({ c }: { c: Case }) {
 
   async function generateRequirement() {
     try {
-      const { url } = await requirementPdf.mutateAsync();
+      const valid = days >= MIN_NOTICE_DAYS && days <= 180;
+      const { url } = await requirementPdf.mutateAsync(valid ? days : undefined);
       toast.success('Requerimiento generado y guardado en las evidencias.', {
         duration: 15_000,
         action: { label: 'Abrir', onClick: () => window.open(url, '_blank', 'noopener') },

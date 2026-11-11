@@ -138,6 +138,12 @@ export const SendNoticeSchema = z.object({
 });
 export type SendNoticeInput = z.infer<typeof SendNoticeSchema>;
 
+/** Genera el requerimiento en PDF con el plazo que se va a registrar. */
+export const RequirementPdfSchema = z.object({
+  noticeDays: z.number().int().min(MIN_NOTICE_DAYS).max(180).optional(),
+});
+export type RequirementPdfInput = z.infer<typeof RequirementPdfSchema>;
+
 /** El inquilino recibió el requerimiento: el plazo cuenta desde ese día. */
 export const NoticeReceivedSchema = z.object({
   receivedAt: z.string().datetime(),

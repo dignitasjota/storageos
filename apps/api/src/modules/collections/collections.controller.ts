@@ -17,12 +17,14 @@ import {
   CaseNoteSchema,
   CompleteDisposalSchema,
   DELINQUENCY_CASE_STATUSES,
+  MIN_NOTICE_DAYS,
   MoveGoodsSchema,
   NoticeReceivedSchema,
   OpenCaseSchema,
   OverlockCaseSchema,
   RegisterCaseFileSchema,
   RequestCaseFileUploadSchema,
+  RequirementPdfSchema,
   ResolveContractSchema,
   SendNoticeSchema,
   StartDisposalSchema,
@@ -310,12 +312,22 @@ export class CollectionsController {
   requirementPdfGen(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown,
   ): Promise<DelinquencyRequirementPdfDto> {
+    // El cuerpo es opcional: sin él, el plazo registrado o el de los ajustes.
+    const parsed = RequirementPdfSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'invalid_notice_days',
+        message: `El plazo va de ${MIN_NOTICE_DAYS} a 180 días`,
+      });
+    }
     return this.requirementPdf.generate({
       tenantId: user.tenantId,
       userId: user.sub,
       caseId: id,
       facilityScope: user.facilityScope ?? null,
+      ...(parsed.data.noticeDays ? { noticeDays: parsed.data.noticeDays } : {}),
     });
   }
 

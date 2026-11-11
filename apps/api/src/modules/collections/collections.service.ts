@@ -60,6 +60,9 @@ type Tx = Prisma.TransactionClient | PrismaClient;
 
 const DAY = 86_400_000;
 
+/** Motivo con el que el impago bloquea un trastero (lo pone `ContractsService`). */
+const IMPAGO_UNIT_REASON_PREFIX = 'Impago:';
+
 /** Resultado del aviso legal del escalado. */
 export type LegalNoticeOutcome = 'opened' | 'exists' | 'notified' | 'no_debt';
 
@@ -999,8 +1002,13 @@ export class CollectionsService {
     // Vacío: el trastero bloqueado por los bienes vuelve a la venta.
     if (dto.unitId) {
       const freed = await this.prisma.withTenant(async (tx) => {
+        // Solo si lo bloqueó el impago (no uno parado por otro motivo).
         const res = await tx.unit.updateMany({
-          where: { id: dto.unitId!, status: 'blocked' },
+          where: {
+            id: dto.unitId!,
+            status: 'blocked',
+            outOfServiceReason: { startsWith: IMPAGO_UNIT_REASON_PREFIX },
+          },
           data: { status: 'available', outOfServiceReason: null, outOfServiceSince: null },
         });
         if (res.count > 0) {

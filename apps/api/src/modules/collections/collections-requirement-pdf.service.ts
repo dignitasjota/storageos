@@ -69,8 +69,15 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
     userId: string;
     caseId: string;
     facilityScope: string[] | null;
+    /** Plazo del formulario, si aún no se ha registrado el envío. */
+    noticeDays?: number;
   }): Promise<DelinquencyRequirementPdfDto> {
-    const data = await this.loadData(args.tenantId, args.caseId, args.facilityScope);
+    const data = await this.loadData(
+      args.tenantId,
+      args.caseId,
+      args.facilityScope,
+      args.noticeDays,
+    );
     const html = renderRequirementHtml(data);
 
     const browser = await this.getBrowser();
@@ -124,6 +131,7 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
     tenantId: string,
     caseId: string,
     facilityScope: string[] | null,
+    noticeDays?: number,
   ): Promise<RequirementData> {
     return this.prisma.withTenant(async (tx) => {
       const row = await tx.delinquencyCase.findFirst({
@@ -283,9 +291,10 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
               address: tenantAddress || null,
               managedBy: null,
             },
+        // El registrado manda; si aún no se ha enviado, el del formulario.
         noticeDays: Math.max(
           MIN_NOTICE_DAYS,
-          row.noticeDays ?? tenant.collectionsNoticeDays ?? MIN_NOTICE_DAYS,
+          row.noticeDays ?? noticeDays ?? tenant.collectionsNoticeDays ?? MIN_NOTICE_DAYS,
         ),
         clauseRef: tenant.collectionsClauseRef,
         customer: row.customer,

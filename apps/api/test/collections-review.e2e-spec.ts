@@ -214,6 +214,14 @@ describe('Impagos: revisión (e2e)', () => {
     const open = await http().post('/collections').set(auth).send({ contractId }).expect(201);
     const caseId = open.body.id as string;
 
+    // El plazo del formulario no baja de 15 días.
+    const shortNotice = await http()
+      .post(`/collections/${caseId}/requirement-pdf`)
+      .set(auth)
+      .send({ noticeDays: 10 });
+    expect(shortNotice.status).toBe(400);
+    expect(shortNotice.body.code).toBe('invalid_notice_days');
+
     const noAddress = await http().post(`/collections/${caseId}/requirement-pdf`).set(auth);
     expect(noAddress.status).toBe(400);
     expect(noAddress.body.code).toBe('customer_address_required');
@@ -229,7 +237,7 @@ describe('Impagos: revisión (e2e)', () => {
   });
 
   it('lo que sobra tras saldar la deuda se avisa para devolverlo', async () => {
-    const { auth, http, tenantId, contractId } = await setup('coll-rev-surplus');
+    const { auth, http, tenantId, contractId, unitId } = await setup('coll-rev-surplus');
     await admin.contract.update({
       where: { id: contractId },
       data: { depositAmount: 50, depositStatus: 'held' },
@@ -260,11 +268,18 @@ describe('Impagos: revisión (e2e)', () => {
         },
       });
     }
+    // Parado ahora por otra cosa: el traslado no lo vuelve a poner a la venta.
+    await admin.unit.update({
+      where: { id: unitId },
+      data: { outOfServiceReason: 'Avería en la puerta' },
+    });
     await http()
       .post(`/collections/${caseId}/move-goods`)
       .set(auth)
       .send({ custodyLocation: 'Nave 1' })
       .expect(200);
+    const stillBlocked = await admin.unit.findUniqueOrThrow({ where: { id: unitId } });
+    expect(stillBlocked.status).toBe('blocked');
     await http()
       .post(`/collections/${caseId}/disposal`)
       .set(auth)

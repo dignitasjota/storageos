@@ -132,9 +132,10 @@ export function useCaseAction(caseId: string) {
 export function useGenerateRequirementPdf(caseId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (noticeDays?: number) =>
       apiFetch<DelinquencyRequirementPdfDto>(`/collections/${caseId}/requirement-pdf`, {
         method: 'POST',
+        json: noticeDays ? { noticeDays } : {},
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [...key, 'detail', caseId] }),
   });
