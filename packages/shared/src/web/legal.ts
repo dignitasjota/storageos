@@ -397,11 +397,27 @@ Los clientes que tengan la condición legal de consumidores y celebren contratos
 
 Cuando proceda este derecho, su plazo se contará desde la celebración del contrato de servicios.
 
-El cliente podrá comunicar su decisión de desistir mediante una declaración inequívoca ${withdrawTo}, indicando sus datos identificativos y la referencia de la contratación.
+El cliente podrá comunicar su decisión de desistir mediante una declaración inequívoca ${withdrawTo}, indicando sus datos identificativos y la referencia de la contratación, o desde el área de clientes («Desistir del contrato»). Puede usar este modelo de formulario, aunque no es obligatorio:
+
+> **Modelo de formulario de desistimiento** (solo debe cumplimentarlo y enviarlo si desea desistir del contrato)
+>
+> A la atención de ${h.name}${h.address ? `, ${h.address}` : ''}${h.email ? `, ${h.email}` : ''}:
+>
+> Por la presente le comunico que desisto de mi contrato de prestación del siguiente servicio: alquiler del trastero ________ (contrato ________).
+>
+> Celebrado el: ________
+>
+> Nombre del consumidor: ________
+>
+> Domicilio del consumidor: ________
+>
+> Firma del consumidor (solo si el presente formulario se presenta en papel): ________
+>
+> Fecha: ________
 
 No será necesario justificar su decisión.
 
-Si el cliente solicita expresamente que el servicio comience durante el periodo de desistimiento y posteriormente ejerce dicho derecho dentro del plazo legal, ${brand} podrá exigir el importe proporcional al servicio efectivamente prestado hasta la comunicación del desistimiento, cuando legalmente corresponda.
+Si el cliente solicita expresamente que el servicio comience durante el periodo de desistimiento (lo hace con una casilla al firmar el contrato) y posteriormente ejerce dicho derecho dentro del plazo legal, ${brand} podrá exigir el importe proporcional al servicio efectivamente prestado hasta la comunicación del desistimiento, cuando legalmente corresponda. Sin esa solicitud, el cliente no paga nada por el tiempo que haya tenido el espacio.
 
 La pérdida del derecho de desistimiento por ejecución completa del servicio únicamente se producirá cuando concurran los requisitos legales aplicables.
 

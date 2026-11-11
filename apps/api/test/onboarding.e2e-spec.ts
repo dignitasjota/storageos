@@ -165,6 +165,7 @@ describe('Puesta en marcha del tenant (e2e)', () => {
     await http()
       .post(`/public/move-in/sign/${token}`)
       .send({
+        immediateStart: true,
         signerName: 'Prueba',
         method: 'typed',
         typedSignature: 'Prueba',

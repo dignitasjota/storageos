@@ -9,7 +9,7 @@ import type { ContractSignatureDetailDto } from '@storageos/shared';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useContractSigning } from '@/lib/customers/hooks';
-import { formatDateTime } from '@/lib/format';
+import { formatDate, formatDateTime } from '@/lib/format';
 
 const CHANNEL_LABEL: Record<string, string> = {
   remote: 'Enlace enviado al inquilino',
@@ -59,6 +59,16 @@ export function SigningCard({ contractId }: { contractId: string }) {
             </p>
           ) : (
             <p className="text-muted-foreground">Sin fecha de firma.</p>
+          )}
+          {r.withdrawalDeadline && (
+            <p className="text-muted-foreground">
+              {r.withdrawnAt
+                ? `Desistió el ${formatDateTime(r.withdrawnAt)}.`
+                : `Contrato a distancia: puede desistir hasta el ${formatDate(r.withdrawalDeadline)}.`}{' '}
+              {r.immediateStartRequestedAt
+                ? `Pidió empezar antes de que acabara ese plazo el ${formatDateTime(r.immediateStartRequestedAt)} (art. 98.8 TRLGDCU).`
+                : 'No pidió empezar antes de que acabara ese plazo.'}
+            </p>
           )}
           {r.holdUntil && (
             <p className="text-muted-foreground">

@@ -98,6 +98,7 @@ describe('Booking: hold de la unidad (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Ana Ruiz',
         method: 'typed',
         typedSignature: 'Ana Ruiz',

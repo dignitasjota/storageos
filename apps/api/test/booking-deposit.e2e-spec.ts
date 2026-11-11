@@ -71,6 +71,7 @@ describe('Reserva online con fianza (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Bea López',
         method: 'typed',
         typedSignature: 'Bea López',

@@ -40,6 +40,15 @@ export interface ContractSignViewDto {
   preOpening: ContractPreOpeningDto | null;
   /** Condiciones Generales de Contratación que debe aceptar antes de pagar. */
   generalTerms: GeneralTermsToAcceptDto;
+  /** Desistimiento: si aplica, hasta cuándo y si hay que pedir empezar ya. */
+  withdrawal: {
+    /** Lo firma a distancia un particular: puede desistir en 14 días. */
+    applies: boolean;
+    /** Último día para desistir (YYYY-MM-DD). */
+    deadline: string | null;
+    /** El alquiler empieza dentro del plazo: hay que marcar la casilla para firmar. */
+    immediateStartRequired: boolean;
+  };
 }
 
 /** Condiciones generales que el inquilino acepta con una casilla. */
@@ -134,6 +143,12 @@ export interface ContractSigningRecordDto {
   holdUntil: string | null;
   /** Condiciones generales aceptadas para este contrato (más reciente primero). */
   generalTerms: LegalDocAcceptanceDto[];
+  /** Firmado a distancia por un particular: último día para desistir. */
+  withdrawalDeadline: string | null;
+  /** Cuándo pidió empezar antes de que acabara el plazo de desistimiento. */
+  immediateStartRequestedAt: string | null;
+  /** Cuándo desistió. */
+  withdrawnAt: string | null;
 }
 
 /** Resultado de solicitar la firma (staff): enlace para compartir. */

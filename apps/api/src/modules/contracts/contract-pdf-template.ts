@@ -33,6 +33,8 @@ export interface ContractPdfInput {
   }[];
   tenantName: string;
   generatedAt: Date;
+  /** Contrato a distancia con un particular: plazo para desistir y petición de empezar ya. */
+  withdrawal?: { deadline: string; immediateStartRequestedAt: Date | null } | null;
 }
 
 const CHANNEL_LABEL: Record<string, string> = {
@@ -114,6 +116,17 @@ export function renderContractHtml(input: ContractPdfInput): string {
 ${input.signatures.map((s) => signatureBlock(s, input.termsText, input.termsFrozen)).join('\n')}`;
   } else {
     evidence = `<div class="notice">Contrato activado${input.signedAt ? ` el ${esc(madrid(input.signedAt))}` : ''} sin firma electrónica en TrasterOS (firmado en papel o importado de otro sistema).</div>`;
+  }
+
+  if (input.withdrawal) {
+    const [y, m, d] = input.withdrawal.deadline.split('-');
+    evidence += `
+<h2>Desistimiento</h2>
+<p class="small">Contrato a distancia con un consumidor: puede desistir sin dar explicaciones hasta el ${esc(`${d}/${m}/${y}`)} (14 días naturales desde la firma).${
+      input.withdrawal.immediateStartRequestedAt
+        ? ` El inquilino pidió expresamente empezar a usar el trastero antes de que acabe ese plazo el ${esc(madrid(input.withdrawal.immediateStartRequestedAt))} (art. 98.8 del texto refundido de la Ley General para la Defensa de los Consumidores y Usuarios): si desiste, paga la parte proporcional de los días que lo haya tenido.`
+        : ''
+    }</p>`;
   }
 
   const terms = input.generalTerms ?? [];

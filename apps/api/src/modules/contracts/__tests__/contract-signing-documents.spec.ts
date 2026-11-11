@@ -124,6 +124,21 @@ describe('texto del contrato que se firma', () => {
     expect(text).toContain('Condiciones particulares:');
   });
 
+  it('lleva el modelo de formulario de desistimiento cuando aplica', () => {
+    const text = buildContractTermsText({
+      ...base,
+      withdrawalFormTo: 'Trasteros García SL, Calle Mayor 1, 46001 Valencia, hola@garcia.es',
+    });
+    expect(text).toContain('Modelo de formulario de desistimiento');
+    expect(text).toContain(
+      'A la atención de Trasteros García SL, Calle Mayor 1, 46001 Valencia, hola@garcia.es:',
+    );
+    expect(text).toContain(
+      `alquiler del trastero ${base.unitCode} (contrato ${base.contractNumber})`,
+    );
+    expect(buildContractTermsText(base)).not.toContain('Modelo de formulario de desistimiento');
+  });
+
   it('es determinista: el mismo contrato da la misma huella', () => {
     expect(termsHash(buildContractTermsText(base))).toBe(termsHash(buildContractTermsText(base)));
     expect(termsHash(buildContractTermsText(base))).not.toBe(
@@ -185,6 +200,26 @@ describe('PDF del contrato', () => {
     expect(html).toContain('La huella no coincide');
     expect(html).not.toContain('javascript:');
     expect(html).toContain('&lt;b&gt;Ana&lt;/b&gt;');
+  });
+
+  it('deja constancia del plazo para desistir y de la petición de empezar ya', () => {
+    const html = renderContractHtml({
+      ...input,
+      withdrawal: {
+        deadline: '2026-02-14',
+        immediateStartRequestedAt: new Date('2026-01-31T17:04:00Z'),
+      },
+    });
+    expect(html).toContain('puede desistir sin dar explicaciones hasta el 14/02/2026');
+    expect(html).toContain('pidió expresamente empezar a usar el trastero');
+    expect(html).toContain('31/01/2026, 18:04');
+    const without = renderContractHtml({
+      ...input,
+      withdrawal: { deadline: '2026-02-14', immediateStartRequestedAt: null },
+    });
+    expect(without).toContain('hasta el 14/02/2026');
+    expect(without).not.toContain('pidió expresamente');
+    expect(renderContractHtml(input)).not.toContain('Desistimiento');
   });
 
   it('dice qué versión de las condiciones generales se aceptó', () => {

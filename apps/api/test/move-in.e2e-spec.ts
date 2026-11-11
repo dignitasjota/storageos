@@ -67,6 +67,7 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     const signed = await request(app.getHttpServer())
       .post(`/public/move-in/sign/${token}`)
       .send({
+        immediateStart: true,
         signerName: 'Ana García',
         method: 'typed',
         typedSignature: 'Ana García',
@@ -191,6 +192,7 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     const signed = await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Bea López',
         method: 'typed',
         typedSignature: 'Bea López',
@@ -289,7 +291,7 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     };
     const stale = await request(app.getHttpServer())
       .post(`/public/move-in/sign/${token}`)
-      .send({ ...signBody, termsHash: view.body.termsHash });
+      .send({ immediateStart: true, ...signBody, termsHash: view.body.termsHash });
     expect(stale.status).toBe(409);
     expect(stale.body.code).toBe('terms_changed');
 
@@ -299,7 +301,7 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     expect(fresh.body.termsText).toContain('(65,00 € + IVA del 21 %)');
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${token}`)
-      .send({ ...signBody, termsHash: fresh.body.termsHash })
+      .send({ immediateStart: true, ...signBody, termsHash: fresh.body.termsHash })
       .expect(201);
 
     // Lo firmado queda con su evidencia y la huella del texto congelado.

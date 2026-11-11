@@ -152,6 +152,7 @@ describe('Recuperación de reservas abandonadas (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Eva Sanz',
         method: 'typed',
         typedSignature: 'Eva Sanz',

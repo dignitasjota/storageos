@@ -70,6 +70,7 @@ describe('Formas de pago sin pasarela (e2e)', () => {
     const sign = await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Eva Ruiz',
         method: 'typed',
         typedSignature: 'Eva Ruiz',
@@ -291,6 +292,7 @@ describe('Formas de pago sin pasarela (e2e)', () => {
     await request(http)
       .post(`/public/move-in/sign/${token}`)
       .send({
+        immediateStart: true,
         signerName: 'Eva Ruiz',
         method: 'typed',
         typedSignature: 'Eva Ruiz',

@@ -967,10 +967,12 @@ Por decidir con la asesoría:
 
 Revisado con un análisis externo del contrato. Condiciones generales nuevas (baja a final de mes, autorización de cobros, recargos solo los del contrato, prohibidos objetivos con baterías de litio, carga máxima y pasillos libres, sin asegurar los bienes salvo la protección de contenido, averías, normas del local, apertura con aviso y acta, impago por pasos sin dar los bienes por abandonados, fianza con plazo, promociones, videovigilancia y datos, contratación electrónica), con las Condiciones Generales de la web y la privacidad alineadas. Ficha con contactos, IVA incluido, total al mes, horario de acceso y recargos. Baja a final de mes (ajustable) y abono de lo pagado por adelantado cobrando lo usado a la cuota mensual. Capturas de cámara borradas al mes.
 
+**Desistimiento** (segunda PR): al firmar por enlace, el particular cuyo trastero empieza dentro de los 14 días tiene que pedir empezar ya (art. 98.8 TRLGDCU); se guardan el plazo y la petición (pestaña Firma y PDF). Desiste desde el área de clientes o el equipo lo registra con la fecha en que lo comunicó: se devuelve lo cobrado menos los días usados (solo si pidió empezar ya), la fianza entera, por la pasarela o con aviso para devolverlo a mano, y el contrato se cancela con acuse por correo. Condición 19 y modelo de formulario en el contrato y en las Condiciones Generales.
+
 Pendiente:
 
-- **Desistimiento** (siguiente PR): casilla «quiero empezar ya» al firmar online (sin ella, quien desiste en 14 días no paga lo usado, art. 108 TRLGDCU), formulario de desistimiento y desistir desde el área de clientes cobrando solo los días usados.
-- **Revisión del abogado** de las condiciones 6 (seguro y responsabilidad) y 12 (impago), y del preaviso de un mes cuando termina el arrendador.
+- **Revisión del abogado** de las condiciones 6 (seguro y responsabilidad), 12 (impago) y 19 (desistimiento), del formulario, y del preaviso de un mes cuando termina el arrendador.
+- **Desistimiento**: una factura con un cobro parcial se deja para revisarla a mano; los días usados no se cobran si la factura que los cubre no estaba pagada (se anula entera).
 - **Gastos por recibo devuelto**: hoy figuran en el contrato y se cobran a mano; cargarlos solos al marcar una devolución.
 
 ### Reservas online: factura con el pago y aviso al caducar (2026-11-08)

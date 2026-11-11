@@ -31,6 +31,7 @@ import { IrpfRetentionCard } from './irpf-retention-card';
 import { contractStartLabel, PreOpeningContractCard } from './pre-opening-card';
 import { RetentionCard } from './retention-card';
 import { SigningCard } from './signing-card';
+import { WithdrawalCard } from './withdrawal-card';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { ContractStatusBadge } from '@/components/contract-status-badge';
@@ -378,6 +379,7 @@ export default function ContractDetailPage() {
         />
       )}
       <PreOpeningContractCard contract={c} />
+      <WithdrawalCard contract={c} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:grid-cols-4">
         <Card>

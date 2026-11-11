@@ -12,6 +12,7 @@ import type {
   GeneralTermsToAcceptDto,
   LegalDocVersionDto,
   PreOpeningCancelPreviewDto,
+  ContractWithdrawalDto,
   CustomerExtrasDto,
   CustomerAccountDto,
   CustomerOverviewDto,
@@ -879,6 +880,36 @@ export function usePreOpeningCancelPreview(contractId: string, enabled: boolean)
     queryFn: () =>
       apiFetch<PreOpeningCancelPreviewDto>(`/contracts/${contractId}/pre-opening/cancel-preview`),
     enabled,
+  });
+}
+
+/** Lo que se devolvería si desiste (con la fecha en que lo comunicó). */
+export function useContractWithdrawalPreview(
+  contractId: string,
+  communicatedOn: string,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['contracts', contractId, 'withdrawal', communicatedOn],
+    queryFn: () =>
+      apiFetch<ContractWithdrawalDto>(
+        `/contracts/${contractId}/withdrawal${communicatedOn ? `?communicatedOn=${communicatedOn}` : ''}`,
+      ),
+    enabled,
+  });
+}
+
+export function useWithdrawContract(contractId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { communicatedOn?: string; note?: string }) =>
+      apiFetch<ContractDto>(`/contracts/${contractId}/withdraw`, { method: 'POST', json: body }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: ['invoices'] });
+      void qc.invalidateQueries({ queryKey: ['units'] });
+      void qc.invalidateQueries({ queryKey: ['payments'] });
+    },
   });
 }
 

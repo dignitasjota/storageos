@@ -70,6 +70,10 @@ describe('textos legales del tenant', () => {
     expect(md).toContain('Surte efecto el último día del mes en que se cumpla esa antelación');
     expect(md).toContain('en un plazo máximo de 15 días desde que el cliente entregue el espacio');
     expect(md).toContain('Trasteros García no asegura los bienes que guarda el cliente');
+    // Desistimiento: el modelo de formulario y la casilla de inicio inmediato.
+    expect(md).toContain('**Modelo de formulario de desistimiento**');
+    expect(md).toContain('A la atención de Trasteros García SL');
+    expect(md).toContain('lo hace con una casilla al firmar el contrato');
     // Sin huecos tipo «[RAZÓN SOCIAL]» por rellenar.
     expect(md).not.toMatch(/\[[A-ZÁÉÍÓÚÑ ]{4,}\]/);
   });

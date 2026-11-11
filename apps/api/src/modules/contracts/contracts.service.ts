@@ -88,6 +88,25 @@ const NO_SCHEDULED_CHANGES = {
   scheduledUnitProrate: false,
 } as const;
 
+/**
+ * Plazo para desistir que se enseña en el área de clientes: solo mientras se
+ * pueda (contrato vivo, sin desistir, ya empezado si era una reserva antes de
+ * la apertura, y sin pasar el último día en la hora de España).
+ */
+function portalWithdrawalDeadline(row: {
+  status: string;
+  withdrawalDeadline: Date | null;
+  withdrawnAt: Date | null;
+  preOpening: boolean;
+  preOpeningStartedAt: Date | null;
+}): string | null {
+  if (!row.withdrawalDeadline || row.withdrawnAt) return null;
+  if (row.status !== 'active' && row.status !== 'ending') return null;
+  if (isPendingPreOpening(row)) return null;
+  const deadline = row.withdrawalDeadline.toISOString().slice(0, 10);
+  return deadline >= todayInTimezone().toISOString().slice(0, 10) ? deadline : null;
+}
+
 /** Meses del plazo de un contrato (mínimo 1), para prorrogarlo por lo mismo. */
 export function termMonths(start: Date, end: Date): number {
   // El día siguiente al fin cierra el plazo (1 ene → 31 dic = 12 meses).
@@ -1340,6 +1359,11 @@ export class ContractsService {
     deferAccessUntilPaid?: boolean;
     /** Huella del texto que vio el firmante (firma por enlace). */
     expectedTermsHash?: string;
+    /**
+     * Firma a distancia de un particular: último día para desistir y, si lo
+     * pidió, cuándo pidió empezar antes de que acabe ese plazo.
+     */
+    withdrawal?: { deadline: string; immediateStartRequestedAt: Date | null };
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'active');
@@ -1489,7 +1513,9 @@ export class ContractsService {
         // Texto firmado = el mismo que ve el inquilino (arrendador, inquilino,
         // condiciones económicas, cláusulas y consentimiento eIDAS). Se congela
         // en `signedTermsText`: editar la plantilla después no altera este contrato.
-        const terms = await composeContractTerms(tx, args.tenantId, args.contractId);
+        const terms = await composeContractTerms(tx, args.tenantId, args.contractId, {
+          withdrawalForm: !!args.withdrawal,
+        });
         const documentHash = termsHash(terms.text);
         // Si el contrato cambió desde que el inquilino abrió el enlace, no firma
         // un texto que no ha visto.
@@ -1509,6 +1535,12 @@ export class ContractsService {
             // negocio cambie después su plantilla.
             moveOutEndOfMonth: terms.moveOutEndOfMonth,
             prepaidCreditAtListPrice: true,
+            ...(args.withdrawal
+              ? {
+                  withdrawalDeadline: new Date(`${args.withdrawal.deadline}T00:00:00Z`),
+                  immediateStartRequestedAt: args.withdrawal.immediateStartRequestedAt,
+                }
+              : {}),
           },
         });
 
@@ -1874,6 +1906,8 @@ export class ContractsService {
       preOpeningDeadline: Date | null;
       preOpeningStartedAt: Date | null;
       moveOutEndOfMonth: boolean | null;
+      withdrawalDeadline: Date | null;
+      withdrawnAt: Date | null;
     },
     overlocked = false,
   ): PortalContractDto {
@@ -1896,6 +1930,7 @@ export class ContractsService {
       effectivePriceWithVat: round2(effectivePrice * (1 + rentVat / 100)),
       cancellationNoticeDays: row.cancellationNoticeDays,
       moveOutEndOfMonth: row.moveOutEndOfMonth === true,
+      withdrawalDeadline: portalWithdrawalDeadline(row),
       endingRequestedAt: row.endingRequestedAt?.toISOString() ?? null,
       depositAmount: Number(row.depositAmount),
       depositStatus: row.depositStatus as PortalContractDto['depositStatus'],
@@ -3177,6 +3212,8 @@ export class ContractsService {
     facilityScope?: string[] | null;
     input: CancelContractInput;
     meta: RequestMeta;
+    /** El desistimiento ya devuelve lo pagado por adelantado: sin abono aparte. */
+    skipPrepaidCredit?: boolean;
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'cancelled');
@@ -3273,7 +3310,12 @@ export class ContractsService {
       userAgent: args.meta.userAgent ?? null,
     });
     if (wasLive) {
-      await this.creditPrepaidMonths(args, await this.todayAtUnit(args.tenantId, existing.unitId));
+      if (!args.skipPrepaidCredit) {
+        await this.creditPrepaidMonths(
+          args,
+          await this.todayAtUnit(args.tenantId, existing.unitId),
+        );
+      }
       await this.emitContractEnded(args.tenantId, updated);
     } else if (released) {
       this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
@@ -4337,6 +4379,9 @@ export class ContractsService {
       autoRenew: row.autoRenew,
       cancellationNoticeDays: row.cancellationNoticeDays,
       moveOutEndOfMonth: row.moveOutEndOfMonth === true,
+      withdrawalDeadline: row.withdrawalDeadline?.toISOString().slice(0, 10) ?? null,
+      immediateStartRequestedAt: row.immediateStartRequestedAt?.toISOString() ?? null,
+      withdrawnAt: row.withdrawnAt?.toISOString() ?? null,
       notes: row.notes,
       preOpening: preOpeningDto(row),
       createdAt: row.createdAt.toISOString(),

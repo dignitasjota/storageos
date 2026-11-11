@@ -65,6 +65,7 @@ describe('Facturación: prorrateo del 1er mes + sin doble cobro (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Ana Ruiz',
         method: 'typed',
         typedSignature: 'Ana Ruiz',

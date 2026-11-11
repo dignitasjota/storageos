@@ -205,6 +205,8 @@ Los daños que causen lo guardado o el uso del trastero incumpliendo esta condic
 
 18. Contratación electrónica. El contrato se acepta y se firma por medios electrónicos. Se guardan el texto firmado, su huella digital y la fecha y la hora de la firma, y el inquilino puede descargar una copia en cualquier momento desde el área de clientes.
 
+19. Desistimiento. Si el inquilino es un consumidor y ha contratado a distancia (por internet o con un enlace, sin estar en el local), puede desistir del contrato en los 14 días naturales siguientes a la firma, sin dar explicaciones: desde el área de clientes, con el formulario que figura al final o con cualquier otro escrito. Se le devuelve lo pagado, también la fianza, en un plazo máximo de 14 días y por el mismo medio de pago. Si pidió empezar a usar el trastero antes de que acabara ese plazo, se le descuenta la parte proporcional de los días que lo haya tenido.
+
 Arrendador: {{tenantName}} · Inquilino: {{customerName}} · Contrato {{contractNumber}}`;
 
 /**
@@ -264,3 +266,4 @@ export interface ApplyAnniversaryUpdatesResultDto {
   failed: { contractId: string; error: string }[];
 }
 export * from './pre-opening';
+export * from './withdrawal';

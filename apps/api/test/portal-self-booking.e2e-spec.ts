@@ -29,6 +29,7 @@ describe('Portal: self-service de contratación de trastero (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Leo Paz',
         method: 'typed',
         typedSignature: 'Leo Paz',

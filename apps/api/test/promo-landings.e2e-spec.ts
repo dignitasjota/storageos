@@ -306,6 +306,7 @@ describe('Landings de promoción (e2e)', () => {
     await http()
       .post(`/public/move-in/sign/${booked.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Ana Ruiz',
         method: 'typed',
         typedSignature: 'Ana Ruiz',

@@ -114,6 +114,7 @@ describe('Cupones en la reserva online, la firma y el portal (e2e)', () => {
     await http()
       .post(`/public/move-in/sign/${token}`)
       .send({
+        immediateStart: true,
         signerName: 'Ana Ruiz',
         method: 'typed',
         typedSignature: 'Ana Ruiz',
@@ -178,6 +179,7 @@ describe('Cupones en la reserva online, la firma y el portal (e2e)', () => {
     await http()
       .post(`/public/move-in/sign/${booked.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Leo Paz',
         method: 'typed',
         typedSignature: 'Leo Paz',

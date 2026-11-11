@@ -73,6 +73,7 @@ describe('Cupones: casos límite (e2e)', () => {
     const signed = await http()
       .post(`/public/move-in/sign/${booked.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Ana Ruiz',
         method: 'typed',
         typedSignature: 'Ana Ruiz',

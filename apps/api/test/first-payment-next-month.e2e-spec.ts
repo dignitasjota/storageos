@@ -71,6 +71,7 @@ describe('Primer pago con el mes siguiente (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Eva Ruiz',
         method: 'typed',
         typedSignature: 'Eva Ruiz',

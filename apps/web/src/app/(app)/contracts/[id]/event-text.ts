@@ -140,6 +140,18 @@ function noteText(p: Record<string, unknown>): { title: string; detail: string |
         title: 'Reserva cancelada',
         detail: p.by === 'customer' ? 'Por el inquilino' : 'Por el equipo',
       };
+    case 'withdrawn':
+      return {
+        title: 'Desistimiento',
+        detail: [
+          `${p.by === 'customer' ? 'Desde el área de clientes' : 'Registrado por el equipo'}, comunicado el ${day(p.communicatedOn)}`,
+          `devuelto ${formatEur(num(p.rentRefund) + num(p.depositRefund))}`,
+          num(p.rentKept) > 0 ? `retenido ${formatEur(num(p.rentKept))} por días de uso` : null,
+          str(p.note),
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      };
     default:
       return { title: 'Nota', detail: str(p.note) || null };
   }

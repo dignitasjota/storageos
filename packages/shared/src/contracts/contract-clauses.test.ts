@@ -79,6 +79,13 @@ describe('condiciones generales del trastero', () => {
     expect(text).toContain('Las imágenes se conservan como máximo un mes');
     expect(text).toContain('Índice de Precios al Consumo (IPC)');
   });
+
+  it('explican el desistimiento de los contratos a distancia', () => {
+    const text = render();
+    expect(text).toContain('19. Desistimiento.');
+    expect(text).toContain('en los 14 días naturales siguientes a la firma');
+    expect(text).toContain('se le descuenta la parte proporcional de los días');
+  });
 });
 
 describe('fecha de la baja', () => {

@@ -13,6 +13,7 @@ import { CommunicationsService } from '../communications/communications.service'
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
+import { ContractRefundsService } from './contract-refunds.service';
 import { ContractsService } from './contracts.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -57,6 +58,7 @@ export class PreOpeningService {
     private readonly communications: CommunicationsService,
     private readonly audit: AuditService,
     private readonly events: EventEmitter2,
+    private readonly refunds: ContractRefundsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -574,7 +576,7 @@ export class PreOpeningService {
     if (rentInvoice) {
       const paid = subtractAmounts(rentInvoice.amountPaid, rentInvoice.amountRefunded);
       if (paid > 0) {
-        const how = await this.refundDocument(args, rentInvoice.id, paid, why);
+        const how = await this.refunds.refundDocument(args, rentInvoice.id, paid, why);
         (how === 'gateway' ? automatic : manual).push(`primera mensualidad ${formatEur(paid)}`);
       } else if (rentInvoice.status === 'issued' || rentInvoice.status === 'overdue') {
         await this.invoices.cancel({
@@ -605,7 +607,7 @@ export class PreOpeningService {
           : 0;
         const how =
           receipt && refundable > 0
-            ? await this.refundDocument(args, receipt.id, refundable, why, true)
+            ? await this.refunds.refundDocument(args, receipt.id, refundable, why, true)
             : 'manual';
         (how === 'gateway' ? automatic : manual).push(`fianza ${formatEur(depositAmount)}`);
       }
@@ -624,7 +626,7 @@ export class PreOpeningService {
         meta: args.meta,
       });
     } else {
-      await this.cancelUnpaidDeposit(args.tenantId, args.contractId, why, args);
+      await this.refunds.cancelUnpaidDeposit(args.tenantId, args.contractId, why, args);
     }
     // 3. El contrato se cancela y el trastero vuelve a estar libre.
     const dto = await this.contracts.cancel({
@@ -668,77 +670,6 @@ export class PreOpeningService {
       },
     });
     return dto;
-  }
-
-  /**
-   * Devuelve lo cobrado de una factura (o del justificante de fianza): por la
-   * pasarela si se cobró con tarjeta o domiciliación; si no (efectivo,
-   * transferencia) queda registrado y lo devuelve el equipo. Redsys no admite
-   * reembolsos desde la app: no se toca y se devuelve desde su panel.
-   */
-  private async refundDocument(
-    args: { tenantId: string; userId: string | null; meta: RequestMeta },
-    invoiceId: string,
-    amount: number,
-    reason: string,
-    deposit = false,
-  ): Promise<'gateway' | 'manual'> {
-    const gateway = await this.admin.payment.findFirst({
-      where: {
-        invoiceId,
-        gatewayPaymentId: { not: null },
-        gateway: { in: ['stripe', 'gocardless'] },
-        status: { in: ['succeeded', 'partially_refunded'] },
-      },
-      select: { id: true },
-    });
-    try {
-      await this.invoices.refund({
-        tenantId: args.tenantId,
-        userId: args.userId,
-        invoiceId,
-        input: { amount, reason },
-        meta: args.meta,
-        ...(deposit ? { allowDepositReceipt: true } : {}),
-      });
-    } catch (err) {
-      const code = (err as { response?: { code?: string } }).response?.code;
-      if (code === 'refund_not_supported_gateway') return 'manual';
-      throw err;
-    }
-    return gateway ? 'gateway' : 'manual';
-  }
-
-  /** Justificante de fianza sin cobrar: se anula para que no quede como deuda. */
-  private async cancelUnpaidDeposit(
-    tenantId: string,
-    contractId: string,
-    reason: string,
-    args: { userId: string | null; meta: RequestMeta },
-  ): Promise<void> {
-    const receipts = await this.admin.invoice.findMany({
-      where: {
-        tenantId,
-        contractId,
-        kind: 'deposit_receipt',
-        status: { in: ['draft', 'issued', 'overdue'] },
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    for (const r of receipts) {
-      await this.invoices
-        .cancel({
-          tenantId,
-          userId: args.userId,
-          invoiceId: r.id,
-          input: { reason },
-          meta: args.meta,
-        })
-        .catch((err: unknown) =>
-          this.logger.warn(`fianza ${r.id} sin anular: ${(err as Error).message}`),
-        );
-    }
   }
 
   private async loadForCancel(

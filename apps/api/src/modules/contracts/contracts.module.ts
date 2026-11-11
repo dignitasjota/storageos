@@ -13,6 +13,7 @@ import { ContractAutoEndCron } from './contract-auto-end.cron';
 import { ContractEndingSoonCron } from './contract-ending-soon.cron';
 import { ContractPdfController } from './contract-pdf.controller';
 import { ContractPdfService } from './contract-pdf.service';
+import { ContractRefundsService } from './contract-refunds.service';
 import { ContractsController } from './contracts.controller';
 import { ContractsService } from './contracts.service';
 import { DepositRegistryController } from './deposit-registry.controller';
@@ -26,6 +27,8 @@ import { PricingService } from './pricing.service';
 import { ReservationExpiryCron } from './reservation-expiry.cron';
 import { ReservationsController } from './reservations.controller';
 import { ReservationsService } from './reservations.service';
+import { WithdrawalController } from './withdrawal.controller';
+import { WithdrawalService } from './withdrawal.service';
 
 @Module({
   imports: [AuthModule, PromotionsModule, CouponsModule, BillingModule, LandingModule],
@@ -37,6 +40,7 @@ import { ReservationsService } from './reservations.service';
     ContractPdfController,
     InspectionPhotosController,
     PreOpeningController,
+    WithdrawalController,
   ],
   providers: [
     AnniversaryUpdatesService,
@@ -47,11 +51,13 @@ import { ReservationsService } from './reservations.service';
     ContractPdfService,
     InspectionPhotosService,
     PreOpeningService,
+    ContractRefundsService,
+    WithdrawalService,
     // Los crons solo se montan donde corren los workers (worker en prod).
     ...(WORKERS_ENABLED_IN_API
       ? [ContractEndingSoonCron, ContractAutoEndCron, ReservationExpiryCron, PreOpeningCron]
       : []),
   ],
-  exports: [ContractsService, PreOpeningService],
+  exports: [ContractsService, PreOpeningService, WithdrawalService],
 })
 export class ContractsModule {}

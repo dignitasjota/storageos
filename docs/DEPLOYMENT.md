@@ -2011,3 +2011,15 @@ Migraciones `20270106100000_contract_v2` y `20270106110000_contract_signed_rules
 - **Las capturas de las cámaras se borran al mes** de captarse (art. 22.3 de la LOPDGDD), salvo las de eventos vinculados a una incidencia. Lo hace la limpieza diaria de las 04:00 en el worker.
 
 **Antes de usarlo con clientes**: que el abogado revise el texto, sobre todo las condiciones 6 (seguro y responsabilidad) y 12 (impago), y el preaviso de un mes cuando termina el arrendador.
+
+## 115. Desistimiento de los contratos a distancia (2026-11-11)
+
+Migración `20270107100000_contract_withdrawal` (se aplica sola). Sin variables nuevas. **Qué cambia al redesplegar:**
+
+- **Firmar por enlace** (reserva online, contratar otro trastero desde el área de clientes, WhatsApp o el enlace que envía el equipo): si quien firma es un particular y el trastero empieza dentro de los 14 días siguientes a la firma, tiene que marcar la casilla «Quiero empezar a usar el trastero ya…» (art. 98.8 del TRLGDCU). Sin ella no firma (400 `immediate_start_required`). Se guarda cuándo lo pidió y el último día para desistir, y salen en la pestaña Firma y en el PDF del contrato. Firmar en el local o ser una empresa no da derecho a desistir (no hay casilla ni plazo). Las viviendas tampoco (la ley excluye su alquiler).
+- **Desistir**: en el área de clientes, cada contrato con plazo dice hasta cuándo y tiene «Desistir del contrato» con lo que se devuelve. En el panel, la ficha del contrato tiene la tarjeta «Desistimiento» con «Registrar desistimiento» para los que llegan por correo o por carta (cuenta el día en que lo comunicó).
+- **Qué se devuelve**: lo cobrado de cada factura menos, si pidió empezar ya, la parte de los días que tuvo el trastero; la fianza entera. Con tarjeta o domiciliación se devuelve sola por la pasarela; el efectivo, la transferencia y el pago con tarjeta en la página del banco quedan registrados y el equipo recibe un aviso para devolverlos a mano; un cobro automático con la tarjeta guardada en Redsys se devuelve desde el TPV y se registra después en la factura. Lo no cobrado se anula. El contrato se cancela, el trastero queda libre y se retira el acceso. El inquilino recibe un correo con el acuse y lo que se le devuelve.
+- **Textos**: la condición 19 del contrato (desistimiento) y el modelo de formulario al final del contrato de los particulares; las Condiciones Generales de la web también llevan el formulario (la próxima aceptación crea la versión nueva). Los contratos ya firmados no cambian ni tienen plazo de desistimiento registrado.
+- **Arreglo**: cancelar una reserva antes de la apertura cobrada con la tarjeta guardada en Redsys ya no falla (devolvía `refund_needs_bank`): queda en el aviso para devolverla desde el TPV.
+
+**Antes de usarlo con clientes**: que el abogado revise la condición 19, el formulario y que los días usados se cobren a la cuota del primer pago.

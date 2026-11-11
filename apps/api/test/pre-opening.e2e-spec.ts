@@ -99,6 +99,7 @@ describe('Reservas antes de la apertura (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${token}`)
       .send({
+        immediateStart: true,
         signerName: 'Ana Sanz',
         method: 'typed',
         typedSignature: 'Ana Sanz',
@@ -336,6 +337,7 @@ describe('Reservas antes de la apertura (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${draft.body.signingToken}`)
       .send({
+        immediateStart: true,
         signerName: 'Luis Gil',
         method: 'typed',
         typedSignature: 'Luis Gil',
