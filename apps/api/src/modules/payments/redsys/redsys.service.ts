@@ -60,6 +60,8 @@ export class RedsysService {
       saveCard?: boolean;
       /** Otras facturas del mismo inquilino que se pagan en la misma orden. */
       extraInvoiceIds?: string[];
+      /** Paga solo esta parte (la cuota de un plan de pago), sin su fianza. */
+      amountCents?: number;
     },
   ): Promise<RedsysRedirectDto> {
     const expectedCustomerId = opts?.expectedCustomerId;
@@ -119,6 +121,13 @@ export class RedsysService {
       toCents(invoice.total) -
       toCents(invoice.amountPaid) +
       bundled.reduce((sum, r) => sum + Math.max(0, toCents(r.total) - toCents(r.amountPaid)), 0);
+    if (opts?.amountCents !== undefined) {
+      const pendingCents = toCents(invoice.total) - toCents(invoice.amountPaid);
+      if (opts.amountCents <= 0 || opts.amountCents > pendingCents) {
+        throw new BadRequestException({ code: 'invalid_amount', message: 'Importe no válido' });
+      }
+      amountCents = opts.amountCents;
+    }
     // «Pagar todo»: el resto de facturas (y sus fianzas) en el mismo cobro.
     const extraIds = [...new Set(opts?.extraInvoiceIds ?? [])].filter((id) => id !== invoiceId);
     const extraNumbers: string[] = [];

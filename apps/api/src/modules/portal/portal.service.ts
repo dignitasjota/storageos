@@ -31,7 +31,8 @@ import {
 import { Queue } from 'bullmq';
 
 import { customerScopeWhere } from '../../common/customer-scope';
-import { emailLocale } from '../../common/format';
+import { emailLocale, todayInTimezone } from '../../common/format';
+import { planInstallmentDue, type PlanInstallmentDue } from '../../common/payment-plan-guard';
 import { escapeHtml, tenantEmailShell } from '../../common/tenant-email-layout';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
@@ -1237,8 +1238,24 @@ export class PortalService {
       ),
     );
     const terms = termsPending.size > 0 ? await this.generalTerms.current(tenantId) : null;
+    // Planes de pago activos: la cuota que toca, en la factura por la que se paga.
+    const installmentByInvoice = new Map<string, PlanInstallmentDue>();
+    const plans = await this.admin.paymentPlan.findMany({
+      where: { tenantId, customerId, status: 'active' },
+      select: { invoiceIds: true },
+    });
+    if (plans.length > 0) {
+      const today = await this.tenantToday(tenantId);
+      for (const plan of plans) {
+        const first = plan.invoiceIds[0];
+        if (!first) continue;
+        const due = await planInstallmentDue(this.admin, first, today);
+        if (due) installmentByInvoice.set(due.invoiceId, due);
+      }
+    }
     return rows.map((r) => {
       const total = Number(r.total);
+      const installment = installmentByInvoice.get(r.id);
       // La retención de IRPF no es dinero pagado por el inquilino.
       const paid = Number(r.amountPaid) - Number(r.withholdingAmount);
       // La factura se paga junto a su justificante de fianza (un solo pago).
@@ -1281,8 +1298,48 @@ export class PortalService {
         // Solo mientras quede algo por pagar y no haya otro cobro en marcha.
         lastFailure:
           pendingOf(r) > 0 && !inFlightIds.has(r.id) ? (lastFailureOf.get(r.id) ?? null) : null,
+        planInstallment: installment
+          ? {
+              amount: installment.cents / 100,
+              dueDate: installment.dueDate,
+              late: installment.late,
+            }
+          : null,
       };
     });
+  }
+
+  /** Hoy en la zona del negocio (`YYYY-MM-DD`). */
+  private async tenantToday(tenantId: string): Promise<string> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    return todayInTimezone(tenant?.timezone ?? 'Europe/Madrid')
+      .toISOString()
+      .slice(0, 10);
+  }
+
+  /**
+   * La cuota de su plan que toca pagar en esta factura (en céntimos). 400 si la
+   * factura no está en un plan o no es por la que se paga ahora.
+   */
+  async installmentCents(tenantId: string, customerId: string, invoiceId: string): Promise<number> {
+    const invoice = await this.admin.invoice.findFirst({
+      where: { id: invoiceId, tenantId, customerId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!invoice) {
+      throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
+    }
+    const due = await planInstallmentDue(this.admin, invoiceId, await this.tenantToday(tenantId));
+    if (!due || due.invoiceId !== invoiceId) {
+      throw new BadRequestException({
+        code: 'no_installment_due',
+        message: 'Esta factura no tiene ninguna cuota de un plan de pago por pagar',
+      });
+    }
+    return due.cents;
   }
 
   /**
@@ -1862,6 +1919,7 @@ export class PortalService {
     tenantId: string,
     customerId: string,
     invoiceId: string,
+    opts: { installment?: boolean } = {},
   ): Promise<PortalChargeResultDto> {
     const invoice = await this.admin.invoice.findFirst({
       where: { id: invoiceId, tenantId, customerId, deletedAt: null },
@@ -1870,11 +1928,15 @@ export class PortalService {
     if (!invoice) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
+    // Plan de pago: solo la cuota que toca (el importe lo decide el servidor).
+    const cents = opts.installment
+      ? await this.installmentCents(tenantId, customerId, invoiceId)
+      : null;
     const payment = await this.payments.chargeInvoice({
       tenantId,
       userId: null,
       invoiceId,
-      input: {},
+      input: cents ? { amount: cents / 100 } : {},
       meta: {},
     });
     return {

@@ -220,8 +220,16 @@ export const RedsysRedirectRequestSchema = z.object({
   extraInvoiceIds: z.array(z.string().uuid()).max(50).optional(),
   /** Pago de la suscripción: meses que paga de una vez (si debe varios). */
   months: z.number().int().min(1).max(12).optional(),
+  /** Portal: paga solo la cuota que toca de su plan de pago. */
+  installment: z.boolean().optional(),
 });
 export type RedsysRedirectRequestInput = z.infer<typeof RedsysRedirectRequestSchema>;
+
+/** `POST /portal/me/invoices/:id/charge`: el total pendiente o la cuota de su plan. */
+export const PortalChargeInvoiceSchema = z.object({
+  installment: z.boolean().optional(),
+});
+export type PortalChargeInvoiceInput = z.infer<typeof PortalChargeInvoiceSchema>;
 
 export const DunningActionTypeEnum = z.enum([
   'email_reminder',

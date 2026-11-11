@@ -100,7 +100,7 @@ export function InvoicesList({
   payingId: string | null;
   /** Transferencia, en el local o domiciliación (las que active el negocio). */
   offlineOptions: { bankTransfer: boolean; payAtFacility: boolean; sepaDebit: boolean };
-  onPay: (i: PortalInvoiceDto) => void;
+  onPay: (i: PortalInvoiceDto, opts?: { installment?: boolean }) => void;
   onPayAll: (list: PortalInvoiceDto[]) => void;
   onDownload: (id: string) => void;
   /** Tras aceptar las condiciones generales: recargar las facturas. */
@@ -144,6 +144,7 @@ export function InvoicesList({
     i: PortalInvoiceDto,
     method: 'card' | 'bizum' | undefined,
     extra: PortalInvoiceDto[] = [],
+    installment = false,
   ) {
     try {
       submitRedsysForm(
@@ -153,6 +154,7 @@ export function InvoicesList({
           method,
           method !== 'bizum' && saveCard,
           extra.map((x) => x.id),
+          installment,
         ),
       );
     } catch (err) {
@@ -246,6 +248,45 @@ export function InvoicesList({
               total: eur(i.amountPending + i.bundledReceiptPending, locale),
             })}
           </p>
+        )}
+        {i.planInstallment && payable(i) && (
+          <div className="ml-6 space-y-2 rounded-md border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
+            <p>
+              {t(i.planInstallment.late ? 'planInstallmentLate' : 'planInstallment', {
+                amount: eur(i.planInstallment.amount, locale),
+                date: fmtDate(i.planInstallment.dueDate, locale),
+              })}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {canChargeAutomatically && (
+                <Button
+                  size="sm"
+                  onClick={() => onPay(i, { installment: true })}
+                  disabled={payingId !== null}
+                >
+                  {t('payInstallment', { amount: eur(i.planInstallment.amount, locale) })}
+                </Button>
+              )}
+              {redsysEnabled && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void redsys(i, bizumEnabled ? 'card' : undefined, [], true)}
+                >
+                  {t('payInstallmentCard')}
+                </Button>
+              )}
+              {bizumEnabled && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void redsys(i, 'bizum', [], true)}
+                >
+                  {t('payInstallmentBizum')}
+                </Button>
+              )}
+            </div>
+          </div>
         )}
         {i.lastFailure && (
           <p className="ml-6 flex items-center gap-1.5 text-xs text-red-700 dark:text-red-400">

@@ -944,14 +944,14 @@ function PortalConsumeContent() {
     ? true
     : (paymentMethods ?? []).some((pm) => pm.isDefault && pm.gateway !== 'stripe');
 
-  async function handlePay(invoice: PortalInvoiceDto) {
+  async function handlePay(invoice: PortalInvoiceDto, opts: { installment?: boolean } = {}) {
     if (!session) return;
     setPayingId(invoice.id);
     try {
       const result = await portalFetch<PortalChargeResultDto>(
         session,
         `/portal/me/invoices/${invoice.id}/charge`,
-        { method: 'POST' },
+        { method: 'POST', ...(opts.installment ? { json: { installment: true } } : {}) },
       );
       if (result.status === 'processing') {
         toast.info(tInvoices('chargeProcessing'));
@@ -1397,7 +1397,7 @@ function PortalConsumeContent() {
                   saveCard={cardOnFileEnabled && saveCard}
                   payingId={payingId}
                   offlineOptions={offlineOptions}
-                  onPay={(i) => void handlePay(i)}
+                  onPay={(i, opts) => void handlePay(i, opts)}
                   onPayAll={(list) => void handlePayAll(list)}
                   onDownload={(id) => void downloadInvoicePdf(id)}
                   onTermsAccepted={() => void reloadInvoices()}

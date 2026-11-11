@@ -276,7 +276,12 @@
         "generalTermsLabel": "Acepto las Condiciones Generales de Contratación",
         "generalTermsContinue": "Aceptar y continuar",
         "generalTermsAccepted": "Condiciones aceptadas. Ya puedes pagar.",
-        "generalTermsError": "No se han podido guardar. Inténtalo de nuevo."
+        "generalTermsError": "No se han podido guardar. Inténtalo de nuevo.",
+        "planInstallment": "Plan de pago: te toca pagar {amount} (cuota del {date}).",
+        "planInstallmentLate": "Plan de pago: la cuota de {amount} del {date} está vencida. Págala cuanto antes para que el plan siga en pie.",
+        "payInstallment": "Pagar la cuota ({amount})",
+        "payInstallmentCard": "Pagar la cuota con tarjeta",
+        "payInstallmentBizum": "Pagar la cuota con Bizum"
       },
       "access": {
         "title": "Tu acceso",

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -25,6 +26,17 @@ import type { ArrearsDto, MonthCollectionsDto, PaymentPlanDto } from '@storageos
 
 class CreatePaymentPlanDto extends createZodDto(CreatePaymentPlanSchema) {}
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** El local pedido (o ninguno); 400 si no es un id. */
+function facilityParam(facilityId: string | undefined): string | undefined {
+  if (!facilityId) return undefined;
+  if (!UUID_RE.test(facilityId)) {
+    throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+  }
+  return facilityId;
+}
+
 /** Cobros del mes, impagos y planes de pago. */
 @Controller()
 export class CollectionsOpsController {
@@ -44,7 +56,7 @@ export class CollectionsOpsController {
       user.tenantId,
       month,
       user.facilityScope ?? null,
-      facilityId || undefined,
+      facilityParam(facilityId),
     );
   }
 
@@ -54,7 +66,7 @@ export class CollectionsOpsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('facilityId') facilityId?: string,
   ): Promise<ArrearsDto> {
-    return this.ops.arrears(user.tenantId, user.facilityScope ?? null, facilityId || undefined);
+    return this.ops.arrears(user.tenantId, user.facilityScope ?? null, facilityParam(facilityId));
   }
 
   @Get('payment-plans')
@@ -63,11 +75,23 @@ export class CollectionsOpsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('customerId') customerId?: string,
     @Query('status') status?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<PaymentPlanDto[]> {
-    return this.plans.list(user.tenantId, {
-      ...(customerId ? { customerId } : {}),
-      ...(status ? { status } : {}),
-    });
+    if (customerId && !UUID_RE.test(customerId)) {
+      throw new BadRequestException({
+        code: 'invalid_customer_id',
+        message: 'Inquilino no válido',
+      });
+    }
+    return this.plans.list(
+      user.tenantId,
+      {
+        ...(customerId ? { customerId } : {}),
+        ...(status ? { status } : {}),
+        ...(facilityParam(facilityId) ? { facilityId: facilityParam(facilityId)! } : {}),
+      },
+      user.facilityScope ?? null,
+    );
   }
 
   @Post('payment-plans')
@@ -76,7 +100,7 @@ export class CollectionsOpsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreatePaymentPlanDto,
   ): Promise<PaymentPlanDto> {
-    return this.plans.create(user.tenantId, user.sub, body);
+    return this.plans.create(user.tenantId, user.sub, body, user.facilityScope ?? null);
   }
 
   @Post('payment-plans/:id/cancel')
@@ -86,6 +110,6 @@ export class CollectionsOpsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<PaymentPlanDto> {
-    return this.plans.cancel(user.tenantId, user.sub, id);
+    return this.plans.cancel(user.tenantId, user.sub, id, user.facilityScope ?? null);
   }
 }

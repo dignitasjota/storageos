@@ -20,6 +20,8 @@ export interface MonthCollectionsItemDto {
   amount: number;
   date: string;
   reason: string | null;
+  /** Estado actual de la factura (un cobro fallido puede haberse cobrado después). */
+  invoiceStatus: string | null;
 }
 
 /** `GET /collections-month?month=YYYY-MM`. */
@@ -29,7 +31,10 @@ export interface MonthCollectionsDto {
   expected: Record<ExpectedVia, MonthCollectionsBucketDto> & { total: MonthCollectionsBucketDto };
   /** De lo que vence en el mes, lo que sigue sin cobrar. */
   outstanding: MonthCollectionsBucketDto;
-  /** Cobros recibidos en el mes (de cualquier factura), por forma de pago. */
+  /**
+   * Cobros recibidos en el mes (de facturas de cualquier mes, sin fianzas y
+   * descontando lo devuelto), por forma de pago. Es la cifra «Cobrado» del Resumen.
+   */
   collected: MonthCollectionsBucketDto & { byMethod: Record<string, number> };
   failed: MonthCollectionsBucketDto & { items: MonthCollectionsItemDto[] };
   returned: MonthCollectionsBucketDto & { items: MonthCollectionsItemDto[] };
@@ -76,7 +81,13 @@ export const CreatePaymentPlanSchema = z.object({
   /** Sin facturas: todas las vencidas o emitidas del inquilino. */
   invoiceIds: z.array(z.string().uuid()).max(50).optional(),
   installmentsCount: z.number().int().min(2).max(24),
-  firstDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  firstDueDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((s) => {
+      const d = new Date(`${s}T00:00:00Z`);
+      return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+    }, 'Fecha no válida'),
   frequency: PaymentPlanFrequencyEnum.default('monthly'),
   graceDays: z.number().int().min(0).max(30).default(7),
   notes: z.string().trim().max(1000).optional(),
@@ -88,6 +99,8 @@ export type CreatePaymentPlanInput = z.infer<typeof CreatePaymentPlanSchema>;
 export interface ArrearsStepDto {
   label: string;
   date: string;
+  /** Tocaba antes de hoy y está aplazado (hay un cobro en curso o la cuenta está en pausa). */
+  postponed: boolean;
 }
 
 /** Una fila de `GET /arrears`: un inquilino con deuda vencida. */
@@ -105,9 +118,15 @@ export interface ArrearsRowDto {
   chargeable: boolean;
   /** Va en la remesa SEPA (mandato activo). */
   sepaMandate: boolean;
+  /** Último recordatorio enviado (automático o desde el panel). */
   lastReminderAt: string | null;
   lateFeeApplied: boolean;
   accessBlocked: boolean;
+  /**
+   * Ya se está cobrando (pasarela en curso o adeudo en una remesa SEPA sin
+   * confirmar): no se reclama ni se cobra otra vez.
+   */
+  paymentInFlight: 'charge' | 'remittance' | null;
   nextStep: ArrearsStepDto | null;
   plan: { id: string; status: PaymentPlanStatus; nextDue: string | null } | null;
   collectionsCase: { id: string; status: string } | null;
@@ -119,7 +138,9 @@ export interface ArrearsRowDto {
 export interface ArrearsDto {
   totalAmount: number;
   customers: number;
-  /** Por antigüedad: 0-30, 31-60, 61-90, +90 días. */
+  /** Los que piden algo hoy: sin cobro en curso ni plan de pago activo (como «Hoy»). */
+  actionable: number;
+  /** Por antigüedad de cada factura (como Analítica): 0-30, 30-60, 60-90, +90 días. */
   aging: { label: string; amount: number; count: number }[];
   rows: ArrearsRowDto[];
 }

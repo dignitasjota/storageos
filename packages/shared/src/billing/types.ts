@@ -324,6 +324,11 @@ export interface PortalInvoiceDto {
   lines: { description: string; total: number }[];
   /** Último cobro rechazado mientras siga pendiente (motivo legible). */
   lastFailure: { at: string; reason: string | null } | null;
+  /**
+   * La factura está en un plan de pago: la cuota que toca pagar ahora (en la
+   * factura más antigua del plan con algo pendiente; en las demás, null).
+   */
+  planInstallment: { amount: number; dueDate: string; late: boolean } | null;
 }
 
 /** Factura o justificante de fianza (no es factura: fuera de IVA y Veri*Factu). */

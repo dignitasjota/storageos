@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
 import {
   allocateInstallments,
@@ -15,8 +16,12 @@ import {
 } from '@storageos/shared';
 
 import { claimDailyCronRun } from '../../common/cron-claim';
+import { customerScopeWhere } from '../../common/customer-scope';
+import { type FacilityScope, invoiceFacilityWhere } from '../../common/facility-scope';
 import { formatDateLong, formatEur, todayInTimezone } from '../../common/format';
+import { toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS, type InvoiceVoidedPayload } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -24,7 +29,6 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 import type { Prisma } from '@storageos/database';
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 const OPEN_STATUSES = ['issued', 'overdue'] as const;
 
 type Installment = { dueDate: string; amount: number };
@@ -43,12 +47,19 @@ function customerName(c: PlanRow['customer']): string {
     : [c.firstName, c.lastName].filter(Boolean).join(' ') || '—';
 }
 
+/** `YYYY-MM-DD` que existe en el calendario. */
+function isRealDate(s: string): boolean {
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
 /**
  * Planes de pago: la deuda de un inquilino repartida en cuotas. El avance se
  * mide con lo cobrado de sus facturas desde que se creó el plan (cobre como
- * cobre: tarjeta, transferencia, efectivo…), aplicado a las cuotas en orden.
- * Mientras el plan está activo, el escalado de impagos y los reintentos de esas
- * facturas se pausan; si una cuota pasa del plazo de gracia, se rompe.
+ * cobre: tarjeta, transferencia, Bizum, efectivo…), aplicado a las cuotas en
+ * orden. Mientras el plan está activo, el escalado de impagos y los reintentos
+ * de esas facturas se pausan; si una cuota pasa del plazo de gracia, se rompe.
+ * Si se anula una de sus facturas, el plan se cancela (y se avisa al equipo).
  */
 @Injectable()
 export class PaymentPlansService {
@@ -62,21 +73,49 @@ export class PaymentPlansService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  private async tenantToday(tenantId: string): Promise<string> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    return todayInTimezone(tenant?.timezone ?? 'Europe/Madrid')
+      .toISOString()
+      .slice(0, 10);
+  }
+
   async list(
     tenantId: string,
-    filters: { customerId?: string; status?: string },
+    filters: { customerId?: string; status?: string; facilityId?: string },
+    scope: FacilityScope = null,
   ): Promise<PaymentPlanDto[]> {
+    const today = await this.tenantToday(tenantId);
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.paymentPlan.findMany({
         where: {
           ...(filters.customerId ? { customerId: filters.customerId } : {}),
           ...(filters.status ? { status: filters.status } : {}),
+          // Quien solo ve unos locales, los planes de sus inquilinos.
+          ...(scope || filters.facilityId
+            ? {
+                customer: {
+                  ...customerScopeWhere(scope),
+                  ...(filters.facilityId
+                    ? {
+                        contracts: {
+                          some: { deletedAt: null, unit: { facilityId: filters.facilityId } },
+                        },
+                      }
+                    : {}),
+                },
+              }
+            : {}),
         },
         include: this.include,
-        orderBy: { createdAt: 'desc' },
+        // Los vivos primero: con muchos planes cerrados no se quedan fuera.
+        orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
         take: 200,
       });
-      return this.toDtos(tx, rows);
+      return this.toDtos(tx, rows, today);
     }, tenantId);
   }
 
@@ -84,10 +123,25 @@ export class PaymentPlansService {
     tenantId: string,
     userId: string,
     input: CreatePaymentPlanInput,
+    scope: FacilityScope = null,
   ): Promise<PaymentPlanDto> {
+    const today = await this.tenantToday(tenantId);
+    if (!isRealDate(input.firstDueDate)) {
+      throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
+    }
+    if (input.firstDueDate < today) {
+      throw new BadRequestException({
+        code: 'first_due_in_past',
+        message: 'La primera cuota no puede vencer en un día que ya ha pasado',
+      });
+    }
+    const facility = invoiceFacilityWhere(scope);
     const plan = await this.prisma.withTenant(async (tx) => {
+      // Dos personas (o dos pestañas) a la vez no crean dos planes con las
+      // mismas facturas: los planes de un inquilino se crean de uno en uno.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}::text), hashtext(${`payment-plan:${input.customerId}`}::text))`;
       const customer = await tx.customer.findFirst({
-        where: { id: input.customerId, deletedAt: null },
+        where: { id: input.customerId, deletedAt: null, ...customerScopeWhere(scope) },
         select: { id: true },
       });
       if (!customer) {
@@ -102,6 +156,7 @@ export class PaymentPlansService {
           deletedAt: null,
           kind: 'invoice',
           status: { in: [...OPEN_STATUSES] },
+          ...(facility ?? {}),
           ...(input.invoiceIds?.length ? { id: { in: input.invoiceIds } } : {}),
         },
         select: { id: true, total: true, amountPaid: true },
@@ -112,10 +167,11 @@ export class PaymentPlansService {
           message: 'Alguna factura no es de este inquilino o ya no está pendiente.',
         });
       }
-      const pending = round2(
-        invoices.reduce((s, i) => s + Math.max(0, Number(i.total) - Number(i.amountPaid)), 0),
+      const pendingCents = invoices.reduce(
+        (s, i) => s + Math.max(0, toCents(i.total) - toCents(i.amountPaid)),
+        0,
       );
-      if (invoices.length === 0 || pending <= 0) {
+      if (invoices.length === 0 || pendingCents <= 0) {
         throw new BadRequestException({
           code: 'nothing_to_split',
           message: 'Este inquilino no tiene facturas pendientes que fraccionar.',
@@ -133,7 +189,7 @@ export class PaymentPlansService {
         });
       }
       const installments = buildInstallments(
-        pending,
+        pendingCents / 100,
         input.installmentsCount,
         input.firstDueDate,
         input.frequency,
@@ -143,8 +199,8 @@ export class PaymentPlansService {
           tenantId,
           customerId: input.customerId,
           invoiceIds: ids,
-          totalAmount: pending,
-          paidAtStart: round2(invoices.reduce((s, i) => s + Number(i.amountPaid), 0)),
+          totalAmount: pendingCents / 100,
+          paidAtStart: invoices.reduce((s, i) => s + toCents(i.amountPaid), 0) / 100,
           installments,
           graceDays: input.graceDays,
           notes: input.notes ?? null,
@@ -167,20 +223,30 @@ export class PaymentPlansService {
       },
     });
     if (input.notifyCustomer) await this.notifyCustomer(tenantId, plan);
-    const [dto] = await this.prisma.withTenant((tx) => this.toDtos(tx, [plan]), tenantId);
+    const [dto] = await this.prisma.withTenant((tx) => this.toDtos(tx, [plan], today), tenantId);
     return dto!;
   }
 
-  async cancel(tenantId: string, userId: string, id: string): Promise<PaymentPlanDto> {
+  async cancel(
+    tenantId: string,
+    userId: string,
+    id: string,
+    scope: FacilityScope = null,
+  ): Promise<PaymentPlanDto> {
+    const today = await this.tenantToday(tenantId);
     const plan = await this.prisma.withTenant(async (tx) => {
+      const visible = await tx.paymentPlan.findFirst({
+        where: { id, ...(scope ? { customer: customerScopeWhere(scope) } : {}) },
+        select: { id: true },
+      });
+      if (!visible) {
+        throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
+      }
       const res = await tx.paymentPlan.updateMany({
         where: { id, status: 'active' },
         data: { status: 'cancelled', cancelledAt: new Date() },
       });
       if (res.count === 0) {
-        const exists = await tx.paymentPlan.findFirst({ where: { id }, select: { id: true } });
-        if (!exists)
-          throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
         throw new BadRequestException({
           code: 'plan_not_active',
           message: 'El plan ya no está activo.',
@@ -196,11 +262,47 @@ export class PaymentPlansService {
       entityId: id,
       changes: {},
     });
-    const [dto] = await this.prisma.withTenant((tx) => this.toDtos(tx, [plan]), tenantId);
+    const [dto] = await this.prisma.withTenant((tx) => this.toDtos(tx, [plan], today), tenantId);
     return dto!;
   }
 
-  @Cron('0 7 * * *', { name: 'payment-plans.daily' })
+  /**
+   * Una factura del plan se anula (rectificativa) o se sustituye: el plan ya
+   * no cuadra con lo que se debe. Se cancela y se avisa para hacer otro con lo
+   * que quede pendiente.
+   */
+  @OnEvent(DOMAIN_EVENTS.invoice_voided, { async: true, promisify: true })
+  async onInvoiceVoided(p: InvoiceVoidedPayload): Promise<void> {
+    try {
+      const plans = await this.admin.paymentPlan.findMany({
+        where: { tenantId: p.tenantId, status: 'active', invoiceIds: { has: p.invoiceId } },
+        include: this.include,
+      });
+      for (const plan of plans) await this.cancelForVoided(plan);
+    } catch (err) {
+      this.logger.warn(`payment_plan invoice_voided: ${(err as Error).message}`);
+    }
+  }
+
+  private async cancelForVoided(plan: PlanRow): Promise<void> {
+    const res = await this.admin.paymentPlan.updateMany({
+      where: { id: plan.id, status: 'active' },
+      data: { status: 'cancelled', cancelledAt: new Date() },
+    });
+    if (res.count === 0) return;
+    await this.notifications
+      .create(plan.tenantId, {
+        type: 'payment_plan.cancelled',
+        title: `Plan de pago cancelado — ${customerName(plan.customer)}`,
+        body: 'Se anuló una de sus facturas y el plan ya no cuadra con lo que debe. Si sigue debiendo algo, haz otro plan con lo pendiente.',
+        link: `/customers/${plan.customerId}`,
+      })
+      .catch((err: unknown) =>
+        this.logger.warn(`payment_plan.cancelled notify: ${(err as Error).message}`),
+      );
+  }
+
+  @Cron('0 7 * * *', { name: 'payment-plans.daily', timeZone: 'Europe/Madrid' })
   async cron(): Promise<void> {
     if (!(await claimDailyCronRun(this.admin, 'payment-plans.daily'))) return;
     await this.evaluateAll();
@@ -210,23 +312,26 @@ export class PaymentPlansService {
   async evaluateAll(now = new Date()): Promise<{ completed: number; broken: number }> {
     const plans = await this.admin.paymentPlan.findMany({
       where: { status: 'active' },
-      include: this.include,
+      include: { ...this.include, tenant: { select: { timezone: true } } },
       take: 2000,
     });
     let completed = 0;
     let broken = 0;
-    const today = todayInTimezone('Europe/Madrid', now).toISOString().slice(0, 10);
     for (const plan of plans) {
+      const today = todayInTimezone(plan.tenant.timezone ?? 'Europe/Madrid', now)
+        .toISOString()
+        .slice(0, 10);
       const invoices = await this.admin.invoice.findMany({
         where: { id: { in: plan.invoiceIds } },
         select: { status: true, amountPaid: true },
       });
-      const paid =
-        invoices.reduce((s, i) => s + Number(i.amountPaid), 0) - Number(plan.paidAtStart);
+      const paidCents =
+        invoices.reduce((s, i) => s + toCents(i.amountPaid), 0) - toCents(plan.paidAtStart);
       const stillOpen = invoices.some((i) =>
         (OPEN_STATUSES as readonly string[]).includes(i.status),
       );
-      if (!stillOpen || paid >= Number(plan.totalAmount) - 0.005) {
+      const allPaid = invoices.every((i) => i.status === 'paid');
+      if (allPaid || paidCents >= toCents(plan.totalAmount)) {
         await this.admin.paymentPlan.updateMany({
           where: { id: plan.id, status: 'active' },
           data: { status: 'completed', completedAt: now },
@@ -234,9 +339,14 @@ export class PaymentPlansService {
         completed++;
         continue;
       }
+      // Alguna factura se anuló o sustituyó (y no se cobró): el plan ya no cuadra.
+      if (!stillOpen || invoices.length < plan.invoiceIds.length) {
+        await this.cancelForVoided(plan);
+        continue;
+      }
       const alloc = allocateInstallments(
         plan.installments as Installment[],
-        paid,
+        Math.max(0, paidCents) / 100,
         today,
         plan.graceDays,
       );
@@ -269,7 +379,11 @@ export class PaymentPlansService {
     createdBy: { select: { fullName: true } },
   } as const;
 
-  private async toDtos(tx: Prisma.TransactionClient, rows: PlanRow[]): Promise<PaymentPlanDto[]> {
+  private async toDtos(
+    tx: Prisma.TransactionClient,
+    rows: PlanRow[],
+    today: string,
+  ): Promise<PaymentPlanDto[]> {
     const ids = [...new Set(rows.flatMap((r) => r.invoiceIds))];
     const invoices = ids.length
       ? await tx.invoice.findMany({
@@ -278,11 +392,11 @@ export class PaymentPlansService {
         })
       : [];
     const byId = new Map(invoices.map((i) => [i.id, i]));
-    const today = todayInTimezone().toISOString().slice(0, 10);
     return rows.map((r) => {
       const mine = r.invoiceIds.map((id) => byId.get(id)).filter((i) => !!i);
-      const paid = round2(
-        Math.max(0, mine.reduce((s, i) => s + Number(i.amountPaid), 0) - Number(r.paidAtStart)),
+      const paidCents = Math.max(
+        0,
+        mine.reduce((s, i) => s + toCents(i.amountPaid), 0) - toCents(r.paidAtStart),
       );
       return {
         id: r.id,
@@ -292,10 +406,10 @@ export class PaymentPlansService {
         invoiceIds: r.invoiceIds,
         invoiceNumbers: mine.map((i) => i.invoiceNumber),
         totalAmount: Number(r.totalAmount),
-        paidSoFar: paid,
+        paidSoFar: paidCents / 100,
         installments: allocateInstallments(
           r.installments as Installment[],
-          paid,
+          paidCents / 100,
           today,
           r.graceDays,
         ),
@@ -331,7 +445,7 @@ export class PaymentPlansService {
         customerId: plan.customerId,
         source: 'payment_plan.created',
         subject: 'Tu plan de pago',
-        bodyText: `Hola${name ? ` ${name}` : ''}:\n\nHemos acordado que pagues ${formatEur(Number(plan.totalAmount))} en estas cuotas:\n\n${lines}\n\nPuedes pagar cada cuota desde tu área de clientes o como lo hagas habitualmente. Mientras vayas al día, no recibirás más avisos de impago de estas facturas.\n\nGracias.`,
+        bodyText: `Hola${name ? ` ${name}` : ''}:\n\nHemos acordado que pagues ${formatEur(Number(plan.totalAmount))} en estas cuotas:\n\n${lines}\n\nPuedes pagar cada cuota desde tu área de clientes (con tarjeta o Bizum, si el negocio los acepta), por transferencia o como lo hagas habitualmente. Mientras vayas al día, no recibirás más avisos de impago de estas facturas.\n\nGracias.`,
       });
     } catch (err) {
       this.logger.warn(`payment_plan notify customer: ${(err as Error).message}`);

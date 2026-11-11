@@ -82,6 +82,7 @@ import {
   PushSubscribeSchema,
   PushUnsubscribeSchema,
   type RedsysRedirectDto,
+  PortalChargeInvoiceSchema,
   RedsysRedirectRequestSchema,
   RequestMoveOutSchema,
   type SetupIntentResponseDto,
@@ -1412,10 +1413,18 @@ export class PortalController {
   async chargeMyInvoice(
     @Headers('authorization') auth: string | undefined,
     @Param('id', ParseUUIDPipe) invoiceId: string,
+    @Body() body: unknown,
   ): Promise<PortalChargeResultDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
+    // El cuerpo es opcional (sin él se paga todo lo pendiente).
+    const parsed = PortalChargeInvoiceSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({ code: 'invalid_body', message: 'Petición no válida' });
+    }
     await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [invoiceId]);
-    return this.portal.chargeMyInvoice(tenantId, customerId, invoiceId);
+    return this.portal.chargeMyInvoice(tenantId, customerId, invoiceId, {
+      ...(parsed.data.installment ? { installment: true } : {}),
+    });
   }
 
   /** Acepta las condiciones generales de un contrato antes de su primer pago. */
@@ -1474,11 +1483,21 @@ export class PortalController {
       invoiceId,
       ...(body.extraInvoiceIds ?? []),
     ]);
+    if (body.installment && body.extraInvoiceIds?.length) {
+      throw new BadRequestException({
+        code: 'installment_alone',
+        message: 'La cuota de un plan se paga sola, sin otras facturas',
+      });
+    }
+    const installmentCents = body.installment
+      ? await this.portal.installmentCents(tenantId, customerId, invoiceId)
+      : null;
     return this.redsys.createRedirect(tenantId, invoiceId, {
       expectedCustomerId: customerId,
       ...(body.payMethod ? { payMethod: body.payMethod } : {}),
       ...(body.saveCard ? { saveCard: true } : {}),
       ...(body.extraInvoiceIds?.length ? { extraInvoiceIds: body.extraInvoiceIds } : {}),
+      ...(installmentCents ? { amountCents: installmentCents } : {}),
     });
   }
 

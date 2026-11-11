@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
+  allocateInstallments,
   type ArrearsDto,
   type ArrearsRowDto,
   type ExpectedVia,
@@ -12,13 +13,14 @@ import {
 import { accessCutApplied } from '../../common/access-cut';
 import { type FacilityScope, invoiceFacilityWhere } from '../../common/facility-scope';
 import { todayInTimezone, zonedDayStart } from '../../common/format';
+import { toCents } from '../../common/money';
 import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
+import { REMINDER_SOURCES, SUMMARY_REMINDER_SOURCES } from '../billing/reminder-summary';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
 
 const DAY = 86_400_000;
-const round2 = (n: number) => Math.round(n * 100) / 100;
 const FISCAL_OPEN = ['issued', 'overdue'] as const;
 const CASE_CLOSED = ['closed_paid', 'closed_cancelled', 'closed_disposed'];
 const STEP_LABEL: Record<string, string> = {
@@ -29,6 +31,9 @@ const STEP_LABEL: Record<string, string> = {
   access_block: 'Corte de acceso',
   legal_notice: 'Aviso legal',
 };
+/** Tramos de antigüedad, como Analítica (`business-metrics`). */
+const AGING_LABELS = ['0-30 días', '30-60 días', '60-90 días', 'Más de 90 días'];
+const agingIndex = (days: number) => (days < 30 ? 0 : days < 60 ? 1 : days < 90 ? 2 : 3);
 
 type NameRow = {
   firstName: string | null;
@@ -49,16 +54,18 @@ const NAME_SELECT = {
   customerType: true,
 } as const;
 
-function monthBounds(month: string): { first: string; next: string } {
+function monthBounds(month: string): { first: string; next: string; days: number } {
   const [y, m] = month.split('-').map(Number) as [number, number];
   const next = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
-  return { first: `${month}-01`, next };
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { first: `${month}-01`, next, days };
 }
 
 /**
  * Cobros del mes (lo previsto por vía de cobro frente a lo cobrado, fallido y
  * devuelto) e impagos (un inquilino por fila con su deuda, en qué paso del
- * escalado va, si tiene plan de pago o expediente).
+ * escalado va, si tiene plan de pago o expediente). Los días son los del
+ * negocio (su zona horaria).
  */
 @Injectable()
 export class CollectionsOpsService {
@@ -70,22 +77,31 @@ export class CollectionsOpsService {
     scope: FacilityScope,
     facilityId?: string,
   ): Promise<MonthCollectionsDto> {
-    const m = month ?? todayInTimezone().toISOString().slice(0, 7);
+    const tenant = await this.prisma.withTenant(
+      (tx) =>
+        tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: { autoChargeOnIssue: true, timezone: true },
+        }),
+      tenantId,
+    );
+    const tz = tenant?.timezone ?? 'Europe/Madrid';
+    const m = month ?? todayInTimezone(tz).toISOString().slice(0, 7);
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) {
       throw new BadRequestException({ code: 'invalid_month', message: 'Mes no válido (AAAA-MM).' });
     }
-    const { first, next } = monthBounds(m);
+    const { first, next, days } = monthBounds(m);
     const facility = invoiceFacilityWhere(scope, facilityId);
     const empty = (): MonthCollectionsDto['expected']['total'] => ({ count: 0, amount: 0 });
+    // Semanas del 1, 8, 15, 22 y 29 (si el mes llega al 29).
     const weeks = [1, 8, 15, 22, 29]
-      .map((d) => ({ from: `${m}-${String(d).padStart(2, '0')}`, d }))
-      .filter((w) => w.from < next)
-      .map((w, k, all) => {
-        const to = all[k + 1]?.from ?? next;
+      .filter((d) => d <= days)
+      .map((d, k, all) => {
+        const end = (all[k + 1] ?? days + 1) - 1;
         return {
-          label: `${w.d}–${new Date(new Date(`${to}T00:00:00Z`).getTime() - DAY).getUTCDate()}`,
-          from: w.from,
-          to,
+          label: `${d}–${end}`,
+          from: `${m}-${String(d).padStart(2, '0')}`,
+          to: k + 1 < all.length ? `${m}-${String(all[k + 1]).padStart(2, '0')}` : next,
           expected: 0,
           collected: 0,
         };
@@ -103,12 +119,35 @@ export class CollectionsOpsService {
       };
     }
     const invWhere = facility as Prisma.InvoiceWhereInput;
-    const from = zonedDayStart(first);
-    const to = zonedDayStart(next);
+    // Fianzas fuera: no son cobros de facturas (como el Resumen).
+    const invoiceOnly: Prisma.InvoiceWhereInput = { kind: 'invoice', ...invWhere };
+    const from = zonedDayStart(first, tz);
+    const to = zonedDayStart(next, tz);
+    // Intentos de cobro rechazados por la pasarela (un cobro a mano deshecho
+    // también queda «fallido», pero no es un intento de cobro).
+    const failedWhere: Prisma.PaymentWhereInput = {
+      invoice: invoiceOnly,
+      status: 'failed',
+      returnedAt: null,
+      gateway: { not: 'manual' },
+      createdAt: { gte: from, lt: to },
+    };
+    const returnedWhere: Prisma.PaymentWhereInput = {
+      invoice: invoiceOnly,
+      returnedAt: { gte: from, lt: to },
+    };
+    const itemSelect = {
+      amount: true,
+      createdAt: true,
+      returnedAt: true,
+      failureReason: true,
+      customerId: true,
+      invoice: { select: { id: true, invoiceNumber: true, status: true } },
+      customer: { select: NAME_SELECT },
+    } as const;
 
     return this.prisma.withTenant(async (tx) => {
-      const [tenant, invoices, collected, failed, returned] = await Promise.all([
-        tx.tenant.findUnique({ where: { id: tenantId }, select: { autoChargeOnIssue: true } }),
+      const [invoices, collected, failed, failedSum, returned, returnedSum] = await Promise.all([
         tx.invoice.findMany({
           where: {
             ...invWhere,
@@ -132,43 +171,34 @@ export class CollectionsOpsService {
         }),
         tx.payment.findMany({
           where: {
-            invoice: invWhere,
+            invoice: invoiceOnly,
             status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
             paidAt: { gte: from, lt: to },
             methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
           },
-          select: { amount: true, methodType: true, paidAt: true },
+          select: { amount: true, refundedAmount: true, methodType: true, paidAt: true },
         }),
         tx.payment.findMany({
-          where: {
-            invoice: invWhere,
-            status: 'failed',
-            returnedAt: null,
-            createdAt: { gte: from, lt: to },
-          },
-          select: {
-            amount: true,
-            createdAt: true,
-            failureReason: true,
-            customerId: true,
-            invoice: { select: { id: true, invoiceNumber: true } },
-            customer: { select: NAME_SELECT },
-          },
+          where: failedWhere,
+          select: itemSelect,
           orderBy: { createdAt: 'desc' },
           take: 200,
         }),
+        tx.payment.aggregate({
+          where: failedWhere,
+          _sum: { amount: true },
+          _count: { _all: true },
+        }),
         tx.payment.findMany({
-          where: { invoice: invWhere, returnedAt: { gte: from, lt: to } },
-          select: {
-            amount: true,
-            returnedAt: true,
-            failureReason: true,
-            customerId: true,
-            invoice: { select: { id: true, invoiceNumber: true } },
-            customer: { select: NAME_SELECT },
-          },
+          where: returnedWhere,
+          select: itemSelect,
           orderBy: { returnedAt: 'desc' },
           take: 200,
+        }),
+        tx.payment.aggregate({
+          where: returnedWhere,
+          _sum: { amount: true },
+          _count: { _all: true },
         }),
       ]);
 
@@ -198,58 +228,60 @@ export class CollectionsOpsService {
             ? 'remittance'
             : 'manual';
 
-      const expected: MonthCollectionsDto['expected'] = {
-        auto: empty(),
-        remittance: empty(),
-        manual: empty(),
-        total: empty(),
+      // Todo en céntimos; a euros al final.
+      const cents: Record<ExpectedVia | 'total' | 'outstanding', { count: number; c: number }> = {
+        auto: { count: 0, c: 0 },
+        remittance: { count: 0, c: 0 },
+        manual: { count: 0, c: 0 },
+        total: { count: 0, c: 0 },
+        outstanding: { count: 0, c: 0 },
       };
-      const outstanding = empty();
+      const weekCents = weeks.map(() => ({ expected: 0, collected: 0 }));
+      const weekOf = (day: string) => weeks.findIndex((w) => day >= w.from && day < w.to);
       const manualPending: MonthCollectionsItemDto[] = [];
       for (const inv of invoices) {
-        const amount = round2(Number(inv.total) - Number(inv.withholdingAmount));
+        const amount = toCents(inv.total) - toCents(inv.withholdingAmount);
         const via = viaOf(inv.customerId);
-        expected[via].count++;
-        expected[via].amount = round2(expected[via].amount + amount);
-        expected.total.count++;
-        expected.total.amount = round2(expected.total.amount + amount);
+        cents[via].count++;
+        cents[via].c += amount;
+        cents.total.count++;
+        cents.total.c += amount;
         const due = inv.dueDate!.toISOString().slice(0, 10);
-        const week = weeks.find((w) => due >= w.from && due < w.to);
-        if (week) week.expected = round2(week.expected + amount);
+        const w = weekOf(due);
+        if (w >= 0) weekCents[w]!.expected += amount;
         if ((FISCAL_OPEN as readonly string[]).includes(inv.status)) {
-          const pending = round2(Math.max(0, Number(inv.total) - Number(inv.amountPaid)));
+          const pending = Math.max(0, toCents(inv.total) - toCents(inv.amountPaid));
           if (pending <= 0) continue;
-          outstanding.count++;
-          outstanding.amount = round2(outstanding.amount + pending);
+          cents.outstanding.count++;
+          cents.outstanding.c += pending;
           if (via === 'manual') {
             manualPending.push({
               invoiceId: inv.id,
               invoiceNumber: inv.invoiceNumber,
               customerId: inv.customerId,
               customerName: nameOf(inv.customer),
-              amount: pending,
+              amount: pending / 100,
               date: due,
               reason: null,
+              invoiceStatus: inv.status,
             });
           }
         }
       }
 
-      const byMethod: Record<string, number> = {};
-      let collectedAmount = 0;
+      const byMethodCents: Record<string, number> = {};
+      let collectedCents = 0;
       for (const p of collected) {
-        const a = Number(p.amount);
-        collectedAmount += a;
-        byMethod[p.methodType] = round2((byMethod[p.methodType] ?? 0) + a);
-        const day = todayInTimezone('Europe/Madrid', p.paidAt!).toISOString().slice(0, 10);
-        const week = weeks.find((w) => day >= w.from && day < w.to);
-        if (week) week.collected = round2(week.collected + a);
+        // Neto de lo devuelto: la misma cifra que «Cobrado» en el Resumen.
+        const net = toCents(p.amount) - toCents(p.refundedAmount);
+        collectedCents += net;
+        byMethodCents[p.methodType] = (byMethodCents[p.methodType] ?? 0) + net;
+        const day = todayInTimezone(tz, p.paidAt!).toISOString().slice(0, 10);
+        const w = weekOf(day);
+        if (w >= 0) weekCents[w]!.collected += net;
       }
 
-      const item = (
-        p: (typeof failed)[number] | (typeof returned)[number],
-        date: Date,
-      ): MonthCollectionsItemDto => ({
+      const item = (p: (typeof failed)[number], date: Date): MonthCollectionsItemDto => ({
         invoiceId: p.invoice?.id ?? '',
         invoiceNumber: p.invoice?.invoiceNumber ?? '—',
         customerId: p.customerId,
@@ -257,38 +289,50 @@ export class CollectionsOpsService {
         amount: Number(p.amount),
         date: date.toISOString(),
         reason: p.failureReason,
+        invoiceStatus: p.invoice?.status ?? null,
       });
+      const bucket = (b: { count: number; c: number }) => ({ count: b.count, amount: b.c / 100 });
 
       return {
         month: m,
-        expected,
-        outstanding,
-        collected: { count: collected.length, amount: round2(collectedAmount), byMethod },
+        expected: {
+          auto: bucket(cents.auto),
+          remittance: bucket(cents.remittance),
+          manual: bucket(cents.manual),
+          total: bucket(cents.total),
+        },
+        outstanding: bucket(cents.outstanding),
+        collected: {
+          count: collected.length,
+          amount: collectedCents / 100,
+          byMethod: Object.fromEntries(Object.entries(byMethodCents).map(([k, v]) => [k, v / 100])),
+        },
         failed: {
-          count: failed.length,
-          amount: round2(failed.reduce((s, p) => s + Number(p.amount), 0)),
+          count: failedSum._count._all,
+          amount: toCents(failedSum._sum.amount ?? 0) / 100,
           items: failed.map((p) => item(p, p.createdAt)),
         },
         returned: {
-          count: returned.length,
-          amount: round2(returned.reduce((s, p) => s + Number(p.amount), 0)),
+          count: returnedSum._count._all,
+          amount: toCents(returnedSum._sum.amount ?? 0) / 100,
           items: returned.map((p) => item(p, p.returnedAt!)),
         },
         manualPending: manualPending.sort((a, b) => a.date.localeCompare(b.date)),
-        weeks,
+        weeks: weeks.map((w, k) => ({
+          ...w,
+          expected: weekCents[k]!.expected / 100,
+          collected: weekCents[k]!.collected / 100,
+        })),
       };
     }, tenantId);
   }
 
   async arrears(tenantId: string, scope: FacilityScope, facilityId?: string): Promise<ArrearsDto> {
     const facility = invoiceFacilityWhere(scope, facilityId);
-    const emptyAging = [
-      { label: '0-30 días', amount: 0, count: 0 },
-      { label: '31-60 días', amount: 0, count: 0 },
-      { label: '61-90 días', amount: 0, count: 0 },
-      { label: 'Más de 90 días', amount: 0, count: 0 },
-    ];
-    if (facility === null) return { totalAmount: 0, customers: 0, aging: emptyAging, rows: [] };
+    const emptyAging = AGING_LABELS.map((label) => ({ label, amount: 0, count: 0 }));
+    if (facility === null) {
+      return { totalAmount: 0, customers: 0, actionable: 0, aging: emptyAging, rows: [] };
+    }
     const now = new Date();
 
     return this.prisma.withTenant(async (tx) => {
@@ -296,7 +340,9 @@ export class CollectionsOpsService {
         where: { id: tenantId },
         select: { timezone: true },
       });
-      const startOfToday = todayInTimezone(tenant?.timezone ?? 'Europe/Madrid', now);
+      const tz = tenant?.timezone ?? 'Europe/Madrid';
+      const startOfToday = todayInTimezone(tz, now);
+      const today = startOfToday.toISOString().slice(0, 10);
       // Como en «Hoy»: también las emitidas ya vencidas que el cron aún no ha marcado.
       const overdue = await tx.invoice.findMany({
         where: {
@@ -315,16 +361,42 @@ export class CollectionsOpsService {
           amountPaid: true,
           dueDate: true,
           lateFeeInvoice: { select: { id: true } },
+          contract: {
+            select: {
+              id: true,
+              status: true,
+              deletedAt: true,
+              unit: { select: { code: true, facilityId: true } },
+            },
+          },
         },
+        orderBy: [{ dueDate: 'asc' }, { id: 'asc' }],
       });
       const byCustomer = new Map<string, typeof overdue>();
       for (const inv of overdue) {
-        if (Number(inv.total) - Number(inv.amountPaid) <= 0) continue;
+        if (toCents(inv.total) - toCents(inv.amountPaid) <= 0) continue;
         byCustomer.set(inv.customerId!, [...(byCustomer.get(inv.customerId!) ?? []), inv]);
       }
       const customerIds = [...byCustomer.keys()];
       const invoiceIds = [...byCustomer.values()].flat().map((i) => i.id);
-      const [customers, actions, methods, mandates, plans, cases, contracts] = await Promise.all([
+      // Contratos vivos de la fila, dentro del alcance de quien mira.
+      const contractScope: Prisma.ContractWhereInput = facilityId
+        ? { unit: { facilityId } }
+        : scope
+          ? { unit: { facilityId: { in: scope } } }
+          : {};
+      const [
+        customers,
+        actions,
+        methods,
+        mandates,
+        plans,
+        cases,
+        contracts,
+        inFlightCharges,
+        inRemittance,
+        reminders,
+      ] = await Promise.all([
         tx.customer.findMany({
           where: { id: { in: customerIds } },
           select: { id: true, email: true, phone: true, ...NAME_SELECT },
@@ -354,8 +426,17 @@ export class CollectionsOpsService {
         }),
         tx.paymentPlan.findMany({
           where: { customerId: { in: customerIds }, status: { in: ['active', 'broken'] } },
-          select: { id: true, customerId: true, status: true, installments: true, createdAt: true },
-          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            customerId: true,
+            status: true,
+            invoiceIds: true,
+            paidAtStart: true,
+            installments: true,
+            graceDays: true,
+            createdAt: true,
+          },
+          orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
         }),
         tx.delinquencyCase.findMany({
           where: { customerId: { in: customerIds }, status: { notIn: CASE_CLOSED as never } },
@@ -366,78 +447,163 @@ export class CollectionsOpsService {
             customerId: { in: customerIds },
             deletedAt: null,
             status: { in: ['active', 'ending'] },
+            ...contractScope,
           },
           select: { id: true, customerId: true, unit: { select: { code: true } } },
         }),
+        tx.payment.findMany({
+          where: { invoiceId: { in: invoiceIds }, status: { in: ['pending', 'processing'] } },
+          select: { invoiceId: true },
+        }),
+        tx.sepaRemittanceItem.findMany({
+          where: { invoiceId: { in: invoiceIds }, status: 'pending' },
+          select: { invoiceId: true },
+        }),
+        // Recordatorios enviados (automáticos o desde el panel), como el estado
+        // de cobro de las facturas.
+        tx.communication.findMany({
+          where: {
+            customerId: { in: customerIds },
+            status: { notIn: ['failed', 'skipped'] },
+            OR: [
+              { invoiceId: { in: invoiceIds }, source: { in: REMINDER_SOURCES } },
+              { source: { in: SUMMARY_REMINDER_SOURCES } },
+            ],
+          },
+          select: { customerId: true, sentAt: true, createdAt: true },
+        }),
       ]);
+      const planInvoiceIds = [...new Set(plans.flatMap((p) => p.invoiceIds))];
+      const planInvoices = planInvoiceIds.length
+        ? await tx.invoice.findMany({
+            where: { id: { in: planInvoiceIds } },
+            select: { id: true, amountPaid: true },
+          })
+        : [];
+      const paidOf = new Map(planInvoices.map((i) => [i.id, toCents(i.amountPaid)]));
+
       const invToCustomer = new Map(overdue.map((i) => [i.id, i.customerId!]));
       const actionsBy = new Map<string, typeof actions>();
       for (const a of actions) {
         const c = invToCustomer.get(a.invoiceId);
         if (c) actionsBy.set(c, [...(actionsBy.get(c) ?? []), a]);
       }
+      const lastReminderBy = new Map<string, number>();
+      for (const r of reminders) {
+        if (!r.customerId) continue;
+        const at = (r.sentAt ?? r.createdAt).getTime();
+        lastReminderBy.set(r.customerId, Math.max(lastReminderBy.get(r.customerId) ?? 0, at));
+      }
+      const charging = new Set(inFlightCharges.map((p) => p.invoiceId));
+      const remitted = new Set(inRemittance.map((i) => i.invoiceId));
       const chargeable = new Set(methods.map((m) => m.customerId));
       const mandate = new Set(mandates.map((m) => m.customerId));
-      const today = todayInTimezone().toISOString().slice(0, 10);
-      const aging = emptyAging.map((a) => ({ ...a }));
+      const agingCents = emptyAging.map(() => ({ c: 0, count: 0 }));
+      let actionable = 0;
 
       const rows: ArrearsRowDto[] = customers.map((c) => {
         const invs = byCustomer.get(c.id) ?? [];
-        const amount = round2(invs.reduce((s, i) => s + Number(i.total) - Number(i.amountPaid), 0));
-        const since = invs.map((i) => i.dueDate ?? now).reduce((a, b) => (a < b ? a : b), now);
-        const days = Math.max(0, Math.floor((now.getTime() - since.getTime()) / DAY));
-        const bucket = aging[days <= 30 ? 0 : days <= 60 ? 1 : days <= 90 ? 2 : 3]!;
-        bucket.amount = round2(bucket.amount + amount);
-        bucket.count++;
+        let amountCents = 0;
+        for (const i of invs) {
+          const pending = toCents(i.total) - toCents(i.amountPaid);
+          amountCents += pending;
+          // Antigüedad por factura, como Analítica.
+          const daysLate = Math.max(
+            0,
+            Math.floor((startOfToday.getTime() - (i.dueDate ?? startOfToday).getTime()) / DAY),
+          );
+          const b = agingCents[agingIndex(daysLate)]!;
+          b.c += pending;
+          b.count++;
+        }
+        const since = invs[0]?.dueDate ?? startOfToday;
+        const days = Math.max(0, Math.floor((startOfToday.getTime() - since.getTime()) / DAY));
         const acts = actionsBy.get(c.id) ?? [];
         const executed = acts.filter((a) => a.executedAt && a.status !== 'cancelled');
-        const reminders = executed
+        const dunningReminders = executed
           .filter(
             (a) => a.actionType.startsWith('email_reminder') || a.actionType === 'sms_reminder',
           )
           .map((a) => a.executedAt!.getTime());
+        const lastReminder = Math.max(0, lastReminderBy.get(c.id) ?? 0, ...dunningReminders);
         const next = acts
           .filter((a) => a.status === 'scheduled')
           .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())[0];
         const plan = plans.find((p) => p.customerId === c.id);
-        const nextDue = plan
-          ? ((plan.installments as { dueDate: string }[]).find((i) => i.dueDate >= today)
-              ?.dueDate ?? null)
-          : null;
+        let nextDue: string | null = null;
+        if (plan) {
+          const paidCents =
+            plan.invoiceIds.reduce((s, id) => s + (paidOf.get(id) ?? 0), 0) -
+            toCents(plan.paidAtStart);
+          nextDue =
+            allocateInstallments(
+              plan.installments as { dueDate: string; amount: number }[],
+              Math.max(0, paidCents) / 100,
+              today,
+              plan.graceDays,
+            ).find((i) => i.status !== 'paid')?.dueDate ?? null;
+        }
+        const inFlight: ArrearsRowDto['paymentInFlight'] = invs.some((i) => charging.has(i.id))
+          ? 'charge'
+          : invs.some((i) => remitted.has(i.id))
+            ? 'remittance'
+            : null;
+        if (!inFlight && plan?.status !== 'active') actionable++;
         const caseRow = cases.find((k) => k.customerId === c.id);
         const myContracts = contracts.filter((k) => k.customerId === c.id);
+        // El contrato con la deuda más antigua (aunque haya terminado), para
+        // abrir el expediente sobre él; si no, el primero en marcha.
+        const debtContract = invs.find(
+          (i) =>
+            i.contract &&
+            !i.contract.deletedAt &&
+            (!scope || scope.includes(i.contract.unit.facilityId)),
+        )?.contract;
+        const units = myContracts.length
+          ? myContracts.map((k) => k.unit.code)
+          : [...new Set(invs.flatMap((i) => (i.contract ? [i.contract.unit.code] : [])))];
         return {
           customerId: c.id,
           customerName: nameOf(c),
           email: c.email,
           phone: c.phone,
-          amount,
+          amount: amountCents / 100,
           since: since.toISOString().slice(0, 10),
           days,
           invoiceIds: invs.map((i) => i.id),
           invoiceCount: invs.length,
           chargeable: chargeable.has(c.id),
           sepaMandate: mandate.has(c.id),
-          lastReminderAt: reminders.length ? new Date(Math.max(...reminders)).toISOString() : null,
+          lastReminderAt: lastReminder > 0 ? new Date(lastReminder).toISOString() : null,
           lateFeeApplied: invs.some((i) => !!i.lateFeeInvoice),
           accessBlocked: executed.some(accessCutApplied),
+          paymentInFlight: inFlight,
           nextStep: next
             ? {
                 label: STEP_LABEL[next.actionType] ?? next.actionType,
-                date: next.scheduledFor.toISOString(),
+                date: (next.scheduledFor < startOfToday
+                  ? startOfToday
+                  : next.scheduledFor
+                ).toISOString(),
+                postponed: next.scheduledFor < startOfToday,
               }
             : null,
           plan: plan ? { id: plan.id, status: plan.status as PaymentPlanStatus, nextDue } : null,
           collectionsCase: caseRow ? { id: caseRow.id, status: caseRow.status } : null,
-          contractId: myContracts[0]?.id ?? null,
-          units: myContracts.map((k) => k.unit.code),
+          contractId: debtContract?.id ?? myContracts[0]?.id ?? null,
+          units,
         };
       });
       rows.sort((a, b) => b.amount - a.amount);
       return {
-        totalAmount: round2(rows.reduce((s, r) => s + r.amount, 0)),
+        totalAmount: rows.reduce((s, r) => s + toCents(r.amount), 0) / 100,
         customers: rows.length,
-        aging,
+        actionable,
+        aging: emptyAging.map((a, k) => ({
+          ...a,
+          amount: agingCents[k]!.c / 100,
+          count: agingCents[k]!.count,
+        })),
         rows,
       };
     }, tenantId);
