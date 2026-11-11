@@ -1,5 +1,10 @@
 'use client';
 
+import {
+  MIN_NOTICE_DAYS,
+  type DelinquencyCaseDto,
+  type DelinquencyCaseStatus,
+} from '@storageos/shared';
 import { Loader2, Lock, Settings2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -7,9 +12,8 @@ import { toast } from 'sonner';
 
 import { CASE_STATUS_CLASSES, CASE_STATUS_LABELS, eur } from './status';
 
-import type { DelinquencyCaseStatus } from '@storageos/shared';
-
 import { Can } from '@/components/auth/can';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -30,6 +34,7 @@ import {
   useCollectionsSettings,
   useUpdateCollectionsSettings,
 } from '@/lib/collections/hooks';
+import { formatDate } from '@/lib/format';
 
 const FILTERS: { value: DelinquencyCaseStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'Todos' },
@@ -37,8 +42,31 @@ const FILTERS: { value: DelinquencyCaseStatus | 'all'; label: string }[] = [
   { value: 'overlocked', label: 'Con candado' },
   { value: 'final_notice', label: 'Requerimiento' },
   { value: 'resolution_pending', label: 'Plazo vencido' },
+  { value: 'contract_resolved', label: 'Contrato resuelto' },
+  { value: 'goods_moved', label: 'En custodia' },
   { value: 'disposal', label: 'En disposición' },
+  { value: 'closed_paid', label: 'Pagados' },
 ];
+
+/** La fecha que importa en cada estado, para verlo de un vistazo. */
+function caseMilestone(c: DelinquencyCaseDto): string | null {
+  switch (c.status) {
+    case 'open':
+      return `Abierto el ${formatDate(c.openedAt)}`;
+    case 'overlocked':
+      return `Candado desde el ${formatDate(c.overlockedAt)}`;
+    case 'final_notice':
+      return c.finalNoticeDeadline ? `Plazo hasta el ${formatDate(c.finalNoticeDeadline)}` : null;
+    case 'contract_resolved':
+      return `Resuelto el ${formatDate(c.contractResolvedAt)}: bienes en el trastero`;
+    case 'goods_moved':
+      return c.abandonmentFrom
+        ? `En custodia; abandono desde el ${formatDate(c.abandonmentFrom)}`
+        : 'En custodia';
+    default:
+      return c.closedAt ? `Cerrado el ${formatDate(c.closedAt)}` : null;
+  }
+}
 
 export default function CollectionsPage() {
   const [filter, setFilter] = useState<DelinquencyCaseStatus | 'all'>('all');
@@ -50,8 +78,9 @@ export default function CollectionsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Expedientes de impago</h1>
           <p className="text-sm text-muted-foreground">
-            Overlock (candado) → requerimiento → disposición. El sistema orquesta el expediente; la
-            validez del procedimiento depende de tu contrato y asesoría.
+            Los pasos de la condición 12 del contrato: aviso, candado, requerimiento, contrato
+            resuelto, traslado a custodia y, solo por un cauce legal, disposición de los bienes.
+            Cada paso lo das tú; la app lleva los plazos y la constancia.
           </p>
         </div>
         <Can permission="settings:manage">
@@ -72,7 +101,9 @@ export default function CollectionsPage() {
         ))}
       </div>
 
-      {cases.isLoading ? (
+      {cases.isError ? (
+        <SectionError onRetry={() => void cases.refetch()} />
+      ) : cases.isLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
@@ -89,13 +120,18 @@ export default function CollectionsPage() {
               className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-accent"
             >
               <div className="flex items-center gap-3">
-                {c.overlockedAt && <Lock className="size-4 text-orange-500" />}
+                {c.overlockedAt && !c.status.startsWith('closed_') && (
+                  <Lock className="size-4 text-orange-500" aria-label="Con candado" />
+                )}
                 <div>
                   <div className="font-medium">{c.customerName}</div>
                   <div className="text-xs text-muted-foreground">
                     {c.unitCode ? `${c.unitCode} · ` : ''}
                     {c.facilityName ?? ''}
                   </div>
+                  {caseMilestone(c) && (
+                    <div className="text-xs text-muted-foreground">{caseMilestone(c)}</div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -127,7 +163,7 @@ function CollectionsSettingsDialog() {
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [openAfter, setOpenAfter] = useState(30);
-  const [noticeDays, setNoticeDays] = useState(15);
+  const [noticeDays, setNoticeDays] = useState(MIN_NOTICE_DAYS);
   const [clauseRef, setClauseRef] = useState('');
 
   function sync() {
@@ -139,7 +175,11 @@ function CollectionsSettingsDialog() {
     }
   }
 
+  const invalid =
+    !(openAfter >= 8 && openAfter <= 365) || !(noticeDays >= MIN_NOTICE_DAYS && noticeDays <= 180);
+
   async function save() {
+    if (invalid) return;
     try {
       await update.mutateAsync({
         collectionsEnabled: enabled,
@@ -164,54 +204,79 @@ function CollectionsSettingsDialog() {
     >
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
-          <Settings2 className="mr-1.5 size-4" /> Ajustes de impagos
+          <Settings2 className="mr-1.5 size-4" /> Ajustes
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Impagos físicos (overlock)</DialogTitle>
+          <DialogTitle>Ajustes de los impagos</DialogTitle>
           <DialogDescription>
-            Herramienta de gestión y trazabilidad. La validez del overlock y de cualquier
-            disposición depende de tu contrato de alquiler y de tu asesoría legal. Los plazos son
-            orientativos: ajústalos a lo que estipule tu contrato.
+            La app lleva los pasos y los plazos; la validez de cada paso depende de tu contrato y de
+            tu asesoría. El requerimiento da siempre al menos {MIN_NOTICE_DAYS} días para pagar
+            desde que lo recibe.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <label className="flex items-center gap-2">
             <Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />
             <span className="text-sm">
-              Abrir expediente automáticamente cuando el dunning llega a +30 días
+              Abrir el expediente solo al llegar el aviso legal (si no, se te avisa para que
+              decidas)
             </span>
           </label>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Abrir tras (días de impago)</Label>
+              <Label htmlFor="open-after" className="text-xs">
+                Aviso legal a los (días de impago)
+              </Label>
               <Input
+                id="open-after"
                 type="number"
+                inputMode="numeric"
+                min={8}
+                max={365}
                 value={openAfter}
                 onChange={(e) => setOpenAfter(e.target.valueAsNumber || 0)}
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Plazo del requerimiento (días)</Label>
+              <Label htmlFor="notice-days" className="text-xs">
+                Plazo del requerimiento (días)
+              </Label>
               <Input
+                id="notice-days"
                 type="number"
+                inputMode="numeric"
+                min={MIN_NOTICE_DAYS}
+                max={180}
                 value={noticeDays}
                 onChange={(e) => setNoticeDays(e.target.valueAsNumber || 0)}
               />
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Referencia de la cláusula del contrato</Label>
+            <Label htmlFor="clause-ref" className="text-xs">
+              Cláusula de tu contrato que lo regula
+            </Label>
             <Input
+              id="clause-ref"
               value={clauseRef}
               onChange={(e) => setClauseRef(e.target.value)}
-              placeholder="Ej. Cláusula 9 (impago y retención)"
+              placeholder="Condición 12 de las condiciones del contrato"
             />
+            <p className="text-xs text-muted-foreground">
+              Se cita en el requerimiento. Vacío: la condición 12 de las condiciones generales.
+            </p>
           </div>
+          {invalid && (
+            <p className="text-xs text-red-600 dark:text-red-400">
+              El aviso legal va de 8 a 365 días y el plazo del requerimiento de {MIN_NOTICE_DAYS} a
+              180.
+            </p>
+          )}
         </div>
         <DialogFooter>
-          <Button onClick={save} disabled={update.isPending}>
+          <Button onClick={save} disabled={update.isPending || invalid}>
             {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
             Guardar
           </Button>

@@ -1945,7 +1945,24 @@ export class InvoicesService {
       }
       throw err;
     }
-    return this.issue({ tenantId, userId: args.userId, invoiceId: created.id, meta: {} });
+    try {
+      return await this.issue({ tenantId, userId: args.userId, invoiceId: created.id, meta: {} });
+    } catch (err) {
+      // Sin emitir (faltan los datos fiscales, la serie…): el borrador se
+      // desengancha y se anula, para que el recargo se pueda volver a aplicar
+      // cuando se arregle (si no, la factura daba «ya tiene recargo» para siempre).
+      await this.prisma
+        .withTenant(
+          (tx) =>
+            tx.invoice.updateMany({
+              where: { id: created.id, status: 'draft' },
+              data: { lateFeeForInvoiceId: null, status: 'cancelled', cancelledAt: new Date() },
+            }),
+          tenantId,
+        )
+        .catch(() => undefined);
+      throw err;
+    }
   }
 
   /**

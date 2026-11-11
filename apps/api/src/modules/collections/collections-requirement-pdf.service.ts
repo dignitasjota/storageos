@@ -1,14 +1,25 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable, Logger, NotFoundException, OnModuleDestroy } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { CLOSED_CASE_STATUSES, MIN_NOTICE_DAYS } from '@storageos/shared';
 
+import { formatDateLong, todayInTimezone } from '../../common/format';
 import { toCents } from '../../common/money';
+import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { loadPuppeteer } from '../../common/puppeteer';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
 import { renderRequirementHtml, type RequirementData } from './requirement-template';
 
+import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
 import type { DelinquencyRequirementPdfDto } from '@storageos/shared';
 
@@ -39,6 +50,7 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   async onModuleDestroy(): Promise<void> {
@@ -96,7 +108,7 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
             tenantId: args.tenantId,
             caseId: args.caseId,
             eventType: 'note',
-            payload: { requirementPdf: true } as Prisma.InputJsonValue,
+            payload: { requirementPdf: true, debtCents: data.debtCents } as Prisma.InputJsonValue,
             createdByUserId: args.userId,
           },
         });
@@ -120,7 +132,8 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
           id: true,
           contractId: true,
           facilityId: true,
-          openedAt: true,
+          status: true,
+          noticeDays: true,
           customer: {
             select: {
               customerType: true,
@@ -138,6 +151,15 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
           contract: {
             select: {
               contractNumber: true,
+              owner: {
+                select: {
+                  legalName: true,
+                  taxId: true,
+                  address: true,
+                  city: true,
+                  postalCode: true,
+                },
+              },
               unit: {
                 select: {
                   facility: {
@@ -168,55 +190,115 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
           message: 'Expediente no encontrado',
         });
       }
+      if (CLOSED_CASE_STATUSES.includes(row.status)) {
+        throw new BadRequestException({
+          code: 'case_closed',
+          message: 'El expediente está cerrado: ya no se envía un requerimiento',
+        });
+      }
+      // Sin dirección postal no hay a dónde mandar el burofax.
+      if (!row.customer?.address || !row.customer.city) {
+        throw new BadRequestException({
+          code: 'customer_address_required',
+          message:
+            'Falta la dirección postal del inquilino: añádela en su ficha para poder enviarle el requerimiento.',
+        });
+      }
 
-      const [tenant, invoices] = await Promise.all([
-        tx.tenant.findUniqueOrThrow({
-          where: { id: tenantId },
-          select: {
-            name: true,
-            taxId: true,
-            collectionsNoticeDays: true,
-            collectionsClauseRef: true,
-          },
-        }),
-        tx.invoice.findMany({
-          where: { tenantId, contractId: row.contractId, status: { in: ['issued', 'overdue'] } },
-          select: {
-            invoiceNumber: true,
-            issueDate: true,
-            total: true,
-            amountPaid: true,
-            amountRefunded: true,
-          },
-          orderBy: [{ issueDate: 'asc' }, { createdAt: 'asc' }],
-        }),
-      ]);
-
-      const lines = invoices.map((inv) => ({
-        number: inv.invoiceNumber ?? '—',
-        issueDate: inv.issueDate ? inv.issueDate.toISOString().slice(0, 10) : '—',
-        totalCents: toCents(inv.total),
-        pendingCents: Math.max(
-          0,
-          toCents(inv.total) - toCents(inv.amountPaid) - toCents(inv.amountRefunded),
-        ),
-      }));
-      const debtCents = lines.reduce((s, l) => s + l.pendingCents, 0);
-      const today = new Date().toLocaleDateString('es-ES', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: {
+          name: true,
+          slug: true,
+          taxId: true,
+          billingLegalName: true,
+          billingAddress: true,
+          billingCity: true,
+          billingPostalCode: true,
+          timezone: true,
+          transferIban: true,
+          customDomain: true,
+          customDomainVerifiedAt: true,
+          collectionsNoticeDays: true,
+          collectionsClauseRef: true,
+        },
+      });
+      const tz = tenant.timezone ?? 'Europe/Madrid';
+      const today = todayInTimezone(tz);
+      // Solo lo vencido (desde el día siguiente al vencimiento).
+      const invoices = await tx.invoice.findMany({
+        where: {
+          tenantId,
+          contractId: row.contractId,
+          kind: 'invoice',
+          deletedAt: null,
+          OR: [{ status: 'overdue' }, { status: 'issued', dueDate: { lt: today } }],
+        },
+        select: {
+          invoiceNumber: true,
+          issueDate: true,
+          dueDate: true,
+          total: true,
+          amountPaid: true,
+        },
+        orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
       });
 
+      const lines = invoices
+        .map((inv) => ({
+          number: inv.invoiceNumber ?? '—',
+          issueDate: inv.issueDate ? inv.issueDate.toISOString().slice(0, 10) : '—',
+          dueDate: inv.dueDate ? inv.dueDate.toISOString().slice(0, 10) : '—',
+          totalCents: toCents(inv.total),
+          pendingCents: Math.max(0, toCents(inv.total) - toCents(inv.amountPaid)),
+        }))
+        .filter((l) => l.pendingCents > 0);
+      const debtCents = lines.reduce((s, l) => s + l.pendingCents, 0);
+      const owner = row.contract?.owner ?? null;
+      const ownerAddress = owner
+        ? [owner.address, [owner.postalCode, owner.city].filter(Boolean).join(' ')]
+            .filter(Boolean)
+            .join(', ')
+        : null;
+      const tenantAddress = [
+        tenant.billingAddress,
+        [tenant.billingPostalCode, tenant.billingCity].filter(Boolean).join(' '),
+      ]
+        .filter(Boolean)
+        .join(', ');
+
       return {
-        tenant,
+        // El arrendador del contrato: el propietario del local, si lo hay; si
+        // no, la empresa con su razón social.
+        issuer: owner
+          ? {
+              name: owner.legalName,
+              taxId: owner.taxId,
+              address: ownerAddress || null,
+              managedBy: tenant.name,
+            }
+          : {
+              name: tenant.billingLegalName || tenant.name,
+              taxId: tenant.taxId,
+              address: tenantAddress || null,
+              managedBy: null,
+            },
+        noticeDays: Math.max(
+          MIN_NOTICE_DAYS,
+          row.noticeDays ?? tenant.collectionsNoticeDays ?? MIN_NOTICE_DAYS,
+        ),
+        clauseRef: tenant.collectionsClauseRef,
         customer: row.customer,
         unitCode: row.unit?.code ?? null,
         contractNumber: row.contract?.contractNumber ?? null,
         facility: row.contract?.unit?.facility ?? null,
         lines,
         debtCents,
-        today,
+        payment: {
+          iban: tenant.transferIban,
+          portalUrl: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
+        },
+        today: formatDateLong(new Date(), tz),
       };
     }, tenantId);
   }

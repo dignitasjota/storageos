@@ -605,8 +605,9 @@ function LateFeeCard() {
           </Badge>
         </div>
         <CardDescription>
-          A los días indicados de vencimiento, el dunning emite una factura de recargo (separada,
-          conforme a Veri*Factu). También puedes aplicarlo a mano desde una factura vencida.
+          A los días indicados de vencimiento, el escalado de impagos emite una factura de recargo
+          (separada, conforme a Veri*Factu). También puedes aplicarlo a mano desde una factura
+          vencida.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

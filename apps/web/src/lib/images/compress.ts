@@ -44,6 +44,34 @@ export async function compressImage(file: File): Promise<File> {
 }
 
 /**
+ * Deja la foto en un formato que el servidor admite: si ya lo es, solo la
+ * comprime; si no (la HEIC del iPhone, por ejemplo), la pasa a JPEG aunque
+ * ocupe más. Si el navegador no sabe leerla, devuelve el fichero tal cual.
+ */
+export async function toAcceptedImage(file: File, accepted: readonly string[]): Promise<File> {
+  if (!file.type.startsWith('image/') && !/\.(heic|heif)$/i.test(file.name)) return file;
+  if (accepted.includes(file.type)) return compressImage(file);
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY),
+    );
+    if (!blob) return file;
+    return new File([blob], `${file.name.replace(/\.\w+$/, '')}.jpg`, { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
+/**
  * Deja la foto de una cara por debajo de los 100 KB que admiten los terminales:
  * baja de tamaño y de calidad hasta que quepa. Si no puede, devuelve el fichero.
  */

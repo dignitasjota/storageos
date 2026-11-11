@@ -1024,14 +1024,16 @@ function InsuranceCard({
 }
 
 // ============================================================================
-// Aviso de overlock (expediente de impago abierto sobre el contrato)
+// Aviso del expediente de impago abierto sobre el contrato
 // ============================================================================
 
 const CASE_STATUS_TEXT: Record<string, string> = {
   open: 'Expediente abierto',
-  overlocked: 'Trastero con candado (overlock)',
+  overlocked: 'Trastero con candado',
   final_notice: 'Requerimiento enviado',
   resolution_pending: 'Plazo vencido',
+  contract_resolved: 'Contrato resuelto: bienes dentro del trastero',
+  goods_moved: 'Bienes en custodia',
   disposal: 'En disposición',
 };
 
@@ -1056,9 +1058,7 @@ function OverlockBanner({ contractId }: { contractId: string }) {
         <div className="font-medium text-orange-800 dark:text-orange-200">
           Impago en curso · {CASE_STATUS_TEXT[c.status] ?? 'Expediente'}
         </div>
-        <div className="text-orange-700 dark:text-orange-300">
-          Deuda viva {debt}. Ver expediente →
-        </div>
+        <div className="text-orange-700 dark:text-orange-300">Debe {debt}. Ver expediente →</div>
       </div>
     </Link>
   );
