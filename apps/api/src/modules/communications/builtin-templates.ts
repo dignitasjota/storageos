@@ -179,6 +179,31 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     trigger: 'invoice_overdue',
   },
   {
+    // Segundo aviso cuando no habrá corte del acceso (el negocio no corta, o el
+    // corte ya llegó antes): no se amenaza con algo que no va a pasar.
+    code: 'invoice_overdue_final_nocut_email',
+    kind: 'transactional',
+    channel: 'email',
+    name: 'Segundo aviso de pago (sin corte)',
+    subject: 'Segundo aviso: factura {{invoice.number}} pendiente',
+    bodyText:
+      'Hola {{customer.firstName}},\n\nLa factura {{invoice.number}} lleva {{invoice.daysOverdue}} días vencida y sigue teniendo {{invoice.amountPending}} pendientes.\n\nTe pedimos que la regularices cuanto antes. Puedes pagarla ahora desde tu área de clientes:\n\n{{portal.url}}\n\nSi tienes algún problema para pagar, responde a este correo y lo hablamos.\n\nUn saludo,\nEl equipo de {{tenant.name}}',
+    bodyHtml: wrapHtml(
+      'Segundo aviso de pago',
+      '<p>Hola {{customer.firstName}},</p><p>La factura <strong>{{invoice.number}}</strong> lleva <strong>{{invoice.daysOverdue}} días</strong> vencida y sigue teniendo <strong>{{invoice.amountPending}}</strong> pendientes.</p><p>Te pedimos que la regularices cuanto antes.</p><p><a href="{{portal.url}}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">Pagar ahora</a></p><p>Si tienes algún problema para pagar, responde a este correo y lo hablamos.</p>',
+    ),
+    locale: 'es-ES',
+    variables: [
+      'customer.firstName',
+      'invoice.number',
+      'invoice.amountPending',
+      'invoice.daysOverdue',
+      'portal.url',
+      'tenant.name',
+    ],
+    trigger: 'invoice_overdue',
+  },
+  {
     code: 'reservation_confirmed_email',
     kind: 'transactional',
     channel: 'email',

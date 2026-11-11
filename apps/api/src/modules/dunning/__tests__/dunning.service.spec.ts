@@ -1,3 +1,4 @@
+import { todayInTimezone } from '../../../common/format';
 import { DOMAIN_EVENTS } from '../../automations/domain-events';
 import {
   JOB_DUNNING_EXECUTE_ACTION,
@@ -249,6 +250,17 @@ describe('DunningService.dailyTick (marcar overdue)', () => {
             customerId: CUSTOMER_ID,
             invoiceNumber: 'A-2026-00042',
             total: 100,
+            tenant: { timezone: 'Europe/Madrid' },
+          },
+          // Vence hoy en la hora del negocio: hasta mañana no está vencida.
+          {
+            id: '019e3d20-cccc-7c2f-bf37-6511065b9fc5',
+            tenantId: TENANT,
+            dueDate: todayInTimezone('Pacific/Kiritimati'),
+            customerId: CUSTOMER_ID,
+            invoiceNumber: 'A-2026-00043',
+            total: 100,
+            tenant: { timezone: 'Pacific/Kiritimati' },
           },
         ]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -261,9 +273,11 @@ describe('DunningService.dailyTick (marcar overdue)', () => {
 
     await service.dailyTick();
 
-    expect(admin.invoice.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'overdue' } }),
-    );
+    expect(admin.invoice.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: [INVOICE_ID] } },
+      data: { status: 'overdue' },
+    });
+    expect(events.emit).toHaveBeenCalledTimes(1);
     // Los justificantes de fianza no entran en el dunning.
     expect(admin.invoice.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ kind: 'invoice' }) }),

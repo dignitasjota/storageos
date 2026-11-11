@@ -2,11 +2,13 @@
 
 import {
   INVOICE_TAX_CATEGORY_LABELS,
+  isManualPaymentMethod,
   type CorrectionMethodValue,
   type InvoiceCancelPreviewDto,
   type InvoiceDto,
   type InvoiceRefundOptionsDto,
   type InvoiceTaxCategory,
+  type ManualPaymentMethodValue,
   type RectificationTypeValue,
   VERIFACTU_SYSTEM,
 } from '@storageos/shared';
@@ -122,9 +124,10 @@ const RECTIFIABLE_STATUSES = new Set<InvoiceDto['status']>([
 const METHOD_LABELS: Record<string, string> = {
   cash: 'Efectivo',
   bank_transfer: 'Transferencia',
+  bizum: 'Bizum',
   sepa_debit: 'Domiciliación SEPA',
   card: 'Tarjeta (TPV del local)',
-  other: 'Otro (Bizum, cheque…)',
+  other: 'Otro (cheque…)',
 };
 
 interface RectifyDraftItem {
@@ -188,6 +191,20 @@ function cancelEffects(p: InvoiceCancelPreviewDto): string[] {
 }
 
 /** Cómo vuelve el dinero de una devolución, en una frase. */
+/** Cómo se devuelve el dinero de un cobro registrado a mano. */
+const REFUND_METHOD_OPTIONS: { value: ManualPaymentMethodValue; label: string }[] = [
+  { value: 'cash', label: 'En efectivo' },
+  { value: 'bank_transfer', label: 'Por transferencia' },
+  { value: 'bizum', label: 'Por Bizum' },
+  { value: 'card', label: 'Con el TPV del local' },
+  { value: 'other', label: 'De otra forma' },
+];
+
+function defaultRefundMethod(o: InvoiceRefundOptionsDto | null): ManualPaymentMethodValue {
+  const m = o?.methodType;
+  return m && isManualPaymentMethod(m) && m !== 'sepa_debit' ? m : 'bank_transfer';
+}
+
 function refundHowText(o: InvoiceRefundOptionsDto): string {
   const method = o.methodType ? (PAYMENT_METHOD_LABELS[o.methodType] ?? '').toLowerCase() : '';
   if (o.how === 'gateway') {
@@ -252,6 +269,7 @@ export default function InvoiceDetailPage() {
   const [refundReason, setRefundReason] = useState('');
   const [refundOptions, setRefundOptions] = useState<InvoiceRefundOptionsDto | null>(null);
   const [refundAsCredit, setRefundAsCredit] = useState(false);
+  const [refundMethod, setRefundMethod] = useState<ManualPaymentMethodValue>('bank_transfer');
   const [refundBankDone, setRefundBankDone] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [rectifyOpen, setRectifyOpen] = useState(false);
@@ -431,6 +449,7 @@ export default function InvoiceDetailPage() {
       const options = await fetchRefundOptions(i.id);
       setRefundOptions(options);
       setRefundAmount(options.refundable);
+      setRefundMethod(defaultRefundMethod(options));
     } catch {
       // Sin las opciones se puede devolver igual: el API elige la vía.
     }
@@ -445,6 +464,7 @@ export default function InvoiceDetailPage() {
           reason: refundReason,
           ...(refundAsCredit ? { method: 'credit' as const } : {}),
           ...(!refundAsCredit && registeredExternally ? { registeredExternally: true } : {}),
+          ...(!refundAsCredit && refundOptions?.how === 'manual' ? { refundMethod } : {}),
         },
       });
       setRefundOpen(false);
@@ -1581,6 +1601,31 @@ export default function InvoiceDetailPage() {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">{refundHowText(refundOptions)}</p>
+            )}
+            {!refundAsCredit && refundOptions?.how === 'manual' && (
+              <div className="space-y-1">
+                <Label>¿Cómo se lo devuelves?</Label>
+                <Select
+                  value={refundMethod}
+                  onValueChange={(v) => setRefundMethod(v as ManualPaymentMethodValue)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {REFUND_METHOD_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {refundMethod === 'cash' && (
+                  <p className="text-xs text-muted-foreground">
+                    Sale de la caja de hoy: el arqueo lo descuenta.
+                  </p>
+                )}
+              </div>
             )}
             {!refundAsCredit && refundOptions?.how === 'bank' && (
               <label className="flex items-start gap-2 text-sm">

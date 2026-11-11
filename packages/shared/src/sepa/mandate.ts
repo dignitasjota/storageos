@@ -126,6 +126,13 @@ export interface SepaMandateSignViewDto {
   ibanMasked: string;
   prenoticeDays: number;
   signed: boolean;
+  /** Marca del negocio para la página (nombre, color y logo). */
+  brand: {
+    tenantName: string;
+    tenantSlug: string;
+    brandColor: string | null;
+    logoUrl: string | null;
+  };
 }
 
 /** Estado de la firma del mandato. `external`: firmado fuera de la app (papel o migrado). */

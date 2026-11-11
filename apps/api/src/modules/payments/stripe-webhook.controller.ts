@@ -196,7 +196,7 @@ export class StripeWebhookController {
       }
       case 'charge.dispute.closed': {
         // Contracargo de una suscripción resuelto: perdido → abono + impagada.
-        // (Los de inquilinos ya se revirtieron al abrirse.)
+        // El de un inquilino ya se revirtió al abrirse: si se gana, vuelve a contar.
         const dispute = (event.data as { object: StripeDisputeLike }).object;
         const intentId = stringId(dispute.payment_intent);
         if (!intentId) break;
@@ -207,6 +207,16 @@ export class StripeWebhookController {
             dispute.status === 'lost',
             (dispute.amount ?? 0) / 100,
           );
+          break;
+        }
+        // Cobro a un inquilino: ganada → el cobro revertido vuelve a contar.
+        const resolvedTenantId = tenantId ?? (await this.lookupTenantByPaymentIntent(intentId));
+        if (resolvedTenantId) {
+          await this.payments.syncDisputeClosedFromWebhook({
+            tenantId: resolvedTenantId,
+            gatewayPaymentId: intentId,
+            status: dispute.status,
+          });
         }
         break;
       }

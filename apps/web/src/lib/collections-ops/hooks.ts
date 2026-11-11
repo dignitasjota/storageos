@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
@@ -22,6 +22,8 @@ export function useMonthCollections(month: string, facilityId?: string) {
   return useQuery({
     queryKey: ['collections-month', month, facilityId ?? null] as const,
     queryFn: () => apiFetch<MonthCollectionsDto>(`/collections-month${qs({ month, facilityId })}`),
+    // Al cambiar de mes se ve el anterior mientras carga (no la página en blanco).
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -33,7 +35,9 @@ export function useArrears(facilityId?: string) {
   });
 }
 
-export function usePaymentPlans(params: { customerId?: string; status?: string } = {}) {
+export function usePaymentPlans(
+  params: { customerId?: string; status?: string; facilityId?: string } = {},
+) {
   return useQuery({
     queryKey: ['payment-plans', params] as const,
     queryFn: () => apiFetch<PaymentPlanDto[]>(`/payment-plans${qs(params)}`),
@@ -41,9 +45,16 @@ export function usePaymentPlans(params: { customerId?: string; status?: string }
 }
 
 function invalidate(qc: ReturnType<typeof useQueryClient>) {
-  void qc.invalidateQueries({ queryKey: ['payment-plans'] });
-  void qc.invalidateQueries({ queryKey: ['arrears'] });
-  void qc.invalidateQueries({ queryKey: ['customers'] });
+  for (const key of [
+    'payment-plans',
+    'arrears',
+    'customers',
+    'collections-month',
+    'invoices',
+    'dashboard',
+  ]) {
+    void qc.invalidateQueries({ queryKey: [key] });
+  }
 }
 
 export function useCreatePaymentPlan() {
@@ -102,7 +113,7 @@ export function useCutAllAccess() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (facilityId?: string) =>
-      apiFetch<{ customers: number; suspended: number }>(
+      apiFetch<{ customers: number; suspended: number; failed: number }>(
         `/access/debt-cuts/cut-all${qs({ facilityId })}`,
         { method: 'POST' },
       ),

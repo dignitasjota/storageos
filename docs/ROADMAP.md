@@ -975,6 +975,17 @@ Pendiente:
 - **Desistimiento**: una factura con un cobro parcial se deja para revisarla a mano; los días usados no se cobran si la factura que los cubre no estaba pagada (se anula entera).
 - **Gastos por recibo devuelto**: hoy figuran en el contrato y se cobran a mano; cargarlos solos al marcar una devolución.
 
+### Cobros del panel del tenant: revisión (2026-11-11, PR A)
+
+Revisión de Cobros del mes, Deudores, Cierre de caja, Impagos, Recibos devueltos, Remesas SEPA y Conciliación. Decisiones de Jota: Conciliación y Remesas SEPA solo para quien ve todos los locales (los planes de pago se filtran por sus locales); con la caja cerrada no entran ni salen movimientos en efectivo y el cierre se reabre con motivo; Impagos sigue la condición 12 del contrato con los pasos «Contrato resuelto» y «Traslado y custodia» y sin vender ni destruir por cuenta propia; las cuotas de un plan se pagan también por transferencia o Bizum y desde el área de clientes.
+
+Arreglos (PR A, cuatro partes): parser N43 con el trazado oficial, extractos y movimientos sin duplicar, sobrante como saldo a favor, deshacer y borrar; remesas solo con facturas, resultado del banco desde el día del cargo, cobrados sin aplicar y devoluciones por adeudo; caja en la zona del negocio con devoluciones por forma de pago, fianza aplicada fuera y Bizum aparte; disputa ganada que vuelve a contar; cobros del mes netos de devoluciones; deudores con cobro en curso, antigüedad por factura y el contrato con la deuda; planes con alcance, bloqueo y cuotas pagables desde el portal; impagos con la deuda solo vencida, sus compuertas, el trastero bloqueado mientras los bienes siguen dentro, requerimiento conforme a la condición 12 y el escalado con el día del aviso legal configurable, lotes ordenados y la factura vencida desde el día siguiente.
+
+**Sigue la PR B** (mejoras propuestas en el análisis). Pendiente:
+
+- **Revisión del abogado** del requerimiento y del procedimiento de traslado y custodia (gastos, lugar, plazo de 8 semanas antes del abandono).
+- **Cita de retirada** de los bienes desde el área de clientes y gastos de traslado y custodia como factura del expediente (PR B).
+
 ### Reservas online: factura con el pago y aviso al caducar (2026-11-08)
 
 La primera factura de una reserva online llega con el pago («Pago recibido» con el PDF), no al firmar. Si la reserva caduca sin pagar, el inquilino recibe un aviso con un botón para volver a reservar.

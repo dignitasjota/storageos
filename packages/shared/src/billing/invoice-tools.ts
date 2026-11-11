@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { PaymentMethodTypeEnum } from './schemas';
+import { ManualPaymentMethodEnum } from './schemas';
 
 import type { InvoiceStatusValue, PaymentRecordMethodValue, PaymentStatusValue } from './schemas';
 
@@ -89,6 +89,11 @@ export interface InvoicePaymentRowDto {
   createdAt: string;
   /** Registrado a mano y sin devolver: se puede corregir o deshacer. */
   editable: boolean;
+  /**
+   * Por qué no se corrige ni se deshace desde aquí (viene de una remesa SEPA,
+   * de la conciliación bancaria o es la fianza aplicada).
+   */
+  lockedReason: string | null;
   /** Deshecho por haberse registrado por error. */
   undone: boolean;
 }
@@ -99,6 +104,8 @@ export interface InvoiceRefundRowDto {
   via: InvoiceRefundVia;
   /** Forma del cobro devuelto (efectivo, transferencia…), si se sabe. */
   paymentMethod: PaymentRecordMethodValue | null;
+  /** Cómo se devolvió el dinero (efectivo, transferencia, tarjeta…). */
+  method: PaymentRecordMethodValue | null;
   reason: string | null;
   createdAt: string;
   createdByName: string | null;
@@ -152,7 +159,7 @@ export type UndoPaymentInput = z.infer<typeof UndoPaymentSchema>;
 export const CorrectPaymentSchema = z
   .object({
     paidAt: z.string().datetime().optional(),
-    methodType: PaymentMethodTypeEnum.optional(),
+    methodType: ManualPaymentMethodEnum.optional(),
   })
   .refine((v) => v.paidAt !== undefined || v.methodType !== undefined, {
     message: 'Indica la fecha o la forma de pago',

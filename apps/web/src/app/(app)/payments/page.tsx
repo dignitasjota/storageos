@@ -1,6 +1,6 @@
 'use client';
 
-import { type PaymentDto } from '@storageos/shared';
+import { PAYMENT_RECORD_METHOD_LABELS, type PaymentDto } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
 
@@ -17,13 +17,7 @@ const STATUS_LABELS: Record<string, string> = {
   refunded: 'Reembolsado',
   partially_refunded: 'Reemb. parcial',
 };
-const METHOD_LABELS: Record<string, string> = {
-  card: 'Tarjeta',
-  sepa_debit: 'SEPA',
-  bank_transfer: 'Transferencia',
-  cash: 'Efectivo',
-  other: 'Otro',
-};
+const METHOD_LABELS: Record<string, string> = PAYMENT_RECORD_METHOD_LABELS;
 
 export default function PaymentsPage() {
   const headerFacilityId = useHeaderFacilityId();

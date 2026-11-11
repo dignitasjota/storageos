@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 
 import type { ReturnedReceiptDto, ReturnedReceiptKind } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,9 +23,9 @@ import { useReturnedReceipts } from '@/lib/billing/hooks';
 import { downloadCsv } from '@/lib/csv';
 import { localDateString } from '@/lib/dates';
 import { useFacilities } from '@/lib/facilities/hooks';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatEur } from '@/lib/format';
 
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const eur = formatEur;
 const day = (iso: string) => formatDate(iso);
 
 const KIND_LABELS: Record<ReturnedReceiptKind, string> = {
@@ -55,6 +56,8 @@ const STATUS_LABELS: Record<string, string> = {
   overdue: 'Vencida',
   cancelled: 'Anulada',
   rectified: 'Rectificada',
+  refunded: 'Devuelta al inquilino',
+  partially_refunded: 'Devuelta en parte',
 };
 
 export default function ReturnedReceiptsPage() {
@@ -171,7 +174,7 @@ export default function ReturnedReceiptsPage() {
         </div>
         <Button variant="outline" onClick={exportCsv} disabled={!data || data.items.length === 0}>
           <Download className="mr-1 size-4" />
-          Exportar a Excel
+          Exportar CSV
         </Button>
       </div>
 
@@ -243,14 +246,30 @@ export default function ReturnedReceiptsPage() {
         </div>
       )}
 
-      <DataTable
-        rowHref={(r) => (r.invoiceId ? `/invoices/${r.invoiceId}` : null)}
-        columns={columns}
-        data={data?.items ?? []}
-        isLoading={query.isLoading}
-        searchPlaceholder="Buscar inquilino o factura..."
-        emptyText="No hay recibos devueltos en este periodo."
-      />
+      {query.isError ? (
+        <SectionError onRetry={() => void query.refetch()} />
+      ) : (
+        <DataTable
+          rowHref={(r) => (r.invoiceId ? `/invoices/${r.invoiceId}` : null)}
+          columns={columns}
+          data={data?.items ?? []}
+          isLoading={query.isLoading}
+          searchPlaceholder="Buscar inquilino, factura, local o motivo..."
+          searchText={(r) =>
+            [
+              r.customerName,
+              r.invoiceNumber,
+              r.facilityName,
+              r.reason,
+              r.remittanceName,
+              KIND_LABELS[r.kind],
+            ]
+              .filter(Boolean)
+              .join(' ')
+          }
+          emptyText="No hay recibos devueltos en este periodo."
+        />
+      )}
     </div>
   );
 }

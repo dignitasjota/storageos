@@ -1,5 +1,6 @@
 'use client';
 
+import { PAYMENT_RECORD_METHOD_LABELS, type MonthCollectionsItemDto } from '@storageos/shared';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -15,28 +16,23 @@ import {
 } from 'recharts';
 import { toast } from 'sonner';
 
-import type { MonthCollectionsItemDto } from '@storageos/shared';
-
+import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useBulkChargeInvoices, useBulkRemindInvoices } from '@/lib/billing/hooks';
 import { useMonthCollections } from '@/lib/collections-ops/hooks';
+import { localDateString } from '@/lib/dates';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatEur } from '@/lib/format';
 
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const eur = formatEur;
 const day = (iso: string) => formatDate(iso.length === 10 ? `${iso}T12:00:00` : iso);
-
-const METHOD: Record<string, string> = {
-  card: 'Tarjeta',
-  sepa_debit: 'Adeudo SEPA',
-  bank_transfer: 'Transferencia',
-  cash: 'Efectivo',
-  bizum: 'Bizum',
-  other: 'Otros',
-};
+const METHOD: Record<string, string> = PAYMENT_RECORD_METHOD_LABELS;
+/** Un cobro fallido solo se reintenta si la factura sigue pendiente. */
+const PAYABLE = new Set(['issued', 'overdue']);
 
 function thisMonth(): string {
   const d = new Date();
@@ -82,6 +78,11 @@ function Tile({
  * Cobros del mes: lo que vence este mes por cómo se cobra (solo, por remesa o a
  * mano), lo cobrado, lo que falló o se devolvió, y lo que hay que reclamar.
  */
+/** «1 factura», «3 facturas». */
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 export default function CollectionsMonthPage() {
   const [month, setMonth] = useState(thisMonth());
   const facilityId = useHeaderFacilityId();
@@ -90,7 +91,10 @@ export default function CollectionsMonthPage() {
   const remind = useBulkRemindInvoices();
   const canCharge = useHasPermission('payments:charge');
   const canRemind = useHasPermission('communications:send');
+  const ask = useConfirm();
   const d = data.data;
+  const current = thisMonth();
+  const today = localDateString();
   const rawLabel = new Date(`${month}-01T12:00:00`).toLocaleDateString('es-ES', {
     month: 'long',
     year: 'numeric',
@@ -98,6 +102,7 @@ export default function CollectionsMonthPage() {
   const label = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1);
 
   async function retry(item: MonthCollectionsItemDto) {
+    if (item.invoiceStatus && !PAYABLE.has(item.invoiceStatus)) return;
     try {
       const res = await charge.mutateAsync([item.invoiceId]);
       if (res.succeeded.length) toast.success(`Cobro de ${item.invoiceNumber} lanzado.`);
@@ -107,9 +112,24 @@ export default function CollectionsMonthPage() {
     }
   }
   async function remindAll(items: MonthCollectionsItemDto[]) {
+    if (
+      !(await ask({
+        title: `¿Recordar el pago de ${items.length} ${items.length === 1 ? 'factura vencida' : 'facturas vencidas'}?`,
+        description: 'Cada inquilino recibe un solo correo con todo lo que debe.',
+      }))
+    )
+      return;
     try {
       const res = await remind.mutateAsync(items.map((i) => i.invoiceId));
-      toast.success(`Recordatorio enviado a ${res.succeeded.length} factura(s).`);
+      if (res.succeeded.length === 0) {
+        toast.error(res.failed[0]?.error ?? 'No se ha enviado ningún recordatorio.');
+        return;
+      }
+      toast.success(
+        `Recordatorio enviado (${res.succeeded.length} ${res.succeeded.length === 1 ? 'factura' : 'facturas'}).${
+          res.failed.length > 0 ? ` ${res.failed.length} no: ${res.failed[0]!.error}` : ''
+        }`,
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
     }
@@ -138,6 +158,7 @@ export default function CollectionsMonthPage() {
             variant="outline"
             size="icon"
             aria-label="Mes siguiente"
+            disabled={month >= current}
             onClick={() => setMonth(shift(month, 1))}
           >
             <ChevronRight className="size-4" />
@@ -145,33 +166,35 @@ export default function CollectionsMonthPage() {
         </div>
       </div>
 
-      {data.isLoading || !d ? (
+      {data.isError && !d ? (
+        <SectionError onRetry={() => void data.refetch()} />
+      ) : data.isLoading || !d ? (
         <p className="text-sm text-muted-foreground">Cargando…</p>
       ) : (
-        <>
+        <div className={data.isPlaceholderData ? 'space-y-4 opacity-60' : 'space-y-4'}>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Tile
               label="Previsto (vence este mes)"
               value={eur(d.expected.total.amount)}
-              hint={`${d.expected.total.count} facturas`}
+              hint={plural(d.expected.total.count, 'factura', 'facturas')}
             />
             <Tile
               label="Cobrado en el mes"
               value={eur(d.collected.amount)}
               tone="green"
-              hint={`${d.collected.count} cobros`}
+              hint={`${plural(d.collected.count, 'cobro', 'cobros')}, de facturas de cualquier mes`}
             />
             <Tile
               label="Pendiente de lo previsto"
               value={eur(d.outstanding.amount)}
               tone={d.outstanding.amount > 0 ? 'amber' : undefined}
-              hint={`${d.outstanding.count} facturas`}
+              hint={plural(d.outstanding.count, 'factura', 'facturas')}
             />
             <Tile
               label="Fallidos y devueltos"
               value={eur(d.failed.amount + d.returned.amount)}
               tone={d.failed.count + d.returned.count > 0 ? 'red' : undefined}
-              hint={`${d.failed.count} fallidos · ${d.returned.count} devueltos`}
+              hint={`${plural(d.failed.count, 'fallido', 'fallidos')} · ${plural(d.returned.count, 'devuelto', 'devueltos')}`}
             />
           </div>
 
@@ -192,7 +215,7 @@ export default function CollectionsMonthPage() {
                     <YAxis fontSize={12} width={60} />
                     <Tooltip formatter={(v) => eur(Number(v))} />
                     <Legend />
-                    <Bar dataKey="expected" name="Vence" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="expected" name="Vence" fill="#94a3b8" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="collected" name="Cobrado" fill="#2563eb" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -240,7 +263,13 @@ export default function CollectionsMonthPage() {
             items={d.failed.items}
             action={
               canCharge
-                ? { label: 'Reintentar', onClick: (i) => void retry(i), disabled: charge.isPending }
+                ? {
+                    label: 'Reintentar',
+                    onClick: (i) => void retry(i),
+                    disabled: charge.isPending,
+                    hidden: (i) => !!i.invoiceStatus && !PAYABLE.has(i.invoiceStatus),
+                    hiddenLabel: 'Cobrada después',
+                  }
                 : undefined
             }
           />
@@ -254,19 +283,19 @@ export default function CollectionsMonthPage() {
             empty="Nada pendiente de cobro a mano."
             items={d.manualPending}
             headerAction={
-              canRemind && d.manualPending.length > 0 ? (
+              canRemind && d.manualPending.some((i) => i.date < today) ? (
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={remind.isPending}
-                  onClick={() => void remindAll(d.manualPending)}
+                  onClick={() => void remindAll(d.manualPending.filter((i) => i.date < today))}
                 >
-                  Recordar a todos
+                  Recordar las vencidas ({d.manualPending.filter((i) => i.date < today).length})
                 </Button>
               ) : undefined
             }
           />
-        </>
+        </div>
       )}
     </div>
   );
@@ -282,7 +311,14 @@ function ItemsCard({
   title: string;
   empty: string;
   items: MonthCollectionsItemDto[];
-  action?: { label: string; onClick: (i: MonthCollectionsItemDto) => void; disabled?: boolean };
+  action?: {
+    label: string;
+    onClick: (i: MonthCollectionsItemDto) => void;
+    disabled?: boolean;
+    /** No se ofrece en esta fila (y se dice por qué). */
+    hidden?: (i: MonthCollectionsItemDto) => boolean;
+    hiddenLabel?: string;
+  };
   headerAction?: React.ReactNode;
 }) {
   return (
@@ -325,16 +361,19 @@ function ItemsCard({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="tabular-nums">{eur(i.amount)}</span>
-                  {action && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={action.disabled}
-                      onClick={() => action.onClick(i)}
-                    >
-                      {action.label}
-                    </Button>
-                  )}
+                  {action &&
+                    (action.hidden?.(i) ? (
+                      <span className="text-xs text-muted-foreground">{action.hiddenLabel}</span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={action.disabled}
+                        onClick={() => action.onClick(i)}
+                      >
+                        {action.label}
+                      </Button>
+                    ))}
                 </div>
               </li>
             ))}

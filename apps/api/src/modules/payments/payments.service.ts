@@ -19,6 +19,7 @@ import {
   type InvoiceRefundedPayload,
   type PaymentOverpaidPayload,
   type InvoicePaymentRevertedPayload,
+  type PaymentDisputeWonPayload,
   type PaymentFailedPayload,
 } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -1002,7 +1003,7 @@ export class PaymentsService {
       await tx.$queryRaw`SELECT id FROM payments WHERE id = ${existing.id}::uuid FOR UPDATE`;
       const fresh = await tx.payment.findUniqueOrThrow({
         where: { id: existing.id },
-        select: { refundedAmount: true, amount: true },
+        select: { refundedAmount: true, amount: true, methodType: true },
       });
       delta = subtractAmounts(args.amountRefunded, fresh.refundedAmount);
       if (delta <= 0) return;
@@ -1038,6 +1039,7 @@ export class PaymentsService {
             paymentId: existing.id,
             amount: delta,
             via: 'external',
+            method: fresh.methodType,
             reason: 'Devuelto desde la pasarela',
           },
         });
@@ -1090,6 +1092,42 @@ export class PaymentsService {
       return;
     }
     for (const existing of group) await this.syncOneDispute(args, existing);
+  }
+
+  /**
+   * `charge.dispute.closed`: ganada, o consulta cerrada sin retirar el dinero
+   * → el cobro que se revirtió al abrirse vuelve a contar (lo hace facturación,
+   * que avisa al equipo si la factura ya se pagó de otra forma). Perdida: ya
+   * estaba revertido, no hay nada más que hacer.
+   */
+  async syncDisputeClosedFromWebhook(args: {
+    tenantId: string;
+    gatewayPaymentId: string;
+    status: string | undefined;
+  }): Promise<void> {
+    if (args.status !== 'won' && args.status !== 'warning_closed') return;
+    const reverted = await this.prisma.withTenant(
+      (tx) =>
+        tx.payment.findMany({
+          where: {
+            gatewayPaymentId: args.gatewayPaymentId,
+            status: 'failed',
+            returnedAt: { not: null },
+            failureReason: { startsWith: 'disputed:' },
+          },
+          select: { id: true, invoiceId: true, amount: true },
+        }),
+      args.tenantId,
+    );
+    for (const payment of reverted) {
+      if (!payment.invoiceId) continue;
+      this.events.emit(DOMAIN_EVENTS.payment_dispute_won, {
+        tenantId: args.tenantId,
+        invoiceId: payment.invoiceId,
+        paymentId: payment.id,
+        amount: Number(payment.amount),
+      } satisfies PaymentDisputeWonPayload);
+    }
   }
 
   private async syncOneDispute(

@@ -60,6 +60,8 @@ export class RedsysService {
       saveCard?: boolean;
       /** Otras facturas del mismo inquilino que se pagan en la misma orden. */
       extraInvoiceIds?: string[];
+      /** Paga solo esta parte (la cuota de un plan de pago), sin su fianza. */
+      amountCents?: number;
     },
   ): Promise<RedsysRedirectDto> {
     const expectedCustomerId = opts?.expectedCustomerId;
@@ -119,6 +121,13 @@ export class RedsysService {
       toCents(invoice.total) -
       toCents(invoice.amountPaid) +
       bundled.reduce((sum, r) => sum + Math.max(0, toCents(r.total) - toCents(r.amountPaid)), 0);
+    if (opts?.amountCents !== undefined) {
+      const pendingCents = toCents(invoice.total) - toCents(invoice.amountPaid);
+      if (opts.amountCents <= 0 || opts.amountCents > pendingCents) {
+        throw new BadRequestException({ code: 'invalid_amount', message: 'Importe no válido' });
+      }
+      amountCents = opts.amountCents;
+    }
     // «Pagar todo»: el resto de facturas (y sus fianzas) en el mismo cobro.
     const extraIds = [...new Set(opts?.extraInvoiceIds ?? [])].filter((id) => id !== invoiceId);
     const extraNumbers: string[] = [];
@@ -206,9 +215,14 @@ export class RedsysService {
       });
       const sameExtras =
         !!existing && [...existing.extraInvoiceIds].sort().join() === [...extraIds].sort().join();
+      const orderPayMethod = payMethod ?? null;
       if (existing && existing.amountCents === amountCents && sameExtras) {
-        if (existing.saveCard === saveCard) return existing;
-        return tx.redsysOrder.update({ where: { order: existing.order }, data: { saveCard } });
+        if (existing.saveCard === saveCard && existing.payMethod === orderPayMethod)
+          return existing;
+        return tx.redsysOrder.update({
+          where: { order: existing.order },
+          data: { saveCard, payMethod: orderPayMethod },
+        });
       }
       // Lo pendiente cambió (cobro parcial entre medias): la orden anterior se
       // sustituye por otra con el importe actual. Si aun así llega su pago,
@@ -228,6 +242,7 @@ export class RedsysService {
           status: 'pending',
           saveCard,
           extraInvoiceIds: extraIds,
+          payMethod: orderPayMethod,
         },
       });
     }, tenantId);
@@ -416,7 +431,8 @@ export class RedsysService {
             invoiceId: part.invoiceId,
             input: {
               amount: part.cents / 100,
-              methodType: 'card',
+              // Con Bizum el TPV solo ofrece Bizum: el cobro es Bizum.
+              methodType: orderRow.payMethod === 'bizum' ? 'bizum' : 'card',
               notes: `Redsys ${order}`,
               // Confirmación de un pago real por Redsys: salta el guard de adeudo en vuelo.
               overridePaymentInFlight: true,

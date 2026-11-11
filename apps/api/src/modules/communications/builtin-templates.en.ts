@@ -78,6 +78,15 @@ export const BUILTIN_TEMPLATES_EN: Record<string, BuiltinTemplateTranslation> = 
       `<p>Hello {{customer.firstName}},</p><p>Invoice <strong>{{invoice.number}}</strong> has been overdue for <strong>{{invoice.daysOverdue}} days</strong> and <strong>{{invoice.amountPending}}</strong> is still outstanding.</p><p>If it is not settled in the coming days, we will have to suspend access to your storage unit until it is paid.</p><p><a href="{{portal.url}}" ${BTN}>Pay now</a></p><p>If you have any problem paying, reply to this email and we will sort it out.</p>`,
     ),
   },
+  invoice_overdue_final_nocut_email: {
+    subject: 'Second notice: invoice {{invoice.number}} is unpaid',
+    bodyText:
+      'Hello {{customer.firstName}},\n\nInvoice {{invoice.number}} has been overdue for {{invoice.daysOverdue}} days and {{invoice.amountPending}} is still outstanding.\n\nPlease settle it as soon as possible. You can pay it now from your customer area:\n\n{{portal.url}}\n\nIf you have any problem paying, reply to this email and we will sort it out.\n\nKind regards,\nThe {{tenant.name}} team',
+    bodyHtml: wrapHtml(
+      'Second payment notice',
+      `<p>Hello {{customer.firstName}},</p><p>Invoice <strong>{{invoice.number}}</strong> has been overdue for <strong>{{invoice.daysOverdue}} days</strong> and <strong>{{invoice.amountPending}}</strong> is still outstanding.</p><p>Please settle it as soon as possible.</p><p><a href="{{portal.url}}" ${BTN}>Pay now</a></p><p>If you have any problem paying, reply to this email and we will sort it out.</p>`,
+    ),
+  },
   reservation_confirmed_email: {
     subject: 'Booking confirmed at {{facility.name}}',
     bodyText:

@@ -9,12 +9,30 @@ export const DELINQUENCY_CASE_STATUSES = [
   'overlocked',
   'final_notice',
   'resolution_pending',
+  // Condición 12 del contrato: pasado el plazo se resuelve el contrato y los
+  // bienes se trasladan (con inventario) a un lugar de custodia; solo después,
+  // y por los cauces legales, se puede disponer de ellos.
+  'contract_resolved',
+  'goods_moved',
   'disposal',
   'closed_paid',
   'closed_disposed',
   'closed_cancelled',
 ] as const;
 export type DelinquencyCaseStatus = (typeof DELINQUENCY_CASE_STATUSES)[number];
+
+export const CASE_STATUS_LABELS: Record<DelinquencyCaseStatus, string> = {
+  open: 'Abierto',
+  overlocked: 'Con candado',
+  final_notice: 'Requerimiento enviado',
+  resolution_pending: 'Plazo vencido',
+  contract_resolved: 'Contrato resuelto',
+  goods_moved: 'Bienes en custodia',
+  disposal: 'En disposición',
+  closed_paid: 'Cerrado · pagado',
+  closed_disposed: 'Cerrado · dispuesto',
+  closed_cancelled: 'Cerrado · cancelado',
+};
 
 /** Estados en los que el expediente está cerrado. */
 export const CLOSED_CASE_STATUSES: DelinquencyCaseStatus[] = [
@@ -23,10 +41,24 @@ export const CLOSED_CASE_STATUSES: DelinquencyCaseStatus[] = [
   'closed_cancelled',
 ];
 
-export const DISPOSAL_TYPES = ['auction_notarial', 'sale', 'donation', 'destruction'] as const;
+/**
+ * Cauces legales para disponer de los bienes (condición 12 del contrato): no
+ * se vende ni se destruye nada por cuenta propia. Con «abandono acreditado»,
+ * solo pasadas 8 semanas de custodia desde el traslado.
+ */
+export const DISPOSAL_TYPES = ['court_order', 'written_agreement', 'abandonment'] as const;
 export type DisposalType = (typeof DISPOSAL_TYPES)[number];
 
-export const DISPOSAL_TYPE_LABELS: Record<DisposalType, string> = {
+/** Semanas de custodia antes de poder dar los bienes por abandonados. */
+export const CUSTODY_WEEKS_BEFORE_ABANDONMENT = 8;
+/** Plazo mínimo del requerimiento (condición 12: no inferior a 15 días). */
+export const MIN_NOTICE_DAYS = 15;
+
+export const DISPOSAL_TYPE_LABELS: Record<string, string> = {
+  court_order: 'Resolución judicial',
+  written_agreement: 'Acuerdo escrito con el inquilino',
+  abandonment: 'Abandono acreditado (tras 8 semanas de custodia)',
+  // Expedientes anteriores.
   auction_notarial: 'Subasta notarial',
   sale: 'Venta',
   donation: 'Donación',
@@ -38,6 +70,7 @@ export const CASE_FILE_KINDS = [
   'overlock_photo',
   'burofax_receipt',
   'inventory',
+  'custody_act',
   'disposal_act',
   'other',
 ] as const;
@@ -47,8 +80,9 @@ export const CASE_FILE_KIND_LABELS: Record<CaseFileKind, string> = {
   requirement: 'Requerimiento (PDF)',
   overlock_photo: 'Foto del candado',
   burofax_receipt: 'Acuse del burofax',
-  inventory: 'Inventario',
-  disposal_act: 'Acta de disposición',
+  inventory: 'Inventario (fotos y lista)',
+  custody_act: 'Acta del traslado',
+  disposal_act: 'Documento del cauce legal (sentencia, acuerdo…)',
   other: 'Otro',
 };
 
@@ -58,9 +92,13 @@ export const CASE_EVENT_TYPES = [
   'overlock_placed',
   'overlock_removed',
   'notice_sent',
+  'notice_received',
   'deadline_expired',
+  'contract_resolved',
+  'goods_moved',
   'payment_received',
   'inventory_done',
+  'disposal_started',
   'disposal_done',
   'settlement_done',
   'closed',
@@ -80,6 +118,11 @@ export type OpenCaseInput = z.infer<typeof OpenCaseSchema>;
 /** Registro del overlock (candado físico colocado). */
 export const OverlockCaseSchema = z.object({
   notes: z.string().trim().max(2000).optional(),
+  /**
+   * Cómo se le avisó antes del candado si no fue por un recordatorio de la app
+   * (una llamada, en persona…): la condición 12 pide avisar antes.
+   */
+  priorNotice: z.string().trim().max(500).optional(),
 });
 export type OverlockCaseInput = z.infer<typeof OverlockCaseSchema>;
 
@@ -87,13 +130,42 @@ export type OverlockCaseInput = z.infer<typeof OverlockCaseSchema>;
 export const SendNoticeSchema = z.object({
   /** Fecha de envío del burofax (ISO); por defecto ahora. */
   sentAt: z.string().datetime().optional(),
-  /** Días de plazo; por defecto el `collectionsNoticeDays` del tenant. */
-  noticeDays: z.number().int().min(1).max(180).optional(),
+  /** Días de plazo (mínimo 15); por defecto el del negocio. */
+  noticeDays: z.number().int().min(MIN_NOTICE_DAYS).max(180).optional(),
+  /** Nº de envío del burofax (para seguirlo). */
+  tracking: z.string().trim().max(100).optional(),
   notes: z.string().trim().max(2000).optional(),
 });
 export type SendNoticeInput = z.infer<typeof SendNoticeSchema>;
 
-/** Inicio de la disposición del contenido (exige inventario previo). */
+/** Genera el requerimiento en PDF con el plazo que se va a registrar. */
+export const RequirementPdfSchema = z.object({
+  noticeDays: z.number().int().min(MIN_NOTICE_DAYS).max(180).optional(),
+});
+export type RequirementPdfInput = z.infer<typeof RequirementPdfSchema>;
+
+/** El inquilino recibió el requerimiento: el plazo cuenta desde ese día. */
+export const NoticeReceivedSchema = z.object({
+  receivedAt: z.string().datetime(),
+  notes: z.string().trim().max(2000).optional(),
+});
+export type NoticeReceivedInput = z.infer<typeof NoticeReceivedSchema>;
+
+/** Pasado el plazo sin pagar: el contrato queda resuelto (condición 12). */
+export const ResolveContractSchema = z.object({
+  notes: z.string().trim().max(2000).optional(),
+});
+export type ResolveContractInput = z.infer<typeof ResolveContractSchema>;
+
+/** Traslado de los bienes con inventario a un lugar de custodia. */
+export const MoveGoodsSchema = z.object({
+  /** Dónde quedan custodiados (nave, trastero…). */
+  custodyLocation: z.string().trim().min(3).max(300),
+  notes: z.string().trim().max(2000).optional(),
+});
+export type MoveGoodsInput = z.infer<typeof MoveGoodsSchema>;
+
+/** Inicio de la disposición, solo por un cauce legal. */
 export const StartDisposalSchema = z.object({
   disposalType: z.enum(DISPOSAL_TYPES),
   notes: z.string().trim().max(2000).optional(),
@@ -123,8 +195,10 @@ export interface DelinquencySettlementDto {
   proceedsAppliedCents: number;
   /** Deuda viva (céntimos) tras aplicar los fondos. */
   debtAfterCents: number;
-  /** Sobrante devuelto/pendiente de devolver al inquilino (céntimos). */
+  /** Lo obtenido de la disposición que sobra tras saldar la deuda (céntimos). */
   surplusCents: number;
+  /** Fianza que no hizo falta y hay que devolver al inquilino (céntimos). */
+  depositReturnedCents: number;
   /** Nº de facturas saldadas total o parcialmente. */
   invoicesSettled: number;
 }
@@ -144,8 +218,8 @@ export type CaseNoteInput = z.infer<typeof CaseNoteSchema>;
 /** Config del tenant para impagos físicos (opt-in; plazos por su asesoría). */
 export const UpdateCollectionsSettingsSchema = z.object({
   collectionsEnabled: z.boolean().optional(),
-  collectionsOpenAfterDays: z.number().int().min(1).max(365).optional(),
-  collectionsNoticeDays: z.number().int().min(1).max(180).optional(),
+  collectionsOpenAfterDays: z.number().int().min(8).max(365).optional(),
+  collectionsNoticeDays: z.number().int().min(MIN_NOTICE_DAYS).max(180).optional(),
   collectionsClauseRef: z.string().trim().max(500).optional().or(z.literal('')),
 });
 export type UpdateCollectionsSettingsInput = z.infer<typeof UpdateCollectionsSettingsSchema>;
@@ -154,7 +228,7 @@ export type UpdateCollectionsSettingsInput = z.infer<typeof UpdateCollectionsSet
 
 // Evidencia de expedientes de impago: fotos del candado/inventario/burofax o
 // el requerimiento en PDF. Mismo whitelist que el resto de subidas de
-// documentos (antes era `z.string()` libre, sin restricción de tipo).
+// documentos (las fotos del móvil se convierten a JPEG antes de subirlas).
 export const CASE_FILE_MIME_TYPES = [
   'image/png',
   'image/jpeg',
@@ -221,14 +295,35 @@ export interface DelinquencyCaseDto {
   finalNoticeDeadline: string | null;
   /** El plazo del requerimiento ya venció (y sigue sin pagar). */
   deadlineExpired: boolean;
+  /** Días de plazo del requerimiento, nº de envío y cuándo lo recibió. */
+  noticeDays: number | null;
+  noticeTracking: string | null;
+  noticeReceivedAt: string | null;
+  contractResolvedAt: string | null;
+  goodsMovedAt: string | null;
+  custodyLocation: string | null;
+  /** Con «abandono acreditado», desde cuándo se puede (8 semanas de custodia). */
+  abandonmentFrom: string | null;
   closedAt: string | null;
   notes: string | null;
+}
+
+/** Una factura vencida del expediente. */
+export interface DelinquencyCaseInvoiceDto {
+  id: string;
+  invoiceNumber: string;
+  dueDate: string | null;
+  pendingCents: number;
 }
 
 /** Detalle con timeline + evidencias. */
 export interface DelinquencyCaseDetailDto extends DelinquencyCaseDto {
   events: DelinquencyCaseEventDto[];
   files: DelinquencyCaseFileDto[];
+  /** Las facturas vencidas que forman la deuda. */
+  invoices: DelinquencyCaseInvoiceDto[];
+  /** Ya se le avisó del impago (requisito para poner el candado). */
+  reminded: boolean;
 }
 
 /** Resultado de generar el requerimiento fehaciente (PDF) del expediente. */

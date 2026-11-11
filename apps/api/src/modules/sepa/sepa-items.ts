@@ -9,15 +9,17 @@ import type { Prisma } from '@storageos/database';
 export async function markSepaItemReturned(
   tx: Prisma.TransactionClient,
   invoiceId: string,
+  /** Un adeudo concreto y el motivo que da el banco. */
+  opts: { itemId?: string; reason?: string } = {},
 ): Promise<void> {
   const item = await tx.sepaRemittanceItem.findFirst({
-    where: { invoiceId, status: 'collected' },
+    where: { invoiceId, status: 'collected', ...(opts.itemId ? { id: opts.itemId } : {}) },
     orderBy: { id: 'desc' },
   });
   if (!item) return;
   await tx.sepaRemittanceItem.update({
     where: { id: item.id },
-    data: { status: 'returned', failureReason: 'Devuelto por el banco' },
+    data: { status: 'returned', failureReason: opts.reason ?? 'Devuelto por el banco' },
   });
   if (item.sequenceType !== 'FRST') return;
   const stillCollected = await tx.sepaRemittanceItem.count({
@@ -29,4 +31,33 @@ export async function markSepaItemReturned(
       data: { sequenceType: 'FRST' },
     });
   }
+}
+
+/**
+ * Deshace `markSepaItemReturned` (la devolución se registró por error): el
+ * adeudo vuelve a «cobrado» y, si era el primero del mandato, el siguiente ya
+ * no se presenta como primero.
+ */
+export async function markSepaItemCollectedAgain(
+  tx: Prisma.TransactionClient,
+  invoiceId: string,
+): Promise<void> {
+  const item = await tx.sepaRemittanceItem.findFirst({
+    where: {
+      invoiceId,
+      status: 'returned',
+      failureReason: { startsWith: 'Devuelto por el banco' },
+    },
+    orderBy: { id: 'desc' },
+  });
+  if (!item) return;
+  await tx.sepaRemittanceItem.update({
+    where: { id: item.id },
+    data: { status: 'collected', failureReason: null },
+  });
+  if (item.sequenceType !== 'FRST') return;
+  await tx.sepaMandate.updateMany({
+    where: { id: item.mandateId, status: 'active', sequenceType: 'FRST' },
+    data: { sequenceType: 'RCUR' },
+  });
 }

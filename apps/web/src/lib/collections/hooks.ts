@@ -8,10 +8,13 @@ import {
   type DelinquencyCaseDto,
   type DelinquencyCaseStatus,
   type DelinquencyRequirementPdfDto,
+  type MoveGoodsInput,
+  type NoticeReceivedInput,
   type OpenCaseInput,
   type OverlockCaseInput,
   type RegisterCaseFileInput,
   type RequestCaseFileUploadInput,
+  type ResolveContractInput,
   type SendNoticeInput,
   type StartDisposalInput,
   type UpdateCollectionsSettingsInput,
@@ -20,6 +23,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 import { useHeaderFacilityId } from '../facilities/store';
+import { toAcceptedImage } from '../images/compress';
 
 const key = ['collections'] as const;
 
@@ -63,10 +67,11 @@ export function useContractDelinquencyCase(contractId: string, enabled: boolean)
   });
 }
 
-export function useCollectionsSettings() {
+export function useCollectionsSettings(enabled = true) {
   return useQuery({
     queryKey: [...key, 'settings'] as const,
     queryFn: () => apiFetch<CollectionsSettingsResponse>('/collections/settings'),
+    enabled,
   });
 }
 
@@ -95,7 +100,10 @@ export function useOpenCase() {
 type CaseActionBody =
   | { action: 'overlock'; input: OverlockCaseInput }
   | { action: 'notice'; input: SendNoticeInput }
+  | { action: 'notice-received'; input: NoticeReceivedInput }
   | { action: 'resolution-pending'; input?: undefined }
+  | { action: 'resolve-contract'; input: ResolveContractInput }
+  | { action: 'move-goods'; input: MoveGoodsInput }
   | { action: 'disposal'; input: StartDisposalInput }
   | { action: 'complete-disposal'; input: CompleteDisposalInput }
   | { action: 'cancel'; input: CancelCaseInput }
@@ -109,9 +117,13 @@ export function useCaseAction(caseId: string) {
         method: 'POST',
         json: body.input ?? {},
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: [...key, 'detail', caseId] });
-      void qc.invalidateQueries({ queryKey: [...key, 'list'] });
+    onSuccess: (_data, body) => {
+      void qc.invalidateQueries({ queryKey: key });
+      // Resolver el contrato lo termina y bloquea el trastero; el traslado lo libera.
+      if (body.action === 'resolve-contract' || body.action === 'move-goods') {
+        void qc.invalidateQueries({ queryKey: ['contracts'] });
+        void qc.invalidateQueries({ queryKey: ['units'] });
+      }
     },
   });
 }
@@ -120,9 +132,10 @@ export function useCaseAction(caseId: string) {
 export function useGenerateRequirementPdf(caseId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (noticeDays?: number) =>
       apiFetch<DelinquencyRequirementPdfDto>(`/collections/${caseId}/requirement-pdf`, {
         method: 'POST',
+        json: noticeDays ? { noticeDays } : {},
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [...key, 'detail', caseId] }),
   });
@@ -133,12 +146,14 @@ export function useUploadCaseFile(caseId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
-      file,
+      file: original,
       kind,
     }: {
       file: File;
       kind: RequestCaseFileUploadInput['kind'];
     }) => {
+      // Las fotos del móvil (HEIC del iPhone) se pasan a JPEG antes de subirlas.
+      const file = await toAcceptedImage(original, CASE_FILE_MIME_TYPES);
       const contentType = CASE_FILE_MIME_TYPES.find((mime) => mime === file.type);
       if (!contentType) {
         throw new Error('unsupported_file_type');

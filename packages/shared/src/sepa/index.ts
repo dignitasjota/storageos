@@ -123,8 +123,12 @@ export interface SepaMandateDto {
   bic: string | null;
   signedAt: string;
   sequenceType: 'FRST' | 'RCUR';
-  /** expired = 36 meses sin cobros: hay que firmar uno nuevo. */
-  status: 'active' | 'cancelled' | 'expired';
+  /**
+   * expired = 36 meses sin cobros: hay que firmar uno nuevo. replacing = otra
+   * cuenta pendiente de firma: el mandato firmado sigue cobrando hasta que el
+   * inquilino firme este, y entonces lo sustituye.
+   */
+  status: 'active' | 'cancelled' | 'expired' | 'replacing';
   /** Último adeudo presentado y fecha en que caduca si no hay más. */
   lastCollectedAt: string | null;
   expiresOn: string;
@@ -154,11 +158,16 @@ export type CreateRemittanceInput = z.infer<typeof CreateRemittanceSchema>;
 export interface RemittanceEligibleInvoiceDto {
   invoiceId: string;
   invoiceNumber: string;
+  customerId: string;
   customerName: string;
   amount: number;
   mandateReference: string;
   ibanLast4: string;
   sequenceType: 'FRST' | 'RCUR';
+  /** Preaviso pactado en su mandato (días). */
+  prenoticeDays: number;
+  dueDate: string | null;
+  facilityName: string | null;
 }
 
 export interface RemittancePreviewDto {
@@ -168,6 +177,7 @@ export interface RemittancePreviewDto {
   withoutMandate: {
     invoiceId: string;
     invoiceNumber: string;
+    customerId: string | null;
     customerName: string;
     /** Tiene mandato pero el inquilino aún no lo ha firmado. */
     pendingSignature?: boolean;
@@ -198,19 +208,37 @@ export interface SepaRemittanceDto {
   returnedCount: number;
   /** Adeudos aún sin resolver (con la remesa confirmada: confirmación cortada a medias). */
   pendingCount: number;
+  /**
+   * Adeudos que el banco cobró pero no se pudieron aplicar (la factura ya
+   * estaba pagada o anulada): hay que devolver ese dinero al inquilino.
+   */
+  unappliedCount: number;
+  /** Al generarla: facturas elegidas que ya no se podían domiciliar. */
+  omitted?: { invoiceId: string; invoiceNumber: string; reason: string }[];
 }
 
 /**
  * Estado de un adeudo: pending (remesa sin confirmar) · collected · failed
- * (rechazado por el banco o la factura ya estaba pagada) · returned (devuelto
- * tras cobrarse) · cancelled (remesa cancelada).
+ * (rechazado por el banco) · unapplied (el banco lo cobró pero la factura ya
+ * no lo admitía: hay que devolverlo) · returned (devuelto tras cobrarse) ·
+ * cancelled (remesa cancelada).
  */
 export type SepaRemittanceItemStatus =
   | 'pending'
   | 'collected'
   | 'failed'
+  | 'unapplied'
   | 'returned'
   | 'cancelled';
+
+/** Un adeudo cobrado que el banco devolvió (sin fichero N43). */
+export const MarkSepaItemReturnedSchema = z.object({
+  /** Motivo que da el banco (p. ej. «AC04 cuenta cancelada»). */
+  reason: z.string().trim().max(200).optional(),
+  /** Día en que el banco lo devolvió; por defecto hoy. */
+  returnedOn: dateOnly.optional(),
+});
+export type MarkSepaItemReturnedInput = z.infer<typeof MarkSepaItemReturnedSchema>;
 
 /** Confirmar el cobro de una remesa: los adeudos que el banco rechazó no se cobran. */
 export const ConfirmRemittanceSchema = z.object({
@@ -239,6 +267,9 @@ export interface SepaRemittancePrenoticeDto {
   /** Estado del adeudo y, si falló, por qué. */
   itemStatus: SepaRemittanceItemStatus;
   failureReason: string | null;
+  /** Lo que el banco usa para identificar el adeudo en su respuesta. */
+  endToEndId: string;
+  mandateReference: string;
 }
 
 /**

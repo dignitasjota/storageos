@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,15 +10,22 @@ import {
   Post,
   Put,
   Query,
+  Req,
 } from '@nestjs/common';
 import {
   CancelCaseSchema,
   CaseNoteSchema,
   CompleteDisposalSchema,
+  DELINQUENCY_CASE_STATUSES,
+  MIN_NOTICE_DAYS,
+  MoveGoodsSchema,
+  NoticeReceivedSchema,
   OpenCaseSchema,
   OverlockCaseSchema,
   RegisterCaseFileSchema,
   RequestCaseFileUploadSchema,
+  RequirementPdfSchema,
+  ResolveContractSchema,
   SendNoticeSchema,
   StartDisposalSchema,
   UpdateCollectionsSettingsSchema,
@@ -40,12 +48,35 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { CollectionsRequirementPdfService } from './collections-requirement-pdf.service';
 import { CollectionsService } from './collections.service';
 
+import type { Request } from 'express';
+
 class OpenCaseDto extends createZodDto(OpenCaseSchema) {}
 class OverlockCaseDto extends createZodDto(OverlockCaseSchema) {}
 class SendNoticeDto extends createZodDto(SendNoticeSchema) {}
 class StartDisposalDto extends createZodDto(StartDisposalSchema) {}
 class CompleteDisposalDto extends createZodDto(CompleteDisposalSchema) {}
 class CancelCaseDto extends createZodDto(CancelCaseSchema) {}
+class NoticeReceivedDto extends createZodDto(NoticeReceivedSchema) {}
+class ResolveContractDto extends createZodDto(ResolveContractSchema) {}
+class MoveGoodsDto extends createZodDto(MoveGoodsSchema) {}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function facilityParam(facilityId: string | undefined): string | undefined {
+  if (!facilityId) return undefined;
+  if (!UUID_RE.test(facilityId)) {
+    throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+  }
+  return facilityId;
+}
+
+function statusParam(status: string | undefined): DelinquencyCaseStatus | undefined {
+  if (!status) return undefined;
+  if (!(DELINQUENCY_CASE_STATUSES as readonly string[]).includes(status)) {
+    throw new BadRequestException({ code: 'invalid_status', message: 'Estado no válido' });
+  }
+  return status as DelinquencyCaseStatus;
+}
 class CaseNoteDto extends createZodDto(CaseNoteSchema) {}
 class UpdateCollectionsSettingsDto extends createZodDto(UpdateCollectionsSettingsSchema) {}
 class RequestCaseFileUploadDto extends createZodDto(RequestCaseFileUploadSchema) {}
@@ -83,12 +114,14 @@ export class CollectionsController {
   @Get()
   list(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('status') status?: DelinquencyCaseStatus,
+    @Query('status') status?: string,
     @Query('facilityId') facilityId?: string,
   ): Promise<DelinquencyCaseDto[]> {
+    const facility = facilityParam(facilityId);
+    const state = statusParam(status);
     return this.service.list(user.tenantId, {
-      ...(facilityId ? { facilityId } : {}),
-      ...(status ? { status } : {}),
+      ...(facility ? { facilityId: facility } : {}),
+      ...(state ? { status: state } : {}),
       facilityScope: user.facilityScope ?? null,
     });
   }
@@ -100,7 +133,11 @@ export class CollectionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('facilityId') facilityId?: string,
   ): Promise<CollectionsSummaryDto> {
-    return this.service.getSummary(user.tenantId, user.facilityScope ?? null, facilityId);
+    return this.service.getSummary(
+      user.tenantId,
+      user.facilityScope ?? null,
+      facilityParam(facilityId),
+    );
   }
 
   /** Expediente abierto de un contrato (para el badge de overlock). Antes de `:id`. */
@@ -155,6 +192,24 @@ export class CollectionsController {
     return this.service.sendNotice(user.tenantId, user.sub, id, body, user.facilityScope ?? null);
   }
 
+  /** El inquilino recibió el requerimiento: el plazo cuenta desde ese día. */
+  @RequirePermission('collections:manage')
+  @Post(':id/notice-received')
+  @HttpCode(HttpStatus.OK)
+  noticeReceived(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: NoticeReceivedDto,
+  ): Promise<DelinquencyCaseDto> {
+    return this.service.noticeReceived(
+      user.tenantId,
+      user.sub,
+      id,
+      body,
+      user.facilityScope ?? null,
+    );
+  }
+
   @RequirePermission('collections:manage')
   @Post(':id/resolution-pending')
   @HttpCode(HttpStatus.OK)
@@ -168,6 +223,41 @@ export class CollectionsController {
       id,
       user.facilityScope ?? null,
     );
+  }
+
+  /** Pasado el plazo: el contrato queda resuelto (condición 12). */
+  @RequirePermission('collections:manage')
+  @Post(':id/resolve-contract')
+  @HttpCode(HttpStatus.OK)
+  resolveContract(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ResolveContractDto,
+    @Req() req: Request,
+  ): Promise<DelinquencyCaseDto> {
+    return this.service.resolveContract(
+      user.tenantId,
+      user.sub,
+      id,
+      body,
+      user.facilityScope ?? null,
+      {
+        ...(req.ip ? { ipAddress: req.ip } : {}),
+        ...(req.headers['user-agent'] ? { userAgent: req.headers['user-agent'] } : {}),
+      },
+    );
+  }
+
+  /** Traslado de los bienes con inventario a un lugar de custodia. */
+  @RequirePermission('collections:manage')
+  @Post(':id/move-goods')
+  @HttpCode(HttpStatus.OK)
+  moveGoods(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: MoveGoodsDto,
+  ): Promise<DelinquencyCaseDto> {
+    return this.service.moveGoods(user.tenantId, user.sub, id, body, user.facilityScope ?? null);
   }
 
   @RequirePermission('collections:manage')
@@ -222,12 +312,22 @@ export class CollectionsController {
   requirementPdfGen(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown,
   ): Promise<DelinquencyRequirementPdfDto> {
+    // El cuerpo es opcional: sin él, el plazo registrado o el de los ajustes.
+    const parsed = RequirementPdfSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'invalid_notice_days',
+        message: `El plazo va de ${MIN_NOTICE_DAYS} a 180 días`,
+      });
+    }
     return this.requirementPdf.generate({
       tenantId: user.tenantId,
       userId: user.sub,
       caseId: id,
       facilityScope: user.facilityScope ?? null,
+      ...(parsed.data.noticeDays ? { noticeDays: parsed.data.noticeDays } : {}),
     });
   }
 

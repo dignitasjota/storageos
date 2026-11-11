@@ -79,6 +79,12 @@ export const DOMAIN_EVENTS = {
    * ella lo recupera.
    */
   invoice_voided: 'domain.invoice_voided',
+  /**
+   * La pasarela resolvió a favor del negocio una disputa (o cerró una consulta
+   * sin retirar el dinero): el cobro que se revirtió al abrirse vuelve a
+   * contar. No es trigger.
+   */
+  payment_dispute_won: 'domain.payment_dispute_won',
 } as const;
 
 export interface InvoicePaymentRevertedPayload {
@@ -114,6 +120,8 @@ export interface InvoiceRefundedPayload {
 export interface SepaRemittanceCreatedPayload {
   tenantId: string;
   remittanceId: string;
+  /** Solo estos adeudos (reenvío de los preavisos que no salieron). */
+  itemIds?: string[];
 }
 
 export interface BookingCreatedPayload {
@@ -286,4 +294,12 @@ export interface ContractDepositSettledPayload {
   retained: number;
   applied: number;
   reason: string | null;
+}
+
+/** `payment_dispute_won`: el cobro revertido por la disputa. */
+export interface PaymentDisputeWonPayload {
+  tenantId: string;
+  invoiceId: string;
+  paymentId: string;
+  amount: number;
 }

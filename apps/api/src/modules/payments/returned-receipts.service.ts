@@ -28,6 +28,7 @@ interface InvoiceRef {
   } | null;
   facility: { name: string } | null;
   contract: { unit: { facility: { name: string } } } | null;
+  productSale: { facility: { name: string } } | null;
 }
 
 const INVOICE_SELECT = {
@@ -39,6 +40,7 @@ const INVOICE_SELECT = {
   customer: { select: { id: true, firstName: true, lastName: true, companyName: true } },
   facility: { select: { name: true } },
   contract: { select: { unit: { select: { facility: { select: { name: true } } } } } },
+  productSale: { select: { facility: { select: { name: true } } } },
 } as const;
 
 /** «Contracargo», «Fallo tardío»… a partir del motivo guardado en el cobro. */
@@ -89,7 +91,11 @@ function invoiceFields(inv: InvoiceRef | null) {
     invoicePending: pending,
     customerId: inv.customer?.id ?? null,
     customerName: customerName(inv.customer),
-    facilityName: inv.contract?.unit.facility.name ?? inv.facility?.name ?? null,
+    facilityName:
+      inv.contract?.unit.facility.name ??
+      inv.productSale?.facility.name ??
+      inv.facility?.name ??
+      null,
   };
 }
 
@@ -99,9 +105,9 @@ function invoiceFields(inv: InvoiceRef | null) {
  * N43, contracargos de tarjeta, devoluciones y fallos tardíos de GoCardless) y
  * adeudos que el banco rechazó al confirmar una remesa SEPA.
  */
-/** `YYYY-MM-DD` de un instante en hora de España. */
-const madridDay = (d: Date): string =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
+/** `YYYY-MM-DD` de un instante en la zona del negocio. */
+const dayIn = (d: Date, timeZone: string): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone }).format(d);
 
 @Injectable()
 export class ReturnedReceiptsService {
@@ -118,18 +124,24 @@ export class ReturnedReceiptsService {
     },
   ): Promise<ReturnedReceiptsDto> {
     const now = new Date();
-    // Días en hora de España (los cobros y devoluciones llevan hora).
-    const to = filters.to ? new Date(zonedNextDayStart(filters.to).getTime() - 1) : now;
-    const from = filters.from ? zonedDayStart(filters.from) : new Date(to.getTime() - 90 * DAY);
+    // Días en la zona del negocio (los cobros y devoluciones llevan hora).
+    const tenant = await this.prisma.withTenant(
+      (tx) => tx.tenant.findUnique({ where: { id: tenantId }, select: { timezone: true } }),
+      tenantId,
+    );
+    const tz = tenant?.timezone ?? 'Europe/Madrid';
+    const to = filters.to ? new Date(zonedNextDayStart(filters.to, tz).getTime() - 1) : now;
+    const from = filters.from ? zonedDayStart(filters.from, tz) : new Date(to.getTime() - 90 * DAY);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
       throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
     }
 
-    // Local: el de la factura (vía contrato o el suyo propio).
+    // Local: el de la factura (su contrato, su venta en mostrador o el suyo).
     const facilityFilter: Prisma.InvoiceWhereInput | undefined = filters.facilityId
       ? {
           OR: [
             { contract: { unit: { facilityId: filters.facilityId } } },
+            { productSale: { facilityId: filters.facilityId } },
             { facilityId: filters.facilityId },
           ],
         }
@@ -138,8 +150,10 @@ export class ReturnedReceiptsService {
       ? {
           OR: [
             { contract: { unit: { facilityId: { in: filters.facilityScope } } } },
+            { productSale: { facilityId: { in: filters.facilityScope } } },
             { facilityId: { in: filters.facilityScope } },
-            { contractId: null, facilityId: null },
+            // Sin local (factura suelta): la ve todo el equipo.
+            { contractId: null, facilityId: null, productSale: null },
           ],
         }
       : undefined;
@@ -226,8 +240,8 @@ export class ReturnedReceiptsService {
     const pendingCents = [...pendingByInvoice.values()].reduce((a, b) => a + b, 0);
 
     return {
-      from: madridDay(from),
-      to: madridDay(to),
+      from: dayIn(from, tz),
+      to: dayIn(to, tz),
       items,
       totals: {
         count: items.length,

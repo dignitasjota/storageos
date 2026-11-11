@@ -66,8 +66,8 @@ export function optionalFacilityWhere(
 /**
  * Filtro por local de una factura: su local es el del trastero del contrato, o
  * el que lleva la propia factura (pase nocturno) o su venta de producto. Con
- * alcance y sin local elegido se incluyen las facturas sin contrato (F2, ventas
- * sin local), como hasta ahora. `null` = local fuera del alcance.
+ * alcance y sin local elegido: las de sus locales y las que no son de ningún
+ * local (una factura suelta). `null` = local fuera del alcance.
  */
 export function invoiceFacilityWhere(
   scope: FacilityScope,
@@ -84,7 +84,14 @@ export function invoiceFacilityWhere(
     };
   }
   if (scope) {
-    return { OR: [{ contract: { unit: { facilityId: { in: scope } } } }, { contractId: null }] };
+    return {
+      OR: [
+        { contract: { unit: { facilityId: { in: scope } } } },
+        { contractId: null, facilityId: { in: scope } },
+        { contractId: null, productSale: { facilityId: { in: scope } } },
+        { contractId: null, facilityId: null, productSale: null },
+      ],
+    };
   }
   return {};
 }

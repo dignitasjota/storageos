@@ -4,7 +4,9 @@ import { SepaMandatePdfService } from '../../common/sepa-mandate/sepa-mandate-pd
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { CommunicationsModule } from '../communications/communications.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
+import { SepaMandateExpiryCron } from './sepa-mandate-expiry.cron';
 import { SepaMandatePublicController } from './sepa-mandate-public.controller';
 import { SepaController } from './sepa.controller';
 import { SepaService } from './sepa.service';
@@ -16,9 +18,9 @@ import { SepaService } from './sepa.service';
  * (CryptoModule global) cifra los IBAN.
  */
 @Module({
-  imports: [AuthModule, BillingModule, CommunicationsModule],
+  imports: [AuthModule, BillingModule, CommunicationsModule, NotificationsModule],
   controllers: [SepaController, SepaMandatePublicController],
-  providers: [SepaService, SepaMandatePdfService],
+  providers: [SepaService, SepaMandatePdfService, SepaMandateExpiryCron],
   exports: [SepaService],
 })
 export class SepaModule {}

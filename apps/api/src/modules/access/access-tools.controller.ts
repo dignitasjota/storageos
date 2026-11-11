@@ -80,7 +80,7 @@ export class AccessToolsController {
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,
     @Query('facilityId') facilityId?: string,
-  ): Promise<{ customers: number; suspended: number }> {
+  ): Promise<{ customers: number; suspended: number; failed: number }> {
     return this.debtCuts.cutAll({
       tenantId: user.tenantId,
       userId: user.sub,

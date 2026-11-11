@@ -98,12 +98,50 @@ export const PaymentMethodTypeEnum = z.enum([
   'other',
 ]);
 export type PaymentMethodTypeValue = z.infer<typeof PaymentMethodTypeEnum>;
+
 /**
- * Método de un pago registrado: además de los anteriores, `credit_note` =
- * compensación con una rectificativa de abono (lo crea la app; no es dinero
- * cobrado y no se puede elegir a mano).
+ * Cómo se cobró (o se devolvió) a mano: las formas guardables más Bizum, que
+ * muchos negocios reciben en su móvil sin pasar por el TPV.
  */
-export type PaymentRecordMethodValue = PaymentMethodTypeValue | 'credit_note' | 'withholding';
+export const ManualPaymentMethodEnum = z.enum([
+  'card',
+  'sepa_debit',
+  'bank_transfer',
+  'cash',
+  'bizum',
+  'other',
+]);
+export type ManualPaymentMethodValue = z.infer<typeof ManualPaymentMethodEnum>;
+
+/** Formas de pago en las que se mueve dinero (las que se registran a mano). */
+export function isManualPaymentMethod(m: string): m is ManualPaymentMethodValue {
+  return (ManualPaymentMethodEnum.options as readonly string[]).includes(m);
+}
+
+/**
+ * Método de un pago registrado: además de los anteriores, los que crea la app
+ * y no se eligen a mano: `credit_note` = compensación con una rectificativa de
+ * abono, `withholding` = retención de IRPF y `deposit` = fianza retenida
+ * aplicada a la factura (el dinero entró al cobrar la fianza).
+ */
+export type PaymentRecordMethodValue =
+  | ManualPaymentMethodValue
+  | 'credit_note'
+  | 'withholding'
+  | 'deposit';
+
+/** Nombre de cada forma de pago en las pantallas y los listados. */
+export const PAYMENT_RECORD_METHOD_LABELS: Record<PaymentRecordMethodValue, string> = {
+  card: 'Tarjeta',
+  sepa_debit: 'Domiciliación SEPA',
+  bank_transfer: 'Transferencia',
+  cash: 'Efectivo',
+  bizum: 'Bizum',
+  other: 'Otro',
+  credit_note: 'Compensación (abono)',
+  withholding: 'Retención de IRPF',
+  deposit: 'Fianza aplicada',
+};
 
 /**
  * Pagos que no son dinero cobrado: compensación con abono y retención de IRPF
@@ -182,8 +220,16 @@ export const RedsysRedirectRequestSchema = z.object({
   extraInvoiceIds: z.array(z.string().uuid()).max(50).optional(),
   /** Pago de la suscripción: meses que paga de una vez (si debe varios). */
   months: z.number().int().min(1).max(12).optional(),
+  /** Portal: paga solo la cuota que toca de su plan de pago. */
+  installment: z.boolean().optional(),
 });
 export type RedsysRedirectRequestInput = z.infer<typeof RedsysRedirectRequestSchema>;
+
+/** `POST /portal/me/invoices/:id/charge`: el total pendiente o la cuota de su plan. */
+export const PortalChargeInvoiceSchema = z.object({
+  installment: z.boolean().optional(),
+});
+export type PortalChargeInvoiceInput = z.infer<typeof PortalChargeInvoiceSchema>;
 
 export const DunningActionTypeEnum = z.enum([
   'email_reminder',
@@ -367,6 +413,12 @@ export const RefundInvoiceSchema = z.object({
    * en el contrato). Por defecto, por la misma vía del cobro.
    */
   method: z.enum(['original', 'credit']).optional(),
+  /**
+   * Devolución a mano (cobros en efectivo, transferencia, Bizum o TPV del
+   * local): cómo sale el dinero. Por defecto, la forma del cobro. La caja
+   * descuenta las devueltas en efectivo el día en que se devuelven.
+   */
+  refundMethod: ManualPaymentMethodEnum.optional(),
 });
 export type RefundInvoiceInput = z.infer<typeof RefundInvoiceSchema>;
 
@@ -459,7 +511,7 @@ export type ChargeInvoiceInput = z.infer<typeof ChargeInvoiceSchema>;
 export const MarkPaidManuallySchema = z.object({
   amount: positiveDecimal.max(10_000_000),
   paidAt: z.string().datetime().optional(),
-  methodType: PaymentMethodTypeEnum.default('cash'),
+  methodType: ManualPaymentMethodEnum.default('cash'),
   notes: optionalText(500),
   /**
    * Marca explícita "voy a pagar de otra forma": permite registrar el pago a
@@ -473,7 +525,9 @@ export const MarkPaidManuallySchema = z.object({
  * Lo que admite el registro de un cobro desde dentro de la app. Estas dos
  * marcas no las puede mandar nadie desde fuera: no están en el esquema.
  */
-export type MarkPaidManuallyInput = z.infer<typeof MarkPaidManuallySchema> & {
+export type MarkPaidManuallyInput = Omit<z.infer<typeof MarkPaidManuallySchema>, 'methodType'> & {
+  /** `deposit` solo lo usa la app al aplicar la fianza retenida. */
+  methodType: ManualPaymentMethodValue | 'deposit';
   /**
    * Pago parcial por una vía que no es efectivo: cobros bancarios REALES ya
    * confirmados (conciliación N43, remesa SEPA) por menos de lo pendiente.

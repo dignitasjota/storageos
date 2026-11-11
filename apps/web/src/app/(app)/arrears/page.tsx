@@ -10,6 +10,7 @@ import type { ArrearsRowDto, PaymentPlanDto } from '@storageos/shared';
 import { AccessCutsCard } from '@/components/billing/access-cuts-card';
 import { PaymentPlanDialog } from '@/components/billing/payment-plan-dialog';
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,9 +26,9 @@ import { useBulkChargeInvoices, useBulkRemindInvoices } from '@/lib/billing/hook
 import { useOpenCase } from '@/lib/collections/hooks';
 import { useArrears, useCancelPaymentPlan, usePaymentPlans } from '@/lib/collections-ops/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatEur } from '@/lib/format';
 
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const eur = formatEur;
 const day = (iso: string) => formatDate(iso.length === 10 ? `${iso}T12:00:00` : iso);
 
 const PLAN_STATUS: Record<string, string> = {
@@ -45,7 +46,7 @@ const PLAN_STATUS: Record<string, string> = {
 export default function ArrearsPage() {
   const facilityId = useHeaderFacilityId();
   const arrears = useArrears(facilityId);
-  const plans = usePaymentPlans();
+  const plans = usePaymentPlans(facilityId ? { facilityId } : {});
   const remind = useBulkRemindInvoices();
   const charge = useBulkChargeInvoices();
   const openCase = useOpenCase();
@@ -64,9 +65,16 @@ export default function ArrearsPage() {
   async function doRemind(r: ArrearsRowDto) {
     try {
       const res = await remind.mutateAsync(r.invoiceIds);
+      if (res.succeeded.length === 0) {
+        toast.error(res.failed[0]?.error ?? 'No se ha enviado ningún recordatorio.');
+        return;
+      }
       toast.success(
-        `Recordatorio enviado a ${r.customerName} (${res.succeeded.length} factura(s)).`,
+        `Recordatorio enviado a ${r.customerName} (${res.succeeded.length} ${res.succeeded.length === 1 ? 'factura' : 'facturas'}).${
+          res.failed.length > 0 ? ` ${res.failed.length} no: ${res.failed[0]!.error}` : ''
+        }`,
       );
+      void arrears.refetch();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
     }
@@ -124,7 +132,9 @@ export default function ArrearsPage() {
         </p>
       </div>
 
-      {arrears.isLoading || !d ? (
+      {arrears.isError ? (
+        <SectionError onRetry={() => void arrears.refetch()} />
+      ) : arrears.isLoading || !d ? (
         <p className="text-sm text-muted-foreground">Cargando…</p>
       ) : (
         <>
@@ -137,6 +147,8 @@ export default function ArrearsPage() {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {d.customers} {d.customers === 1 ? 'inquilino' : 'inquilinos'}
+                  {d.actionable !== d.customers &&
+                    ` · ${d.actionable} por reclamar (el resto ya está pagando o tiene plan)`}
                 </p>
               </CardContent>
             </Card>
@@ -145,7 +157,9 @@ export default function ArrearsPage() {
                 <CardContent className="space-y-1 p-4">
                   <p className="text-xs text-muted-foreground">{a.label}</p>
                   <p className="text-lg font-semibold tabular-nums">{eur(a.amount)}</p>
-                  <p className="text-xs text-muted-foreground">{a.count}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {a.count} {a.count === 1 ? 'factura' : 'facturas'}
+                  </p>
                 </CardContent>
               </Card>
             ))}
@@ -169,12 +183,20 @@ export default function ArrearsPage() {
                           {r.customerName}
                         </Link>
                         <p className="text-xs text-muted-foreground">
-                          {[r.units.join(', '), r.phone, r.email].filter(Boolean).join(' · ') ||
-                            '—'}
+                          {[r.units.join(', ') || 'Sin trastero', r.phone, r.email]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </p>
                         <div className="mt-1 flex flex-wrap gap-1">
+                          {r.paymentInFlight && (
+                            <Badge className="bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                              {r.paymentInFlight === 'remittance'
+                                ? 'Va en una remesa SEPA'
+                                : 'Cobro en curso'}
+                            </Badge>
+                          )}
                           {r.chargeable && <Badge variant="outline">Tiene tarjeta/adeudo</Badge>}
-                          {r.sepaMandate && <Badge variant="outline">Remesa SEPA</Badge>}
+                          {r.sepaMandate && <Badge variant="outline">Con mandato SEPA</Badge>}
                           {r.lateFeeApplied && <Badge variant="outline">Con recargo</Badge>}
                           {r.accessBlocked && <Badge variant="destructive">Acceso cortado</Badge>}
                           {r.plan && (
@@ -209,13 +231,17 @@ export default function ArrearsPage() {
                           Siguiente:{' '}
                           {r.plan?.status === 'active'
                             ? 'en pausa por el plan'
-                            : r.nextStep
-                              ? `${r.nextStep.label} el ${day(r.nextStep.date)}`
-                              : '—'}
+                            : r.paymentInFlight
+                              ? 'en pausa mientras se cobra'
+                              : r.nextStep
+                                ? r.nextStep.postponed
+                                  ? `${r.nextStep.label} (aplazado)`
+                                  : `${r.nextStep.label} el ${day(r.nextStep.date)}`
+                                : '—'}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        {canRemind && (
+                        {canRemind && !r.paymentInFlight && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -232,7 +258,7 @@ export default function ArrearsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            {canCharge && r.chargeable && (
+                            {canCharge && r.chargeable && !r.paymentInFlight && (
                               <DropdownMenuItem onSelect={() => void doCharge(r)}>
                                 Cobrar con su método guardado
                               </DropdownMenuItem>
@@ -293,7 +319,7 @@ export default function ArrearsPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {eur(p.paidSoFar)} de {eur(p.totalAmount)} ·{' '}
                       {p.installments.filter((i) => i.status === 'paid').length}/
-                      {p.installments.length} cuotas
+                      {p.installments.length} {p.installments.length === 1 ? 'cuota' : 'cuotas'}
                     </p>
                   </div>
                   <Badge variant={p.status === 'broken' ? 'destructive' : 'secondary'}>

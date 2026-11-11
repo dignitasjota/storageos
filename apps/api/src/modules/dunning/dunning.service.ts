@@ -30,6 +30,20 @@ import { dunningCalendar } from './dunning-calendar';
 
 import type { Env } from '../../config/env.schema';
 
+const DAY = 86_400_000;
+/** Acciones por lote al despachar, y lotes como mucho por repaso. */
+const DISPATCH_BATCH = 200;
+const DISPATCH_MAX_BATCHES = 25;
+
+/** `code` de una excepción del API (o null). */
+function errorCode(err: unknown): string | null {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const res = (err as { response?: { code?: unknown } }).response;
+    return typeof res?.code === 'string' ? res.code : null;
+  }
+  return null;
+}
+
 export interface ProcessInvoiceJobData {
   tenantId: string;
   invoiceId: string;
@@ -95,10 +109,12 @@ export class DunningService {
          SET scheduled_for = scheduled_for + interval '1 day'
        WHERE status = 'scheduled'
          AND tenant_id IN (SELECT id FROM tenants WHERE status = 'suspended')`;
-    const justOverdue = await this.admin.invoice.findMany({
+    // Candidatas: vencen como muy tarde hoy (UTC). Cada negocio cuenta en su
+    // zona: el día del vencimiento aún se puede pagar; vence al día siguiente.
+    const candidates = await this.admin.invoice.findMany({
       where: {
         status: 'issued',
-        dueDate: { lt: new Date() },
+        dueDate: { lt: new Date(Date.now() + DAY) },
         // Una rectificativa de abono (importe ≤ 0) no se reclama.
         total: { gt: 0 },
         // Un justificante de fianza no es una factura: se cobra con la suya
@@ -115,8 +131,21 @@ export class DunningService {
         customerId: true,
         invoiceNumber: true,
         total: true,
+        tenant: { select: { timezone: true } },
       },
     });
+    const todayByZone = new Map<string, Date>();
+    const todayIn = (tz: string) => {
+      let d = todayByZone.get(tz);
+      if (!d) {
+        d = todayInTimezone(tz);
+        todayByZone.set(tz, d);
+      }
+      return d;
+    };
+    const justOverdue = candidates.filter(
+      (i) => i.dueDate && i.dueDate < todayIn(i.tenant.timezone ?? 'Europe/Madrid'),
+    );
     if (justOverdue.length > 0) {
       await this.admin.invoice.updateMany({
         where: { id: { in: justOverdue.map((i) => i.id) } },
@@ -185,16 +214,23 @@ export class DunningService {
         lateFeeGraceDays: true,
         accessCutMode: true,
         accessCutDays: true,
+        collectionsOpenAfterDays: true,
       },
     });
+    const isLateFee = !!invoice.lateFeeForInvoiceId;
     const calendar = dunningCalendar(
       // Un recargo no lleva otro recargo.
       {
-        enabled: !!tenant?.lateFeeEnabled && !invoice.lateFeeForInvoiceId,
+        enabled: !!tenant?.lateFeeEnabled && !isLateFee,
         graceDays: tenant?.lateFeeGraceDays ?? 0,
       },
-      { mode: tenant?.accessCutMode ?? 'all', days: tenant?.accessCutDays ?? 14 },
-    );
+      // Un recargo solo se recuerda: no corta el acceso ni abre un expediente
+      // por sí solo (va con la factura de la que sale).
+      isLateFee
+        ? { mode: 'none', days: 0 }
+        : { mode: tenant?.accessCutMode ?? 'all', days: tenant?.accessCutDays ?? 14 },
+      tenant?.collectionsOpenAfterDays ?? 30,
+    ).filter((step) => !isLateFee || step.type !== 'legal_notice');
     for (const step of calendar) {
       const scheduledFor = new Date(base);
       scheduledFor.setUTCDate(scheduledFor.getUTCDate() + step.daysAfter);
@@ -228,22 +264,45 @@ export class DunningService {
     }
   }
 
+  /** Acciones que tocan hoy, por lotes y de la más antigua a la más nueva. */
   private async dispatchDueActions(): Promise<void> {
-    const due = await this.admin.dunningAction.findMany({
-      where: {
-        status: 'scheduled',
-        scheduledFor: { lte: new Date() },
-        tenant: { status: { not: 'suspended' } },
-      },
-      select: { id: true, tenantId: true },
-      take: 200,
-    });
-    for (const action of due) {
-      await this.queue.add(JOB_DUNNING_EXECUTE_ACTION, {
-        tenantId: action.tenantId,
-        actionId: action.id,
-      } satisfies ExecuteActionJobData);
+    const now = new Date();
+    let cursor: string | null = null;
+    for (let batch = 0; batch < DISPATCH_MAX_BATCHES; batch += 1) {
+      const due: { id: string; tenantId: string }[] = await this.admin.dunningAction.findMany({
+        where: {
+          status: 'scheduled',
+          scheduledFor: { lte: now },
+          tenant: { status: { not: 'suspended' } },
+        },
+        select: { id: true, tenantId: true },
+        orderBy: [{ scheduledFor: 'asc' }, { id: 'asc' }],
+        take: DISPATCH_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      if (due.length > 0) {
+        await this.queue.addBulk(
+          due.map((action) => ({
+            name: JOB_DUNNING_EXECUTE_ACTION,
+            data: {
+              tenantId: action.tenantId,
+              actionId: action.id,
+            } satisfies ExecuteActionJobData,
+          })),
+        );
+      }
+      if (due.length < DISPATCH_BATCH) return;
+      cursor = due[due.length - 1]!.id;
     }
+    this.logger.warn('dunning: más acciones pendientes de las que caben en un repaso');
+  }
+
+  /** La acción no toca hoy (se está cobrando o hay un plan): mañana se vuelve a mirar. */
+  private async postpone(actionId: string): Promise<void> {
+    await this.admin.dunningAction.updateMany({
+      where: { id: actionId, status: 'scheduled' },
+      data: { scheduledFor: new Date(Date.now() + DAY) },
+    });
   }
 
   private async executeAction(data: ExecuteActionJobData): Promise<void> {
@@ -292,6 +351,7 @@ export class DunningService {
       this.logger.log(
         `dunning.${action.actionType}: ${invoice.invoiceNumber} tiene un cobro en curso; se aplaza`,
       );
+      await this.postpone(action.id);
       return;
     }
 
@@ -301,6 +361,7 @@ export class DunningService {
       this.logger.log(
         `dunning.${action.actionType}: ${invoice.invoiceNumber} está en un plan de pago; se aplaza`,
       );
+      await this.postpone(action.id);
       return;
     }
 
@@ -347,10 +408,14 @@ export class DunningService {
           : { ...result, accessBlocked: false, accessCutSkipped: cut.skipped };
       }
       if (action.actionType === 'legal_notice') {
-        // Abre un expediente de impago si el tenant activó los impagos físicos
-        // (opt-in). Best-effort e idempotente (índice único por contrato).
-        const opened = await this.collections.openFromDunning(action.tenantId, action.invoiceId);
-        result = { ...result, collectionsCaseOpened: opened };
+        // Abre un expediente de impago si el negocio los usa; si no (o el
+        // contrato ya terminó), avisa al equipo de que toca decidir qué hacer.
+        const outcome = await this.collections.openFromDunning(action.tenantId, action.invoiceId);
+        result = {
+          ...result,
+          collectionsCaseOpened: outcome === 'opened' || outcome === 'exists',
+          outcome,
+        };
       }
       if (action.actionType === 'late_fee') {
         // Re-chequea el opt-in (pudo desactivarse tras agendar). Idempotente:
@@ -360,25 +425,36 @@ export class DunningService {
           select: { lateFeeEnabled: true },
         });
         if (tenant?.lateFeeEnabled) {
-          const fee = await this.invoices.createLateFee({
-            tenantId: action.tenantId,
-            invoiceId: action.invoiceId,
-            userId: null,
-          });
-          result = { ...result, lateFeeInvoiceId: fee.id };
+          try {
+            const fee = await this.invoices.createLateFee({
+              tenantId: action.tenantId,
+              invoiceId: action.invoiceId,
+              userId: null,
+            });
+            result = { ...result, lateFeeInvoiceId: fee.id };
+          } catch (err) {
+            // Ya tenía recargo (puesto a mano): el paso está hecho.
+            if (errorCode(err) !== 'late_fee_already_applied') throw err;
+            result = { ...result, lateFeeSkipped: 'already_applied' };
+          }
         } else {
           result = { ...result, lateFeeSkipped: 'disabled' };
         }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      // Un corte que falla no se da por hecho: sigue programado y se reintenta
-      // en el repaso del día siguiente.
-      if (action.actionType === 'access_block') {
-        this.logger.error(`dunning.access_block sin aplicar en ${action.invoiceId}: ${message}`);
+      // Un corte o un recargo que fallan no se dan por hechos: siguen
+      // programados y se reintentan en el repaso del día siguiente.
+      if (action.actionType === 'access_block' || action.actionType === 'late_fee') {
+        this.logger.error(
+          `dunning.${action.actionType} sin aplicar en ${action.invoiceId}: ${message}`,
+        );
         await this.admin.dunningAction.update({
           where: { id: action.id },
-          data: { notes: `Último intento fallido: ${message}`.slice(0, 500) },
+          data: {
+            notes: `Último intento fallido: ${message}`.slice(0, 500),
+            scheduledFor: new Date(Date.now() + DAY),
+          },
         });
         return;
       }
@@ -462,13 +538,20 @@ export class DunningService {
       return false;
     }
 
+    // El segundo aviso solo menciona el corte si de verdad va a llegar.
+    const cutAhead = stage === 'final' && (await this.accessCutAhead(tenantId, [invoiceId]));
     await this.communications.enqueue({
       tenantId,
       channel: 'email',
       recipient: customer.billingEmail ?? customer.email,
       invoiceId,
       contractId: invoice.contractId,
-      templateCode: stage === 'final' ? 'invoice_overdue_final_email' : 'invoice_overdue_email',
+      templateCode:
+        stage === 'final'
+          ? cutAhead
+            ? 'invoice_overdue_final_email'
+            : 'invoice_overdue_final_nocut_email'
+          : 'invoice_overdue_email',
       trigger: 'invoice_overdue',
       variables: {
         customer: {
@@ -620,6 +703,12 @@ export class DunningService {
       invoices: list,
       portalUrl: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
       final,
+      accessCutAhead: final
+        ? await this.accessCutAhead(
+            action.tenantId,
+            list.map((i) => i.id),
+          )
+        : false,
       today: todayInTimezone(tenant.timezone),
     });
     try {
@@ -642,6 +731,20 @@ export class DunningService {
       throw err;
     }
     return list.length;
+  }
+
+  /** ¿Queda un corte del acceso programado para alguna de estas facturas? */
+  private async accessCutAhead(tenantId: string, invoiceIds: string[]): Promise<boolean> {
+    const pending = await this.admin.dunningAction.count({
+      where: {
+        tenantId,
+        invoiceId: { in: invoiceIds },
+        actionType: 'access_block',
+        status: 'scheduled',
+        supersededAt: null,
+      },
+    });
+    return pending > 0;
   }
 
   private async hasOverdueAutomation(tenantId: string): Promise<boolean> {

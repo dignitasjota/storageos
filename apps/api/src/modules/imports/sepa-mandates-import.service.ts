@@ -4,6 +4,7 @@ import {
   type ImportCommitDto,
   type ImportDuplicatePolicy,
   type ImportPreviewDto,
+  isSepaMandateExpired,
 } from '@storageos/shared';
 import Papa from 'papaparse';
 
@@ -198,9 +199,19 @@ export class SepaMandatesImportService {
         ...(get('bic') ? { bic: get('bic') } : {}),
         signedAt: normalizeDate(get('signedAt')),
       });
+      const alreadyCollected = YES.has(get('alreadyCollected').toLowerCase());
       if (!parsed.success) errors.push(...flattenZodErrors(parsed.error));
       else if (parsed.data.signedAt && parsed.data.signedAt > ctx.today) {
         errors.push('signedAt: la fecha de firma no puede ser posterior a hoy');
+      } else if (
+        parsed.data.signedAt &&
+        !alreadyCollected &&
+        isSepaMandateExpired(null, parsed.data.signedAt, ctx.today)
+      ) {
+        // 36 meses sin ningún adeudo: caducaría nada más importarlo.
+        errors.push(
+          'signedAt: firmado hace más de 36 meses y sin cobros, ya está caducado. Si se ha cobrado con él, marca «ya cobrado»; si no, el inquilino tiene que firmar uno nuevo.',
+        );
       }
 
       if (errors.length || !customerId || !parsed.success) {
@@ -209,7 +220,7 @@ export class SepaMandatesImportService {
       if (reference) seenReferences.add(reference.toUpperCase());
 
       const input = { ...parsed.data, customerId };
-      const sequenceType = YES.has(get('alreadyCollected').toLowerCase()) ? 'RCUR' : 'FRST';
+      const sequenceType = alreadyCollected ? 'RCUR' : 'FRST';
       const duplicate = ctx.withActiveMandate.has(customerId);
       return {
         status: duplicate ? 'duplicate' : 'valid',

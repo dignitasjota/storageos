@@ -8,6 +8,7 @@ import type { PaymentMethodDto, SetupIntentResponseDto } from '@storageos/shared
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { useConfirm } from '@/components/confirm-provider';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ApiError, apiFetchBlob } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useCreateSetupIntent,
   usePaymentOptions,
@@ -29,6 +31,7 @@ import {
   useRemovePaymentMethod,
 } from '@/lib/billing/hooks';
 import { localDateString } from '@/lib/dates';
+import { formatDate, formatDateTime } from '@/lib/format';
 import { useGoCardlessSettings, useStartGoCardlessMandate } from '@/lib/payments/gocardless';
 import {
   useCancelSepaMandate,
@@ -198,6 +201,7 @@ export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }
 
 function SepaMandateCard({ customerId }: { customerId: string }) {
   const ask = useConfirm();
+  const canCharge = useHasPermission('payments:charge');
   const mandates = useSepaMandates(customerId);
   const create = useCreateSepaMandate();
   const cancel = useCancelSepaMandate();
@@ -208,8 +212,10 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
   const [signedAt, setSignedAt] = useState(localDateString());
   const [link, setLink] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [changing, setChanging] = useState(false);
 
   const active = (mandates.data ?? []).find((m) => m.status === 'active');
+  const replacing = (mandates.data ?? []).find((m) => m.status === 'replacing');
   const expired = !active ? (mandates.data ?? []).find((m) => m.status === 'expired') : undefined;
 
   async function add() {
@@ -227,11 +233,14 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
       });
       setIban('');
       setBic('');
+      setChanging(false);
       setLink(m.signingUrl ?? null);
       toast.success(
         onPaper
           ? 'Mandato registrado.'
-          : 'Mandato creado. Le hemos enviado al inquilino el enlace para firmarlo.',
+          : m.status === 'replacing'
+            ? 'Le hemos enviado el enlace para firmar la cuenta nueva. Hasta que la firme, se sigue cobrando en la actual.'
+            : 'Mandato creado. Le hemos enviado al inquilino el enlace para firmarlo.',
       );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'IBAN no válido.');
@@ -265,16 +274,76 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
     }
   }
 
-  async function revoke(id: string) {
-    if (!(await ask({ title: '¿Cancelar el mandato SEPA?', destructive: true }))) return;
+  async function revoke(id: string, pendingNew: boolean) {
+    if (
+      !(await ask({
+        title: pendingNew ? '¿Anular el cambio de cuenta?' : '¿Cancelar el mandato SEPA?',
+        description: pendingNew
+          ? 'Se sigue cobrando en la cuenta actual.'
+          : 'Sus facturas dejarán de entrar en las remesas hasta que firme otro.',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await cancel.mutateAsync(id);
       setLink(null);
-      toast.success('Mandato cancelado.');
+      toast.success(pendingNew ? 'Cambio de cuenta anulado.' : 'Mandato cancelado.');
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cancelar.');
     }
   }
+
+  const form = (
+    <div className="space-y-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Input placeholder="IBAN ES91…" value={iban} onChange={(e) => setIban(e.target.value)} />
+        <Input placeholder="BIC (opcional)" value={bic} onChange={(e) => setBic(e.target.value)} />
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="size-4"
+          checked={onPaper}
+          onChange={(e) => setOnPaper(e.target.checked)}
+        />
+        Ya lo firmó en papel (lo guardas tú)
+      </label>
+      {onPaper && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Fecha de firma</span>
+          <DateSelect value={signedAt} onChange={(v) => setSignedAt(v ?? localDateString())} />
+        </div>
+      )}
+      <Button size="sm" onClick={() => void add()} disabled={create.isPending}>
+        <Plus className="mr-1 h-4 w-4" />
+        {onPaper ? 'Registrar mandato' : 'Enviar para firmar'}
+      </Button>
+    </div>
+  );
+
+  const linkBox = link ? (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">
+        Enlace para firmar (también le ha llegado por correo; puedes abrirlo en una tablet si está
+        en el local):
+      </p>
+      <div className="flex gap-2">
+        <Input readOnly value={link} className="font-mono text-xs" />
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="Copiar el enlace"
+          onClick={() => {
+            void navigator.clipboard.writeText(link);
+            toast.success('Enlace copiado.');
+          }}
+        >
+          <Copy className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <Card>
@@ -284,14 +353,16 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {active ? (
+        {mandates.isError ? (
+          <p className="text-sm text-destructive">No se ha podido cargar el mandato.</p>
+        ) : active ? (
           <div className="space-y-3 rounded-md border p-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="text-sm">
                 <p className="font-medium">
                   IBAN ····{active.ibanLast4}{' '}
                   <Badge variant="secondary" className="ml-1">
-                    {active.sequenceType}
+                    {active.sequenceType === 'FRST' ? 'Primer adeudo' : 'Recurrente'}
                   </Badge>{' '}
                   {active.signatureStatus === 'pending' ? (
                     <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
@@ -308,20 +379,20 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
                 <p className="text-xs text-muted-foreground">
                   Ref {active.reference}
                   {active.signatureStatus === 'signed' && active.signedAtTimestamp
-                    ? ` · firmado por ${active.signedByName ?? 'el inquilino'} el ${new Date(active.signedAtTimestamp).toLocaleString('es-ES')}`
+                    ? ` · firmado por ${active.signedByName ?? 'el inquilino'} el ${formatDateTime(active.signedAtTimestamp)}`
                     : active.signatureStatus === 'external'
-                      ? ` · firmado el ${active.signedAt}`
+                      ? ` · firmado el ${formatDate(active.signedAt)}`
                       : ' · no entra en las remesas hasta que lo firme'}
                   {active.signatureStatus !== 'pending' &&
-                    ` · caduca el ${active.expiresOn} si no se cobra nada antes`}
+                    ` · caduca el ${formatDate(active.expiresOn)} si no se cobra nada antes`}
                 </p>
               </div>
-              <div className="flex gap-1">
-                {active.signatureStatus === 'pending' && (
+              <div className="flex flex-wrap gap-1">
+                {canCharge && active.signatureStatus === 'pending' && (
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => resendLink(active.id)}
+                    onClick={() => void resendLink(active.id)}
                     disabled={resend.isPending}
                   >
                     <Send className="mr-1 h-4 w-4" /> Reenviar enlace
@@ -331,41 +402,65 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => download(active.id, active.reference)}
+                    onClick={() => void download(active.id, active.reference)}
                     disabled={downloading}
                   >
                     <Download className="mr-1 h-4 w-4" /> Mandato
                   </Button>
                 )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => revoke(active.id)}
-                  aria-label="Cancelar mandato"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {canCharge && active.signatureStatus !== 'pending' && !replacing && (
+                  <Button variant="outline" size="sm" onClick={() => setChanging((v) => !v)}>
+                    Cambiar de cuenta
+                  </Button>
+                )}
+                {canCharge && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void revoke(active.id, false)}
+                    aria-label="Cancelar mandato"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             </div>
-            {active.signatureStatus === 'pending' && link && (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">
-                  Enlace para firmar (también le ha llegado por correo; puedes abrirlo en una tablet
-                  si está en el local):
+            {active.signatureStatus === 'pending' && linkBox}
+            {replacing && (
+              <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                <p>
+                  Cuenta nueva ····{replacing.ibanLast4} pendiente de firma: cuando la firme,
+                  sustituirá a esta. Hasta entonces se sigue cobrando en ····{active.ibanLast4}.
                 </p>
-                <div className="flex gap-2">
-                  <Input readOnly value={link} className="font-mono text-xs" />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(link);
-                      toast.success('Enlace copiado.');
-                    }}
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
+                {canCharge && (
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void resendLink(replacing.id)}
+                      disabled={resend.isPending}
+                    >
+                      <Send className="mr-1 h-4 w-4" /> Reenviar enlace
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void revoke(replacing.id, true)}
+                    >
+                      Anular el cambio
+                    </Button>
+                  </div>
+                )}
+                {linkBox}
+              </div>
+            )}
+            {changing && canCharge && (
+              <div className="space-y-2 border-t pt-3">
+                <p className="text-xs text-muted-foreground">
+                  La cuenta actual sigue cobrando hasta que firme la nueva (o, si ya la firmó en
+                  papel, desde ahora la nueva).
+                </p>
+                {form}
               </div>
             )}
           </div>
@@ -373,50 +468,16 @@ function SepaMandateCard({ customerId }: { customerId: string }) {
           <div className="space-y-2">
             {expired && (
               <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                Su mandato {expired.reference} caducó el {expired.expiresOn} (36 meses sin cobros).
-                Para volver a domiciliar tiene que firmar uno nuevo.
+                Su mandato {expired.reference} caducó el {formatDate(expired.expiresOn)} (36 meses
+                sin cobros). Para volver a domiciliar tiene que firmar uno nuevo.
               </p>
             )}
             <p className="text-xs text-muted-foreground">
               Para domiciliar sus recibos, el inquilino tiene que firmar la orden de domiciliación
               (lo exige el banco). Le enviaremos un enlace para firmarla desde el móvil.
             </p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <Input
-                placeholder="IBAN ES91…"
-                value={iban}
-                onChange={(e) => setIban(e.target.value)}
-              />
-              <Input
-                placeholder="BIC (opcional)"
-                value={bic}
-                onChange={(e) => setBic(e.target.value)}
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-4"
-                checked={onPaper}
-                onChange={(e) => setOnPaper(e.target.checked)}
-              />
-              Ya lo firmó en papel (lo guardas tú)
-            </label>
-            {onPaper && (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">Fecha de firma</span>
-                <Input
-                  type="date"
-                  className="w-44"
-                  value={signedAt}
-                  onChange={(e) => setSignedAt(e.target.value)}
-                />
-              </div>
-            )}
-            <Button size="sm" onClick={add} disabled={create.isPending}>
-              <Plus className="mr-1 h-4 w-4" />
-              {onPaper ? 'Registrar mandato' : 'Enviar para firmar'}
-            </Button>
+            {canCharge ? form : null}
+            {linkBox}
           </div>
         )}
       </CardContent>

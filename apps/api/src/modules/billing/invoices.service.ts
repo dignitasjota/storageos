@@ -14,6 +14,7 @@ import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import {
   defaultTaxCategory,
+  isManualPaymentMethod,
   isValidSpanishTaxId,
   normalizeTaxId,
   taxCategoryAllowsRate,
@@ -21,6 +22,7 @@ import {
   NON_CASH_PAYMENT_METHODS,
 } from '@storageos/shared';
 
+import { assertCashDayOpen, invoiceFacilityId } from '../../common/cash-day';
 import { customerScopeWhere } from '../../common/customer-scope';
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
 import { emailLocale, formatDateLong, formatEur, todayInTimezone } from '../../common/format';
@@ -33,6 +35,7 @@ import {
   toCents,
 } from '../../common/money';
 import { pageArgs, type PageRequest } from '../../common/pagination';
+import { invoiceInActivePlan } from '../../common/payment-plan-guard';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import {
@@ -50,6 +53,7 @@ import {
   type InvoiceCancelledPayload,
   type InvoicePaymentRevertedPayload,
   type InvoiceRefundedPayload,
+  type PaymentDisputeWonPayload,
   type InvoiceVoidedPayload,
 } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
@@ -68,7 +72,13 @@ import { VerifactuService } from './verifactu.service';
 
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
-import type { Invoice, InvoiceItem, InvoiceStatus, InvoiceType } from '@storageos/database';
+import type {
+  Invoice,
+  InvoiceItem,
+  InvoiceStatus,
+  InvoiceType,
+  PaymentMethodType,
+} from '@storageos/database';
 import type {
   BulkInvoiceActionResultDto,
   CancelInvoiceInput,
@@ -93,6 +103,21 @@ import type {
   VerifactuRecordDto,
   VoidInvoiceInput,
 } from '@storageos/shared';
+
+/** Registro de un cobro a mano (efectivo, transferencia, Bizum…). */
+export interface ManualPaymentArgs {
+  tenantId: string;
+  userId: string | null;
+  invoiceId: string;
+  facilityScope?: string[] | null;
+  input: MarkPaidManuallyInput;
+  meta: RequestMeta;
+  /**
+   * Registro a mano desde el panel: el mismo cobro dos veces en unos segundos
+   * es un doble clic (409), no dos cobros.
+   */
+  rejectDuplicate?: boolean;
+}
 
 /** Tipo fiscal de la línea: el indicado (validado) o el de por defecto según el tipo. */
 function lineTaxCategory(taxRate: number, category?: InvoiceTaxCategory): InvoiceTaxCategory {
@@ -1920,7 +1945,24 @@ export class InvoicesService {
       }
       throw err;
     }
-    return this.issue({ tenantId, userId: args.userId, invoiceId: created.id, meta: {} });
+    try {
+      return await this.issue({ tenantId, userId: args.userId, invoiceId: created.id, meta: {} });
+    } catch (err) {
+      // Sin emitir (faltan los datos fiscales, la serie…): el borrador se
+      // desengancha y se anula, para que el recargo se pueda volver a aplicar
+      // cuando se arregle (si no, la factura daba «ya tiene recargo» para siempre).
+      await this.prisma
+        .withTenant(
+          (tx) =>
+            tx.invoice.updateMany({
+              where: { id: created.id, status: 'draft' },
+              data: { lateFeeForInvoiceId: null, status: 'cancelled', cancelledAt: new Date() },
+            }),
+          tenantId,
+        )
+        .catch(() => undefined);
+      throw err;
+    }
   }
 
   /**
@@ -2761,19 +2803,14 @@ export class InvoicesService {
   }
 
   /** Marca una factura como pagada manualmente (cobro en efectivo, transferencia...). */
-  async markPaidManually(args: {
-    tenantId: string;
-    userId: string | null;
-    invoiceId: string;
-    facilityScope?: string[] | null;
-    input: MarkPaidManuallyInput;
-    meta: RequestMeta;
-    /**
-     * Registro a mano desde el panel: el mismo cobro dos veces en unos segundos
-     * es un doble clic (409), no dos cobros.
-     */
-    rejectDuplicate?: boolean;
-  }): Promise<InvoiceDto> {
+  async markPaidManually(args: ManualPaymentArgs): Promise<InvoiceDto> {
+    return (await this.registerManualPayment(args)).invoice;
+  }
+
+  /** Igual que `markPaidManually`, y además devuelve el cobro creado. */
+  async registerManualPayment(
+    args: ManualPaymentArgs,
+  ): Promise<{ invoice: InvoiceDto; paymentId: string }> {
     // Alcance por local y existencia (fuera de la transacción: solo lectura).
     const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     const amount = args.input.amount;
@@ -2787,6 +2824,7 @@ export class InvoicesService {
     }
     let total = 0;
     let fullyPaid = false;
+    let paymentId = '';
 
     // Todas las comprobaciones de importe se hacen DENTRO de la transacción,
     // sobre la fila bloqueada: dos cobros a la vez (Redsys + el staff, remesa SEPA
@@ -2803,6 +2841,15 @@ export class InvoicesService {
         throw new BadRequestException({
           code: 'invoice_not_payable',
           message: 'La factura no esta en estado pagable',
+        });
+      }
+      // Efectivo en un día con la caja ya cerrada: el arqueo dejaría de cuadrar.
+      if (args.input.methodType === 'cash') {
+        await assertCashDayOpen(tx, {
+          tenantId: args.tenantId,
+          facilityId: await invoiceFacilityId(tx, args.invoiceId),
+          at: [paidAt],
+          what: 'un cobro en efectivo',
         });
       }
       total = Number(fresh.total);
@@ -2860,11 +2907,14 @@ export class InvoicesService {
       }
       // Pagos parciales solo en efectivo: por cualquier otra vía la factura se
       // salda de una vez (evita cobros parciales fantasma por pasarela/transferencia).
-      // Excepción: cobros bancarios reales ya confirmados (N43/SEPA) con `allowPartialNonCash`.
+      // Excepciones: cobros bancarios reales ya confirmados (N43/SEPA) con
+      // `allowPartialNonCash`, y las cuotas de un plan de pagos activo (se
+      // pagan por transferencia o Bizum, como se le dijo al inquilino).
       if (
         isGreaterThan(total, newPaid) &&
         args.input.methodType !== 'cash' &&
-        !args.input.allowPartialNonCash
+        !args.input.allowPartialNonCash &&
+        !(await invoiceInActivePlan(tx, args.invoiceId))
       ) {
         throw new BadRequestException({
           code: 'partial_only_cash',
@@ -2874,7 +2924,7 @@ export class InvoicesService {
       }
       // También en una F2 sin destinatario (pago sin cliente): así cuenta en
       // lo cobrado y en el cierre de caja.
-      await tx.payment.create({
+      const created = await tx.payment.create({
         data: {
           tenantId: args.tenantId,
           invoiceId: args.invoiceId,
@@ -2886,7 +2936,9 @@ export class InvoicesService {
           paidAt,
           notes: args.input.notes?.trim() || null,
         },
+        select: { id: true },
       });
+      paymentId = created.id;
       return tx.invoice.update({
         where: { id: args.invoiceId },
         data: {
@@ -2924,7 +2976,7 @@ export class InvoicesService {
       };
       this.events.emit(DOMAIN_EVENTS.invoice_paid, payload);
     }
-    return this.toDto(updated);
+    return { invoice: this.toDto(updated), paymentId };
   }
 
   /**
@@ -2947,6 +2999,8 @@ export class InvoicesService {
      * automática): no cuenta como recibo devuelto.
      */
     undo?: boolean;
+    /** Cuándo lo devolvió el banco (por defecto, ahora). */
+    returnedAt?: Date;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
     await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
@@ -3019,7 +3073,7 @@ export class InvoicesService {
           data: {
             status: 'failed',
             failureReason: args.reason,
-            ...(args.undo ? {} : { returnedAt: new Date() }),
+            ...(args.undo ? {} : { returnedAt: args.returnedAt ?? new Date() }),
           },
         });
       }
@@ -3060,6 +3114,99 @@ export class InvoicesService {
     return this.toDto(updated);
   }
 
+  /**
+   * Vuelve a dar por bueno un cobro revertido: una devolución registrada por
+   * error en la conciliación bancaria o una disputa de tarjeta que se ganó. El
+   * cobro vuelve a «cobrado» y suma otra vez a la factura (que, si queda
+   * saldada, pasa a pagada y avisa como cualquier cobro).
+   */
+  async restorePayment(args: {
+    tenantId: string;
+    userId: string | null;
+    invoiceId: string;
+    paymentId: string;
+    reason: string;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    let fullyPaid = false;
+    let total = 0;
+    let paidAt = new Date();
+    const updated = await this.prisma.withTenant(async (tx) => {
+      await lockInvoiceRow(tx, args.invoiceId);
+      const payment = await tx.payment.findFirst({
+        where: { id: args.paymentId, invoiceId: args.invoiceId, status: 'failed' },
+        select: { amount: true, paidAt: true },
+      });
+      if (!payment) {
+        throw new BadRequestException({
+          code: 'payment_not_reverted',
+          message: 'Ese cobro no está revertido: no hay nada que restaurar',
+        });
+      }
+      const fresh = await tx.invoice.findUniqueOrThrow({
+        where: { id: args.invoiceId },
+        select: { status: true, total: true, amountPaid: true },
+      });
+      if (fresh.status !== 'issued' && fresh.status !== 'overdue' && fresh.status !== 'paid') {
+        throw new ConflictException({
+          code: 'invoice_not_payable',
+          message: 'La factura ya no admite cobros (anulada, rectificada o devuelta)',
+        });
+      }
+      total = Number(fresh.total);
+      const newPaid = addAmounts(fresh.amountPaid, payment.amount);
+      if (isGreaterThan(newPaid, total)) {
+        throw new ConflictException({
+          code: 'overpayment',
+          message:
+            'La factura ya se ha cobrado de otra forma: este cobro no puede volver a contar. Devuelve la diferencia al inquilino.',
+        });
+      }
+      fullyPaid = isAtLeast(newPaid, total);
+      paidAt = payment.paidAt ?? new Date();
+      await tx.payment.update({
+        where: { id: args.paymentId },
+        data: { status: 'succeeded', failureReason: null, returnedAt: null },
+      });
+      return tx.invoice.update({
+        where: { id: args.invoiceId },
+        data: {
+          amountPaid: newPaid,
+          ...(fullyPaid ? { status: 'paid', paidAt } : {}),
+        },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.payment_restored',
+      entityType: 'Invoice',
+      entityId: args.invoiceId,
+      changes: { paymentId: args.paymentId, reason: args.reason },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    if (fullyPaid) {
+      this.events.emit(DOMAIN_EVENTS.invoice_paid, {
+        tenantId: args.tenantId,
+        entityType: 'invoice',
+        entityId: args.invoiceId,
+        customerId: existing.customerId,
+        recipientEmail: null,
+        scope: {
+          invoice: {
+            number: updated.invoiceNumber,
+            total: total.toFixed(2),
+            paidAt: paidAt.toISOString(),
+          },
+        },
+      } satisfies DomainEventPayload);
+    }
+    return this.toDto(updated);
+  }
+
   async refund(args: {
     tenantId: string;
     /** null en los reembolsos automáticos (p. ej. suscripción devuelta en Stripe). */
@@ -3083,6 +3230,8 @@ export class InvoicesService {
     let fullyRefunded = false;
     let gatewayRefundId: string | null = null;
     let usedGateway = false;
+    /** Cómo salió el dinero (null: saldo a favor, no sale nada). */
+    let refundMethod: PaymentMethodType | null = null;
 
     // Todo el reembolso va en UNA transacción con la factura bloqueada, que
     // incluye la llamada a la pasarela: un doble clic (o dos personas a la vez)
@@ -3208,6 +3357,7 @@ export class InvoicesService {
           });
           via = 'bank';
           refundedPaymentId = gatewayPayment.id;
+          refundMethod = gatewayPayment.methodType;
         } else if (gatewayPayment?.gatewayPaymentId) {
           const paymentRefundable = subtractAmounts(
             gatewayPayment.amount,
@@ -3257,6 +3407,7 @@ export class InvoicesService {
           usedGateway = true;
           via = 'gateway';
           refundedPaymentId = gatewayPayment.id;
+          refundMethod = gatewayPayment.methodType;
           // `payment.refundedAmount` al día: el webhook `charge.refunded`
           // sincroniza por delta contra este campo, así no se cuenta dos veces.
           await tx.payment.update({
@@ -3270,10 +3421,11 @@ export class InvoicesService {
             },
           });
         } else {
-          // Cobro manual (efectivo/transferencia): no hay pasarela que devuelva el
-          // dinero, pero registramos el reembolso en el `payment` para que el arqueo
-          // de caja lo descuente por su método (p. ej. una devolución en efectivo).
-          const manualPayment = await tx.payment.findFirst({
+          // Cobros a mano (efectivo, transferencia, Bizum, TPV del local): no hay
+          // pasarela que devuelva el dinero; se anota en esos cobros (sin pasar
+          // de lo cobrado en cada uno), empezando por los de la misma forma en
+          // que se devuelve y por los más recientes.
+          const manualPayments = await tx.payment.findMany({
             where: {
               invoiceId: args.invoiceId,
               gatewayPaymentId: null,
@@ -3282,20 +3434,43 @@ export class InvoicesService {
             },
             orderBy: { createdAt: 'desc' },
           });
-          if (manualPayment) {
-            const newPaymentRefunded = addAmounts(manualPayment.refundedAmount, amount);
+          const first = manualPayments[0];
+          refundMethod =
+            args.input.refundMethod ??
+            (first && isManualPaymentMethod(first.methodType) ? first.methodType : 'bank_transfer');
+          const ordered = [
+            ...manualPayments.filter((p) => p.methodType === refundMethod),
+            ...manualPayments.filter((p) => p.methodType !== refundMethod),
+          ];
+          let left = toCents(amount);
+          for (const payment of ordered) {
+            if (left <= 0) break;
+            const room = toCents(payment.amount) - toCents(payment.refundedAmount);
+            if (room <= 0) continue;
+            const take = Math.min(room, left);
+            const newPaymentRefunded = addAmounts(payment.refundedAmount, take / 100);
             await tx.payment.update({
-              where: { id: manualPayment.id },
+              where: { id: payment.id },
               data: {
                 refundedAmount: newPaymentRefunded,
                 refundedAt: new Date(),
-                status: isAtLeast(newPaymentRefunded, manualPayment.amount)
+                status: isAtLeast(newPaymentRefunded, payment.amount)
                   ? 'refunded'
                   : 'partially_refunded',
               },
             });
-            refundedPaymentId = manualPayment.id;
+            refundedPaymentId ??= payment.id;
+            left -= take;
           }
+        }
+        // Dinero devuelto en efectivo: sale del cajón de hoy (no con la caja cerrada).
+        if (refundMethod === 'cash') {
+          await assertCashDayOpen(tx, {
+            tenantId: args.tenantId,
+            facilityId: await invoiceFacilityId(tx, args.invoiceId),
+            at: [new Date()],
+            what: 'una devolución en efectivo',
+          });
         }
         // Constancia de cada devolución: cuánto, cómo y quién.
         await tx.invoiceRefund.create({
@@ -3305,6 +3480,7 @@ export class InvoicesService {
             paymentId: refundedPaymentId,
             amount,
             via,
+            method: refundMethod,
             reason: args.input.reason?.trim() || null,
             gatewayRefundId,
             createdByUserId: args.userId,
@@ -3337,6 +3513,7 @@ export class InvoicesService {
         gateway: usedGateway,
         gatewayRefundId,
         method: args.input.method ?? 'original',
+        refundMethod,
       },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
@@ -3349,6 +3526,41 @@ export class InvoicesService {
       amount,
     } satisfies InvoiceRefundedPayload);
     return this.toDto(updated);
+  }
+
+  /** Disputa ganada en la pasarela: el cobro revertido vuelve a contar. */
+  @OnEvent(DOMAIN_EVENTS.payment_dispute_won, { async: true, promisify: true })
+  async onPaymentDisputeWon(p: PaymentDisputeWonPayload): Promise<void> {
+    try {
+      await this.restorePayment({
+        tenantId: p.tenantId,
+        userId: null,
+        invoiceId: p.invoiceId,
+        paymentId: p.paymentId,
+        reason: 'Disputa ganada en la pasarela',
+        meta: {},
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`[invoices] disputa ganada sin aplicar en ${p.invoiceId}: ${reason}`);
+      // El dinero volvió al negocio: si no puede volver a contar (la factura se
+      // pagó de otra forma o se anuló), alguien tiene que decidir qué hacer.
+      await this.prisma
+        .withTenant(
+          (tx) =>
+            tx.notification.create({
+              data: {
+                tenantId: p.tenantId,
+                type: 'payment.dispute_won_unapplied',
+                title: 'Disputa ganada sin aplicar',
+                body: `La pasarela ha devuelto ${formatEur(p.amount)} de una disputa ganada, pero el cobro no puede volver a contar en la factura: ${reason.slice(0, 300)} Si el inquilino ya la pagó de otra forma, devuélvele la diferencia.`,
+                link: `/invoices/${p.invoiceId}`,
+              },
+            }),
+          p.tenantId,
+        )
+        .catch(() => undefined);
+    }
   }
 
   @OnEvent(DOMAIN_EVENTS.invoice_refunded, { async: true, promisify: true })

@@ -339,8 +339,14 @@ export const MODULE_SETTINGS: SettingsNavItem[] = [
   {
     href: '/collections',
     label: 'Impagos',
-    description: 'Plazos del procedimiento de impago físico (overlock).',
+    description: 'Plazos del procedimiento de impago (candado, requerimiento y custodia).',
     permission: 'collections:read',
+  },
+  {
+    href: '/bank-reconciliation',
+    label: 'Conciliación bancaria',
+    description: 'Conciliar solos los ingresos del extracto que casan con una factura.',
+    permission: 'payments:read',
   },
   {
     href: '/marketing/channels',

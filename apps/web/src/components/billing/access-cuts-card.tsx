@@ -68,7 +68,11 @@ export function AccessCutsCard({ facilityId }: { facilityId?: string | undefined
       return;
     await run(async () => {
       const res = await cutAll.mutateAsync(facilityId);
-      return `Acceso cortado a ${res.customers} ${res.customers === 1 ? 'inquilino' : 'inquilinos'}.`;
+      return `Acceso cortado a ${res.customers} ${res.customers === 1 ? 'inquilino' : 'inquilinos'}.${
+        res.failed > 0
+          ? ` A ${res.failed} no se le pudo cortar (quizá pagó entre medias): revisa la lista.`
+          : ''
+      }`;
     });
   }
 

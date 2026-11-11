@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -10,21 +11,28 @@ import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
 
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
+
 /**
  * Badge de overlock: la ficha del contrato (staff) y el portal del inquilino
  * reflejan que hay un expediente de impago con el candado puesto.
  */
 describe('Overlock badge (staff + portal) (e2e)', () => {
   let app: INestApplication;
+  let admin: PrismaClient;
 
   beforeAll(async () => {
     await cleanupTestTenants();
     await deleteAllMessages();
+    admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
     app = await createTestApp();
   });
 
   afterAll(async () => {
     await app.close();
+    await admin.$disconnect();
     await cleanupTestTenants();
     await deleteAllMessages();
   });
@@ -73,6 +81,11 @@ describe('Overlock badge (staff + portal) (e2e)', () => {
       .post(`/invoices/${invoice.body.id}/issue`)
       .set(auth)
       .expect(200);
+    // Vencida hace 20 días: solo lo vencido es deuda.
+    await admin.invoice.update({
+      where: { id: invoice.body.id as string },
+      data: { dueDate: new Date(Date.now() - 20 * 86_400_000), status: 'overdue' },
+    });
 
     // Sin expediente → by-contract devuelve null.
     const before = await request(app.getHttpServer())
@@ -90,7 +103,7 @@ describe('Overlock badge (staff + portal) (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/collections/${caseId}/overlock`)
       .set(auth)
-      .send({ notes: 'Candado colocado' })
+      .send({ notes: 'Candado colocado', priorNotice: 'Llamada al inquilino' })
       .expect(200);
 
     // Staff: by-contract devuelve el expediente overlocked.

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { accessCutUndecided } from '../../common/access-cut';
 import { invoiceFacilityWhere } from '../../common/facility-scope';
@@ -36,6 +36,8 @@ const INVOICE_SELECT = {
  */
 @Injectable()
 export class AccessDebtCutsService {
+  private readonly logger = new Logger(AccessDebtCutsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -132,21 +134,34 @@ export class AccessDebtCutsService {
     return { suspended: outcome.suspended };
   }
 
-  /** Corta a todos los de la lista. Devuelve a cuántos se les ha cortado. */
+  /**
+   * Corta a todos los de la lista. Uno que falla (pagó entre medias, el corte
+   * se apagó…) no detiene a los demás: se cuenta aparte.
+   */
   async cutAll(args: {
     tenantId: string;
     userId: string;
     facilityScope: string[] | null;
     facilityId?: string;
     meta: RequestMeta;
-  }): Promise<{ customers: number; suspended: number }> {
+  }): Promise<{ customers: number; suspended: number; failed: number }> {
     const { rows } = await this.pending(args.tenantId, args.facilityScope, args.facilityId);
     let suspended = 0;
+    let customers = 0;
+    let failed = 0;
     for (const row of rows) {
-      const res = await this.cut({ ...args, customerId: row.customerId });
-      suspended += res.suspended;
+      try {
+        const res = await this.cut({ ...args, customerId: row.customerId });
+        suspended += res.suspended;
+        customers++;
+      } catch (err) {
+        failed++;
+        this.logger.warn(
+          `[access] corte de ${row.customerId} sin aplicar: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
-    return { customers: rows.length, suspended };
+    return { customers, suspended, failed };
   }
 
   /** No se le corta: desaparece de la lista y sigue el escalado normal. */

@@ -1,22 +1,33 @@
 /**
  * Plantilla PURA del requerimiento fehaciente de pago (sin Puppeteer). Vive
  * aparte del service para poder testearla por unit sin lanzar el navegador.
+ *
+ * Dice lo que dice la condición 12 del contrato: si no paga en el plazo (no
+ * inferior a 15 días desde que lo recibe), el contrato queda resuelto; tiene
+ * que retirar sus bienes y, si no lo hace, se trasladan con inventario a un
+ * lugar de custodia a su cargo, y solo se dispone de ellos por los cauces
+ * legales.
  */
 
 export interface RequirementInvoiceLine {
   number: string;
   issueDate: string;
+  dueDate: string;
   totalCents: number;
   pendingCents: number;
 }
 
 export interface RequirementData {
-  tenant: {
+  /** El arrendador: la empresa (razón social) o el propietario del local. */
+  issuer: {
     name: string;
     taxId: string | null;
-    collectionsNoticeDays: number;
-    collectionsClauseRef: string | null;
+    address: string | null;
+    /** Quien gestiona en nombre del propietario (su nombre comercial). */
+    managedBy: string | null;
   };
+  noticeDays: number;
+  clauseRef: string | null;
   customer: {
     customerType: string;
     firstName: string | null;
@@ -40,6 +51,9 @@ export interface RequirementData {
   } | null;
   lines: RequirementInvoiceLine[];
   debtCents: number;
+  /** Cómo puede pagar. */
+  payment: { iban: string | null; portalUrl: string | null };
+  /** Fecha del documento, ya en la zona del negocio («11 de noviembre de 2026»). */
   today: string;
 }
 
@@ -58,6 +72,11 @@ function money(cents: number): string {
   })} €`;
 }
 
+/** `2026-11-11` → `11/11/2026`. */
+function day(iso: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('/') : iso;
+}
+
 export function requirementCustomerName(c: RequirementData['customer']): string {
   if (!c) return 'Cliente';
   if (c.customerType === 'business') return c.companyName ?? 'Empresa';
@@ -70,7 +89,7 @@ export function renderRequirementHtml(d: RequirementData): string {
   const customerName = requirementCustomerName(c);
   const customerDoc =
     c?.documentNumber != null
-      ? `${c.documentType ? `${esc(c.documentType)} ` : ''}${esc(c.documentNumber)}`
+      ? `${c.documentType ? `${esc(c.documentType.toUpperCase())} ` : ''}${esc(c.documentNumber)}`
       : '';
   const customerAddress = [c?.address, [c?.postalCode, c?.city].filter(Boolean).join(' ')]
     .filter(Boolean)
@@ -83,17 +102,27 @@ export function renderRequirementHtml(d: RequirementData): string {
     .filter(Boolean)
     .map(esc)
     .join(' · ');
-  const noticeDays = d.tenant.collectionsNoticeDays;
-  const clauseRef = d.tenant.collectionsClauseRef;
+  const clause = d.clauseRef ? esc(d.clauseRef) : 'condición 12 de las condiciones del contrato';
 
   const rows = d.lines
     .map(
       (l) =>
-        `<tr><td>${esc(l.number)}</td><td>${esc(l.issueDate)}</td><td class="r">${money(
-          l.totalCents,
-        )}</td><td class="r">${money(l.pendingCents)}</td></tr>`,
+        `<tr><td>${esc(l.number)}</td><td>${esc(day(l.issueDate))}</td><td>${esc(
+          day(l.dueDate),
+        )}</td><td class="r">${money(l.totalCents)}</td><td class="r">${money(
+          l.pendingCents,
+        )}</td></tr>`,
     )
     .join('');
+  const ways = [
+    d.payment.iban
+      ? `por transferencia a la cuenta <strong>${esc(d.payment.iban)}</strong>, indicando el número de factura`
+      : null,
+    d.payment.portalUrl
+      ? `desde su área de clientes: <strong>${esc(d.payment.portalUrl)}</strong>`
+      : null,
+    'o en el propio local',
+  ].filter(Boolean);
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>
     * { box-sizing: border-box; }
@@ -114,10 +143,11 @@ export function renderRequirementHtml(d: RequirementData): string {
   </style></head><body>
     <div class="head">
       <div>
-        <div class="op">${esc(d.tenant.name)}</div>
-        ${d.tenant.taxId ? `<div class="muted">NIF/CIF: ${esc(d.tenant.taxId)}</div>` : ''}
-        ${d.facility?.name ? `<div class="muted">${esc(d.facility.name)}</div>` : ''}
-        ${facilityAddress ? `<div class="muted">${facilityAddress}</div>` : ''}
+        <div class="op">${esc(d.issuer.name)}</div>
+        ${d.issuer.taxId ? `<div class="muted">NIF: ${esc(d.issuer.taxId)}</div>` : ''}
+        ${d.issuer.address ? `<div class="muted">${esc(d.issuer.address)}</div>` : ''}
+        ${d.issuer.managedBy ? `<div class="muted">Gestionado por ${esc(d.issuer.managedBy)}</div>` : ''}
+        ${d.facility?.name ? `<div class="muted">${esc(d.facility.name)}${facilityAddress ? ` · ${facilityAddress}` : ''}</div>` : ''}
         ${d.facility?.contactPhone ? `<div class="muted">Tel.: ${esc(d.facility.contactPhone)}</div>` : ''}
         ${d.facility?.contactEmail ? `<div class="muted">${esc(d.facility.contactEmail)}</div>` : ''}
       </div>
@@ -131,45 +161,46 @@ export function renderRequirementHtml(d: RequirementData): string {
 
     <h1>Requerimiento fehaciente de pago</h1>
     <p>Muy Sr./Sra. nuestro/a:</p>
-    <p>Por la presente le comunicamos que, según nuestros registros, mantiene una
-    <strong>deuda vencida y pendiente de pago</strong> derivada del contrato de arrendamiento
-    del trastero${d.unitCode ? ` <strong>${esc(d.unitCode)}</strong>` : ''}${
+    <p>Le comunicamos que mantiene una <strong>deuda vencida y pendiente de pago</strong>
+    derivada del contrato de alquiler del trastero${d.unitCode ? ` <strong>${esc(d.unitCode)}</strong>` : ''}${
       d.facility?.name ? ` del local ${esc(d.facility.name)}` : ''
-    }${d.contractNumber ? ` (contrato nº ${esc(d.contractNumber)})` : ''}, con el siguiente detalle:</p>
+    }${d.contractNumber ? ` (contrato nº ${esc(d.contractNumber)})` : ''}, con este detalle:</p>
 
     <table>
-      <thead><tr><th>Factura</th><th>Fecha</th><th class="r">Importe</th><th class="r">Pendiente</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="4" class="muted">Sin facturas pendientes registradas.</td></tr>'}</tbody>
-      <tfoot><tr class="total"><td colspan="3" class="r">Total adeudado</td><td class="r">${money(d.debtCents)}</td></tr></tfoot>
+      <thead><tr><th>Factura</th><th>Fecha</th><th>Vencimiento</th><th class="r">Importe</th><th class="r">Pendiente</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" class="muted">Sin facturas vencidas.</td></tr>'}</tbody>
+      <tfoot><tr class="total"><td colspan="4" class="r">Total adeudado</td><td class="r">${money(d.debtCents)}</td></tr></tfoot>
     </table>
 
-    <p>Mediante este escrito le <strong>requerimos formalmente para que, en el plazo de
-    ${noticeDays} días naturales</strong> desde la recepción del presente, proceda a
-    <strong>saldar la totalidad de la deuda</strong> por cualquiera de los medios de pago
-    habilitados.</p>
+    <p>Por este escrito le <strong>requerimos para que, en el plazo de ${d.noticeDays} días
+    naturales desde que lo reciba</strong>, pague la totalidad de la deuda ${ways.join(', ')}.</p>
 
     <div class="warn">
-      <strong>Advertencia.</strong> De no atender este requerimiento en el plazo indicado, y de
-      conformidad con lo pactado en el contrato de arrendamiento${
-        clauseRef ? ` (${esc(clauseRef)})` : ''
-      }, esta parte podrá adoptar las medidas previstas en el mismo, incluida la
-      <strong>restricción del acceso al trastero</strong> y, en su caso, la
-      <strong>disposición del contenido</strong> para resarcirse de la deuda, todo ello sin
-      perjuicio de la reclamación de las cantidades adeudadas por la vía que corresponda.
+      <strong>Si no paga en ese plazo</strong>, conforme a lo pactado en el contrato (${clause}):
+      <ul>
+        <li>el <strong>contrato quedará resuelto</strong>, sin perjuicio de reclamarle las
+        cantidades adeudadas por la vía que corresponda;</li>
+        <li>deberá <strong>retirar sus bienes</strong> del trastero: puede pedirnos una cita
+        para hacerlo;</li>
+        <li>si no los retira, se <strong>trasladarán con inventario</strong> a un lugar de
+        custodia, donde podrá recuperarlos; los gastos de traslado y custodia serán a su
+        cargo;</li>
+        <li>solo se dispondrá de ellos por los <strong>cauces legales</strong>.</li>
+      </ul>
+      Mientras la deuda siga pendiente, el acceso al trastero puede permanecer suspendido.
     </div>
 
-    <p>Si ya ha efectuado el pago, le rogamos considere este requerimiento por no puesto y nos
-    remita el justificante correspondiente.</p>
+    <p>Si ya ha pagado, le rogamos que no tenga en cuenta este requerimiento y nos envíe el
+    justificante.</p>
 
     <div class="sign">
       <p>Atentamente,</p>
-      <p><strong>${esc(d.tenant.name)}</strong></p>
+      <p><strong>${esc(d.issuer.name)}</strong></p>
     </div>
 
     <div class="foot">
-      Documento generado el ${esc(d.today)}. Este requerimiento no constituye asesoramiento
-      jurídico; su validez y efectos dependen de lo pactado en el contrato y de la normativa
-      aplicable. Conserve el acuse de recibo del envío (burofax) como prueba.
+      Documento generado el ${esc(d.today)}. Envíelo por un medio que deje constancia de la
+      entrega (burofax con acuse de recibo y certificación de texto) y conserve el justificante.
     </div>
   </body></html>`;
 }

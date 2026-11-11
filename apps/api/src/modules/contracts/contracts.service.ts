@@ -17,6 +17,7 @@ import {
   resolvePlanFeatures,
 } from '@storageos/shared';
 
+import { assertCashDayOpen } from '../../common/cash-day';
 import { depositWasCollected } from '../../common/deposit-collected';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
@@ -2332,15 +2333,17 @@ export class ContractsService {
           createdByUserId: args.userId,
         },
       });
-      // Liberar el unit -> available.
+      // Liberar el unit -> available. Con un expediente de impago abierto los
+      // bienes siguen dentro: el trastero queda bloqueado (fuera de la venta)
+      // hasta que se vacíe.
       const unit = await tx.unit.findUniqueOrThrow({ where: { id: existing.unitId } });
       if (unit.status === 'occupied') {
-        await this.syncUnitStatus(
+        await this.releaseOrHoldUnit(
           tx,
           args,
           existing.unitId,
+          args.contractId,
           unit.status,
-          'available',
           `Contrato ${row.contractNumber} finalizado`,
         );
       }
@@ -2940,7 +2943,7 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
-    methodType: 'cash' | 'card' | 'bank_transfer' | 'other';
+    methodType: 'cash' | 'card' | 'bank_transfer' | 'bizum' | 'other';
     facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ContractDto> {
@@ -3042,6 +3045,16 @@ export class ContractsService {
     }
 
     const updated = await this.prisma.withTenant(async (tx) => {
+      // Fianza devuelta en efectivo: sale del cajón de ese día (no con la caja
+      // ya cerrada; si hace falta, se reabre el cierre).
+      if (args.input.returnMethod === 'cash' && isGreaterThan(returned, 0)) {
+        await assertCashDayOpen(tx, {
+          tenantId: args.tenantId,
+          facilityId: existing.unit?.facilityId ?? null,
+          at: [args.input.returnedOn ? new Date(`${args.input.returnedOn}T12:00:00Z`) : new Date()],
+          what: 'una fianza devuelta en efectivo',
+        });
+      }
       // Claim atómico: la condición `depositStatus:'held'` va en el WHERE del
       // UPDATE (no en un SELECT previo) — dos liquidaciones concurrentes de
       // la misma fianza (doble clic, dos pestañas) solo dejan pasar a UNA; la
@@ -3180,7 +3193,8 @@ export class ContractsService {
         invoiceId: inv.id,
         input: {
           amount: pay / 100,
-          methodType: 'other',
+          // No es dinero nuevo (entró al cobrar la fianza): no cuenta en la caja.
+          methodType: 'deposit',
           notes: 'Aplicado de la fianza retenida',
           allowPartialNonCash: true,
           overridePaymentInFlight: true,
@@ -3278,12 +3292,12 @@ export class ContractsService {
         (wasLive && unit.status === 'occupied');
       released = releasable;
       if (releasable) {
-        await this.syncUnitStatus(
+        released = await this.releaseOrHoldUnit(
           tx,
           args,
           existing.unitId,
+          existing.id,
           unit.status,
-          'available',
           `Contrato ${row.contractNumber} cancelado`,
         );
       }
@@ -4229,6 +4243,47 @@ export class ContractsService {
    * la regla "occupied solo via contract" del UnitsService porque ESTE
    * es el flujo de contrato.
    */
+  /**
+   * El trastero de un contrato que se cierra vuelve a la venta, salvo que el
+   * contrato tenga un expediente de impago abierto: los bienes siguen dentro y
+   * queda bloqueado hasta que se vacíe. Devuelve si quedó disponible.
+   */
+  private async releaseOrHoldUnit(
+    tx: Prisma.TransactionClient,
+    ctx: { tenantId: string; userId: string | null; meta: RequestMeta },
+    unitId: string,
+    contractId: string,
+    from: UnitStatus,
+    reason: string,
+  ): Promise<boolean> {
+    const withCase = await tx.delinquencyCase.count({
+      where: {
+        contractId,
+        status: { notIn: ['closed_paid', 'closed_disposed', 'closed_cancelled'] },
+      },
+    });
+    if (withCase === 0) {
+      await this.syncUnitStatus(tx, ctx, unitId, from, 'available', reason);
+      return true;
+    }
+    await this.syncUnitStatus(
+      tx,
+      ctx,
+      unitId,
+      from,
+      'blocked',
+      `${reason} con un impago abierto: bienes retenidos`,
+    );
+    await tx.unit.update({
+      where: { id: unitId },
+      data: {
+        outOfServiceReason: 'Impago: bienes retenidos hasta vaciarlo',
+        outOfServiceSince: new Date(),
+      },
+    });
+    return false;
+  }
+
   private async syncUnitStatus(
     tx: Prisma.TransactionClient,
     ctx: { tenantId: string; userId: string | null; meta: RequestMeta },

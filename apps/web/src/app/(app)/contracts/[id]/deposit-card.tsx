@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import type { ContractDto } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
+import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -33,6 +34,7 @@ import { formatDate, formatEur } from '@/lib/format';
 const RETURN_METHOD_LABEL: Record<string, string> = {
   bank_transfer: 'transferencia',
   cash: 'efectivo',
+  bizum: 'Bizum',
   card: 'tarjeta',
   other: 'otro medio',
 };
@@ -63,9 +65,9 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
   const [open, setOpen] = useState(false);
   const collect = useCollectDeposit();
   const setMethod = useSetDepositPaymentMethod();
-  const [collectMethod, setCollectMethod] = useState<'cash' | 'card' | 'bank_transfer' | 'other'>(
-    'cash',
-  );
+  const [collectMethod, setCollectMethod] = useState<
+    'cash' | 'card' | 'bank_transfer' | 'bizum' | 'other'
+  >('cash');
   const receipt = contract.depositReceipt;
   const collected = receipt?.status === 'paid';
   const live = contract.status !== 'cancelled' && contract.status !== 'ended';
@@ -144,12 +146,15 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
                 className="rounded-md border bg-background px-2 py-1 text-sm"
                 value={collectMethod}
                 onChange={(e) =>
-                  setCollectMethod(e.target.value as 'cash' | 'card' | 'bank_transfer' | 'other')
+                  setCollectMethod(
+                    e.target.value as 'cash' | 'card' | 'bank_transfer' | 'bizum' | 'other',
+                  )
                 }
               >
                 <option value="cash">Efectivo</option>
                 <option value="card">Tarjeta (TPV físico)</option>
                 <option value="bank_transfer">Transferencia</option>
+                <option value="bizum">Bizum</option>
                 <option value="other">Otro</option>
               </select>
               <Button
@@ -224,9 +229,9 @@ export function SettleDepositDialog({
   const [returnedAmount, setReturnedAmount] = useState(contract.depositAmount);
   const [reason, setReason] = useState('');
   const [applyToInvoices, setApplyToInvoices] = useState(false);
-  const [returnMethod, setReturnMethod] = useState<'bank_transfer' | 'cash' | 'card' | 'other'>(
-    'bank_transfer',
-  );
+  const [returnMethod, setReturnMethod] = useState<
+    'bank_transfer' | 'cash' | 'card' | 'bizum' | 'other'
+  >('bank_transfer');
   const [returnedOn, setReturnedOn] = useState(localDateString());
   const [returnReference, setReturnReference] = useState('');
   const [notifyCustomer, setNotifyCustomer] = useState(true);
@@ -334,21 +339,23 @@ export function SettleDepositDialog({
                   className="h-10 w-full rounded-md border bg-background px-3 text-sm"
                   value={returnMethod}
                   onChange={(e) =>
-                    setReturnMethod(e.target.value as 'bank_transfer' | 'cash' | 'card' | 'other')
+                    setReturnMethod(
+                      e.target.value as 'bank_transfer' | 'cash' | 'card' | 'bizum' | 'other',
+                    )
                   }
                 >
                   <option value="bank_transfer">Transferencia</option>
-                  <option value="cash">Efectivo</option>
+                  <option value="cash">Efectivo (sale de la caja)</option>
                   <option value="card">Tarjeta</option>
+                  <option value="bizum">Bizum</option>
                   <option value="other">Otro</option>
                 </select>
               </div>
               <div>
                 <Label>Fecha</Label>
-                <Input
-                  type="date"
+                <DateSelect
                   value={returnedOn}
-                  onChange={(e) => setReturnedOn(e.target.value)}
+                  onChange={(v) => setReturnedOn(v ?? localDateString())}
                 />
               </div>
               <div className="sm:col-span-2">

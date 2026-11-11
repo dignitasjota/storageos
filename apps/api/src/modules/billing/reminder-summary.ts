@@ -46,6 +46,8 @@ export function buildReminderSummary(args: {
   portalUrl: string;
   /** Último aviso del escalado (antes del corte del acceso). */
   final?: boolean;
+  /** Habrá corte del acceso si no paga (si no, no se menciona). */
+  accessCutAhead?: boolean;
   today: Date;
 }): { subject: string; text: string } {
   const en = args.locale === 'en';
@@ -83,9 +85,13 @@ export function buildReminderSummary(args: {
       ? `You can pay them from your customer area: ${args.portalUrl}`
       : `Puedes pagarlas desde tu área de clientes: ${args.portalUrl}`,
     args.final
-      ? en
-        ? 'If they are not paid, access to your storage unit may be suspended.'
-        : 'Si no se pagan, el acceso a tu trastero puede quedar suspendido.'
+      ? args.accessCutAhead === false
+        ? en
+          ? 'Please settle them as soon as possible.'
+          : 'Te pedimos que las regularices cuanto antes.'
+        : en
+          ? 'If they are not paid, access to your storage unit may be suspended.'
+          : 'Si no se pagan, el acceso a tu trastero puede quedar suspendido.'
       : en
         ? 'If you have already paid them, please ignore this message.'
         : 'Si ya las has pagado, no hagas caso de este mensaje.',

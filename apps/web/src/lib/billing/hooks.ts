@@ -142,6 +142,8 @@ export function invalidateBilling(qc: ReturnType<typeof useQueryClient>): void {
     'customers',
     'contracts',
     'access-cuts',
+    // Un cobro o una devolución en efectivo cambian el arqueo del día.
+    'cash',
   ]) {
     void qc.invalidateQueries({ queryKey: [key] });
   }

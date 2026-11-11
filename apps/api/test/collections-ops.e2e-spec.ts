@@ -109,8 +109,18 @@ describe('Cobros del mes, impagos y planes de pago (e2e)', () => {
     expect(res.body.weeks.length).toBeGreaterThanOrEqual(4);
     await http().get('/collections-month?month=2026-13').set(auth).expect(400);
 
-    // Plan de pago de lo que queda (100 + 40) en 2 cuotas.
-    const firstDue = iso(new Date(now.getTime() - 20 * DAY));
+    // Plan de pago de lo que queda (100 + 40) en 2 cuotas. La primera no puede
+    // vencer en un día que ya ha pasado.
+    await http()
+      .post('/payment-plans')
+      .set(auth)
+      .send({
+        customerId: customer.body.id,
+        installmentsCount: 2,
+        firstDueDate: iso(new Date(now.getTime() - 20 * DAY)),
+      })
+      .expect(400);
+    const firstDue = iso(new Date(now.getTime() + 5 * DAY));
     const plan = await http()
       .post('/payment-plans')
       .set(auth)
@@ -124,7 +134,7 @@ describe('Cobros del mes, impagos y planes de pago (e2e)', () => {
       .expect(201);
     expect(plan.body).toMatchObject({ status: 'active', totalAmount: 140, paidSoFar: 0 });
     expect(plan.body.installments.map((i: { amount: number }) => i.amount)).toEqual([70, 70]);
-    expect(plan.body.installments[0].status).toBe('late');
+    expect(plan.body.installments[0].status).toBe('pending');
     expect(await invoiceInActivePlan(db, old.id)).toBe(true);
     await http()
       .post('/payment-plans')

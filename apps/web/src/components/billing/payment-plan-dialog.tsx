@@ -4,6 +4,7 @@ import { buildInstallments, type PaymentPlanFrequency } from '@storageos/shared'
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -26,8 +27,10 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useCreatePaymentPlan } from '@/lib/collections-ops/hooks';
+import { localDateString } from '@/lib/dates';
+import { formatDate, formatEur } from '@/lib/format';
 
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const eur = formatEur;
 
 function inDays(n: number): string {
   const d = new Date();
@@ -56,16 +59,25 @@ export function PaymentPlanDialog({
   invoiceIds?: string[];
 }) {
   const create = useCreatePaymentPlan();
-  const [count, setCount] = useState(3);
+  // Se teclea libre (10, 12…) y se comprueba al crear.
+  const [countText, setCountText] = useState('3');
+  const count = Number(countText);
+  const countOk = Number.isInteger(count) && count >= 2 && count <= 24;
   const [firstDueDate, setFirstDueDate] = useState(inDays(7));
   const [frequency, setFrequency] = useState<PaymentPlanFrequency>('monthly');
-  const [graceDays, setGraceDays] = useState(7);
+  const [graceText, setGraceText] = useState('7');
+  const graceDays = Number(graceText);
+  const graceOk = Number.isInteger(graceDays) && graceDays >= 0 && graceDays <= 30;
+  const today = localDateString();
+  const dateOk = !!firstDueDate && firstDueDate >= today;
   const [notes, setNotes] = useState('');
   const [notify, setNotify] = useState(true);
   const preview = useMemo(
     () =>
-      amount > 0 && count >= 2 ? buildInstallments(amount, count, firstDueDate, frequency) : [],
-    [amount, count, firstDueDate, frequency],
+      amount > 0 && countOk && firstDueDate
+        ? buildInstallments(amount, count, firstDueDate, frequency)
+        : [],
+    [amount, count, countOk, firstDueDate, frequency],
   );
 
   async function submit() {
@@ -102,12 +114,11 @@ export function PaymentPlanDialog({
             <Label htmlFor="pp-count">Nº de cuotas</Label>
             <Input
               id="pp-count"
-              type="number"
-              min={2}
-              max={24}
-              value={count}
-              onChange={(e) => setCount(Math.max(2, Math.min(24, Number(e.target.value) || 2)))}
+              inputMode="numeric"
+              value={countText}
+              onChange={(e) => setCountText(e.target.value.replace(/\D/g, '').slice(0, 2))}
             />
+            {!countOk && <p className="text-xs text-destructive">Entre 2 y 24 cuotas.</p>}
           </div>
           <div className="space-y-1">
             <Label>Frecuencia</Label>
@@ -126,24 +137,25 @@ export function PaymentPlanDialog({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="pp-first">Primera cuota</Label>
-            <Input
-              id="pp-first"
-              type="date"
+            <Label>Primera cuota</Label>
+            <DateSelect
+              future
               value={firstDueDate}
-              onChange={(e) => setFirstDueDate(e.target.value)}
+              onChange={(v) => setFirstDueDate(v ?? inDays(7))}
             />
+            {!dateOk && (
+              <p className="text-xs text-destructive">No puede ser un día que ya ha pasado.</p>
+            )}
           </div>
           <div className="space-y-1">
             <Label htmlFor="pp-grace">Días de gracia</Label>
             <Input
               id="pp-grace"
-              type="number"
-              min={0}
-              max={30}
-              value={graceDays}
-              onChange={(e) => setGraceDays(Math.max(0, Math.min(30, Number(e.target.value) || 0)))}
+              inputMode="numeric"
+              value={graceText}
+              onChange={(e) => setGraceText(e.target.value.replace(/\D/g, '').slice(0, 2))}
             />
+            {!graceOk && <p className="text-xs text-destructive">Entre 0 y 30 días.</p>}
           </div>
         </div>
         {preview.length > 0 && (
@@ -151,7 +163,7 @@ export function PaymentPlanDialog({
             {preview.map((i, k) => (
               <li key={i.dueDate} className="flex justify-between">
                 <span>
-                  {k + 1}. {new Date(`${i.dueDate}T12:00:00`).toLocaleDateString('es-ES')}
+                  {k + 1}. {formatDate(i.dueDate)}
                 </span>
                 <span className="tabular-nums">{eur(i.amount)}</span>
               </li>
@@ -175,7 +187,10 @@ export function PaymentPlanDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={() => void submit()} disabled={create.isPending || !firstDueDate}>
+          <Button
+            onClick={() => void submit()}
+            disabled={create.isPending || !countOk || !graceOk || !dateOk}
+          >
             Crear plan
           </Button>
         </DialogFooter>

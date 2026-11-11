@@ -314,7 +314,7 @@ export type SetDepositPaymentMethodInput = z.infer<typeof SetDepositPaymentMetho
 /** Registra el cobro de la fianza en el local (crea el justificante si no existe). */
 export const CollectDepositSchema = z.object({
   /** `card`: cobrada con el TPV físico del local. */
-  methodType: z.enum(['cash', 'card', 'bank_transfer', 'other']).default('cash'),
+  methodType: z.enum(['cash', 'card', 'bank_transfer', 'bizum', 'other']).default('cash'),
 });
 export type CollectDepositInput = z.infer<typeof CollectDepositSchema>;
 
@@ -360,7 +360,7 @@ export const SettleDepositSchema = z.object({
   /** Aplica lo retenido a las facturas pendientes del contrato, de la más antigua a la última. */
   applyToInvoices: z.boolean().optional(),
   /** Cómo y cuándo se devolvió (constancia). */
-  returnMethod: z.enum(['bank_transfer', 'cash', 'card', 'other']).optional(),
+  returnMethod: z.enum(['bank_transfer', 'cash', 'card', 'bizum', 'other']).optional(),
   returnedOn: dateOnly.optional(),
   returnReference: z.string().trim().max(120).optional(),
   /** Envía al inquilino el justificante por correo. */

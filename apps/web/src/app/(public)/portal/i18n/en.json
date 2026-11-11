@@ -276,7 +276,12 @@
         "generalTermsLabel": "I accept the Terms and Conditions",
         "generalTermsContinue": "Accept and continue",
         "generalTermsAccepted": "Terms accepted. You can now pay.",
-        "generalTermsError": "We couldn't save it. Please try again."
+        "generalTermsError": "We couldn't save it. Please try again.",
+        "planInstallment": "Payment plan: your next instalment is {amount} (due {date}).",
+        "planInstallmentLate": "Payment plan: the {amount} instalment due {date} is overdue. Please pay it soon so the plan stays in place.",
+        "payInstallment": "Pay the instalment ({amount})",
+        "payInstallmentCard": "Pay the instalment by card",
+        "payInstallmentBizum": "Pay the instalment with Bizum"
       },
       "access": {
         "title": "Your access",

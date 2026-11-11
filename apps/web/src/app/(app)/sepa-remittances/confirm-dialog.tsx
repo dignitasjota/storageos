@@ -11,18 +11,19 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ApiError } from '@/lib/auth/api';
+import { formatDate, formatEur } from '@/lib/format';
 import { useConfirmRemittance, useRemittancePrenotices } from '@/lib/sepa/hooks';
 
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-
 /**
- * Confirmar el cobro de una remesa: se marcan los adeudos que el banco
- * rechazó (no se cobran y pueden ir en otra remesa); el resto se da por cobrado.
+ * Registrar el resultado del banco: se marcan los adeudos que rechazó (no se
+ * cobran y pueden ir en otra remesa); el resto queda cobrado con la fecha del
+ * cargo. Sirve también para terminar un registro que se cortó a medias.
  */
 export function ConfirmRemittanceDialog({
   remittance,
@@ -47,39 +48,53 @@ export function ConfirmRemittanceDialog({
         id: remittance.id,
         rejectedItemIds: [...rejected],
       });
-      if (r.failedCount > 0) {
+      if (r.unappliedCount > 0) {
         toast.warning(
-          `${r.collectedCount} cobrados y ${r.failedCount} sin cobrar. Revisa los adeudos fallidos en «Preavisos».`,
+          `${r.collectedCount} cobrados y ${r.unappliedCount} que el banco cobró pero sus facturas ya estaban pagadas o anuladas: devuelve ese dinero (lo ves en «Preavisos»).`,
+          { duration: 12_000 },
         );
+      } else if (r.failedCount > 0) {
+        toast.success(`${r.collectedCount} cobrados y ${r.failedCount} rechazados por el banco.`);
       } else {
-        toast.success(`Remesa confirmada: ${r.collectedCount} facturas cobradas.`);
+        toast.success(`Resultado registrado: ${r.collectedCount} facturas cobradas.`);
       }
       close();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo registrar.');
     }
   }
 
   const pending = (items.data ?? []).filter((i) => i.itemStatus === 'pending');
+  const rejectedTotal = pending
+    .filter((i) => rejected.has(i.itemId))
+    .reduce((s, i) => s + Math.round(i.amount * 100), 0);
+  const total = pending.reduce((s, i) => s + Math.round(i.amount * 100), 0);
+  const resuming = remittance?.status === 'confirmed';
 
   return (
     <Dialog open={!!remittance} onOpenChange={(o) => !o && close()}>
       <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Confirmar cobro · {remittance?.name}</DialogTitle>
+          <DialogTitle>
+            {resuming ? 'Terminar de registrar' : 'Resultado del banco'} · {remittance?.name}
+          </DialogTitle>
+          <DialogDescription>
+            {resuming
+              ? 'El registro anterior se cortó: marca otra vez los que el banco rechazó y termina.'
+              : `Cargo del ${formatDate(remittance?.collectionDate)}. Marca los adeudos que el banco rechazó (los identifica por su referencia); el resto quedará cobrado con esa fecha.`}
+          </DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Las facturas se marcarán como pagadas. Si el banco rechazó algún adeudo, márcalo: no se
-          cobrará y podrás incluirlo en otra remesa.
-        </p>
         {items.isLoading ? (
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        ) : pending.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No queda ningún adeudo por registrar.</p>
         ) : (
           <ul className="space-y-2">
             {pending.map((i) => (
-              <li key={i.itemId} className="flex items-center gap-3 rounded-md border p-2 text-sm">
+              <li key={i.itemId} className="flex items-start gap-3 rounded-md border p-2 text-sm">
                 <Checkbox
                   id={`rej-${i.itemId}`}
+                  className="mt-0.5"
                   checked={rejected.has(i.itemId)}
                   onCheckedChange={(v) =>
                     setRejected((s) => {
@@ -90,25 +105,42 @@ export function ConfirmRemittanceDialog({
                     })
                   }
                 />
-                <label htmlFor={`rej-${i.itemId}`} className="flex-1 cursor-pointer">
+                <label htmlFor={`rej-${i.itemId}`} className="min-w-0 flex-1 cursor-pointer">
                   <span className="font-medium">{i.customerName || 'Inquilino'}</span>
                   <span className="block text-xs text-muted-foreground">
                     {i.invoiceNumber ? `Factura ${i.invoiceNumber} · ` : ''}
-                    {eur(i.amount)} ·{' '}
+                    {formatEur(i.amount)} ·{' '}
                     {rejected.has(i.itemId) ? 'rechazado por el banco' : 'cobrado'}
+                  </span>
+                  <span className="block break-all font-mono text-[11px] text-muted-foreground">
+                    {i.endToEndId} · mandato {i.mandateReference}
                   </span>
                 </label>
               </li>
             ))}
           </ul>
         )}
+        {pending.length > 0 && (
+          <p className="text-sm">
+            Cobrado: <strong>{formatEur((total - rejectedTotal) / 100)}</strong>
+            {rejected.size > 0 && (
+              <>
+                {' '}
+                · Rechazado: <strong>{formatEur(rejectedTotal / 100)}</strong> ({rejected.size})
+              </>
+            )}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="ghost" onClick={close}>
             Volver
           </Button>
-          <Button onClick={submit} disabled={confirmMut.isPending || items.isLoading}>
+          <Button
+            onClick={() => void submit()}
+            disabled={confirmMut.isPending || items.isLoading || pending.length === 0}
+          >
             {confirmMut.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            Confirmar cobro
+            Registrar
             {rejected.size > 0 ? ` (${pending.length - rejected.size} de ${pending.length})` : ''}
           </Button>
         </DialogFooter>

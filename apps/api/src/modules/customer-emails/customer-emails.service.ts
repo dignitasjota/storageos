@@ -70,7 +70,13 @@ type SendOutcome =
   | { status: 'disabled' | 'automation' | 'no_email' | 'failed' };
 
 /** Van al email de facturación si la empresa tiene uno. */
-const BILLING_KINDS = new Set<string>(['invoice_issued', 'payment_received', 'payment_failed']);
+const BILLING_KINDS = new Set<string>([
+  'invoice_issued',
+  'payment_received',
+  'payment_failed',
+  // El preaviso de un adeudo es un aviso de cobro: a quien lleva las cuentas.
+  'sepa_prenotification',
+]);
 
 @Injectable()
 export class CustomerEmailsService {
@@ -555,6 +561,7 @@ export class CustomerEmailsService {
         select: {
           collectionDate: true,
           items: {
+            ...(p.itemIds ? { where: { id: { in: p.itemIds } } } : {}),
             select: {
               invoiceId: true,
               amount: true,
