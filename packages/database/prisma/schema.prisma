@@ -651,6 +651,7 @@ model Tenant {
   sepaRemittanceItems     SepaRemittanceItem[]
   bankStatements          BankStatement[]
   bankStatementTxs        BankStatementTransaction[]
+  bankMatchRules          BankMatchRule[]
   aiConversations         AiConversation[]
   aiMessages              AiMessage[]
   aiPendingActions        AiPendingAction[]
@@ -888,6 +889,7 @@ model User {
   /// Baja de los anuncios comerciales de TrasterOS.
   platformNewsOptOutAt DateTime? @map("platform_news_opt_out_at") @db.Timestamptz(6)
   platformNpsResponses PlatformNpsResponse[]
+  createdBankMatchRules BankMatchRule[] @relation("BankMatchRuleCreatedBy")
 }
 
 /// Permisos por local: a qué facilities está restringido un usuario. Sin filas
@@ -1594,6 +1596,7 @@ model Customer {
   legalDocAcceptances LegalDocAcceptance[]
   conversation      CustomerConversation?
   delinquencyPickupRequests DelinquencyPickupRequest[]
+  bankMatchRules            BankMatchRule[]
   @@index([tenantId])
   @@index([tenantId, deletedAt])
   @@index([tenantId, documentNumber])
@@ -1919,6 +1922,7 @@ model Expense {
   marketingChannel MarketingChannel? @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
 
   businessReminderCompletions BusinessReminderCompletion[]
+  bankTransactions            BankStatementTransaction[]
 
   @@index([tenantId, expenseDate(sort: Desc)])
   @@index([tenantId, facilityId])
@@ -2920,6 +2924,7 @@ model SepaRemittance {
 
   tenant Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   items  SepaRemittanceItem[]
+  bankTransactions BankStatementTransaction[]
 
   @@index([tenantId, status])
   @@map("sepa_remittances")
@@ -2968,6 +2973,8 @@ model SepaRemittanceItem {
 model BankStatement {
   id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId         String    @map("tenant_id") @db.Uuid
+  /// n43 | csv
+  source           String    @default("n43")
   filename         String
   accountLabel     String    @map("account_label")
   currency         String    @default("EUR")
@@ -3022,16 +3029,45 @@ model BankStatementTransaction {
   unappliedAmount  Int       @default(0) @map("unapplied_amount")
   /// Contrato al que fue ese sobrante como saldo a favor.
   creditContractId String?   @map("credit_contract_id") @db.Uuid
+  /// El abono de una remesa SEPA, conciliado de una vez.
+  matchedRemittanceId String? @map("matched_remittance_id") @db.Uuid
+  /// El gasto en que se convirtió un cargo.
+  expenseId        String?   @map("expense_id") @db.Uuid
 
   tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   statement      BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
   invoice        Invoice?      @relation(fields: [matchedInvoiceId], references: [id], onDelete: SetNull)
   matchedPayment Payment?      @relation(fields: [matchedPaymentId], references: [id], onDelete: SetNull)
   creditContract Contract?     @relation("BankTransactionCreditContract", fields: [creditContractId], references: [id], onDelete: SetNull)
+  matchedRemittance SepaRemittance? @relation(fields: [matchedRemittanceId], references: [id], onDelete: SetNull)
+  expense        Expense?      @relation(fields: [expenseId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([statementId])
   @@map("bank_statement_transactions")
+}
+
+/// Regla aprendida de la conciliación: si el concepto lleva el patrón, es de
+/// este inquilino (customer) o un gasto de esta categoría (expense).
+model BankMatchRule {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  pattern         String
+  /// customer | expense
+  kind            String    @default("customer")
+  customerId      String?   @map("customer_id") @db.Uuid
+  expenseCategory String?   @map("expense_category")
+  hits            Int       @default(0)
+  lastUsedAt      DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy User?     @relation("BankMatchRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, kind, pattern], map: "bank_match_rules_tenant_kind_pattern")
+  @@map("bank_match_rules")
 }
 
 /// Asistente IA: conversación de un usuario del staff.

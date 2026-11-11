@@ -13,12 +13,17 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  type BankMatchRuleDto,
   type BankReconciliationSettingsDto,
   type BankStatementDetailDto,
   type BankStatementDto,
+  ClassifyExpenseSchema,
+  CreateBankMatchRuleSchema,
+  ImportBankCsvSchema,
   ImportN43Schema,
   type ImportN43ResultDto,
   MarkReturnTransactionSchema,
+  MatchRemittanceSchema,
   MatchTransactionSchema,
   UpdateBankReconciliationSettingsSchema,
 } from '@storageos/shared';
@@ -41,6 +46,10 @@ class ImportN43Dto extends createZodDto(ImportN43Schema) {}
 class MatchTransactionDto extends createZodDto(MatchTransactionSchema) {}
 class MarkReturnTransactionDto extends createZodDto(MarkReturnTransactionSchema) {}
 class UpdateSettingsDto extends createZodDto(UpdateBankReconciliationSettingsSchema) {}
+class ImportBankCsvDto extends createZodDto(ImportBankCsvSchema) {}
+class MatchRemittanceDto extends createZodDto(MatchRemittanceSchema) {}
+class ClassifyExpenseDto extends createZodDto(ClassifyExpenseSchema) {}
+class CreateBankMatchRuleDto extends createZodDto(CreateBankMatchRuleSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -75,6 +84,50 @@ export class BankReconciliationController {
       input: body,
       meta: extractMeta(req),
     });
+  }
+
+  /** El CSV de movimientos de la banca online (columnas reconocidas o a mano). */
+  @RequirePermission('invoices:manage')
+  @Post('import-csv')
+  @HttpCode(HttpStatus.CREATED)
+  importCsv(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ImportBankCsvDto,
+    @Req() req: Request,
+  ): Promise<ImportN43ResultDto> {
+    return this.service.importCsv({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input: body,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Reglas aprendidas (concepto u ordenante → inquilino o gasto). Antes de `:id`. */
+  @RequirePermission('payments:read')
+  @Get('rules')
+  rules(@CurrentUser() user: AuthenticatedUser): Promise<BankMatchRuleDto[]> {
+    return this.service.listRules(user.tenantId);
+  }
+
+  @RequirePermission('invoices:manage')
+  @Post('rules')
+  @HttpCode(HttpStatus.CREATED)
+  createRule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreateBankMatchRuleDto,
+  ): Promise<BankMatchRuleDto[]> {
+    return this.service.createRule(user.tenantId, user.sub, body);
+  }
+
+  @RequirePermission('invoices:manage')
+  @Delete('rules/:ruleId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteRule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('ruleId', new ParseUUIDPipe()) ruleId: string,
+  ): Promise<void> {
+    await this.service.deleteRule(user.tenantId, ruleId);
   }
 
   /** Conciliación automática al importar (opcional). Antes de `:id`. */
@@ -144,6 +197,45 @@ export class BankReconciliationController {
       transactionId: id,
       invoiceIds: body.invoiceIds ?? [body.invoiceId!],
       ...(body.surplus ? { surplus: body.surplus } : {}),
+      ...(body.rememberPattern ? { rememberPattern: body.rememberPattern } : {}),
+      meta: extractMeta(req),
+    });
+  }
+
+  /** El abono de una remesa SEPA, de una vez. */
+  @RequirePermission('invoices:manage')
+  @Post('transactions/:id/match-remittance')
+  @HttpCode(HttpStatus.OK)
+  matchRemittance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: MatchRemittanceDto,
+    @Req() req: Request,
+  ): Promise<BankStatementDetailDto> {
+    return this.service.matchRemittance({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      transactionId: id,
+      remittanceId: body.remittanceId,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Un cargo que es un gasto del negocio. */
+  @RequirePermission('invoices:manage', 'expenses:manage')
+  @Post('transactions/:id/expense')
+  @HttpCode(HttpStatus.OK)
+  classifyExpense(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ClassifyExpenseDto,
+    @Req() req: Request,
+  ): Promise<BankStatementDetailDto> {
+    return this.service.classifyExpense({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      transactionId: id,
+      input: body,
       meta: extractMeta(req),
     });
   }

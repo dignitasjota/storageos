@@ -7,7 +7,15 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { findReturnCode, returnCodeLabel } from '@storageos/shared';
+import {
+  bankTextContains,
+  findInvoiceSubset,
+  findReturnCode,
+  guessPayerPattern,
+  nameMatches,
+  normalizeBankText,
+  returnCodeLabel,
+} from '@storageos/shared';
 
 import { zonedDayStart } from '../../common/format';
 import { toCents } from '../../common/money';
@@ -15,19 +23,28 @@ import { isUniqueViolation } from '../../common/prisma-errors';
 import { AuditService } from '../auth/audit.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
+import { ExpensesService } from '../expenses/expenses.service';
 import { markSepaItemCollectedAgain, markSepaItemReturned } from '../sepa/sepa-items';
+import { SepaService } from '../sepa/sepa.service';
 
+import { parseBankCsv } from './bank-csv';
 import { parseN43File, type N43Account } from './n43-parser';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma } from '@storageos/database';
 import type {
+  BankMatchRuleDto,
+  BankMatchRuleKind,
   BankReconciliationSettingsDto,
+  BankRemittanceSuggestionDto,
   BankStatementDetailDto,
   BankStatementDto,
   BankSurplusHandling,
   BankTransactionDto,
   BankTransactionSuggestionDto,
+  ClassifyExpenseInput,
+  CreateBankMatchRuleInput,
+  ImportBankCsvInput,
   ImportN43Input,
   ImportN43ResultDto,
 } from '@storageos/shared';
@@ -35,10 +52,45 @@ import type {
 interface CandidateInvoice {
   id: string;
   invoiceNumber: string;
+  customerId: string | null;
   customerName: string;
   amountPendingCents: number;
   /** En una remesa SEPA sin confirmar o con un cobro por pasarela en curso. */
   inFlight: boolean;
+}
+
+interface RuleRow {
+  id: string;
+  pattern: string;
+  kind: string;
+  customerId: string | null;
+  expenseCategory: string | null;
+}
+
+interface RemittanceCandidate {
+  id: string;
+  name: string;
+  status: 'generated' | 'confirmed';
+  collectionDate: Date;
+  /** Lo que el banco abona: los adeudos pendientes y cobrados (céntimos). */
+  expectedCents: number;
+  /** Ya tiene su abono conciliado. */
+  matched: boolean;
+}
+
+/** El texto de un apunte en el que se buscan nombres y reglas. */
+function transactionText(t: {
+  description: string | null;
+  conceptOwn: string | null;
+  reference1: string | null;
+  reference2: string | null;
+}): string {
+  return [t.description, t.conceptOwn, t.reference1, t.reference2].filter(Boolean).join(' ');
+}
+
+/** Días entre dos fechas (sin hora). */
+function daysApart(a: Date, b: Date): number {
+  return Math.abs(Math.round((a.getTime() - b.getTime()) / 86_400_000));
 }
 
 interface ReturnCandidate {
@@ -123,6 +175,8 @@ export class BankReconciliationService {
     private readonly prisma: PrismaService,
     private readonly invoices: InvoicesService,
     private readonly audit: AuditService,
+    private readonly sepa: SepaService,
+    private readonly expenses: ExpensesService,
   ) {}
 
   // ---------------------------------------------------------------- importar
@@ -140,6 +194,64 @@ export class BankReconciliationService {
         message: 'El fichero no contiene movimientos N43 válidos',
       });
     }
+    return this.importAccounts({
+      ...args,
+      accounts: parsed.accounts,
+      extraWarnings: parsed.warnings,
+      source: 'n43',
+    });
+  }
+
+  /**
+   * El CSV de movimientos de la banca online: las columnas se reconocen por su
+   * título o se indican a mano (400 `csv_columns_unknown` con los títulos).
+   */
+  async importCsv(args: {
+    tenantId: string;
+    userId: string;
+    input: ImportBankCsvInput;
+    meta?: RequestMeta;
+  }): Promise<ImportN43ResultDto> {
+    const parsed = parseBankCsv(args.input.content, args.input.mapping);
+    if (!parsed.mapping) {
+      throw new BadRequestException({
+        code: 'csv_columns_unknown',
+        message:
+          'No se reconocen las columnas del fichero: indica cuál es la fecha, el concepto y el importe.',
+        details: { headers: parsed.headers, sample: parsed.sample },
+      });
+    }
+    if (!parsed.account || parsed.account.transactions.length === 0) {
+      throw new BadRequestException({
+        code: 'invalid_bank_csv',
+        message: 'El fichero no tiene movimientos con fecha e importe.',
+        details: { headers: parsed.headers, sample: parsed.sample },
+      });
+    }
+    return this.importAccounts({
+      ...args,
+      input: { filename: args.input.filename, content: args.input.content },
+      accounts: [
+        {
+          ...parsed.account,
+          accountLabel: parsed.account.accountLabel || args.input.filename,
+        },
+      ],
+      extraWarnings: [],
+      source: 'csv',
+    });
+  }
+
+  private async importAccounts(args: {
+    tenantId: string;
+    userId: string;
+    input: ImportN43Input;
+    accounts: N43Account[];
+    extraWarnings: string[];
+    source: 'n43' | 'csv';
+    meta?: RequestMeta;
+  }): Promise<ImportN43ResultDto> {
+    const parsed = { accounts: args.accounts, warnings: args.extraWarnings };
     const base = normalizedContent(args.input.content);
     let duplicatesSkipped = 0;
     let created: { id: string }[];
@@ -157,6 +269,7 @@ export class BankReconciliationService {
             const statement = await tx.bankStatement.create({
               data: {
                 tenantId: args.tenantId,
+                source: args.source,
                 filename: args.input.filename,
                 accountLabel: acc.accountLabel,
                 currency: acc.currency,
@@ -228,6 +341,7 @@ export class BankReconciliationService {
       entityId: created[0]!.id,
       changes: {
         filename: args.input.filename,
+        source: args.source,
         statements: created.length,
         duplicatesSkipped,
       },
@@ -326,7 +440,15 @@ export class BankReconciliationService {
       (tx) =>
         tx.bankStatement.findFirst({
           where: { id, tenantId },
-          include: { transactions: { orderBy: [{ operationDate: 'asc' }, { id: 'asc' }] } },
+          include: {
+            transactions: {
+              orderBy: [{ operationDate: 'asc' }, { id: 'asc' }],
+              include: {
+                matchedRemittance: { select: { id: true, name: true } },
+                expense: { select: { id: true, category: true } },
+              },
+            },
+          },
         }),
       tenantId,
     );
@@ -339,15 +461,23 @@ export class BankReconciliationService {
     );
     const candidates = hasPendingCredit ? await this.loadCandidates(tenantId) : [];
     const returnCandidates = hasPendingDebit ? await this.loadReturnCandidates(tenantId) : [];
+    const remittances = hasPendingCredit ? await this.loadRemittanceCandidates(tenantId) : [];
+    const rules = hasPendingCredit || hasPendingDebit ? await this.loadRules(tenantId) : [];
     const linked = await this.linkedInvoices(tenantId, statement.transactions);
 
     const transactions: BankTransactionDto[] = statement.transactions.map((t) => {
       const isCredit = t.amount >= 0;
       const reference = [t.reference1, t.reference2, t.documentNumber].filter(Boolean).join(' · ');
+      const pending = t.status === 'pending';
+      const text = transactionText(t);
       const suggestions =
-        isCredit && t.amount > 0 && t.status === 'pending'
-          ? this.suggest(t.amount, t, candidates)
-          : [];
+        isCredit && t.amount > 0 && pending ? this.suggest(t.amount, t, candidates, rules) : [];
+      const remittanceSuggestions =
+        isCredit && t.amount > 0 && pending ? this.suggestRemittances(t, remittances) : [];
+      const expenseRule =
+        !isCredit && pending
+          ? rules.find((r) => r.kind === 'expense' && bankTextContains(text, r.pattern))
+          : undefined;
       // Cargos pendientes → posible devolución de un cobro por banco.
       const returnSuggestions =
         !isCredit && t.status === 'pending'
@@ -374,6 +504,13 @@ export class BankReconciliationService {
         creditContractId: t.creditContractId,
         suggestions,
         returnSuggestions,
+        remittanceSuggestions,
+        matchedRemittance: t.matchedRemittance ?? null,
+        expense: t.expense ?? null,
+        expenseSuggestion: expenseRule
+          ? { category: expenseRule.expenseCategory ?? 'other', pattern: expenseRule.pattern }
+          : null,
+        payerPattern: pending ? guessPayerPattern(text) : '',
         autoMatched: t.autoMatched,
         canUndo: this.canUndo(t),
       };
@@ -385,7 +522,8 @@ export class BankReconciliationService {
 
   /** Lo conciliado, devuelto o ignorado que se puede deshacer. */
   private canUndo(t: TransactionRow): boolean {
-    if (t.status === 'ignored') return true;
+    if (t.status === 'ignored' || t.status === 'expense') return true;
+    if (t.status === 'matched' && t.matchedRemittanceId) return true;
     if (t.status === 'matched' || t.status === 'returned') {
       return t.matchedPaymentIds.length > 0 || !!t.matchedPaymentId;
     }
@@ -401,6 +539,8 @@ export class BankReconciliationService {
     /** Una o varias facturas: el ingreso se reparte en este orden. */
     invoiceIds: string[];
     surplus?: BankSurplusHandling;
+    /** Recordar: si el concepto lleva esto, es de este inquilino. */
+    rememberPattern?: string;
     meta?: RequestMeta;
   }): Promise<BankStatementDetailDto> {
     const { tenantId, transactionId } = args;
@@ -417,7 +557,14 @@ export class BankReconciliationService {
       (tx) =>
         tx.invoice.findMany({
           where: { id: { in: invoiceIds }, tenantId, deletedAt: null },
-          select: { id: true, total: true, amountPaid: true, status: true, contractId: true },
+          select: {
+            id: true,
+            total: true,
+            amountPaid: true,
+            status: true,
+            contractId: true,
+            customerId: true,
+          },
         }),
       tenantId,
     );
@@ -545,7 +692,295 @@ export class BankReconciliationService {
       ipAddress: args.meta?.ipAddress ?? null,
       userAgent: args.meta?.userAgent ?? null,
     });
+    // Reglas: la que se pide recordar y las que ya acertaron con este inquilino.
+    const customerId = invoices.find((i) => i.id === plan[0]!.invoiceId)?.customerId ?? null;
+    if (customerId) {
+      if (args.rememberPattern) {
+        await this.rememberRule(tenantId, args.userId, {
+          pattern: args.rememberPattern,
+          kind: 'customer',
+          customerId,
+        });
+      }
+      await this.countRuleHits(tenantId, 'customer', transactionText(txRow), { customerId });
+    }
     return this.getStatement(tenantId, txRow.statementId);
+  }
+
+  /**
+   * El abono de una remesa SEPA de una vez: el banco ingresa el total de los
+   * adeudos cobrados. Si la remesa aún no se había registrado, se registra
+   * (todos sus adeudos pendientes, cobrados con la fecha del cargo).
+   */
+  async matchRemittance(args: {
+    tenantId: string;
+    userId: string;
+    transactionId: string;
+    remittanceId: string;
+    meta?: RequestMeta;
+  }): Promise<BankStatementDetailDto> {
+    const { tenantId, transactionId, remittanceId } = args;
+    const txRow = await this.findTransaction(tenantId, transactionId);
+    if (txRow.status !== 'pending') throw this.notPending();
+    if (txRow.amount <= 0) {
+      throw new BadRequestException({
+        code: 'not_a_credit',
+        message: 'Solo se concilian abonos (ingresos)',
+      });
+    }
+    const [candidate] = await this.loadRemittanceCandidates(tenantId, remittanceId, {
+      includeMatched: true,
+    });
+    if (!candidate) {
+      throw new NotFoundException({
+        code: 'remittance_not_found',
+        message: 'Esa remesa no existe, está cancelada o no tiene adeudos cobrados.',
+      });
+    }
+    if (candidate.matched) throw this.remittanceAlreadyMatched();
+    if (candidate.expectedCents !== txRow.amount) {
+      throw new BadRequestException({
+        code: 'remittance_amount_mismatch',
+        message: `El ingreso no es el total de la remesa (${(candidate.expectedCents / 100)
+          .toFixed(2)
+          .replace('.', ',')} €). Si el banco rechazó o devolvió algún adeudo, regístralo antes.`,
+        details: { expected: candidate.expectedCents / 100, amount: txRow.amount / 100 },
+      });
+    }
+    // Con la remesa bloqueada: dos ingresos a la vez no se quedan la misma.
+    await this.prisma.withTenant(async (tx) => {
+      await tx.$executeRaw`SELECT 1 FROM sepa_remittances WHERE id = ${remittanceId}::uuid FOR UPDATE`;
+      const taken = await tx.bankStatementTransaction.count({
+        where: { matchedRemittanceId: remittanceId, status: 'matched' },
+      });
+      if (taken > 0) throw this.remittanceAlreadyMatched();
+      const { count } = await tx.bankStatementTransaction.updateMany({
+        where: { id: transactionId, status: 'pending' },
+        data: { status: 'matched', matchedRemittanceId: remittanceId, matchedAt: new Date() },
+      });
+      if (count === 0) throw this.notPending();
+    }, tenantId);
+    if (candidate.status === 'generated') {
+      try {
+        await this.sepa.confirmRemittance(tenantId, args.userId, remittanceId, {});
+      } catch (err) {
+        await this.prisma.withTenant(
+          (tx) =>
+            tx.bankStatementTransaction.updateMany({
+              where: { id: transactionId, status: 'matched' },
+              data: { status: 'pending', matchedRemittanceId: null, matchedAt: null },
+            }),
+          tenantId,
+        );
+        throw err;
+      }
+    }
+    await this.audit.write({
+      tenantId,
+      userId: args.userId,
+      action: 'bank_reconciliation.remittance_matched',
+      entityType: 'BankStatementTransaction',
+      entityId: transactionId,
+      changes: { remittanceId, confirmed: candidate.status === 'generated' },
+      ipAddress: args.meta?.ipAddress ?? null,
+      userAgent: args.meta?.userAgent ?? null,
+    });
+    return this.getStatement(tenantId, txRow.statementId);
+  }
+
+  /** Un cargo que es un gasto del negocio: queda en Gastos con su categoría. */
+  async classifyExpense(args: {
+    tenantId: string;
+    userId: string;
+    transactionId: string;
+    input: ClassifyExpenseInput;
+    meta?: RequestMeta;
+  }): Promise<BankStatementDetailDto> {
+    const { tenantId, transactionId, input } = args;
+    const txRow = await this.findTransaction(tenantId, transactionId);
+    if (txRow.status !== 'pending') throw this.notPending();
+    if (txRow.amount >= 0) {
+      throw new BadRequestException({
+        code: 'not_a_debit',
+        message: 'Solo un cargo (una salida de dinero) puede ser un gasto',
+      });
+    }
+    const day = isoDate(txRow.operationDate ?? txRow.valueDate);
+    if (!day) {
+      throw new BadRequestException({
+        code: 'transaction_without_date',
+        message: 'El movimiento no tiene fecha: créalo a mano en Gastos',
+      });
+    }
+    await this.claim(tenantId, transactionId, 'pending', { status: 'expense' });
+    let expenseId: string;
+    try {
+      const description =
+        input.description?.trim() || txRow.description?.trim() || 'Movimiento del banco';
+      const expense = await this.expenses.create(tenantId, args.userId, {
+        category: input.category,
+        description: description.slice(0, 300),
+        amount: Math.abs(txRow.amount) / 100,
+        expenseDate: day,
+        facilityId: input.facilityId ?? null,
+        notes: 'Desde la conciliación bancaria',
+      });
+      expenseId = expense.id;
+    } catch (err) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.bankStatementTransaction.updateMany({
+            where: { id: transactionId, status: 'expense' },
+            data: { status: 'pending' },
+          }),
+        tenantId,
+      );
+      throw err;
+    }
+    await this.updateTransaction(tenantId, transactionId, { expenseId });
+    if (input.rememberPattern) {
+      await this.rememberRule(tenantId, args.userId, {
+        pattern: input.rememberPattern,
+        kind: 'expense',
+        expenseCategory: input.category,
+      });
+    }
+    await this.countRuleHits(tenantId, 'expense', transactionText(txRow), {
+      expenseCategory: input.category,
+    });
+    await this.audit.write({
+      tenantId,
+      userId: args.userId,
+      action: 'bank_reconciliation.expense',
+      entityType: 'BankStatementTransaction',
+      entityId: transactionId,
+      changes: { expenseId, category: input.category },
+      ipAddress: args.meta?.ipAddress ?? null,
+      userAgent: args.meta?.userAgent ?? null,
+    });
+    return this.getStatement(tenantId, txRow.statementId);
+  }
+
+  // ---------------------------------------------------------------- reglas
+
+  async listRules(tenantId: string): Promise<BankMatchRuleDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.bankMatchRule.findMany({
+          where: { tenantId },
+          include: {
+            customer: {
+              select: { customerType: true, firstName: true, lastName: true, companyName: true },
+            },
+          },
+          orderBy: [{ hits: 'desc' }, { createdAt: 'desc' }],
+        }),
+      tenantId,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      pattern: r.pattern,
+      kind: r.kind as BankMatchRuleKind,
+      customerId: r.customerId,
+      customerName: r.customer ? customerName(r.customer) : null,
+      expenseCategory: r.expenseCategory,
+      hits: r.hits,
+      lastUsedAt: r.lastUsedAt?.toISOString() ?? null,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+
+  async createRule(
+    tenantId: string,
+    userId: string,
+    input: CreateBankMatchRuleInput,
+  ): Promise<BankMatchRuleDto[]> {
+    if (input.customerId) {
+      const exists = await this.prisma.withTenant(
+        (tx) => tx.customer.count({ where: { id: input.customerId!, tenantId, deletedAt: null } }),
+        tenantId,
+      );
+      if (!exists) {
+        throw new NotFoundException({
+          code: 'customer_not_found',
+          message: 'Inquilino no encontrado',
+        });
+      }
+    }
+    await this.rememberRule(tenantId, userId, input);
+    return this.listRules(tenantId);
+  }
+
+  async deleteRule(tenantId: string, id: string): Promise<void> {
+    const { count } = await this.prisma.withTenant(
+      (tx) => tx.bankMatchRule.deleteMany({ where: { id, tenantId } }),
+      tenantId,
+    );
+    if (count === 0) {
+      throw new NotFoundException({ code: 'rule_not_found', message: 'Regla no encontrada' });
+    }
+  }
+
+  /** Guarda (o corrige) una regla: el patrón en mayúsculas y sin acentos. */
+  private async rememberRule(
+    tenantId: string,
+    userId: string | null,
+    rule: {
+      pattern: string;
+      kind: BankMatchRuleKind;
+      customerId?: string | undefined;
+      expenseCategory?: string | undefined;
+    },
+  ): Promise<void> {
+    const pattern = normalizeBankText(rule.pattern);
+    if (pattern.length < 3) {
+      throw new BadRequestException({
+        code: 'rule_pattern_too_short',
+        message: 'El texto que identifica al ordenante tiene que tener al menos 3 letras',
+      });
+    }
+    const data = {
+      customerId: rule.kind === 'customer' ? (rule.customerId ?? null) : null,
+      expenseCategory: rule.kind === 'expense' ? (rule.expenseCategory ?? 'other') : null,
+    };
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.bankMatchRule.upsert({
+          where: { tenantId_kind_pattern: { tenantId, kind: rule.kind, pattern } },
+          create: { tenantId, kind: rule.kind, pattern, createdByUserId: userId, ...data },
+          update: data,
+        }),
+      tenantId,
+    );
+  }
+
+  /** Las reglas que acertaron con este movimiento suman un uso. */
+  private async countRuleHits(
+    tenantId: string,
+    kind: BankMatchRuleKind,
+    text: string,
+    target: { customerId?: string; expenseCategory?: string },
+  ): Promise<void> {
+    const rules = await this.loadRules(tenantId);
+    const ids = rules
+      .filter(
+        (r) =>
+          r.kind === kind &&
+          (kind === 'customer'
+            ? r.customerId === target.customerId
+            : r.expenseCategory === target.expenseCategory) &&
+          bankTextContains(text, r.pattern),
+      )
+      .map((r) => r.id);
+    if (ids.length === 0) return;
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.bankMatchRule.updateMany({
+          where: { id: { in: ids } },
+          data: { hits: { increment: 1 }, lastUsedAt: new Date() },
+        }),
+      tenantId,
+    );
   }
 
   /** Marca un cargo como **devolución** de un cobro por banco: revierte ese cobro. */
@@ -710,10 +1145,21 @@ export class BankReconciliationService {
       matchedPaymentIds: [],
       unappliedAmount: 0,
       creditContractId: null,
+      matchedRemittanceId: null,
+      expenseId: null,
     };
 
     if (t.status === 'ignored') {
       await this.claim(tenantId, t.id, 'ignored', cleared);
+    } else if (t.status === 'expense') {
+      // El gasto que se creó se borra (si sigue).
+      await this.claim(tenantId, t.id, 'expense', cleared);
+      if (t.expenseId) {
+        await this.expenses.remove(tenantId, t.expenseId).catch(() => undefined);
+      }
+    } else if (t.status === 'matched' && t.matchedRemittanceId) {
+      // Solo se quita el enlace: la remesa sigue registrada.
+      await this.claim(tenantId, t.id, 'matched', cleared);
     } else if (t.status === 'matched') {
       // El saldo a favor que dejó: si ya se usó en otra factura, no se puede
       // retirar solo (hay que corregirlo a mano).
@@ -1077,9 +1523,12 @@ export class BankReconciliationService {
       (tx) =>
         tx.invoice.findMany({
           where: { tenantId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+          // La más antigua primero (para repartir y sumar).
+          orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             invoiceNumber: true,
+            customerId: true,
             total: true,
             amountPaid: true,
             customer: {
@@ -1098,6 +1547,7 @@ export class BankReconciliationService {
       .map((inv) => ({
         id: inv.id,
         invoiceNumber: inv.invoiceNumber,
+        customerId: inv.customerId,
         customerName: customerName(inv.customer),
         amountPendingCents: toCents(inv.total) - toCents(inv.amountPaid),
         inFlight: inv.sepaRemittanceItems.length > 0 || inv.payments.length > 0,
@@ -1105,7 +1555,12 @@ export class BankReconciliationService {
       .filter((c) => c.amountPendingCents > 0);
   }
 
-  /** Sugiere facturas para un abono: importe exacto primero; referencia desempata. */
+  /**
+   * Sugiere facturas para un abono. Primero las de importe exacto (el número
+   * de factura en el concepto, una regla aprendida o el nombre del ordenante
+   * desempatan); después, varias facturas del mismo inquilino que suman justo
+   * el ingreso (del ordenante o de una regla, o de cualquiera si no hay más).
+   */
   private suggest(
     amountCents: number,
     tx: {
@@ -1113,29 +1568,164 @@ export class BankReconciliationService {
       reference2: string | null;
       documentNumber: string | null;
       description: string | null;
+      conceptOwn: string | null;
     },
     candidates: CandidateInvoice[],
+    rules: RuleRow[] = [],
   ): BankTransactionSuggestionDto[] {
     const haystack = [tx.reference1, tx.reference2, tx.documentNumber, tx.description]
       .filter(Boolean)
       .join(' ');
-    return candidates
+    const text = transactionText(tx);
+    const ruleCustomers = new Set(
+      rules
+        .filter((r) => r.kind === 'customer' && r.customerId && bankTextContains(text, r.pattern))
+        .map((r) => r.customerId!),
+    );
+    const payerCustomers = new Set(
+      candidates
+        .filter((c) => c.customerId && nameMatches(text, c.customerName))
+        .map((c) => c.customerId!),
+    );
+    const reasonOf = (c: CandidateInvoice): NonNullable<BankTransactionSuggestionDto['reason']> =>
+      containsInvoiceNumber(haystack, c.invoiceNumber)
+        ? 'reference'
+        : c.customerId && ruleCustomers.has(c.customerId)
+          ? 'rule'
+          : c.customerId && payerCustomers.has(c.customerId)
+            ? 'payer'
+            : 'amount';
+    const rank = { reference: 0, rule: 1, payer: 2, amount: 3, sum: 4 } as const;
+    const warning =
+      'Tiene un cobro en curso (remesa SEPA o pasarela): si concilias este ingreso, quítala de la remesa o se cobrará dos veces.';
+
+    const out: BankTransactionSuggestionDto[] = candidates
       .filter((c) => c.amountPendingCents === amountCents)
-      .map((c) => ({ c, refMatch: containsInvoiceNumber(haystack, c.invoiceNumber) }))
-      .sort((a, b) => Number(b.refMatch) - Number(a.refMatch))
+      .map((c) => ({ c, reason: reasonOf(c) }))
+      .sort((a, b) => rank[a.reason] - rank[b.reason])
       .slice(0, 3)
-      .map(({ c }) => ({
+      .map(({ c, reason }) => ({
         invoiceId: c.id,
         invoiceNumber: c.invoiceNumber,
         customerName: c.customerName,
         amountPending: c.amountPendingCents / 100,
-        ...(c.inFlight
-          ? {
-              warning:
-                'Tiene un cobro en curso (remesa SEPA o pasarela): si concilias este ingreso, quítala de la remesa o se cobrará dos veces.',
-            }
-          : {}),
+        reason,
+        ...(c.inFlight ? { warning } : {}),
       }));
+
+    // Varias facturas del mismo inquilino que suman el ingreso.
+    const byCustomer = new Map<string, CandidateInvoice[]>();
+    for (const c of candidates) {
+      if (!c.customerId) continue;
+      byCustomer.set(c.customerId, [...(byCustomer.get(c.customerId) ?? []), c]);
+    }
+    const known = [...ruleCustomers, ...payerCustomers];
+    const pool = out.length > 0 || known.length > 0 ? known : [...byCustomer.keys()];
+    for (const customerId of new Set(pool)) {
+      if (out.length >= 4) break;
+      const list = byCustomer.get(customerId) ?? [];
+      const ids = findInvoiceSubset(
+        list.map((c) => ({ id: c.id, cents: c.amountPendingCents })),
+        amountCents,
+      );
+      if (!ids) continue;
+      const picked = ids.map((id) => list.find((c) => c.id === id)!);
+      out.push({
+        invoiceId: picked[0]!.id,
+        invoiceNumber: picked[0]!.invoiceNumber,
+        customerName: picked[0]!.customerName,
+        amountPending: amountCents / 100,
+        invoiceIds: ids,
+        invoiceNumbers: picked.map((c) => c.invoiceNumber),
+        reason: 'sum',
+        ...(picked.some((c) => c.inFlight) ? { warning } : {}),
+      });
+    }
+    return out.slice(0, 4);
+  }
+
+  /** Remesas cuyo abono es este ingreso (mismo importe, unos días alrededor del cargo). */
+  private suggestRemittances(
+    t: { amount: number; operationDate: Date | null; valueDate: Date | null },
+    remittances: RemittanceCandidate[],
+  ): BankRemittanceSuggestionDto[] {
+    const when = t.valueDate ?? t.operationDate;
+    return remittances
+      .filter(
+        (r) => r.expectedCents === t.amount && (!when || daysApart(when, r.collectionDate) <= 10),
+      )
+      .slice(0, 2)
+      .map((r) => ({
+        remittanceId: r.id,
+        name: r.name,
+        amount: r.expectedCents / 100,
+        collectionDate: r.collectionDate.toISOString().slice(0, 10),
+        status: r.status,
+      }));
+  }
+
+  private remittanceAlreadyMatched(): ConflictException {
+    return new ConflictException({
+      code: 'remittance_already_matched',
+      message: 'El abono de esa remesa ya está conciliado con otro ingreso.',
+    });
+  }
+
+  /**
+   * Remesas que aún no tienen su abono conciliado; con `remittanceId`, esa
+   * remesa (y si ya lo tiene, `matched`).
+   */
+  private async loadRemittanceCandidates(
+    tenantId: string,
+    remittanceId?: string,
+    opts: { includeMatched?: boolean } = {},
+  ): Promise<RemittanceCandidate[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.sepaRemittance.findMany({
+          where: {
+            tenantId,
+            ...(remittanceId ? { id: remittanceId } : {}),
+            status: { in: ['generated', 'confirmed'] },
+            ...(opts.includeMatched ? {} : { bankTransactions: { none: { status: 'matched' } } }),
+          },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            collectionDate: true,
+            items: {
+              where: { status: { in: ['pending', 'collected'] } },
+              select: { amount: true },
+            },
+            _count: { select: { bankTransactions: { where: { status: 'matched' } } } },
+          },
+          orderBy: { collectionDate: 'desc' },
+          take: 100,
+        }),
+      tenantId,
+    );
+    return rows
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        status: r.status as RemittanceCandidate['status'],
+        collectionDate: r.collectionDate,
+        expectedCents: r.items.reduce((sum, i) => sum + i.amount, 0),
+        matched: r._count.bankTransactions > 0,
+      }))
+      .filter((r) => r.expectedCents > 0);
+  }
+
+  private async loadRules(tenantId: string): Promise<RuleRow[]> {
+    return this.prisma.withTenant(
+      (tx) =>
+        tx.bankMatchRule.findMany({
+          where: { tenantId },
+          select: { id: true, pattern: true, kind: true, customerId: true, expenseCategory: true },
+        }),
+      tenantId,
+    );
   }
 
   /** Cobros por banco aún cobrados (candidatos a una devolución en un cargo). */
@@ -1294,6 +1884,7 @@ export class BankReconciliationService {
   private toDto(
     s: {
       id: string;
+      source: string;
       filename: string;
       accountLabel: string;
       currency: string;
@@ -1310,6 +1901,7 @@ export class BankReconciliationService {
   ): BankStatementDto {
     return {
       id: s.id,
+      source: s.source === 'csv' ? 'csv' : 'n43',
       filename: s.filename,
       accountLabel: s.accountLabel,
       currency: s.currency,
