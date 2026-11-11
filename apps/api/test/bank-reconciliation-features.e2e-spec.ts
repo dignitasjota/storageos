@@ -188,6 +188,23 @@ describe('Conciliación bancaria: mejoras (e2e)', () => {
     );
     await http().delete(`/bank-statements/rules/${rules[0]!.id}`).set(auth()).expect(204);
     expect((await http().get('/bank-statements/rules').set(auth())).body).toEqual([]);
+
+    // Anonimizar a un inquilino borra sus reglas (llevan su nombre).
+    await http()
+      .post('/bank-statements/rules')
+      .set(auth())
+      .send({ pattern: 'Pérez Ana', kind: 'customer', customerId: ana })
+      .expect(201);
+    await http()
+      .post('/bank-statements/rules')
+      .set(auth())
+      .send({ pattern: 'Endesa Energía', kind: 'expense', expenseCategory: 'utilities' })
+      .expect(201);
+    await http().post(`/rgpd/customers/${ana}/anonymize`).set(auth()).expect(204);
+    const left = (await http().get('/bank-statements/rules').set(auth()).expect(200))
+      .body as BankMatchRuleDto[];
+    expect(left.map((r) => r.pattern)).toEqual(['ENDESA ENERGIA']);
+    await http().delete(`/bank-statements/rules/${left[0]!.id}`).set(auth()).expect(204);
   });
 
   it('concilia el abono de una remesa SEPA de una vez', async () => {

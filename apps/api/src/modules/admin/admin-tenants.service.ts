@@ -2407,6 +2407,12 @@ export class AdminTenantsService {
         where: { tenantId },
         data: { note: ANON, resolutionNote: null },
       });
+      await tx.delinquencyPickupRequest.updateMany({
+        where: { tenantId },
+        data: { note: null, resolutionNote: null },
+      });
+      // Reglas de la conciliación con el nombre de un inquilino (las de gastos, no).
+      await tx.bankMatchRule.deleteMany({ where: { tenantId, customerId: { not: null } } });
       await tx.waitlistEntry.updateMany({
         where: { tenantId },
         data: { contactName: ANON, contactEmail: ANON, contactPhone: null, notes: null },

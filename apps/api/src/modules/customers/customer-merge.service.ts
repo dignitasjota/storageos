@@ -22,6 +22,7 @@ import type { CustomerMergePreviewDto } from '@storageos/shared';
 export const CUSTOMER_REFERENCES: readonly (readonly [string, string])[] = [
   ['access_credentials', 'customer_id'],
   ['access_logs', 'customer_id'],
+  ['bank_match_rules', 'customer_id'],
   ['communications', 'customer_id'],
   ['consents', 'customer_id'],
   ['contracts', 'customer_id'],
@@ -37,6 +38,7 @@ export const CUSTOMER_REFERENCES: readonly (readonly [string, string])[] = [
   ['customer_offers', 'customer_id'],
   ['data_subject_requests', 'customer_id'],
   ['delinquency_cases', 'customer_id'],
+  ['delinquency_pickup_requests', 'customer_id'],
   ['incidents', 'customer_id'],
   ['invoices', 'customer_id'],
   ['leads', 'converted_customer_id'],
