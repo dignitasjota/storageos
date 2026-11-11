@@ -84,7 +84,16 @@ export interface TenantLegalContext {
   tradeName?: string;
   /** Dirección de cada local activo. */
   facilities?: string[];
+  /** La baja surte efecto a final de mes (por defecto, sí). */
+  moveOutEndOfMonth?: boolean;
+  /** Días máximos para devolver la fianza (por defecto, 15). */
+  depositReturnDays?: number;
+  /** Días que se guardan los registros del control de accesos (por defecto, 180). */
+  accessLogDays?: number;
 }
+
+/** Las imágenes de videovigilancia se borran como máximo al mes (art. 22.3 LOPDGDD). */
+export const VIDEO_SURVEILLANCE_RETENTION_DAYS = 30;
 
 /** Datos del titular que faltan para que el aviso legal esté completo. */
 export function missingLegalHolderData(h: TenantLegalHolder): string[] {
@@ -155,7 +164,9 @@ ${holderLines(h)}
 
 - **Formulario de contacto:** nombre, email, teléfono y mensaje, para responder a tu consulta. Si marcas la casilla, también para enviarte ofertas.
 - **Reserva y contrato:** datos identificativos, de contacto y de pago, para gestionar la reserva, el contrato de alquiler, la facturación y el acceso al trastero.
-- **Área de clientes:** los datos de tu cuenta, para que consultes tus contratos, facturas y accesos.${
+- **Área de clientes:** los datos de tu cuenta, para que consultes tus contratos, facturas y accesos.
+- **Control de accesos:** cuando entras o sales del local con tu código, tu tarjeta o el móvil, registramos la fecha, la hora y el acceso utilizado, para la seguridad del local y para gestionar tu contrato.
+- **Videovigilancia:** si el local tiene cámaras, siempre señalizadas con carteles, sus imágenes se usan para proteger a las personas, los bienes y las instalaciones.${
       ctx.whatsapp
         ? `
 - **WhatsApp:** los mensajes que nos envíes por WhatsApp, para atenderte. Puede responderte un asistente automático y, si lo pides, una persona.`
@@ -172,10 +183,13 @@ ${holderLines(h)}
 - La ejecución del contrato o de las medidas precontractuales que nos pidas (reserva y alquiler).
 - El cumplimiento de obligaciones legales (facturación y contabilidad).
 - Tu consentimiento, para las comunicaciones comerciales y la analítica de la web. Puedes retirarlo en cualquier momento.
+- El interés público en la seguridad de las personas, los bienes y las instalaciones, para la videovigilancia (artículo 22 de la Ley Orgánica 3/2018, de protección de datos).
 
 ## Cuánto tiempo los guardamos
 
-Mientras dure la relación y, después, el tiempo que exige la ley (por ejemplo, seis años para la documentación contable y fiscal). Las consultas que no terminan en alquiler se borran pasado un año.
+Mientras dure la relación y, después, el tiempo que exige la ley (por ejemplo, seis años para la documentación contable y fiscal). Las consultas que no terminan en alquiler se borran pasado un año. Los registros del control de accesos se borran a los ${
+      ctx.accessLogDays ?? 180
+    } días y las imágenes de videovigilancia, como máximo al mes, salvo que deban conservarse para acreditar hechos ante una autoridad.
 
 ## A quién se comunican
 
@@ -185,7 +199,7 @@ No vendemos tus datos. Los tratan por cuenta nuestra los proveedores que necesit
       ctx.webChat
         ? ', y el proveedor de inteligencia artificial que responde en el chat de la web (Anthropic)'
         : ''
-    }. También a las administraciones públicas cuando lo exige la ley (por ejemplo, la Agencia Tributaria).
+    }. También a las administraciones públicas cuando lo exige la ley (por ejemplo, la Agencia Tributaria) y, si hace falta, las imágenes de videovigilancia a las fuerzas y cuerpos de seguridad o a los juzgados.
 
 ## Tus derechos
 
@@ -333,11 +347,13 @@ En el proceso de contratación se indicarán claramente:
 
 Las renovaciones, vencimientos, medios de pago posteriores y consecuencias del impago se regirán por el contrato de alquiler suscrito.
 
-Cada recibo devuelto o pago con tarjeta rechazado podrá generar unos gastos de gestión por el importe publicado por ${brand}, que no superará el coste de gestionar la devolución.
+Si el cliente guarda una tarjeta o domicilia los pagos en su cuenta, autoriza a ${brand} a cobrar en ella cada cuota y las demás cantidades del contrato cuando venzan. Puede cambiar la tarjeta o la cuenta, o pasar a pagar por otro medio, desde el área de clientes.
+
+Por un pago atrasado, devuelto o rechazado solo se aplicarán el recargo y los gastos de gestión que figuren en el contrato de alquiler, que no superarán el coste de gestionarlo.
 
 La cuota podrá actualizarse una vez al año conforme a la variación del Índice de Precios al Consumo (IPC) publicado por el Instituto Nacional de Estadística, o el índice que lo sustituya, avisando al cliente con al menos 30 días de antelación. Si no está de acuerdo, el cliente podrá darse de baja antes de esa fecha sin penalización.
 
-En caso de impago, ${brand} podrá suspender el acceso al local y al espacio hasta que se regularice. Si el impago continúa, podrá resolver el contrato y requerir al cliente por escrito que pague o retire sus bienes en un plazo no inferior a 15 días; resuelto el contrato, podrá trasladar los bienes a otro espacio, con el coste del traslado a cargo del cliente y respondiendo ${brand} de los daños que cause por su culpa. Si pasadas ocho (8) semanas desde el impago el cliente no ha pagado ni retirado sus bienes pese al requerimiento, se considerarán abandonados y ${brand} podrá disponer de ellos, aplicando lo que obtenga a la deuda y dejando el sobrante a disposición del cliente.
+En caso de impago, ${brand} avisará al cliente para que lo regularice y, si sigue sin pagarse, podrá suspender sus entradas al establecimiento hasta que lo haga; aun así, el cliente podrá pedir cita para retirar sus pertenencias. Si el impago continúa, ${brand} le requerirá por escrito, por un medio que deje constancia, que pague en un plazo no inferior a 15 días, advirtiéndole de que, si no lo hace, el contrato quedará resuelto. Resuelto el contrato, el cliente deberá retirar sus bienes; si no lo hace, ${brand} podrá trasladarlos a otro espacio para guardarlos, con inventario y fotografías, y el cliente podrá recuperarlos cuando lo pida, pagando los gastos razonables y justificados del traslado y la custodia que se le reclamen. ${brand} solo venderá, destruirá o dispondrá de otro modo de los bienes por los cauces que permita la ley.
 
 Cualquier cargo recurrente o posterior deberá contar con la autorización correspondiente y ajustarse a las condiciones comunicadas al cliente.
 
@@ -351,9 +367,11 @@ La finalidad de dicha garantía será responder de las obligaciones del cliente 
 
 La fianza no tendrá la consideración de una mensualidad de alquiler abonada por adelantado, salvo que se establezca expresamente lo contrario.
 
-A la finalización del contrato, se procederá a su devolución conforme a las condiciones pactadas y a la legislación aplicable, una vez comprobado el estado del espacio y el cumplimiento de las obligaciones pendientes.
+Se devolverá en un plazo máximo de ${
+    ctx.depositReturnDays ?? 15
+  } días desde que el cliente entregue el espacio vacío, una vez comprobado su estado y las cantidades pendientes.
 
-Cualquier descuento o retención deberá responder a conceptos justificados y legalmente exigibles.
+Cualquier descuento o retención deberá responder a conceptos justificados y legalmente exigibles, y se comunicará al cliente con su detalle.
 
 ## 8. Reservas anticipadas
 
@@ -401,7 +419,13 @@ Las condiciones de preaviso, baja y terminación serán las expresamente aceptad
 
 La contratación online no implica necesariamente una permanencia mínima distinta de la indicada expresamente antes del pago.
 
-La baja del servicio deberá comunicarse por escrito, al correo electrónico de ${brand} o desde el área de clientes, indicando el nombre del cliente y el espacio alquilado, con la antelación prevista en el contrato. No eximirá del pago de las cantidades válidamente devengadas hasta su fecha efectiva.
+La baja del servicio deberá comunicarse por escrito, al correo electrónico de ${brand} o desde el área de clientes, indicando el nombre del cliente y el espacio alquilado, con la antelación prevista en el contrato. ${
+    ctx.moveOutEndOfMonth === false
+      ? 'Surte efecto el día que indique el cliente, respetando esa antelación.'
+      : 'Surte efecto el último día del mes en que se cumpla esa antelación, y ese mes se paga completo.'
+  } Dejar el espacio vacío antes no adelanta la baja ni exime del pago de las cantidades devengadas hasta su fecha efectiva.
+
+Si el cliente pagó varios meses por adelantado y se da de baja antes de usarlos todos, se le devuelven los meses enteros que no llegue a usar; los meses usados se cobran a la cuota mensual del contrato, sin el descuento ni los meses gratis que tuviera ese pago.
 
 ## 11. Acceso a las instalaciones
 
@@ -411,7 +435,9 @@ El horario de acceso disponible para el cliente será el indicado en las caracte
 
 Las credenciales de acceso serán personales y deberán utilizarse conforme a las normas de seguridad del establecimiento.
 
-El cliente deberá comunicar cualquier pérdida, uso indebido o incidencia relacionada con sus credenciales.
+El cliente responde de las personas a las que dé acceso (acompañantes, transportistas o personas autorizadas), y deberá comunicar cualquier pérdida, uso indebido o incidencia relacionada con sus credenciales.
+
+Si el sistema de acceso falla y el cliente no puede entrar, podrá comunicarlo por los canales de contacto y ${brand} le atenderá lo antes posible y le dará otra forma de acceder.
 
 Por motivos de seguridad, mantenimiento, emergencia o causas legalmente justificadas, podrán producirse restricciones temporales de acceso, que se gestionarán procurando minimizar las molestias al cliente.
 
@@ -425,25 +451,28 @@ Queda prohibido, salvo que la normativa y el contrato permitan expresamente otra
 
 - Guardar alimentos, bebidas, piensos o cualquier producto perecedero.
 - Almacenar productos químicos, tóxicos, corrosivos, inflamables o explosivos, bombonas de gas o combustibles.
-- Guardar vehículos, motores o maquinaria con combustible o con baterías que no estén desconectadas.
+- Guardar vehículos, motores o maquinaria con combustible o con la batería conectada.
+- Guardar baterías de litio dañadas, hinchadas o manipuladas.
 - Guardar armas, municiones o explosivos.
 - Guardar objetos o sustancias prohibidos por la ley o de procedencia ilícita.
 - Introducir animales, vivos o muertos, o plantas.
-- Guardar materiales que puedan descomponerse, generar humedad, olores o plagas, o dañar el espacio, los de alrededor o los bienes de otros clientes.
-- Guardar cualquier otro objeto que razonablemente no deba guardarse en un trastero.
+- Guardar basura, residuos o materiales que puedan descomponerse, generar humedad, olores o plagas, o dañar el espacio, los de alrededor o los bienes de otros clientes.
+- Cargar baterías, enchufar o hacer funcionar aparatos eléctricos dentro del espacio, o hacer en él nada que produzca calor, llama o humo.
 - Instalar otras cerraduras o sistemas de cierre, o hacer obras o modificaciones en el espacio, sin autorización escrita de ${brand}.
 - Utilizar los trasteros como vivienda, oficina de atención al público o lugar de residencia.
 - Realizar actividades comerciales o industriales dentro de los espacios que no estén expresamente autorizadas.
 - Manipular las instalaciones eléctricas, de seguridad o de protección contra incendios.
-- Depositar objetos que excedan las cargas o condiciones técnicas permitidas.
+- Superar la carga máxima indicada en el espacio o en el módulo, o colgar o apoyar peso en sus paredes, puertas o estructura.
+- Dejar objetos fuera del espacio u ocupar pasillos, salidas de emergencia o el acceso a los medios contra incendios.
+- Fumar en el establecimiento.
 
 El cliente será responsable de utilizar el espacio de forma diligente, respetando las instalaciones, las zonas comunes y los derechos de los demás usuarios, y de los daños que causen los bienes guardados incumpliendo estas normas.
 
-Por seguridad, por una emergencia, por requerimiento de una autoridad o por obras en el establecimiento, ${brand} podrá abrir el espacio avisando antes al cliente, salvo urgencia, y dejando constancia de lo que haga. Si por un motivo justificado hubiera que trasladar los bienes a otro espacio de características similares, se avisará al cliente, que podrá hacerlo por sí mismo; si no, lo hará ${brand} sin coste para él.
+${brand} solo abrirá el espacio por una emergencia, por requerimiento de una autoridad, por obras imprescindibles en el establecimiento o en los casos de impago previstos en el contrato. Salvo urgencia o requerimiento legal, avisará antes al cliente del motivo, y el cliente podrá estar presente; si lo abre sin él, levantará acta con la fecha, el motivo, las personas que intervienen y lo que se haga, con fotografías, y se la enviará. Si por un motivo justificado hubiera que trasladar los bienes a otro espacio de características equivalentes, se avisará al cliente con antelación, salvo urgencia, para que pueda hacerlo por sí mismo; si no, lo hará ${brand} sin coste para él y con el cuidado debido.
 
 ## 13. Seguridad y responsabilidad
 
-${brand} podrá disponer de sistemas de videovigilancia, control de accesos, alarmas y otras medidas de seguridad destinadas a la protección de las instalaciones.
+${brand} podrá disponer de sistemas de videovigilancia, señalizados con carteles, control de accesos, alarmas y otras medidas de seguridad destinadas a la protección de las personas, los bienes y las instalaciones. Las imágenes de videovigilancia se conservan como máximo un mes, salvo que deban guardarse para acreditar hechos ante una autoridad.
 
 La existencia de estas medidas no constituye una garantía absoluta frente a robos, daños u otras incidencias.
 
@@ -451,9 +480,11 @@ El cliente será responsable de la correcta utilización y cierre de su espacio,
 
 La responsabilidad de ${brand} por daños, pérdidas o incumplimientos se determinará conforme al contrato y a la normativa aplicable, sin excluir ni limitar los derechos legalmente reconocidos al cliente.
 
-La cobertura de los objetos almacenados mediante seguros, cuando exista, será la expresamente indicada en el contrato o en la documentación de la póliza correspondiente.
+${brand} no asegura los bienes que guarda el cliente, salvo la protección de contenido que figure en su contrato, con la cobertura y los límites de su plan. Se recomienda al cliente asegurarlos por su cuenta (muchas pólizas de hogar los cubren fuera de la vivienda).
 
-Se desaconseja guardar dinero en efectivo, joyas, obras de arte, antigüedades, documentos al portador u objetos de valor sentimental. ${brand} no responde de su valor especial o sentimental ni de los daños por caso fortuito, fuerza mayor, el paso del tiempo o los defectos propios de los objetos.
+Se desaconseja guardar dinero en efectivo, joyas, obras de arte, antigüedades, documentos al portador u objetos de valor sentimental. ${brand} no responde de un valor especial o sentimental que no se le haya comunicado ni de los daños por caso fortuito, fuerza mayor, el paso del tiempo o los defectos propios de los objetos.
+
+El cliente debe comunicar por escrito cualquier daño, robo o pérdida en cuanto lo descubra y, si es un robo, denunciarlo.
 
 El cliente debe mantener actualizados sus datos de contacto y de pago.
 
@@ -469,7 +500,7 @@ Los consumidores podrán acudir a los organismos públicos de consumo competente
 
 ## 15. Protección de datos personales
 
-Los datos personales facilitados durante el proceso de reserva y contratación serán tratados conforme a la normativa vigente de protección de datos.
+Los datos personales facilitados durante el proceso de reserva y contratación, y los que se generen al usar el establecimiento (registros del control de accesos e imágenes de videovigilancia, cuando existan), serán tratados conforme a la normativa vigente de protección de datos.
 
 La información relativa a los responsables del tratamiento, finalidades, bases jurídicas, plazos de conservación y ejercicio de derechos se encuentra disponible en la [política de privacidad](./privacidad).
 

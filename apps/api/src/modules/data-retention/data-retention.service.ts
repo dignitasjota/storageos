@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { FACILITY_RESTORE_DAYS } from '@storageos/shared';
+import { FACILITY_RESTORE_DAYS, VIDEO_SURVEILLANCE_RETENTION_DAYS } from '@storageos/shared';
 
 import { attachmentKeysOf } from '../../common/message-attachments';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -151,6 +151,32 @@ export class DataRetentionService {
       });
     }
     return rows.length;
+  }
+
+  /**
+   * Videovigilancia: los eventos de cámara y sus capturas se borran al mes
+   * de captarse (art. 22.3 de la LOPDGDD), salvo los vinculados a una
+   * incidencia, que se conservan para acreditar lo ocurrido.
+   */
+  async cleanupCameraEvents(now = new Date()): Promise<number> {
+    const cutoff = new Date(
+      now.getTime() - VIDEO_SURVEILLANCE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const where = {
+      incidentId: null,
+      OR: [{ occurredAt: { lt: cutoff } }, { createdAt: { lt: cutoff } }],
+    };
+    const snapshots = await this.admin.cameraEvent.findMany({
+      where: { ...where, snapshotKey: { not: null } },
+      select: { snapshotKey: true },
+    });
+    const { count } = await this.admin.cameraEvent.deleteMany({ where });
+    await this.files.deleteObjects(
+      'uploads',
+      snapshots.map((e) => e.snapshotKey).filter((k): k is string => !!k),
+    );
+    if (count > 0) this.logger.log(`data-retention: borrados ${count} eventos de cámara`);
+    return count;
   }
 
   /** Borra las filas más antiguas que el plazo de retención de cada tabla. */

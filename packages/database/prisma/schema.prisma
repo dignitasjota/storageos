@@ -491,6 +491,13 @@ model Tenant {
   housingContractClauses String? @map("housing_contract_clauses")
   /// Un contrato en baja se finaliza solo el día siguiente a su fecha de fin.
   autoEndContracts Boolean @default(true) @map("auto_end_contracts")
+  /// La baja surte efecto el último día del mes en que se cumple el preaviso
+  /// (false = el día que elija el inquilino, respetando el preaviso).
+  moveOutEndOfMonth Boolean @default(true) @map("move_out_end_of_month")
+  /// Días máximos para devolver la fianza desde que se entrega el trastero.
+  depositReturnDays Int @default(15) @map("deposit_return_days")
+  /// Gastos por recibo devuelto o pago rechazado (sin IVA); null = ninguno.
+  returnedPaymentFee Decimal? @map("returned_payment_fee") @db.Decimal(10, 2)
   /// Tareas automáticas por evento de contrato (null = apagadas).
   taskAutoRules Json? @map("task_auto_rules")
   customDomain                 String?               @unique @map("custom_domain")

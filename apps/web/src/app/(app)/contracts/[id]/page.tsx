@@ -1,5 +1,6 @@
 'use client';
 
+import { earliestMoveOutDate, monthEndOf } from '@storageos/shared';
 import {
   ArrowLeft,
   CircleSlash,
@@ -58,6 +59,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useContractDelinquencyCase } from '@/lib/collections/hooks';
+import { useContractTemplate } from '@/lib/contract-template/hooks';
 import {
   useAddContractNote,
   useCancelContract,
@@ -99,6 +101,10 @@ export default function ContractDetailPage() {
   const signedPdfUrl = useContractSignedPdfUrl();
   const canWriteC = useHasPermission('contracts:write');
   const canManageC = useHasPermission('contracts:manage');
+  // Cuándo surte efecto la baja (ajuste del negocio; si no se puede leer, a final de mes).
+  const canReadSettings = useHasPermission('settings:read');
+  const template = useContractTemplate(canReadSettings);
+  const moveOutEndOfMonth = template.data?.moveOutEndOfMonth ?? true;
   const ask = useConfirm();
 
   const [priceOpen, setPriceOpen] = useState(false);
@@ -231,9 +237,13 @@ export default function ContractDetailPage() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  const d = new Date();
-                  d.setDate(d.getDate() + c.cancellationNoticeDays);
-                  setEndDate(localDateString(d));
+                  setEndDate(
+                    earliestMoveOutDate({
+                      today: localDateString(),
+                      noticeDays: c.cancellationNoticeDays,
+                      endOfMonth: moveOutEndOfMonth,
+                    }),
+                  );
                   setEndOpen(true);
                 }}
               >
@@ -647,10 +657,18 @@ export default function ContractDetailPage() {
                     No respeta el preaviso del contrato ({c.cancellationNoticeDays} días).
                   </p>
                 )}
+              {moveOutEndOfMonth && endDate && endDate !== monthEndOf(endDate) && (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                  No es fin de mes: según el contrato, la baja surte efecto a final de mes. Ponla
+                  solo si la habéis pactado así.
+                </p>
+              )}
               <p className="mt-1 text-xs text-muted-foreground">
-                Se propone hoy más el preaviso del contrato ({c.cancellationNoticeDays} días). No se
-                facturará más allá de esta fecha y, si está activada la finalización automática, el
-                contrato se cerrará solo al día siguiente.
+                Se propone la primera fecha posible: hoy más el preaviso del contrato (
+                {c.cancellationNoticeDays} días)
+                {moveOutEndOfMonth ? ', llevada a final de mes' : ''}. No se facturará más allá de
+                esta fecha y, si está activada la finalización automática, el contrato se cerrará
+                solo al día siguiente.
               </p>
             </div>
           </div>

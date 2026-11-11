@@ -16,6 +16,9 @@ import {
   type PortalSessionDto,
   type PortalUnitChangeRequestDto,
   type SetupIntentResponseDto,
+  earliestMoveOutDate,
+  monthEndOf,
+  monthEndsFrom,
 } from '@storageos/shared';
 import {
   AlertTriangle,
@@ -2021,16 +2024,33 @@ function MoveOutDialog({
   onConfirm: (endDate: string) => void;
 }) {
   const t = useTranslations('portal.consume.contracts.moveOutDialog');
+  const { locale } = usePortalLocale();
   const notice = contract?.cancellationNoticeDays ?? 15;
-  const min = new Date();
-  min.setDate(min.getDate() + notice);
+  const endOfMonth = contract?.moveOutEndOfMonth ?? false;
   // Fecha local (no UTC): entre las 00:00 y las 02:00 toISOString da la de ayer.
-  const minDate = `${min.getFullYear()}-${String(min.getMonth() + 1).padStart(2, '0')}-${String(
-    min.getDate(),
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate(),
   ).padStart(2, '0')}`;
+  // A final de mes: el último día del mes en que se cumple el preaviso (o uno posterior).
+  const minDate = earliestMoveOutDate({ today, noticeDays: notice, endOfMonth });
+  const monthEnds = endOfMonth ? monthEndsFrom(minDate, 6) : [];
+  const initial =
+    change && contract?.endDate && contract.endDate >= minDate ? contract.endDate : minDate;
   const [endDate, setEndDate] = useState(
-    change && contract?.endDate && contract.endDate >= minDate ? contract.endDate : minDate,
+    endOfMonth
+      ? monthEnds.includes(monthEndOf(initial))
+        ? monthEndOf(initial)
+        : minDate
+      : initial,
   );
+  const longDate = (ymd: string) =>
+    new Date(`${ymd}T12:00:00Z`).toLocaleDateString(intlLocaleForPortal(locale), {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
 
   return (
     <Dialog open={!!contract} onOpenChange={(o) => !o && onClose()}>
@@ -2039,21 +2059,39 @@ function MoveOutDialog({
           <DialogTitle>{change ? t('changeTitle') : t('title')}</DialogTitle>
           <DialogDescription>
             {contract ? `${contract.unitCode} · ${contract.facilityName}. ` : ''}
-            {t('description', { days: notice, minDate })}
+            {t(endOfMonth ? 'descriptionEndOfMonth' : 'description', {
+              days: notice,
+              minDate: longDate(minDate),
+            })}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="moveout-date">
-            {t('dateLabel')}
+            {endOfMonth ? t('endOfMonthLabel') : t('dateLabel')}
           </label>
-          <input
-            id="moveout-date"
-            type="date"
-            min={minDate}
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm sm:text-sm"
-          />
+          {endOfMonth ? (
+            <select
+              id="moveout-date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm sm:text-sm"
+            >
+              {monthEnds.map((d) => (
+                <option key={d} value={d}>
+                  {longDate(d)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id="moveout-date"
+              type="date"
+              min={minDate}
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm sm:text-sm"
+            />
+          )}
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>

@@ -1,3 +1,4 @@
+import { monthEndOf } from '@storageos/shared';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -82,7 +83,7 @@ describe('Move-out self-service (e2e)', () => {
     expect(tooSoon.status).toBe(400);
     expect(tooSoon.body.code).toBe('notice_period_not_met');
 
-    // Fecha válida → contrato pasa a 'ending' con esa fecha de salida.
+    // Fecha válida → contrato pasa a 'ending'; la baja surte efecto a final de ese mes.
     const endDate = dateInDays(30);
     const ok = await request(app.getHttpServer())
       .post(`/portal/me/contracts/${contractId}/request-move-out`)
@@ -90,7 +91,7 @@ describe('Move-out self-service (e2e)', () => {
       .send({ endDate });
     expect(ok.status).toBe(200);
     expect(ok.body.status).toBe('ending');
-    expect(ok.body.endDate).toBe(endDate);
+    expect(ok.body.endDate).toBe(monthEndOf(endDate));
 
     // Reflejado en el panel del staff.
     const staffView = await request(app.getHttpServer()).get(`/contracts/${contractId}`).set(auth);

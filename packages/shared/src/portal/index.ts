@@ -25,6 +25,8 @@ export interface PortalContractDto {
   /** Cuota con IVA (lo que paga cada mes por el trastero). */
   effectivePriceWithVat: number;
   cancellationNoticeDays: number;
+  /** La baja surte efecto el último día del mes en que se cumple el preaviso. */
+  moveOutEndOfMonth: boolean;
   endingRequestedAt: string | null;
   /** Fianza/depósito y su estado. */
   depositAmount: number;

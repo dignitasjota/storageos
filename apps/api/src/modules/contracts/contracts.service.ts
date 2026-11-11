@@ -11,6 +11,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   addMonthsYmd,
   CLOSED_CASE_STATUSES,
+  earliestMoveOutDate,
+  effectiveMoveOutDate,
   rentTax,
   resolvePlanFeatures,
 } from '@storageos/shared';
@@ -34,7 +36,12 @@ import { FilesService } from '../files/files.service';
 import { PromotionsService } from '../promotions/promotions.service';
 
 import { composeContractTerms, termsHash } from './contract-terms';
-import { creditForLine, unusedPrepaidMonths } from './prepay-credit';
+import {
+  creditForLine,
+  prepaidPeriodMonths,
+  rentCreditWithoutDiscount,
+  unusedPrepaidMonths,
+} from './prepay-credit';
 import { PricingService } from './pricing.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -455,50 +462,103 @@ export class ContractsService {
       checkoutPhotos: photos,
       pendingInvoices,
       pendingTotal: pendingInvoices.reduce((acc, i) => addAmounts(acc, i.pending), 0),
-      prepaidCredit: await this.prepaidCreditPreview(
-        tenantId,
-        id,
-        c.billingIntervalMonths,
-        c.endDate ?? today,
-      ),
+      prepaidCredit: await this.prepaidCreditPreview(tenantId, id, c.endDate ?? today),
       hasLiveAccess: credentials > 0,
       otherLiveContracts: others,
     };
   }
 
-  /** Factura prepagada que cubre la fecha de baja, con lo que se abonaría. */
+  /**
+   * Abono de la factura prepagada que cubre la fecha de baja (prepago
+   * semestral o anual, o el primer pago de varios meses): los meses enteros
+   * sin usar, cobrando los usados a la cuota mensual del contrato, sin el
+   * descuento ni los meses gratis de ese pago. La protección de contenido no
+   * tiene descuento y se abona en proporción. null si no hay nada que abonar.
+   */
+  private async prepaidCreditFor(
+    tenantId: string,
+    contractId: string,
+    endDate: Date,
+  ): Promise<{
+    invoiceId: string;
+    months: number;
+    unused: number;
+    lines: { description: string; base: number; taxRate: number; taxCategory: string }[];
+  } | null> {
+    const [invoice, contract] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.invoice.findFirst({
+            where: {
+              contractId,
+              invoiceType: 'F1',
+              status: { in: ['paid', 'partially_refunded'] },
+              periodStart: { lte: endDate },
+              periodEnd: { gte: endDate },
+            },
+            include: { items: true },
+            orderBy: { periodStart: 'desc' },
+          }),
+          tx.contract.findUnique({
+            where: { id: contractId },
+            select: { priceMonthly: true, discountAmount: true },
+          }),
+        ]),
+      tenantId,
+    );
+    if (!invoice?.periodStart || !invoice.periodEnd || !contract) return null;
+    const months = prepaidPeriodMonths(invoice.periodStart, invoice.periodEnd);
+    if (months < 2) return null;
+    const unused = unusedPrepaidMonths(invoice.periodStart, months, endDate);
+    if (unused === 0) return null;
+
+    // Solo las líneas del periodo; la fianza no tiene periodo y se liquida aparte.
+    const periodItems = invoice.items.filter((i) => i.periodStart && i.periodEnd);
+    const lines: { description: string; base: number; taxRate: number; taxCategory: string }[] = [];
+    // El alquiler son las líneas del trastero (con los meses gratis del cupón).
+    const rent = periodItems.filter((i) => i.relatedUnitId);
+    const firstRent = rent[0];
+    if (firstRent) {
+      const base = rentCreditWithoutDiscount({
+        paid: rent.reduce((acc, i) => acc + Number(i.unitPrice) * Number(i.quantity), 0),
+        months,
+        unused,
+        monthlyPrice: Number(contract.priceMonthly) - Number(contract.discountAmount),
+      });
+      if (base > 0) {
+        lines.push({
+          description: firstRent.description,
+          base,
+          taxRate: Number(firstRent.taxRate),
+          taxCategory: firstRent.taxCategory,
+        });
+      }
+    }
+    for (const i of periodItems.filter((item) => !item.relatedUnitId)) {
+      const base = creditForLine(Number(i.unitPrice) * Number(i.quantity), months, unused);
+      if (base > 0) {
+        lines.push({
+          description: i.description,
+          base,
+          taxRate: Number(i.taxRate),
+          taxCategory: i.taxCategory,
+        });
+      }
+    }
+    if (lines.length === 0) return null;
+    return { invoiceId: invoice.id, months, unused, lines };
+  }
+
+  /** Lo que se abonaría al dar de baja el contrato en `endDate` (con IVA). */
   private async prepaidCreditPreview(
     tenantId: string,
     contractId: string,
-    interval: number,
     endDate: Date,
   ): Promise<ContractMoveOutDto['prepaidCredit']> {
-    if (interval <= 1) return null;
-    const invoice = await this.prisma.withTenant(
-      (tx) =>
-        tx.invoice.findFirst({
-          where: {
-            contractId,
-            invoiceType: 'F1',
-            status: { in: ['paid', 'partially_refunded'] },
-            periodStart: { lte: endDate },
-            periodEnd: { gte: endDate },
-          },
-          include: { items: true },
-          orderBy: { periodStart: 'desc' },
-        }),
-      tenantId,
-    );
-    if (!invoice?.periodStart) return null;
-    const months = unusedPrepaidMonths(invoice.periodStart, interval, endDate);
-    if (months === 0) return null;
-    const amount = invoice.items
-      .filter((i) => i.periodStart && i.periodEnd)
-      .reduce((acc, i) => {
-        const base = creditForLine(Number(i.unitPrice) * Number(i.quantity), interval, months);
-        return acc + base * (1 + Number(i.taxRate) / 100);
-      }, 0);
-    return { months, amount: Math.round(amount * 100) / 100 };
+    const credit = await this.prepaidCreditFor(tenantId, contractId, endDate);
+    if (!credit) return null;
+    const amount = credit.lines.reduce((acc, l) => acc + l.base * (1 + l.taxRate / 100), 0);
+    return { months: credit.unused, amount: Math.round(amount * 100) / 100 };
   }
 
   /** Hoy en la zona del local del trastero. */
@@ -1656,14 +1716,19 @@ export class ContractsService {
       });
     }
     // Sin fecha de fin la recurrente seguía facturando y la baja no salía en «Hoy».
+    // Sin fecha, la primera posible (a final de mes si el negocio lo tiene así);
+    // con fecha, la que ponga el equipo (puede ser una baja pactada).
     const today = await this.todayAtUnit(args.tenantId, existing.unitId);
-    const endDate = args.endDate
-      ? new Date(`${args.endDate}T00:00:00Z`)
-      : (() => {
-          const d = new Date(today);
-          d.setUTCDate(d.getUTCDate() + existing.cancellationNoticeDays);
-          return d;
-        })();
+    const endDate = new Date(
+      `${
+        args.endDate ??
+        earliestMoveOutDate({
+          today: today.toISOString().slice(0, 10),
+          noticeDays: existing.cancellationNoticeDays,
+          endOfMonth: await this.moveOutEndOfMonth(args.tenantId),
+        })
+      }T00:00:00Z`,
+    );
     if (endDate < new Date(existing.startDate)) {
       throw new BadRequestException({
         code: 'invalid_end_date',
@@ -1729,6 +1794,52 @@ export class ContractsService {
   // Move-out self-service (portal del inquilino)
   // -------------------------------------------------------------------------
 
+  /** La baja surte efecto a final de mes (ajuste del negocio). */
+  private async moveOutEndOfMonth(tenantId: string): Promise<boolean> {
+    const tenant = await this.prisma.withTenant(
+      (tx) =>
+        tx.tenant.findUnique({ where: { id: tenantId }, select: { moveOutEndOfMonth: true } }),
+      tenantId,
+    );
+    return tenant?.moveOutEndOfMonth ?? true;
+  }
+
+  /**
+   * Fecha de baja que pide el inquilino: debe respetar el preaviso desde hoy
+   * (en la hora del local) y, si el negocio lo tiene así, se lleva al final de
+   * su mes (pide el 20 de diciembre → se va el 31).
+   */
+  private async customerMoveOutDate(
+    tenantId: string,
+    contract: { unitId: string; cancellationNoticeDays: number },
+    requestedYmd: string,
+  ): Promise<Date> {
+    const [today, endOfMonth] = await Promise.all([
+      this.todayAtUnit(tenantId, contract.unitId),
+      this.moveOutEndOfMonth(tenantId),
+    ]);
+    const todayYmd = today.toISOString().slice(0, 10);
+    const minDate = earliestMoveOutDate({
+      today: todayYmd,
+      noticeDays: contract.cancellationNoticeDays,
+      endOfMonth: false,
+    });
+    if (requestedYmd.slice(0, 10) < minDate) {
+      throw new BadRequestException({
+        code: 'notice_period_not_met',
+        message: `La baja requiere un preaviso de ${contract.cancellationNoticeDays} días`,
+        details: {
+          minEndDate: earliestMoveOutDate({
+            today: todayYmd,
+            noticeDays: contract.cancellationNoticeDays,
+            endOfMonth,
+          }),
+        },
+      });
+    }
+    return new Date(`${effectiveMoveOutDate(requestedYmd, endOfMonth)}T00:00:00Z`);
+  }
+
   private toPortalDto(
     row: {
       id: string;
@@ -1757,6 +1868,7 @@ export class ContractsService {
       preOpeningDateConfirmed: boolean;
       preOpeningDeadline: Date | null;
       preOpeningStartedAt: Date | null;
+      tenant: { moveOutEndOfMonth: boolean };
     },
     overlocked = false,
   ): PortalContractDto {
@@ -1778,6 +1890,7 @@ export class ContractsService {
       effectivePrice,
       effectivePriceWithVat: round2(effectivePrice * (1 + rentVat / 100)),
       cancellationNoticeDays: row.cancellationNoticeDays,
+      moveOutEndOfMonth: row.tenant.moveOutEndOfMonth,
       endingRequestedAt: row.endingRequestedAt?.toISOString() ?? null,
       depositAmount: Number(row.depositAmount),
       depositStatus: row.depositStatus as PortalContractDto['depositStatus'],
@@ -1815,6 +1928,7 @@ export class ContractsService {
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
+          tenant: { select: { moveOutEndOfMonth: true } },
         },
       });
       // Trasteros con candado por impago (expediente overlock no cerrado).
@@ -1874,17 +1988,7 @@ export class ContractsService {
         message: 'La reserva aún no ha empezado: cancélala como reserva antes de la apertura',
       });
     }
-    // Preaviso: la fecha de salida debe respetar `cancellationNoticeDays`.
-    const minDate = await this.todayAtUnit(args.tenantId, existing.unitId);
-    minDate.setUTCDate(minDate.getUTCDate() + existing.cancellationNoticeDays);
-    const requested = new Date(`${args.endDate}T00:00:00Z`);
-    if (requested.getTime() < minDate.getTime()) {
-      throw new BadRequestException({
-        code: 'notice_period_not_met',
-        message: `La baja requiere un preaviso de ${existing.cancellationNoticeDays} días`,
-        details: { minEndDate: minDate.toISOString().slice(0, 10) },
-      });
-    }
+    const requested = await this.customerMoveOutDate(args.tenantId, existing, args.endDate);
 
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
@@ -1918,6 +2022,7 @@ export class ContractsService {
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
+          tenant: { select: { moveOutEndOfMonth: true } },
         },
       });
       await tx.contractEvent.create({
@@ -1925,7 +2030,11 @@ export class ContractsService {
           tenantId: args.tenantId,
           contractId: args.contractId,
           eventType: 'ending_requested',
-          payload: { requestedEndDate: args.endDate, channel: 'portal' },
+          payload: {
+            requestedEndDate: args.endDate,
+            endDate: requested.toISOString().slice(0, 10),
+            channel: 'portal',
+          },
           createdByUserId: null,
         },
       });
@@ -1946,7 +2055,7 @@ export class ContractsService {
       customerId: updated.customerId,
       scope: {
         customer: { firstName: c.firstName ?? '', displayName, email: c.email ?? '' },
-        contract: { number: updated.contractNumber, endDate: args.endDate },
+        contract: { number: updated.contractNumber, endDate: requested.toISOString().slice(0, 10) },
         unit: { code: updated.unit.code },
         facility: { name: updated.unit.facility.name },
       },
@@ -1990,16 +2099,7 @@ export class ContractsService {
         message: 'Solo puedes cambiar la fecha de una baja que esté en curso',
       });
     }
-    const minDate = todayInTimezone();
-    minDate.setUTCDate(minDate.getUTCDate() + existing.cancellationNoticeDays);
-    const requested = new Date(`${args.endDate}T00:00:00Z`);
-    if (requested.getTime() < minDate.getTime()) {
-      throw new BadRequestException({
-        code: 'notice_period_not_met',
-        message: `La baja requiere un preaviso de ${existing.cancellationNoticeDays} días`,
-        details: { minEndDate: minDate.toISOString().slice(0, 10) },
-      });
-    }
+    const requested = await this.customerMoveOutDate(args.tenantId, existing, args.endDate);
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
@@ -2017,6 +2117,7 @@ export class ContractsService {
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
+          tenant: { select: { moveOutEndOfMonth: true } },
         },
       });
       await tx.contractEvent.create({
@@ -2025,7 +2126,7 @@ export class ContractsService {
           contractId: args.contractId,
           eventType: 'ending_requested',
           payload: {
-            requestedEndDate: args.endDate,
+            requestedEndDate: requested.toISOString().slice(0, 10),
             previousEndDate: existing.endDate?.toISOString().slice(0, 10) ?? null,
             channel: 'portal',
             reason: 'move_out_date_changed',
@@ -2102,6 +2203,7 @@ export class ContractsService {
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
+          tenant: { select: { moveOutEndOfMonth: true } },
         },
       });
       await tx.contractEvent.create({
@@ -2227,7 +2329,7 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    await this.creditPrepaidMonths(args, existing.billingIntervalMonths, effectiveEnd);
+    await this.creditPrepaidMonths(args, effectiveEnd);
     await this.emitContractEnded(args.tenantId, updated);
     this.emitScheduledUnitFreed(args.tenantId, existing);
     return this.toDto(updated);
@@ -2411,16 +2513,13 @@ export class ContractsService {
    */
   private async creditPrepaidMonths(
     args: { tenantId: string; userId: string | null; contractId: string; meta: RequestMeta },
-    interval: number,
     endDate: Date,
   ): Promise<void> {
-    if (interval <= 1) return;
     try {
       await this.createPrepayCreditNote({
         tenantId: args.tenantId,
         userId: args.userId,
         contractId: args.contractId,
-        interval,
         endDate,
         meta: args.meta,
       });
@@ -2575,71 +2674,46 @@ export class ContractsService {
   }
 
   /**
-   * Genera la rectificativa (R1, por diferencias, en BORRADOR) que abona los
-   * meses completos no consumidos de la factura prepagada que cubre la fecha
-   * de baja. El staff la revisa, la emite y devuelve el importe a mano (no se
-   * reembolsa por pasarela). Idempotente: si la factura ya tiene una
-   * rectificativa viva, no hace nada.
+   * Genera la rectificativa (R1, por diferencias, en BORRADOR) que abona lo
+   * pagado por adelantado y no usado (ver `prepaidCreditFor`). El staff la
+   * revisa, la emite y devuelve el importe a mano (no se reembolsa por
+   * pasarela). Idempotente: si la factura ya tiene una rectificativa viva, no
+   * hace nada.
    */
   private async createPrepayCreditNote(args: {
     tenantId: string;
     userId: string | null;
     contractId: string;
-    interval: number;
     endDate: Date;
     meta: RequestMeta;
   }): Promise<void> {
-    const invoice = await this.prisma.withTenant(
-      (tx) =>
-        tx.invoice.findFirst({
-          where: {
-            contractId: args.contractId,
-            invoiceType: 'F1',
-            status: { in: ['paid', 'partially_refunded'] },
-            periodStart: { lte: args.endDate },
-            periodEnd: { gte: args.endDate },
-          },
-          include: { items: true },
-          orderBy: { periodStart: 'desc' },
-        }),
-      args.tenantId,
-    );
-    if (!invoice?.periodStart) return;
-
+    const prepaid = await this.prepaidCreditFor(args.tenantId, args.contractId, args.endDate);
+    if (!prepaid) return;
     const alreadyCredited = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.count({
-          where: { rectifiesInvoiceId: invoice.id, status: { not: 'cancelled' } },
+          where: { rectifiesInvoiceId: prepaid.invoiceId, status: { not: 'cancelled' } },
         }),
       args.tenantId,
     );
     if (alreadyCredited > 0) return;
-
-    const unused = unusedPrepaidMonths(invoice.periodStart, args.interval, args.endDate);
-    if (unused === 0) return;
-
-    // Solo las líneas prepagadas (alquiler + protección, que llevan periodo);
-    // la fianza no tiene periodo y se liquida aparte.
-    const items = invoice.items
-      .filter((i) => i.periodStart && i.periodEnd)
-      .map((i) => ({
-        description: `Abono baja anticipada (${unused} de ${args.interval} meses no consumidos) — ${i.description}`,
-        quantity: 1,
-        unitPrice: -creditForLine(Number(i.unitPrice) * Number(i.quantity), args.interval, unused),
-        taxRate: Number(i.taxRate),
-        taxCategory: i.taxCategory as InvoiceTaxCategory,
-        relatedContractId: args.contractId,
-      }))
-      .filter((i) => i.unitPrice < 0);
-    if (items.length === 0) return;
+    const { unused, months } = prepaid;
+    const items = prepaid.lines.map((l) => ({
+      description: `Abono baja anticipada (${unused} de ${months} meses sin usar) — ${l.description}`,
+      quantity: 1,
+      unitPrice: -l.base,
+      taxRate: l.taxRate,
+      taxCategory: l.taxCategory as InvoiceTaxCategory,
+      relatedContractId: args.contractId,
+    }));
 
     const credit = await this.invoices.rectify({
-      originalInvoiceId: invoice.id,
+      originalInvoiceId: prepaid.invoiceId,
       tenantId: args.tenantId,
       userId: args.userId,
       input: {
         rectificationType: 'R1',
-        reason: `Baja anticipada de contrato prepagado: abono de ${unused} meses no consumidos`,
+        reason: `Baja anticipada de un periodo pagado por adelantado: abono de ${unused} de ${months} meses sin usar; los usados se cobran a la cuota mensual, sin el descuento del prepago`,
         correctionMethod: 'by_differences',
         items,
       },
@@ -2655,7 +2729,7 @@ export class ContractsService {
             payload: {
               event: 'prepay_credit_note',
               invoiceId: credit.id,
-              originalInvoiceId: invoice.id,
+              originalInvoiceId: prepaid.invoiceId,
               unusedMonths: unused,
               total: credit.total,
             },
@@ -3198,11 +3272,7 @@ export class ContractsService {
       userAgent: args.meta.userAgent ?? null,
     });
     if (wasLive) {
-      await this.creditPrepaidMonths(
-        args,
-        existing.billingIntervalMonths,
-        await this.todayAtUnit(args.tenantId, existing.unitId),
-      );
+      await this.creditPrepaidMonths(args, await this.todayAtUnit(args.tenantId, existing.unitId));
       await this.emitContractEnded(args.tenantId, updated);
     } else if (released) {
       this.eventBus.emit(DOMAIN_EVENTS.unit_available, {

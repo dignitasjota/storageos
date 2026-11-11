@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   DEFAULT_STORAGE_CLAUSES,
   contractClausesTemplate,
+  moveOutRuleText,
   renderContractClauses,
   rentTax,
 } from '@storageos/shared';
@@ -44,11 +45,15 @@ export interface ContractTermsInput {
   landlord?: PartyInput | null;
   /** Negocio que gestiona el local en nombre del propietario. */
   managedBy?: string | null;
-  /** Documento y domicilio del inquilino. */
+  /** Correo y teléfono para las comunicaciones del contrato (arrendador o gestor). */
+  landlordContact?: string | null;
+  /** Documento, domicilio y contacto del inquilino. */
   customer?: {
     documentLabel?: string | null;
     documentNumber?: string | null;
     address?: string | null;
+    email?: string | null;
+    phone?: string | null;
   } | null;
   unitDescription?: string | null;
   facilityAddress?: string | null;
@@ -65,6 +70,18 @@ export interface ContractTermsInput {
   prepayDiscountPct?: number;
   insurance?: { name: string; price: number; taxRate: number } | null;
   depositCash?: boolean;
+  /** Días máximos para devolver la fianza desde la entrega. */
+  depositReturnDays?: number;
+  /** La baja surte efecto el último día del mes en que se cumple el preaviso. */
+  moveOutEndOfMonth?: boolean;
+  /** Horario de acceso al local (texto ya compuesto). */
+  accessHours?: string | null;
+  /**
+   * Recargo por demora y gastos por recibo devuelto (sin IVA). Si se indican
+   * (aunque sea null), la ficha dice cuáles se aplican, o que no hay ninguno.
+   */
+  lateFee?: { type: string; value: number; graceDays: number } | null;
+  returnedPaymentFee?: number | null;
 }
 
 const CYCLE_LABEL: Record<string, string> = {
@@ -88,6 +105,51 @@ function party(p: PartyInput): string {
   return [p.name, p.taxId ? `NIF ${p.taxId}` : null, p.address || null].filter(Boolean).join(' · ');
 }
 
+/** Importe con IVA en céntimos (mismo redondeo que las líneas de factura). */
+function grossCents(base: number, rate: number): number {
+  return Math.round((Math.round(base * 100) * (100 + rate)) / 100);
+}
+
+/**
+ * `75,00 €` → `90,75 € IVA incluido (75,00 € + IVA del 21 %)`; con `per`:
+ * `5,45 € al mes, IVA incluido (…)`. Exento: `500,00 € (exenta de IVA)`.
+ */
+function priceWithVat(base: number, rate: number | undefined, per?: string): string {
+  const when = per ? ` ${per}` : '';
+  if (rate === undefined) return `${eur(base)}${when}`;
+  if (rate <= 0) return `${eur(base)}${when} (exenta de IVA)`;
+  return `${eur(grossCents(base, rate) / 100)}${when}${per ? ',' : ''} IVA incluido (${eur(base)} + IVA del ${rate} %)`;
+}
+
+/** Importe con el IVA sumado y la coletilla (`6,05 € al mes, IVA incluido`). */
+function grossWithVat(base: number, rate: number | undefined, per: string): string {
+  if (rate === undefined || rate <= 0) return `${eur(base)} ${per}`;
+  return `${eur(grossCents(base, rate) / 100)} ${per}, IVA incluido`;
+}
+
+/**
+ * Horario de acceso a partir del toque de queda del local (`HH:MM`, la
+ * franja en la que NO se puede entrar). Sin toque de queda: el publicado.
+ */
+export function accessHoursText(curfew: {
+  enabled: boolean;
+  start: string | null;
+  end: string | null;
+}): string {
+  const valid = (v: string | null): v is string => !!v && /^\d{2}:\d{2}$/.test(v);
+  if (
+    !curfew.enabled ||
+    !valid(curfew.start) ||
+    !valid(curfew.end) ||
+    curfew.start === curfew.end
+  ) {
+    return 'el publicado para el local';
+  }
+  return curfew.start > curfew.end
+    ? `de ${curfew.end} a ${curfew.start}, todos los días`
+    : `todos los días, salvo de ${curfew.start} a ${curfew.end}`;
+}
+
 /**
  * Texto del contrato que se muestra al firmar, cuya huella SHA-256 se guarda
  * como prueba de qué se firmó y que el PDF reproduce. Determinista: el mismo
@@ -107,12 +169,15 @@ export function buildContractTermsText(t: ContractTermsInput): string {
     header.push(`Arrendador: ${party(t.landlord)}`);
     if (t.managedBy) header.push(`Gestionado por: ${t.managedBy}`);
   }
+  if (t.landlordContact) header.push(`Contacto para este contrato: ${t.landlordContact}`);
   const customerParts = [
     t.customerName,
     t.customer?.documentNumber
       ? `${t.customer.documentLabel || 'Documento'} ${t.customer.documentNumber}`
       : null,
     t.customer?.address || null,
+    t.customer?.email || null,
+    t.customer?.phone || null,
   ].filter(Boolean);
   header.push(`Inquilino: ${customerParts.join(' · ')}`);
   header.push(
@@ -120,10 +185,11 @@ export function buildContractTermsText(t: ContractTermsInput): string {
   );
 
   // Duración
+  const delivery = `Inicio y entrega ${housing ? 'de la vivienda' : 'del trastero'}`;
   header.push(
     t.preOpening
-      ? `Inicio: el día de apertura del local${t.preOpening.openingDate ? ` (prevista aproximadamente para el ${day(t.preOpening.openingDate)})` : ' (fecha aún por confirmar)'}`
-      : `Inicio: ${day(t.startDate)}`,
+      ? `${delivery}: el día de apertura del local${t.preOpening.openingDate ? ` (prevista aproximadamente para el ${day(t.preOpening.openingDate)})` : ' (fecha aún por confirmar)'}`
+      : `${delivery}: ${day(t.startDate)}`,
   );
   if (t.endDate) {
     header.push(`Fin: ${day(t.endDate)}`);
@@ -135,16 +201,19 @@ export function buildContractTermsText(t: ContractTermsInput): string {
     );
   }
   if (t.cancellationNoticeDays !== undefined) {
-    header.push(`Preaviso de baja: ${t.cancellationNoticeDays} días`);
+    header.push(
+      `Preaviso de baja: ${t.cancellationNoticeDays} días${
+        t.moveOutEndOfMonth ? '; la baja surte efecto a final de mes' : ''
+      }`,
+    );
   }
 
-  // Económico
-  const tax =
-    t.vatRate === undefined ? '' : t.vatRate > 0 ? ` + IVA (${t.vatRate} %)` : ' (exenta de IVA)';
-  header.push(`Cuota ${cycle}: ${eur(t.priceMonthly)}${tax}`);
-  if (t.discountAmount && t.discountAmount > 0) {
+  // Económico: con el IVA incluido, que es lo que paga un consumidor.
+  header.push(`Cuota ${cycle}: ${priceWithVat(t.priceMonthly, t.vatRate)}`);
+  const discount = t.discountAmount && t.discountAmount > 0 ? t.discountAmount : 0;
+  if (discount > 0) {
     header.push(
-      `Descuento: −${eur(t.discountAmount)} al mes${t.discountReason ? ` (${t.discountReason})` : ''}`,
+      `Descuento: −${grossWithVat(discount, t.vatRate, 'al mes')}${t.discountReason ? ` (${t.discountReason})` : ''}`,
     );
   }
   if (t.freeMonths && t.freeMonths > 0) {
@@ -161,17 +230,50 @@ export function buildContractTermsText(t: ContractTermsInput): string {
     header.push(
       t.coupon.freeMonths > 0
         ? `Cupón ${t.coupon.code}: ${t.coupon.freeMonths} ${t.coupon.freeMonths === 1 ? 'mes gratis' : 'meses gratis'} en el primer pago`
-        : `Cupón ${t.coupon.code}: −${eur(t.coupon.discountAmount)} en el primer pago`,
+        : `Cupón ${t.coupon.code}: −${grossWithVat(t.coupon.discountAmount, t.vatRate, 'en el primer pago')}`,
     );
   }
   if (t.insurance) {
     header.push(
-      `Protección de contenido: ${t.insurance.name} — ${eur(t.insurance.price)} al mes + IVA (${t.insurance.taxRate} %)`,
+      `Protección de contenido: ${t.insurance.name} — ${priceWithVat(t.insurance.price, t.insurance.taxRate, 'al mes')}`,
     );
   }
+  if (t.vatRate !== undefined && (discount > 0 || t.insurance)) {
+    const total =
+      grossCents(t.priceMonthly - discount, t.vatRate) +
+      (t.insurance ? grossCents(t.insurance.price, t.insurance.taxRate) : 0);
+    const anyVat = t.vatRate > 0 || (t.insurance?.taxRate ?? 0) > 0;
+    header.push(`Total al mes: ${eur(total / 100)}${anyVat ? ' IVA incluido' : ''}`);
+  }
   header.push(
-    `Fianza: ${eur(t.depositAmount)}${t.depositAmount > 0 ? (t.depositCash ? ' (se paga en el local, sin IVA)' : ' (sin IVA)') : ''}`,
+    `Fianza: ${eur(t.depositAmount)}${
+      t.depositAmount > 0 ? (t.depositCash ? ' (se paga en el local, sin IVA)' : ' (sin IVA)') : ''
+    }${
+      t.depositAmount > 0 && t.depositReturnDays
+        ? `; se devuelve en un plazo máximo de ${t.depositReturnDays} días desde la entrega ${housing ? 'de la vivienda' : 'del trastero'}`
+        : ''
+    }`,
   );
+  if (!housing && t.accessHours) header.push(`Horario de acceso: ${t.accessHours}`);
+  if (t.lateFee !== undefined || t.returnedPaymentFee !== undefined) {
+    if (!t.lateFee && !t.returnedPaymentFee) {
+      header.push('Recargos por impago: ninguno');
+    }
+    if (t.lateFee) {
+      header.push(
+        `Recargo por demora: ${
+          t.lateFee.type === 'fixed'
+            ? `${eur(t.lateFee.value)} por factura vencida`
+            : `${t.lateFee.value} % de lo pendiente de la factura vencida`
+        }, pasados ${t.lateFee.graceDays} días de su vencimiento (sin IVA)`,
+      );
+    }
+    if (t.returnedPaymentFee) {
+      header.push(
+        `Gastos por recibo devuelto o pago rechazado: ${eur(t.returnedPaymentFee)} cada uno (sin IVA)`,
+      );
+    }
+  }
 
   // Cláusulas: las del tenant o las condiciones generales, entre la cabecera y
   // el consentimiento eIDAS (que siempre se conserva por su valor legal).
@@ -198,11 +300,9 @@ function preOpeningClauses(
   t: ContractTermsInput,
   p: NonNullable<ContractTermsInput['preOpening']>,
 ): string[] {
-  const tax =
-    t.vatRate === undefined ? '' : t.vatRate > 0 ? ` + IVA (${t.vatRate} %)` : ' (exenta de IVA)';
   return [
     'Reserva antes de la apertura del local:',
-    `1. Reserva. El inquilino reserva un trastero del tipo ${p.unitTypeName}, en concreto el ${t.unitCode}. Al reservar paga la primera mensualidad, ${eur(t.priceMonthly)}${tax}, que cubre el primer mes de alquiler desde la apertura, y la fianza, ${eur(t.depositAmount)}. Si no se paga en el plazo indicado, la reserva queda sin efecto.`,
+    `1. Reserva. El inquilino reserva un trastero del tipo ${p.unitTypeName}, en concreto el ${t.unitCode}. Al reservar paga la primera mensualidad, ${priceWithVat(t.priceMonthly, t.vatRate)}, que cubre el primer mes de alquiler desde la apertura, y la fianza, ${eur(t.depositAmount)}. Si no se paga en el plazo indicado, la reserva queda sin efecto.`,
     `2. Fecha de inicio. El alquiler empieza el día de apertura del local${p.openingDate ? `, prevista aproximadamente para el ${day(p.openingDate)}` : ''}. La fecha es orientativa y puede variar; la fecha definitiva y cualquier cambio se comunicarán por correo electrónico y en el área de clientes. Hasta ese día el inquilino no tiene acceso al trastero. El precio queda fijado desde la reserva. Si el local no ha abierto el ${day(p.deadline)} (${p.maxMonths} ${p.maxMonths === 1 ? 'mes' : 'meses'} desde la reserva), el inquilino puede dejar la reserva sin efecto y recuperar todo lo pagado.`,
     '3. Cambio de trastero. Antes de la apertura, el arrendador puede asignar otro trastero del mismo local y del mismo precio, avisando al inquilino.',
     '4. Cancelación. Dentro de los 14 días siguientes a la reserva, el inquilino puede desistir y se le devuelve todo lo pagado. Pasado ese plazo y antes del día de apertura, puede cancelar la reserva: se le devuelve la primera mensualidad y la fianza queda en poder del arrendador como arras penitenciales (art. 1454 del Código Civil). Llegado el día de apertura sin cancelar, el contrato despliega todos sus efectos.',
@@ -259,6 +359,8 @@ const TERMS_SELECT = {
       address: true,
       city: true,
       postalCode: true,
+      email: true,
+      phone: true,
     },
   },
   unit: {
@@ -273,6 +375,11 @@ const TERMS_SELECT = {
           city: true,
           postalCode: true,
           preOpeningMaxMonths: true,
+          contactEmail: true,
+          contactPhone: true,
+          accessCurfewEnabled: true,
+          accessCurfewStart: true,
+          accessCurfewEnd: true,
         },
       },
     },
@@ -322,6 +429,16 @@ export async function composeContractTerms(
         billingPostalCode: true,
         contractClauses: true,
         housingContractClauses: true,
+        contactEmail: true,
+        contactPhone: true,
+        billingEmail: true,
+        lateFeeEnabled: true,
+        lateFeeType: true,
+        lateFeeValue: true,
+        lateFeeGraceDays: true,
+        returnedPaymentFee: true,
+        depositReturnDays: true,
+        moveOutEndOfMonth: true,
       },
     }),
   ]);
@@ -350,7 +467,21 @@ export async function composeContractTerms(
     startDate: day(startDate),
     cancellationNoticeDays: String(c.cancellationNoticeDays),
     tenantName: c.owner?.legalName ?? tenantLegal,
+    moveOutRule: moveOutRuleText(tenant.moveOutEndOfMonth),
+    depositReturnDays: String(tenant.depositReturnDays),
   });
+  const facility = c.unit.facility;
+  const landlordContact =
+    [
+      facility.contactEmail || tenant.contactEmail || tenant.billingEmail,
+      facility.contactPhone || tenant.contactPhone,
+    ]
+      .filter(Boolean)
+      .join(' · ') || null;
+  const returnedPaymentFee =
+    tenant.returnedPaymentFee != null && Number(tenant.returnedPaymentFee) > 0
+      ? Number(tenant.returnedPaymentFee)
+      : null;
 
   const area = c.unit.areaM2 != null ? Number(c.unit.areaM2) : null;
   const unitDescription = [
@@ -391,7 +522,10 @@ export async function composeContractTerms(
         : null,
       documentNumber: c.customer.documentNumber,
       address: joinAddress(c.customer.address, c.customer.postalCode, c.customer.city),
+      email: c.customer.email,
+      phone: c.customer.phone,
     },
+    landlordContact,
     unitDescription: unitDescription || null,
     facilityAddress: joinAddress(
       c.unit.facility.address,
@@ -425,6 +559,21 @@ export async function composeContractTerms(
           }
         : null,
     depositCash: c.depositPaymentMethod === 'cash',
+    depositReturnDays: tenant.depositReturnDays,
+    moveOutEndOfMonth: tenant.moveOutEndOfMonth,
+    accessHours: accessHoursText({
+      enabled: facility.accessCurfewEnabled,
+      start: facility.accessCurfewStart,
+      end: facility.accessCurfewEnd,
+    }),
+    lateFee: tenant.lateFeeEnabled
+      ? {
+          type: tenant.lateFeeType,
+          value: Number(tenant.lateFeeValue),
+          graceDays: tenant.lateFeeGraceDays,
+        }
+      : null,
+    returnedPaymentFee,
     preOpening:
       c.preOpening && !c.preOpeningStartedAt
         ? {

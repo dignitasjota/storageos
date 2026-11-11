@@ -1157,3 +1157,7 @@ Avisos de «Hoy» apartados por el equipo: `kind`, `ref_id`, `label`, `until`, `
 ### Facturas, mejoras (`20270101100000_invoices_features`)
 
 `customers.invoice_due_days` (null = el plazo del negocio, `tenants.invoice_due_days`): días para pagar sus facturas desde que se emiten. `contracts.credit_balance` (DECIMAL, 0): saldo a favor del inquilino, de una devolución hecha «como saldo a favor» (`invoice_refunds.via = 'credit'`); la siguiente factura del contrato lo descuenta al emitirse con un pago `credit_note` y el saldo baja. Con RLS: `invoice_saved_views` (vistas de la lista de facturas del equipo: `name` único por tenant, `filters` jsonb, `created_by_user_id` FK SET NULL). Índice `audit_logs_tenant_entity_idx (tenant_id, entity_type, entity_id)` para el historial de una ficha.
+
+### Contrato v2 (`20270106100000_contract_v2`)
+
+`tenants.move_out_end_of_month` (bool, `true`): la baja surte efecto el último día del mes en que se cumple el preaviso (false = el día que elija el inquilino). `tenants.deposit_return_days` (int, 15): días para devolver la fianza desde la entrega del trastero. `tenants.returned_payment_fee` (DECIMAL(10,2), null = ninguno): gastos por recibo devuelto o pago rechazado, sin IVA. Los tres salen en el contrato.

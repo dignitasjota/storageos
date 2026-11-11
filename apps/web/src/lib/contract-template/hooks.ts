@@ -8,10 +8,11 @@ import { apiFetch } from '@/lib/auth/api';
 
 const templateKey = ['settings', 'tenant', 'contract-template'] as const;
 
-export function useContractTemplate() {
+export function useContractTemplate(enabled = true) {
   return useQuery({
     queryKey: templateKey,
     queryFn: () => apiFetch<ContractTemplateDto>('/settings/tenant/contract-template'),
+    enabled,
   });
 }
 
