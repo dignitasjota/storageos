@@ -1,5 +1,10 @@
 import { renderContractHtml } from '../contract-pdf-template';
-import { accessHoursText, buildContractTermsText, termsHash } from '../contract-terms';
+import {
+  PREPAID_EARLY_END_LINE,
+  accessHoursText,
+  buildContractTermsText,
+  termsHash,
+} from '../contract-terms';
 
 const base = {
   contractNumber: 'C-2026-0001',
@@ -46,6 +51,9 @@ describe('texto del contrato que se firma', () => {
     expect(text).toContain('Cuota mensual: 90,75 € IVA incluido (75,00 € + IVA del 21 %)');
     expect(text).toContain('Descuento: −6,05 € al mes, IVA incluido (Fidelidad)');
     expect(text).toContain('Primer pago: 3 meses por adelantado');
+    // Lo que pasa si se va antes de usar lo pagado por adelantado.
+    expect(text).toContain(PREPAID_EARLY_END_LINE);
+    expect(buildContractTermsText(base)).not.toContain(PREPAID_EARLY_END_LINE);
     expect(text).toContain('Cupón BIENVENIDA: −24,20 € en el primer pago, IVA incluido');
     expect(text).toContain(
       'Protección de contenido: Básico — 5,45 € al mes, IVA incluido (4,50 € + IVA del 21 %)',

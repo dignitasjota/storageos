@@ -226,6 +226,12 @@ export function buildContractTermsText(t: ContractTermsInput): string {
   } else if (t.firstPaymentMonths && t.firstPaymentMonths > 1) {
     header.push(`Primer pago: ${t.firstPaymentMonths} meses por adelantado; después, ${cycle}`);
   }
+  if (
+    (t.billingIntervalMonths && t.billingIntervalMonths > 1) ||
+    (t.firstPaymentMonths && t.firstPaymentMonths > 1)
+  ) {
+    header.push(PREPAID_EARLY_END_LINE);
+  }
   if (t.coupon) {
     header.push(
       t.coupon.freeMonths > 0
@@ -308,6 +314,14 @@ function preOpeningClauses(
     '4. Cancelación. Dentro de los 14 días siguientes a la reserva, el inquilino puede desistir y se le devuelve todo lo pagado. Pasado ese plazo y antes del día de apertura, puede cancelar la reserva: se le devuelve la primera mensualidad y la fianza queda en poder del arrendador como arras penitenciales (art. 1454 del Código Civil). Llegado el día de apertura sin cancelar, el contrato despliega todos sus efectos.',
   ];
 }
+
+/**
+ * Lo que pasa con lo pagado por adelantado si el inquilino se va antes. Va en la
+ * ficha de todo contrato con pago de varios meses que se firme desde el contrato
+ * v2 (con las cláusulas propias del negocio o con las generales).
+ */
+export const PREPAID_EARLY_END_LINE =
+  'Baja antes de usar lo pagado por adelantado: se devuelven los meses enteros sin usar; los usados se cobran a la cuota mensual, sin el descuento ni los meses gratis de ese pago';
 
 /** Huella SHA-256 (hex) de un texto: la que se guarda con cada firma. */
 export function termsHash(text: string): string {
@@ -415,7 +429,13 @@ export async function composeContractTerms(
   db: TermsDb,
   tenantId: string,
   contractId: string,
-): Promise<{ text: string; clauses: string | null; propertyKind: string }> {
+): Promise<{
+  text: string;
+  clauses: string | null;
+  propertyKind: string;
+  /** La baja surte efecto a final de mes (lo que dice este texto; se guarda al firmar). */
+  moveOutEndOfMonth: boolean;
+}> {
   const [c, tenant] = await Promise.all([
     db.contract.findFirstOrThrow({ where: { id: contractId, tenantId }, select: TERMS_SELECT }),
     db.tenant.findUniqueOrThrow({
@@ -443,6 +463,8 @@ export async function composeContractTerms(
     }),
   ]);
   const propertyKind = c.unit.unitType.propertyKind ?? 'storage';
+  // La baja a final de mes es de los trasteros; una vivienda sigue su ley (LAU).
+  const moveOutEndOfMonth = propertyKind !== 'housing' && tenant.moveOutEndOfMonth;
   const customerName =
     c.customer.customerType === 'business'
       ? (c.customer.companyName ?? '')
@@ -467,7 +489,7 @@ export async function composeContractTerms(
     startDate: day(startDate),
     cancellationNoticeDays: String(c.cancellationNoticeDays),
     tenantName: c.owner?.legalName ?? tenantLegal,
-    moveOutRule: moveOutRuleText(tenant.moveOutEndOfMonth),
+    moveOutRule: moveOutRuleText(moveOutEndOfMonth),
     depositReturnDays: String(tenant.depositReturnDays),
   });
   const facility = c.unit.facility;
@@ -560,7 +582,7 @@ export async function composeContractTerms(
         : null,
     depositCash: c.depositPaymentMethod === 'cash',
     depositReturnDays: tenant.depositReturnDays,
-    moveOutEndOfMonth: tenant.moveOutEndOfMonth,
+    moveOutEndOfMonth,
     accessHours: accessHoursText({
       enabled: facility.accessCurfewEnabled,
       start: facility.accessCurfewStart,
@@ -584,5 +606,5 @@ export async function composeContractTerms(
           }
         : null,
   });
-  return { text, clauses: defaultClauses ? null : clauses, propertyKind };
+  return { text, clauses: defaultClauses ? null : clauses, propertyKind, moveOutEndOfMonth };
 }

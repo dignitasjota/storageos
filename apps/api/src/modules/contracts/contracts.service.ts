@@ -501,12 +501,22 @@ export class ContractsService {
           }),
           tx.contract.findUnique({
             where: { id: contractId },
-            select: { priceMonthly: true, discountAmount: true },
+            select: {
+              priceMonthly: true,
+              discountAmount: true,
+              billingIntervalMonths: true,
+              prepaidCreditAtListPrice: true,
+            },
           }),
         ]),
       tenantId,
     );
     if (!invoice?.periodStart || !invoice.periodEnd || !contract) return null;
+    // Contratos firmados antes del contrato v2: lo que ya se hacía. El prepago
+    // semestral o anual se abona en proporción (con su descuento) y el primer
+    // pago de varios meses no se abona.
+    const legacy = !contract.prepaidCreditAtListPrice;
+    if (legacy && contract.billingIntervalMonths <= 1) return null;
     const months = prepaidPeriodMonths(invoice.periodStart, invoice.periodEnd);
     if (months < 2) return null;
     const unused = unusedPrepaidMonths(invoice.periodStart, months, endDate);
@@ -516,7 +526,7 @@ export class ContractsService {
     const periodItems = invoice.items.filter((i) => i.periodStart && i.periodEnd);
     const lines: { description: string; base: number; taxRate: number; taxCategory: string }[] = [];
     // El alquiler son las líneas del trastero (con los meses gratis del cupón).
-    const rent = periodItems.filter((i) => i.relatedUnitId);
+    const rent = legacy ? [] : periodItems.filter((i) => i.relatedUnitId);
     const firstRent = rent[0];
     if (firstRent) {
       const base = rentCreditWithoutDiscount({
@@ -534,7 +544,7 @@ export class ContractsService {
         });
       }
     }
-    for (const i of periodItems.filter((item) => !item.relatedUnitId)) {
+    for (const i of periodItems.filter((item) => legacy || !item.relatedUnitId)) {
       const base = creditForLine(Number(i.unitPrice) * Number(i.quantity), months, unused);
       if (base > 0) {
         lines.push({
@@ -1492,7 +1502,14 @@ export class ContractsService {
         }
         await tx.contract.update({
           where: { id: args.contractId },
-          data: { signedTermsText: terms.text, signedClausesText: terms.clauses },
+          data: {
+            signedTermsText: terms.text,
+            signedClausesText: terms.clauses,
+            // Las reglas que dice este texto se quedan con el contrato aunque el
+            // negocio cambie después su plantilla.
+            moveOutEndOfMonth: terms.moveOutEndOfMonth,
+            prepaidCreditAtListPrice: true,
+          },
         });
 
         // Registro probatorio de la firma electrónica simple.
@@ -1716,7 +1733,7 @@ export class ContractsService {
       });
     }
     // Sin fecha de fin la recurrente seguía facturando y la baja no salía en «Hoy».
-    // Sin fecha, la primera posible (a final de mes si el negocio lo tiene así);
+    // Sin fecha, la primera posible (a final de mes si el contrato se firmó así);
     // con fecha, la que ponga el equipo (puede ser una baja pactada).
     const today = await this.todayAtUnit(args.tenantId, existing.unitId);
     const endDate = new Date(
@@ -1725,7 +1742,7 @@ export class ContractsService {
         earliestMoveOutDate({
           today: today.toISOString().slice(0, 10),
           noticeDays: existing.cancellationNoticeDays,
-          endOfMonth: await this.moveOutEndOfMonth(args.tenantId),
+          endOfMonth: existing.moveOutEndOfMonth === true,
         })
       }T00:00:00Z`,
     );
@@ -1794,30 +1811,18 @@ export class ContractsService {
   // Move-out self-service (portal del inquilino)
   // -------------------------------------------------------------------------
 
-  /** La baja surte efecto a final de mes (ajuste del negocio). */
-  private async moveOutEndOfMonth(tenantId: string): Promise<boolean> {
-    const tenant = await this.prisma.withTenant(
-      (tx) =>
-        tx.tenant.findUnique({ where: { id: tenantId }, select: { moveOutEndOfMonth: true } }),
-      tenantId,
-    );
-    return tenant?.moveOutEndOfMonth ?? true;
-  }
-
   /**
    * Fecha de baja que pide el inquilino: debe respetar el preaviso desde hoy
-   * (en la hora del local) y, si el negocio lo tiene así, se lleva al final de
-   * su mes (pide el 20 de diciembre → se va el 31).
+   * (en la hora del local) y, si su contrato se firmó con la baja a final de
+   * mes, se lleva al final de su mes (pide el 20 de diciembre → se va el 31).
    */
   private async customerMoveOutDate(
     tenantId: string,
-    contract: { unitId: string; cancellationNoticeDays: number },
+    contract: { unitId: string; cancellationNoticeDays: number; moveOutEndOfMonth: boolean | null },
     requestedYmd: string,
   ): Promise<Date> {
-    const [today, endOfMonth] = await Promise.all([
-      this.todayAtUnit(tenantId, contract.unitId),
-      this.moveOutEndOfMonth(tenantId),
-    ]);
+    const today = await this.todayAtUnit(tenantId, contract.unitId);
+    const endOfMonth = contract.moveOutEndOfMonth === true;
     const todayYmd = today.toISOString().slice(0, 10);
     const minDate = earliestMoveOutDate({
       today: todayYmd,
@@ -1868,7 +1873,7 @@ export class ContractsService {
       preOpeningDateConfirmed: boolean;
       preOpeningDeadline: Date | null;
       preOpeningStartedAt: Date | null;
-      tenant: { moveOutEndOfMonth: boolean };
+      moveOutEndOfMonth: boolean | null;
     },
     overlocked = false,
   ): PortalContractDto {
@@ -1890,7 +1895,7 @@ export class ContractsService {
       effectivePrice,
       effectivePriceWithVat: round2(effectivePrice * (1 + rentVat / 100)),
       cancellationNoticeDays: row.cancellationNoticeDays,
-      moveOutEndOfMonth: row.tenant.moveOutEndOfMonth,
+      moveOutEndOfMonth: row.moveOutEndOfMonth === true,
       endingRequestedAt: row.endingRequestedAt?.toISOString() ?? null,
       depositAmount: Number(row.depositAmount),
       depositStatus: row.depositStatus as PortalContractDto['depositStatus'],
@@ -1928,7 +1933,6 @@ export class ContractsService {
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
-          tenant: { select: { moveOutEndOfMonth: true } },
         },
       });
       // Trasteros con candado por impago (expediente overlock no cerrado).
@@ -2022,7 +2026,6 @@ export class ContractsService {
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
-          tenant: { select: { moveOutEndOfMonth: true } },
         },
       });
       await tx.contractEvent.create({
@@ -2117,7 +2120,6 @@ export class ContractsService {
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
-          tenant: { select: { moveOutEndOfMonth: true } },
         },
       });
       await tx.contractEvent.create({
@@ -2203,7 +2205,6 @@ export class ContractsService {
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
           couponRedemptions: COUPON_SELECT,
-          tenant: { select: { moveOutEndOfMonth: true } },
         },
       });
       await tx.contractEvent.create({
@@ -4335,6 +4336,7 @@ export class ContractsService {
       insurancePrice: row.insurancePrice != null ? Number(row.insurancePrice) : null,
       autoRenew: row.autoRenew,
       cancellationNoticeDays: row.cancellationNoticeDays,
+      moveOutEndOfMonth: row.moveOutEndOfMonth === true,
       notes: row.notes,
       preOpening: preOpeningDto(row),
       createdAt: row.createdAt.toISOString(),

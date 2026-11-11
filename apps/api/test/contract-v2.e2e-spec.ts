@@ -159,10 +159,9 @@ describe('Contrato v2 (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'contractv2-baja');
     const a = auth(owner.accessToken);
     const email = `v2-baja-${Date.now()}@e2e.local`;
-    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 2 });
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 3 });
     const customerId = await createCustomer(app, owner.accessToken, { email });
-    const ids: string[] = [];
-    for (const unitId of unitIds) {
+    const sign = async (unitId: string) => {
       const c = await http().post('/contracts').set(a).send({
         customerId,
         unitId,
@@ -171,8 +170,12 @@ describe('Contrato v2 (e2e)', () => {
         depositAmount: 0,
       });
       await http().post(`/contracts/${c.body.id}/sign`).set(a).send({}).expect(200);
-      ids.push(c.body.id as string);
-    }
+      return c.body.id as string;
+    };
+    const ids = [await sign(unitIds[0]!), await sign(unitIds[1]!)];
+    // La regla se guarda con el contrato al firmar.
+    const signed = await http().get(`/contracts/${ids[0]}`).set(a).expect(200);
+    expect(signed.body.moveOutEndOfMonth).toBe(true);
     const portal = { Authorization: `Bearer ${await portalLogin(owner.slug, email)}` };
 
     const mine = await http().get('/portal/me/contracts').set(portal).expect(200);
@@ -204,7 +207,8 @@ describe('Contrato v2 (e2e)', () => {
     expect(staff.body.endDate).toBe(monthEndOf(staff.body.endDate as string));
     expect(staff.body.endDate >= inDays(14)).toBe(true);
 
-    // Si el negocio deja elegir el día, se guarda el que pide.
+    // El negocio pasa a dejar elegir el día: vale para los contratos que se
+    // firmen desde ahora; el ya firmado sigue terminando a final de mes.
     await http()
       .patch('/settings/tenant/contract-template')
       .set(a)
@@ -216,7 +220,25 @@ describe('Contrato v2 (e2e)', () => {
       .set(portal)
       .send({ endDate: exact })
       .expect(200);
-    expect(moved.body.endDate).toBe(exact);
+    expect(moved.body.endDate).toBe(monthEndOf(exact));
+
+    const later = await sign(unitIds[2]!);
+    const free = await http()
+      .post(`/portal/me/contracts/${later}/request-move-out`)
+      .set(portal)
+      .send({ endDate: exact })
+      .expect(200);
+    expect(free.body.moveOutEndOfMonth).toBe(false);
+    expect(free.body.endDate).toBe(exact);
+
+    // Un contrato firmado antes del contrato v2 (sin regla guardada) tampoco cambia.
+    await admin.contract.update({ where: { id: ids[1] }, data: { moveOutEndOfMonth: null } });
+    const legacy = await http()
+      .post(`/portal/me/contracts/${ids[1]}/move-out-date`)
+      .set(portal)
+      .send({ endDate: exact })
+      .expect(200);
+    expect(legacy.body.endDate).toBe(exact);
   });
 
   it('primer pago de 3 meses con cupón: al irse antes se abona lo no usado a precio normal', async () => {
@@ -267,6 +289,17 @@ describe('Contrato v2 (e2e)', () => {
     });
     const preview = await http().get(`/contracts/${contractId}/move-out`).set(a).expect(200);
     expect(preview.body.prepaidCredit).toEqual({ months: 2, amount: 60.5 });
+    // Firmado antes del contrato v2, el primer pago de varios meses no se abonaba.
+    await admin.contract.update({
+      where: { id: contractId },
+      data: { prepaidCreditAtListPrice: false },
+    });
+    const legacy = await http().get(`/contracts/${contractId}/move-out`).set(a).expect(200);
+    expect(legacy.body.prepaidCredit).toBeNull();
+    await admin.contract.update({
+      where: { id: contractId },
+      data: { prepaidCreditAtListPrice: true },
+    });
 
     await http().post(`/contracts/${contractId}/end`).set(a).expect(200);
     const credit = await admin.invoice.findFirstOrThrow({

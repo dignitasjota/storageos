@@ -202,6 +202,8 @@ export interface ContractDto {
   insurancePrice: number | null;
   autoRenew: boolean;
   cancellationNoticeDays: number;
+  /** La baja surte efecto a final de mes (la regla con la que se firmó). */
+  moveOutEndOfMonth: boolean;
   notes: string | null;
   createdAt: string;
   updatedAt: string;

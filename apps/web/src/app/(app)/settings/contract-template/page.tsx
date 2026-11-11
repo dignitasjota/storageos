@@ -127,7 +127,8 @@ function MoveOutCard({ data }: { data: ContractTemplateDto }) {
           El inquilino avisa con el preaviso de su contrato. A final de mes, se va el último día del
           mes en que se cumple el preaviso y ese mes lo paga entero; si no, elige el día y el último
           mes se cobra hasta esa fecha. Si pagó varios meses por adelantado, se le abonan los meses
-          enteros sin usar, cobrando los usados a la cuota mensual.
+          enteros sin usar, cobrando los usados a la cuota mensual. Cada contrato conserva la regla
+          con la que se firmó: cambiarla aquí vale para los que se firmen a partir de ahora.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
