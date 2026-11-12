@@ -1,4 +1,6 @@
+import { WorkerHost } from '@nestjs/bullmq';
 import { VersioningType } from '@nestjs/common';
+import { DiscoveryService } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import { json, raw } from 'express';
@@ -10,6 +12,7 @@ import { legacyRedirectHandler } from '../../src/common/middleware/legacy-redire
 
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { Worker } from 'bullmq';
 import type { NextFunction, Request, Response } from 'express';
 
 export interface CreateTestAppOptions {
@@ -107,5 +110,50 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
   // al azar en cada petición y, si coincide con el de otro programa del equipo, la
   // petición le llega a él (`404 {}` o se queda esperando).
   await app.listen(0, '127.0.0.1');
+  closeQueuesQuickly(app);
   return app;
+}
+
+/** Lo que se espera, como mucho, a los trabajos que esta app tiene en marcha al cerrarla. */
+const QUEUE_CLOSE_WAIT_MS = 10_000;
+
+/**
+ * Al cerrar la app, las colas no esperan a lo que no es suyo. Por defecto cada
+ * trabajador espera a que vuelva su espera de trabajos (hasta 10 s si hay alguno
+ * programado para después, como los envíos de Veri*Factu) y la prueba miraba los
+ * trabajos «activos» de la cola, que pueden ser restos de otra suite: en la CI,
+ * más lenta, el cierre pasaba de los 30 s de Jest. Se espera solo a los trabajos
+ * que esta app está haciendo y después se cierran las colas sin esperar.
+ */
+function closeQueuesQuickly(app: INestApplication): void {
+  const workers = app
+    .get(DiscoveryService, { strict: false })
+    .getProviders()
+    .map((wrapper) => wrapper.instance as unknown)
+    .filter((instance): instance is WorkerHost => instance instanceof WorkerHost)
+    .map((host) => host.worker as Worker | undefined)
+    .filter((worker): worker is Worker => !!worker);
+  const running = new Map<Worker, number>(workers.map((w) => [w, 0]));
+  for (const worker of workers) {
+    const done = () => running.set(worker, Math.max(0, (running.get(worker) ?? 1) - 1));
+    worker.on('active', () => running.set(worker, (running.get(worker) ?? 0) + 1));
+    worker.on('completed', done);
+    worker.on('failed', done);
+  }
+  const close = app.close.bind(app);
+  app.close = async () => {
+    const until = Date.now() + QUEUE_CLOSE_WAIT_MS;
+    const busy = () => workers.filter((w) => (running.get(w) ?? 0) > 0);
+    while (busy().length > 0 && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const stuck = busy();
+    if (stuck.length > 0) {
+      console.warn(
+        `[e2e] colas con trabajos en marcha a los ${QUEUE_CLOSE_WAIT_MS / 1000} s, se cierran sin esperarlos: ${stuck.map((w) => w.name).join(', ')}`,
+      );
+    }
+    await Promise.all(workers.map((w) => w.close(true).catch(() => undefined)));
+    await close();
+  };
 }

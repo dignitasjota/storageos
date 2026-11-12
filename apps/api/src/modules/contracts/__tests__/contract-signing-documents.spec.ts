@@ -139,6 +139,17 @@ describe('texto del contrato que se firma', () => {
     expect(buildContractTermsText(base)).not.toContain('Modelo de formulario de desistimiento');
   });
 
+  it('reserva antes de la apertura: la garantía en meses, sin la fecha límite', () => {
+    const preOpening = { openingDate: null, maxMonths: 6, unitTypeName: 'Mediano' };
+    const text = buildContractTermsText({ ...base, startDate: '2027-05-12', preOpening });
+    expect(text).toContain('el día de apertura del local (fecha aún por confirmar)');
+    expect(text).toContain('Si pasados 6 meses desde la reserva el local aún no ha abierto');
+    expect(text).not.toContain('12/05/2027');
+    expect(
+      buildContractTermsText({ ...base, preOpening: { ...preOpening, maxMonths: 1 } }),
+    ).toContain('Si pasado un mes desde la reserva');
+  });
+
   it('es determinista: el mismo contrato da la misma huella', () => {
     expect(termsHash(buildContractTermsText(base))).toBe(termsHash(buildContractTermsText(base)));
     expect(termsHash(buildContractTermsText(base))).not.toBe(

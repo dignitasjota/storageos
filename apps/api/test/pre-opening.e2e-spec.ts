@@ -63,7 +63,13 @@ describe('Reservas antes de la apertura (e2e)', () => {
       .expect(200);
     const facility = avail.body.facilities[0];
     expect(facility).toMatchObject({ preOpening: true, openingDate });
-    return { owner, auth, facilityId, unitTypeId: facility.unitTypes[0].id as string };
+    return {
+      owner,
+      auth,
+      facilityId,
+      openingDate,
+      unitTypeId: facility.unitTypes[0].id as string,
+    };
   }
 
   async function bookAndPay(ctx: Awaited<ReturnType<typeof setup>>) {
@@ -96,6 +102,15 @@ describe('Reservas antes de la apertura (e2e)', () => {
       .expect(200);
     expect(view.body.termsText).toContain('Reserva antes de la apertura del local');
     expect(view.body.termsText).toContain('arras penitenciales');
+    // La garantía va en meses; sin fecha de apertura, el contrato no lleva ninguna
+    // (la guardada es la fecha límite, que se leía como la de inicio).
+    expect(view.body.termsText).toContain(
+      'Si pasados 6 meses desde la reserva el local aún no ha abierto',
+    );
+    if (!ctx.openingDate) {
+      expect(view.body.termsText).toContain('El contrato empieza el día de apertura del local');
+      expect(view.body.termsText).not.toMatch(/empieza el \d/);
+    }
     await request(app.getHttpServer())
       .post(`/public/move-in/sign/${token}`)
       .send({

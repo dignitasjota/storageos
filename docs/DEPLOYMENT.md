@@ -2069,3 +2069,11 @@ Solo web, sin migración ni variables. **Qué cambia al redesplegar:**
 
 - Con un solo local, el selector de arriba enseña el nombre del local y ya no filtra ninguna lista (con un local es lo mismo que «Todos»). Así no se pierde lo que no tiene local: inquilinos sin trastero o facturas de toda la empresa. Si alguien lo tenía elegido, deja de aplicarse solo.
 - Con varios locales, en Inquilinos los que no tienen trastero salen con cualquier local elegido, con la marca «Sin trastero».
+
+## 121. Reservas antes de la apertura sin fecha: el contrato no pone ninguna (2026-11-12)
+
+Solo código, sin migración ni variables. **Qué cambia al redesplegar:**
+
+- En una reserva de un local en «próxima apertura» **sin fecha de apertura**, el contrato ya no dice que empieza en una fecha lejana: la fecha guardada era la fecha límite (la reserva + el plazo máximo, 6 meses por defecto) y las condiciones estándar la ponían como inicio («El contrato empieza el …»). Ahora dice «El contrato empieza el día de apertura del local», también en las plantillas propias que usen `{{startDate}}`. Con fecha de apertura, sigue saliendo esa fecha (aproximada).
+- La garantía de la reserva se dice en meses: «Si pasados 6 meses desde la reserva el local aún no ha abierto, el inquilino puede dejar la reserva sin efecto y recuperar todo lo pagado» (antes, con la fecha límite).
+- Los contratos ya firmados no cambian (su texto queda como se firmó); vale para las reservas nuevas y los borradores sin firmar. Si se espera abrir antes, el plazo máximo se baja en la ficha del local → Ajustes.
