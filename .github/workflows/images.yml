@@ -1,0 +1,97 @@
+name: Imágenes Docker (GHCR)
+
+# Compila las imágenes de producción (api, worker y web) en GitHub y las sube a
+# GitHub Container Registry. El servidor solo las descarga: compilar las tres
+# en el VPS (4 GB) lo dejaba sin memoria y tumbaba la web durante el despliegue.
+#
+# - En cada push a `main` (cada PR fusionada): compila y sube
+#   `ghcr.io/dignitasjota/storageos-<servicio>:latest` y `:sha-<commit>`.
+#   Al terminar bien, `deploy.yml` avisa a Portainer para que las descargue.
+# - En una PR que toca los Dockerfiles, las dependencias o este flujo: solo
+#   compila (no sube nada), para no descubrir un Dockerfile roto tras fusionar.
+#
+# La web lleva horneadas las URL públicas (NEXT_PUBLIC_*): salen de las
+# variables del repositorio (Settings → Secrets and variables → Actions →
+# Variables): NEXT_PUBLIC_API_URL, NEXT_PUBLIC_SITE_URL y MINIO_PUBLIC_URL.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'apps/*/Dockerfile'
+      - '.dockerignore'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/images.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# En main no se cancela una compilación a medias (dejaría `latest` de una
+# imagen nueva y otra vieja): las siguientes esperan. En una PR, sí.
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Imagen ${{ matrix.service }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - service: api
+            build_args: ''
+          - service: worker
+            build_args: ''
+          - service: web
+            build_args: |
+              NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+              NEXT_PUBLIC_SITE_URL=${{ vars.NEXT_PUBLIC_SITE_URL }}
+              MINIO_PUBLIC_URL=${{ vars.MINIO_PUBLIC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar las variables de la web
+        if: matrix.service == 'web' && github.event_name != 'pull_request'
+        env:
+          API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+        run: |
+          if [ -z "$API_URL" ] || [ -z "$SITE_URL" ]; then
+            echo "::error::Faltan las variables NEXT_PUBLIC_API_URL y NEXT_PUBLIC_SITE_URL del repositorio (Settings → Secrets and variables → Actions → Variables). Sin ellas la web apuntaría a localhost."
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Entrar en GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compilar${{ github.event_name != 'pull_request' && ' y subir' || '' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.service }}/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/dignitasjota/storageos-${{ matrix.service }}:latest
+            ghcr.io/dignitasjota/storageos-${{ matrix.service }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: ${{ matrix.build_args }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}

@@ -3,13 +3,19 @@ import type {
   PublicPlatformBlogPostSummaryDto,
 } from '@storageos/shared';
 
-import { ApiUnavailableError, SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import {
+  ApiUnavailableError,
+  SERVER_API_URL,
+  internalApiHeaders,
+  serverApiTimeout,
+} from '@/lib/server-api';
 
 /** Entradas publicadas del blog de TrasterOS (vacío si la API no responde). */
 export async function fetchPlatformBlogPosts(): Promise<PublicPlatformBlogPostSummaryDto[]> {
   try {
     const res = await fetch(`${SERVER_API_URL}/v1/platform-blog`, {
       headers: internalApiHeaders(),
+      signal: serverApiTimeout(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return [];
@@ -27,6 +33,7 @@ export async function fetchPlatformBlogPost(
   try {
     res = await fetch(`${SERVER_API_URL}/v1/platform-blog/${encodeURIComponent(slug)}`, {
       headers: internalApiHeaders(),
+      signal: serverApiTimeout(),
       next: { revalidate: 60 },
     });
   } catch {

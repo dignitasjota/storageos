@@ -1,6 +1,6 @@
 import type { SubscriptionPlanDto } from '@storageos/shared';
 
-import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import { SERVER_API_URL, internalApiHeaders, serverApiTimeout } from '@/lib/server-api';
 
 /** Tarjeta de un plan en la portada (textos en `landing.pricing.plans`). */
 export interface LandingPlanCopy {
@@ -28,6 +28,7 @@ export async function fetchPublicPlans(): Promise<SubscriptionPlanDto[] | null> 
   try {
     const res = await fetch(`${SERVER_API_URL}/v1/subscription-plans`, {
       headers: internalApiHeaders(),
+      signal: serverApiTimeout(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;

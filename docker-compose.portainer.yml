@@ -20,12 +20,16 @@ name: storageos-prod
 #     - Compose path: docker-compose.portainer.yml
 #     - Environment variables: define las del bloque de abajo marcadas ${...}
 #       (genera los secretos con el bloque openssl del README de deploy).
-#   Deploy. Para actualizar: "Pull and redeploy" (re-clona el repo y
-#   reconstruye; marca "re-build" si Portainer lo ofrece).
+#   Deploy. Para actualizar: "Pull and redeploy" con "Re-pull image" marcado
+#   (o el webhook, que lanza `deploy.yml` al terminar de subir las imágenes).
 #
-# NOTA: api/worker/web/migrate se CONSTRUYEN localmente (sin `image:`), no se
-# descargan de ningun registry. Por eso `docker compose pull` los ignora y no
-# falla con "pull access denied" (solo baja postgres/redis/minio).
+# IMAGENES: api/worker/web (y migrate/bootstrap, que usan la de la API) NO se
+# compilan en el servidor: las compila GitHub Actions (`images.yml`) en cada
+# fusion a main y las sube a ghcr.io/dignitasjota/storageos-<servicio>. Aqui
+# solo se descargan (`pull_policy: always`). Compilar las tres en el VPS lo
+# dejaba sin memoria y tumbaba la web. Para volver a una version anterior,
+# define IMAGE_TAG=sha-<commit> en las variables del stack y redespliega
+# (vacio = latest).
 #
 # Requiere Docker Compose v2.20+ (service_completed_successfully).
 # =============================================================================
@@ -206,13 +210,10 @@ services:
       start_period: 20s
 
   # Aplica migraciones Prisma con el rol admin (bypass RLS) y sale. Idempotente.
-  # Build propio (mismo Dockerfile que la API, con el CLI prisma): asi NO hay
-  # `image:` que Portainer intente descargar de un registry inexistente. La
-  # cache de capas reusa el build de la API, asi que es casi instantaneo.
+  # Misma imagen que la API (lleva el CLI de prisma).
   migrate:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
+    image: ghcr.io/dignitasjota/storageos-api:${IMAGE_TAG:-latest}
+    pull_policy: always
     working_dir: /app/node_modules/@storageos/database
     entrypoint: ['/bin/sh', '-c']
     command:
@@ -233,9 +234,8 @@ services:
   # defines BOOTSTRAP_SUPERADMIN_EMAIL/PASSWORD). Idempotente, corre tras
   # migrate y sale. Equivale al `pnpm db:seed` que no puede correr en prod.
   bootstrap:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
+    image: ghcr.io/dignitasjota/storageos-api:${IMAGE_TAG:-latest}
+    pull_policy: always
     working_dir: /app
     entrypoint: ['/bin/sh', '-c']
     command:
@@ -255,9 +255,8 @@ services:
     restart: 'no'
 
   api:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
+    image: ghcr.io/dignitasjota/storageos-api:${IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     # Tope de memoria (auditoría 2026-07): sin límites, el OOM killer del
     # host mata contenedores al azar cuando la RAM se agota.
@@ -284,9 +283,8 @@ services:
       - '3001'
 
   worker:
-    build:
-      context: .
-      dockerfile: apps/worker/Dockerfile
+    image: ghcr.io/dignitasjota/storageos-worker:${IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     # Tope de memoria (auditoría 2026-07): sin límites, el OOM killer del
     # host mata contenedores al azar cuando la RAM se agota.
@@ -313,15 +311,12 @@ services:
     networks:
       - storageos-net
 
+  # Las URL públicas (NEXT_PUBLIC_API_URL, NEXT_PUBLIC_SITE_URL y
+  # MINIO_PUBLIC_URL) van horneadas en la imagen: salen de las variables del
+  # repositorio en GitHub (Settings → Secrets and variables → Actions).
   web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
-        # Fotos de las webs optimizadas (mismo valor que el del API).
-        MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-}
+    image: ghcr.io/dignitasjota/storageos-web:${IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     # Tope de memoria (auditoría 2026-07): sin límites, el OOM killer del
     # host mata contenedores al azar cuando la RAM se agota.

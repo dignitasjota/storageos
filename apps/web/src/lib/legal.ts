@@ -1,6 +1,6 @@
 import { DEFAULT_LEGAL_DOCUMENTS, type LegalDocumentDto, type LegalSlug } from '@storageos/shared';
 
-import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import { SERVER_API_URL, internalApiHeaders, serverApiTimeout } from '@/lib/server-api';
 
 const API_URL = SERVER_API_URL;
 
@@ -13,6 +13,7 @@ export async function fetchLegalDoc(slug: LegalSlug): Promise<LegalDocumentDto> 
   try {
     const res = await fetch(`${API_URL}/v1/platform-legal/${slug}`, {
       headers: internalApiHeaders(),
+      signal: serverApiTimeout(),
       next: { revalidate: 300 },
     });
     if (res.ok) {

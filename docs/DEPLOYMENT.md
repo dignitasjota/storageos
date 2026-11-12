@@ -397,16 +397,14 @@ Automatiza los tres pasos imperativos del arranque:
 ### Notas
 
 - Los secretos viven en Portainer (su BD), **nunca** en el repo.
-- Para actualizar a mano: **Pull and redeploy** (ver §6C para el automático). El
-  redeploy hace `git pull` del repo y reconstruye; al traer commits nuevos, la
-  capa `COPY apps/web` del Dockerfile se invalida y el **web se reconstruye con
-  el código nuevo**. ⚠️ Un "redeploy" **sin** pull efectivo da _cache hit_ del
-  `COPY` → sirve la imagen **vieja** del frontend (síntoma típico: ves rutas o
-  cambios que faltan, p. ej. un 404 en una página recién añadida). Si pasa,
-  fuerza el pull (webhook §6C) o, en el editor del stack, vuelve a desplegar
-  asegurando que reconstruye.
-- Construir 3 imágenes en un CX22 (4 GB) tira de swap; ten el swapfile de la
-  sección 1.6 activo.
+- Para actualizar a mano: **Pull and redeploy** con **Re-pull image** marcado
+  (ver §6C para el automático). El servidor **no compila**: las imágenes de
+  api, worker y web las compila GitHub Actions en cada fusión a `main` y las
+  sube a `ghcr.io/dignitasjota/storageos-<servicio>` (§124); el compose las
+  descarga (`pull_policy: always`). Antes se compilaban aquí y, con 4 GB, el
+  servidor se quedaba sin memoria y la web dejaba de responder.
+- Para volver a una versión anterior: variable del stack
+  `IMAGE_TAG=sha-<commit>` y redeploy (vacía = `latest`).
 - El `migrate dev` nunca; aquí solo corre `migrate deploy` (idempotente).
 
 ---
@@ -414,11 +412,10 @@ Automatiza los tres pasos imperativos del arranque:
 ## 6C. Despliegue automático en cada merge (webhook de Portainer)
 
 Para no tener que entrar a Portainer a redeplegar a mano tras cada merge a
-`main` (y evitar olvidarlo, que deja el frontend desactualizado), hay un
-workflow de GitHub Actions (`.github/workflows/deploy.yml`) que dispara un
-**webhook de redeploy** del stack. Como el webhook hace `git pull` + redeploy,
-el web se reconstruye con el código nuevo (resuelve el problema de ver versiones
-viejas del frontend).
+`main`, hay un workflow de GitHub Actions (`.github/workflows/deploy.yml`) que
+dispara un **webhook de redeploy** del stack **cuando «Imágenes Docker (GHCR)»
+termina bien** (es decir, con las tres imágenes nuevas ya subidas). Portainer
+las descarga y vuelve a arrancar los contenedores; no compila nada.
 
 `main` está protegida (solo avanza con los 4 checks en verde), así que cuando el
 workflow se dispara el código ya pasó CI + E2E.
@@ -433,8 +430,8 @@ workflow se dispara el código ya pasó CI + E2E.
    Actions → New repository secret**:
    - Name: `PORTAINER_WEBHOOK_URL`
    - Value: la URL del paso 1.
-3. Listo. En el próximo merge a `main`, el job **Deploy (Portainer)** hará
-   `POST` a esa URL y Portainer redeplegará. Sin el secret, el workflow no falla:
+3. Listo. En el próximo merge a `main`, cuando terminen las imágenes, el job
+   **Deploy (Portainer)** hará `POST` a esa URL y Portainer redeplegará. Sin el secret, el workflow no falla:
    registra un aviso y termina (no-op), así que puedes mergear este cambio antes
    de configurarlo.
 
@@ -445,15 +442,11 @@ workflow se dispara el código ya pasó CI + E2E.
 - En Portainer, el stack debe mostrar un redeploy reciente; cuando termine,
   recarga el panel con **Ctrl/Cmd + Shift + R**.
 
-### Si aun así el web sigue saliendo viejo
+### Si el web sigue saliendo viejo
 
-El webhook fuerza el `git pull`, que normalmente basta para que el `COPY` del
-Dockerfile invalide la caché. Si en algún caso Portainer reutilizara la imagen
-del web sin reconstruir, la opción definitiva (determinista, sin caché local) es
-**construir las imágenes en CI y publicarlas en un registry** (p. ej. GHCR) y
-que el compose use `image:` en vez de `build:`; el webhook entonces solo hace
-_pull image + redeploy_. Es un cambio mayor del pipeline; pendiente como
-follow-up si el webhook no resultara suficiente.
+Comprueba en GitHub → Actions que «Imágenes Docker (GHCR)» terminó en verde
+para ese commit y que el redeploy descargó la imagen (Portainer → Images:
+`storageos-web` con fecha de hoy). Recarga con **Ctrl/Cmd + Shift + R**.
 
 ---
 
@@ -2118,3 +2111,25 @@ Migración `20270112100000_platform_blog` (se aplica sola: tabla global `platfor
 2. `www.trasteros.pro` no carga: en Nginx Proxy Manager, un Proxy Host (o Redirection Host) de `www.trasteros.pro` que redirija a `https://trasteros.pro` con su certificado.
 3. Revisar en `/admin/plans` el precio anual de cada plan: la página de Precios enseña el ahorro del pago anual («ahorra hasta un N %») y sale de esos precios.
 4. Publicar las guías y añadir los testimonios que tengas.
+
+## 124. Imágenes compiladas en GitHub (GHCR): el servidor ya no compila (2026-11-12)
+
+El despliegue del 12-11 dejó la web y la API sin responder durante más de hora y media: Portainer compilaba en el servidor (CX22, 4 GB) cinco imágenes a la vez —`migrate`, `bootstrap` y `api` compilaban cada uno la de la API, más el worker y la web— con Postgres, Redis y la API vieja funcionando, y la máquina se quedó sin memoria (Nginx Proxy Manager dejó de atender). Ahora las compila GitHub y el servidor solo las descarga.
+
+**Qué cambia**
+
+- `.github/workflows/images.yml` («Imágenes Docker (GHCR)»): en cada push a `main` compila `api`, `worker` y `web` y las sube a `ghcr.io/dignitasjota/storageos-<servicio>` con las etiquetas `latest` y `sha-<commit>`. En una PR que toca los Dockerfiles o las dependencias solo compila (sin subir). Usa la caché de GitHub: la primera vez tarda unos 15 min; después, bastante menos.
+- La web lleva horneadas las URL públicas: salen de las **variables del repositorio** (Settings → Secrets and variables → Actions → Variables) `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL` y `MINIO_PUBLIC_URL` (ya creadas: `https://api.trasteros.pro`, `https://trasteros.pro`, `https://files.trasteros.pro`). Las de Portainer con esos nombres ya no se usan para compilar (el API sigue usando su `MINIO_PUBLIC_URL`).
+- `docker-compose.portainer.yml`: `api`, `worker`, `web`, `migrate` y `bootstrap` usan `image:` (sin `build:`) con `pull_policy: always`. Variable opcional del stack `IMAGE_TAG` (vacía = `latest`; `sha-<commit>` para volver a una versión).
+- `deploy.yml` ya no se lanza con cada push: espera a que las imágenes terminen bien.
+- Al compilar, la web pide a la API de producción los datos de la portada, `/precios`, el blog y los textos legales. Esas llamadas tienen ahora un límite de 8 s (`serverApiTimeout` en `apps/web/src/lib/server-api.ts`): con la API caída, la primera compilación en GitHub fallaba (Next da 60 s por página) y no se podía desplegar el arreglo. Si no responde, la página se genera al visitarla con los datos de respaldo y se refresca sola.
+
+**Pasos (una sola vez), en este orden**
+
+1. Fusionar la PR. En GitHub → **Actions** → «Imágenes Docker (GHCR)», esperar a que las tres imágenes salgan en verde.
+2. Hacer **públicas** las tres imágenes (no llevan secretos: solo el código compilado, y el repositorio ya es público): github.com/dignitasjota → **Packages** → `storageos-api` → **Package settings** → **Change visibility** → Public. Lo mismo con `storageos-worker` y `storageos-web`. (Si se prefieren privadas: token de GitHub con `read:packages` y, en Portainer → Registries, un registro `ghcr.io` con ese token.)
+3. Con el servidor recuperado (ver «Si se vuelve a quedar sin memoria»), en Portainer → el stack → **Pull and redeploy** con **Re-pull image** marcado. Descarga las imágenes, aplica las migraciones pendientes (`migrate`) y arranca. Tarda unos minutos.
+4. Opcional: el webhook de §6C para que cada fusión se despliegue sola.
+5. Limpiar lo que dejaron las compilaciones antiguas: `docker builder prune -af` (por SSH) y, en Portainer → Images, las imágenes `storageos-prod-*` sin uso.
+
+**Si se vuelve a quedar sin memoria** (la web no responde durante un despliegue): por SSH, `free -h`, `df -h /` y `ps aux --sort=-%mem | head`; cortar la compilación con `pkill -f "next build"; pkill -f "nest build"` o, si no basta, `systemctl restart docker` (los datos de Postgres están en volúmenes); si el SSH no responde, reiniciar desde la consola de Hetzner. Comprobar que hay swap (`swapon --show`, §1.6).

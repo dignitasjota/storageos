@@ -17,6 +17,18 @@ export function internalApiHeaders(): Record<string, string> {
   return token ? { 'x-internal-token': token } : {};
 }
 
+/**
+ * Límite de tiempo de una llamada al API desde el servidor del web. Sin él, un
+ * API que no contesta dejaba la página esperando sin fin y la compilación de
+ * la imagen fallaba (Next da 60 s por página al generarlas). Al vencer, la
+ * llamada falla como cualquier error de red y cada función usa su respaldo.
+ */
+export const SERVER_API_TIMEOUT_MS = 8_000;
+
+export function serverApiTimeout(): AbortSignal {
+  return AbortSignal.timeout(SERVER_API_TIMEOUT_MS);
+}
+
 /** El API no respondió bien (caído, 5xx): la página debe dar error, no 404. */
 export class ApiUnavailableError extends Error {
   constructor(readonly status: number) {
