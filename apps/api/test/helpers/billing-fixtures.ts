@@ -9,15 +9,13 @@ import type { AeatStatus } from '@storageos/database';
 import type { Queue } from 'bullmq';
 
 /**
- * Deja quieta la cola `verifactu` antes de cerrar la app: espera a que acabe el
- * envío que esté en marcha (el de la última factura emitida) y quita los
- * programados. Cerrar con un envío a medias puede dejar el cierre esperándolo.
+ * Quita los envíos programados de la cola `verifactu` antes de cerrar la app.
+ * Lo que esta app tenga en marcha lo espera su cierre (`createTestApp`); aquí no
+ * se mira la cuenta de «activos» de la cola, que puede incluir restos de otra
+ * suite.
  */
 export async function quiesceVerifactuQueue(app: INestApplication): Promise<void> {
   const queue = app.get<Queue>(getQueueToken(QUEUE_VERIFACTU), { strict: false });
-  for (let i = 0; i < 100 && (await queue.getActiveCount()) > 0; i++) {
-    await new Promise((r) => setTimeout(r, 100));
-  }
   await queue.drain(true);
 }
 

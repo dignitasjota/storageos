@@ -22,8 +22,11 @@ export interface ContractTermsInput {
   preOpening?: {
     /** Fecha de apertura prevista (`YYYY-MM-DD`), o null si aún no está fijada. */
     openingDate: string | null;
-    /** Fecha límite (`YYYY-MM-DD`): sin abrir antes, se puede cancelar con devolución total. */
-    deadline: string;
+    /**
+     * Meses desde la reserva tras los que, sin abrir, se puede cancelar con
+     * devolución total. Se dice en meses y no con la fecha límite: sin fecha de
+     * apertura, esa fecha lejana se leía como la de inicio.
+     */
     maxMonths: number;
     unitTypeName: string;
   } | null;
@@ -328,7 +331,7 @@ function preOpeningClauses(
   return [
     'Reserva antes de la apertura del local:',
     `1. Reserva. El inquilino reserva un trastero del tipo ${p.unitTypeName}, en concreto el ${t.unitCode}. Al reservar paga la primera mensualidad, ${priceWithVat(t.priceMonthly, t.vatRate)}, que cubre el primer mes de alquiler desde la apertura, y la fianza, ${eur(t.depositAmount)}. Si no se paga en el plazo indicado, la reserva queda sin efecto.`,
-    `2. Fecha de inicio. El alquiler empieza el día de apertura del local${p.openingDate ? `, prevista aproximadamente para el ${day(p.openingDate)}` : ''}. La fecha es orientativa y puede variar; la fecha definitiva y cualquier cambio se comunicarán por correo electrónico y en el área de clientes. Hasta ese día el inquilino no tiene acceso al trastero. El precio queda fijado desde la reserva. Si el local no ha abierto el ${day(p.deadline)} (${p.maxMonths} ${p.maxMonths === 1 ? 'mes' : 'meses'} desde la reserva), el inquilino puede dejar la reserva sin efecto y recuperar todo lo pagado.`,
+    `2. Fecha de inicio. El alquiler empieza el día de apertura del local${p.openingDate ? `, prevista aproximadamente para el ${day(p.openingDate)}` : ''}. La fecha es orientativa y puede variar; la fecha definitiva y cualquier cambio se comunicarán por correo electrónico y en el área de clientes. Hasta ese día el inquilino no tiene acceso al trastero. El precio queda fijado desde la reserva. Si ${p.maxMonths === 1 ? 'pasado un mes' : `pasados ${p.maxMonths} meses`} desde la reserva el local aún no ha abierto, el inquilino puede dejar la reserva sin efecto y recuperar todo lo pagado.`,
     '3. Cambio de trastero. Antes de la apertura, el arrendador puede asignar otro trastero del mismo local y del mismo precio, avisando al inquilino.',
     '4. Cancelación. Dentro de los 14 días siguientes a la reserva, el inquilino puede desistir y se le devuelve todo lo pagado. Pasado ese plazo y antes del día de apertura, puede cancelar la reserva: se le devuelve la primera mensualidad y la fianza queda en poder del arrendador como arras penitenciales (art. 1454 del Código Civil). Llegado el día de apertura sin cancelar, el contrato despliega todos sus efectos.',
   ];
@@ -361,7 +364,6 @@ const TERMS_SELECT = {
   freeMonthsRemaining: true,
   preOpening: true,
   preOpeningDateConfirmed: true,
-  preOpeningDeadline: true,
   preOpeningStartedAt: true,
   startDate: true,
   endDate: true,
@@ -491,6 +493,9 @@ export async function composeContractTerms(
       ? (c.customer.companyName ?? '')
       : [c.customer.firstName, c.customer.lastName].filter(Boolean).join(' ');
   const startDate = c.startDate.toISOString().slice(0, 10);
+  // Reserva antes de la apertura sin fecha: la guardada es la fecha límite, no la
+  // de inicio, y en el contrato no se pone ninguna.
+  const openingPending = !!c.preOpening && !c.preOpeningStartedAt && !c.preOpeningDateConfirmed;
   const tenantLegal = tenant.billingLegalName?.trim() || tenant.name;
 
   const template = contractClausesTemplate({
@@ -507,7 +512,7 @@ export async function composeContractTerms(
     facilityName: c.unit.facility.name,
     priceMonthly: eur(Number(c.priceMonthly)),
     depositAmount: eur(Number(c.depositAmount)),
-    startDate: day(startDate),
+    startDate: openingPending ? 'día de apertura del local' : day(startDate),
     cancellationNoticeDays: String(c.cancellationNoticeDays),
     tenantName: c.owner?.legalName ?? tenantLegal,
     moveOutRule: moveOutRuleText(moveOutEndOfMonth),
@@ -631,7 +636,6 @@ export async function composeContractTerms(
       c.preOpening && !c.preOpeningStartedAt
         ? {
             openingDate: c.preOpeningDateConfirmed ? startDate : null,
-            deadline: (c.preOpeningDeadline ?? c.startDate).toISOString().slice(0, 10),
             maxMonths: c.unit.facility.preOpeningMaxMonths,
             unitTypeName: c.unit.unitType.name,
           }

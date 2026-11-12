@@ -2081,3 +2081,11 @@ Migración `20270111100000_platform_leads` (se aplica sola). Sin variables nueva
 - «Hoy» enseña los leads nuevos sin atender y los seguimientos de leads de hoy; Seguimientos, también los de leads.
 - trasteros.pro recuerda de dónde viene la visita (Google, anuncios, redes) y lo guarda en el lead al escribir o registrarse.
 - El rol soporte trabaja los leads; crear su cuenta, enviar propuestas y borrar un lead son del superadmin.
+
+## 121. Reservas antes de la apertura sin fecha: el contrato no pone ninguna (2026-11-12)
+
+Solo código, sin migración ni variables. **Qué cambia al redesplegar:**
+
+- En una reserva de un local en «próxima apertura» **sin fecha de apertura**, el contrato ya no dice que empieza en una fecha lejana: la fecha guardada era la fecha límite (la reserva + el plazo máximo, 6 meses por defecto) y las condiciones estándar la ponían como inicio («El contrato empieza el …»). Ahora dice «El contrato empieza el día de apertura del local», también en las plantillas propias que usen `{{startDate}}`. Con fecha de apertura, sigue saliendo esa fecha (aproximada).
+- La garantía de la reserva se dice en meses: «Si pasados 6 meses desde la reserva el local aún no ha abierto, el inquilino puede dejar la reserva sin efecto y recuperar todo lo pagado» (antes, con la fecha límite).
+- Los contratos ya firmados no cambian (su texto queda como se firmó); vale para las reservas nuevas y los borradores sin firmar. Si se espera abrir antes, el plazo máximo se baja en la ficha del local → Ajustes.
