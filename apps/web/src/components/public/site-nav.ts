@@ -1,5 +1,7 @@
 import {
   BarChart3,
+  BookOpen,
+  Calculator,
   CalendarCheck,
   Cctv,
   CircleHelp,
@@ -12,7 +14,7 @@ import {
   Mail,
   Map,
   Megaphone,
-  Rocket,
+  Presentation,
   ReceiptText,
   Scale,
   ShieldCheck,
@@ -51,8 +53,27 @@ export const FEATURE_ICONS = {
 
 export type FeatureKey = keyof typeof FEATURE_ICONS;
 
-/** Ancla de la tarjeta de cada funcionalidad en la portada. */
-export const featureAnchor = (key: FeatureKey) => `/#func-${key}`;
+/**
+ * Página propia de cada funcionalidad (`/funcionalidades/<slug>`); las que no
+ * tienen página llevan a su tarjeta de la portada.
+ */
+export const FEATURE_PAGE_SLUG: Partial<Record<FeatureKey, string>> = {
+  plan: 'plano-de-trasteros',
+  contracts: 'contratos-firma-electronica',
+  billing: 'facturacion-veri-factu',
+  payments: 'cobros-sepa-tarjeta-bizum',
+  access: 'control-de-accesos',
+  portal: 'portal-del-inquilino',
+  booking: 'reserva-online',
+  whitelabel: 'web-y-seo-local',
+  crm: 'web-y-seo-local',
+};
+
+/** Enlace de cada funcionalidad: su página o, si no tiene, su tarjeta en la portada. */
+export const featureAnchor = (key: FeatureKey) => {
+  const slug = FEATURE_PAGE_SLUG[key];
+  return slug ? `/funcionalidades/${slug}` : `/#func-${key}`;
+};
 
 /** Columnas del desplegable «Producto» (títulos en `publicHeader.menu.groups`). */
 export const PRODUCT_MENU: { group: string; features: FeatureKey[] }[] = [
@@ -71,17 +92,26 @@ export interface SiteMenuLink {
   needsContact?: boolean;
 }
 
+/** Página de cada tipo de cliente (`/soluciones/<slug>`). */
+export const AUDIENCE_PAGE_SLUG: Record<string, string> = {
+  operators: 'operadores-self-storage',
+  managers: 'administradores-de-trasteros',
+  housing: 'trasteros-y-viviendas',
+};
+
 /** Desplegable «Soluciones». */
 export const SOLUTIONS_MENU: SiteMenuLink[] = [
-  { key: 'operators', href: '/#para-quien', icon: Warehouse },
-  { key: 'managers', href: '/#administradores', icon: Users },
-  { key: 'housing', href: '/#viviendas', icon: Home },
+  { key: 'operators', href: '/soluciones/operadores-self-storage', icon: Warehouse },
+  { key: 'managers', href: '/soluciones/administradores-de-trasteros', icon: Users },
+  { key: 'housing', href: '/soluciones/trasteros-y-viviendas', icon: Home },
 ];
 
 /** Desplegable «Recursos». */
 export const RESOURCES_MENU: SiteMenuLink[] = [
-  { key: 'howItWorks', href: '/#como-funciona', icon: Rocket },
-  { key: 'compliance', href: '/#cumplimiento', icon: Scale },
+  { key: 'blog', href: '/blog', icon: BookOpen },
+  { key: 'calculator', href: '/calculadora-rentabilidad-trasteros', icon: Calculator },
+  { key: 'demo', href: '/#demo', icon: Presentation },
+  { key: 'compliance', href: '/funcionalidades/facturacion-veri-factu', icon: Scale },
   { key: 'faq', href: '/#faq', icon: CircleHelp },
   { key: 'contact', href: '/#contacto', icon: Mail, needsContact: true },
   { key: 'tenantPortal', href: '/portal/login', icon: LogIn },

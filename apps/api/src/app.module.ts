@@ -82,6 +82,7 @@ import { RedsysModule } from './modules/payments/redsys/redsys.module';
 import { StripeConnectModule } from './modules/payments/stripe-connect/stripe-connect.module';
 import { PlanLimitsModule } from './modules/plan-limits/plan-limits.module';
 import { PlatformModule } from './modules/platform/platform.module';
+import { PlatformBlogModule } from './modules/platform-blog/platform-blog.module';
 import { PlatformContactModule } from './modules/platform-contact/platform-contact.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { ProductUpdatesModule } from './modules/product-updates/product-updates.module';
@@ -255,6 +256,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     WhatsappBusinessModule,
     WebChatModule,
     PlatformContactModule,
+    PlatformBlogModule,
     BillingSaasModule,
     IntegrationsModule,
     ImportsModule,

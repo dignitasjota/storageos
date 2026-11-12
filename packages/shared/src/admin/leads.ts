@@ -41,6 +41,8 @@ export const PLATFORM_LEAD_OPEN_STAGES: readonly PlatformLeadStage[] = [
 
 export const PLATFORM_LEAD_SOURCES = [
   'web_contact',
+  'demo',
+  'calculator',
   'signup',
   'admin',
   'phone',
@@ -57,6 +59,8 @@ export type PlatformLeadSource = z.infer<typeof PlatformLeadSourceEnum>;
 
 export const PLATFORM_LEAD_SOURCE_LABELS: Record<PlatformLeadSource, string> = {
   web_contact: 'Formulario de la web',
+  demo: 'Petición de demo',
+  calculator: 'Calculadora de rentabilidad',
   signup: 'Registro en la web',
   admin: 'Alta desde el panel',
   phone: 'Llamada',

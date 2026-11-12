@@ -6,6 +6,9 @@ import { adminApiFetch, adminApiFetchBlob } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  BlogCoverUploadResponseDto,
+  CreatePlatformBlogPostInput,
+  PlatformBlogPostDto,
   CreateTodaySnoozeInput,
   AdminFailedJobsPageDto,
   CreateSecurityBlockInput,
@@ -3313,5 +3316,80 @@ export function useUpdatePlatformRedsysSettings() {
         json: input,
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: platformRedsysKey }),
+  });
+}
+
+// ── Blog de TrasterOS ────────────────────────────────────────────────────────
+
+const PLATFORM_BLOG_KEY = ['admin', 'platform', 'blog'] as const;
+
+export function useAdminPlatformBlogPosts() {
+  return useQuery({
+    queryKey: PLATFORM_BLOG_KEY,
+    queryFn: () => adminApiFetch<PlatformBlogPostDto[]>('/admin/platform/blog'),
+  });
+}
+
+export function useSavePlatformBlogPost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: CreatePlatformBlogPostInput }) =>
+      adminApiFetch<PlatformBlogPostDto>(
+        id ? `/admin/platform/blog/${id}` : '/admin/platform/blog',
+        { method: id ? 'PATCH' : 'POST', json: input },
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: PLATFORM_BLOG_KEY }),
+  });
+}
+
+export function useDeletePlatformBlogPost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/platform/blog/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: PLATFORM_BLOG_KEY }),
+  });
+}
+
+/** Sube la portada de una entrada directo al bucket público y la fija. */
+export function useUploadPlatformBlogCover() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, file }: { id: string; file: File }) => {
+      const up = await adminApiFetch<BlogCoverUploadResponseDto>(
+        `/admin/platform/blog/${id}/cover-upload-url`,
+        {
+          method: 'POST',
+          json: {
+            mimeType: file.type,
+            sizeBytes: file.size,
+            fileName: file.name.replace(/\.[^.]+$/, ''),
+          },
+        },
+      );
+      const put = await fetch(up.uploadUrl, {
+        method: 'PUT',
+        headers: up.requiredHeaders,
+        body: file,
+      });
+      if (!put.ok) throw new Error('No se pudo subir la imagen');
+      return adminApiFetch<PlatformBlogPostDto>(`/admin/platform/blog/${id}/cover`, {
+        method: 'PUT',
+        json: { coverImageKey: up.key },
+      });
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: PLATFORM_BLOG_KEY }),
+  });
+}
+
+export function useRemovePlatformBlogCover() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<PlatformBlogPostDto>(`/admin/platform/blog/${id}/cover`, {
+        method: 'PUT',
+        json: { coverImageKey: null },
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: PLATFORM_BLOG_KEY }),
   });
 }

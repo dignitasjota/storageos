@@ -75,7 +75,7 @@ export function PublicHeader({
               onToggle={() => setOpen(open === 'solutions' ? null : 'solutions')}
             />
             <Link
-              href="/#precios"
+              href="/precios"
               onMouseEnter={close}
               className="rounded-md px-3 py-2 text-sm font-medium text-primary-foreground/85 transition hover:bg-white/10 hover:text-primary-foreground"
             >
@@ -222,7 +222,7 @@ function ProductPanel({ onNavigate }: { onNavigate: () => void }) {
       ))}
       <div className="md:col-span-4">
         <Link
-          href="/#funcionalidades"
+          href="/funcionalidades"
           onClick={onNavigate}
           className="text-sm font-medium text-primary hover:underline"
         >
@@ -325,7 +325,7 @@ function MobileMenu({
         })),
       )}
       <div className="border-b px-5 py-4">
-        <Link href="/#precios" onClick={onNavigate} className="block text-sm font-medium">
+        <Link href="/precios" onClick={onNavigate} className="block text-sm font-medium">
           {t('menu.pricing')}
         </Link>
       </div>

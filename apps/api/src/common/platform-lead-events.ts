@@ -8,6 +8,8 @@
 export const PLATFORM_LEAD_INBOUND = 'platform.lead_inbound';
 export interface PlatformLeadInboundEvent {
   contactMessageId: string;
+  /** Formulario de contacto, petición de demo o calculadora de rentabilidad. */
+  source: 'web_contact' | 'demo' | 'calculator';
   name: string;
   email: string;
   phone: string | null;

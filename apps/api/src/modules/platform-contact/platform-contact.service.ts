@@ -1,6 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { renderAdminEmail } from '@storageos/shared';
+import {
+  computeProfitability,
+  renderAdminEmail,
+  type PlatformContactKind,
+  type ProfitabilityInput,
+  type ProfitabilityResult,
+} from '@storageos/shared';
 
 import {
   PLATFORM_LEAD_INBOUND,
@@ -35,6 +42,7 @@ export class PlatformContactService {
     private readonly email: EmailService,
     private readonly platform: PlatformService,
     private readonly events: EventEmitter2,
+    private readonly config: ConfigService,
   ) {}
 
   private async row(): Promise<PlatformWebsite> {
@@ -69,61 +77,89 @@ export class PlatformContactService {
     return toSettingsDto(updated);
   }
 
+  /**
+   * Un envío de la web: el formulario de contacto, una petición de demo o el
+   * informe de la calculadora. Se guarda siempre, avisa al email del panel (si
+   * lo hay) y entra en Leads con su origen. La calculadora manda además el
+   * informe al visitante, recalculado aquí.
+   */
   async submit(input: SubmitPlatformContactInput, ipAddress: string | null): Promise<void> {
     // Un bot que rellena el campo oculto: se le responde igual, sin guardar.
     if (input.hp) return;
+    const kind: PlatformContactKind = input.kind ?? 'contact';
     const settings = await this.row();
-    if (!settings.contactEnabled || !settings.contactEmail) {
+    if (kind === 'contact' && (!settings.contactEnabled || !settings.contactEmail)) {
       throw new NotFoundException({
         code: 'contact_form_disabled',
         message: 'El formulario de contacto no está disponible',
       });
     }
+    // El formulario de contacto pide lo que diga el panel; la demo y la
+    // calculadora tienen sus propios campos.
     const clean = (v: string | undefined, show: boolean) => (show && v?.trim() ? v.trim() : null);
-    const phone = clean(input.phone, settings.contactShowPhone);
-    if (settings.contactShowPhone && settings.contactRequirePhone && !phone) {
+    const asked = (flag: boolean) => kind !== 'contact' || flag;
+    const phone = clean(input.phone, asked(settings.contactShowPhone));
+    if (kind === 'contact' && settings.contactShowPhone && settings.contactRequirePhone && !phone) {
       throw new BadRequestException({ code: 'phone_required', message: 'Indica tu teléfono' });
     }
+    const calculator =
+      kind === 'calculator' && input.calculator
+        ? { input: input.calculator, result: computeProfitability(input.calculator) }
+        : null;
+    const note = input.message?.trim() ?? '';
+    const text =
+      kind === 'demo'
+        ? note || 'Quiere ver una demo de TrasterOS.'
+        : calculator
+          ? [calculatorSummary(calculator.input, calculator.result), note]
+              .filter(Boolean)
+              .join('\n\n')
+          : note;
     const message = await this.admin.platformContactMessage.create({
       data: {
         name: input.name,
         email: input.email,
         phone,
-        company: clean(input.company, settings.contactShowCompany),
-        units: clean(input.units, settings.contactShowUnits),
-        profile: clean(input.profile, settings.contactShowProfile),
-        message: input.message,
+        company: clean(input.company, asked(settings.contactShowCompany)),
+        units: clean(input.units, asked(settings.contactShowUnits)),
+        profile: clean(input.profile, asked(settings.contactShowProfile)),
+        message: text,
         ipAddress,
       },
     });
 
-    try {
-      const mail = renderContactEmail(message);
-      const result = await this.email.sendRendered({
-        to: settings.contactEmail,
-        subject: mail.subject,
-        html: mail.html,
-        text: mail.text,
-        replyTo: { email: message.email, name: message.name },
-        kind: 'web_contact',
-        tags: { type: 'platform_contact' },
-      });
-      if (!result.suppressed) {
-        await this.admin.platformContactMessage.update({
-          where: { id: message.id },
-          data: { emailSent: true },
+    if (settings.contactEmail) {
+      try {
+        const mail = renderContactEmail(message, kind);
+        const result = await this.email.sendRendered({
+          to: settings.contactEmail,
+          subject: mail.subject,
+          html: mail.html,
+          text: mail.text,
+          replyTo: { email: message.email, name: message.name },
+          kind: 'web_contact',
+          tags: { type: 'platform_contact' },
         });
+        if (!result.suppressed) {
+          await this.admin.platformContactMessage.update({
+            where: { id: message.id },
+            data: { emailSent: true },
+          });
+        }
+      } catch (err) {
+        // Queda guardado y visible en el panel; no se le devuelve error al visitante.
+        this.logger.warn(
+          `[contacto] no se pudo enviar el aviso del mensaje ${message.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
-    } catch (err) {
-      // Queda guardado y visible en el panel; no se le devuelve error al visitante.
-      this.logger.warn(
-        `[contacto] no se pudo enviar el aviso del mensaje ${message.id}: ${err instanceof Error ? err.message : String(err)}`,
-      );
     }
+    if (calculator) await this.sendCalculatorReport(message.name, message.email, calculator);
+
     // El mensaje entra en Leads del panel admin (o se suma al lead que ya hay).
     await this.events
       .emitAsync(PLATFORM_LEAD_INBOUND, {
         contactMessageId: message.id,
+        source: kind === 'contact' ? 'web_contact' : kind,
         name: message.name,
         email: message.email,
         phone: message.phone,
@@ -148,10 +184,41 @@ export class PlatformContactService {
     } satisfies PlatformContactReceivedEvent);
     await this.platform.notify({
       type: 'platform_contact.received',
-      title: `Contacto desde la web: ${message.name}`,
+      title: `${KIND_TITLES[kind]}: ${message.name}`,
       body: message.message.slice(0, 200),
       link: '/admin/leads',
     });
+  }
+
+  /**
+   * El informe de la calculadora para quien la ha usado. Lo que lleva son las
+   * cifras calculadas aquí y su nombre (escapado): la dirección la escribe el
+   * visitante, por eso el envío está limitado y no lleva texto libre suyo.
+   */
+  private async sendCalculatorReport(
+    name: string,
+    email: string,
+    calc: { input: ProfitabilityInput; result: ProfitabilityResult },
+  ): Promise<void> {
+    const web = (this.config.get<string>('WEB_BASE_URL') ?? 'https://trasteros.pro').replace(
+      /\/$/,
+      '',
+    );
+    const { html, text } = renderAdminEmail(calculatorReportMarkdown(name, calc, web));
+    try {
+      await this.email.sendRendered({
+        to: email,
+        subject: 'Tu cálculo de rentabilidad de trasteros',
+        html,
+        text,
+        kind: 'web_contact',
+        tags: { type: 'platform_calculator' },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[calculadora] no se pudo enviar el informe: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   async listMessages(
@@ -389,15 +456,83 @@ function toMessageDto(
 }
 
 /** Correo al equipo con el mensaje (datos del visitante escapados). */
-export function renderContactEmail(m: {
-  name: string;
-  email: string;
-  phone: string | null;
-  company: string | null;
-  units: string | null;
-  profile: string | null;
-  message: string;
-}): { subject: string; html: string; text: string } {
+const KIND_TITLES: Record<PlatformContactKind, string> = {
+  contact: 'Contacto desde la web',
+  demo: 'Petición de demo',
+  calculator: 'Calculadora de rentabilidad',
+};
+
+const eur = (n: number) =>
+  `${n.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`;
+
+/** Las cifras de la calculadora en unas líneas (para el lead y el aviso). */
+export function calculatorSummary(input: ProfitabilityInput, r: ProfitabilityResult): string {
+  return [
+    `Calculadora: ${input.units} trasteros a ${eur(input.avgPrice)}/mes con un ${input.occupancyPct} % de ocupación.`,
+    `Ingresos ${eur(r.monthlyRevenue)}/mes, gastos ${eur(r.monthlyCosts)}/mes, beneficio ${eur(r.monthlyProfit)}/mes.`,
+    r.breakEvenOccupancyPct !== null
+      ? `Cubre gastos con un ${r.breakEvenOccupancyPct.toLocaleString('es-ES')} % de ocupación.`
+      : 'Ni con el local lleno se cubren los gastos.',
+    ...(input.investment > 0
+      ? [
+          r.paybackMonths !== null
+            ? `Recupera ${eur(input.investment)} de inversión en ${r.paybackMonths} meses.`
+            : `Con ${eur(input.investment)} de inversión, no se recupera con estas cifras.`,
+        ]
+      : []),
+  ].join('\n');
+}
+
+/** El informe que recibe quien usa la calculadora (Markdown del correo de la plataforma). */
+export function calculatorReportMarkdown(
+  name: string,
+  calc: { input: ProfitabilityInput; result: ProfitabilityResult },
+  web: string,
+): string {
+  const { input: i, result: r } = calc;
+  const first = name.trim().split(/\s+/)[0] ?? name;
+  return [
+    `Hola ${first}:`,
+    '',
+    'Aquí tienes el cálculo de rentabilidad de tu local de trasteros (importes sin IVA).',
+    '',
+    `**Tu local:** ${i.units} trasteros a ${eur(i.avgPrice)} al mes, con un ${i.occupancyPct} % de ocupación.`,
+    '',
+    `- Ingresos: **${eur(r.monthlyRevenue)} al mes** (${eur(r.yearlyRevenue)} al año)`,
+    `- Gastos: ${eur(r.monthlyCosts)} al mes`,
+    `- Beneficio: **${eur(r.monthlyProfit)} al mes** (${eur(r.yearlyProfit)} al año)`,
+    ...(r.marginPct !== null ? [`- Margen: ${r.marginPct.toLocaleString('es-ES')} %`] : []),
+    r.breakEvenUnits !== null && r.breakEvenOccupancyPct !== null
+      ? `- Cubres gastos con **${r.breakEvenUnits} trasteros alquilados** (${r.breakEvenOccupancyPct.toLocaleString('es-ES')} % de ocupación)`
+      : '- Ni con el local lleno se cubren los gastos: revisa precios o costes',
+    ...(i.investment > 0
+      ? [
+          r.paybackMonths !== null
+            ? `- Recuperas la inversión de ${eur(i.investment)} en unos **${r.paybackMonths} meses**`
+            : `- Con estas cifras no se recupera la inversión de ${eur(i.investment)}`,
+        ]
+      : []),
+    '',
+    'Es una estimación: no incluye impuestos sobre el beneficio ni amortizaciones. Para afinarla, consulta con tu asesoría.',
+    '',
+    'Cada punto de ocupación cuenta. TrasterOS te ayuda a llenar los trasteros con reserva online y web con SEO local, y a cobrarlos sin perseguir a nadie.',
+    '',
+    `[[boton: Probar TrasterOS 30 días gratis | ${web}/register]]`,
+  ].join('\n');
+}
+
+export function renderContactEmail(
+  m: {
+    name: string;
+    email: string;
+    phone: string | null;
+    company: string | null;
+    units: string | null;
+    profile: string | null;
+    message: string;
+  },
+  kind: PlatformContactKind = 'contact',
+): { subject: string; html: string; text: string } {
   const rows: Array<[string, string | null]> = [
     ['Nombre', m.name],
     ['Email', m.email],
@@ -406,9 +541,14 @@ export function renderContactEmail(m: {
     ['Trasteros', m.units],
     ['Perfil', m.profile],
   ];
+  const intro = {
+    contact: 'Nuevo mensaje desde el formulario de contacto de la web.',
+    demo: 'Alguien pide una demo de TrasterOS desde la web.',
+    calculator: 'Alguien ha usado la calculadora de rentabilidad y ha pedido el informe.',
+  }[kind];
   const present = rows.filter((r): r is [string, string] => Boolean(r[1]));
   const html = [
-    '<p>Nuevo mensaje desde el formulario de contacto de la web.</p>',
+    `<p>${escapeHtml(intro)}</p>`,
     '<table style="border-collapse:collapse;font-size:14px">',
     ...present.map(
       ([k, v]) =>
@@ -418,12 +558,6 @@ export function renderContactEmail(m: {
     `<p style="white-space:pre-wrap;border-left:3px solid #2563eb;padding-left:12px">${escapeHtml(m.message)}</p>`,
     '<p style="color:#64748b">Responde a este correo para contestarle directamente.</p>',
   ].join('');
-  const text = [
-    'Nuevo mensaje desde el formulario de contacto de la web.',
-    '',
-    ...present.map(([k, v]) => `${k}: ${v}`),
-    '',
-    m.message,
-  ].join('\n');
-  return { subject: `Contacto desde la web: ${m.name}`, html, text };
+  const text = [intro, '', ...present.map(([k, v]) => `${k}: ${v}`), '', m.message].join('\n');
+  return { subject: `${KIND_TITLES[kind]}: ${m.name}`, html, text };
 }

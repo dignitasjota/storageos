@@ -2099,3 +2099,22 @@ Solo web, sin migración ni variables. **Qué cambia al redesplegar** (la web se
 - **Portada**: si el negocio no ha puesto su título en Configuración → Web → SEO, el título es «Trasteros en <localidad> desde X €/mes · <negocio>» salvo que el titular de la portada ya diga la localidad; la descripción lleva la localidad y el precio. Con un solo local es la página que Google toma como principal (la ficha la señala como canónica).
 - **Página de la ciudad** (`/trasteros-en-<localidad>`): el precio en el título y, si la ciudad tiene un solo local (la ficha de ese local redirige aquí), la descripción con su dirección, tamaños y precio.
 - Para revisarlo: Search Console → Inspección de URLs con la ficha de un local, y la [prueba de resultados enriquecidos](https://search.google.com/test/rich-results) para ver las preguntas frecuentes.
+
+## 123. trasteros.pro para Google y para captar: páginas, demo, calculadora y blog (2026-11-12)
+
+Migración `20270112100000_platform_blog` (se aplica sola: tabla global `platform_blog_posts` con REVOKE y 4 guías **en borrador**). Sin variables nuevas. **Qué cambia al redesplegar:**
+
+- **Portada**: titular con lo que se busca («Software de gestión de trasteros y self-storage»), botones «Probar 30 días gratis» y «Pedir una demo», captura del panel, cada funcionalidad enlaza a su página, testimonios (si hay), precios con el cambio mensual/anual, formulario de demo, calculadora y últimas guías del blog, y un botón fijo abajo en el móvil.
+- **Páginas nuevas** (todas en el mapa del sitio y con sus datos para Google): `/funcionalidades` y 9 páginas de funcionalidad (Veri\*Factu, cobros, accesos, reserva online, contratos, impagos, web y SEO local, área de clientes, plano), `/soluciones` y 3 por tipo de cliente (operadores, administradores, trasteros y viviendas), `/precios` (planes, comparativa sacada del catálogo y preguntas), `/blog` y `/calculadora-rentabilidad-trasteros`. El menú y el pie apuntan a ellas.
+- **Pedir una demo** (portada, precios, cada página y cada guía): nombre, email, teléfono, trasteros y empresa. Entra en **Leads** con el origen «Petición de demo» aunque el formulario de contacto esté apagado; si el formulario tiene email de destino, también te llega por correo.
+- **Calculadora de rentabilidad**: ingresos, gastos, beneficio, ocupación con la que se cubren gastos y meses para recuperar la inversión, en el navegador. Quien pide el informe lo recibe por correo (remitente «Contacto web») y entra en Leads como «Calculadora de rentabilidad» con sus cifras.
+- **Testimonios**: panel admin → Web de TrasterOS → Textos de la portada → «Testimonios de clientes» (hasta 6: texto, nombre, cargo y negocio). Solo clientes reales con su permiso; sin ninguno, la sección no sale. Se ven en la portada y en Precios.
+- **Blog de TrasterOS**: panel admin → Plataforma → **Blog de TrasterOS** (`/admin/blog`): escribir en Markdown con vista previa, portada (JPG, PNG o WebP de 5 MB, bucket público `platform/blog/…`), título y descripción para Google y publicar. Trae 4 guías en borrador (montar un negocio de trasteros, Veri\*Factu, impagos y control de accesos): **revísalas y publícalas juntas**, porque se enlazan entre ellas.
+- **Pie por defecto** con las páginas nuevas. Si guardaste un pie propio en Web de TrasterOS, sigue el tuyo: añade los enlaces nuevos o pulsa «Restaurar el de por defecto».
+
+**Tras desplegar (fuera del código):**
+
+1. Search Console y Bing: volver a enviar `https://trasteros.pro/sitemap.xml`.
+2. `www.trasteros.pro` no carga: en Nginx Proxy Manager, un Proxy Host (o Redirection Host) de `www.trasteros.pro` que redirija a `https://trasteros.pro` con su certificado.
+3. Revisar en `/admin/plans` el precio anual de cada plan: la página de Precios enseña el ahorro del pago anual («ahorra hasta un N %») y sale de esos precios.
+4. Publicar las guías y añadir los testimonios que tengas.
