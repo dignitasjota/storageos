@@ -79,6 +79,8 @@ export const DOMAIN_EVENTS = {
    * ella lo recupera.
    */
   invoice_voided: 'domain.invoice_voided',
+  /** Un plan de pagos se crea, se rompe, se cancela o se completa. */
+  payment_plan_status: 'domain.payment_plan_status',
   /**
    * La pasarela resolvió a favor del negocio una disputa (o cerró una consulta
    * sin retirar el dinero): el cobro que se revirtió al abrirse vuelve a
@@ -100,6 +102,13 @@ export interface InvoiceCancelledPayload {
 export interface InvoiceVoidedPayload {
   tenantId: string;
   invoiceId: string;
+}
+
+export interface PaymentPlanStatusPayload {
+  tenantId: string;
+  planId: string;
+  customerId: string;
+  status: 'active' | 'broken' | 'cancelled' | 'completed';
 }
 
 export interface PaymentOverpaidPayload {

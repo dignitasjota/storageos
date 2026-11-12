@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
 import {
   allocateInstallments,
@@ -21,7 +21,11 @@ import { type FacilityScope, invoiceFacilityWhere } from '../../common/facility-
 import { formatDateLong, formatEur, todayInTimezone } from '../../common/format';
 import { toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
-import { DOMAIN_EVENTS, type InvoiceVoidedPayload } from '../automations/domain-events';
+import {
+  DOMAIN_EVENTS,
+  type InvoiceVoidedPayload,
+  type PaymentPlanStatusPayload,
+} from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -71,7 +75,22 @@ export class PaymentPlansService {
     private readonly audit: AuditService,
     private readonly communications: CommunicationsService,
     private readonly notifications: NotificationsService,
+    private readonly events: EventEmitter2,
   ) {}
+
+  /** Avisa del cambio de estado de un plan (los expedientes de impago lo siguen). */
+  private emitStatus(
+    tenantId: string,
+    plan: { id: string; customerId: string },
+    status: PaymentPlanStatusPayload['status'],
+  ): void {
+    this.events.emit(DOMAIN_EVENTS.payment_plan_status, {
+      tenantId,
+      planId: plan.id,
+      customerId: plan.customerId,
+      status,
+    } satisfies PaymentPlanStatusPayload);
+  }
 
   private async tenantToday(tenantId: string): Promise<string> {
     const tenant = await this.admin.tenant.findUnique({
@@ -223,6 +242,7 @@ export class PaymentPlansService {
       },
     });
     if (input.notifyCustomer) await this.notifyCustomer(tenantId, plan);
+    this.emitStatus(tenantId, plan, 'active');
     const [dto] = await this.prisma.withTenant((tx) => this.toDtos(tx, [plan], today), tenantId);
     return dto!;
   }
@@ -262,6 +282,7 @@ export class PaymentPlansService {
       entityId: id,
       changes: {},
     });
+    this.emitStatus(tenantId, plan, 'cancelled');
     const [dto] = await this.prisma.withTenant((tx) => this.toDtos(tx, [plan], today), tenantId);
     return dto!;
   }
@@ -290,6 +311,7 @@ export class PaymentPlansService {
       data: { status: 'cancelled', cancelledAt: new Date() },
     });
     if (res.count === 0) return;
+    this.emitStatus(plan.tenantId, plan, 'cancelled');
     await this.notifications
       .create(plan.tenantId, {
         type: 'payment_plan.cancelled',
@@ -332,10 +354,11 @@ export class PaymentPlansService {
       );
       const allPaid = invoices.every((i) => i.status === 'paid');
       if (allPaid || paidCents >= toCents(plan.totalAmount)) {
-        await this.admin.paymentPlan.updateMany({
+        const done = await this.admin.paymentPlan.updateMany({
           where: { id: plan.id, status: 'active' },
           data: { status: 'completed', completedAt: now },
         });
+        if (done.count > 0) this.emitStatus(plan.tenantId, plan, 'completed');
         completed++;
         continue;
       }
@@ -357,6 +380,7 @@ export class PaymentPlansService {
         });
         if (res.count === 0) continue;
         broken++;
+        this.emitStatus(plan.tenantId, plan, 'broken');
         await this.notifications
           .create(plan.tenantId, {
             type: 'payment_plan.broken',

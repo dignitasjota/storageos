@@ -87,7 +87,11 @@ export function ConfirmRemittanceDialog({
         {items.isLoading ? (
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         ) : pending.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No queda ningún adeudo por registrar.</p>
+          <p className="text-sm text-muted-foreground">
+            {remittance?.status === 'generated'
+              ? 'El banco ya rechazó todos sus adeudos (constan en la remesa): registra el resultado para cerrarla.'
+              : 'No queda ningún adeudo por registrar.'}
+          </p>
         ) : (
           <ul className="space-y-2">
             {pending.map((i) => (
@@ -137,7 +141,11 @@ export function ConfirmRemittanceDialog({
           </Button>
           <Button
             onClick={() => void submit()}
-            disabled={confirmMut.isPending || items.isLoading || pending.length === 0}
+            disabled={
+              confirmMut.isPending ||
+              items.isLoading ||
+              (pending.length === 0 && remittance?.status !== 'generated')
+            }
           >
             {confirmMut.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             Registrar

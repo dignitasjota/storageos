@@ -296,6 +296,10 @@ export const TenantTodaySnoozeKindEnum = z.enum([
   'plan',
   'inventory',
   'chat',
+  /** Una caja sin cerrar (refId = el local, o el negocio si es la caja global). */
+  'cash',
+  /** Un aviso de un expediente de impago. */
+  'collections_case',
 ]);
 export type TenantTodaySnoozeKind = z.infer<typeof TenantTodaySnoozeKindEnum>;
 
@@ -391,6 +395,10 @@ export interface TodayExtrasDto {
   plansLate: TodayAttentionSectionDto;
   inventoryIssues: TodayAttentionSectionDto;
   chatsWaiting: TodayAttentionSectionDto;
+  /** Cajas de días anteriores con movimientos en efectivo y sin cerrar. */
+  cashUnclosed: TodayAttentionSectionDto;
+  /** Expedientes de impago que piden algo (plazo, candado, cita, sobrante…). */
+  collectionsAlerts: TodayAttentionSectionDto;
   debts: { count: number; totalAmount: number; rows: TodayDebtDto[] };
   tomorrow: TodayTomorrowItemDto[];
   week: TodayWeekItemDto[];

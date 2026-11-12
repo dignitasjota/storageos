@@ -4,15 +4,19 @@ import { apiFetch } from '../auth/api';
 import { invalidateBilling } from '../billing/hooks';
 
 import type {
+  BankMatchRuleDto,
   BankReconciliationSettingsDto,
   BankStatementDetailDto,
   BankStatementDto,
   BankSurplusHandling,
+  ClassifyExpenseInput,
+  ImportBankCsvInput,
   ImportN43Input,
   ImportN43ResultDto,
 } from '@storageos/shared';
 
 const listKey = ['bank-statements'] as const;
+const rulesKey = ['bank-statements', 'rules'] as const;
 const detailKey = (id: string) => ['bank-statements', id] as const;
 
 export function useBankStatements(enabled = true) {
@@ -56,6 +60,19 @@ export function useImportN43() {
   });
 }
 
+/** El CSV de movimientos de la banca online. */
+export function useImportBankCsv() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ImportBankCsvInput) =>
+      apiFetch<ImportN43ResultDto>('/bank-statements/import-csv', { method: 'POST', json: input }),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: listKey });
+      if (res.autoMatchedCount > 0) invalidateBilling(qc);
+    },
+  });
+}
+
 export function useDeleteStatement() {
   const qc = useQueryClient();
   return useMutation({
@@ -77,12 +94,14 @@ function useAfterChange(statementId: string, touchesMoney: boolean) {
 
 export function useMatchTransaction(statementId: string) {
   const onSuccess = useAfterChange(statementId, true);
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (args: {
       transactionId: string;
       invoiceId?: string;
       invoiceIds?: string[];
       surplus?: BankSurplusHandling;
+      rememberPattern?: string;
     }) =>
       apiFetch<BankStatementDetailDto>(
         `/bank-statements/transactions/${args.transactionId}/match`,
@@ -91,10 +110,67 @@ export function useMatchTransaction(statementId: string) {
           json: {
             ...(args.invoiceIds ? { invoiceIds: args.invoiceIds } : { invoiceId: args.invoiceId }),
             ...(args.surplus ? { surplus: args.surplus } : {}),
+            ...(args.rememberPattern ? { rememberPattern: args.rememberPattern } : {}),
           },
         },
       ),
-    onSuccess,
+    onSuccess: (data, args) => {
+      onSuccess(data);
+      if (args.rememberPattern) void qc.invalidateQueries({ queryKey: rulesKey });
+    },
+  });
+}
+
+/** El abono de una remesa SEPA de una vez (la registra si aún no lo estaba). */
+export function useMatchRemittance(statementId: string) {
+  const onSuccess = useAfterChange(statementId, true);
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { transactionId: string; remittanceId: string }) =>
+      apiFetch<BankStatementDetailDto>(
+        `/bank-statements/transactions/${args.transactionId}/match-remittance`,
+        { method: 'POST', json: { remittanceId: args.remittanceId } },
+      ),
+    onSuccess: (data) => {
+      onSuccess(data);
+      void qc.invalidateQueries({ queryKey: ['sepa', 'remittances'] });
+    },
+  });
+}
+
+/** Un cargo que es un gasto del negocio. */
+export function useClassifyExpense(statementId: string) {
+  const onSuccess = useAfterChange(statementId, false);
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { transactionId: string; input: ClassifyExpenseInput }) =>
+      apiFetch<BankStatementDetailDto>(
+        `/bank-statements/transactions/${args.transactionId}/expense`,
+        { method: 'POST', json: args.input },
+      ),
+    onSuccess: (data, args) => {
+      onSuccess(data);
+      void qc.invalidateQueries({ queryKey: ['expenses'] });
+      if (args.input.rememberPattern) void qc.invalidateQueries({ queryKey: rulesKey });
+    },
+  });
+}
+
+/** Reglas aprendidas: «si el concepto lleva X, es de este inquilino / este gasto». */
+export function useBankMatchRules(enabled = true) {
+  return useQuery({
+    queryKey: rulesKey,
+    queryFn: () => apiFetch<BankMatchRuleDto[]>('/bank-statements/rules'),
+    enabled,
+  });
+}
+
+export function useDeleteBankMatchRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/bank-statements/rules/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: rulesKey }),
   });
 }
 

@@ -104,6 +104,8 @@ import {
   PortalPreferencesSchema,
   type PortalPreferencesDto,
   messageAttachmentsOf,
+  RequestPickupSchema,
+  type PortalCollectionsCaseDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -117,6 +119,7 @@ import { respondThenRun } from '../../common/security/respond-then-run';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { AccessVerifyService } from '../access/access-verify.service';
 import { AiService } from '../ai/ai.service';
+import { CollectionsExtrasService } from '../collections/collections-extras.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { PreOpeningService } from '../contracts/pre-opening.service';
 import { WithdrawalService } from '../contracts/withdrawal.service';
@@ -219,6 +222,7 @@ export class PortalController {
     private readonly invoiceExport: PortalInvoiceExportService,
     private readonly generalTerms: GeneralTermsService,
     private readonly realtime: RealtimeService,
+    private readonly collections: CollectionsExtrasService,
   ) {}
 
   // Envía un email (magic link) — mismo preset que el homólogo de staff
@@ -429,6 +433,38 @@ export class PortalController {
    * El inquilino miró una opción (seguro, otro trastero, uno mayor, pase
    * nocturno) sin contratarla: señal para el equipo. Nunca falla al cliente.
    */
+  /** Sus expedientes de impago abiertos (para pedir cita y retirar sus bienes). */
+  @Public()
+  @Get('me/collections')
+  async myCollections(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalCollectionsCaseDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.collections.portalCases(tenantId, customerId);
+  }
+
+  /** Pide cita para retirar sus bienes. */
+  @Public()
+  @Post('me/collections/:id/pickup')
+  @HttpCode(HttpStatus.OK)
+  @ThrottleLogin()
+  async requestPickup(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown,
+  ): Promise<PortalCollectionsCaseDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    const parsed = RequestPickupSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'invalid_pickup',
+        message: 'Elige un día para la cita',
+      });
+    }
+    await this.collections.requestPickup(tenantId, customerId, id, parsed.data);
+    return this.collections.portalCases(tenantId, customerId);
+  }
+
   /** Propuestas del negocio para el inquilino («Ofertas para ti»). */
   @Public()
   @Get('me/offers')

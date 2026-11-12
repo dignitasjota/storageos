@@ -59,6 +59,7 @@ import { AdditionalUnitCard } from './additional-unit-card';
 import { PortalAiChatCard } from './ai-chat-card';
 import { AnnualInvoicesCard } from './annual-invoices-card';
 import { ChatCard } from './chat-card';
+import { CollectionsCard } from './collections-card';
 import { ContractTermsButton } from './contract-terms-button';
 import { DocumentsCard } from './documents-card';
 import { DoorOpenCard } from './door-open-card';
@@ -1168,6 +1169,7 @@ function PortalConsumeContent() {
               brandColor={session.brandColor ?? null}
               onNavigate={setTab}
             />
+            <CollectionsCard session={session} onNavigate={handleNav} />
             <OffersCard session={session} onNavigate={handleNav} />
           </TabsContent>
 

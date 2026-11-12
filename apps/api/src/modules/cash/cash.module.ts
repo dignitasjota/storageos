@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 
+import { CashClosurePdfService } from './cash-closure-pdf.service';
 import { CashController } from './cash.controller';
 import { CashService } from './cash.service';
 
@@ -9,6 +10,7 @@ import { CashService } from './cash.service';
 @Module({
   imports: [AuthModule],
   controllers: [CashController],
-  providers: [CashService],
+  providers: [CashService, CashClosurePdfService],
+  exports: [CashService],
 })
 export class CashModule {}

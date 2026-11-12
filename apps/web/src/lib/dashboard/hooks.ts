@@ -92,7 +92,11 @@ export function useSnoozeToday() {
   return useMutation({
     mutationFn: (input: CreateTenantTodaySnoozeInput) =>
       apiFetch<TenantTodaySnoozeDto>('/dashboard/today/snoozes', { method: 'POST', json: input }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['dashboard', 'today'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'today'] });
+      // Apartar a un deudor también cambia Deudores.
+      void qc.invalidateQueries({ queryKey: ['arrears'] });
+    },
   });
 }
 
@@ -101,7 +105,10 @@ export function useUnsnoozeToday() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch<void>(`/dashboard/today/snoozes/${id}`, { method: 'DELETE' }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['dashboard', 'today'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'today'] });
+      void qc.invalidateQueries({ queryKey: ['arrears'] });
+    },
   });
 }
 

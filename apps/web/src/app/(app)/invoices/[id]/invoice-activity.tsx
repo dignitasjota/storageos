@@ -5,11 +5,13 @@ import {
   type InvoiceDto,
   type InvoiceHistoryRowDto,
   type InvoicePaymentRowDto,
+  type SepaReturnCode,
 } from '@storageos/shared';
-import { Loader2, Pencil, Undo2 } from 'lucide-react';
+import { Landmark, Loader2, Pencil, Undo2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
+import { ReturnCodeSelect } from '@/components/billing/return-code-select';
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DateSelect } from '@/components/month-year-select';
@@ -24,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -44,7 +47,12 @@ import {
   PAYMENT_STATUS_LABELS,
   REFUND_VIA_LABELS,
 } from '@/lib/billing/activity-labels';
-import { useCorrectPayment, useInvoiceActivity, useUndoPayment } from '@/lib/billing/hooks';
+import {
+  useCorrectPayment,
+  useInvoiceActivity,
+  useMarkPaymentReturned,
+  useUndoPayment,
+} from '@/lib/billing/hooks';
 import { localDateString } from '@/lib/dates';
 import { formatDate, formatDateTime, formatEur } from '@/lib/format';
 
@@ -203,6 +211,95 @@ function CorrectPaymentDialog({
   );
 }
 
+/** Un cobro por banco que el banco devolvió (sin el extracto N43). */
+function ReturnedPaymentDialog({
+  invoiceId,
+  payment,
+  onClose,
+}: {
+  invoiceId: string;
+  payment: InvoicePaymentRowDto;
+  onClose: () => void;
+}) {
+  const mark = useMarkPaymentReturned();
+  const [returnCode, setReturnCode] = useState<SepaReturnCode | null>(null);
+  const [reason, setReason] = useState('');
+  const [returnedOn, setReturnedOn] = useState(localDateString());
+
+  async function submit() {
+    try {
+      await mark.mutateAsync({
+        invoiceId,
+        paymentId: payment.id,
+        input: {
+          ...(returnCode ? { returnCode } : {}),
+          ...(reason.trim() ? { reason: reason.trim() } : {}),
+          returnedOn,
+        },
+      });
+      toast.success('Devolución registrada: la factura vuelve a estar pendiente.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo registrar.');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>El banco devolvió el cobro</DialogTitle>
+          <DialogDescription>
+            {formatEur(payment.amount)} · {methodLabel(payment.methodType)}. El cobro deja de
+            contar, la factura vuelve a estar pendiente y sale en Recibos devueltos.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label>Día de la devolución</Label>
+            <DateSelect
+              value={returnedOn}
+              onChange={(v) => setReturnedOn(v ?? localDateString())}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Código de devolución</Label>
+            <ReturnCodeSelect value={returnCode} onChange={setReturnCode} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="returned-reason">Otro motivo (opcional)</Label>
+            <Input
+              id="returned-reason"
+              maxLength={200}
+              placeholder="Lo que diga el banco si no hay código"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Volver
+          </Button>
+          <Button variant="destructive" disabled={mark.isPending} onClick={() => void submit()}>
+            Registrar la devolución
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Un cobro que entró por el banco y sigue cobrado: el banco lo puede devolver. */
+function bankReturnable(p: InvoicePaymentRowDto): boolean {
+  return (
+    !p.undone &&
+    p.status === 'succeeded' &&
+    p.gateway === 'manual' &&
+    (p.methodType === 'bank_transfer' || p.methodType === 'sepa_debit')
+  );
+}
+
 /**
  * Todo lo que ha pasado con la factura: cobros (con corregir y deshacer),
  * devoluciones, avisos enviados, pasos del escalado e historial.
@@ -212,7 +309,9 @@ export function InvoiceActivityCard({ invoice }: { invoice: InvoiceDto }) {
   const activity = useInvoiceActivity(invoice.id);
   const undo = useUndoPayment();
   const canWrite = useHasPermission('invoices:write');
+  const canManage = useHasPermission('invoices:manage');
   const [correcting, setCorrecting] = useState<InvoicePaymentRowDto | null>(null);
+  const [returning, setReturning] = useState<InvoicePaymentRowDto | null>(null);
 
   async function handleUndo(p: InvoicePaymentRowDto): Promise<void> {
     const res = await ask({
@@ -301,33 +400,48 @@ export function InvoiceActivityCard({ invoice }: { invoice: InvoiceDto }) {
                           {p.returnedAt && !p.undone && (
                             <p className="text-xs text-destructive">
                               El banco lo devolvió el {formatDate(p.returnedAt)}
+                              {p.failureReason && <> · {p.failureReason}</>}
                             </p>
                           )}
                           {p.status === 'failed' && p.failureReason && !p.returnedAt && (
                             <p className="text-xs text-destructive">{p.failureReason}</p>
                           )}
                         </div>
-                        {canWrite && p.editable && (
-                          <div className="flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setCorrecting(p)}
-                              aria-label="Corregir el cobro"
-                            >
-                              <Pencil className="mr-1 h-3.5 w-3.5" /> Corregir
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={undo.isPending}
-                              onClick={() => void handleUndo(p)}
-                              aria-label="Deshacer el cobro"
-                            >
-                              <Undo2 className="mr-1 h-3.5 w-3.5" /> Deshacer
-                            </Button>
+                        {(canWrite && p.editable) || (canManage && bankReturnable(p)) ? (
+                          <div className="flex flex-wrap gap-1">
+                            {canManage && bankReturnable(p) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setReturning(p)}
+                                aria-label="El banco devolvió el cobro"
+                              >
+                                <Landmark className="mr-1 h-3.5 w-3.5" /> Devuelto por el banco
+                              </Button>
+                            )}
+                            {canWrite && p.editable && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setCorrecting(p)}
+                                  aria-label="Corregir el cobro"
+                                >
+                                  <Pencil className="mr-1 h-3.5 w-3.5" /> Corregir
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={undo.isPending}
+                                  onClick={() => void handleUndo(p)}
+                                  aria-label="Deshacer el cobro"
+                                >
+                                  <Undo2 className="mr-1 h-3.5 w-3.5" /> Deshacer
+                                </Button>
+                              </>
+                            )}
                           </div>
-                        )}
+                        ) : null}
                       </li>
                     );
                   })}
@@ -458,6 +572,13 @@ export function InvoiceActivityCard({ invoice }: { invoice: InvoiceDto }) {
           invoiceId={invoice.id}
           payment={correcting}
           onClose={() => setCorrecting(null)}
+        />
+      )}
+      {returning && (
+        <ReturnedPaymentDialog
+          invoiceId={invoice.id}
+          payment={returning}
+          onClose={() => setReturning(null)}
         />
       )}
     </Card>

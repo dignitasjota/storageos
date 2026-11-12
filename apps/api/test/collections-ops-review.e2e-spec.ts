@@ -19,6 +19,11 @@ import type { INestApplication } from '@nestjs/common';
 const DAY = 86_400_000;
 const REDSYS_KEY = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7';
 const iso = (d: Date) => d.toISOString().slice(0, 10);
+/** Hoy menos `days` en la hora de España (la del negocio): así cuenta los días el servicio. */
+const madridDay = (days: number) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+    new Date(Date.now() - days * DAY),
+  );
 
 /**
  * Revisión de Cobros del mes, Deudores y planes de pago: lo cobrado es el de
@@ -48,7 +53,7 @@ describe('Cobros del mes, Deudores y planes: revisión (e2e)', () => {
       where: { id },
       data: {
         status: 'overdue',
-        dueDate: new Date(`${iso(new Date(Date.now() - daysAgo * DAY))}T00:00:00Z`),
+        dueDate: new Date(`${madridDay(daysAgo)}T00:00:00Z`),
       },
     });
     return id;

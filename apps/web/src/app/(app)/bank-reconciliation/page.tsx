@@ -1,11 +1,15 @@
 'use client';
 
 import {
+  EXPENSE_CATEGORY_LABELS,
   PAYMENT_RECORD_METHOD_LABELS,
+  type BankCsvMapping,
   type BankStatementDetailDto,
   type BankSurplusHandling,
   type BankTransactionDto,
   type BankTransactionSuggestionDto,
+  type ExpenseCategory,
+  type ImportN43ResultDto,
   type PaymentRecordMethodValue,
 } from '@storageos/shared';
 import {
@@ -13,7 +17,9 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Check,
+  Landmark,
   Loader2,
+  Receipt,
   Search,
   Trash2,
   Undo2,
@@ -23,6 +29,8 @@ import {
 import Link from 'next/link';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+
+import { CsvMappingDialog, ExpenseDialog, RulesCard } from './extras';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
@@ -48,9 +56,12 @@ import {
   useBankStatement,
   useBankStatements,
   useDeleteStatement,
+  useClassifyExpense,
   useIgnoreTransaction,
+  useImportBankCsv,
   useImportN43,
   useMarkReturnTransaction,
+  useMatchRemittance,
   useMatchTransaction,
   useUndoTransaction,
   useUpdateBankReconciliationSettings,
@@ -58,8 +69,24 @@ import {
 import { useInvoices } from '@/lib/billing/hooks';
 import { formatDate, formatEur } from '@/lib/format';
 
-/** Extensiones con las que los bancos descargan el Cuaderno 43. */
-const N43_ACCEPT = '.n43,.q43,.c43,.aeb,.csb,.txt,text/plain';
+/** Extensiones con las que los bancos descargan el Cuaderno 43 (o el CSV de movimientos). */
+const N43_ACCEPT = '.n43,.q43,.c43,.aeb,.csb,.txt,text/plain,.csv,text/csv';
+
+/** ¿Es el CSV de la banca online y no un Norma 43? */
+function looksLikeCsv(filename: string, content: string): boolean {
+  if (/\.csv$/i.test(filename)) return true;
+  const first = content.split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
+  return !/^11\d/.test(first) && /[;,\t]/.test(first);
+}
+
+/** Por qué se sugiere una factura. */
+const REASON_LABELS: Record<NonNullable<BankTransactionSuggestionDto['reason']>, string> = {
+  reference: 'nº de factura en el concepto',
+  rule: 'regla aprendida',
+  payer: 'por el ordenante',
+  amount: 'mismo importe',
+  sum: 'suma de sus facturas',
+};
 
 function errorMessage(err: unknown, fallback = 'No se ha podido hacer.'): string {
   return err instanceof ApiError ? err.body.message : fallback;
@@ -69,7 +96,14 @@ export default function BankReconciliationPage() {
   const companyWide = useCompanyWide();
   const list = useBankStatements(companyWide);
   const importN43 = useImportN43();
+  const importCsv = useImportBankCsv();
   const deleteStatement = useDeleteStatement();
+  const [csvPending, setCsvPending] = useState<{
+    filename: string;
+    content: string;
+    headers: string[];
+    sample: string[][];
+  } | null>(null);
   const canManage = useHasPermission('invoices:manage');
   const ask = useConfirm();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -89,22 +123,52 @@ export default function BankReconciliationPage() {
     );
   }
 
+  function reportImport(res: ImportN43ResultDto) {
+    const parts = [
+      res.autoMatchedCount > 0 ? `${res.autoMatchedCount} conciliado(s) solos` : null,
+      `${res.suggestedCount} abono(s) con sugerencia`,
+      res.duplicatesSkipped > 0
+        ? `${res.duplicatesSkipped} movimiento(s) ya estaban importados`
+        : null,
+    ].filter(Boolean);
+    toast.success(`Extracto importado: ${parts.join(', ')}.`);
+    if (res.warnings.length > 0) {
+      toast.warning(res.warnings[0]!, { duration: 10_000 });
+    }
+    if (res.statements[0]) setSelectedId(res.statements[0].id);
+  }
+
+  async function importCsvWith(
+    pending: { filename: string; content: string },
+    mapping?: BankCsvMapping,
+  ) {
+    try {
+      reportImport(
+        await importCsv.mutateAsync({
+          filename: pending.filename,
+          content: pending.content,
+          ...(mapping ? { mapping } : {}),
+        }),
+      );
+      setCsvPending(null);
+    } catch (err) {
+      if (err instanceof ApiError && err.body.code === 'csv_columns_unknown') {
+        const d = err.body.details as { headers?: string[]; sample?: string[][] } | undefined;
+        setCsvPending({ ...pending, headers: d?.headers ?? [], sample: d?.sample ?? [] });
+        return;
+      }
+      toast.error(errorMessage(err, 'No se pudo importar el fichero.'));
+    }
+  }
+
   async function onFile(file: File) {
     try {
       const content = await readStatementFile(file);
-      const res = await importN43.mutateAsync({ filename: file.name, content });
-      const parts = [
-        res.autoMatchedCount > 0 ? `${res.autoMatchedCount} conciliado(s) solos` : null,
-        `${res.suggestedCount} abono(s) con sugerencia`,
-        res.duplicatesSkipped > 0
-          ? `${res.duplicatesSkipped} movimiento(s) ya estaban importados`
-          : null,
-      ].filter(Boolean);
-      toast.success(`Extracto importado: ${parts.join(', ')}.`);
-      if (res.warnings.length > 0) {
-        toast.warning(res.warnings[0]!, { duration: 10_000 });
+      if (looksLikeCsv(file.name, content)) {
+        await importCsvWith({ filename: file.name, content });
+        return;
       }
-      if (res.statements[0]) setSelectedId(res.statements[0].id);
+      reportImport(await importN43.mutateAsync({ filename: file.name, content }));
     } catch (err) {
       toast.error(errorMessage(err, 'No se pudo importar el fichero.'));
       const existing =
@@ -143,8 +207,9 @@ export default function BankReconciliationPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Conciliación bancaria</h1>
         <p className="text-sm text-muted-foreground">
-          Sube el extracto <strong>Norma 43</strong> de tu banco y concilia los ingresos con las
-          facturas pendientes y los cargos con los recibos devueltos.
+          Sube el extracto de tu banco (<strong>Norma 43</strong> o el CSV de movimientos) y
+          concilia los ingresos con las facturas pendientes y los cargos con los recibos devueltos o
+          los gastos.
         </p>
       </div>
 
@@ -153,7 +218,8 @@ export default function BankReconciliationPage() {
           <CardHeader>
             <CardTitle className="text-base">Importar extracto</CardTitle>
             <CardDescription>
-              El fichero Norma 43 / Cuaderno 43 que descargas de tu banca electrónica. Si una
+              El fichero Norma 43 / Cuaderno 43 que descargas de tu banca electrónica, o el CSV de
+              movimientos (las columnas se reconocen por su título; si no, las eliges). Si una
               descarga se solapa con otra, los movimientos repetidos no se duplican.
             </CardDescription>
           </CardHeader>
@@ -168,13 +234,16 @@ export default function BankReconciliationPage() {
                 if (f) void onFile(f);
               }}
             />
-            <Button onClick={() => fileRef.current?.click()} disabled={importN43.isPending}>
-              {importN43.isPending ? (
+            <Button
+              onClick={() => fileRef.current?.click()}
+              disabled={importN43.isPending || importCsv.isPending}
+            >
+              {importN43.isPending || importCsv.isPending ? (
                 <Loader2 className="mr-1 h-4 w-4 animate-spin" />
               ) : (
                 <Upload className="mr-1 h-4 w-4" />
               )}
-              Subir fichero N43
+              Subir extracto
             </Button>
             <AutoReconcileToggle />
           </CardContent>
@@ -248,6 +317,16 @@ export default function BankReconciliationPage() {
           </Card>
         )}
       </div>
+      <RulesCard canManage={canManage} />
+      {csvPending && (
+        <CsvMappingDialog
+          headers={csvPending.headers}
+          sample={csvPending.sample}
+          busy={importCsv.isPending}
+          onClose={() => setCsvPending(null)}
+          onConfirm={(mapping) => void importCsvWith(csvPending, mapping)}
+        />
+      )}
     </div>
   );
 }
@@ -261,6 +340,9 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
   const markReturn = useMarkReturnTransaction(statementId);
   const ignore = useIgnoreTransaction(statementId);
   const undo = useUndoTransaction(statementId);
+  const matchRemittance = useMatchRemittance(statementId);
+  const classify = useClassifyExpense(statementId);
+  const [expenseTx, setExpenseTx] = useState<BankTransactionDto | null>(null);
   const [filter, setFilter] = useState<Filter>('pending');
   const [search, setSearch] = useState('');
   const [splitTx, setSplitTx] = useState<BankTransactionDto | null>(null);
@@ -269,14 +351,26 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
     invoiceIds: string[];
     amount: number;
   } | null>(null);
-  const busy = match.isPending || ignore.isPending || markReturn.isPending || undo.isPending;
+  const busy =
+    match.isPending ||
+    ignore.isPending ||
+    markReturn.isPending ||
+    undo.isPending ||
+    matchRemittance.isPending ||
+    classify.isPending;
 
-  async function doMatch(tx: BankTransactionDto, invoiceIds: string[], how?: BankSurplusHandling) {
+  async function doMatch(
+    tx: BankTransactionDto,
+    invoiceIds: string[],
+    how?: BankSurplusHandling,
+    rememberPattern?: string,
+  ) {
     try {
       await match.mutateAsync({
         transactionId: tx.id,
         ...(invoiceIds.length === 1 ? { invoiceId: invoiceIds[0]! } : { invoiceIds }),
         ...(how ? { surplus: how } : {}),
+        ...(rememberPattern ? { rememberPattern } : {}),
       });
       toast.success(
         invoiceIds.length === 1
@@ -291,6 +385,40 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
         setSurplus({ tx, invoiceIds, amount: details?.surplus ?? 0 });
         return;
       }
+      toast.error(errorMessage(err));
+    }
+  }
+
+  async function doMatchRemittance(
+    tx: BankTransactionDto,
+    r: BankTransactionDto['remittanceSuggestions'][number],
+  ) {
+    if (
+      r.status === 'generated' &&
+      !(await ask({
+        title: `¿Es el abono de la remesa «${r.name}»?`,
+        description:
+          'La remesa aún no está registrada: se dan por cobrados todos sus adeudos con la fecha del cargo. Si el banco rechazó alguno, regístralo antes.',
+      }))
+    )
+      return;
+    try {
+      await matchRemittance.mutateAsync({ transactionId: tx.id, remittanceId: r.remittanceId });
+      toast.success('Abono de la remesa conciliado.');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
+  async function doExpense(
+    tx: BankTransactionDto,
+    input: { category: ExpenseCategory; description?: string; rememberPattern?: string },
+  ) {
+    try {
+      await classify.mutateAsync({ transactionId: tx.id, input });
+      toast.success('Guardado como gasto.');
+      setExpenseTx(null);
+    } catch (err) {
       toast.error(errorMessage(err));
     }
   }
@@ -341,7 +469,11 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
         ? '¿Volver a dejar este movimiento sin revisar?'
         : tx.status === 'returned'
           ? '¿Deshacer la devolución? El cobro vuelve a contar y la factura, a estar pagada.'
-          : '¿Deshacer la conciliación? Las facturas vuelven a estar pendientes.';
+          : tx.status === 'expense'
+            ? '¿Deshacer? Se borra el gasto que se creó.'
+            : tx.matchedRemittance
+              ? '¿Quitar el enlace con la remesa? La remesa sigue registrada como cobrada.'
+              : '¿Deshacer la conciliación? Las facturas vuelven a estar pendientes.';
     if (!(await ask({ title, destructive: tx.status !== 'ignored' }))) return;
     try {
       await undo.mutateAsync(tx.id);
@@ -472,7 +604,12 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
                   tx={t}
                   canManage={canManage}
                   busy={busy}
-                  onMatch={(invoiceId) => void doMatch(t, [invoiceId])}
+                  onMatch={(invoiceIds, remember) =>
+                    void doMatch(t, invoiceIds, undefined, remember)
+                  }
+                  onMatchRemittance={(r) => void doMatchRemittance(t, r)}
+                  onExpense={() => setExpenseTx(t)}
+                  onQuickExpense={(category) => void doExpense(t, { category })}
                   onReturn={(s) => void doReturn(t, s)}
                   onIgnore={() => void doIgnore(t)}
                   onSplit={() => setSplitTx(t)}
@@ -491,6 +628,14 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
           onConfirm={(ids, how) => void doMatch(splitTx, ids, how)}
         />
       )}
+      {expenseTx && (
+        <ExpenseDialog
+          tx={expenseTx}
+          busy={classify.isPending}
+          onClose={() => setExpenseTx(null)}
+          onConfirm={(input) => void doExpense(expenseTx, input)}
+        />
+      )}
       {surplus && (
         <SurplusDialog
           amount={surplus.amount}
@@ -507,25 +652,37 @@ function StatementTotals({ statement }: { statement: BankStatementDetailDto }) {
   const credits = statement.transactions.filter((t) => t.type === 'credit');
   const debits = statement.transactions.filter((t) => t.type === 'debit');
   const sum = (rows: BankTransactionDto[]) => rows.reduce((s, t) => s + t.amount, 0);
+  const known = statement.balancesKnown;
   return (
-    <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-      <div>
-        <dt className="text-muted-foreground">Saldo inicial</dt>
-        <dd className="font-medium tabular-nums">{formatEur(statement.initialBalance)}</dd>
-      </div>
-      <div>
-        <dt className="text-muted-foreground">Ingresos ({credits.length})</dt>
-        <dd className="font-medium tabular-nums text-emerald-600">{formatEur(sum(credits))}</dd>
-      </div>
-      <div>
-        <dt className="text-muted-foreground">Cargos ({debits.length})</dt>
-        <dd className="font-medium tabular-nums">{formatEur(sum(debits))}</dd>
-      </div>
-      <div>
-        <dt className="text-muted-foreground">Saldo final</dt>
-        <dd className="font-medium tabular-nums">{formatEur(statement.finalBalance)}</dd>
-      </div>
-    </dl>
+    <div className="space-y-1">
+      <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        {known && (
+          <div>
+            <dt className="text-muted-foreground">Saldo inicial</dt>
+            <dd className="font-medium tabular-nums">{formatEur(statement.initialBalance)}</dd>
+          </div>
+        )}
+        <div>
+          <dt className="text-muted-foreground">Ingresos ({credits.length})</dt>
+          <dd className="font-medium tabular-nums text-emerald-600">{formatEur(sum(credits))}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Cargos ({debits.length})</dt>
+          <dd className="font-medium tabular-nums">{formatEur(sum(debits))}</dd>
+        </div>
+        {known && (
+          <div>
+            <dt className="text-muted-foreground">Saldo final</dt>
+            <dd className="font-medium tabular-nums">{formatEur(statement.finalBalance)}</dd>
+          </div>
+        )}
+      </dl>
+      {!known && (
+        <p className="text-xs text-muted-foreground">
+          El fichero no trae los saldos, así que no se pueden comprobar los totales.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -566,6 +723,9 @@ function ReconcileCell({
   canManage,
   busy,
   onMatch,
+  onMatchRemittance,
+  onExpense,
+  onQuickExpense,
   onReturn,
   onIgnore,
   onSplit,
@@ -574,12 +734,19 @@ function ReconcileCell({
   tx: BankTransactionDto;
   canManage: boolean;
   busy: boolean;
-  onMatch: (invoiceId: string) => void;
+  onMatch: (invoiceIds: string[], rememberPattern?: string) => void;
+  onMatchRemittance: (r: BankTransactionDto['remittanceSuggestions'][number]) => void;
+  onExpense: () => void;
+  onQuickExpense: (category: ExpenseCategory) => void;
   onReturn: (s: BankTransactionSuggestionDto) => void;
   onIgnore: () => void;
   onSplit: () => void;
   onUndo: () => void;
 }) {
+  const canExpense = useHasPermission('expenses:manage');
+  const [remember, setRemember] = useState(false);
+  const [pattern, setPattern] = useState(tx.payerPattern);
+  const rememberPattern = remember && pattern.trim().length >= 3 ? pattern.trim() : undefined;
   const undoButton =
     canManage && tx.canUndo ? (
       <Button variant="ghost" size="sm" onClick={onUndo} disabled={busy}>
@@ -588,6 +755,34 @@ function ReconcileCell({
       </Button>
     ) : null;
 
+  if (tx.status === 'expense') {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <Badge variant="outline" className="gap-1">
+          <Receipt className="h-3 w-3" /> Gasto
+        </Badge>
+        {tx.expense && (
+          <Link href="/expenses" className="hover:underline">
+            {EXPENSE_CATEGORY_LABELS[tx.expense.category as ExpenseCategory] ?? tx.expense.category}
+          </Link>
+        )}
+        {undoButton}
+      </div>
+    );
+  }
+  if (tx.status === 'matched' && tx.matchedRemittance) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <Badge variant="default" className="gap-1">
+          <Check className="h-3 w-3" /> Conciliado
+        </Badge>
+        <Link href={`/sepa-remittances/${tx.matchedRemittance.id}`} className="hover:underline">
+          Abono de la remesa «{tx.matchedRemittance.name}»
+        </Link>
+        {undoButton}
+      </div>
+    );
+  }
   if (tx.status === 'matched') {
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -630,6 +825,23 @@ function ReconcileCell({
   if (tx.type === 'debit') {
     return (
       <div className="space-y-1.5">
+        {tx.expenseSuggestion && canExpense && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onQuickExpense(tx.expenseSuggestion!.category as ExpenseCategory)}
+              disabled={busy}
+            >
+              <Receipt className="mr-1 h-3 w-3" /> Gasto:{' '}
+              {EXPENSE_CATEGORY_LABELS[tx.expenseSuggestion.category as ExpenseCategory] ??
+                tx.expenseSuggestion.category}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              regla «{tx.expenseSuggestion.pattern}»
+            </span>
+          </div>
+        )}
         {tx.returnSuggestions.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             No coincide con ningún cobro por banco (p. ej. una comisión).
@@ -650,26 +862,55 @@ function ReconcileCell({
             </div>
           ))
         )}
-        <Button variant="ghost" size="sm" onClick={onIgnore} disabled={busy}>
-          <X className="mr-1 h-3 w-3" /> Dar por revisado
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {canExpense && (
+            <Button variant="outline" size="sm" onClick={onExpense} disabled={busy}>
+              <Receipt className="mr-1 h-3 w-3" /> Es un gasto…
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onIgnore} disabled={busy}>
+            <X className="mr-1 h-3 w-3" /> Dar por revisado
+          </Button>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-1.5">
-      {tx.suggestions.length === 0 ? (
+      {tx.remittanceSuggestions.map((r) => (
+        <div key={r.remittanceId} className="flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={() => onMatchRemittance(r)} disabled={busy}>
+            <Landmark className="mr-1 h-3 w-3" /> Remesa «{r.name}»
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            cobro del {formatDate(r.collectionDate)}
+            {r.status === 'generated' ? ' · sin registrar aún' : ''}
+          </span>
+        </div>
+      ))}
+      {tx.suggestions.length === 0 && tx.remittanceSuggestions.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           Ninguna factura pendiente por ese importe exacto.
         </p>
       ) : (
         tx.suggestions.map((s) => (
-          <div key={s.invoiceId} className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={() => onMatch(s.invoiceId)} disabled={busy}>
-              <Check className="mr-1 h-3 w-3" /> {s.invoiceNumber}
+          <div
+            key={(s.invoiceIds ?? [s.invoiceId]).join('+')}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <Button
+              size="sm"
+              onClick={() => onMatch(s.invoiceIds ?? [s.invoiceId], rememberPattern)}
+              disabled={busy}
+            >
+              <Check className="mr-1 h-3 w-3" />{' '}
+              {(s.invoiceNumbers ?? [s.invoiceNumber]).join(' + ')}
             </Button>
-            <span className="text-xs text-muted-foreground">{s.customerName}</span>
+            <span className="text-xs text-muted-foreground">
+              {s.customerName}
+              {s.reason ? ` · ${REASON_LABELS[s.reason]}` : ''}
+            </span>
             {s.warning && (
               <span className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
                 <AlertTriangle className="size-3" /> {s.warning}
@@ -677,6 +918,27 @@ function ReconcileCell({
             )}
           </div>
         ))
+      )}
+      {tx.suggestions.length > 0 && tx.payerPattern && (
+        <div className="space-y-1">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+            />
+            Recordar este ordenante para la próxima vez
+          </label>
+          {remember && (
+            <Input
+              aria-label="Texto que identifica al ordenante"
+              className="h-8 max-w-xs text-xs"
+              maxLength={100}
+              value={pattern}
+              onChange={(e) => setPattern(e.target.value)}
+            />
+          )}
+        </div>
       )}
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={onSplit} disabled={busy}>

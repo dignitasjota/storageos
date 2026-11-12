@@ -41,6 +41,8 @@ export interface N43Account {
   endDate: string | null;
   initialBalance: number;
   finalBalance: number;
+  /** false = el fichero no trae los saldos (un CSV sin esa columna). */
+  balancesKnown?: boolean;
   transactions: N43Transaction[];
   /** Lo que no cuadra en el fichero (saldos, totales, registros que faltan). */
   warnings: string[];

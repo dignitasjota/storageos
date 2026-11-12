@@ -737,6 +737,44 @@
         "confirm": "Withdraw",
         "done": "Withdrawal registered. We have sent you an email with what will be refunded.",
         "error": "The withdrawal could not be registered."
+      },
+      "collections": {
+        "title": "Outstanding payments",
+        "titleUnit": "Outstanding payments for unit {unit}",
+        "debt": "You owe {amount}",
+        "payNow": "See my invoices",
+        "status": {
+          "open": "You have overdue invoices. Once you pay what you owe, the matter is closed.",
+          "overlocked": "Access to your unit is suspended because of the unpaid balance. It comes back as soon as you pay.",
+          "final_notice": "We have sent you a formal demand for payment. If you do not pay before {deadline}, the contract will be terminated.",
+          "final_notice_nodate": "We have sent you a formal demand for payment.",
+          "resolution_pending": "The deadline to pay has passed: the contract is about to be terminated.",
+          "contract_resolved": "Your contract has been terminated for non-payment. Your belongings are still in the unit: book a time to collect them.",
+          "goods_moved": "Your belongings are in storage{place}. Book a time to collect them.",
+          "disposal": "If you do not collect your belongings, they will be disposed of through the legal channels. Book a time to collect them as soon as possible.",
+          "closed": "This matter is closed."
+        },
+        "pickupTitle": "Book a time to collect your belongings",
+        "pickupIntro": "Choose the day and when suits you best. We will confirm the time by email.",
+        "day": "Day",
+        "when": "When",
+        "times": {
+          "morning": "In the morning",
+          "afternoon": "In the afternoon",
+          "any": "Any time"
+        },
+        "note": "Anything we should know (optional)",
+        "notePlaceholder": "E.g. I will come with a van",
+        "request": "Book a time",
+        "requested": "Request sent. We will reply by email.",
+        "requestError": "We could not book the time.",
+        "pending": "You asked for {date} ({time}). We will reply by email.",
+        "approved": "We expect you on {date}, from {from} to {to}.",
+        "code": "Your entry code (valid once, during that time)",
+        "showCode": "Show the code",
+        "rejected": "We could not give you {date}: {reason}",
+        "done": "You collected your belongings on {date}.",
+        "cancelled": "The appointment for {date} was cancelled."
       }
     },
     "gocardless": {

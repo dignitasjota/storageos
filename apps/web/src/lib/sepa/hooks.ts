@@ -6,8 +6,10 @@ import { invalidateBilling } from '../billing/hooks';
 import type {
   CreateRemittanceInput,
   CreateSepaMandateInput,
+  ImportSepaBankResponseInput,
   MarkSepaItemReturnedInput,
   RemittancePreviewDto,
+  SepaBankResponseResultDto,
   SepaMandateDto,
   SepaRemittanceDto,
   SepaRemittancePrenoticeDto,
@@ -185,4 +187,32 @@ export async function downloadRemittanceXml(id: string): Promise<void> {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** La ficha de una remesa (se refresca mientras salen sus preavisos). */
+export function useSepaRemittance(id: string) {
+  return useQuery({
+    queryKey: [...remittancesKey, id] as const,
+    queryFn: () => apiFetch<SepaRemittanceDto>(`/sepa/remittances/${id}`),
+    enabled: !!id,
+    refetchInterval: (q) => {
+      const r = q.state.data;
+      return r && r.status === 'generated' && r.prenoticesSent + r.prenoticesMissing < r.itemCount
+        ? 5000
+        : false;
+    },
+  });
+}
+
+/** La respuesta del banco a una remesa (pain.002): rechazos y devoluciones. */
+export function useImportSepaBankResponse() {
+  const onSuccess = useAfterRemittance();
+  return useMutation({
+    mutationFn: (input: ImportSepaBankResponseInput) =>
+      apiFetch<SepaBankResponseResultDto>('/sepa/remittances/bank-response', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess,
+  });
 }

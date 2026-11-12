@@ -300,6 +300,17 @@ export class RgpdService {
         where: { customerId },
         data: { note: ANON, resolutionNote: null },
       });
+      // Citas para retirar los bienes de un impago: sin notas; las pendientes se anulan.
+      await tx.delinquencyPickupRequest.updateMany({
+        where: { customerId, status: 'pending' },
+        data: { status: 'cancelled', resolvedAt: new Date() },
+      });
+      await tx.delinquencyPickupRequest.updateMany({
+        where: { customerId },
+        data: { note: null, resolutionNote: null },
+      });
+      // Las reglas de la conciliación llevan su nombre como en el banco.
+      await tx.bankMatchRule.deleteMany({ where: { customerId } });
       await tx.reservation.updateMany({
         where: { customerId },
         data: { notes: null, cancelReason: null },

@@ -737,6 +737,44 @@
         "confirm": "Desistir",
         "done": "Desistimiento registrado. Te hemos enviado un correo con lo que se te devuelve.",
         "error": "No se pudo registrar el desistimiento."
+      },
+      "collections": {
+        "title": "Pagos pendientes",
+        "titleUnit": "Pagos pendientes del trastero {unit}",
+        "debt": "Debes {amount}",
+        "payNow": "Ver mis facturas",
+        "status": {
+          "open": "Tienes facturas vencidas sin pagar. Si pagas lo que debes, el asunto queda cerrado.",
+          "overlocked": "El acceso a tu trastero está suspendido por el impago. En cuanto pagues, vuelve.",
+          "final_notice": "Te hemos enviado un requerimiento de pago. Si no pagas antes del {deadline}, el contrato quedará resuelto.",
+          "final_notice_nodate": "Te hemos enviado un requerimiento de pago.",
+          "resolution_pending": "El plazo para pagar ha vencido: el contrato va a quedar resuelto.",
+          "contract_resolved": "Tu contrato está resuelto por el impago. Tus bienes siguen en el trastero: pide cita para retirarlos.",
+          "goods_moved": "Tus bienes están en custodia{place}. Pide cita para retirarlos.",
+          "disposal": "Si no retiras tus bienes, se dispondrá de ellos por los cauces legales. Pide cita para retirarlos cuanto antes.",
+          "closed": "Este asunto está cerrado."
+        },
+        "pickupTitle": "Cita para retirar tus bienes",
+        "pickupIntro": "Elige el día y cuándo te viene mejor. Te confirmaremos la hora por correo.",
+        "day": "Día",
+        "when": "Cuándo",
+        "times": {
+          "morning": "Por la mañana",
+          "afternoon": "Por la tarde",
+          "any": "Cualquier hora"
+        },
+        "note": "Algo que debamos saber (opcional)",
+        "notePlaceholder": "Ej. vendré con una furgoneta",
+        "request": "Pedir cita",
+        "requested": "Cita pedida. Te contestaremos por correo.",
+        "requestError": "No se ha podido pedir la cita.",
+        "pending": "Pediste cita para el {date} ({time}). Te contestaremos por correo.",
+        "approved": "Te esperamos el {date}, de {from} a {to}.",
+        "code": "Tu código para entrar (sirve una vez, en esa franja)",
+        "showCode": "Ver el código",
+        "rejected": "No pudimos darte la cita del {date}: {reason}",
+        "done": "Retiraste tus bienes el {date}.",
+        "cancelled": "La cita del {date} se anuló."
       }
     },
     "gocardless": {

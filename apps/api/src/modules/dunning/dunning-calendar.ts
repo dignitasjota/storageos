@@ -14,12 +14,14 @@ export function dunningCalendar(
   access: { mode: string; days: number } = { mode: 'all', days: 14 },
   /** Días hasta el aviso legal (y el expediente, si el negocio los usa). */
   legalNoticeDays = 30,
+  /** Días de los dos recordatorios (los elige el negocio). */
+  reminders: { first: number; second: number } = { first: 1, second: 7 },
 ): DunningStep[] {
   const calendar: DunningStep[] = [
-    { daysAfter: 1, type: 'email_reminder' },
+    { daysAfter: reminders.first, type: 'email_reminder' },
     // Segundo aviso: tipo propio (el índice único es por tipo; con el mismo
     // tipo que el primero no se llegaba a programar nunca).
-    { daysAfter: 7, type: 'email_reminder_final' },
+    { daysAfter: reminders.second, type: 'email_reminder_final' },
     { daysAfter: legalNoticeDays, type: 'legal_notice' },
   ];
   // Corte del acceso: lo decide cada negocio, y puede no cortar nunca.

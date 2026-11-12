@@ -5,7 +5,11 @@ import { DOMAIN_EVENTS } from '../automations/domain-events';
 
 import { CollectionsService } from './collections.service';
 
-import type { DomainEventPayload, InvoiceVoidedPayload } from '../automations/domain-events';
+import type {
+  DomainEventPayload,
+  InvoiceVoidedPayload,
+  PaymentPlanStatusPayload,
+} from '../automations/domain-events';
 
 /**
  * Cierra automáticamente el expediente de impago cuando el inquilino salda su
@@ -26,5 +30,11 @@ export class CollectionsListenersService {
   @OnEvent(DOMAIN_EVENTS.invoice_voided, { async: true, promisify: true })
   async onInvoiceVoided(payload: InvoiceVoidedPayload): Promise<void> {
     await this.collections.onInvoiceVoided(payload.tenantId, payload.invoiceId);
+  }
+
+  /** Un plan de pagos pausa los expedientes del inquilino; si se rompe, siguen. */
+  @OnEvent(DOMAIN_EVENTS.payment_plan_status, { async: true, promisify: true })
+  async onPaymentPlanStatus(payload: PaymentPlanStatusPayload): Promise<void> {
+    await this.collections.onPaymentPlanStatus(payload);
   }
 }

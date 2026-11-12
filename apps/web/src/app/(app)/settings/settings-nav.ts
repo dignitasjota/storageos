@@ -125,6 +125,13 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         permission: 'billing:configure',
       },
       {
+        href: '/settings/dunning',
+        label: 'Escalado de impagos',
+        description:
+          'Cuándo salen los recordatorios, el recargo por mora, el corte del acceso y el aviso legal.',
+        permission: 'settings:read',
+      },
+      {
         href: '/settings/billing/verifactu',
         label: 'Veri*Factu',
         description: 'Tu certificado y el registro de tus facturas en la AEAT.',

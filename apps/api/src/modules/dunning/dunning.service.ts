@@ -215,6 +215,8 @@ export class DunningService {
         accessCutMode: true,
         accessCutDays: true,
         collectionsOpenAfterDays: true,
+        dunningFirstReminderDays: true,
+        dunningSecondReminderDays: true,
       },
     });
     const isLateFee = !!invoice.lateFeeForInvoiceId;
@@ -230,6 +232,10 @@ export class DunningService {
         ? { mode: 'none', days: 0 }
         : { mode: tenant?.accessCutMode ?? 'all', days: tenant?.accessCutDays ?? 14 },
       tenant?.collectionsOpenAfterDays ?? 30,
+      {
+        first: tenant?.dunningFirstReminderDays ?? 1,
+        second: tenant?.dunningSecondReminderDays ?? 7,
+      },
     ).filter((step) => !isLateFee || step.type !== 'legal_notice');
     for (const step of calendar) {
       const scheduledFor = new Date(base);

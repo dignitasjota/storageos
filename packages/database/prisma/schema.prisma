@@ -512,6 +512,9 @@ model Tenant {
   nightPassPrice               Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
   collectionsEnabled           Boolean               @default(false) @map("collections_enabled")
   collectionsOpenAfterDays     Int                   @default(30) @map("collections_open_after_days")
+  /// Días de los dos recordatorios del escalado.
+  dunningFirstReminderDays     Int                   @default(1) @map("dunning_first_reminder_days")
+  dunningSecondReminderDays    Int                   @default(7) @map("dunning_second_reminder_days")
   collectionsNoticeDays        Int                   @default(15) @map("collections_notice_days")
   collectionsClauseRef         String?               @map("collections_clause_ref")
   winbackEnabled               Boolean               @default(false) @map("winback_enabled")
@@ -567,6 +570,7 @@ model Tenant {
   paymentPlans            PaymentPlan[]
   customerInterestEvents  CustomerInterestEvent[]
   cashClosures            CashClosure[]
+  cashMovements            CashMovement[]
   featureOverrides        TenantFeatureOverride[]
   tenantFollowups         TenantFollowup[]
   auditLogs               AuditLog[]
@@ -647,6 +651,7 @@ model Tenant {
   sepaRemittanceItems     SepaRemittanceItem[]
   bankStatements          BankStatement[]
   bankStatementTxs        BankStatementTransaction[]
+  bankMatchRules          BankMatchRule[]
   aiConversations         AiConversation[]
   aiMessages              AiMessage[]
   aiPendingActions        AiPendingAction[]
@@ -733,6 +738,7 @@ model Tenant {
   messageHours              Json?    @map("message_hours")
   messageAutoReplyEnabled   Boolean  @default(false) @map("message_auto_reply_enabled")
   messageAutoReply          String?  @map("message_auto_reply")
+  delinquencyPickupRequests DelinquencyPickupRequest[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -849,6 +855,7 @@ model User {
   paymentPlansCreated      PaymentPlan[]             @relation("PaymentPlanAuthor")
   cashClosures             CashClosure[]             @relation("CashClosureAuthor")
   cashClosuresReopened    CashClosure[]                  @relation("CashClosureReopener")
+  cashMovements           CashMovement[]                 @relation("CashMovementAuthor")
   delinquencyCasesOpened   DelinquencyCase[]         @relation("DelinquencyCaseOpenedBy")
   retentionOffers          RetentionOffer[]
   expenses                 Expense[]
@@ -865,6 +872,7 @@ model User {
   supportTicketReads        SupportTicketRead[]
   platformMessageRead       TenantPlatformMessageRead?
   assignedConversations     CustomerConversation[] @relation("ConversationAssignee")
+  delinquencyPickupsResolved DelinquencyPickupRequest[] @relation("DelinquencyPickupResolver")
   @@unique([tenantId, email])
   @@index([tenantId])
   webChatMessages WebChatMessage[]
@@ -881,6 +889,7 @@ model User {
   /// Baja de los anuncios comerciales de TrasterOS.
   platformNewsOptOutAt DateTime? @map("platform_news_opt_out_at") @db.Timestamptz(6)
   platformNpsResponses PlatformNpsResponse[]
+  createdBankMatchRules BankMatchRule[] @relation("BankMatchRuleCreatedBy")
 }
 
 /// Permisos por local: a qué facilities está restringido un usuario. Sin filas
@@ -1251,6 +1260,7 @@ model Facility {
   cameraDevices        CameraDevice[]
   userFacilities       UserFacility[]
   cashClosures         CashClosure[]
+  cashMovements         CashMovement[]
   expenses             Expense[]
   recurringExpenses    RecurringExpense[]
   marketingChannels    MarketingChannel[]
@@ -1585,6 +1595,8 @@ model Customer {
   messageReads         CustomerMessageRead[]
   legalDocAcceptances LegalDocAcceptance[]
   conversation      CustomerConversation?
+  delinquencyPickupRequests DelinquencyPickupRequest[]
+  bankMatchRules            BankMatchRule[]
   @@index([tenantId])
   @@index([tenantId, deletedAt])
   @@index([tenantId, documentNumber])
@@ -1910,6 +1922,7 @@ model Expense {
   marketingChannel MarketingChannel? @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
 
   businessReminderCompletions BusinessReminderCompletion[]
+  bankTransactions            BankStatementTransaction[]
 
   @@index([tenantId, expenseDate(sort: Desc)])
   @@index([tenantId, facilityId])
@@ -2205,6 +2218,8 @@ model Invoice {
   /// Si esta factura es un recargo por mora, apunta a la factura vencida que
   /// lo originó (idempotencia: única por factura original).
   lateFeeForInvoiceId String?           @unique @map("late_fee_for_invoice_id") @db.Uuid
+  /// Factura de gastos por un recibo devuelto: la devolución (cobro o adeudo).
+  returnFeeSourceId   String?           @map("return_fee_source_id") @db.Uuid
   issueDate           DateTime?         @map("issue_date") @db.Date
   dueDate             DateTime?         @map("due_date") @db.Date
   /// Periodo facturado (p.ej. mes natural si es un alquiler mensual).
@@ -2400,6 +2415,8 @@ model Payment {
   holdedReviewedAt DateTime?              @map("holded_reviewed_at") @db.Timestamptz(6)
   refundedAmount   Decimal                @default(0) @map("refunded_amount") @db.Decimal(12, 2)
   failureReason    String?                @map("failure_reason")
+  /// Código de devolución SEPA (AM04, MD06…) de un cobro devuelto.
+  returnCode       String?                @map("return_code")
   notes            String?
   createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2816,6 +2833,11 @@ model SepaSettings {
   creditorPostalCode    String?  @map("creditor_postal_code")
   creditorCity          String?  @map("creditor_city")
   creditorCountry       String   @default("ES") @map("creditor_country")
+  /// Remesa automática mensual: el día elegido se prepara sola, sin confirmar.
+  autoPrepare           Boolean  @default(false) @map("auto_prepare")
+  autoPrepareDay        Int      @default(1) @map("auto_prepare_day")
+  /// `AAAA-MM` del último mes en que se preparó (una vez al mes).
+  lastAutoPreparedMonth String?  @map("last_auto_prepared_month")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2838,6 +2860,8 @@ model SepaMandate {
   sequenceType  String   @default("FRST") @map("sequence_type")
   /// Fecha del último adeudo presentado (caduca a los 36 meses sin cobros).
   lastCollectedAt DateTime? @map("last_collected_at") @db.Date
+  /// Fecha de caducidad de la que ya se avisó (60 días antes).
+  expiryNotifiedFor DateTime? @map("expiry_notified_for") @db.Date
   /// active | cancelled
   status        String   @default("active")
   /// pending (falta la firma del deudor) | signed (firmado aquí) | external (papel o migrado)
@@ -2891,9 +2915,16 @@ model SepaRemittance {
   createdByUserId String?   @map("created_by_user_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  /// La preparó la remesa automática mensual.
+  autoPrepared    Boolean   @default(false) @map("auto_prepared")
+  /// Ya se avisó de que sigue sin confirmar pasada la fecha de cobro.
+  staleNotifiedAt DateTime? @map("stale_notified_at") @db.Timestamptz(6)
+  /// Última respuesta del banco (pain.002) cargada.
+  bankResponseAt  DateTime? @map("bank_response_at") @db.Timestamptz(6)
 
   tenant Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   items  SepaRemittanceItem[]
+  bankTransactions BankStatementTransaction[]
 
   @@index([tenantId, status])
   @@map("sepa_remittances")
@@ -2914,6 +2945,8 @@ model SepaRemittanceItem {
   /// pending | collected | failed | returned | cancelled (ver migración sepa_remittance_item_status).
   status        String  @default("pending")
   failureReason String? @map("failure_reason")
+  /// Código de devolución SEPA (AM04, MD06…) si el banco lo rechazó.
+  returnCode    String? @map("return_code")
   /// El cobro que registró este adeudo al confirmar la remesa.
   paymentId     String? @map("payment_id") @db.Uuid
   /// Constancia del preaviso: null = pendiente | sent | disabled | no_email | failed.
@@ -2940,6 +2973,8 @@ model SepaRemittanceItem {
 model BankStatement {
   id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId         String    @map("tenant_id") @db.Uuid
+  /// n43 | csv
+  source           String    @default("n43")
   filename         String
   accountLabel     String    @map("account_label")
   currency         String    @default("EUR")
@@ -2948,6 +2983,8 @@ model BankStatement {
   /// saldos en céntimos.
   initialBalance   Int       @default(0) @map("initial_balance")
   finalBalance     Int       @default(0) @map("final_balance")
+  /// false = un CSV sin columna de saldo: los saldos no se conocen.
+  balancesKnown    Boolean   @default(true) @map("balances_known")
   transactionCount Int       @default(0) @map("transaction_count")
   /// Huella del fichero: el mismo extracto no se importa dos veces.
   fileHash         String?   @map("file_hash")
@@ -2994,16 +3031,45 @@ model BankStatementTransaction {
   unappliedAmount  Int       @default(0) @map("unapplied_amount")
   /// Contrato al que fue ese sobrante como saldo a favor.
   creditContractId String?   @map("credit_contract_id") @db.Uuid
+  /// El abono de una remesa SEPA, conciliado de una vez.
+  matchedRemittanceId String? @map("matched_remittance_id") @db.Uuid
+  /// El gasto en que se convirtió un cargo.
+  expenseId        String?   @map("expense_id") @db.Uuid
 
   tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   statement      BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
   invoice        Invoice?      @relation(fields: [matchedInvoiceId], references: [id], onDelete: SetNull)
   matchedPayment Payment?      @relation(fields: [matchedPaymentId], references: [id], onDelete: SetNull)
   creditContract Contract?     @relation("BankTransactionCreditContract", fields: [creditContractId], references: [id], onDelete: SetNull)
+  matchedRemittance SepaRemittance? @relation(fields: [matchedRemittanceId], references: [id], onDelete: SetNull)
+  expense        Expense?      @relation(fields: [expenseId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([statementId])
   @@map("bank_statement_transactions")
+}
+
+/// Regla aprendida de la conciliación: si el concepto lleva el patrón, es de
+/// este inquilino (customer) o un gasto de esta categoría (expense).
+model BankMatchRule {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  pattern         String
+  /// customer | expense
+  kind            String    @default("customer")
+  customerId      String?   @map("customer_id") @db.Uuid
+  expenseCategory String?   @map("expense_category")
+  hits            Int       @default(0)
+  lastUsedAt      DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy User?     @relation("BankMatchRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, kind, pattern], map: "bank_match_rules_tenant_kind_pattern")
+  @@map("bank_match_rules")
 }
 
 /// Asistente IA: conversación de un usuario del staff.
@@ -4235,6 +4301,7 @@ model AccessCredential {
   logs        AccessLog[]
   syncEntries AccessCredentialSync[]
 
+  delinquencyPickups DelinquencyPickupRequest[]
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, customerId])
@@ -6079,6 +6146,7 @@ model PaymentPlan {
   customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   createdBy User?    @relation("PaymentPlanAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
+  delinquencyCases DelinquencyCase[]
   @@index([tenantId, status])
   @@index([customerId])
   @@map("payment_plans")
@@ -6145,6 +6213,10 @@ model CashClosure {
   reopenedAt       DateTime? @map("reopened_at") @db.Timestamptz(6)
   reopenedByUserId String?   @map("reopened_by_user_id") @db.Uuid
   reopenReason     String?   @map("reopen_reason")
+  /// Recuento por billetes y monedas: { "<céntimos>": unidades }.
+  denominations  Json?
+  /// De dónde salía el esperado al cerrar (cobros, devoluciones, movimientos).
+  breakdown      Json?
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -6156,6 +6228,29 @@ model CashClosure {
   // en SQL (migración 20260708150000): Prisma no representa índices parciales.
   @@index([tenantId, closureDate])
   @@map("cash_closures")
+}
+
+/// Lo que entra o sale del cajón sin ser un cobro: fondo de apertura, entrada
+/// de cambio o retirada al banco. Cuenta en el efectivo esperado de su día.
+model CashMovement {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  /// NULL = caja de toda la empresa.
+  facilityId      String?  @map("facility_id") @db.Uuid
+  movementDate    DateTime @map("movement_date") @db.Date
+  /// opening_float | change_in | bank_withdrawal
+  kind            String
+  amount          Decimal  @db.Decimal(10, 2)
+  notes           String?
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility  Facility? @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  createdBy User?     @relation("CashMovementAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, movementDate])
+  @@map("cash_movements")
 }
 
 /// Seguimiento/recordatorio del super admin sobre un tenant ("llamar el día X",
@@ -7009,6 +7104,15 @@ model DelinquencyCase {
   custodyLocation     String?               @map("custody_location")
   disposedAt          DateTime?             @map("disposed_at") @db.Timestamptz(6)
   closedAt            DateTime?             @map("closed_at") @db.Timestamptz(6)
+  /// En pausa mientras el inquilino cumple un plan de pagos.
+  pausedAt            DateTime?             @map("paused_at") @db.Timestamptz(6)
+  paymentPlanId       String?               @map("payment_plan_id") @db.Uuid
+  overlockRemovedAt   DateTime?             @map("overlock_removed_at") @db.Timestamptz(6)
+  /// Lo que sobró al liquidar con la disposición (céntimos) y cuándo se devolvió.
+  surplusCents        Int?                  @map("surplus_cents")
+  surplusReturnedAt   DateTime?             @map("surplus_returned_at") @db.Timestamptz(6)
+  /// Avisos ya enviados al equipo (clave → día), para no repetirlos.
+  alertsSent          Json                  @default("{}") @map("alerts_sent")
   openedByUserId      String?               @map("opened_by_user_id") @db.Uuid
   notes               String?
   createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -7019,13 +7123,46 @@ model DelinquencyCase {
   customer Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
   unit     Unit?                  @relation(fields: [unitId], references: [id], onDelete: SetNull)
   openedBy User?                  @relation("DelinquencyCaseOpenedBy", fields: [openedByUserId], references: [id], onDelete: SetNull)
+  paymentPlan PaymentPlan?        @relation(fields: [paymentPlanId], references: [id], onDelete: SetNull)
   events   DelinquencyCaseEvent[]
   files    DelinquencyCaseFile[]
+  pickupRequests DelinquencyPickupRequest[]
 
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([contractId])
   @@map("delinquency_cases")
+}
+
+/// Cita para retirar los bienes: la pide el inquilino y el equipo la concede
+/// con una franja y un código de un solo uso.
+model DelinquencyPickupRequest {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  caseId           String    @map("case_id") @db.Uuid
+  customerId       String    @map("customer_id") @db.Uuid
+  preferredDate    DateTime  @map("preferred_date") @db.Date
+  /// morning | afternoon | any
+  preferredTime    String    @default("any") @map("preferred_time")
+  note             String?
+  /// pending | approved | rejected | done | cancelled
+  status           String    @default("pending")
+  approvedFrom     DateTime? @map("approved_from") @db.Timestamptz(6)
+  approvedUntil    DateTime? @map("approved_until") @db.Timestamptz(6)
+  credentialId     String?   @map("credential_id") @db.Uuid
+  resolutionNote   String?   @map("resolution_note")
+  resolvedByUserId String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case       DelinquencyCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  customer   Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  credential AccessCredential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+  resolvedBy User?             @relation("DelinquencyPickupResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@map("delinquency_pickup_requests")
 }
 
 /// Timeline inmutable del expediente (patrón contract_events).

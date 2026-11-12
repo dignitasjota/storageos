@@ -14,8 +14,10 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { BankResponseButton } from './bank-response-dialog';
 import { ConfirmRemittanceDialog } from './confirm-dialog';
 import { PrenoticesDialog } from './prenotices-dialog';
+import { statusOf } from './remittance-status';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
@@ -61,18 +63,6 @@ const MONTHS = [
   'noviembre',
   'diciembre',
 ];
-
-/** Estado de la remesa en palabras (una confirmada sin ningún cobro, «rechazada»). */
-function statusOf(r: SepaRemittanceDto): {
-  label: string;
-  variant: 'default' | 'secondary' | 'outline' | 'destructive';
-} {
-  if (r.status === 'generated') return { label: 'Pendiente del banco', variant: 'secondary' };
-  if (r.status === 'cancelled') return { label: 'Cancelada', variant: 'outline' };
-  if (r.pendingCount > 0) return { label: 'Registro a medias', variant: 'secondary' };
-  if (r.collectedCount === 0) return { label: 'Rechazada', variant: 'destructive' };
-  return { label: 'Cobrada', variant: 'default' };
-}
 
 async function downloadXml(id: string): Promise<void> {
   try {
@@ -132,6 +122,11 @@ export default function SepaRemittancesPage() {
       cell: ({ row }) => (
         <div>
           <span className="font-medium">{row.original.name}</span>
+          {row.original.autoPrepared && (
+            <Badge variant="outline" className="ml-2 text-[10px]">
+              Automática
+            </Badge>
+          )}
           <span className="block text-xs text-muted-foreground">
             Generada el {formatDate(row.original.createdAt)}
           </span>
@@ -287,6 +282,7 @@ export default function SepaRemittancesPage() {
           columns={columns}
           data={list.data ?? []}
           isLoading={list.isLoading}
+          rowHref={(r) => `/sepa-remittances/${r.id}`}
           searchPlaceholder="Buscar remesa..."
           guide="domiciliacion"
           emptyText="Una remesa cobra de golpe las facturas domiciliadas: generas el fichero y lo subes a tu banco."
@@ -299,6 +295,7 @@ export default function SepaRemittancesPage() {
                   </Link>
                 </Button>
               </Can>
+              {canManage && configured ? <BankResponseButton /> : null}
               {canManage && configured ? <CreateRemittanceDialog /> : null}
             </>
           }

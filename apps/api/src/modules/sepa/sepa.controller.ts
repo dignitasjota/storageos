@@ -18,9 +18,11 @@ import {
   ConfirmRemittanceSchema,
   CreateRemittanceSchema,
   CreateSepaMandateSchema,
+  ImportSepaBankResponseSchema,
   MarkSepaItemReturnedSchema,
   type RemittancePreviewDto,
   type SepaMandateDto,
+  type SepaBankResponseResultDto,
   type SepaRemittanceDto,
   type SepaRemittancePrenoticeDto,
   type SepaSettingsDto,
@@ -44,6 +46,7 @@ class UpdateSepaSettingsDto extends createZodDto(UpdateSepaSettingsSchema) {}
 class CreateSepaMandateDto extends createZodDto(CreateSepaMandateSchema) {}
 class CreateRemittanceDto extends createZodDto(CreateRemittanceSchema) {}
 class MarkSepaItemReturnedDto extends createZodDto(MarkSepaItemReturnedSchema) {}
+class ImportSepaBankResponseDto extends createZodDto(ImportSepaBankResponseSchema) {}
 
 /**
  * Remesas SEPA y mandatos. La remesa es de toda la empresa: solo la usa quien
@@ -156,6 +159,29 @@ export class SepaController {
     @Body() body: CreateRemittanceDto,
   ): Promise<SepaRemittanceDto> {
     return this.sepa.createRemittance({ tenantId: user.tenantId, userId: user.sub, input: body });
+  }
+
+  /** La respuesta del banco a una remesa (pain.002): rechazos y devoluciones. */
+  @UseGuards(CompanyWideGuard)
+  @RequirePermission('invoices:manage')
+  @Post('remittances/bank-response')
+  @HttpCode(HttpStatus.OK)
+  bankResponse(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ImportSepaBankResponseDto,
+  ): Promise<SepaBankResponseResultDto> {
+    return this.sepa.importBankResponse(user.tenantId, user.sub, body.content);
+  }
+
+  /** La ficha de una remesa. */
+  @UseGuards(CompanyWideGuard)
+  @RequirePermission('payments:read')
+  @Get('remittances/:id')
+  getRemittance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<SepaRemittanceDto> {
+    return this.sepa.getRemittance(user.tenantId, id);
   }
 
   @UseGuards(CompanyWideGuard)

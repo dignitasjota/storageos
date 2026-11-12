@@ -4,6 +4,7 @@ import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuthModule } from '../auth/auth.module';
+import { CollectionsModule } from '../collections/collections.module';
 import { CollectionsOpsModule } from '../collections-ops/collections-ops.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { InventoryModule } from '../inventory/inventory.module';
@@ -26,6 +27,7 @@ import { TodayService } from './today.service';
     AccessModule,
     AnalyticsModule,
     AuthModule,
+    CollectionsModule,
     CollectionsOpsModule,
     ContractsModule,
     InventoryModule,

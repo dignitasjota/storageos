@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-import { CASE_STATUS_CLASSES, CASE_STATUS_LABELS, eur } from './status';
+import { CASE_STATUS_CLASSES, CASE_STATUS_LABELS, PausedBadge, eur } from './status';
 
 import { Can } from '@/components/auth/can';
 import { SectionError } from '@/components/dashboard/section-state';
@@ -145,6 +145,7 @@ export default function CollectionsPage() {
                     plazo vencido
                   </Badge>
                 )}
+                {c.pausedAt && <PausedBadge />}
                 <span
                   className={`rounded-md px-2 py-0.5 text-xs font-medium ${CASE_STATUS_CLASSES[c.status]}`}
                 >
@@ -276,6 +277,16 @@ function CollectionsSettingsDialog() {
               180.
             </p>
           )}
+          <p className="text-xs text-muted-foreground">
+            Los recordatorios, el recargo y el corte del acceso están en{' '}
+            <Link
+              href="/settings/dunning"
+              className="font-medium underline-offset-2 hover:underline"
+            >
+              Configuración → Escalado de impagos
+            </Link>
+            .
+          </p>
         </div>
         <DialogFooter>
           <Button onClick={save} disabled={update.isPending || invalid}>

@@ -60,6 +60,9 @@ export class DunningRestartService {
             lateFeeGraceDays: true,
             accessCutMode: true,
             accessCutDays: true,
+            collectionsOpenAfterDays: true,
+            dunningFirstReminderDays: true,
+            dunningSecondReminderDays: true,
           },
         },
       },
@@ -72,6 +75,12 @@ export class DunningRestartService {
     const calendar = dunningCalendar(
       { enabled: invoice.tenant.lateFeeEnabled, graceDays: invoice.tenant.lateFeeGraceDays },
       { mode: invoice.tenant.accessCutMode, days: invoice.tenant.accessCutDays },
+      // El aviso legal en los días del negocio (antes, siempre 30).
+      invoice.tenant.collectionsOpenAfterDays,
+      {
+        first: invoice.tenant.dunningFirstReminderDays,
+        second: invoice.tenant.dunningSecondReminderDays,
+      },
     )
       // El recargo ya emitido no se vuelve a emitir, y un recargo no lleva otro.
       .filter(

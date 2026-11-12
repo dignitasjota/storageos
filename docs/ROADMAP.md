@@ -981,10 +981,13 @@ Revisión de Cobros del mes, Deudores, Cierre de caja, Impagos, Recibos devuelto
 
 Arreglos (PR A, cuatro partes): parser N43 con el trazado oficial, extractos y movimientos sin duplicar, sobrante como saldo a favor, deshacer y borrar; remesas solo con facturas, resultado del banco desde el día del cargo, cobrados sin aplicar y devoluciones por adeudo; caja en la zona del negocio con devoluciones por forma de pago, fianza aplicada fuera y Bizum aparte; disputa ganada que vuelve a contar; cobros del mes netos de devoluciones; deudores con cobro en curso, antigüedad por factura y el contrato con la deuda; planes con alcance, bloqueo y cuotas pagables desde el portal; impagos con la deuda solo vencida, sus compuertas, el trastero bloqueado mientras los bienes siguen dentro, requerimiento conforme a la condición 12 y el escalado con el día del aviso legal configurable, lotes ordenados y la factura vencida desde el día siguiente.
 
-**Sigue la PR B** (mejoras propuestas en el análisis). Pendiente:
+### Cobros del panel del tenant: mejoras (2026-11-11, PR B)
 
-- **Revisión del abogado** del requerimiento y del procedimiento de traslado y custodia (gastos, lugar, plazo de 8 semanas antes del abandono).
-- **Cita de retirada** de los bienes desde el área de clientes y gastos de traslado y custodia como factura del expediente (PR B).
+Todas las mejoras propuestas en el análisis, en seis partes: **Deudores** con filtros por estado del cobro, acciones rápidas (llamar, WhatsApp, apartar, pago recibido repartido entre sus facturas) y CSV, y **Cobros del mes** comparado con el anterior y con la tasa de cobro; **Caja** con fondo y movimientos, recuento por billetes, cierre en PDF, historial por mes y aviso en «Hoy»; **Recibos devueltos** con devolución a mano, código R, reincidentes, volver a cobrar y gastos de devolución; **Impagos** con plan de pagos que pausa, cita de retirada desde el área de clientes, gastos del expediente, acta, dossier y monitorio en PDF, avisos y el escalado en una pantalla; **Remesas SEPA** con remesa automática, ficha, respuesta del banco (pain.002), aviso de mandatos que caducan y un preaviso por inquilino; **Conciliación** con el CSV de la banca, sugerencias por ordenante y por suma, reglas aprendidas, el abono de una remesa de una vez y cargos como gastos.
+
+Pendiente:
+
+- **Revisión del abogado** del requerimiento, el procedimiento de traslado y custodia (gastos, lugar, plazo de 8 semanas antes del abandono), el acta del traslado, el borrador de monitorio y la cita de retirada.
 
 ### Reservas online: factura con el pago y aviso al caducar (2026-11-08)
 

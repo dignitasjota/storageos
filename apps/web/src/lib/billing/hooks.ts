@@ -37,6 +37,7 @@ import type {
   SignedDownloadDto,
   UpdateInvoiceInput,
   UpdateInvoiceSeriesInput,
+  MarkPaymentReturnedInput,
 } from '@storageos/shared';
 
 export const invoicesKey = (filters?: Record<string, string | undefined>) =>
@@ -288,6 +289,32 @@ export function useUndoPayment() {
       apiFetch<InvoiceDto>(`/invoices/${args.invoiceId}/payments/${args.paymentId}/undo`, {
         method: 'POST',
         json: { reason: args.reason },
+      }),
+    onSuccess: () => invalidateBilling(qc),
+  });
+}
+
+/** Un cobro por banco que el banco devolvió (sin fichero N43). */
+export function useMarkPaymentReturned() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { invoiceId: string; paymentId: string; input: MarkPaymentReturnedInput }) =>
+      apiFetch<InvoiceDto>(`/invoices/${args.invoiceId}/payments/${args.paymentId}/returned`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: () => invalidateBilling(qc),
+  });
+}
+
+/** Gastos por un recibo devuelto (factura aparte, una por devolución). */
+export function useApplyReturnFee() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { invoiceId: string; sourceId: string }) =>
+      apiFetch<InvoiceDto>(`/invoices/${args.invoiceId}/return-fee`, {
+        method: 'POST',
+        json: { sourceId: args.sourceId },
       }),
     onSuccess: () => invalidateBilling(qc),
   });

@@ -15,6 +15,7 @@ import { Prisma } from '@storageos/database';
 import {
   defaultTaxCategory,
   isManualPaymentMethod,
+  returnCodeLabel,
   isValidSpanishTaxId,
   normalizeTaxId,
   taxCategoryAllowsRate,
@@ -25,7 +26,13 @@ import {
 import { assertCashDayOpen, invoiceFacilityId } from '../../common/cash-day';
 import { customerScopeWhere } from '../../common/customer-scope';
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
-import { emailLocale, formatDateLong, formatEur, todayInTimezone } from '../../common/format';
+import {
+  emailLocale,
+  formatDateLong,
+  formatEur,
+  todayInTimezone,
+  zonedDayStart,
+} from '../../common/format';
 import {
   addAmounts,
   isAtLeast,
@@ -62,6 +69,7 @@ import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { GoCardlessChargeService } from '../payments/gocardless/gocardless-charge.service';
 import { PAYMENT_GATEWAY, type PaymentGateway } from '../payments/payment-gateway.interface';
+import { markSepaItemReturned } from '../sepa/sepa-items';
 
 import { InvoiceSeriesService } from './invoice-series.service';
 import { InvoicingModeService } from './invoicing-mode.service';
@@ -95,6 +103,7 @@ import type {
   InvoiceTypeFilterValue,
   InvoiceTypeValue,
   MarkPaidManuallyInput,
+  MarkPaymentReturnedInput,
   RectifyInvoiceInput,
   RectifyInvoiceItemInput,
   RefundInvoiceInput,
@@ -3001,6 +3010,8 @@ export class InvoicesService {
     undo?: boolean;
     /** Cuándo lo devolvió el banco (por defecto, ahora). */
     returnedAt?: Date;
+    /** Código de devolución SEPA (AM04, MD06…), si se sabe. */
+    returnCode?: string | null;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
     await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
@@ -3074,6 +3085,7 @@ export class InvoicesService {
             status: 'failed',
             failureReason: args.reason,
             ...(args.undo ? {} : { returnedAt: args.returnedAt ?? new Date() }),
+            ...(args.returnCode && !args.undo ? { returnCode: args.returnCode } : {}),
           },
         });
       }
@@ -3112,6 +3124,227 @@ export class InvoicesService {
       } satisfies InvoicePaymentRevertedPayload);
     }
     return this.toDto(updated);
+  }
+
+  /**
+   * Un cobro por banco (transferencia o domiciliación registrada a mano) que el
+   * banco devolvió, sin fichero N43: la factura vuelve a quedar pendiente y la
+   * devolución sale en Recibos devueltos con su código.
+   */
+  async markPaymentReturned(args: {
+    tenantId: string;
+    userId: string;
+    invoiceId: string;
+    paymentId: string;
+    input: MarkPaymentReturnedInput;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
+    const { payment, tz } = await this.prisma.withTenant(async (tx) => {
+      const [payment, tenant] = await Promise.all([
+        tx.payment.findFirst({
+          where: { id: args.paymentId, invoiceId: args.invoiceId },
+          select: { id: true, amount: true, status: true, methodType: true, gateway: true },
+        }),
+        tx.tenant.findFirst({ where: { id: args.tenantId }, select: { timezone: true } }),
+      ]);
+      return { payment, tz: tenant?.timezone ?? 'Europe/Madrid' };
+    }, args.tenantId);
+    if (!payment) {
+      throw new NotFoundException({ code: 'payment_not_found', message: 'Cobro no encontrado' });
+    }
+    // Lo que se cobra por la pasarela (tarjeta, GoCardless) lo devuelve su aviso.
+    if (
+      payment.gateway !== 'manual' ||
+      (payment.methodType !== 'bank_transfer' && payment.methodType !== 'sepa_debit')
+    ) {
+      throw new BadRequestException({
+        code: 'not_a_bank_payment',
+        message: 'Solo se marca como devuelto un cobro por transferencia o domiciliación',
+      });
+    }
+    if (payment.status !== 'succeeded') {
+      throw new BadRequestException({
+        code: 'nothing_to_revert',
+        message: 'Ese cobro ya no cuenta: no hay nada que devolver',
+      });
+    }
+    const today = todayInTimezone(tz).toISOString().slice(0, 10);
+    const day = args.input.returnedOn ?? today;
+    if (day > today) {
+      throw new BadRequestException({
+        code: 'invalid_returned_on',
+        message: 'La fecha de la devolución no puede ser futura',
+      });
+    }
+    // El día pedido a mediodía (hoy, ahora).
+    const noon = new Date(zonedDayStart(day, tz).getTime() + 12 * 3_600_000);
+    const returnedAt = day === today || noon.getTime() > Date.now() ? new Date() : noon;
+    const detail =
+      args.input.reason?.trim() || returnCodeLabel(args.input.returnCode ?? null) || null;
+    const reason = detail ? `Devuelto por el banco: ${detail}` : 'Devuelto por el banco';
+    const returnCode = args.input.returnCode ?? null;
+    const updated = await this.revertPayment({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      invoiceId: args.invoiceId,
+      amount: Number(payment.amount),
+      paymentId: payment.id,
+      reason,
+      returnedAt,
+      returnCode,
+      ...(args.facilityScope !== undefined ? { facilityScope: args.facilityScope } : {}),
+      meta: args.meta,
+    });
+    // Si era el adeudo de una remesa, el adeudo también queda devuelto (la
+    // factura puede ir en otra remesa).
+    await this.prisma.withTenant(async (tx) => {
+      const item = await tx.sepaRemittanceItem.findFirst({
+        where: { paymentId: payment.id, status: 'collected' },
+        select: { id: true },
+      });
+      if (item) {
+        await markSepaItemReturned(tx, args.invoiceId, { itemId: item.id, reason, returnCode });
+      }
+    }, args.tenantId);
+    return updated;
+  }
+
+  /**
+   * Gastos por un recibo devuelto (los de la plantilla del contrato): una
+   * factura aparte, sin IVA (indemnización), una sola por devolución.
+   */
+  async createReturnFee(args: {
+    tenantId: string;
+    invoiceId: string;
+    sourceId: string;
+    facilityScope?: string[] | null;
+    userId: string | null;
+  }): Promise<InvoiceDto> {
+    const { tenantId, invoiceId } = args;
+    await this.findOrThrow(tenantId, invoiceId, args.facilityScope);
+    const ctx = await this.prisma.withTenant(async (tx) => {
+      const [original, tenant, payment, item, existing] = await Promise.all([
+        tx.invoice.findFirst({
+          where: { id: invoiceId },
+          select: { invoiceNumber: true, customerId: true, contractId: true, ownerId: true },
+        }),
+        tx.tenant.findFirst({ where: { id: tenantId }, select: { returnedPaymentFee: true } }),
+        tx.payment.findFirst({
+          where: { id: args.sourceId, invoiceId, returnedAt: { not: null } },
+          select: { id: true },
+        }),
+        tx.sepaRemittanceItem.findFirst({
+          where: { id: args.sourceId, invoiceId, status: 'failed' },
+          select: { id: true },
+        }),
+        tx.invoice.findFirst({
+          where: { returnFeeSourceId: args.sourceId, status: { not: 'cancelled' } },
+          select: { id: true },
+        }),
+      ]);
+      return { original, tenant, source: payment ?? item, existing };
+    }, tenantId);
+    if (!ctx.original || !ctx.source) {
+      throw new NotFoundException({
+        code: 'returned_receipt_not_found',
+        message: 'No hay una devolución de esa factura',
+      });
+    }
+    const fee = Number(ctx.tenant?.returnedPaymentFee ?? 0);
+    if (!(fee > 0)) {
+      throw new BadRequestException({
+        code: 'no_return_fee',
+        message:
+          'No hay gastos por recibo devuelto: ponlos en Configuración → Plantilla de contrato',
+      });
+    }
+    if (!ctx.original.customerId) {
+      throw new BadRequestException({
+        code: 'customer_required',
+        message: 'La factura no tiene inquilino al que cargar los gastos',
+      });
+    }
+    if (ctx.existing) {
+      throw new ConflictException({
+        code: 'return_fee_already_applied',
+        message: 'Esta devolución ya tiene sus gastos',
+      });
+    }
+    // Lo emite el mismo emisor que la factura devuelta (el propietario, si lo hay).
+    const ownerId = ctx.original.ownerId;
+    const series = ownerId ? null : await this.series.getDefault(tenantId);
+    if (!ownerId && !series) {
+      throw new BadRequestException({
+        code: 'no_default_series',
+        message: 'No hay serie de facturación por defecto',
+      });
+    }
+    const created = await this.create({
+      tenantId,
+      userId: args.userId,
+      ownerId,
+      input: {
+        invoiceType: 'F1',
+        customerId: ctx.original.customerId,
+        ...(ctx.original.contractId ? { contractId: ctx.original.contractId } : {}),
+        ...(series ? { seriesId: series.id } : {}),
+        items: [
+          {
+            description: `Gastos por recibo devuelto — factura ${ctx.original.invoiceNumber}`,
+            quantity: 1,
+            unitPrice: fee,
+            taxRate: 0,
+          },
+        ],
+        verifactuMode: 'verifactu',
+      },
+      meta: {},
+    });
+    // El índice único decide si dos peticiones a la vez crean dos facturas.
+    try {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.invoice.update({
+            where: { id: created.id },
+            data: { returnFeeSourceId: args.sourceId },
+          }),
+        tenantId,
+      );
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        await this.cancel({
+          tenantId,
+          userId: args.userId,
+          invoiceId: created.id,
+          ...(args.facilityScope !== undefined ? { facilityScope: args.facilityScope } : {}),
+          input: { reason: 'Gastos duplicados (carrera con otra petición)' },
+          meta: {},
+        }).catch(() => undefined);
+        throw new ConflictException({
+          code: 'return_fee_already_applied',
+          message: 'Esta devolución ya tiene sus gastos',
+        });
+      }
+      throw err;
+    }
+    try {
+      return await this.issue({ tenantId, userId: args.userId, invoiceId: created.id, meta: {} });
+    } catch (err) {
+      // Sin emitir: se desengancha y se anula para poder volver a aplicarlos.
+      await this.prisma
+        .withTenant(
+          (tx) =>
+            tx.invoice.updateMany({
+              where: { id: created.id, status: 'draft' },
+              data: { returnFeeSourceId: null, status: 'cancelled', cancelledAt: new Date() },
+            }),
+          tenantId,
+        )
+        .catch(() => undefined);
+      throw err;
+    }
   }
 
   /**
