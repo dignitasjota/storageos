@@ -2122,6 +2122,7 @@ El despliegue del 12-11 dejó la web y la API sin responder durante más de hora
 - La web lleva horneadas las URL públicas: salen de las **variables del repositorio** (Settings → Secrets and variables → Actions → Variables) `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL` y `MINIO_PUBLIC_URL` (ya creadas: `https://api.trasteros.pro`, `https://trasteros.pro`, `https://files.trasteros.pro`). Las de Portainer con esos nombres ya no se usan para compilar (el API sigue usando su `MINIO_PUBLIC_URL`).
 - `docker-compose.portainer.yml`: `api`, `worker`, `web`, `migrate` y `bootstrap` usan `image:` (sin `build:`) con `pull_policy: always`. Variable opcional del stack `IMAGE_TAG` (vacía = `latest`; `sha-<commit>` para volver a una versión).
 - `deploy.yml` ya no se lanza con cada push: espera a que las imágenes terminen bien.
+- Al compilar, la web pide a la API de producción los datos de la portada, `/precios`, el blog y los textos legales. Esas llamadas tienen ahora un límite de 8 s (`serverApiTimeout` en `apps/web/src/lib/server-api.ts`): con la API caída, la primera compilación en GitHub fallaba (Next da 60 s por página) y no se podía desplegar el arreglo. Si no responde, la página se genera al visitarla con los datos de respaldo y se refresca sola.
 
 **Pasos (una sola vez), en este orden**
 

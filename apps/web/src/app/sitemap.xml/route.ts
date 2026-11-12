@@ -2,7 +2,7 @@ import { renderSitemap, type PublicSitemapDto, type SitemapUrl } from '@storageo
 
 import { fetchPlatformBlogPosts } from '@/lib/marketing/blog';
 import { FEATURE_PAGES, SOLUTION_PAGES, marketingPageHref } from '@/lib/marketing/pages';
-import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import { SERVER_API_URL, internalApiHeaders, serverApiTimeout } from '@/lib/server-api';
 
 const API_URL = SERVER_API_URL;
 
@@ -30,6 +30,7 @@ export async function GET(): Promise<Response> {
   try {
     const res = await fetch(`${API_URL}/public/landing/sitemap`, {
       headers: internalApiHeaders(),
+      signal: serverApiTimeout(),
       next: { revalidate: 3600 },
     });
     if (res.ok) data = (await res.json()) as PublicSitemapDto;

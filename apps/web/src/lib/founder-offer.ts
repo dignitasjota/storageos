@@ -1,6 +1,6 @@
 import type { PlatformFounderOfferDto } from '@storageos/shared';
 
-import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import { SERVER_API_URL, internalApiHeaders, serverApiTimeout } from '@/lib/server-api';
 
 const API_URL = SERVER_API_URL;
 
@@ -12,6 +12,7 @@ export async function fetchFounderOffer(): Promise<PlatformFounderOfferDto | nul
   try {
     const res = await fetch(`${API_URL}/v1/platform-founder-offer`, {
       headers: internalApiHeaders(),
+      signal: serverApiTimeout(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;
