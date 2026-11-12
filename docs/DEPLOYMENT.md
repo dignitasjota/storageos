@@ -2062,3 +2062,10 @@ Migración `20270110100000_invoice_facility_backfill` (se aplica sola). Sin vari
 - La migración pone su local a las facturas que ya había en los negocios de un solo local (sin tocar ventas ni facturas de suscripción).
 - También llevan su local la señal de una reserva, el pase nocturno, la venta en mostrador, las rectificativas, el recargo por mora y los gastos por recibo devuelto de una factura sin contrato, y una factura duplicada. Si se cobra en efectivo, cuenta en la caja de ese local.
 - Quien solo ve unos locales deja de ver las facturas sin contrato de otros locales (las de toda la empresa las sigue viendo).
+
+## 119. El selector de local con un solo local (2026-11-12)
+
+Solo web, sin migración ni variables. **Qué cambia al redesplegar:**
+
+- Con un solo local, el selector de arriba enseña el nombre del local y ya no filtra ninguna lista (con un local es lo mismo que «Todos»). Así no se pierde lo que no tiene local: inquilinos sin trastero o facturas de toda la empresa. Si alguien lo tenía elegido, deja de aplicarse solo.
+- Con varios locales, en Inquilinos los que no tienen trastero salen con cualquier local elegido, con la marca «Sin trastero».

@@ -23,7 +23,9 @@ import { useFacilityStore } from '@/lib/facilities/store';
  *
  * Casos:
  *  - 0 facilities: muestra CTA "Crear local".
- *  - 1+ facilities: muestra la activa o "Todos los locales" si null.
+ *  - 1 facility: muestra su nombre y no filtra (con un local, filtrar es lo
+ *    mismo que «Todos» y se perdería lo que no tiene local).
+ *  - 2+ facilities: muestra la activa o "Todos los locales" si null.
  */
 export function FacilitySwitcher() {
   const facilities = useFacilities();
@@ -55,6 +57,40 @@ export function FacilitySwitcher() {
           <span className="text-sm">Crear primer local</span>
         </Link>
       </Button>
+    );
+  }
+
+  if (list.length === 1) {
+    const only = list[0]!;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" className="min-w-0 gap-2 px-2 sm:px-3">
+            <Building2 className="size-4 shrink-0" aria-hidden />
+            <span className="max-w-[88px] truncate text-sm sm:max-w-[180px]">{only.name}</span>
+            <ChevronsUpDown className="ml-1 size-4 shrink-0 opacity-60" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-72" align="start">
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+            Tienes un solo local: los listados lo muestran todo, también lo que aún no tiene local
+            (inquilinos sin trastero o facturas de toda la empresa).
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link href={`/facilities/${only.id}`} className="cursor-pointer">
+              <Building2 className="mr-2 size-4 opacity-60" aria-hidden />
+              Ver la ficha del local
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/facilities" className="cursor-pointer">
+              <Plus className="mr-2 size-4 opacity-60" aria-hidden />
+              Añadir otro local
+            </Link>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   }
 

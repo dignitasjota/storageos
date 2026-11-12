@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+import { useFacilities } from './hooks';
+
 interface FacilityState {
   /** id de la facility seleccionada en AppHeader. `null` = "Todas". */
   currentFacilityId: string | null;
@@ -18,9 +20,17 @@ export const useFacilityStore = create<FacilityState>()(
   ),
 );
 
-/** Local elegido en el selector de la cabecera (`undefined` = todos). */
+/**
+ * Local elegido en el selector de la cabecera (`undefined` = todos). Con un
+ * solo local no filtra: elegirlo es lo mismo que «Todos», y así no se pierde lo
+ * que no tiene local (inquilinos sin trastero, facturas de toda la empresa).
+ */
 export function useHeaderFacilityId(): string | undefined {
-  return useFacilityStore((s) => s.currentFacilityId) ?? undefined;
+  const stored = useFacilityStore((s) => s.currentFacilityId);
+  const facilities = useFacilities();
+  if (!stored) return undefined;
+  if (facilities.data && facilities.data.length <= 1) return undefined;
+  return stored;
 }
 
 /**
