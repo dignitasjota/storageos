@@ -171,7 +171,7 @@ export const FEATURE_PAGES: MarketingPage[] = [
     summary: 'PIN, tarjeta, QR o móvil, con horarios y corte automático por impago.',
     metaTitle: 'Control de accesos para trasteros: PIN, QR y móvil | TrasterOS',
     metaDescription:
-      'Control de accesos para centros de trasteros: PIN, tarjeta RFID, QR y apertura desde el móvil, horarios por local, pases nocturnos y corte automático por impago.',
+      'Control de accesos para trasteros: PIN, tarjeta, QR y apertura desde el móvil, horarios por local, pases nocturnos y corte automático por impago.',
     h1: 'Control de accesos para centros de trasteros',
     lead: 'Tus inquilinos entran cuando quieren y tú sabes quién ha entrado. El acceso se da al pagar, se corta si dejan de pagar y se quita al terminar el contrato, sin ir al local.',
     highlights: [
@@ -431,7 +431,7 @@ export const FEATURE_PAGES: MarketingPage[] = [
     summary: 'Tus inquilinos pagan, abren la puerta y hacen gestiones desde el móvil.',
     metaTitle: 'Área de clientes y app para inquilinos de trasteros | TrasterOS',
     metaDescription:
-      'Área de clientes para los inquilinos de tus trasteros: facturas y pagos, código de acceso, apertura de puerta, incidencias, cambios de trastero y bajas desde el móvil.',
+      'Área de clientes para los inquilinos de tus trasteros: facturas y pagos, código de acceso, apertura de puerta, incidencias y bajas desde el móvil.',
     h1: 'Área de clientes y app para los inquilinos de tus trasteros',
     lead: 'Menos llamadas y correos: tus inquilinos ven sus facturas y pagan, tienen su código de acceso, abren la puerta y hacen sus gestiones desde el móvil, con tu marca.',
     highlights: [
@@ -479,7 +479,7 @@ export const FEATURE_PAGES: MarketingPage[] = [
     summary: 'Tus locales en un plano interactivo con el estado y el precio de cada trastero.',
     metaTitle: 'Plano de trasteros y control de ocupación | TrasterOS',
     metaDescription:
-      'Dibuja el plano de tus locales y ve el estado, el precio y el inquilino de cada trastero. Ocupación, ingresos, precios sugeridos con datos del mercado y analítica.',
+      'Dibuja el plano de tu local y ve el estado, el precio y el inquilino de cada trastero. Ocupación, ingresos y precios sugeridos con datos del mercado.',
     h1: 'Plano de trasteros y control de la ocupación',
     lead: 'Ve tu local como es: cada trastero en su sitio, con su estado, su precio y quién lo tiene. Y decide los precios con datos de tu ocupación y del mercado.',
     highlights: [
@@ -525,7 +525,7 @@ export const SOLUTION_PAGES: MarketingPage[] = [
     summary: 'Uno o varios locales propios, con cobros y accesos automáticos.',
     metaTitle: 'Software para operadores de self-storage | TrasterOS',
     metaDescription:
-      'Programa de gestión para operadores de self-storage con uno o varios locales: plano, reserva online, contratos, cobros automáticos, Veri*Factu y control de accesos.',
+      'Programa para operadores de self-storage con uno o varios locales: plano, reserva online, contratos, cobros automáticos, Veri*Factu y control de accesos.',
     h1: 'Software para operadores de self-storage',
     lead: 'Tanto si abres tu primer local como si tienes varios, TrasterOS se encarga del día a día: la reserva, el contrato, el cobro, el acceso y la factura, para que tú te dediques a llenar los trasteros.',
     highlights: [
@@ -568,7 +568,7 @@ export const SOLUTION_PAGES: MarketingPage[] = [
     summary: 'Locales de varios propietarios, con su facturación y su liquidación.',
     metaTitle: 'Software para administrar trasteros de varios propietarios | TrasterOS',
     metaDescription:
-      'Gestiona trasteros y locales de varios propietarios: facturas a nombre de cada propietario con Veri*Factu, liquidaciones mensuales con honorarios y fiscalidad por emisor.',
+      'Gestiona trasteros de varios propietarios: facturas a nombre de cada uno con Veri*Factu, liquidaciones mensuales con honorarios y fiscalidad por emisor.',
     h1: 'Software para administradores de trasteros de varios propietarios',
     lead: 'Si gestionas locales que no son tuyos, cada propietario necesita sus facturas, su IVA y su liquidación. TrasterOS lo separa por propietario sin que tengas que llevar varias cuentas.',
     highlights: [
@@ -610,7 +610,7 @@ export const SOLUTION_PAGES: MarketingPage[] = [
     summary: 'Alquila viviendas junto a tus trasteros, con su contrato y su fianza.',
     metaTitle: 'Gestión de alquiler de trasteros y viviendas | TrasterOS',
     metaDescription:
-      'Gestiona viviendas en alquiler junto a tus trasteros: contrato de vivienda, IVA exento, depósito de la fianza, actualización anual de la renta y retención de IRPF.',
+      'Gestiona viviendas en alquiler junto a tus trasteros: contrato de vivienda, IVA exento, depósito de la fianza, subida anual de la renta y retención de IRPF.',
     h1: 'Gestión de alquiler de trasteros y viviendas en un solo programa',
     lead: 'Si además de trasteros alquilas viviendas, no necesitas otro programa. Cada vivienda lleva su contrato, su IVA y sus obligaciones, con los mismos cobros y la misma área de clientes.',
     highlights: [
@@ -679,16 +679,16 @@ export const SCREENSHOTS: Record<ScreenshotKey, { src: string; alt: string; mobi
   },
   invoice: {
     src: '/screens/factura.png',
-    alt: 'Ficha de una factura de alquiler de trastero con su registro Veri*Factu',
+    alt: 'Ficha de una factura de alquiler de trastero cobrada por domiciliación y aceptada por la AEAT',
   },
   portal: {
     src: '/screens/area-clientes.png',
-    alt: 'Área de clientes en el móvil con el código de acceso y las facturas del inquilino',
+    alt: 'Área de clientes en el móvil con el código de acceso a la puerta del inquilino',
     mobile: true,
   },
   booking: {
     src: '/screens/reserva.png',
-    alt: 'Reserva online de un trastero en el móvil con el tamaño, el precio y el pago',
+    alt: 'Reserva online de un trastero en el móvil con el tamaño, el precio y lo que se paga ahora',
     mobile: true,
   },
 };

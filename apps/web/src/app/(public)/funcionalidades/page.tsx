@@ -14,7 +14,7 @@ import { FEATURE_PAGES } from '@/lib/marketing/pages';
 
 const TITLE = 'Funcionalidades del software de gestión de trasteros | TrasterOS';
 const DESCRIPTION =
-  'Facturación Veri*Factu, cobros por SEPA, tarjeta y Bizum, control de accesos, reserva online, contratos con firma, impagos, web con SEO local y área de clientes.';
+  'Facturación Veri*Factu, cobros por SEPA, tarjeta y Bizum, control de accesos, reserva online, contratos con firma, impagos, web y área de clientes.';
 
 export const metadata: Metadata = {
   title: { absolute: TITLE },

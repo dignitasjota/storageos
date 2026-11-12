@@ -59,7 +59,7 @@ export function ProductShot({
           src={s.src}
           alt={s.alt}
           width={390}
-          height={844}
+          height={664}
           sizes="260px"
           className="h-auto w-full rounded-[1.6rem]"
           {...(priority ? { priority: true } : {})}
