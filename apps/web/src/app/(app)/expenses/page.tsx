@@ -2,16 +2,20 @@
 
 import {
   EXPENSE_CATEGORY_LABELS,
+  EXPENSE_SOURCE_LABELS,
   ExpenseCategoryEnum,
   type ExpenseCategory,
   type ExpenseDto,
   type RecurringExpenseDto,
 } from '@storageos/shared';
-import { Loader2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Loader2, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
+import { DateSelect } from '@/components/month-year-select';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -30,14 +34,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 import { localDateString, localMonthStart } from '@/lib/dates';
 import {
   useCreateExpense,
   useCreateRecurringExpense,
   useDeleteExpense,
   useDeleteRecurringExpense,
+  useExpensesTotal,
   useProfitLoss,
   useRecurringExpenses,
   useRunRecurringExpenses,
@@ -48,17 +54,18 @@ import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { formatDate } from '@/lib/format';
 import { useMarketingChannels } from '@/lib/marketing/hooks';
-import { usePagedList } from '@/lib/pagination';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const CATEGORIES = ExpenseCategoryEnum.options;
 const ALL = '__all__';
 const NONE = '__none__';
 
+/** El mes en curso entero: un gasto con fecha posterior a hoy de este mes también sale. */
 function monthRange(): { from: string; to: string } {
   const now = new Date();
   const from = localMonthStart(0, now);
-  const to = localDateString(now);
+  const to = localDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
   return { from, to };
 }
 
@@ -106,14 +113,20 @@ export default function ExpensesPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL);
   const [editing, setEditing] = useState<ExpenseDto | null>(null);
   const [creating, setCreating] = useState(false);
+  const [searchInput, search, setSearch] = useDebouncedSearch();
 
   const pnl = useProfitLoss(range.from, range.to);
-  const expenses = usePagedList<ExpenseDto>('expenses', '/expenses', {
+  const filters = {
     facilityId: facilityFilter !== ALL ? facilityFilter : undefined,
     category: categoryFilter !== ALL ? categoryFilter : undefined,
     from: range.from,
     to: range.to,
-  });
+    search: search || undefined,
+  };
+  const expenses = usePagedList<ExpenseDto>('expenses', '/expenses', filters);
+  const total = useExpensesTotal(filters);
+  const invoicesVisible = pnl.data?.invoicesVisible ?? true;
+  const paymentsVisible = pnl.data?.paymentsVisible ?? true;
   const del = useDeleteExpense();
 
   const facilityOptions = facilities.data ?? [];
@@ -146,20 +159,20 @@ export default function ExpensesPage() {
 
       {/* Periodo */}
       <div className="flex flex-wrap items-end gap-3">
-        <div>
+        <div className="space-y-1">
           <Label className="text-xs">Desde</Label>
-          <Input
-            type="date"
+          <DateSelect
             value={range.from}
-            onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
+            onChange={(v) => v && setRange((r) => ({ ...r, from: v }))}
+            around
           />
         </div>
-        <div>
+        <div className="space-y-1">
           <Label className="text-xs">Hasta</Label>
-          <Input
-            type="date"
+          <DateSelect
             value={range.to}
-            onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
+            onChange={(v) => v && setRange((r) => ({ ...r, to: v }))}
+            around
           />
         </div>
       </div>
@@ -168,47 +181,63 @@ export default function ExpensesPage() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Cuenta de resultados por local</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Facturado sin IVA, igual que en el Resumen (una factura sustituida cuenta solo la
+            diferencia y los abonos restan). Cobrado: el dinero recibido, IVA incluido. Los gastos,
+            por su importe.
+          </p>
         </CardHeader>
         <CardContent>
           {pnl.isLoading ? (
             <div className="flex h-24 items-center justify-center">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
+          ) : pnl.isError ? (
+            <SectionError onRetry={() => void pnl.refetch()} />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-left text-xs text-muted-foreground">
                   <tr>
                     <th className="p-2">Local</th>
-                    <th className="p-2 text-right">Facturado</th>
-                    <th className="p-2 text-right">Cobrado</th>
+                    {invoicesVisible && <th className="p-2 text-right">Facturado (sin IVA)</th>}
+                    {paymentsVisible && <th className="p-2 text-right">Cobrado</th>}
                     <th className="p-2 text-right">Gastos</th>
-                    <th className="p-2 text-right">Resultado</th>
+                    {invoicesVisible && <th className="p-2 text-right">Resultado</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {(pnl.data?.rows ?? []).map((r) => (
                     <tr key={r.facilityId ?? 'none'} className="border-t">
                       <td className="p-2">{r.facilityName}</td>
-                      <td className="p-2 text-right tabular-nums">{eur(r.invoiced)}</td>
-                      <td className="p-2 text-right tabular-nums text-muted-foreground">
-                        {eur(r.collected)}
-                      </td>
+                      {invoicesVisible && (
+                        <td className="p-2 text-right tabular-nums">{eur(r.invoiced)}</td>
+                      )}
+                      {paymentsVisible && (
+                        <td className="p-2 text-right tabular-nums text-muted-foreground">
+                          {eur(r.collected)}
+                        </td>
+                      )}
                       <td className="p-2 text-right tabular-nums text-muted-foreground">
                         {eur(r.expenses)}
                       </td>
-                      <td
-                        className={`p-2 text-right font-semibold tabular-nums ${
-                          r.net >= 0 ? 'text-emerald-600' : 'text-red-600'
-                        }`}
-                      >
-                        {eur(r.net)}
-                      </td>
+                      {invoicesVisible && (
+                        <td
+                          className={`p-2 text-right font-semibold tabular-nums ${
+                            r.net >= 0 ? 'text-emerald-600' : 'text-red-600'
+                          }`}
+                        >
+                          {eur(r.net)}
+                        </td>
+                      )}
                     </tr>
                   ))}
                   {(pnl.data?.rows ?? []).length === 0 && (
                     <tr>
-                      <td colSpan={5} className="p-6 text-center text-muted-foreground">
+                      <td
+                        colSpan={2 + (invoicesVisible ? 2 : 0) + (paymentsVisible ? 1 : 0)}
+                        className="p-6 text-center text-muted-foreground"
+                      >
                         Sin movimientos en este periodo.
                       </td>
                     </tr>
@@ -218,22 +247,28 @@ export default function ExpensesPage() {
                   <tfoot>
                     <tr className="border-t-2 font-semibold">
                       <td className="p-2">Total</td>
-                      <td className="p-2 text-right tabular-nums">
-                        {eur(pnl.data.totals.invoiced)}
-                      </td>
-                      <td className="p-2 text-right tabular-nums">
-                        {eur(pnl.data.totals.collected)}
-                      </td>
+                      {invoicesVisible && (
+                        <td className="p-2 text-right tabular-nums">
+                          {eur(pnl.data.totals.invoiced)}
+                        </td>
+                      )}
+                      {paymentsVisible && (
+                        <td className="p-2 text-right tabular-nums">
+                          {eur(pnl.data.totals.collected)}
+                        </td>
+                      )}
                       <td className="p-2 text-right tabular-nums">
                         {eur(pnl.data.totals.expenses)}
                       </td>
-                      <td
-                        className={`p-2 text-right tabular-nums ${
-                          pnl.data.totals.net >= 0 ? 'text-emerald-600' : 'text-red-600'
-                        }`}
-                      >
-                        {eur(pnl.data.totals.net)}
-                      </td>
+                      {invoicesVisible && (
+                        <td
+                          className={`p-2 text-right tabular-nums ${
+                            pnl.data.totals.net >= 0 ? 'text-emerald-600' : 'text-red-600'
+                          }`}
+                        >
+                          {eur(pnl.data.totals.net)}
+                        </td>
+                      )}
                     </tr>
                   </tfoot>
                 )}
@@ -261,6 +296,15 @@ export default function ExpensesPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-base">Gastos</CardTitle>
             <div className="flex flex-wrap gap-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" />
+                <Input
+                  value={searchInput}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar concepto, proveedor o nota"
+                  className="h-8 w-56 pl-8 text-xs"
+                />
+              </div>
               <Select value={facilityFilter} onValueChange={setFacilityFilter}>
                 <SelectTrigger className="h-8 w-40 text-xs">
                   <SelectValue />
@@ -291,13 +335,21 @@ export default function ExpensesPage() {
           </div>
         </CardHeader>
         <CardContent>
+          {total.data && total.data.count > 0 && (
+            <p className="mb-2 text-xs text-muted-foreground">
+              {total.data.count} {total.data.count === 1 ? 'gasto' : 'gastos'} ·{' '}
+              <span className="font-medium text-foreground">{eur(total.data.amount)}</span>
+            </p>
+          )}
           {expenses.isLoading ? (
             <div className="flex h-24 items-center justify-center">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
+          ) : expenses.isError ? (
+            <SectionError onRetry={() => void expenses.refetch()} />
           ) : expenses.rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              Sin gastos en este periodo.
+              {search ? 'Ningún gasto coincide con la búsqueda.' : 'Sin gastos en este periodo.'}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -323,30 +375,47 @@ export default function ExpensesPage() {
                         {e.vendor && (
                           <span className="ml-1 text-xs text-muted-foreground">· {e.vendor}</span>
                         )}
+                        {e.source !== 'manual' && (
+                          <Badge variant="outline" className="ml-2 text-[10px]">
+                            {EXPENSE_SOURCE_LABELS[e.source]}
+                          </Badge>
+                        )}
+                        {e.notes && e.source !== 'recurring' && (
+                          <span className="block text-xs text-muted-foreground">{e.notes}</span>
+                        )}
                       </td>
                       <td className="p-2 text-right font-medium tabular-nums">{eur(e.amount)}</td>
                       {canManage && (
                         <td className="p-2">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7"
-                              aria-label="Editar"
-                              onClick={() => setEditing(e)}
+                          {e.source === 'google_ads' || e.source === 'meta_ads' ? (
+                            <span
+                              className="block text-right text-xs text-muted-foreground"
+                              title="Se actualiza solo con la sincronización del canal de marketing"
                             >
-                              <Pencil className="size-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 text-muted-foreground hover:text-red-600"
-                              aria-label="Eliminar"
-                              onClick={() => remove(e.id)}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
+                              Automático
+                            </span>
+                          ) : (
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7"
+                                aria-label="Editar"
+                                onClick={() => setEditing(e)}
+                              >
+                                <Pencil className="size-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-muted-foreground hover:text-red-600"
+                                aria-label="Eliminar"
+                                onClick={() => remove(e.id)}
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </div>
+                          )}
                         </td>
                       )}
                     </tr>
@@ -395,12 +464,17 @@ function ExpenseDialog({
 }) {
   const create = useCreateExpense();
   const update = useUpdateExpense();
-  const [facilityId, setFacilityId] = useState(expense?.facilityId ?? NONE);
+  // Quien solo ve unos locales no apunta gastos de toda la empresa.
+  const companyWide = useCompanyWide();
+  const [facilityId, setFacilityId] = useState(
+    expense?.facilityId ?? (companyWide ? NONE : (facilities[0]?.id ?? NONE)),
+  );
   const [category, setCategory] = useState<ExpenseCategory>(expense?.category ?? 'other');
   const [description, setDescription] = useState(expense?.description ?? '');
   const [amount, setAmount] = useState(String(expense?.amount ?? ''));
   const [expenseDate, setExpenseDate] = useState(expense?.expenseDate ?? localDateString());
   const [vendor, setVendor] = useState(expense?.vendor ?? '');
+  const [notes, setNotes] = useState(expense?.notes ?? '');
   const [marketingChannelId, setMarketingChannelId] = useState(expense?.marketingChannelId ?? NONE);
   const busy = create.isPending || update.isPending;
 
@@ -412,9 +486,12 @@ function ExpenseDialog({
       amount: Number(amount) || 0,
       expenseDate,
       vendor: vendor.trim(),
-      marketingChannelId: marketingChannelId === NONE ? null : marketingChannelId,
+      notes: notes.trim(),
+      // El canal solo cuenta con la categoría Marketing.
+      marketingChannelId:
+        category === 'marketing' && marketingChannelId !== NONE ? marketingChannelId : null,
     }),
-    [facilityId, category, description, amount, expenseDate, vendor, marketingChannelId],
+    [facilityId, category, description, amount, expenseDate, vendor, notes, marketingChannelId],
   );
 
   async function save() {
@@ -442,11 +519,7 @@ function ExpenseDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Fecha</Label>
-              <Input
-                type="date"
-                value={expenseDate}
-                onChange={(e) => setExpenseDate(e.target.value)}
-              />
+              <DateSelect value={expenseDate} onChange={(v) => v && setExpenseDate(v)} around />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Importe (€)</Label>
@@ -481,7 +554,7 @@ function ExpenseDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>General (sin local)</SelectItem>
+                  {companyWide && <SelectItem value={NONE}>General (sin local)</SelectItem>}
                   {facilities.map((f) => (
                     <SelectItem key={f.id} value={f.id}>
                       {f.name}
@@ -498,6 +571,10 @@ function ExpenseDialog({
           <div className="space-y-1">
             <Label className="text-xs">Proveedor (opcional)</Label>
             <Input value={vendor} onChange={(e) => setVendor(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Notas (opcional)</Label>
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           {category === 'marketing' && (
             <MarketingChannelField value={marketingChannelId} onChange={setMarketingChannelId} />
@@ -637,7 +714,10 @@ function RecurringDialog({
 }) {
   const create = useCreateRecurringExpense();
   const update = useUpdateRecurringExpense();
-  const [facilityId, setFacilityId] = useState(recurring?.facilityId ?? NONE);
+  const companyWide = useCompanyWide();
+  const [facilityId, setFacilityId] = useState(
+    recurring?.facilityId ?? (companyWide ? NONE : (facilities[0]?.id ?? NONE)),
+  );
   const [category, setCategory] = useState<ExpenseCategory>(recurring?.category ?? 'rent');
   const [description, setDescription] = useState(recurring?.description ?? '');
   const [amount, setAmount] = useState(String(recurring?.amount ?? ''));
@@ -654,7 +734,8 @@ function RecurringDialog({
       category,
       description: description.trim(),
       amount: Number(amount) || 0,
-      marketingChannelId: marketingChannelId === NONE ? null : marketingChannelId,
+      marketingChannelId:
+        category === 'marketing' && marketingChannelId !== NONE ? marketingChannelId : null,
       dayOfMonth: Math.min(28, Math.max(1, Number(dayOfMonth) || 1)),
       active,
     };
@@ -723,7 +804,7 @@ function RecurringDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>General (sin local)</SelectItem>
+                  {companyWide && <SelectItem value={NONE}>General (sin local)</SelectItem>}
                   {facilities.map((f) => (
                     <SelectItem key={f.id} value={f.id}>
                       {f.name}

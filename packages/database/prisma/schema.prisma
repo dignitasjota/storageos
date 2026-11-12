@@ -1913,7 +1913,9 @@ model Expense {
   /// Idempotencia del gasto sincronizado automáticamente desde una plataforma
   /// de anuncios: `<google_ads|meta_ads>:<id de campaña>:<fecha>`. Null en
   /// los gastos introducidos a mano.
-  externalRef        String?  @unique @map("external_ref")
+  externalRef        String?  @map("external_ref")
+  /// Plantilla recurrente que lo generó (null = a mano o sincronizado).
+  recurringExpenseId String?  @map("recurring_expense_id") @db.Uuid
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1921,10 +1923,12 @@ model Expense {
   facility         Facility?         @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   createdBy        User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   marketingChannel MarketingChannel? @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
+  recurringExpense RecurringExpense? @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
 
   businessReminderCompletions BusinessReminderCompletion[]
   bankTransactions            BankStatementTransaction[]
 
+  @@unique([tenantId, externalRef])
   @@index([tenantId, expenseDate(sort: Desc)])
   @@index([tenantId, facilityId])
   @@index([tenantId, marketingChannelId])
@@ -2025,6 +2029,7 @@ model RecurringExpense {
   facility         Facility?         @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   createdBy        User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   marketingChannel MarketingChannel? @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
+  expenses         Expense[]
 
   @@index([tenantId, active])
   @@map("recurring_expenses")
@@ -2300,6 +2305,10 @@ model Invoice {
   kind               String                     @default("invoice")
   /// Borrador que se emite al cobrarse (primera factura de una reserva online).
   issueOnPayment     Boolean                    @default(false) @map("issue_on_payment")
+  /// Datos del cliente al emitir (libros y exportaciones no cambian si se edita la ficha).
+  customerNameSnapshot    String?               @map("customer_name_snapshot")
+  customerTaxIdSnapshot   String?               @map("customer_tax_id_snapshot")
+  customerAddressSnapshot String?               @map("customer_address_snapshot")
   /// Justificante que se cobra junto con esta factura en un solo pago.
   bundledWithInvoiceId String?                  @map("bundled_with_invoice_id") @db.Uuid
   bundledWithInvoice Invoice?                   @relation("InvoiceBundle", fields: [bundledWithInvoiceId], references: [id], onDelete: SetNull)

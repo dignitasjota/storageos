@@ -34,6 +34,16 @@ export function useExpenses(filters: {
   });
 }
 
+/** Número e importe de los gastos con estos filtros. */
+export function useExpensesTotal(filters: Record<string, string | undefined>) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
+  return useQuery({
+    queryKey: [...key, 'total', filters],
+    queryFn: () => apiFetch<{ count: number; amount: number }>(`/expenses/total?${qs}`),
+  });
+}
+
 export function useProfitLoss(from: string, to: string) {
   return useQuery({
     queryKey: [...key, 'profit-loss', from, to],

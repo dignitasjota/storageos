@@ -67,7 +67,8 @@ export class AdSpendSyncService {
         if (!(row.cost > 0)) continue;
         const externalRef = `${platform}:${campaignId}:${row.date}`;
         await tx.expense.upsert({
-          where: { externalRef },
+          // Única por empresa: dos empresas pueden tener el mismo id de campaña.
+          where: { tenantId_externalRef: { tenantId, externalRef } },
           create: {
             tenantId,
             facilityId: channel.facilityId,

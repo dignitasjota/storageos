@@ -319,6 +319,9 @@ export class AccountantExportService {
         total: true,
         withholdingAmount: true,
         correctionMethod: true,
+        customerNameSnapshot: true,
+        customerTaxIdSnapshot: true,
+        customerAddressSnapshot: true,
         rectifiesInvoice: {
           select: {
             invoiceNumber: true,
@@ -349,14 +352,44 @@ export class AccountantExportService {
     });
     for (const inv of rows) {
       const c = inv.customer;
-      const name = c
-        ? c.customerType === 'business'
-          ? (c.companyName ?? 'Empresa')
-          : [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Cliente'
-        : 'Cliente sin identificar (factura simplificada)';
-      const address = c?.address
-        ? [c.address, [c.postalCode, c.city].filter(Boolean).join(' ')].filter(Boolean).join(', ')
-        : null;
+      // Datos del cliente al emitir (las anteriores a guardarlos, los de la ficha).
+      const frozen = inv.customerNameSnapshot !== null;
+      const name = frozen
+        ? inv.customerNameSnapshot!
+        : c
+          ? c.customerType === 'business'
+            ? (c.companyName ?? 'Empresa')
+            : [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Cliente'
+          : 'Cliente sin identificar (factura simplificada)';
+      const nif = frozen ? inv.customerTaxIdSnapshot : (c?.documentNumber ?? null);
+      const address = frozen
+        ? inv.customerAddressSnapshot
+        : c?.address
+          ? [c.address, [c.postalCode, c.city].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+          : null;
+      // Anulada por error: no cuenta (no está en el libro de IVA), pero sale con
+      // importe 0 para que el hueco en la numeración quede explicado.
+      if (inv.status === 'cancelled') {
+        out.push({
+          source: 'own_business',
+          withholding: 0,
+          invoiceNumber: inv.invoiceNumber,
+          issueDate: ddmmyyyy(inv.issueDate ?? fromD),
+          invoiceType: inv.invoiceType,
+          rectifies: inv.rectifiesInvoice?.invoiceNumber ?? null,
+          customerNif: nif,
+          customerName: name,
+          customerAddress: address,
+          taxRate: Number(inv.items[0]?.taxRate ?? 0),
+          taxCategory: (inv.items[0]?.taxCategory ?? 'S1') as InvoiceTaxCategory,
+          base: 0,
+          vat: 0,
+          lineTotal: 0,
+          invoiceTotal: 0,
+          status: 'Anulada por error',
+        });
+        continue;
+      }
       // Una sustitutiva cuenta solo la diferencia con la factura que sustituye.
       const replaced = inv.correctionMethod === 'by_substitution' ? inv.rectifiesInvoice : null;
       // Por tipo y tipo fiscal (exenta y no sujeta, ambas al 0 %, van aparte).
@@ -392,7 +425,7 @@ export class AccountantExportService {
           issueDate: ddmmyyyy(inv.issueDate ?? fromD),
           invoiceType: inv.invoiceType,
           rectifies: inv.rectifiesInvoice?.invoiceNumber ?? null,
-          customerNif: c?.documentNumber ?? null,
+          customerNif: nif,
           customerName: name,
           customerAddress: address,
           taxRate: rate,
@@ -409,10 +442,7 @@ export class AccountantExportService {
       }
       // Una factura completa (no simplificada) necesita NIF y domicilio del cliente.
       if (inv.invoiceType !== 'F2') {
-        const missing = [
-          ...(c?.documentNumber ? [] : ['NIF']),
-          ...(c?.address ? [] : ['Domicilio']),
-        ];
+        const missing = [...(nif ? [] : ['NIF']), ...(address ? [] : ['Domicilio'])];
         if (missing.length > 0) {
           warnings.push({ invoiceNumber: inv.invoiceNumber, source: 'own_business', missing });
         }
@@ -445,6 +475,9 @@ export class AccountantExportService {
             paidAt: { gte: fromD, lte: toD },
           },
           { refundedAt: { gte: fromD, lte: toD }, refundedAmount: { gt: 0 } },
+          // Devuelto por el banco: el cobro entró (en su fecha) y salió (en la suya).
+          { returnedAt: { not: null }, paidAt: { gte: fromD, lte: toD } },
+          { returnedAt: { gte: fromD, lte: toD } },
         ],
       },
       include: {
@@ -492,6 +525,15 @@ export class AccountantExportService {
           method: `Devolución (${base.method})`,
         });
       }
+      // Recibo devuelto por el banco (antes desaparecía de la exportación).
+      if (p.returnedAt && p.returnedAt >= fromD && p.returnedAt <= toD) {
+        out.push({
+          ...base,
+          date: ddmmyyyyAt(p.returnedAt),
+          amount: -round2(Number(p.amount) - Number(p.refundedAmount)),
+          method: `Devuelto por el banco (${base.method})`,
+        });
+      }
     }
   }
 
@@ -534,6 +576,8 @@ export class AccountantExportService {
             paidAt: { gte: fromD, lte: toD },
           },
           { refundedAt: { gte: fromD, lte: toD }, refundedAmount: { gt: 0 } },
+          { returnedAt: { not: null }, paidAt: { gte: fromD, lte: toD } },
+          { returnedAt: { gte: fromD, lte: toD } },
         ],
       },
       include: {
@@ -569,6 +613,15 @@ export class AccountantExportService {
           detail: 'Reembolso del cobro',
         });
       }
+      if (p.returnedAt && p.returnedAt >= fromD && p.returnedAt <= toD) {
+        out.push({
+          ...base,
+          date: ddmmyyyyAt(p.returnedAt),
+          movement: 'returned',
+          amount: -round2(Number(p.amount) - Number(p.refundedAmount)),
+          detail: 'Devuelto por el banco',
+        });
+      }
     }
 
     // Liquidación al terminar el contrato: lo devuelto y lo que se queda el negocio.
@@ -580,6 +633,7 @@ export class AccountantExportService {
         depositAmount: { gt: 0 },
       },
       select: {
+        id: true,
         contractNumber: true,
         depositAmount: true,
         depositReturnedAmount: true,
@@ -588,9 +642,50 @@ export class AccountantExportService {
         customer: { select: customerSelect },
       },
     });
+    // Lo que de verdad entró y salió por los justificantes de fianza de cada
+    // contrato: la liquidación no repite una devolución ya hecha por el cobro
+    // (cancelar una reserva anticipada, desistir) ni devuelve lo que no se cobró.
+    const ids = settled.map((c) => c.id);
+    const [receiptCounts, receiptPayments] = ids.length
+      ? await Promise.all([
+          this.admin.invoice.groupBy({
+            by: ['contractId'],
+            where: { tenantId, kind: 'deposit_receipt', contractId: { in: ids }, deletedAt: null },
+            _count: { _all: true },
+          }),
+          this.admin.payment.findMany({
+            where: {
+              tenantId,
+              status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+              invoice: { kind: 'deposit_receipt', contractId: { in: ids } },
+            },
+            select: {
+              amount: true,
+              refundedAmount: true,
+              invoice: { select: { contractId: true } },
+            },
+          }),
+        ])
+      : [[], []];
+    const withReceipts = new Set(receiptCounts.map((r) => r.contractId));
+    const moved = new Map<string, { collected: number; refunded: number }>();
+    for (const p of receiptPayments) {
+      const id = p.invoice?.contractId;
+      if (!id) continue;
+      const m = moved.get(id) ?? { collected: 0, refunded: 0 };
+      m.collected += Number(p.amount);
+      m.refunded += Number(p.refundedAmount);
+      moved.set(id, m);
+    }
     for (const c of settled) {
-      const returned = round2(Number(c.depositReturnedAmount ?? 0));
-      const retained = round2(Number(c.depositAmount) - returned);
+      let returned = round2(Number(c.depositReturnedAmount ?? 0));
+      let retained = round2(Number(c.depositAmount) - returned);
+      if (withReceipts.has(c.id)) {
+        const m = moved.get(c.id) ?? { collected: 0, refunded: 0 };
+        const available = Math.max(0, m.collected - m.refunded);
+        returned = round2(Math.min(Math.max(0, returned - m.refunded), available));
+        retained = round2(Math.max(0, Math.min(retained, available - returned)));
+      }
       const base = {
         source: 'own_business' as const,
         date: ddmmyyyyAt(c.depositSettledAt!),

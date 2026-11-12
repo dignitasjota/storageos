@@ -27,12 +27,30 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
 
+/** Importe máximo de un gasto (la columna admite 12 cifras con 2 decimales). */
+export const EXPENSE_MAX_AMOUNT = 99_999_999.99;
+const expenseAmount = z
+  .number()
+  .positive()
+  .finite()
+  .max(EXPENSE_MAX_AMOUNT, 'El importe es demasiado alto');
+
+/** De dónde sale un gasto: a mano, de una plantilla recurrente o de una plataforma de anuncios. */
+export type ExpenseSource = 'manual' | 'recurring' | 'google_ads' | 'meta_ads';
+
+export const EXPENSE_SOURCE_LABELS: Record<ExpenseSource, string> = {
+  manual: 'A mano',
+  recurring: 'Recurrente',
+  google_ads: 'Google Ads',
+  meta_ads: 'Meta Ads',
+};
+
 export const CreateExpenseSchema = z.object({
   /** Local al que se imputa el gasto; null/ausente = gasto general de la empresa. */
   facilityId: z.string().uuid().nullish(),
   category: ExpenseCategoryEnum.default('other'),
   description: z.string().trim().min(1).max(300),
-  amount: z.number().positive().finite(),
+  amount: expenseAmount,
   expenseDate: dateOnly,
   vendor: z.string().trim().max(200).optional().or(z.literal('')),
   notes: z.string().trim().max(2000).optional().or(z.literal('')),
@@ -56,6 +74,10 @@ export interface ExpenseDto {
   notes: string | null;
   marketingChannelId: string | null;
   marketingChannelName: string | null;
+  /** De dónde sale. Los de Google o Meta Ads se actualizan solos y no se editan a mano. */
+  source: ExpenseSource;
+  /** Plantilla recurrente que lo generó. */
+  recurringExpenseId: string | null;
   createdAt: string;
 }
 
@@ -64,7 +86,7 @@ export const CreateRecurringExpenseSchema = z.object({
   facilityId: z.string().uuid().nullish(),
   category: ExpenseCategoryEnum.default('other'),
   description: z.string().trim().min(1).max(300),
-  amount: z.number().positive().finite(),
+  amount: expenseAmount,
   /** Día del mes (1-28) en que se imputa el gasto generado. */
   dayOfMonth: z.number().int().min(1).max(28).default(1),
   active: z.boolean().default(true),
@@ -96,13 +118,16 @@ export interface ProfitLossRowDto {
   /** null = gastos generales sin local asignado. */
   facilityId: string | null;
   facilityName: string;
-  /** Facturado en el periodo (facturas emitidas, base+IVA, no borrador/anuladas). */
+  /**
+   * Facturado en el periodo, sin IVA (como el Resumen: una sustitutiva cuenta
+   * solo la diferencia y los abonos restan). 0 sin permiso de facturas.
+   */
   invoiced: number;
-  /** Cobrado en el periodo (pagos con éxito). */
+  /** Cobrado en el periodo (dinero recibido, IVA incluido). 0 sin permiso de cobros. */
   collected: number;
   /** Gastos imputados en el periodo. */
   expenses: number;
-  /** Resultado = facturado − gastos. */
+  /** Resultado = facturado sin IVA − gastos. */
   net: number;
 }
 
@@ -113,4 +138,8 @@ export interface ProfitLossDto {
   totals: { invoiced: number; collected: number; expenses: number; net: number };
   /** Gastos por categoría (todo el periodo). */
   byCategory: { category: ExpenseCategory; amount: number }[];
+  /** Quien no tiene permiso de facturas no ve lo facturado ni el resultado. */
+  invoicesVisible: boolean;
+  /** Quien no tiene permiso de cobros no ve lo cobrado. */
+  paymentsVisible: boolean;
 }

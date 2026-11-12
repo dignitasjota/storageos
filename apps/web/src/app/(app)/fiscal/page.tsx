@@ -1,13 +1,14 @@
 'use client';
 
 import { INVOICE_TAX_CATEGORY_LABELS, type InvoiceTaxCategory } from '@storageos/shared';
-import { Download } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
+import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -26,6 +27,7 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError, apiFetchBlob } from '@/lib/auth/api';
+import { useCompanyWide } from '@/lib/auth/hooks';
 import {
   downloadCsv,
   ownerQs,
@@ -44,7 +46,36 @@ const eur = (n: number) =>
 const YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: 6 }, (_, i) => YEAR - i);
 
+/** Cargando o error de una consulta (antes un fallo se veía como una tabla vacía). */
+function QueryState({
+  query,
+}: {
+  query: { isLoading: boolean; isError: boolean; refetch: () => unknown };
+}) {
+  if (query.isLoading) {
+    return (
+      <div className="flex h-24 items-center justify-center">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (query.isError) return <SectionError onRetry={() => void query.refetch()} />;
+  return null;
+}
+
 export default function FiscalPage() {
+  // Los libros y modelos son de toda la empresa.
+  const companyWide = useCompanyWide();
+  if (!companyWide) {
+    return (
+      <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Fiscalidad</h1>
+        <p className="rounded-md border p-4 text-sm text-muted-foreground">
+          La fiscalidad es de toda la empresa: solo la ve quien tiene acceso a todos los locales.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
@@ -116,21 +147,11 @@ function VatBookTab() {
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1">
               <Label className="text-xs">Desde</Label>
-              <Input
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                className="h-9"
-              />
+              <DateSelect value={from} onChange={(v) => v && setFrom(v)} />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Hasta</Label>
-              <Input
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className="h-9"
-              />
+              <DateSelect value={to} onChange={(v) => v && setTo(v)} />
             </div>
             <Button variant="outline" onClick={exportCsv} disabled={!book.data?.rows.length}>
               <Download className="mr-1 h-4 w-4" /> CSV
@@ -139,6 +160,7 @@ function VatBookTab() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <QueryState query={book} />
         {book.data && (
           <div className="flex flex-wrap gap-4 text-sm">
             {book.data.byRate.map((r) => (
@@ -197,6 +219,16 @@ function Model303Tab() {
   const [quarter, setQuarter] = useState(Math.floor(new Date().getMonth() / 3) + 1);
   const m303 = useModel303(year, quarter);
 
+  function exportCsv() {
+    if (!m303.data) return;
+    const rows: (string | number)[][] = [
+      ['Tipo de IVA', 'Base imponible', 'Cuota'],
+      ...m303.data.byRate.map((r) => [rateLabel(r), r.base, r.vat]),
+      [`Total (${m303.data.invoiceCount} facturas)`, m303.data.totalBase, m303.data.totalVat],
+    ];
+    downloadCsv(`modelo-303-${year}-T${quarter}.csv`, rows);
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -231,10 +263,14 @@ function Model303Tab() {
                 </option>
               ))}
             </select>
+            <Button variant="outline" onClick={exportCsv} disabled={!m303.data}>
+              <Download className="mr-1 h-4 w-4" /> CSV
+            </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent>
+        <QueryState query={m303} />
         <Table>
           <TableHeader>
             <TableRow>
@@ -286,7 +322,7 @@ function Model347Tab() {
             <CardTitle className="text-base">Modelo 347 — operaciones &gt; 3.005,06 €</CardTitle>
             <CardDescription>
               Clientes con operaciones anuales superiores a 3.005,06 € (IVA incluido), con desglose
-              trimestral.
+              trimestral. Se suman por NIF, aunque estén en fichas distintas.
             </CardDescription>
           </div>
           <div className="flex items-end gap-2">
@@ -308,6 +344,7 @@ function Model347Tab() {
         </div>
       </CardHeader>
       <CardContent>
+        <QueryState query={m347} />
         <Table>
           <TableHeader>
             <TableRow>
@@ -396,21 +433,11 @@ function AccountantExportTab() {
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1">
               <Label className="text-xs">Desde</Label>
-              <Input
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                className="h-9"
-              />
+              <DateSelect value={from} onChange={(v) => v && setFrom(v)} />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Hasta</Label>
-              <Input
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className="h-9"
-              />
+              <DateSelect value={to} onChange={(v) => v && setTo(v)} />
             </div>
           </div>
         </div>
@@ -418,6 +445,8 @@ function AccountantExportTab() {
       <CardContent className="space-y-3">
         {data.isLoading ? (
           <p className="text-xs text-muted-foreground">Calculando…</p>
+        ) : data.isError ? (
+          <SectionError onRetry={() => void data.refetch()} />
         ) : d ? (
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
             <div>

@@ -1,4 +1,11 @@
-import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  ForbiddenException,
+  Get,
+  Query,
+  Res,
+} from '@nestjs/common';
 import {
   ACCOUNTANT_DEPOSIT_COLUMNS,
   ACCOUNTANT_INVOICE_COLUMNS,
@@ -28,6 +35,31 @@ function parseYear(raw: string | undefined): number {
   return y;
 }
 
+function parseQuarter(raw: string | undefined): number {
+  const q = Number(raw);
+  if (!Number.isInteger(q) || q < 1 || q > 4) {
+    throw new BadRequestException({
+      code: 'invalid_quarter',
+      message: 'Trimestre no válido (1-4)',
+    });
+  }
+  return q;
+}
+
+/**
+ * Los libros y modelos son de toda la empresa: quien solo ve unos locales no
+ * los ve (como la conciliación bancaria y las remesas).
+ */
+function assertAllFacilities(user: AuthenticatedUser): void {
+  if (user.facilityScope && user.facilityScope.length > 0) {
+    throw new ForbiddenException({
+      code: 'fiscal_requires_all_facilities',
+      message:
+        'La fiscalidad es de toda la empresa: solo la ve quien tiene acceso a todos los locales',
+    });
+  }
+}
+
 @RequirePermission('invoices:manage')
 @Controller('fiscal')
 export class FiscalController {
@@ -47,6 +79,7 @@ export class FiscalController {
     @Res() res: Response,
     @Query() query: Record<string, string>,
   ): Promise<void> {
+    assertAllFacilities(user);
     const parsed = AccountantExportQuerySchema.safeParse(query);
     if (!parsed.success) {
       throw new BadRequestException({
@@ -95,6 +128,7 @@ export class FiscalController {
     @Query('to') to: string,
     @Query('ownerId') ownerId?: string,
   ): Promise<VatBookDto> {
+    assertAllFacilities(user);
     if (!from || !to) {
       throw new BadRequestException({ code: 'range_required', message: 'Indica from y to' });
     }
@@ -108,10 +142,11 @@ export class FiscalController {
     @Query('quarter') quarter: string,
     @Query('ownerId') ownerId?: string,
   ): Promise<Model303Dto> {
+    assertAllFacilities(user);
     return this.fiscal.model303(
       user.tenantId,
       parseYear(year),
-      Number(quarter),
+      parseQuarter(quarter),
       parseOwner(ownerId),
     );
   }
@@ -122,6 +157,7 @@ export class FiscalController {
     @Query('year') year: string,
     @Query('ownerId') ownerId?: string,
   ): Promise<Model347Dto> {
+    assertAllFacilities(user);
     return this.fiscal.model347(user.tenantId, parseYear(year), parseOwner(ownerId));
   }
 
@@ -133,6 +169,7 @@ export class FiscalController {
     @Query('to') to: string,
     @Query('ownerId') ownerId?: string,
   ): Promise<AccountingExportDto> {
+    assertAllFacilities(user);
     if (!from || !to) {
       throw new BadRequestException({ code: 'range_required', message: 'Indica from y to' });
     }

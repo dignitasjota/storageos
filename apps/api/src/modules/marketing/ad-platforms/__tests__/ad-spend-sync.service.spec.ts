@@ -47,7 +47,10 @@ describe('AdSpendSyncService.upsertSpendExpenses', () => {
     expect(result).toEqual({ synced: 2, totalCost: 17.34 });
     expect(tx.expense.upsert).toHaveBeenCalledTimes(2);
     const [firstArgs] = tx.expense.upsert.mock.calls[0]!;
-    expect(firstArgs.where).toEqual({ externalRef: 'google_ads:999:2026-08-01' });
+    // Única por empresa (dos empresas pueden tener el mismo id de campaña).
+    expect(firstArgs.where).toEqual({
+      tenantId_externalRef: { tenantId: TENANT, externalRef: 'google_ads:999:2026-08-01' },
+    });
     expect(firstArgs.create).toMatchObject({
       tenantId: TENANT,
       category: 'marketing',

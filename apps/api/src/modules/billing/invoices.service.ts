@@ -958,6 +958,7 @@ export class InvoicesService {
             ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
             ...(prepaid ? { paidAt: new Date() } : {}),
             issuedBy: 'holded',
+            ...(await customerSnapshot(tx, existing.customerId)),
             holdedDocumentId: fromHolded.documentId,
             holdedSyncState: null,
             holdedSyncStartedAt: null,
@@ -1050,6 +1051,7 @@ export class InvoicesService {
           dueDate: settled ? null : dueDate,
           ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
           ...(prepaid ? { paidAt: new Date() } : {}),
+          ...(await customerSnapshot(tx, existing.customerId)),
           ...record,
         },
         include: this.includeRelations(),
@@ -4938,6 +4940,47 @@ export class InvoicesService {
  * usuario y, en la facturación recurrente (que trata el P2002 como "periodo ya
  * facturado"), una factura SALTADA en silencio.
  */
+/**
+ * Datos del cliente tal como están al emitir: el libro de IVA, el 347 y las
+ * exportaciones los usan, así no cambian si después se edita o se anonimiza la
+ * ficha.
+ */
+export async function customerSnapshot(
+  tx: Prisma.TransactionClient,
+  customerId: string | null,
+): Promise<{
+  customerNameSnapshot?: string;
+  customerTaxIdSnapshot?: string | null;
+  customerAddressSnapshot?: string | null;
+}> {
+  if (!customerId) return {};
+  const c = await tx.customer.findUnique({
+    where: { id: customerId },
+    select: {
+      customerType: true,
+      firstName: true,
+      lastName: true,
+      companyName: true,
+      documentNumber: true,
+      address: true,
+      postalCode: true,
+      city: true,
+    },
+  });
+  if (!c) return {};
+  const name =
+    c.customerType === 'business'
+      ? (c.companyName ?? 'Empresa')
+      : [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
+  const place = [c.postalCode, c.city].filter(Boolean).join(' ').trim();
+  const address = [c.address?.trim(), place].filter(Boolean).join(', ');
+  return {
+    customerNameSnapshot: name,
+    customerTaxIdSnapshot: c.documentNumber ?? null,
+    customerAddressSnapshot: address || null,
+  };
+}
+
 export function draftPlaceholderNumber(): string {
   return `DRAFT-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
 }

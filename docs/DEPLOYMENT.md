@@ -2150,3 +2150,28 @@ Hasta ahora, al firmar una reserva online se emitía la factura del primer pago;
 - Las reservas firmadas antes del despliegue siguen con su factura ya emitida.
 
 **Pendiente de la asesoría** (consultadas el 12-11): conformidad con emitir al cobrar, la fianza retenida por un servicio (limpieza, vaciado) y el depósito de fianzas de trasteros en la comunidad autónoma.
+
+## 126. Revisión de Gastos y Fiscalidad: arreglos (2026-11-13)
+
+Migración `20270114100000_expenses_fiscal_review` (se aplica sola):
+
+- La referencia de los gastos sincronizados de Google o Meta Ads pasa a ser única por empresa (antes, entre todas: a la segunda empresa con el mismo id de campaña le fallaba la sincronización).
+- `expenses.recurring_expense_id`: de qué plantilla sale cada gasto generado.
+- `invoices.customer_name_snapshot`, `customer_tax_id_snapshot` y `customer_address_snapshot`: los datos del cliente al emitir. Las ya emitidas se rellenan con los datos que tiene hoy la ficha (los mejores que hay); las nuevas, al emitirse. El libro de IVA, el 347 y las exportaciones los usan, así no cambian si se edita o se anonimiza la ficha.
+
+**Gastos**
+
+- La cuenta de resultados va sin IVA y con las mismas reglas que el Resumen (una sustitutiva cuenta la diferencia, los abonos restan); cada factura va al local de su contrato, al suyo propio o al de su venta; el cobrado se cuenta por días en la hora del negocio. Sin permiso de facturas o de cobros, esas columnas no salen.
+- Alcance por local en todo (lista, total, alta, edición, borrado, cuenta de resultados y recurrentes). Quien solo ve unos locales no apunta gastos de toda la empresa (403 `facility_required`).
+- El local y el canal de marketing tienen que ser de la empresa (400 `facility_not_found` / `marketing_channel_not_found`). El canal se quita si el gasto deja de ser de Marketing.
+- Fechas, local, categoría e importe validados (400 en vez de 500). Importe máximo 99.999.999,99 €.
+- Recurrentes: cada plantilla se reserva antes de crear su gasto (dos «Generar ahora» a la vez ya no duplican), el mes va en la hora del negocio y una empresa dada de baja deja de generarlos.
+- Los gastos de Google o Meta Ads se ven como tales y no se editan ni se borran a mano (409 `expense_synced`).
+- `GET /expenses/total` (número e importe de lo filtrado). Pantalla: errores visibles, periodo hasta fin de mes, selector de fecha propio, buscador, notas y origen.
+
+**Fiscalidad**
+
+- Solo para quien ve todos los locales (403 `fiscal_requires_all_facilities`; sale del menú para el resto).
+- Exportación para la asesoría: la factura anulada por error sale con importe 0 y «Anulada por error»; el cobro devuelto por el banco sale en positivo en su fecha y en negativo en la de la devolución; la fianza devuelta por el cobro no se repite al liquidarla y no se devuelve una que no se cobró.
+- Modelo 347 por NIF (dos fichas con el mismo NIF suman juntas).
+- Trimestre del 303 validado (400 `invalid_quarter`). CSV del 303 y avisos de error en las cuatro pestañas.
