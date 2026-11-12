@@ -8,6 +8,7 @@ import { useTranslations } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { platformTrafficFields } from '@/components/public/platform-attribution';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -23,7 +24,14 @@ import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { useRegister } from '@/lib/auth/hooks';
 
-export function RegisterForm() {
+/** Datos que trae el enlace de una propuesta (email, empresa y nombre). */
+export interface RegisterDefaults {
+  email?: string;
+  tenantName?: string;
+  fullName?: string;
+}
+
+export function RegisterForm({ defaults = {} }: { defaults?: RegisterDefaults }) {
   const t = useTranslations('auth.register');
   const tCommon = useTranslations('common');
   const router = useRouter();
@@ -34,10 +42,10 @@ export function RegisterForm() {
     mode: 'onBlur',
     reValidateMode: 'onChange',
     defaultValues: {
-      tenantName: '',
+      tenantName: defaults.tenantName ?? '',
       tenantSlug: '',
-      fullName: '',
-      email: '',
+      fullName: defaults.fullName ?? '',
+      email: defaults.email ?? '',
       password: '',
       acceptTerms: false,
     },
@@ -47,6 +55,7 @@ export function RegisterForm() {
     const payload: RegisterInput = {
       ...values,
       tenantSlug: values.tenantSlug?.trim() || undefined,
+      ...platformTrafficFields(),
     };
     try {
       const res = await register.mutateAsync(payload);

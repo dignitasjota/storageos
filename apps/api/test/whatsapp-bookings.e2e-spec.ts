@@ -185,9 +185,13 @@ describe('Reservas por WhatsApp (e2e)', () => {
       }),
     );
     expect(failed.body).toContain('No he podido completar la reserva');
-    const failedConv = await prismaAdmin.whatsappConversation.findFirstOrThrow({
-      where: { tenantId, waId: '34611000111' },
-    });
+    // El asistente se pausa después de mandar el mensaje (y de resumir para el
+    // equipo): se espera a la pausa como al mensaje.
+    const failedConv = await waitFor(() =>
+      prismaAdmin.whatsappConversation.findFirst({
+        where: { tenantId, waId: '34611000111', assistantEnabled: false },
+      }),
+    );
     expect(failedConv).toMatchObject({ contractId: null, assistantEnabled: false });
 
     // Resumen del periodo.

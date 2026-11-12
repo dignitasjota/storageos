@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { platformLeadName } from '@storageos/shared';
 
 import { todayInTimezone, zonedDayStart } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -7,7 +8,8 @@ import type {
   AdminAtRiskTenantDto,
   AdminTenantIssueCountDto,
   AdminTodayActivationDto,
-  AdminTodayContactDto,
+  AdminTodayLeadDto,
+  PlatformLeadSource,
   AdminTodayDomainDto,
   AdminTodayDoneDto,
   AdminTodayNpsDto,
@@ -65,18 +67,31 @@ export class AdminTodayExtrasService {
 
   // ----------------------------------------------------------------- avisos
 
-  async contactMessages(now = new Date()): Promise<AdminTodayContactDto[]> {
-    const rows = await this.admin.platformContactMessage.findMany({
-      where: { handledAt: null, repliedAt: null },
+  /** Leads nuevos (aún nadie les ha respondido), del más antiguo al más nuevo. */
+  async newLeads(now = new Date()): Promise<AdminTodayLeadDto[]> {
+    const rows = await this.admin.platformLead.findMany({
+      where: { status: 'new', discardedAt: null },
       orderBy: { createdAt: 'asc' },
       take: 50,
-      select: { id: true, name: true, email: true, createdAt: true },
+      select: {
+        id: true,
+        companyName: true,
+        contactName: true,
+        email: true,
+        source: true,
+        createdAt: true,
+        assignedToId: true,
+        assignedTo: { select: { fullName: true } },
+      },
     });
     return rows.map((r) => ({
       id: r.id,
-      name: r.name,
+      name: platformLeadName(r),
       email: r.email,
-      waitingDays: Math.floor((now.getTime() - r.createdAt.getTime()) / DAY),
+      source: r.source as PlatformLeadSource,
+      waitingHours: Math.floor((now.getTime() - r.createdAt.getTime()) / 3_600_000),
+      assignedToId: r.assignedToId,
+      assignedToName: r.assignedTo?.fullName ?? null,
     }));
   }
 

@@ -28,6 +28,7 @@ function build() {
       findMany: jest.fn().mockResolvedValue([{ mediaKey: 't/whatsapp/c/m.jpg' }]),
     },
     webEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 8 }) },
+    platformLead: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     superAdminSession: { deleteMany: jest.fn().mockResolvedValue({ count: 9 }) },
     impersonationLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     superAdminAuditLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -95,6 +96,7 @@ describe('DataRetentionService', () => {
       webChatConversations: 2,
       waitlistEntries: 1,
       contactMessages: 1,
+      platformLeads: 2,
       adminSessions: 9,
       impersonationLogs: 1,
       superAdminAuditLogs: 1,
@@ -163,9 +165,13 @@ describe('DataRetentionService.cleanupDeletedFacilityImages', () => {
     const before = Date.now();
 
     expect(await service.cleanupDeletedFacilityImages()).toBe(1);
+    const after = Date.now();
 
+    // 30 días antes del momento de la llamada (entre el antes y el después).
     const limit = facility.findMany.mock.calls[0]![0].where.deletedAt.lt as Date;
-    expect(limit.getTime()).toBeLessThanOrEqual(before - 30 * 24 * 60 * 60 * 1000);
+    const month = 30 * 24 * 60 * 60 * 1000;
+    expect(limit.getTime()).toBeGreaterThanOrEqual(before - month);
+    expect(limit.getTime()).toBeLessThanOrEqual(after - month);
     expect(files.deleteObjects).toHaveBeenCalledWith('public', ['t/f1/images/a.jpg']);
     expect(facility.update).toHaveBeenCalledWith({
       where: { id: 'f1' },

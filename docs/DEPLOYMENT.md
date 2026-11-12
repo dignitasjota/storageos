@@ -2070,6 +2070,18 @@ Solo web, sin migración ni variables. **Qué cambia al redesplegar:**
 - Con un solo local, el selector de arriba enseña el nombre del local y ya no filtra ninguna lista (con un local es lo mismo que «Todos»). Así no se pierde lo que no tiene local: inquilinos sin trastero o facturas de toda la empresa. Si alguien lo tenía elegido, deja de aplicarse solo.
 - Con varios locales, en Inquilinos los que no tienen trastero salen con cualquier local elegido, con la marca «Sin trastero».
 
+## 120. Leads del panel admin (2026-11-12)
+
+Migración `20270111100000_platform_leads` (se aplica sola). Sin variables nuevas (los leads sin cuenta caducan con `RETENTION_CONTACT_MESSAGES_DAYS`, 730 días). **Qué cambia al redesplegar:**
+
+- **Tenants → Leads** (`/admin/leads`): tablero por fases (Nuevo, Contactado, Interesado, En prueba, Cliente, Perdido), ficha con datos, conversación por correo, actividad y seguimientos, y **Resultados** (`/admin/leads/stats`) con el embudo, la conversión y lo que pagan por origen, el tiempo de primera respuesta y los motivos de pérdida.
+- Los mensajes del formulario de trasteros.pro entran como leads (o se suman al lead con ese email o teléfono). En Web de TrasterOS ya no está la bandeja de «Mensajes recibidos»: lleva a Leads. La migración pasa a leads los mensajes que ya había y los tenants que están ahora en prueba.
+- Registrarse en la web (o crear una cuenta desde el panel) la une al lead con su email o crea uno «En prueba». Pasa a «Cliente» con el primer pago; si la prueba acaba sin pagar, a «Perdido» con un seguimiento para volver a llamarle a los 14 días. Lo hace la tarea `platform-leads.watch` (cada 15 min, en el API), que también avisa (panel, móvil y Telegram/Slack si están activados los avisos de contacto) de los leads nuevos que llevan 4 horas sin atender.
+- Desde la ficha: crear su cuenta (como «Nuevo tenant», solo superadmin), vincularla a una cuenta que ya existe y enviarle una propuesta del simulador aunque aún no tenga cuenta (le llega con un botón al registro con sus datos puestos; al registrarse, la propuesta le espera en «Suscripción»).
+- «Hoy» enseña los leads nuevos sin atender y los seguimientos de leads de hoy; Seguimientos, también los de leads.
+- trasteros.pro recuerda de dónde viene la visita (Google, anuncios, redes) y lo guarda en el lead al escribir o registrarse.
+- El rol soporte trabaja los leads; crear su cuenta, enviar propuestas y borrar un lead son del superadmin.
+
 ## 121. Reservas antes de la apertura sin fecha: el contrato no pone ninguna (2026-11-12)
 
 Solo código, sin migración ni variables. **Qué cambia al redesplegar:**

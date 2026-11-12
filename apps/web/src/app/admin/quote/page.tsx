@@ -459,9 +459,18 @@ function QuoteOffersCard({ tenantId }: { tenantId: string | null }) {
             className="flex flex-col gap-2 px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="min-w-0">
-              <Link href={`/admin/tenants/${o.tenantId}`} className="font-medium hover:underline">
-                {o.tenantName}
-              </Link>
+              {o.tenantId ? (
+                <Link href={`/admin/tenants/${o.tenantId}`} className="font-medium hover:underline">
+                  {o.tenantName}
+                </Link>
+              ) : (
+                <Link
+                  href={`/admin/leads?lead=${o.leadId}`}
+                  className="font-medium hover:underline"
+                >
+                  {o.leadName ?? 'Lead'} <span className="font-normal">(lead, sin cuenta)</span>
+                </Link>
+              )}
               <span className="ml-2 text-muted-foreground">
                 {o.planName} · {o.cycle === 'yearly' ? 'anual' : 'mensual'}
                 {o.couponCode ? ` · ${o.couponCode}` : ''} · {eur(o.total)}

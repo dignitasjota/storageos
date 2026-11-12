@@ -314,6 +314,7 @@ model Tenant {
   approvalRequests AdminApprovalRequest[]
   platformCouponRedemptions PlatformCouponRedemption[]
   quoteOffers       PlatformQuoteOffer[]
+  platformLead      PlatformLead?
   /// Comisión propia por cobros con tarjeta (Stripe Connect); null = la general.
   applicationFeePct Decimal? @map("application_fee_pct") @db.Decimal(5, 2)
   businessReminders           BusinessReminder[]
@@ -4543,6 +4544,11 @@ model SuperAdmin {
   platformAnnouncements PlatformAnnouncement[] @relation("PlatformAnnouncementAuthor")
   platformNpsSurveys    PlatformNpsSurvey[]    @relation("PlatformNpsSurveyAuthor")
   contactMessagesAssigned PlatformContactMessage[] @relation("ContactMessageAssignee")
+  platformLeadsAssigned   PlatformLead[]           @relation("PlatformLeadAssignee")
+  platformLeadsCreated    PlatformLead[]           @relation("PlatformLeadCreator")
+  platformLeadActivities  PlatformLeadActivity[]   @relation("PlatformLeadActivityAuthor")
+  platformLeadFollowups   PlatformLeadFollowup[]   @relation("PlatformLeadFollowupAuthor")
+  platformLeadFollowupsAssigned PlatformLeadFollowup[] @relation("PlatformLeadFollowupAssignee")
   legalVersions           PlatformLegalVersion[]   @relation("LegalVersionAuthor")
 }
 
@@ -5867,7 +5873,9 @@ model CatalogPriceHistory {
 /// Propuesta de cuota enviada a un tenant desde el simulador (tabla global).
 model PlatformQuoteOffer {
   id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId     String    @map("tenant_id") @db.Uuid
+  tenantId     String?   @map("tenant_id") @db.Uuid
+  /// Propuesta a un lead que aún no tiene cuenta (pasa al tenant al vincularse).
+  leadId       String?   @map("lead_id") @db.Uuid
   superAdminId String?   @map("super_admin_id") @db.Uuid
   planId       String    @map("plan_id") @db.Uuid
   cycle        String
@@ -5879,11 +5887,13 @@ model PlatformQuoteOffer {
   resolvedAt   DateTime? @map("resolved_at") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   PlatformLead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
   plan   SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, status], map: "platform_quote_offers_tenant_idx")
   @@index([createdAt], map: "platform_quote_offers_created_idx")
+  @@index([leadId], map: "platform_quote_offers_lead_idx")
   @@map("platform_quote_offers")
 }
 
@@ -7827,3 +7837,91 @@ model SuperAdminSavedView {
   @@map("super_admin_saved_views")
 }
 
+/// Lead del panel admin: alguien interesado en TrasterOS, desde el primer
+/// contacto hasta que paga o se pierde. Global (sin tenant): solo super admins.
+model PlatformLead {
+  id                   String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// new · contacted · interested · trial · customer · lost
+  status               String    @default("new")
+  source               String    @default("admin")
+  companyName          String?   @map("company_name")
+  contactName          String?   @map("contact_name")
+  email                String?
+  phone                String?
+  units                String?
+  facilities           String?
+  profile              String?
+  currentSoftware      String?   @map("current_software")
+  city                 String?
+  planSlug             String?   @map("plan_slug")
+  message              String?
+  assignedToId         String?   @map("assigned_to_id") @db.Uuid
+  tenantId             String?   @unique @map("tenant_id") @db.Uuid
+  utmSource            String?   @map("utm_source")
+  utmMedium            String?   @map("utm_medium")
+  utmCampaign          String?   @map("utm_campaign")
+  contactedAt          DateTime? @map("contacted_at") @db.Timestamptz(6)
+  interestedAt         DateTime? @map("interested_at") @db.Timestamptz(6)
+  trialAt              DateTime? @map("trial_at") @db.Timestamptz(6)
+  customerAt           DateTime? @map("customer_at") @db.Timestamptz(6)
+  lostAt               DateTime? @map("lost_at") @db.Timestamptz(6)
+  lostReasonCode       String?   @map("lost_reason_code")
+  lostReason           String?   @map("lost_reason")
+  firstResponseAt      DateTime? @map("first_response_at") @db.Timestamptz(6)
+  unattendedNotifiedAt DateTime? @map("unattended_notified_at") @db.Timestamptz(6)
+  /// «No es un lead»: sale del tablero y de las cifras.
+  discardedAt          DateTime? @map("discarded_at") @db.Timestamptz(6)
+  createdById          String?   @map("created_by_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  assignedTo  SuperAdmin?            @relation("PlatformLeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy   SuperAdmin?            @relation("PlatformLeadCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  tenant      Tenant?                @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  activities  PlatformLeadActivity[]
+  followups   PlatformLeadFollowup[]
+  quoteOffers PlatformQuoteOffer[]
+
+  @@index([assignedToId], map: "platform_leads_assigned_idx")
+  @@map("platform_leads")
+}
+
+model PlatformLeadActivity {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  leadId       String   @map("lead_id") @db.Uuid
+  superAdminId String?  @map("super_admin_id") @db.Uuid
+  /// note · call · demo · meeting · whatsapp · email_out · web_form · signup · quote · system
+  type         String
+  subject      String?
+  content      String
+  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lead       PlatformLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  superAdmin SuperAdmin?  @relation("PlatformLeadActivityAuthor", fields: [superAdminId], references: [id], onDelete: SetNull)
+
+  @@map("platform_lead_activities")
+}
+
+model PlatformLeadFollowup {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  leadId       String    @map("lead_id") @db.Uuid
+  superAdminId String?   @map("super_admin_id") @db.Uuid
+  assignedToId String?   @map("assigned_to_id") @db.Uuid
+  title        String
+  note         String?
+  dueDate      DateTime  @map("due_date") @db.Date
+  /// pending · done
+  status       String    @default("pending")
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lead       PlatformLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  superAdmin SuperAdmin?  @relation("PlatformLeadFollowupAuthor", fields: [superAdminId], references: [id], onDelete: SetNull)
+  assignedTo SuperAdmin?  @relation("PlatformLeadFollowupAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([status, dueDate], map: "platform_lead_followups_status_idx")
+  @@index([leadId], map: "platform_lead_followups_lead_idx")
+  @@map("platform_lead_followups")
+}

@@ -241,6 +241,7 @@ export class DataRetentionService {
       webChatConversations,
       waitlistEntries,
       contactMessages,
+      platformLeads,
       adminSessions,
       impersonationLogs,
       superAdminAuditLogs,
@@ -287,6 +288,15 @@ export class DataRetentionService {
       this.admin.platformContactMessage.deleteMany({
         where: { createdAt: { lt: cutoff(contactDays) } },
       }),
+      // Leads del panel admin que no llegaron a tener cuenta y llevan el mismo
+      // plazo sin cambios ni actividad (con su actividad y seguimientos).
+      this.admin.platformLead.deleteMany({
+        where: {
+          tenantId: null,
+          updatedAt: { lt: cutoff(contactDays) },
+          activities: { none: { occurredAt: { gte: cutoff(contactDays) } } },
+        },
+      }),
       // Sesiones del panel admin ya caducadas (cada refresco crea una fila).
       this.admin.superAdminSession.deleteMany({
         where: { expiresAt: { lt: cutoff(adminSessionDays) } },
@@ -322,6 +332,7 @@ export class DataRetentionService {
       webChatConversations: webChatConversations.count,
       waitlistEntries: waitlistEntries.count,
       contactMessages: contactMessages.count,
+      platformLeads: platformLeads.count,
       adminSessions: adminSessions.count,
       impersonationLogs: impersonationLogs.count,
       superAdminAuditLogs: superAdminAuditLogs.count,
@@ -339,6 +350,7 @@ export class DataRetentionService {
       result.webChatConversations +
       result.waitlistEntries +
       result.contactMessages +
+      result.platformLeads +
       result.adminSessions +
       result.impersonationLogs +
       result.superAdminAuditLogs +

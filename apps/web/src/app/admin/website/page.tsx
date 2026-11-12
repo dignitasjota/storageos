@@ -5,32 +5,26 @@ import {
   type PlatformContactSettingsDto,
   type PlatformFounderOfferDto,
 } from '@storageos/shared';
-import { Check, Download, ExternalLink, Loader2, Mail, RotateCcw, Trash2 } from 'lucide-react';
+import { ExternalLink, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import { ContactReplyDialog, ContactNoteEditor } from './contact-tools';
 import { FooterCard } from './footer-card';
 import { HomeTextsCard } from './home-texts-card';
 import { SeoCard } from './seo-card';
 
-import { useConfirm } from '@/components/confirm-provider';
 import { PlatformLogo } from '@/components/public/platform-logo';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  useAdminContactMessages,
   useAdminContactSettings,
   useAdminFounderOffer,
   useAdminPlatformWebsite,
-  downloadContactMessagesCsv,
-  useDeleteContactMessage,
   useResetPlatformLogo,
-  useSetContactMessageHandled,
   useUpdateContactSettings,
   useUpdateFounderOffer,
   useUploadPlatformLogo,
@@ -413,201 +407,22 @@ function ContactSettingsCard() {
   );
 }
 
-/** Mensajes recibidos por el formulario, de 30 en 30 y con buscador. */
+/** Los mensajes del formulario entran en Tenants → Leads (con su conversación y seguimientos). */
 function ContactMessagesCard() {
-  const canEdit = useIsSuperadmin();
-  const confirm = useConfirm();
-  const [showHandled, setShowHandled] = useState(false);
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
-    return () => clearTimeout(t);
-  }, [searchInput]);
-  const messages = useAdminContactMessages({
-    ...(search ? { search } : {}),
-    ...(showHandled ? {} : { handled: false }),
-  });
-  const setHandled = useSetContactMessageHandled();
-  const remove = useDeleteContactMessage();
-  const rows = messages.data?.pages.flatMap((p) => p.items) ?? [];
-  const [replying, setReplying] = useState<(typeof rows)[number] | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const pending = messages.data?.pages[0]?.pending ?? 0;
-
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          Mensajes recibidos
-          {pending > 0 && <Badge>{pending} sin atender</Badge>}
-        </CardTitle>
+        <CardTitle className="text-base">Mensajes recibidos</CardTitle>
         <CardDescription>
-          Contesta desde aquí (sale con el remitente «Contacto web» y queda en Correos enviados) o
-          márcalos como atendidos. Se guardan dos años; la IP de quien escribe, 90 días.
+          Cada mensaje del formulario entra como lead (o se suma al lead que ya hay con ese email o
+          teléfono). Se responden y se siguen desde «Leads».
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Buscar por nombre, email, empresa o texto"
-            className="w-full text-base sm:w-72 sm:text-sm"
-          />
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={showHandled}
-              onChange={(e) => setShowHandled(e.target.checked)}
-            />
-            Mostrar también los atendidos
-          </label>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            disabled={exporting}
-            onClick={async () => {
-              setExporting(true);
-              try {
-                await downloadContactMessagesCsv({
-                  ...(search ? { search } : {}),
-                  ...(showHandled ? {} : { handled: false }),
-                });
-              } catch {
-                toast.error('No se pudo descargar.');
-              } finally {
-                setExporting(false);
-              }
-            }}
-          >
-            <Download className="mr-1 size-4" />
-            CSV
-          </Button>
-        </div>
-        {messages.isLoading ? (
-          <div className="flex justify-center py-6">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            {search ? 'Nada coincide con la búsqueda.' : 'Nada pendiente.'}
-          </p>
-        ) : (
-          <ul className="divide-y rounded-lg border">
-            {rows.map((m) => (
-              <li key={m.id} className={`space-y-2 p-4 ${m.handledAt ? 'opacity-60' : ''}`}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-medium">
-                      {m.name}
-                      {m.company && (
-                        <span className="font-normal text-muted-foreground"> · {m.company}</span>
-                      )}
-                    </p>
-                    <p className="break-all text-sm text-muted-foreground">
-                      <a href={`mailto:${m.email}`} className="hover:underline">
-                        {m.email}
-                      </a>
-                      {m.phone && ` · ${m.phone}`}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {new Date(m.createdAt).toLocaleString('es-ES', {
-                      dateStyle: 'short',
-                      timeStyle: 'short',
-                    })}
-                  </span>
-                </div>
-                {(m.units || m.profile) && (
-                  <div className="flex flex-wrap gap-1">
-                    {m.profile && <Badge variant="secondary">{m.profile}</Badge>}
-                    {m.units && <Badge variant="outline">{m.units}</Badge>}
-                  </div>
-                )}
-                <p className="whitespace-pre-wrap text-sm">{m.message}</p>
-                {m.repliedAt && (
-                  <details className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                    <summary className="cursor-pointer text-xs text-muted-foreground">
-                      Respondido el{' '}
-                      {new Date(m.repliedAt).toLocaleString('es-ES', {
-                        dateStyle: 'short',
-                        timeStyle: 'short',
-                      })}
-                      : {m.replySubject}
-                    </summary>
-                    <p className="mt-2 whitespace-pre-wrap">{m.replyBody}</p>
-                  </details>
-                )}
-                <ContactNoteEditor message={m} />
-                {!m.emailSent && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400">
-                    No se pudo enviar el aviso por email: revísalo aquí.
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setReplying(m)}>
-                    <Mail className="mr-1 size-4" />
-                    Responder
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={m.handledAt ? 'ghost' : 'secondary'}
-                    disabled={setHandled.isPending}
-                    onClick={() => void setHandled.mutateAsync({ id: m.id, handled: !m.handledAt })}
-                  >
-                    {m.handledAt ? (
-                      <>
-                        <RotateCcw className="mr-1 size-4" />
-                        Marcar sin atender
-                      </>
-                    ) : (
-                      <>
-                        <Check className="mr-1 size-4" />
-                        Marcar atendido
-                      </>
-                    )}
-                  </Button>
-                  {canEdit && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label="Borrar el mensaje"
-                      title="Borrar el mensaje"
-                      disabled={remove.isPending}
-                      onClick={async () => {
-                        if (
-                          await confirm({
-                            title: `¿Borrar el mensaje de ${m.name}? No se puede deshacer.`,
-                            destructive: true,
-                          })
-                        )
-                          remove.mutate(m.id);
-                      }}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        {messages.hasNextPage && (
-          <div className="flex justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={messages.isFetchingNextPage}
-              onClick={() => void messages.fetchNextPage()}
-            >
-              {messages.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
-            </Button>
-          </div>
-        )}
+      <CardContent>
+        <Button variant="outline" asChild>
+          <Link href="/admin/leads">Ir a Leads</Link>
+        </Button>
       </CardContent>
-      <ContactReplyDialog message={replying} onClose={() => setReplying(null)} />
     </Card>
   );
 }

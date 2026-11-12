@@ -40,7 +40,7 @@ describe('Mejoras de «Hoy» del panel admin (e2e)', () => {
 
   afterAll(async () => {
     await db.adminTodaySnooze.deleteMany({});
-    await db.platformContactMessage.deleteMany({ where: { email: 'today-e2e@e2e.local' } });
+    await db.platformLead.deleteMany({ where: { email: 'today-e2e@e2e.local' } });
     await app.close();
     await cleanupSuperAdmins();
     await cleanupTestTenants();
@@ -48,11 +48,11 @@ describe('Mejoras de «Hoy» del panel admin (e2e)', () => {
   });
 
   it('un aviso apartado no sale ni cuenta hasta recuperarlo', async () => {
-    const contact = await db.platformContactMessage.create({
-      data: { name: 'Visitante', email: 'today-e2e@e2e.local', message: 'Hola' },
+    const contact = await db.platformLead.create({
+      data: { contactName: 'Visitante', email: 'today-e2e@e2e.local', source: 'web_contact' },
     });
     const before = await today();
-    expect(before.contactMessages.some((c: { id: string }) => c.id === contact.id)).toBe(true);
+    expect(before.newLeads.some((c: { id: string }) => c.id === contact.id)).toBe(true);
 
     await request(app.getHttpServer())
       .post('/admin/today/snoozes')
@@ -60,7 +60,7 @@ describe('Mejoras de «Hoy» del panel admin (e2e)', () => {
       .send({ kind: 'contact', ref: contact.id, label: 'Visitante', days: 7 })
       .expect(204);
     const apart = await today();
-    expect(apart.contactMessages.some((c: { id: string }) => c.id === contact.id)).toBe(false);
+    expect(apart.newLeads.some((c: { id: string }) => c.id === contact.id)).toBe(false);
     expect(apart.urgentCount).toBe(before.urgentCount - 1);
 
     const snooze = apart.snoozes.find((s: { ref: string }) => s.ref === contact.id);
@@ -69,7 +69,7 @@ describe('Mejoras de «Hoy» del panel admin (e2e)', () => {
       .set(auth)
       .expect(204);
     const back = await today();
-    expect(back.contactMessages.some((c: { id: string }) => c.id === contact.id)).toBe(true);
+    expect(back.newLeads.some((c: { id: string }) => c.id === contact.id)).toBe(true);
   });
 
   it('avisa de pruebas sin arrancar y enseña cuánto usa cada prueba', async () => {

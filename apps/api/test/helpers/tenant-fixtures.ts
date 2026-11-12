@@ -25,6 +25,14 @@ export async function cleanupTestTenants(): Promise<void> {
       },
     });
 
+    // Leads del panel admin de las pruebas (registros y formularios con
+    // emails `@e2e.local`) y los de los tenants de prueba.
+    await admin.platformLead.deleteMany({
+      where: {
+        OR: [{ email: { contains: '@e2e.local' } }, { tenant: { slug: { startsWith: 'test-' } } }],
+      },
+    });
+
     const testTenants = await admin.tenant.findMany({
       where: { slug: { startsWith: 'test-' } },
       select: { id: true },

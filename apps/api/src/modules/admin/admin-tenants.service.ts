@@ -2501,6 +2501,25 @@ export class AdminTenantsService {
       // WhatsApp: conversaciones sin texto ni números y fuera el token del número.
       const whatsapp = await anonymizeWhatsappConversations(tx, { tenantId });
       await tx.tenantWhatsappSettings.deleteMany({ where: { tenantId } });
+      // Su lead del panel admin: se queda la fase y el origen (cifras), sin
+      // datos de contacto ni lo hablado.
+      const lead = await tx.platformLead.findUnique({ where: { tenantId }, select: { id: true } });
+      if (lead) {
+        await tx.platformLeadActivity.deleteMany({ where: { leadId: lead.id } });
+        await tx.platformLeadFollowup.deleteMany({ where: { leadId: lead.id } });
+        await tx.platformLead.update({
+          where: { id: lead.id },
+          data: {
+            companyName: ANON,
+            contactName: null,
+            email: null,
+            phone: null,
+            message: null,
+            city: null,
+            lostReason: null,
+          },
+        });
+      }
       // Chat con IA de la web: lo que escribieron los visitantes.
       await tx.webChatConversation.deleteMany({ where: { tenantId } });
       // La cuenta de Stripe del tenant (la cuenta sigue en Stripe, a su nombre).

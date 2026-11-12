@@ -66,7 +66,9 @@ export class AdminQuoteController {
   /** Propuestas enviadas (de un tenant con `?tenantId=`) y su conversión. */
   @Get('quote-offers')
   offers(@Query('tenantId') tenantId?: string): Promise<PlatformQuoteOffersDto> {
-    return this.service.listOffers(tenantId && UUID_RE.test(tenantId) ? tenantId : undefined);
+    return this.service.listOffers({
+      tenantId: tenantId && UUID_RE.test(tenantId) ? tenantId : null,
+    });
   }
 
   /** Marcar una propuesta como aceptada, rechazada o volver a «enviada». */

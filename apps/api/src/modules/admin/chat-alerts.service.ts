@@ -147,12 +147,29 @@ export class ChatAlertsService {
           `TrasterOS · Contacto desde la web: ${who}`,
           e.email,
           e.message.slice(0, 300),
-          `${this.webBase}/admin/website`,
+          `${this.webBase}/admin/leads`,
         ].join('\n'),
         'contact',
       );
     } catch (err) {
       this.logger.warn(`Aviso de contacto: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /** Un lead nuevo lleva horas sin atender (con el aviso de contactos activado). */
+  async leadUnattended(name: string, hours: number, leadId: string): Promise<void> {
+    try {
+      const r = await this.row();
+      if (!r.chatContactEnabled) return;
+      await this.send(
+        [
+          `TrasterOS · ${name} lleva ${hours} h sin atender`,
+          `${this.webBase}/admin/leads?lead=${leadId}`,
+        ].join('\n'),
+        'contact',
+      );
+    } catch (err) {
+      this.logger.warn(`Aviso de lead sin atender: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -182,7 +199,8 @@ export class ChatAlertsService {
     const lines: [number, string][] = [
       [t.pendingApprovals.length, 'solicitudes de soporte por aprobar'],
       [t.openTickets.length, 'tickets sin responder'],
-      [t.contactMessages.length, 'mensajes de la web sin atender'],
+      [t.newLeads.length, 'leads nuevos sin atender'],
+      [t.leadFollowupsDue.length, 'seguimientos de leads para hoy'],
       [t.domainsReady.length, 'dominios propios por activar'],
       [t.rgpdOverdue.length, 'tenants con solicitudes RGPD fuera de plazo'],
       [t.pastDue.length, 'tenants con pago pendiente'],

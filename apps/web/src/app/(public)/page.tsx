@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import type { PlatformHomeTextsInput } from '@storageos/shared';
 import type { Metadata } from 'next';
 
+import { PlatformAttribution } from '@/components/public/platform-attribution';
 import { PlatformContactForm } from '@/components/public/platform-contact-form';
 import { FEATURE_ICONS, type FeatureKey } from '@/components/public/site-nav';
 import { Button } from '@/components/ui/button';
@@ -128,6 +129,7 @@ function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
 
   return (
     <>
+      <PlatformAttribution />
       <PlatformJsonLd
         features={FEATURES.map((f) => t(`features.${f.key}.title`))}
         faq={faqItems}

@@ -2,6 +2,10 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { renderAdminEmail } from '@storageos/shared';
 
+import {
+  PLATFORM_LEAD_INBOUND,
+  type PlatformLeadInboundEvent,
+} from '../../common/platform-lead-events';
 import { escapeHtml } from '../../common/tenant-email-layout';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
@@ -116,6 +120,24 @@ export class PlatformContactService {
         `[contacto] no se pudo enviar el aviso del mensaje ${message.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    // El mensaje entra en Leads del panel admin (o se suma al lead que ya hay).
+    await this.events
+      .emitAsync(PLATFORM_LEAD_INBOUND, {
+        contactMessageId: message.id,
+        name: message.name,
+        email: message.email,
+        phone: message.phone,
+        company: message.company,
+        units: message.units,
+        profile: message.profile,
+        message: message.message,
+        utmSource: input.utmSource?.trim() || null,
+        utmMedium: input.utmMedium?.trim() || null,
+        utmCampaign: input.utmCampaign?.trim() || null,
+      } satisfies PlatformLeadInboundEvent)
+      .catch((err: unknown) =>
+        this.logger.warn(`[contacto] el mensaje ${message.id} no entró en Leads: ${String(err)}`),
+      );
     // Aviso por Telegram/Slack (lo escucha el módulo admin, si está activado).
     this.events.emit(PLATFORM_CONTACT_RECEIVED, {
       id: message.id,
@@ -128,7 +150,7 @@ export class PlatformContactService {
       type: 'platform_contact.received',
       title: `Contacto desde la web: ${message.name}`,
       body: message.message.slice(0, 200),
-      link: '/admin/website',
+      link: '/admin/leads',
     });
   }
 
