@@ -212,6 +212,14 @@ describe('Impagos: mejoras (e2e)', () => {
       const row = await admin.delinquencyCase.findUniqueOrThrow({ where: { id: caseId } });
       return row.pausedAt === null;
     });
+    // El aviso se crea justo después de reanudar el expediente: se espera también.
+    await eventually(async () =>
+      Boolean(
+        await admin.notification.findFirst({
+          where: { tenantId, type: 'collections.plan_broken' },
+        }),
+      ),
+    );
     const broken = await admin.notification.findFirst({
       where: { tenantId, type: 'collections.plan_broken' },
     });
