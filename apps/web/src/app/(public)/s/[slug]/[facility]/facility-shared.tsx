@@ -1,6 +1,6 @@
 import { cityFromPageSlug } from '@storageos/shared';
 import { notFound, permanentRedirect, redirect } from 'next/navigation';
-import { NextIntlClientProvider } from 'next-intl';
+import { createTranslator, NextIntlClientProvider } from 'next-intl';
 
 import { buildCityMetadata, CityPageBody } from '../city/city-shared';
 import {
@@ -13,7 +13,7 @@ import {
 } from '../i18n/messages';
 import { siteUrl } from '../landing-shared';
 import { faqPageLd, localBusinessFields } from '../local-business-ld';
-import { priceRangeString } from '../price-format';
+import { grossPrice, priceRangeString } from '../price-format';
 import { buildPromoMetadata, lookupPromo, PromoPageView } from '../promo/promo-page';
 import { themeFor } from '../promo/promo-theme';
 import { TenantSiteChrome } from '../tenant-site-chrome';
@@ -21,6 +21,7 @@ import { WebChatWidget } from '../web-chat-widget';
 import { WhatsappFloatButton } from '../whatsapp-float-button';
 
 import { FacilityBody } from './facility-body';
+import { facilityDescription, facilityTitle, type PublicWebT } from './facility-seo';
 
 import type { AreaPageFaq, PublicFacilityLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
@@ -67,18 +68,23 @@ export async function getFacility(
 
 /**
  * Datos estructurados de la ficha de local: `Organization`+`WebSite`, el
- * `SelfStorage` (con imágenes) y `BreadcrumbList` (coherente con el
- * breadcrumb visual ya renderizado en la página). Sin `AggregateRating`/
- * `FAQPage` aquí — `PublicFacilityLandingDto` no trae testimonios/FAQ (son
- * tenant-wide, no por local); si se quiere en el futuro, la landing del
- * tenant (`/s/[slug]`) ya los emite.
+ * `SelfStorage` (con imágenes, descripción, características y los tamaños con
+ * su precio), `BreadcrumbList` (los mismos niveles que el de la página) y
+ * `FAQPage` con las preguntas que se ven.
  */
 export function buildFacilityJsonLd(
   data: PublicFacilityLandingDto,
   slug: string,
   facilitySlug: string,
   locale: PublicWebLocale,
-  opts: { faqs?: AreaPageFaq[]; pageName?: string } = {},
+  opts: {
+    faqs?: AreaPageFaq[];
+    pageName?: string;
+    /** El párrafo de presentación que se ve en la página. */
+    description?: string;
+    /** Nombre de cada característica (24 h, climatizado…) en el idioma de la página. */
+    featureNames?: string[];
+  } = {},
 ) {
   const tenantBase = data.customDomain ? `https://${data.customDomain}` : `${siteUrl()}/s/${slug}`;
   const orgId = `${tenantBase}/#organization`;
@@ -105,23 +111,68 @@ export function buildFacilityJsonLd(
   };
 
   const priceRange = priceRangeString(f.unitTypes, locale);
+  const en = locale === 'en';
+  // Cada tamaño con su precio al mes (IVA incluido), como se ve en la página.
+  const offers = f.unitTypes.map((u) => ({
+    '@type': 'Offer',
+    name: `${en ? 'Storage unit' : 'Trastero'} ${u.name}${f.city ? ` ${en ? 'in' : 'en'} ${f.city}` : ''}`,
+    price: Math.round(grossPrice(u) * 100) / 100,
+    priceCurrency: 'EUR',
+    priceSpecification: {
+      '@type': 'UnitPriceSpecification',
+      price: Math.round(grossPrice(u) * 100) / 100,
+      priceCurrency: 'EUR',
+      unitCode: 'MON',
+      valueAddedTaxIncluded: true,
+    },
+    availability: u.available > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+    ...(u.areaM2 ? { description: `${u.areaM2} m²` } : {}),
+  }));
   const selfStorage = {
     '@type': 'SelfStorage',
     '@id': `${pageUrl}#local`,
     name: `${data.tenantName} — ${f.name}`,
+    ...(opts.description ? { description: opts.description } : {}),
     parentOrganization: { '@id': orgId },
     ...(f.imageUrls.length > 0 ? { image: f.imageUrls } : {}),
     url: pageUrl,
     ...localBusinessFields(f, { areaServed: data.areaPage?.content?.nearbyAreas ?? [] }),
     ...(priceRange ? { priceRange } : {}),
+    currenciesAccepted: 'EUR',
+    ...(opts.featureNames && opts.featureNames.length > 0
+      ? {
+          amenityFeature: opts.featureNames.map((name) => ({
+            '@type': 'LocationFeatureSpecification',
+            name,
+            value: true,
+          })),
+        }
+      : {}),
+    ...(offers.length > 0 ? { makesOffer: offers } : {}),
   };
 
+  // Los mismos niveles que se ven: negocio › ciudad (si hay página) › local.
+  const cityUrl =
+    data.cityPage && !opts.pageName
+      ? cityPageHref(data.tenantSlug, data.cityPage.slug, locale, data.customDomain)
+      : null;
+  const crumbs = [
+    { name: data.tenantName, item: tenantBase },
+    ...(cityUrl && data.cityPage
+      ? [
+          {
+            name: en
+              ? `Storage units in ${data.cityPage.name}`
+              : `Trasteros en ${data.cityPage.name}`,
+            item: cityUrl.startsWith('http') ? cityUrl : `${siteUrl()}${cityUrl}`,
+          },
+        ]
+      : []),
+    { name: opts.pageName ?? f.name, item: pageUrl },
+  ];
   const breadcrumb = {
     '@type': 'BreadcrumbList',
-    itemListElement: [
-      { '@type': 'ListItem', position: 1, name: data.tenantName, item: tenantBase },
-      { '@type': 'ListItem', position: 2, name: opts.pageName ?? f.name, item: pageUrl },
-    ],
+    itemListElement: crumbs.map((c, i) => ({ '@type': 'ListItem', position: i + 1, ...c })),
   };
 
   // Las mismas preguntas que se ven en la página.
@@ -191,18 +242,14 @@ export async function buildFacilityMetadata(
   const f = data.facility;
   // Los textos propios de la ciudad están en español.
   const own = locale === 'es' ? data.areaPage?.content : null;
-  const title =
-    own?.seoTitle ||
-    (locale === 'en'
-      ? `Storage units${f.city ? ` in ${f.city}` : ''} — ${f.name} · ${data.tenantName}`
-      : `Trasteros${f.city ? ` en ${f.city}` : ''} — ${f.name} · ${data.tenantName}`);
-  const description =
-    own?.seoDescription ||
-    (locale === 'en'
-      ? `Rent a storage unit at ${f.name}${f.city ? ` (${f.city})` : ''}. Check sizes, prices and availability and book online.`
-      : `Alquila un trastero en ${f.name}${
-          f.city ? ` (${f.city})` : ''
-        }. Consulta tamaños, precios y disponibilidad y reserva online.`);
+  const t = createTranslator({
+    locale: intlLocaleFor(locale),
+    messages: await getPublicWebMessages(locale),
+    namespace: 'publicWeb',
+  }) as unknown as PublicWebT;
+  // Localidad, tamaños y precio en el título y la descripción (lo que se busca).
+  const title = own?.seoTitle || facilityTitle(f, data.tenantName, locale);
+  const description = own?.seoDescription || facilityDescription(t, f, data.tenantName, locale);
   const base = data.customDomain
     ? `https://${data.customDomain}/${facilitySlug}`
     : `/s/${slug}/${facilitySlug}`;

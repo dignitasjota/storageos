@@ -10,6 +10,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { createTranslator, NextIntlClientProvider } from 'next-intl';
 
 import { FacilityBody } from '../[facility]/facility-body';
+import { facilityDescription, type PublicWebT } from '../[facility]/facility-seo';
 import { getFacility } from '../[facility]/facility-shared';
 import {
   cityPageHref,
@@ -116,20 +117,35 @@ export async function buildCityMetadata(
   const names = page.facilities.map((f) => f.name).join(', ');
   // Los textos propios están en español: en inglés se usan los generados.
   const own = locale === 'es' ? page.content : null;
+  const head =
+    locale === 'en'
+      ? `Storage units ${near ? 'near' : 'in'} ${page.name}`
+      : `Trasteros ${near ? 'cerca de' : 'en'} ${page.name}`;
+  const withPrice = price
+    ? `${head} ${locale === 'en' ? 'from' : 'desde'} ${price}/${locale === 'en' ? 'month' : 'mes'} · ${data.tenantName}`
+    : null;
+  // Con el precio si cabe (Google corta hacia los 60 caracteres).
   const title =
     own?.seoTitle ||
-    (locale === 'en'
-      ? `Storage units ${near ? 'near' : 'in'} ${page.name} · ${data.tenantName}`
-      : `Trasteros ${near ? 'cerca de' : 'en'} ${page.name} · ${data.tenantName}`);
+    (withPrice && withPrice.length <= 65 ? withPrice : `${head} · ${data.tenantName}`);
+  const sole = page.kind === 'city' && page.facilities.length === 1 ? page.facilities[0] : null;
+  const t = createTranslator({
+    locale: intlLocaleFor(locale),
+    messages: await getPublicWebMessages(locale),
+    namespace: 'publicWeb',
+  }) as unknown as PublicWebT;
   const description =
     own?.seoDescription ||
-    (near
-      ? locale === 'en'
-        ? `Storage units near ${page.name}: ${names} (${data.tenantName})${price ? `, from ${price}/month (VAT incl.)` : ''}. Check sizes and book online.`
-        : `Trasteros cerca de ${page.name}: ${names} (${data.tenantName})${price ? `, desde ${price}/mes (IVA incl.)` : ''}. Consulta tamaños y reserva online.`
-      : locale === 'en'
-        ? `${page.facilities.length} storage locations of ${data.tenantName} in ${page.name}${price ? `, from ${price}/month (VAT incl.)` : ''}. Check sizes and availability and book online.`
-        : `${page.facilities.length === 1 ? 'Un centro' : `${page.facilities.length} centros`} de ${data.tenantName} en ${page.name}${price ? `, desde ${price}/mes (IVA incl.)` : ''}. Consulta tamaños y disponibilidad y reserva online.`);
+    // Un solo local en la ciudad: su dirección, tamaños y precio.
+    (sole
+      ? facilityDescription(t, sole, data.tenantName, locale)
+      : near
+        ? locale === 'en'
+          ? `Storage units near ${page.name}: ${names} (${data.tenantName})${price ? `, from ${price}/month (VAT incl.)` : ''}. Check sizes and book online.`
+          : `Trasteros cerca de ${page.name}: ${names} (${data.tenantName})${price ? `, desde ${price}/mes (IVA incl.)` : ''}. Consulta tamaños y reserva online.`
+        : locale === 'en'
+          ? `${page.facilities.length} storage locations of ${data.tenantName} in ${page.name}${price ? `, from ${price}/month (VAT incl.)` : ''}. Check sizes and availability and book online.`
+          : `${page.facilities.length === 1 ? 'Un centro' : `${page.facilities.length} centros`} de ${data.tenantName} en ${page.name}${price ? `, desde ${price}/mes (IVA incl.)` : ''}. Consulta tamaños y disponibilidad y reserva online.`);
   const es = cityPageHref(slug, page.slug, 'es', data.customDomain);
   const en = cityPageHref(slug, page.slug, 'en', data.customDomain);
   return {
