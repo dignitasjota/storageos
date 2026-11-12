@@ -28,6 +28,7 @@ import {
   Mail,
   LogOut,
   Megaphone,
+  Newspaper,
   Menu,
   Package,
   PackagePlus,
@@ -163,6 +164,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
     icon: Globe,
     children: [
       { href: '/admin/website', label: 'Web de TrasterOS', icon: Globe },
+      { href: '/admin/blog', label: 'Blog de TrasterOS', icon: Newspaper },
       { href: '/admin/legal', label: 'Páginas legales', icon: FileText },
       { href: '/admin/email', label: 'Correo saliente', icon: Mail },
       { href: '/admin/ai', label: 'Asistente IA', icon: Bot },

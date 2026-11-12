@@ -7837,6 +7837,28 @@ model SuperAdminSavedView {
   @@map("super_admin_saved_views")
 }
 
+/// Entrada del blog de la web de TrasterOS (trasteros.pro/blog). Global (sin
+/// tenant): la escribe el super admin.
+model PlatformBlogPost {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  slug            String    @unique(map: "platform_blog_posts_slug_key")
+  title           String
+  excerpt         String?
+  contentMarkdown String    @map("content_markdown")
+  /// Portada en el bucket público (`platform/blog/<id>/…`).
+  coverImageKey   String?   @map("cover_image_key")
+  coverImageAlt   String?   @map("cover_image_alt")
+  seoTitle        String?   @map("seo_title")
+  seoDescription  String?   @map("seo_description")
+  isPublished     Boolean   @default(false) @map("is_published")
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isPublished, publishedAt(sort: Desc)], map: "platform_blog_posts_published_idx")
+  @@map("platform_blog_posts")
+}
+
 /// Lead del panel admin: alguien interesado en TrasterOS, desde el primer
 /// contacto hasta que paga o se pierde. Global (sin tenant): solo super admins.
 model PlatformLead {

@@ -5,6 +5,7 @@ import { TenantFeatures } from '../features';
 import { MESSAGE_MAX_ATTACHMENTS, MessageAttachmentSchema } from '../messages';
 
 import { AddonPriceTiersSchema } from './catalog';
+import { ProfitabilityInputSchema } from './profitability';
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
@@ -880,22 +881,52 @@ export type UpdatePlatformContactSettingsInput = z.infer<
 >;
 
 /** Envío del formulario de contacto de la web (público). */
-export const SubmitPlatformContactSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  email: z.string().trim().toLowerCase().email().max(200),
-  phone: z.string().trim().max(30).optional().or(z.literal('')),
-  company: z.string().trim().max(160).optional().or(z.literal('')),
-  units: z.string().trim().max(40).optional().or(z.literal('')),
-  profile: z.string().trim().max(120).optional().or(z.literal('')),
-  message: z.string().trim().min(10).max(4000),
-  acceptPrivacy: z.literal(true),
-  /** Trampa para bots: un humano no la rellena. */
-  hp: z.string().max(200).optional(),
-  /** De dónde vino la visita (lo guarda el navegador). */
-  utmSource: z.string().trim().max(120).optional(),
-  utmMedium: z.string().trim().max(120).optional(),
-  utmCampaign: z.string().trim().max(120).optional(),
-});
+/**
+ * Qué se envía desde la web de TrasterOS: el formulario de contacto, la
+ * petición de una demo o el informe de la calculadora de rentabilidad. Todos
+ * entran en Leads del panel admin (cada uno con su origen).
+ */
+export const PLATFORM_CONTACT_KINDS = ['contact', 'demo', 'calculator'] as const;
+export const PlatformContactKindEnum = z.enum(PLATFORM_CONTACT_KINDS);
+export type PlatformContactKind = z.infer<typeof PlatformContactKindEnum>;
+
+export const SubmitPlatformContactSchema = z
+  .object({
+    kind: PlatformContactKindEnum.default('contact'),
+    name: z.string().trim().min(2).max(120),
+    email: z.string().trim().toLowerCase().email().max(200),
+    phone: z.string().trim().max(30).optional().or(z.literal('')),
+    company: z.string().trim().max(160).optional().or(z.literal('')),
+    units: z.string().trim().max(40).optional().or(z.literal('')),
+    profile: z.string().trim().max(120).optional().or(z.literal('')),
+    /** Obligatorio en el contacto; en la demo y la calculadora, opcional. */
+    message: z.string().trim().max(4000).optional().or(z.literal('')),
+    /** Datos de la calculadora (solo con `kind: 'calculator'`). */
+    calculator: ProfitabilityInputSchema.optional(),
+    acceptPrivacy: z.literal(true),
+    /** Trampa para bots: un humano no la rellena. */
+    hp: z.string().max(200).optional(),
+    /** De dónde vino la visita (lo guarda el navegador). */
+    utmSource: z.string().trim().max(120).optional(),
+    utmMedium: z.string().trim().max(120).optional(),
+    utmCampaign: z.string().trim().max(120).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.kind === 'contact' && (v.message?.trim().length ?? 0) < 10) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['message'],
+        message: 'El mensaje debe tener al menos 10 caracteres',
+      });
+    }
+    if (v.kind === 'calculator' && !v.calculator) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['calculator'],
+        message: 'Faltan los datos de la calculadora',
+      });
+    }
+  });
 export type SubmitPlatformContactInput = z.infer<typeof SubmitPlatformContactSchema>;
 
 // --- Add-ons facturables del SaaS ---------------------------------------
@@ -1244,23 +1275,32 @@ export const DEFAULT_PLATFORM_FOOTER: UpdatePlatformFooterInput = {
     {
       title: 'Producto',
       links: [
-        { label: 'Funcionalidades', href: '/#funcionalidades' },
-        { label: 'Cómo funciona', href: '/#como-funciona' },
-        { label: 'Cumplimiento fiscal', href: '/#cumplimiento' },
-        { label: 'Precios', href: '/#precios' },
+        { label: 'Funcionalidades', href: '/funcionalidades' },
+        { label: 'Facturación Veri*Factu', href: '/funcionalidades/facturacion-veri-factu' },
+        {
+          label: 'Cobros: SEPA, tarjeta y Bizum',
+          href: '/funcionalidades/cobros-sepa-tarjeta-bizum',
+        },
+        { label: 'Control de accesos', href: '/funcionalidades/control-de-accesos' },
+        { label: 'Reserva online', href: '/funcionalidades/reserva-online' },
+        { label: 'Web y SEO local', href: '/funcionalidades/web-y-seo-local' },
+        { label: 'Precios', href: '/precios' },
       ],
     },
     {
       title: 'Soluciones',
       links: [
-        { label: 'Operadores de self-storage', href: '/#para-quien' },
-        { label: 'Administradores de cartera', href: '/#administradores' },
-        { label: 'Viviendas', href: '/#viviendas' },
+        { label: 'Operadores de self-storage', href: '/soluciones/operadores-self-storage' },
+        { label: 'Administradores de cartera', href: '/soluciones/administradores-de-trasteros' },
+        { label: 'Trasteros y viviendas', href: '/soluciones/trasteros-y-viviendas' },
       ],
     },
     {
       title: 'Recursos',
       links: [
+        { label: 'Blog', href: '/blog' },
+        { label: 'Calculadora de rentabilidad', href: '/calculadora-rentabilidad-trasteros' },
+        { label: 'Pedir una demo', href: '/#demo' },
         { label: 'Preguntas frecuentes', href: '/#faq' },
         { label: 'Contacto', href: '/#contacto' },
         { label: 'Área de clientes', href: '/portal/login' },
@@ -1270,7 +1310,7 @@ export const DEFAULT_PLATFORM_FOOTER: UpdatePlatformFooterInput = {
       title: 'Cuenta',
       links: [
         { label: 'Iniciar sesión', href: '/login' },
-        { label: 'Crear cuenta', href: '/register' },
+        { label: 'Probar gratis', href: '/register' },
       ],
     },
   ],
@@ -1435,6 +1475,20 @@ export const UpdateContactMessageSchema = z.object({
 });
 export type UpdateContactMessageInput = z.infer<typeof UpdateContactMessageSchema>;
 
+/**
+ * Testimonio de un cliente en la web de TrasterOS. Solo los que da un cliente
+ * real: sin ninguno, la sección no se muestra.
+ */
+export const PlatformTestimonialSchema = z.object({
+  quote: z.string().trim().min(10).max(600),
+  name: z.string().trim().min(2).max(80),
+  /** Cargo (p. ej. «Gerente»). */
+  role: z.string().trim().max(100).optional().or(z.literal('')),
+  /** Negocio y localidad (p. ej. «Trasteros García, Valencia»). */
+  business: z.string().trim().max(120).optional().or(z.literal('')),
+});
+export type PlatformTestimonialInput = z.infer<typeof PlatformTestimonialSchema>;
+
 /** Textos propios de la portada de trasteros.pro (null = el de serie). */
 export const PlatformHomeTextsSchema = z.object({
   heroTitle: z.string().trim().max(120).nullable(),
@@ -1450,6 +1504,8 @@ export const PlatformHomeTextsSchema = z.object({
     )
     .max(20)
     .nullable(),
+  /** Testimonios de clientes (vacío = sin la sección). Los guardados antes no lo traen. */
+  testimonials: z.array(PlatformTestimonialSchema).max(6).default([]),
 });
 export type PlatformHomeTextsInput = z.infer<typeof PlatformHomeTextsSchema>;
 
@@ -1458,4 +1514,5 @@ export const DEFAULT_PLATFORM_HOME_TEXTS: PlatformHomeTextsInput = {
   heroSubtitle: null,
   heroNote: null,
   faq: null,
+  testimonials: [],
 };

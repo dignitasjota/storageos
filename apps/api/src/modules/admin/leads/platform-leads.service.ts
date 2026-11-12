@@ -1035,7 +1035,7 @@ export class PlatformLeadsService {
     const lead = await this.admin.platformLead.create({
       data: {
         status: 'new',
-        source: 'web_contact',
+        source: e.source,
         companyName: clean(e.company),
         contactName: clean(e.name),
         email,

@@ -17,7 +17,7 @@
   },
   "publicHeader": {
     "login": "Iniciar sesión",
-    "register": "Crear cuenta",
+    "register": "Probar gratis",
     "goToApp": "Ir al panel",
     "menu": {
       "title": "Menú",
@@ -51,8 +51,8 @@
           "description": "Pon en marcha tu cuenta en cuatro pasos."
         },
         "compliance": {
-          "title": "Cumplimiento fiscal",
-          "description": "Veri*Factu, IVA, retenciones y exportación para tu asesoría."
+          "title": "Veri*Factu y fiscalidad",
+          "description": "Facturación conforme, IVA, retenciones y exportación para tu asesoría."
         },
         "faq": {
           "title": "Preguntas frecuentes",
@@ -65,6 +65,18 @@
         "tenantPortal": {
           "title": "Área de clientes",
           "description": "Acceso para los inquilinos de nuestros clientes."
+        },
+        "blog": {
+          "title": "Blog",
+          "description": "Guías para gestionar y hacer crecer tu negocio de trasteros."
+        },
+        "calculator": {
+          "title": "Calculadora de rentabilidad",
+          "description": "Calcula ingresos, beneficio y en cuánto recuperas la inversión."
+        },
+        "demo": {
+          "title": "Pedir una demo",
+          "description": "Te enseñamos el programa con tus casos, sin compromiso."
         }
       }
     }
@@ -84,11 +96,11 @@
     "ctaSecondary": "Hablar con nosotros"
   },
   "landing": {
-    "heroTitle": "Software de gestión para self-storage y trasteros",
+    "heroTitle": "Software de gestión de trasteros y self-storage",
     "heroSubtitle": "Inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros, control de accesos, CRM y analítica. Para tus propios locales, para carteras de varios propietarios y también para viviendas.",
     "heroNote": "Prueba 30 días gratis. Sin tarjeta ni permanencia.",
-    "primaryCta": "Crear cuenta gratis",
-    "secondaryCta": "Iniciar sesión",
+    "primaryCta": "Probar 30 días gratis",
+    "secondaryCta": "Pedir una demo",
     "badges": [
       "Conforme a Veri*Factu y AEAT",
       "Cobros por SEPA, tarjeta y Bizum",
@@ -97,7 +109,7 @@
       "Cumple el RGPD"
     ],
     "features": {
-      "title": "Todo lo que necesita tu negocio, en un solo sitio",
+      "title": "Todo lo que necesita tu negocio de trasteros, en un solo programa",
       "subtitle": "Desde el alta del inquilino hasta el cobro, el acceso y la liquidación al propietario, sin hojas de cálculo ni papeleo.",
       "plan": {
         "title": "Inventario y plano interactivo",
@@ -161,7 +173,7 @@
       }
     },
     "howItWorks": {
-      "title": "Pon en marcha tu self-storage en 4 pasos",
+      "title": "Empieza a gestionar tus trasteros en 4 pasos",
       "subtitle": "Sin instalaciones ni hojas de cálculo. Todo en la nube y en minutos.",
       "steps": [
         {
@@ -220,7 +232,7 @@
       "deposits": "Fianzas, liquidación al terminar y expedientes de impago"
     },
     "pricing": {
-      "title": "Precios claros, sin sorpresas",
+      "title": "Precios del programa de gestión de trasteros",
       "subtitle": "Sin cuota de integración de miles de euros y sin permanencia. Cambia de plan o cancela cuando quieras.",
       "perMonth": "/mes",
       "yearlyLabel": "o {yearly}€/año",
@@ -291,7 +303,7 @@
       "ivaIncludedNote": "IVA incluido"
     },
     "faq": {
-      "title": "Preguntas frecuentes",
+      "title": "Preguntas frecuentes sobre el software de trasteros",
       "subtitle": "Resolvemos las dudas más habituales sobre el software de gestión de trasteros.",
       "items": [
         {
@@ -341,7 +353,7 @@
       "subtitle": "Empieza hoy y ten tus trasteros, contratos y cobros bajo control en minutos. Prueba 30 días gratis, sin tarjeta."
     },
     "audiences": {
-      "title": "Hecho para cómo trabajas",
+      "title": "Para operadores de self-storage, administradores y viviendas",
       "subtitle": "Gestiona tus propios locales, los de tus clientes o mezcla trasteros y viviendas en la misma cuenta.",
       "items": [
         {
@@ -353,7 +365,7 @@
             "Control de accesos y portal del inquilino",
             "Web con reserva online por local"
           ],
-          "cta": "Ver planes"
+          "cta": "Ver la solución para operadores"
         },
         {
           "key": "managers",
@@ -366,7 +378,7 @@
             "Liquidación mensual a cada propietario por email",
             "Libro de IVA, 303 y 347 por propietario"
           ],
-          "cta": "Ver el plan Administrador"
+          "cta": "Ver la solución para administradores"
         },
         {
           "key": "housing",
@@ -379,7 +391,7 @@
             "Depósito de la fianza en el organismo de tu comunidad",
             "Actualización anual de la renta en el aniversario"
           ],
-          "cta": "Ver los extras"
+          "cta": "Ver la solución para viviendas"
         }
       ]
     }

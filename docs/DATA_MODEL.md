@@ -1201,3 +1201,10 @@ Migración `20270111100000_platform_leads`. Tablas globales (sin tenant, REVOKE 
 - **`platform_lead_followups`**: seguimientos con fecha (`pending`/`done`), autor y responsable (SET NULL); se borran con el lead.
 - `platform_quote_offers.tenant_id` pasa a admitir nulo y gana `lead_id` (FK SET NULL): una propuesta a un lead sin cuenta; al vincularse a su tenant pasa a ser suya. Borrar un lead borra antes sus propuestas sin tenant.
 - La migración pasa a leads los mensajes del formulario (uno por email, con sus mensajes, respuestas y notas como actividad) y los tenants que estaban en prueba (al lead del formulario con su email o a uno nuevo «Registro en la web»).
+
+### Blog de TrasterOS (2026-11-12)
+
+Migración `20270112100000_platform_blog`. Tabla global (sin tenant, REVOKE a `storageos_app`):
+
+- **`platform_blog_posts`**: guías de trasteros.pro/blog. `slug` único, `title`, `excerpt`, `content_markdown`, `cover_image_key` (bucket público, `platform/blog/<id>/…`) y `cover_image_alt`, `seo_title`, `seo_description`, `is_published` y `published_at` (se fija la primera vez que se publica; índice `(is_published, published_at DESC)`). La migración trae 4 guías en borrador.
+- `platform_website.home` (jsonb) gana `testimonials` (hasta 6) y `platform_leads.source` admite `demo` y `calculator`.

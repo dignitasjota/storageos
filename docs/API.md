@@ -2443,6 +2443,14 @@ Todo con la feature `multi_owner`.
 - SEO: `PUT /admin/platform/website/seo` (título, descripción, verificaciones de Google y Bing, GA4 `G-…`, `indexable`, nombre de la empresa), `POST /admin/platform/website/og-image-upload-url` y `PUT /admin/platform/website/og-image {key|null}` (superadmin). `GET /platform-website` incluye `seo` (con `ogImageUrl`).
 - Admin (`/admin/platform/...`, escribir: superadmin): `GET/PUT founder-offer`; `GET website`, `POST website/logo-upload-url`, `PUT website/logo {key|null}` (sin SVG), `PUT website/footer` (enlaces solo `/ruta`, `#ancla`, `https://`, `mailto:` o `tel:`; redes solo `https://`); `GET/PUT contact`, `GET contact/messages` (100 últimos) y `POST contact/messages/:id/handled {handled}`.
 
+- **Demo y calculadora** (`POST /platform-contact {kind}`): `kind` `contact` (por defecto; necesita el formulario activo y un mensaje de 10 caracteres), `demo` (sin mensaje) o `calculator` (con `calculator: {units, avgPrice, occupancyPct, rent, utilities, staff, other, investment}`; el servidor recalcula y manda el informe al visitante). Demo y calculadora se aceptan con el formulario apagado; las tres entran en Leads con su origen (`web_contact`, `demo`, `calculator`).
+- **Testimonios**: `PUT /admin/platform/website/home` admite `testimonials` (hasta 6: `quote` 10-600, `name` 2-80, `role`, `business`); `GET /platform-website` los devuelve en `home.testimonials`.
+
+### Blog de TrasterOS (2026-11-12)
+
+- Públicos: `GET /platform-blog` (publicadas, más recientes primero) y `GET /platform-blog/:slug` (con `contentMarkdown`, `seoTitle`, `seoDescription`, `readingMinutes` y 3 `related`; 404 `post_not_found` si no existe o no está publicada).
+- Admin (`/admin/platform/blog`; leer también el rol soporte, escribir solo superadmin): `GET`, `GET :id`, `POST` (dirección del título si no se da; `-2`, `-3`… si se repite), `PATCH :id` (la fecha de publicación se fija la primera vez que se publica), `DELETE :id`, `POST :id/cover-upload-url {mimeType, sizeBytes, fileName?}` → `{uploadUrl, key, expiresIn, requiredHeaders}` y `PUT :id/cover {coverImageKey|null}` (solo claves `platform/blog/<id>/…`, imagen real; borra la anterior).
+
 ### Web del tenant (#663–#667)
 
 - Plantillas nuevas de Web Premium: `trstrom` y `cabe` (`PATCH /settings/tenant/web {template}`).

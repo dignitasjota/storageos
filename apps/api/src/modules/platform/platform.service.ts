@@ -94,6 +94,12 @@ export class PlatformService {
       heroSubtitle: clean(input.heroSubtitle),
       heroNote: clean(input.heroNote),
       faq: input.faq?.length ? input.faq : null,
+      testimonials: (input.testimonials ?? []).map((t) => ({
+        quote: t.quote.trim(),
+        name: t.name.trim(),
+        role: t.role?.trim() ?? '',
+        business: t.business?.trim() ?? '',
+      })),
     };
     await this.upsertWebsite({ home: home as unknown as Prisma.InputJsonValue });
     return this.getWebsite();

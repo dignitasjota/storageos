@@ -1,5 +1,7 @@
 import { renderSitemap, type PublicSitemapDto, type SitemapUrl } from '@storageos/shared';
 
+import { fetchPlatformBlogPosts } from '@/lib/marketing/blog';
+import { FEATURE_PAGES, SOLUTION_PAGES, marketingPageHref } from '@/lib/marketing/pages';
 import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
 const API_URL = SERVER_API_URL;
@@ -24,6 +26,7 @@ export const revalidate = 3600;
 export async function GET(): Promise<Response> {
   const base = siteUrl();
   let data: PublicSitemapDto = { entries: [] };
+  const blogPosts = await fetchPlatformBlogPosts();
   try {
     const res = await fetch(`${API_URL}/public/landing/sitemap`, {
       headers: internalApiHeaders(),
@@ -36,6 +39,27 @@ export async function GET(): Promise<Response> {
 
   const urls: SitemapUrl[] = [
     { loc: `${base}/`, changefreq: 'weekly', priority: 1 },
+    { loc: `${base}/precios`, changefreq: 'weekly', priority: 0.9 },
+    { loc: `${base}/funcionalidades`, changefreq: 'monthly', priority: 0.8 },
+    ...FEATURE_PAGES.map((p) => ({
+      loc: `${base}${marketingPageHref(p)}`,
+      changefreq: 'monthly' as const,
+      priority: 0.8,
+    })),
+    { loc: `${base}/soluciones`, changefreq: 'monthly', priority: 0.7 },
+    ...SOLUTION_PAGES.map((p) => ({
+      loc: `${base}${marketingPageHref(p)}`,
+      changefreq: 'monthly' as const,
+      priority: 0.8,
+    })),
+    { loc: `${base}/calculadora-rentabilidad-trasteros`, changefreq: 'monthly', priority: 0.7 },
+    { loc: `${base}/blog`, changefreq: 'weekly', priority: 0.7 },
+    ...blogPosts.map((p) => ({
+      loc: `${base}/blog/${p.slug}`,
+      lastmod: p.publishedAt,
+      changefreq: 'monthly' as const,
+      priority: 0.6,
+    })),
     { loc: `${base}/terminos`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/privacidad`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/cookies`, changefreq: 'yearly', priority: 0.3 },

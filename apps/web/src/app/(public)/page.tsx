@@ -1,23 +1,34 @@
-import { ArrowRight, Check, Home, Users, Warehouse } from 'lucide-react';
+import { ArrowRight, Calculator, Check, Home, Users, Warehouse } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
-import type { PlatformHomeTextsInput } from '@storageos/shared';
+import type { PlatformHomeTextsInput, PublicPlatformBlogPostSummaryDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
+import {
+  CtaBand,
+  CtaButtons,
+  DemoSection,
+  FaqList,
+  ProductShot,
+  Testimonials,
+} from '@/components/marketing/blocks';
+import { PricingSection } from '@/components/marketing/pricing';
+import { StickyMobileCta } from '@/components/marketing/sticky-cta';
 import { PlatformAttribution } from '@/components/public/platform-attribution';
 import { PlatformContactForm } from '@/components/public/platform-contact-form';
-import { FEATURE_ICONS, type FeatureKey } from '@/components/public/site-nav';
+import {
+  AUDIENCE_PAGE_SLUG,
+  FEATURE_ICONS,
+  FEATURE_PAGE_SLUG,
+  type FeatureKey,
+} from '@/components/public/site-nav';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { fetchFounderOffer } from '@/lib/founder-offer';
 import { safeJsonLd } from '@/lib/json-ld';
-import {
-  catalogIncludesVat,
-  fetchPublicPlans,
-  mergeLandingPlans,
-  type LandingPlanCopy,
-} from '@/lib/platform-plans';
+import { fetchPlatformBlogPosts, formatBlogDate } from '@/lib/marketing/blog';
+import { fetchPublicPlans, mergeLandingPlans, type LandingPlanCopy } from '@/lib/platform-plans';
 import { fetchPlatformWebsite } from '@/lib/platform-website';
 
 const SITE_URL = (
@@ -26,7 +37,7 @@ const SITE_URL = (
   'https://trasteros.pro'
 ).replace(/\/$/, '');
 
-const TITLE = 'TrasterOS — Software de gestión para self-storage y trasteros';
+const TITLE = 'Software de gestión de trasteros y self-storage | TrasterOS';
 /** Descripción por defecto (≈155 caracteres: lo que Google muestra sin cortar). */
 const DESCRIPTION =
   'Gestiona tu self-storage en la nube: contratos con firma electrónica, facturación Veri*Factu, cobros por SEPA y Bizum, accesos y CRM. Prueba gratis 30 días.';
@@ -104,12 +115,18 @@ const EXTRAS = [
 ] as const;
 
 export default async function LandingPage() {
-  const { home } = await fetchPlatformWebsite();
-  return <LandingContent home={home} />;
+  const [{ home }, posts] = await Promise.all([fetchPlatformWebsite(), fetchPlatformBlogPosts()]);
+  return <LandingContent home={home} posts={posts.slice(0, 3)} />;
 }
 
 /** Los textos propios de la portada (panel admin) mandan sobre los de serie. */
-function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
+function LandingContent({
+  home,
+  posts,
+}: {
+  home: PlatformHomeTextsInput;
+  posts: PublicPlatformBlogPostSummaryDto[];
+}) {
   const t = useTranslations('landing');
 
   const badges = t.raw('badges') as string[];
@@ -137,24 +154,14 @@ function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
       />
 
       {/* Hero */}
-      <section className="container flex flex-col items-center gap-6 py-20 text-center md:py-28">
+      <section className="container flex flex-col items-center gap-6 pb-12 pt-16 text-center md:pt-24">
         <h1 className="text-balance text-4xl font-semibold tracking-tight md:text-5xl">
           {home.heroTitle ?? t('heroTitle')}
         </h1>
         <p className="max-w-2xl text-pretty text-lg text-muted-foreground">
           {home.heroSubtitle ?? t('heroSubtitle')}
         </p>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Button asChild size="lg">
-            <Link href="/register">
-              {t('primaryCta')}
-              <ArrowRight className="ml-2 size-4" aria-hidden />
-            </Link>
-          </Button>
-          <Button asChild size="lg" variant="ghost">
-            <Link href="/login">{t('secondaryCta')}</Link>
-          </Button>
-        </div>
+        <CtaButtons center />
         <p className="text-sm text-muted-foreground">{home.heroNote ?? t('heroNote')}</p>
         <ul className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
           {badges.map((badge) => (
@@ -164,6 +171,7 @@ function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
             </li>
           ))}
         </ul>
+        <ProductShot shot="dashboard" priority className="mt-8 w-full max-w-5xl" />
       </section>
 
       {/* Funcionalidades */}
@@ -177,21 +185,37 @@ function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
             {t('features.title')}
           </h2>
           <p className="mt-2 text-muted-foreground">{t('features.subtitle')}</p>
+          <Link
+            href="/funcionalidades"
+            className="mt-3 inline-flex items-center text-sm font-medium text-primary hover:underline"
+          >
+            Ver todas las funcionalidades
+            <ArrowRight className="ml-1 size-4" aria-hidden />
+          </Link>
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map(({ key, icon: Icon }) => (
             <Card
               key={key}
               id={`func-${key}`}
-              className="group scroll-mt-24 border-border/60 transition-colors duration-200 hover:border-primary hover:bg-primary hover:shadow-lg"
+              className="group relative scroll-mt-24 border-border/60 transition-colors duration-200 hover:border-primary hover:bg-primary hover:shadow-lg"
             >
               <CardHeader>
                 <span className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors duration-200 group-hover:bg-white/15 group-hover:text-primary-foreground">
                   <Icon className="size-5" aria-hidden />
                 </span>
-                <CardTitle className="mt-3 text-lg transition-colors duration-200 group-hover:text-primary-foreground">
-                  {t(`features.${key}.title`)}
-                </CardTitle>
+                <h3 className="mt-3 text-lg font-semibold leading-none tracking-tight transition-colors duration-200 group-hover:text-primary-foreground">
+                  {FEATURE_PAGE_SLUG[key] ? (
+                    <Link
+                      href={`/funcionalidades/${FEATURE_PAGE_SLUG[key]}`}
+                      className="after:absolute after:inset-0"
+                    >
+                      {t(`features.${key}.title`)}
+                    </Link>
+                  ) : (
+                    t(`features.${key}.title`)
+                  )}
+                </h3>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground transition-colors duration-200 group-hover:text-primary-foreground/85">
                 {t(`features.${key}.description`)}
@@ -239,7 +263,9 @@ function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
                       </span>
                     )}
                   </div>
-                  <CardTitle className="mt-3 text-lg">{a.title}</CardTitle>
+                  <h3 className="mt-3 text-lg font-semibold leading-none tracking-tight">
+                    {a.title}
+                  </h3>
                   <p className="text-sm text-muted-foreground">{a.description}</p>
                 </CardHeader>
                 <CardContent className="flex flex-1 flex-col justify-between gap-4">
@@ -252,7 +278,11 @@ function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
                     ))}
                   </ul>
                   <Button asChild variant={a.key === 'managers' ? 'default' : 'outline'}>
-                    <Link href="#precios">{a.cta}</Link>
+                    <Link
+                      href={`/soluciones/${AUDIENCE_PAGE_SLUG[a.key] ?? 'operadores-self-storage'}`}
+                    >
+                      {a.cta}
+                    </Link>
                   </Button>
                 </CardContent>
               </Card>
@@ -260,6 +290,8 @@ function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
           })}
         </div>
       </section>
+
+      <Testimonials items={home.testimonials ?? []} />
 
       {/* Cómo funciona */}
       <section
@@ -362,17 +394,66 @@ function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
         {/* Oferta fundador (panel admin → Web de TrasterOS; oculta si está desactivada) */}
         <FounderOffer />
 
-        <PricingCards
-          plans={plans}
-          labels={{
-            mostPopular: t('pricing.mostPopular'),
-            perMonth: t('pricing.perMonth'),
-            ivaNote: t('pricing.ivaNote'),
-            ivaIncludedNote: t('pricing.ivaIncludedNote'),
-          }}
-          yearlyLabel={(yearly) => t('pricing.yearlyLabel', { yearly })}
-        />
-        <p className="mt-6 text-center text-sm text-muted-foreground">{t('pricing.trialNote')}</p>
+        <PricingSection />
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          {t('pricing.trialNote')}{' '}
+          <Link href="/precios" className="font-medium text-primary hover:underline">
+            Compara los planes →
+          </Link>
+        </p>
+      </section>
+
+      <DemoSection place="portada" />
+
+      {/* Calculadora y guías */}
+      <section className="container pb-16" aria-labelledby="resources-title">
+        <h2 id="resources-title" className="sr-only">
+          Recursos para tu negocio de trasteros
+        </h2>
+        <div className={`grid gap-4 ${posts.length > 0 ? 'lg:grid-cols-[1fr_2fr]' : ''}`}>
+          <Link
+            href="/calculadora-rentabilidad-trasteros"
+            className="group flex flex-col justify-between rounded-2xl border bg-primary/5 p-6 transition-colors hover:border-primary"
+          >
+            <div>
+              <Calculator className="size-6 text-primary" aria-hidden />
+              <p className="mt-3 text-lg font-semibold">Calculadora de rentabilidad de trasteros</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                ¿Cuánto puede darte tu local? Ingresos, beneficio y en cuánto recuperas la
+                inversión.
+              </p>
+            </div>
+            <span className="mt-4 inline-flex items-center text-sm font-medium text-primary">
+              Calcular ahora
+              <ArrowRight
+                className="ml-1 size-4 transition-transform group-hover:translate-x-0.5"
+                aria-hidden
+              />
+            </span>
+          </Link>
+          {posts.length > 0 && (
+            <div className="rounded-2xl border p-6">
+              <div className="flex items-baseline justify-between gap-4">
+                <p className="text-lg font-semibold">Guías para tu negocio</p>
+                <Link href="/blog" className="text-sm font-medium text-primary hover:underline">
+                  Ver el blog
+                </Link>
+              </div>
+              <ul className="mt-4 divide-y">
+                {posts.map((p) => (
+                  <li key={p.slug} className="py-3">
+                    <Link href={`/blog/${p.slug}`} className="font-medium hover:text-primary">
+                      {p.title}
+                    </Link>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {formatBlogDate(p.publishedAt)} · {p.readingMinutes} min de lectura
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Preguntas frecuentes */}
@@ -384,97 +465,19 @@ function LandingContent({ home }: { home: PlatformHomeTextsInput }) {
             </h2>
             <p className="mt-2 text-muted-foreground">{t('faq.subtitle')}</p>
           </div>
-          <dl className="divide-y divide-border rounded-2xl border">
-            {faqItems.map((item) => (
-              <div key={item.q} className="p-6">
-                <dt className="font-semibold">{item.q}</dt>
-                <dd className="mt-2 text-sm text-muted-foreground">{item.a}</dd>
-              </div>
-            ))}
-          </dl>
+          <FaqList items={faqItems} />
         </div>
       </section>
 
       <ContactSection />
 
-      {/* CTA final */}
-      <section className="container pb-24 text-center">
-        <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">{t('cta.title')}</h2>
-        <p className="mx-auto mt-2 max-w-xl text-muted-foreground">{t('cta.subtitle')}</p>
-        <Button asChild size="lg" className="mt-6">
-          <Link href="/register">
-            {t('primaryCta')}
-            <ArrowRight className="ml-2 size-4" aria-hidden />
-          </Link>
-        </Button>
-      </section>
+      <CtaBand title={t('cta.title')} subtitle={t('cta.subtitle')} />
+      <StickyMobileCta />
     </>
   );
 }
 
 /** Formulario de contacto (panel admin → Web de TrasterOS). */
-/**
- * Tarjetas de precios: textos de la portada con el precio y la anualidad del
- * catálogo (panel admin → Planes). Un plan desactivado no se muestra.
- */
-async function PricingCards({
-  plans,
-  labels,
-  yearlyLabel,
-}: {
-  plans: LandingPlanCopy[];
-  labels: { mostPopular: string; perMonth: string; ivaNote: string; ivaIncludedNote: string };
-  yearlyLabel: (yearly: number) => string;
-}) {
-  const catalog = await fetchPublicPlans();
-  const merged = mergeLandingPlans(plans, catalog);
-  const ivaNote = catalogIncludesVat(catalog) ? labels.ivaIncludedNote : labels.ivaNote;
-  return (
-    <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4">
-      {merged.map((plan) => (
-        <Card
-          key={plan.name}
-          className={plan.highlight ? 'relative border-primary shadow-lg' : 'border-border/60'}
-        >
-          {plan.highlight && (
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-xs font-medium text-primary-foreground">
-              {labels.mostPopular}
-            </span>
-          )}
-          <CardHeader>
-            <CardTitle className="text-lg">{plan.name}</CardTitle>
-            <p className="text-sm text-muted-foreground">{plan.tagline}</p>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span className="text-3xl font-semibold tracking-tight">{plan.price}</span>
-              {plan.priceValue > 0 && (
-                <span className="text-sm text-muted-foreground">{labels.perMonth}</span>
-              )}
-            </div>
-            {plan.yearly && (
-              <p className="text-xs text-muted-foreground">
-                {yearlyLabel(plan.yearly)} · {ivaNote}
-              </p>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <ul className="space-y-2">
-              {plan.features.map((f) => (
-                <li key={f} className="flex items-start gap-2 text-sm">
-                  <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                  <span>{f}</span>
-                </li>
-              ))}
-            </ul>
-            <Button asChild className="w-full" variant={plan.highlight ? 'default' : 'outline'}>
-              <Link href="/register">{plan.cta}</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
 async function ContactSection() {
   const { contactForm } = await fetchPlatformWebsite();
   if (!contactForm) return null;
@@ -579,6 +582,7 @@ async function PlatformJsonLd({
       },
       {
         '@type': 'SoftwareApplication',
+        '@id': `${SITE_URL}/#software`,
         name: 'TrasterOS',
         applicationCategory: 'BusinessApplication',
         operatingSystem: 'Web',
