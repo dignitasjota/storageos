@@ -47,6 +47,10 @@ export const RegisterSchema = z.object({
   acceptTerms: z
     .boolean()
     .refine((v) => v === true, { message: 'Debes aceptar los terminos y condiciones' }),
+  /** De dónde vino la visita (lo guarda el navegador; va a su lead). */
+  utmSource: z.string().trim().max(120).optional(),
+  utmMedium: z.string().trim().max(120).optional(),
+  utmCampaign: z.string().trim().max(120).optional(),
 });
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 

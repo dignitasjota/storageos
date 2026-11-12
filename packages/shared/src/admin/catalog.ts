@@ -92,8 +92,11 @@ export type UpdateQuoteOfferInput = z.infer<typeof UpdateQuoteOfferSchema>;
 /** Una propuesta de cuota enviada a un tenant. */
 export interface PlatformQuoteOfferDto {
   id: string;
-  tenantId: string;
-  tenantName: string;
+  /** null = enviada a un lead que aún no tiene cuenta. */
+  tenantId: string | null;
+  tenantName: string | null;
+  leadId: string | null;
+  leadName: string | null;
   planId: string;
   planName: string;
   cycle: 'monthly' | 'yearly';
@@ -104,7 +107,7 @@ export interface PlatformQuoteOfferDto {
   resolvedAt: string | null;
   createdAt: string;
   superAdminName: string | null;
-  /** Enlace para que el tenant la acepte en Suscripción. */
+  /** Enlace para aceptarla: Suscripción del tenant, o el registro si es de un lead. */
   acceptUrl: string;
 }
 

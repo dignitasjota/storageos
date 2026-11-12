@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   addonUnitPrice,
   parseAddonPriceTiers,
+  platformLeadName,
   resolvePlanFeatures,
   type TenantFeature,
 } from '@storageos/shared';
@@ -28,6 +29,12 @@ import type {
 } from '@storageos/shared';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const OFFER_INCLUDE = {
+  tenant: { select: { name: true } },
+  plan: { select: { name: true } },
+  lead: { select: { email: true, companyName: true, contactName: true } },
+} satisfies Prisma.PlatformQuoteOfferInclude;
 const DAY = 86_400_000;
 
 /**
@@ -136,19 +143,29 @@ export class AdminQuoteService {
     };
   }
 
-  /** Propuestas enviadas (las 200 últimas) y la conversión de los últimos 90 días. */
-  async listOffers(tenantId?: string): Promise<PlatformQuoteOffersDto> {
+  /**
+   * Propuestas enviadas (las 200 últimas) y la conversión de los últimos 90
+   * días. Con `leadId`, las de ese lead (y las de su tenant si ya lo tiene).
+   */
+  async listOffers(
+    f: { tenantId?: string | null; leadId?: string | null } = {},
+  ): Promise<PlatformQuoteOffersDto> {
     const since = new Date(Date.now() - 90 * DAY);
+    const where: Prisma.PlatformQuoteOfferWhereInput = f.leadId
+      ? { OR: [{ leadId: f.leadId }, ...(f.tenantId ? [{ tenantId: f.tenantId }] : [])] }
+      : f.tenantId
+        ? { tenantId: f.tenantId }
+        : {};
     const [rows, recent] = await Promise.all([
       this.admin.platformQuoteOffer.findMany({
-        where: tenantId ? { tenantId } : {},
+        where,
         orderBy: { createdAt: 'desc' },
         take: 200,
-        include: { tenant: { select: { name: true } }, plan: { select: { name: true } } },
+        include: OFFER_INCLUDE,
       }),
       this.admin.platformQuoteOffer.groupBy({
         by: ['status'],
-        where: { createdAt: { gte: since }, ...(tenantId ? { tenantId } : {}) },
+        where: { createdAt: { gte: since }, ...where },
         _count: { _all: true },
       }),
     ]);
@@ -185,13 +202,13 @@ export class AdminQuoteService {
     const updated = await this.admin.platformQuoteOffer.update({
       where: { id },
       data: { status, resolvedAt: status === 'sent' ? null : new Date() },
-      include: { tenant: { select: { name: true } }, plan: { select: { name: true } } },
+      include: OFFER_INCLUDE,
     });
     await this.audit.record({
       superAdminId,
       action: 'admin.tenant.quote_status_changed',
-      targetType: 'tenant',
-      targetId: row.tenantId,
+      targetType: row.tenantId ? 'tenant' : 'platform_lead',
+      targetId: row.tenantId ?? row.leadId,
       targetTenantId: row.tenantId,
       changes: { offerId: id, status },
     });
@@ -209,10 +226,59 @@ export class AdminQuoteService {
     return `${this.config.get('WEB_BASE_URL', { infer: true })}/settings/saas-billing?${params.toString()}`;
   }
 
+  /** Registro con los datos del lead puestos (la propuesta le espera en Suscripción). */
+  private registerUrl(lead: {
+    email: string | null;
+    companyName: string | null;
+    contactName: string | null;
+  }): string {
+    const params = new URLSearchParams();
+    if (lead.email) params.set('email', lead.email);
+    if (lead.companyName) params.set('company', lead.companyName);
+    if (lead.contactName) params.set('name', lead.contactName);
+    const qs = params.toString();
+    return `${this.config.get('WEB_BASE_URL', { infer: true })}/register${qs ? `?${qs}` : ''}`;
+  }
+
+  /**
+   * Guarda la propuesta a un lead que aún no tiene cuenta (al vincularse a su
+   * tenant pasa a ser suya). El correo lo manda el servicio de leads.
+   */
+  async createLeadOffer(
+    lead: { id: string; email: string; companyName: string | null; contactName: string | null },
+    input: SendAdminQuoteInput,
+    superAdminId: string,
+  ): Promise<{ quote: AdminQuoteDto; registerUrl: string; offerId: string }> {
+    const quote = await this.quote(input, null);
+    if (quote.couponError) {
+      throw new BadRequestException({ code: 'coupon_invalid', message: quote.couponError });
+    }
+    const offer = await this.admin.platformQuoteOffer.create({
+      data: {
+        leadId: lead.id,
+        superAdminId,
+        planId: input.planId,
+        cycle: input.cycle,
+        addons: input.addons as unknown as Prisma.InputJsonValue,
+        couponCode: quote.couponCode,
+        total: quote.total,
+      },
+    });
+    await this.audit.record({
+      superAdminId,
+      action: 'admin.platform_lead.quote_sent',
+      targetType: 'platform_lead',
+      targetId: lead.id,
+      changes: { planId: input.planId, cycle: input.cycle, total: quote.total },
+    });
+    return { quote, registerUrl: this.registerUrl(lead), offerId: offer.id };
+  }
+
   private offerDto(
     r: {
       id: string;
-      tenantId: string;
+      tenantId: string | null;
+      leadId: string | null;
       planId: string;
       cycle: string;
       addons: Prisma.JsonValue;
@@ -221,7 +287,8 @@ export class AdminQuoteService {
       status: string;
       resolvedAt: Date | null;
       createdAt: Date;
-      tenant: { name: string };
+      tenant: { name: string } | null;
+      lead: { email: string | null; companyName: string | null; contactName: string | null } | null;
       plan: { name: string };
     },
     superAdminName: string | null,
@@ -229,7 +296,9 @@ export class AdminQuoteService {
     return {
       id: r.id,
       tenantId: r.tenantId,
-      tenantName: r.tenant.name,
+      tenantName: r.tenant?.name ?? null,
+      leadId: r.leadId,
+      leadName: r.lead ? platformLeadName(r.lead) : null,
       planId: r.planId,
       planName: r.plan.name,
       cycle: r.cycle === 'yearly' ? 'yearly' : 'monthly',
@@ -240,7 +309,7 @@ export class AdminQuoteService {
       resolvedAt: r.resolvedAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
       superAdminName,
-      acceptUrl: this.acceptUrl(r),
+      acceptUrl: r.tenantId || !r.lead ? this.acceptUrl(r) : this.registerUrl(r.lead),
     };
   }
 

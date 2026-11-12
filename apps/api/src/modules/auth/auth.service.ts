@@ -20,6 +20,10 @@ import {
   resolvePlanFeatures,
 } from '@storageos/shared';
 
+import {
+  PLATFORM_TENANT_REGISTERED,
+  type PlatformTenantRegisteredEvent,
+} from '../../common/platform-lead-events';
 import { verifyAgainstDummyHash } from '../../common/security/dummy-password';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { BUILTIN_TEMPLATES } from '../communications/builtin-templates';
@@ -142,6 +146,24 @@ export class AuthService {
           `(${err instanceof Error ? err.message : String(err)}); el usuario podra reenviar`,
       );
     }
+
+    // Su lead en el panel admin (el que ya había con su email o uno nuevo).
+    await this.events
+      .emitAsync(PLATFORM_TENANT_REGISTERED, {
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        email: user.email,
+        fullName: user.fullName,
+        source: 'signup',
+        leadId: null,
+        superAdminId: null,
+        utmSource: input.utmSource ?? null,
+        utmMedium: input.utmMedium ?? null,
+        utmCampaign: input.utmCampaign ?? null,
+      } satisfies PlatformTenantRegisteredEvent)
+      .catch((err: unknown) =>
+        this.logger.warn(`[register] lead del tenant ${tenant.slug}: ${String(err)}`),
+      );
 
     await this.audit.write({
       tenantId: tenant.id,

@@ -1,6 +1,11 @@
 'use client';
 
-import { FEATURE_LABELS, superAdminAuditLabel, type TodaySnoozeKind } from '@storageos/shared';
+import {
+  FEATURE_LABELS,
+  PLATFORM_LEAD_SOURCE_LABELS,
+  superAdminAuditLabel,
+  type TodaySnoozeKind,
+} from '@storageos/shared';
 import {
   BellOff,
   Check,
@@ -116,7 +121,8 @@ function onlyMine(data: AdminTodayDto, me: string | undefined): AdminTodayDto {
     overdueCrons: [],
     pendingApprovals: [],
     expiringOverrides: [],
-    contactMessages: [],
+    newLeads: data.newLeads.filter((l) => l.assignedToId === me),
+    leadFollowupsDue: data.leadFollowupsDue.filter((f) => f.assignedToId === me),
     domainsReady: [],
     incompleteInvoices: [],
     rgpdOverdue: [],
@@ -191,7 +197,8 @@ export default function AdminTodayPage() {
     data.openTickets.length +
     overridesNow.length +
     data.staleSuspendedAddons.length +
-    data.contactMessages.length +
+    data.newLeads.length +
+    data.leadFollowupsDue.length +
     data.domainsReady.length +
     data.incompleteInvoices.length +
     data.rgpdOverdue.length +
@@ -353,18 +360,50 @@ export default function AdminTodayPage() {
             </SimpleCard>
           )}
 
-          {data.contactMessages.length > 0 && (
+          {data.newLeads.length > 0 && (
             <SimpleCard
-              title={`Mensajes de la web sin atender (${data.contactMessages.length})`}
+              title={`Leads nuevos sin atender (${data.newLeads.length})`}
               icon={<Mail className="size-4 text-amber-500" />}
-              action={{ href: '/admin/website', label: 'Ver mensajes →' }}
+              action={{ href: '/admin/leads', label: 'Ver leads →' }}
             >
-              {data.contactMessages.map((c) => (
+              {data.newLeads.map((c) => (
                 <Row
                   key={c.id}
-                  title={<span className="font-medium">{c.name}</span>}
-                  detail={`${c.email} · ${c.waitingDays === 0 ? 'hoy' : `${c.waitingDays} d`}`}
+                  title={
+                    <Link
+                      href={`/admin/leads?lead=${c.id}`}
+                      className="font-medium hover:underline"
+                    >
+                      {c.name}
+                    </Link>
+                  }
+                  detail={`${PLATFORM_LEAD_SOURCE_LABELS[c.source] ?? c.source} · ${
+                    c.waitingHours < 24
+                      ? `hace ${c.waitingHours} h`
+                      : `hace ${Math.floor(c.waitingHours / 24)} d`
+                  }${c.assignedToName ? ` · ${c.assignedToName}` : ''}`}
                   snooze={{ kind: 'contact', ref: c.id, label: c.name }}
+                />
+              ))}
+            </SimpleCard>
+          )}
+
+          {data.leadFollowupsDue.length > 0 && (
+            <SimpleCard
+              title={`Seguimientos de leads (${data.leadFollowupsDue.length})`}
+              icon={<CalendarClock className="size-4 text-amber-500" />}
+              action={{ href: '/admin/followups', label: 'Ver seguimientos →' }}
+            >
+              {data.leadFollowupsDue.map((f) => (
+                <Row
+                  key={f.id}
+                  title={
+                    <Link href={`/admin/leads?lead=${f.leadId}`} className="hover:underline">
+                      <span className="font-medium">{f.leadName}</span> · {f.title}
+                    </Link>
+                  }
+                  detail={`${f.dueDate}${f.assignedToName ? ` · ${f.assignedToName}` : ''}`}
+                  snooze={{ kind: 'lead_followup', ref: f.id, label: `${f.leadName}: ${f.title}` }}
                 />
               ))}
             </SimpleCard>

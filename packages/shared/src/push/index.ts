@@ -96,6 +96,8 @@ export const SUPER_ADMIN_PUSH_TYPES: Record<string, string> = {
   'security.brute_force': 'Posible ataque de fuerza bruta',
   'system.attention': 'Una tarea programada o el worker no responden',
   'today.attention': 'Algo urgente nuevo en «Hoy»',
+  'platform_lead.unattended': 'Un lead nuevo lleva horas sin atender',
+  'platform_lead.signed_up': 'Un lead se ha registrado',
 };
 
 export function isSuperAdminPushType(type: string): boolean {

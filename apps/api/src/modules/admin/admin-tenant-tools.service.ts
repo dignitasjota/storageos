@@ -4,10 +4,16 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { hash as argonHash } from '@node-rs/argon2';
 
+import {
+  PLATFORM_TENANT_REGISTERED,
+  type PlatformTenantRegisteredEvent,
+} from '../../common/platform-lead-events';
 import { AuthService } from '../auth/auth.service';
 import { SessionsService } from '../auth/sessions.service';
 import { InvoicesService } from '../billing/invoices.service';
@@ -52,7 +58,10 @@ export class AdminTenantToolsService {
     private readonly domains: CustomDomainCheckService,
     private readonly interactions: AdminTenantInteractionsService,
     private readonly audit: SuperAdminAuditService,
+    private readonly events: EventEmitter2,
   ) {}
+
+  private readonly logger = new Logger(AdminTenantToolsService.name);
 
   private async tenantOrThrow(tenantId: string) {
     const t = await this.admin.tenant.findUnique({ where: { id: tenantId } });
@@ -85,6 +94,7 @@ export class AdminTenantToolsService {
   async createTenant(
     input: AdminCreateTenantInput,
     meta: Meta,
+    opts: { leadId?: string | null } = {},
   ): Promise<AdminCreateTenantResultDto> {
     const plan = await this.admin.subscriptionPlan.findUnique({ where: { slug: input.planSlug } });
     if (!plan?.isActive) {
@@ -115,6 +125,23 @@ export class AdminTenantToolsService {
       plan: plan.slug,
       trialDays: input.trialDays,
     });
+    // Su lead (el de la ficha desde la que se crea, uno con su email o uno nuevo).
+    await this.events
+      .emitAsync(PLATFORM_TENANT_REGISTERED, {
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        email: user.email,
+        fullName: user.fullName,
+        source: 'admin',
+        leadId: opts.leadId ?? null,
+        superAdminId: meta.superAdminId,
+        utmSource: null,
+        utmMedium: null,
+        utmCampaign: null,
+      } satisfies PlatformTenantRegisteredEvent)
+      .catch((err: unknown) =>
+        this.logger.warn(`[leads] alta del tenant ${tenant.id}: ${String(err)}`),
+      );
     return { tenantId: tenant.id, slug: tenant.slug, ownerEmail: user.email };
   }
 

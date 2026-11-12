@@ -1,4 +1,5 @@
 import type { AdminBusinessGoalsDto, AdminPeriodComparisonDto } from './business';
+import type { PlatformLeadFollowupDto, PlatformLeadSource } from './leads';
 import type { EmailDnsRecordDto } from '../email-domains';
 import type { TenantFeature } from '../features';
 import type { MessageAttachmentDto } from '../messages';
@@ -1339,11 +1340,15 @@ export interface AdminOpenTicketDto {
 }
 
 /** Mensaje de la web de TrasterOS sin atender. */
-export interface AdminTodayContactDto {
+/** Lead nuevo sin atender (aún nadie le ha respondido). */
+export interface AdminTodayLeadDto {
   id: string;
   name: string;
-  email: string;
-  waitingDays: number;
+  email: string | null;
+  source: PlatformLeadSource;
+  waitingHours: number;
+  assignedToId: string | null;
+  assignedToName: string | null;
 }
 
 export interface AdminTodayDomainDto {
@@ -1430,8 +1435,10 @@ export interface AdminTodayDto {
   expiringOverrides: AdminExpiringOverrideDto[];
   /** Seguimientos de los próximos 7 días. */
   followupsUpcoming: TenantFollowupDto[];
-  /** Mensajes del formulario de la web sin atender. */
-  contactMessages: AdminTodayContactDto[];
+  /** Leads nuevos (formulario de la web o alta a mano) sin atender. */
+  newLeads: AdminTodayLeadDto[];
+  /** Seguimientos de leads de hoy o atrasados. */
+  leadFollowupsDue: PlatformLeadFollowupDto[];
   /** Dominios con el DNS listo, por activar. */
   domainsReady: AdminTodayDomainDto[];
   /** Facturas de suscripción de los últimos 90 días sin NIF o domicilio. */

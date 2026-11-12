@@ -9,6 +9,7 @@ import {
   StickyNote,
   Trash2,
   Users,
+  Target,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -200,7 +201,15 @@ function InteractionRow({ row, onDelete }: { row: TenantInteractionDto; onDelete
             href={row.link}
             className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
           >
-            <LifeBuoy className="size-3.5" /> Ver y gestionar el ticket →
+            {row.link.startsWith('/admin/leads') ? (
+              <>
+                <Target className="size-3.5" /> Ver su historial de lead →
+              </>
+            ) : (
+              <>
+                <LifeBuoy className="size-3.5" /> Ver y gestionar el ticket →
+              </>
+            )}
           </Link>
         )}
       </div>

@@ -12,6 +12,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminFollowupsPending, useDeleteFollowup, useUpdateFollowup } from '@/lib/admin/hooks';
+import {
+  useAdminLeadFollowups,
+  useDeleteLeadFollowup,
+  useUpdateLeadFollowup,
+} from '@/lib/admin/leads-hooks';
 import { localDateString } from '@/lib/dates';
 
 function todayIso(): string {
@@ -56,8 +61,8 @@ export default function AdminFollowupsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Seguimientos</h1>
         <p className="text-sm text-muted-foreground">
-          Recordatorios pendientes con tenants, por fecha. Crea nuevos desde la ficha de cada
-          tenant.
+          Recordatorios pendientes con tenants y con leads, por fecha. Se crean desde la ficha de
+          cada tenant o de cada lead.
         </p>
       </div>
 
@@ -92,7 +97,96 @@ export default function AdminFollowupsPage() {
           )}
         </CardContent>
       </Card>
+
+      <LeadFollowupsCard mine={mine} />
     </div>
+  );
+}
+
+/** Seguimientos de leads (quien aún no es tenant o acaba de serlo). */
+function LeadFollowupsCard({ mine }: { mine: boolean }) {
+  const confirm = useConfirm();
+  const q = useAdminLeadFollowups(mine);
+  const update = useUpdateLeadFollowup();
+  const remove = useDeleteLeadFollowup();
+  const items = q.data ?? [];
+  const later = (dueDate: string) => {
+    const d = new Date(`${dueDate}T12:00:00`);
+    d.setDate(d.getDate() + 7);
+    return localDateString(d);
+  };
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Leads: {items.length} pendiente(s)</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {q.isLoading ? (
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        ) : items.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">
+            Nada pendiente con los leads. Se crean desde la ficha de cada lead.
+          </p>
+        ) : (
+          <ul className="divide-y">
+            {items.map((f) => {
+              const due = dueMeta(f.dueDate);
+              return (
+                <li key={f.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{f.title}</span>
+                      <Badge className={`border-0 ${due.className}`}>{due.label}</Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      <Link href={`/admin/leads?lead=${f.leadId}`} className="hover:underline">
+                        {f.leadName}
+                      </Link>
+                      {f.note ? ` · ${f.note}` : ''}
+                      {f.assignedToName ? ` · se encarga ${f.assignedToName}` : ''}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={update.isPending}
+                      onClick={() =>
+                        update.mutate({ id: f.id, input: { dueDate: later(f.dueDate) } })
+                      }
+                    >
+                      +7 días
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={update.isPending}
+                      onClick={() => update.mutate({ id: f.id, input: { status: 'done' } })}
+                    >
+                      <Check className="mr-1 size-4" /> Hecho
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled={remove.isPending}
+                      aria-label="Borrar seguimiento"
+                      onClick={async () => {
+                        if (
+                          await confirm({ title: '¿Borrar este seguimiento?', destructive: true })
+                        )
+                          remove.mutate(f.id);
+                      }}
+                    >
+                      <Trash2 className="size-4 text-muted-foreground" />
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

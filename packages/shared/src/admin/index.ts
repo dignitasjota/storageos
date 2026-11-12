@@ -10,3 +10,4 @@ export * from './tenant-reset';
 export * from './email-format';
 export * from './comms';
 export * from './audit-labels';
+export * from './leads';

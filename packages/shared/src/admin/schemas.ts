@@ -662,6 +662,7 @@ export const TodaySnoozeKindEnum = z.enum([
   'rgpd',
   'nps',
   'activation',
+  'lead_followup',
 ]);
 export type TodaySnoozeKind = z.infer<typeof TodaySnoozeKindEnum>;
 
@@ -890,6 +891,10 @@ export const SubmitPlatformContactSchema = z.object({
   acceptPrivacy: z.literal(true),
   /** Trampa para bots: un humano no la rellena. */
   hp: z.string().max(200).optional(),
+  /** De dónde vino la visita (lo guarda el navegador). */
+  utmSource: z.string().trim().max(120).optional(),
+  utmMedium: z.string().trim().max(120).optional(),
+  utmCampaign: z.string().trim().max(120).optional(),
 });
 export type SubmitPlatformContactInput = z.infer<typeof SubmitPlatformContactSchema>;
 

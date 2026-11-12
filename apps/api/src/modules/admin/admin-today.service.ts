@@ -31,6 +31,7 @@ import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
 import { AdminTodayExtrasService } from './admin-today-extras.service';
 import { FeatureExpiryService } from './feature-expiry.service';
+import { PlatformLeadsService } from './leads/platform-leads.service';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type {
@@ -84,6 +85,7 @@ export class AdminTodayService {
     private readonly business: AdminBusinessService,
     private readonly audit: SuperAdminAuditService,
     private readonly extras: AdminTodayExtrasService,
+    private readonly leads: PlatformLeadsService,
     @InjectQueue(QUEUE_BILLING) billingQueue: Queue,
     @InjectQueue(QUEUE_DUNNING) dunningQueue: Queue,
     @InjectQueue(QUEUE_PAYMENTS) paymentsQueue: Queue,
@@ -129,7 +131,8 @@ export class AdminTodayService {
       activity,
       goals,
       snoozes,
-      contactAll,
+      leadsAll,
+      leadFollowupsAll,
       domainsAll,
       invoicesAll,
       rgpdAll,
@@ -157,7 +160,8 @@ export class AdminTodayService {
       this.activityService.activity(new Date(now.getTime() - 48 * 3_600_000), now),
       this.business.getGoals().catch(() => null),
       this.extras.snoozes(now),
-      this.extras.contactMessages(now),
+      this.extras.newLeads(now),
+      this.leads.followupsDue(now),
       this.extras.domainsReady(),
       this.extras.incompleteInvoices(now),
       this.extras.rgpdOverdue(now),
@@ -206,7 +210,8 @@ export class AdminTodayService {
       devicesOffline: keep(devicesOffline, 'device', (t) => t.tenantId),
       overdueCrons: keep(overdueCrons, 'cron', (c) => c.name),
       expiringOverrides: keep(expiringOverrides, 'override', (o) => `${o.tenantId}-${o.feature}`),
-      contactMessages: keep(contactAll, 'contact', (c) => c.id),
+      newLeads: keep(leadsAll, 'contact', (c) => c.id),
+      leadFollowupsDue: keep(leadFollowupsAll, 'lead_followup', (f) => f.id),
       domainsReady: keep(domainsAll, 'domain', (d) => d.tenantId),
       incompleteInvoices: keep(invoicesAll, 'invoice_data', (t) => t.tenantId),
       rgpdOverdue: keep(rgpdAll, 'rgpd', (t) => t.tenantId),
@@ -230,7 +235,8 @@ export class AdminTodayService {
       lists.overdueCrons.length +
       pendingApprovals.length +
       lists.expiringOverrides.filter((o) => o.daysLeft <= 1).length +
-      lists.contactMessages.length +
+      lists.newLeads.length +
+      lists.leadFollowupsDue.length +
       lists.domainsReady.length +
       lists.rgpdOverdue.length;
     return {

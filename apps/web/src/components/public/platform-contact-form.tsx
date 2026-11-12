@@ -9,6 +9,7 @@ import { CheckCircle2, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 
+import { platformTrafficFields } from '@/components/public/platform-attribution';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -58,6 +59,7 @@ export function PlatformContactForm({ config }: { config: PublicContactFormDto }
           ...(config.showCompany && form.company.trim() ? { company: form.company.trim() } : {}),
           ...(config.showUnits && form.units ? { units: form.units } : {}),
           ...(config.showProfile && form.profile ? { profile: form.profile } : {}),
+          ...platformTrafficFields(),
         }),
       });
       if (res.ok) {

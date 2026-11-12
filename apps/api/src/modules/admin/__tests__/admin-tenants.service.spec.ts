@@ -22,6 +22,9 @@ interface TxMock {
   communication: { updateMany: jest.Mock };
   whatsappConversation: { findMany: jest.Mock };
   tenantWhatsappSettings: { deleteMany: jest.Mock };
+  platformLead: { findUnique: jest.Mock; update: jest.Mock };
+  platformLeadActivity: { deleteMany: jest.Mock };
+  platformLeadFollowup: { deleteMany: jest.Mock };
   tenantStripeAccount: { deleteMany: jest.Mock };
   tenantSocialAccount: { deleteMany: jest.Mock };
   socialDailyMetric: { deleteMany: jest.Mock };
@@ -61,6 +64,12 @@ function buildTx(): TxMock {
     communication: { updateMany: jest.fn().mockResolvedValue({ count: 7 }) },
     whatsappConversation: { findMany: jest.fn().mockResolvedValue([]) },
     tenantWhatsappSettings: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    platformLead: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'lead-1' }),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    platformLeadActivity: { deleteMany: jest.fn().mockResolvedValue({ count: 3 }) },
+    platformLeadFollowup: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     tenantStripeAccount: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     tenantSocialAccount: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     socialDailyMetric: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -149,6 +158,13 @@ describe('AdminTenantsService.anonymize', () => {
 
     // Sesiones revocadas.
     expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { tenantId: TENANT } });
+    // Su lead del panel admin: sin datos de contacto ni lo hablado.
+    expect(tx.platformLeadActivity.deleteMany).toHaveBeenCalledWith({
+      where: { leadId: 'lead-1' },
+    });
+    expect(tx.platformLead.update.mock.calls[0]![0].data).toEqual(
+      expect.objectContaining({ email: null, phone: null, contactName: null }),
+    );
     // Secretos del negocio y accesos de los inquilinos.
     const anyTx = tx as unknown as Record<string, Record<string, jest.Mock>>;
     expect(anyTx.tenantAeatCredential!.deleteMany).toHaveBeenCalledWith({

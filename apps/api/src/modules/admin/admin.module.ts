@@ -74,6 +74,9 @@ import { ChatAlertsService } from './chat-alerts.service';
 import { FeatureExpiryCron } from './feature-expiry.cron';
 import { FeatureExpiryService } from './feature-expiry.service';
 import { ImpersonationService } from './impersonation.service';
+import { PlatformLeadsWatchService } from './leads/platform-leads-watch.service';
+import { PlatformLeadsController } from './leads/platform-leads.controller';
+import { PlatformLeadsService } from './leads/platform-leads.service';
 import { MrrModule } from './mrr.module';
 import { PlatformAlertLogService } from './platform-alert-log.service';
 import { PlatformAlertsController } from './platform-alerts.controller';
@@ -154,6 +157,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     UsersModule,
   ],
   controllers: [
+    PlatformLeadsController,
     AdminTenantToolsController,
     AdminBusinessController,
     AdminPushController,
@@ -198,6 +202,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     TenantDataExportController,
   ],
   providers: [
+    PlatformLeadsService,
+    PlatformLeadsWatchService,
     PlatformAlertLogService,
     PlatformLegalNoticeService,
     AdminTenantToolsService,

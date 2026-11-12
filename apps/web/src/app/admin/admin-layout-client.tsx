@@ -40,6 +40,7 @@ import {
   TrendingUp,
   Wallet,
   MessageCircle,
+  Target,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -111,6 +112,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
     label: 'Tenants',
     icon: Building2,
     children: [
+      { href: '/admin/leads', label: 'Leads', icon: Target },
       { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
       { href: '/admin/followups', label: 'Seguimientos', icon: CalendarClock },
       { href: '/admin/trials', label: 'Trials', icon: Hourglass },
