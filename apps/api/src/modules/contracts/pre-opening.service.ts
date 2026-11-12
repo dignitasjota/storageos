@@ -578,7 +578,12 @@ export class PreOpeningService {
       if (paid > 0) {
         const how = await this.refunds.refundDocument(args, rentInvoice.id, paid, why);
         (how === 'gateway' ? automatic : manual).push(`primera mensualidad ${formatEur(paid)}`);
-      } else if (rentInvoice.status === 'issued' || rentInvoice.status === 'overdue') {
+      } else if (
+        rentInvoice.status === 'issued' ||
+        rentInvoice.status === 'overdue' ||
+        // Reserva online sin pagar: el borrador que se emitía al cobrarse.
+        rentInvoice.status === 'draft'
+      ) {
         await this.invoices.cancel({
           tenantId: args.tenantId,
           userId: args.userId,

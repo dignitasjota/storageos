@@ -96,11 +96,13 @@ export class OfflinePaymentsService {
             id: true,
             invoiceNumber: true,
             status: true,
+            issueOnPayment: true,
             total: true,
             amountPaid: true,
             contract: {
               select: {
                 id: true,
+                contractNumber: true,
                 status: true,
                 firstPaymentDeadline: true,
                 offlinePaymentMethod: true,
@@ -131,7 +133,9 @@ export class OfflinePaymentsService {
       Number(invoice.total) -
       Number(invoice.amountPaid) +
       invoice.bundledReceipts.reduce((s, d) => s + Number(d.total) - Number(d.amountPaid), 0);
-    if (!['issued', 'overdue'].includes(invoice.status) || pending <= 0) {
+    // También el primer pago de una reserva online (borrador que se emite al cobrarse).
+    const pendingDraft = invoice.status === 'draft' && invoice.issueOnPayment;
+    if ((!['issued', 'overdue'].includes(invoice.status) && !pendingDraft) || pending <= 0) {
       throw new BadRequestException({
         code: 'invoice_not_payable',
         message: 'Esta factura no tiene nada pendiente de pago',
@@ -182,9 +186,13 @@ export class OfflinePaymentsService {
 
     const customer = invoice.customer;
     const locale = emailLocale(customer?.locale);
-    const numbers = [invoice.invoiceNumber, ...invoice.bundledReceipts.map((d) => d.invoiceNumber)]
-      .filter(Boolean)
-      .join(' y ');
+    // Concepto de la transferencia: los números de factura o, si es el primer
+    // pago de una reserva (la factura aún no tiene número), el del contrato.
+    const numbers = pendingDraft
+      ? (contract?.contractNumber ?? '')
+      : [invoice.invoiceNumber, ...invoice.bundledReceipts.map((d) => d.invoiceNumber)]
+          .filter(Boolean)
+          .join(' y ');
     let emailSentTo: string | null = null;
     let mandateSigningUrl: string | null = null;
     let replacesIbanLast4: string | null = null;
@@ -215,6 +223,9 @@ export class OfflinePaymentsService {
         customerId,
         input,
       ));
+      // Con un mandato ya firmado de esa cuenta, el primer pago se emite ya
+      // (la remesa necesita el número de factura); si no, al firmarlo.
+      await this.sepa.issuePendingFirstPayments(tenantId, customerId);
     }
 
     const name =

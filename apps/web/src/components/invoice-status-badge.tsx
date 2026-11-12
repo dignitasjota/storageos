@@ -33,15 +33,20 @@ export function InvoiceStatusBadge({
   status,
   total,
   voided,
+  awaitingPayment,
 }: {
   status: InvoiceStatusValue;
   total?: number;
   voided?: boolean;
+  /** Primer pago de una reserva online: borrador que se emite al cobrarse. */
+  awaitingPayment?: boolean;
 }) {
   const label = voided
     ? 'Anulada por error'
     : status === 'paid' && total !== undefined && total < 0
       ? 'Compensada'
-      : INVOICE_STATUS_LABELS[status];
+      : status === 'draft' && awaitingPayment
+        ? 'Pendiente de pago'
+        : INVOICE_STATUS_LABELS[status];
   return <Badge variant={variants[status]}>{label}</Badge>;
 }

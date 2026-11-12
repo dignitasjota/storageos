@@ -81,6 +81,11 @@ export interface InvoiceDto {
   kind: InvoiceKind;
   /** Justificante: factura con la que se cobra en un solo pago. */
   bundledWithInvoiceId: string | null;
+  /**
+   * Borrador que se emite al cobrarse (primera factura de una reserva online):
+   * sin número hasta que se paga; si la reserva caduca, se anula sin más.
+   */
+  issueOnPayment: boolean;
   rectifiesInvoiceId: string | null;
   rectifiesInvoiceNumber: string | null;
   /** Fecha de emisión de la factura que rectifica. */

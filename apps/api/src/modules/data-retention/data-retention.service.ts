@@ -36,6 +36,10 @@ const CONTACT_IP_DAYS = 90;
 /** Horas que se espera a que un adjunto subido llegue a enviarse. */
 const ORPHAN_ATTACHMENT_HOURS = 24;
 
+/** Días que se guardan los datos de quien empezó una reserva online y no la firmó. */
+export const ABANDONED_BOOKING_DAYS = 30;
+const ANONYMIZED = '*** ANONIMIZADO ***';
+
 @Injectable()
 export class DataRetentionService {
   private readonly logger = new Logger(DataRetentionService.name);
@@ -180,6 +184,81 @@ export class DataRetentionService {
   }
 
   /** Borra las filas más antiguas que el plazo de retención de cada tabla. */
+  /**
+   * Reservas online que nunca se firmaron (el trastero se liberó a las 72 h):
+   * a los 30 días se anonimiza la ficha del inquilino (nombre, DNI, teléfono,
+   * dirección…) y se retira el borrador del contrato. Solo si es todo lo que
+   * hay de esa persona: ningún contrato firmado, ninguna factura ni cobro. El
+   * contacto sigue en Leads para el seguimiento comercial.
+   */
+  async anonymizeAbandonedBookings(now = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - ABANDONED_BOOKING_DAYS * 24 * 60 * 60 * 1000);
+    const candidates = await this.admin.customer.findMany({
+      where: {
+        deletedAt: null,
+        isTest: false,
+        createdAt: { lt: cutoff },
+        contracts: {
+          some: {},
+          every: {
+            signedAt: null,
+            status: 'cancelled',
+            firstPaymentDeadline: { not: null },
+            updatedAt: { lt: cutoff },
+          },
+        },
+        invoices: { none: {} },
+        payments: { none: {} },
+      },
+      select: { id: true, tenantId: true, companyName: true },
+      take: 500,
+    });
+    let done = 0;
+    for (const c of candidates) {
+      try {
+        await this.admin.$transaction([
+          this.admin.customer.update({
+            where: { id: c.id },
+            data: {
+              firstName: ANONYMIZED,
+              lastName: '',
+              companyName: c.companyName ? ANONYMIZED : null,
+              email: null,
+              phone: null,
+              address: null,
+              city: null,
+              postalCode: null,
+              documentNumber: null,
+              emergencyContactName: null,
+              emergencyContactPhone: null,
+              billingEmail: null,
+              notes: null,
+              tags: [],
+              portalAccessEnabled: false,
+              portalPasswordHash: null,
+              portalSessionVersion: { increment: 1 },
+              referralCode: null,
+              deletedAt: now,
+            },
+          }),
+          this.admin.contract.updateMany({
+            where: { tenantId: c.tenantId, customerId: c.id, signedAt: null },
+            data: { deletedAt: now, signingTokenHash: null },
+          }),
+        ]);
+        done += 1;
+      } catch (err) {
+        this.logger.warn(
+          `[retention] no se pudo anonimizar la reserva abandonada del inquilino ${c.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    if (done > 0) this.logger.log(`[retention] ${done} reservas sin firmar anonimizadas`);
+    return done;
+  }
+
   async runCleanup(): Promise<{
     auditLogs: number;
     accessLogs: number;

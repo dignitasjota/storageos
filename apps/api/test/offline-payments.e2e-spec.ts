@@ -141,7 +141,12 @@ describe('Formas de pago sin pasarela (e2e)', () => {
     });
     expect(mail.recipient).toBe(email);
     expect(mail.bodyText).toContain('ES91 2100 0418 4502 0005 1332');
-    expect(mail.bodyText).toContain(invoice.invoiceNumber!);
+    // La factura del primer pago aún no tiene número: el concepto es el contrato.
+    const { contractNumber } = await admin.contract.findUniqueOrThrow({
+      where: { id: contractId },
+      select: { contractNumber: true },
+    });
+    expect(mail.bodyText).toContain(`Concepto: ${contractNumber}`);
 
     // Aviso al equipo.
     const notice = await admin.notification.findFirst({
@@ -234,6 +239,10 @@ describe('Formas de pago sin pasarela (e2e)', () => {
       .send({ method: 'sepa_debit', iban: CUSTOMER_IBAN })
       .expect(200);
     expect(reuse.body.mandateSigningUrl).toBeNull();
+    // Con el mandato firmado, el primer pago se emite: la remesa necesita su número.
+    const issued = await admin.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+    expect(issued.status).toBe('issued');
+    expect(issued.invoiceNumber).not.toMatch(/^DRAFT-/);
   });
 
   it('reserva online: la fianza se elige en el local antes de firmar y se cobra con TPV', async () => {

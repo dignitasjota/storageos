@@ -10,7 +10,11 @@ import { accessCutApplied, accessCutUndecided } from '../../common/access-cut';
 import { todayInTimezone } from '../../common/format';
 import { nextContractCharge } from '../../common/next-charge';
 import { isPendingPreOpening } from '../../common/pre-opening';
-import { CHARGEABLE_MANDATE_WHERE, NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
+import {
+  CHARGEABLE_MANDATE_WHERE,
+  NO_PAYMENT_IN_FLIGHT,
+  PAYABLE_INVOICE_WHERE,
+} from '../../common/sepa-remittance-guard';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Prisma } from '@storageos/database';
@@ -45,7 +49,8 @@ export class PortalAccountService {
       tenantId,
       customerId,
       deletedAt: null,
-      status: { in: ['issued', 'overdue'] },
+      // También el primer pago de una reserva (su factura se emite al pagarlo).
+      ...PAYABLE_INVOICE_WHERE,
     };
     const [tenant, contracts, methods, mandate, settled, inFlight] = await Promise.all([
       this.admin.tenant.findUnique({

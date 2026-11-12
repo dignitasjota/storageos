@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { formatDateLong, formatEur } from '../../common/format';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
-import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
+import { NO_PAYMENT_IN_FLIGHT, PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -122,7 +122,7 @@ export class BookingRecoveryService {
         invoices: {
           // Un cobro en marcha (adeudo SEPA, remesa) no es «sin pagar».
           where: {
-            status: { in: ['issued', 'overdue'] },
+            ...PAYABLE_INVOICE_WHERE,
             kind: 'invoice',
             ...NO_PAYMENT_IN_FLIGHT,
           },

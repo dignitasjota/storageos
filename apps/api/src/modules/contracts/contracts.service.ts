@@ -652,9 +652,17 @@ export class ContractsService {
               where: { customerId: c.customerId, status: { in: ['active', 'suspended'] } },
             }),
             tx.invoice.findFirst({
-              where: { contractId, kind: 'invoice', status: { notIn: ['draft', 'cancelled'] } },
-              orderBy: { issueDate: 'asc' },
-              select: { status: true, invoiceNumber: true },
+              where: {
+                contractId,
+                kind: 'invoice',
+                // También la de una reserva online, que se emite al cobrarse.
+                OR: [
+                  { status: { notIn: ['draft', 'cancelled'] } },
+                  { status: 'draft', issueOnPayment: true },
+                ],
+              },
+              orderBy: { createdAt: 'asc' },
+              select: { status: true, invoiceNumber: true, issueOnPayment: true },
             }),
             tx.contract.count({
               where: {
@@ -691,7 +699,9 @@ export class ContractsService {
           ? 'Aún no hay factura emitida.'
           : firstInvoice.status === 'paid'
             ? null
-            : `Factura ${firstInvoice.invoiceNumber} pendiente de cobro.`,
+            : firstInvoice.status === 'draft'
+              ? 'Primer pago pendiente: la factura se emite al cobrarse.'
+              : `Factura ${firstInvoice.invoiceNumber} pendiente de cobro.`,
       },
       {
         key: 'deposit',
@@ -1365,6 +1375,11 @@ export class ContractsService {
      * pidió, cuándo pidió empezar antes de que acabe ese plazo.
      */
     withdrawal?: { deadline: string; immediateStartRequestedAt: Date | null };
+    /**
+     * La 1ª factura la prepara quien llama (firma por enlace: en una reserva
+     * online queda pendiente de pago y se emite al cobrarse).
+     */
+    deferFirstInvoice?: boolean;
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'active');
@@ -1638,8 +1653,15 @@ export class ContractsService {
     this.eventBus.emit(DOMAIN_EVENTS.contract_signed, payload);
     // Cupón o primer pago de varios meses: la 1ª factura sale al firmar (sin
     // esperar a la recurrente) para aplicar el cupón al pago de ahora.
-    if (await this.firstInvoice.needsOnSign(args.tenantId, updated.id)) {
-      await this.firstInvoice.issueIfMissing(args.tenantId, updated.id, updated.customerId);
+    if (
+      !args.deferFirstInvoice &&
+      (await this.firstInvoice.needsOnSign(args.tenantId, updated.id))
+    ) {
+      // Reserva online firmada en el local: también entra en vigor con el
+      // primer pago, así que su factura se emite al cobrarse.
+      await this.firstInvoice.issueIfMissing(args.tenantId, updated.id, updated.customerId, {
+        issueOnPayment: updated.firstPaymentDeadline !== null,
+      });
     }
     return this.toDto(updated);
   }

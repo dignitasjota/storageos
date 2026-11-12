@@ -532,6 +532,7 @@ export default function InvoicesPage() {
           status={row.original.status}
           total={row.original.total}
           voided={!!row.original.voidedAt}
+          awaitingPayment={row.original.issueOnPayment}
         />
       ),
     },

@@ -3,6 +3,13 @@ import type { Prisma } from '@storageos/database';
 type Db = Pick<Prisma.TransactionClient, 'contract' | 'invoice'>;
 
 /**
+ * Horas que se guarda el trastero de una reserva online para firmar y pagar el
+ * primer pago. El contrato entra en vigor con ese pago; sin él, queda sin
+ * efecto (lo dice el contrato que se firma).
+ */
+export const BOOKING_HOLD_HOURS = 72;
+
+/**
  * ¿Es la primera factura de una reserva online (desde la web o el área de
  * clientes) que aún está en su plazo para pagarse? Esa factura se paga en la
  * propia reserva y, si no se paga a tiempo, la reserva caduca y la factura se

@@ -76,7 +76,12 @@ export function SignPageBody({
         requiresAuth: false,
         headers: { Authorization: `Bearer ${portalToken}` },
       });
-      setPending(invoices.filter((i) => i.status === 'issued' || i.status === 'overdue'));
+      // Lo que queda por pagar (también el primer pago, cuya factura se emite al pagarlo).
+      setPending(
+        invoices.filter(
+          (i) => i.status === 'issued' || i.status === 'overdue' || i.status === 'draft',
+        ),
+      );
     } catch {
       /* el pago es opcional aquí */
     }
@@ -630,10 +635,12 @@ function BookingPayment({
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
       <p className="font-medium">
-        {t('firstInvoice', {
-          number: invoice.invoiceNumber,
-          amount: formatPrice(invoice.amountPending, locale),
-        })}
+        {invoice.status === 'draft'
+          ? t('firstPaymentPending', { amount: formatPrice(invoice.amountPending, locale) })
+          : t('firstInvoice', {
+              number: invoice.invoiceNumber,
+              amount: formatPrice(invoice.amountPending, locale),
+            })}
       </p>
       {setupIntent ? (
         <StripeSetupForm

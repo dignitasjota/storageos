@@ -435,6 +435,11 @@ export class InvoicesService {
     facilityScope?: string[] | null;
     /** Uso interno: lo que gasta (mes gratis, señal), para devolverlo si se cancela. */
     consumedBenefits?: ConsumedBenefits;
+    /**
+     * Uso interno: borrador que se emite al cobrarse (primera factura de una
+     * reserva online). Hasta entonces no tiene número ni registro Veri*Factu.
+     */
+    issueOnPayment?: boolean;
   }): Promise<InvoiceDto> {
     const invoiceType: 'F1' | 'F2' = args.input.invoiceType ?? 'F1';
     const { subtotal, taxAmount, total } = this.computeTotals(args.input.items);
@@ -561,6 +566,7 @@ export class InvoicesService {
             ...(args.consumedBenefits
               ? { consumedBenefits: args.consumedBenefits as Prisma.InputJsonValue }
               : {}),
+            ...(args.issueOnPayment ? { issueOnPayment: true } : {}),
             items: {
               create: args.input.items.map((item, idx) =>
                 this.toItemCreateData(item, args.tenantId, idx),
@@ -755,6 +761,66 @@ export class InvoicesService {
    * encadenado, marca `status = issued`, dispara envio AEAT (stub en
    * Fase 4). Todo en una transaccion.
    */
+  /**
+   * Antes de cobrar un borrador que se emite al pagarse: si después no se
+   * pudiera emitir (faltan datos fiscales, NIF, certificado…), el dinero
+   * quedaría cobrado sin factura. Lanza el mismo error que `issue`.
+   */
+  async assertCanIssue(tenantId: string, invoiceId: string): Promise<void> {
+    const existing = await this.findOrThrow(tenantId, invoiceId);
+    if (existing.status !== 'draft') return;
+    await this.prisma.withTenant(async (tx) => {
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: {
+          taxId: true,
+          billingLegalName: true,
+          billingAddress: true,
+          billingPostalCode: true,
+          billingCity: true,
+          verifactuEnabled: true,
+        },
+      });
+      await this.assertIssuerReady(tx, existing, tenant);
+    }, tenantId);
+  }
+
+  /**
+   * Emite el borrador «pendiente de pago» al recibirse su cobro (primera
+   * factura de una reserva online). No hace nada si ya está emitida o no es de
+   * ese tipo: varios caminos de cobro pueden llamarlo para la misma factura.
+   */
+  async issueOnPaymentReceived(args: {
+    tenantId: string;
+    invoiceId: string;
+    userId?: string | null;
+  }): Promise<void> {
+    const row = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findFirst({
+          where: { id: args.invoiceId, deletedAt: null },
+          select: { status: true, issueOnPayment: true },
+        }),
+      args.tenantId,
+    );
+    if (!row || row.status !== 'draft' || !row.issueOnPayment) return;
+    try {
+      await this.issue({
+        tenantId: args.tenantId,
+        userId: args.userId ?? null,
+        invoiceId: args.invoiceId,
+        meta: {},
+        settleZero: false,
+      });
+    } catch (err) {
+      // Otro cobro la emitió a la vez: ya está.
+      if ((err as { response?: { code?: string } })?.response?.code === 'invoice_already_issued') {
+        return;
+      }
+      throw err;
+    }
+  }
+
   async issue(args: {
     tenantId: string;
     userId: string | null;
@@ -810,6 +876,7 @@ export class InvoicesService {
     } | null = null;
     // A 0 € no hay nada que cobrar: queda saldada (sin correo de «nueva factura»).
     const settledZero = toCents(Number(existing.total)) === 0 && args.settleZero !== false;
+    let prepaid = false;
     const updated = await this.prisma.withTenant(async (tx) => {
       // Dos «Emitir» a la vez (doble clic, lote + emisión automática): la fila
       // bloqueada serializa y el segundo ve la factura ya emitida → 409, en vez
@@ -871,6 +938,9 @@ export class InvoicesService {
       // Rectificativa de abono: no se cobra ni se reclama (queda saldada al
       // emitirse; el dinero, si lo hay, se devuelve aparte).
       const isCredit = total < 0;
+      // Borrador que se emite al cobrarse y cuyo cobro ya entró (la emisión
+      // falló al cobrar y se hace después): queda pagada.
+      prepaid = !isCredit && total > 0 && toCents(Number(existing.amountPaid)) >= toCents(total);
       const settled = isCredit || settledZero;
 
       if (fromHolded) {
@@ -879,13 +949,14 @@ export class InvoicesService {
         const holdedRow = await tx.invoice.update({
           where: { id: args.invoiceId },
           data: {
-            status: settled ? 'paid' : 'issued',
+            status: settled || prepaid ? 'paid' : 'issued',
             invoiceNumber: fromHolded.number,
             issueDate,
             dueDate: settled
               ? null
               : (existing.dueDate ?? this.computeDefaultDueDate(issueDate, dueDays)),
             ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
+            ...(prepaid ? { paidAt: new Date() } : {}),
             issuedBy: 'holded',
             holdedDocumentId: fromHolded.documentId,
             holdedSyncState: null,
@@ -893,13 +964,14 @@ export class InvoicesService {
           },
           include: this.includeRelations(),
         });
-        const holdedWithheld = settled
-          ? holdedRow
-          : await this.applyCreditBalance(
-              tx,
-              args.tenantId,
-              await this.applyWithholding(tx, args.tenantId, holdedRow),
-            );
+        const holdedWithheld =
+          settled || prepaid
+            ? holdedRow
+            : await this.applyCreditBalance(
+                tx,
+                args.tenantId,
+                await this.applyWithholding(tx, args.tenantId, holdedRow),
+              );
         if (isCredit && existing.rectifiesInvoiceId) {
           compensatedOriginal = await this.compensateWithCredit(tx, {
             tenantId: args.tenantId,
@@ -937,53 +1009,7 @@ export class InvoicesService {
       // Administrador; si no, el tenant), QR y envío a la AEAT. Apagado, la
       // factura se emite sin nada de eso.
       const verifactuOn = tenant.verifactuEnabled;
-      const owner = existing.ownerId
-        ? await tx.owner.findUnique({
-            where: { id: existing.ownerId },
-            select: { taxId: true, legalName: true },
-          })
-        : null;
-      const issuerTaxId = owner ? owner.taxId : tenant.taxId;
-      const emitterTaxId = issuerTaxId ? normalizeTaxId(issuerTaxId) : '';
-      // Sin NIF, razón social y domicilio la factura no es válida (RD 1619/2012).
-      await this.assertIssuerFiscalData(tx, existing.ownerId, tenant);
-      if (verifactuOn && this.verifactu.realMode) {
-        // Envío real a la AEAT: sin NIF válido del emisor el registro se
-        // rechazaría (antes la huella llevaba «PENDIENTE»).
-        if (!emitterTaxId || !isValidSpanishTaxId(emitterTaxId)) {
-          throw new BadRequestException(
-            owner
-              ? {
-                  code: 'owner_tax_id_required',
-                  message: `El NIF del propietario ${owner.legalName} no es válido. Corrígelo en Propietarios antes de emitir sus facturas.`,
-                }
-              : {
-                  code: 'tenant_tax_id_required',
-                  message:
-                    'Pon el NIF de tu empresa en Ajustes → Suscripción (datos fiscales) antes de emitir facturas',
-                },
-          );
-        }
-        await this.assertRecipientIdentifiable(tx, existing);
-        // Sin un certificado vigente la factura se emitiría y se quedaría sin
-        // registrar en la AEAT (el registro debe hacerse al emitir).
-        const cert = await tx.tenantAeatCredential.findFirst({
-          where: {
-            revokedAt: null,
-            certValidTo: { gt: new Date() },
-            // El del tenant o, si la emite un propietario, el suyo.
-            OR: [{ ownerId: null }, ...(existing.ownerId ? [{ ownerId: existing.ownerId }] : [])],
-          },
-          select: { id: true },
-        });
-        if (!cert) {
-          throw new BadRequestException({
-            code: 'aeat_certificate_required',
-            message:
-              'Sube un certificado digital vigente en Ajustes → Facturación → Veri*Factu antes de emitir facturas',
-          });
-        }
-      }
+      const { emitterTaxId } = await this.assertIssuerReady(tx, existing, tenant);
       const record = verifactuOn
         ? await (async () => {
             // Su registro de alta, encadenado con el último del emisor y
@@ -1017,25 +1043,27 @@ export class InvoicesService {
       const issuedRow = await tx.invoice.update({
         where: { id: args.invoiceId },
         data: {
-          status: settled ? 'paid' : 'issued',
+          status: settled || prepaid ? 'paid' : 'issued',
           invoiceNumber,
           sequenceNumber,
           issueDate,
           dueDate: settled ? null : dueDate,
           ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
+          ...(prepaid ? { paidAt: new Date() } : {}),
           ...record,
         },
         include: this.includeRelations(),
       });
       // Retención de IRPF del contrato (si el inquilino la practica) y, después,
       // su saldo a favor (una devolución que se quedó para la próxima factura).
-      const row = settled
-        ? issuedRow
-        : await this.applyCreditBalance(
-            tx,
-            args.tenantId,
-            await this.applyWithholding(tx, args.tenantId, issuedRow),
-          );
+      const row =
+        settled || prepaid
+          ? issuedRow
+          : await this.applyCreditBalance(
+              tx,
+              args.tenantId,
+              await this.applyWithholding(tx, args.tenantId, issuedRow),
+            );
       // Un abono por diferencias sobre una factura con importe pendiente lo
       // compensa: la original deja de reclamar lo abonado.
       if (
@@ -1075,6 +1103,34 @@ export class InvoicesService {
             total: Number(updated.total).toFixed(2),
             paidAt: new Date().toISOString(),
             compensated: true,
+          },
+        },
+      } satisfies DomainEventPayload);
+    }
+    if (prepaid && updated.status === 'paid') {
+      // El cobro ya había entrado (la emisión falló al cobrar): ahora sí es una
+      // factura pagada, con su correo de «pago recibido» y el acceso.
+      const customer = updated.customerId
+        ? await this.prisma.withTenant(
+            (tx) =>
+              tx.customer.findUnique({
+                where: { id: updated.customerId! },
+                select: { email: true },
+              }),
+            args.tenantId,
+          )
+        : null;
+      this.events.emit(DOMAIN_EVENTS.invoice_paid, {
+        tenantId: args.tenantId,
+        entityType: 'invoice',
+        entityId: updated.id,
+        customerId: updated.customerId,
+        recipientEmail: customer?.email ?? null,
+        scope: {
+          invoice: {
+            number: updated.invoiceNumber,
+            total: Number(updated.total).toFixed(2),
+            paidAt: new Date().toISOString(),
           },
         },
       } satisfies DomainEventPayload);
@@ -2895,6 +2951,34 @@ export class InvoicesService {
         message: 'La fecha del cobro no puede ser futura',
       });
     }
+    // Primera factura de una reserva online: se emite al cobrarse (con la fecha
+    // de hoy). Antes, lo que no depende de la factura emitida: que el importe
+    // quepa y, en efectivo, que la caja de ese día siga abierta.
+    if (existing.status === 'draft' && existing.issueOnPayment) {
+      if (isGreaterThan(addAmounts(existing.amountPaid, amount), Number(existing.total))) {
+        throw new BadRequestException({
+          code: 'overpayment',
+          message: 'El importe excede el pendiente',
+        });
+      }
+      if (args.input.methodType === 'cash') {
+        await this.prisma.withTenant(
+          async (tx) =>
+            assertCashDayOpen(tx, {
+              tenantId: args.tenantId,
+              facilityId: await invoiceFacilityId(tx, args.invoiceId),
+              at: [paidAt],
+              what: 'un cobro en efectivo',
+            }),
+          args.tenantId,
+        );
+      }
+      await this.issueOnPaymentReceived({
+        tenantId: args.tenantId,
+        invoiceId: args.invoiceId,
+        userId: args.userId,
+      });
+    }
     let total = 0;
     let fullyPaid = false;
     let paymentId = '';
@@ -4494,6 +4578,75 @@ export class InvoicesService {
    * Una factura sin NIF, razón social y domicilio del emisor no es válida
    * (RD 1619/2012, art. 6). Del negocio, o del propietario que la emite.
    */
+  /**
+   * Lo que hace falta para emitir: datos fiscales del emisor y, con envío real
+   * a la AEAT, NIF válido, destinatario identificable y certificado vigente.
+   * Lo usan `issue` y la comprobación previa al cobro de un borrador que se
+   * emite al pagarse (`assertCanIssue`).
+   */
+  private async assertIssuerReady(
+    tx: Prisma.TransactionClient,
+    existing: { ownerId: string | null; invoiceType: string; customerId: string | null },
+    tenant: {
+      taxId: string | null;
+      billingLegalName: string | null;
+      billingAddress: string | null;
+      billingPostalCode: string | null;
+      billingCity: string | null;
+      verifactuEnabled: boolean;
+    },
+  ): Promise<{ emitterTaxId: string }> {
+    const verifactuOn = tenant.verifactuEnabled;
+    const owner = existing.ownerId
+      ? await tx.owner.findUnique({
+          where: { id: existing.ownerId },
+          select: { taxId: true, legalName: true },
+        })
+      : null;
+    const issuerTaxId = owner ? owner.taxId : tenant.taxId;
+    const emitterTaxId = issuerTaxId ? normalizeTaxId(issuerTaxId) : '';
+    // Sin NIF, razón social y domicilio la factura no es válida (RD 1619/2012).
+    await this.assertIssuerFiscalData(tx, existing.ownerId, tenant);
+    if (verifactuOn && this.verifactu.realMode) {
+      // Envío real a la AEAT: sin NIF válido del emisor el registro se
+      // rechazaría (antes la huella llevaba «PENDIENTE»).
+      if (!emitterTaxId || !isValidSpanishTaxId(emitterTaxId)) {
+        throw new BadRequestException(
+          owner
+            ? {
+                code: 'owner_tax_id_required',
+                message: `El NIF del propietario ${owner.legalName} no es válido. Corrígelo en Propietarios antes de emitir sus facturas.`,
+              }
+            : {
+                code: 'tenant_tax_id_required',
+                message:
+                  'Pon el NIF de tu empresa en Ajustes → Suscripción (datos fiscales) antes de emitir facturas',
+              },
+        );
+      }
+      await this.assertRecipientIdentifiable(tx, existing);
+      // Sin un certificado vigente la factura se emitiría y se quedaría sin
+      // registrar en la AEAT (el registro debe hacerse al emitir).
+      const cert = await tx.tenantAeatCredential.findFirst({
+        where: {
+          revokedAt: null,
+          certValidTo: { gt: new Date() },
+          // El del tenant o, si la emite un propietario, el suyo.
+          OR: [{ ownerId: null }, ...(existing.ownerId ? [{ ownerId: existing.ownerId }] : [])],
+        },
+        select: { id: true },
+      });
+      if (!cert) {
+        throw new BadRequestException({
+          code: 'aeat_certificate_required',
+          message:
+            'Sube un certificado digital vigente en Ajustes → Facturación → Veri*Factu antes de emitir facturas',
+        });
+      }
+    }
+    return { emitterTaxId };
+  }
+
   private async assertIssuerFiscalData(
     tx: Prisma.TransactionClient,
     ownerId: string | null,
@@ -4683,6 +4836,7 @@ export class InvoicesService {
       contractNumber: row.contract?.contractNumber ?? null,
       kind: row.kind === 'deposit_receipt' ? 'deposit_receipt' : 'invoice',
       bundledWithInvoiceId: row.bundledWithInvoiceId,
+      issueOnPayment: row.issueOnPayment,
       unitId: row.contract?.unit?.id ?? null,
       unitCode: row.contract?.unit?.code ?? null,
       facilityId: invoiceFacilityOf(row),
@@ -4720,9 +4874,12 @@ export class InvoicesService {
       amountPaid,
       amountRefunded,
       // Solo se debe lo que se está cobrando: un borrador, una anulada o una
-      // cancelada no tienen nada pendiente.
+      // cancelada no tienen nada pendiente (salvo el borrador del primer pago de
+      // una reserva online, que se emite al cobrarse).
       amountPending:
-        row.status === 'issued' || row.status === 'overdue'
+        row.status === 'issued' ||
+        row.status === 'overdue' ||
+        (row.status === 'draft' && row.issueOnPayment)
           ? Math.max(0, Math.round((total - amountPaid) * 100) / 100)
           : 0,
       amountCompensated: row.payments.reduce((sum, p) => sum + toCents(p.amount), 0) / 100,

@@ -24,8 +24,9 @@ import {
 } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
+import { BOOKING_HOLD_HOURS } from '../../common/online-booking';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
-import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
+import { NO_PAYMENT_IN_FLIGHT, PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
 import { DOMAIN_EVENTS, type BookingExpiredPayload } from '../automations/domain-events';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
@@ -54,7 +55,6 @@ import type {
 const SIGNING_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PORTAL_TOKEN_TTL_SECONDS = 3600;
 /** Plazo para pagar la 1ª factura de un booking self-service antes de cancelarlo. */
-const BOOKING_PAYMENT_DEADLINE_HOURS = 72;
 
 function displayName(c: {
   customerType: string;
@@ -371,7 +371,7 @@ export class SignaturesService {
         tenantId: contract.tenantId,
         contractId: contract.id,
         kind: 'invoice',
-        status: { in: ['issued', 'overdue'] },
+        ...PAYABLE_INVOICE_WHERE,
         deletedAt: null,
       },
     });
@@ -661,6 +661,8 @@ export class SignaturesService {
       // Self-service remoto: el acceso se emite al pagar la 1ª factura, no al firmar.
       // El inquilino de prueba no paga: lo recibe al firmar.
       deferAccessUntilPaid: !contract.customer.isTest,
+      // La 1ª factura se prepara aquí, después de firmar.
+      deferFirstInvoice: true,
       ...(input.termsHash ? { expectedTermsHash: input.termsHash } : {}),
       ...(withdrawal.applies && withdrawal.deadline
         ? {
@@ -673,7 +675,12 @@ export class SignaturesService {
     });
 
     if (!contract.customer.isTest) {
-      await this.maybeIssueFirstInvoice(contract.tenantId, contract.id, contract.customerId);
+      // Reserva online (con plazo de pago): el contrato entra en vigor con el
+      // primer pago, así que la factura se emite al cobrarse. Un contrato del
+      // panel enviado a firmar sigue emitiéndola al firmar.
+      await this.maybeIssueFirstInvoice(contract.tenantId, contract.id, contract.customerId, {
+        issueOnPayment: contract.firstPaymentDeadline !== null,
+      });
     }
 
     return {
@@ -787,8 +794,9 @@ export class SignaturesService {
     tenantId: string,
     contractId: string,
     customerId: string,
+    opts: { issueOnPayment?: boolean } = {},
   ): Promise<void> {
-    await this.firstInvoice.issueIfMissing(tenantId, contractId, customerId);
+    await this.firstInvoice.issueIfMissing(tenantId, contractId, customerId, opts);
   }
 
   /**
@@ -990,7 +998,7 @@ export class SignaturesService {
     await this.admin.contract.update({
       where: { id: contract.id },
       data: {
-        firstPaymentDeadline: new Date(Date.now() + BOOKING_PAYMENT_DEADLINE_HOURS * 3_600_000),
+        firstPaymentDeadline: new Date(Date.now() + BOOKING_HOLD_HOURS * 3_600_000),
       },
     });
     const { token } = await this.generateSigningToken(contract.id);
@@ -1039,7 +1047,8 @@ export class SignaturesService {
           tenantId: c.tenantId,
           contractId: c.id,
           kind: 'invoice',
-          status: { in: ['issued', 'overdue'] },
+          // También el borrador que se emite al cobrarse (cobro con tarjeta en curso).
+          ...PAYABLE_INVOICE_WHERE,
           deletedAt: null,
           NOT: NO_PAYMENT_IN_FLIGHT,
         },

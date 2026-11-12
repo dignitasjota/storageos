@@ -305,6 +305,9 @@ export class AccountantExportService {
         ownerId,
         deletedAt: null,
         status: { not: 'draft' },
+        // Un borrador anulado sin llegar a emitirse (p. ej. el primer pago de una
+        // reserva que caducó) no es una factura: no tiene número.
+        NOT: { invoiceNumber: { startsWith: 'DRAFT-' } },
         kind: 'invoice', // los justificantes de fianza no son facturas
         issueDate: { gte: fromD, lte: toD },
       },

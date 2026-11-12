@@ -6,6 +6,7 @@ import type { GoCardlessChargeService } from '../gocardless/gocardless-charge.se
 import type { PaymentGateway } from '../payment-gateway.interface';
 import type { PaymentMethodsService } from '../payment-methods.service';
 import type { RedsysChargeService } from '../redsys/redsys-charge.service';
+import type { ModuleRef } from '@nestjs/core';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
 
 const TENANT = '019e3d20-aaaa-7c2f-bf37-6511065b9fc5';
@@ -113,6 +114,12 @@ function buildService(
     (deps.goCardlessCharge ?? { charge: jest.fn() }) as unknown as GoCardlessChargeService,
     (deps.events ?? { emit: jest.fn() }) as unknown as EventEmitter2,
     (deps.redsysCharge ?? { charge: jest.fn() }) as unknown as RedsysChargeService,
+    {
+      get: () => ({
+        issueOnPaymentReceived: jest.fn().mockResolvedValue(undefined),
+        assertCanIssue: jest.fn().mockResolvedValue(undefined),
+      }),
+    } as unknown as ModuleRef,
   );
 }
 

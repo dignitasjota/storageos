@@ -93,6 +93,7 @@ export class AutoChargeService {
         customerId: true,
         total: true,
         amountPaid: true,
+        issueOnPayment: true,
         productSale: { select: { id: true } },
       },
     });
@@ -100,6 +101,9 @@ export class AutoChargeService {
     // Las ventas de productos se cobran en el mostrador o desde el portal en el
     // momento: cobrarlas aquí otra vez sería un doble cargo.
     if (invoice.productSale) return this.skip(invoiceId, 'product_sale');
+    // Primera factura de una reserva online: se emite precisamente porque se
+    // está cobrando; cobrarla aquí otra vez sería un doble cargo.
+    if (invoice.issueOnPayment) return this.skip(invoiceId, 'issued_on_payment');
     if (invoice.status !== 'issued' && invoice.status !== 'overdue') {
       return this.skip(invoiceId, `status_${invoice.status}`);
     }

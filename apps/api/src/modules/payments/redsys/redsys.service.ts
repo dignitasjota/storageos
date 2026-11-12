@@ -85,12 +85,17 @@ export class RedsysService {
     if (!invoice || (expectedCustomerId && invoice.customerId !== expectedCustomerId)) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
-    if (invoice.status !== 'issued' && invoice.status !== 'overdue') {
+    // Primera factura de una reserva online: borrador que se emite al cobrarse.
+    const pendingDraft = invoice.status === 'draft' && invoice.issueOnPayment;
+    if (invoice.status !== 'issued' && invoice.status !== 'overdue' && !pendingDraft) {
       throw new BadRequestException({
         code: 'invoice_not_payable',
         message: 'La factura no está en estado pagable',
       });
     }
+    // Se emitirá al confirmarse el pago: si no se pudiera, el dinero quedaría
+    // cobrado sin factura. Se comprueba antes de mandar al TPV.
+    if (pendingDraft) await this.invoices.assertCanIssue(tenantId, invoiceId);
     // No iniciar Redsys si ya hay un cobro en vuelo (p. ej. un adeudo SEPA
     // `processing`) sobre la misma factura → evita el doble cobro.
     const inFlight = await this.admin.payment.count({
@@ -148,7 +153,9 @@ export class RedsysService {
         });
       }
       for (const x of extras) {
-        if (x.status !== 'issued' && x.status !== 'overdue') {
+        const xPendingDraft = x.status === 'draft' && x.issueOnPayment;
+        if (xPendingDraft) await this.invoices.assertCanIssue(tenantId, x.id);
+        if (x.status !== 'issued' && x.status !== 'overdue' && !xPendingDraft) {
           throw new BadRequestException({
             code: 'invoice_not_payable',
             message: `La factura ${x.invoiceNumber} no está pendiente`,
@@ -180,7 +187,7 @@ export class RedsysService {
             (sum, r) => sum + Math.max(0, toCents(r.total) - toCents(r.amountPaid)),
             0,
           );
-        if (x.invoiceNumber) extraNumbers.push(x.invoiceNumber);
+        if (x.invoiceNumber && !xPendingDraft) extraNumbers.push(x.invoiceNumber);
       }
     }
     if (amountCents <= 0) {
@@ -268,9 +275,14 @@ export class RedsysService {
       // Con el negocio en la dirección: la página de vuelta lleva su marca.
       DS_MERCHANT_URLOK: `${webBase}/pay/redsys/ok?t=${encodeURIComponent(tenantSlug)}`,
       DS_MERCHANT_URLKO: `${webBase}/pay/redsys/ko?t=${encodeURIComponent(tenantSlug)}`,
-      DS_MERCHANT_PRODUCTDESCRIPTION: (extraNumbers.length
-        ? `Facturas ${[invoice.invoiceNumber, ...extraNumbers].join(', ')}`
-        : `Factura ${invoice.invoiceNumber}`
+      // El borrador de una reserva aún no tiene número: «Primer pago».
+      DS_MERCHANT_PRODUCTDESCRIPTION: (pendingDraft
+        ? extraNumbers.length
+          ? `Primer pago y facturas ${extraNumbers.join(', ')}`
+          : 'Primer pago de la reserva'
+        : extraNumbers.length
+          ? `Facturas ${[invoice.invoiceNumber, ...extraNumbers].join(', ')}`
+          : `Factura ${invoice.invoiceNumber}`
       ).slice(0, 125),
       // 'z' = Bizum, 'C' = tarjeta. Sin el campo, el TPV ofrece los métodos que
       // tenga configurados el comercio (retrocompatible con el flujo anterior).
@@ -535,11 +547,21 @@ export class RedsysService {
     const docs = await this.admin.invoice.findMany({
       where: {
         tenantId: orderRow.tenantId,
-        OR: [
-          { id: { in: mains } },
-          { bundledWithInvoiceId: { in: mains }, kind: 'deposit_receipt' },
+        AND: [
+          {
+            OR: [
+              { id: { in: mains } },
+              { bundledWithInvoiceId: { in: mains }, kind: 'deposit_receipt' },
+            ],
+          },
+          {
+            // El borrador de una reserva online se emite al aplicarle el cobro.
+            OR: [
+              { status: { in: ['issued', 'overdue'] } },
+              { status: 'draft', issueOnPayment: true },
+            ],
+          },
         ],
-        status: { in: ['issued', 'overdue'] },
         deletedAt: null,
       },
       select: { id: true, total: true, amountPaid: true, bundledWithInvoiceId: true },

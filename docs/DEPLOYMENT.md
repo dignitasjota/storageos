@@ -2133,3 +2133,20 @@ El despliegue del 12-11 dejó la web y la API sin responder durante más de hora
 5. Limpiar lo que dejaron las compilaciones antiguas: `docker builder prune -af` (por SSH) y, en Portainer → Images, las imágenes `storageos-prod-*` sin uso.
 
 **Si se vuelve a quedar sin memoria** (la web no responde durante un despliegue): por SSH, `free -h`, `df -h /` y `ps aux --sort=-%mem | head`; cortar la compilación con `pkill -f "next build"; pkill -f "nest build"` o, si no basta, `systemctl restart docker` (los datos de Postgres están en volúmenes); si el SSH no responde, reiniciar desde la consola de Hetzner. Comprobar que hay swap (`swapon --show`, §1.6).
+
+## 125. Reserva online: la primera factura se emite al cobrarse (2026-11-12)
+
+Hasta ahora, al firmar una reserva online se emitía la factura del primer pago; si el inquilino no pagaba en 72 h, la reserva se cancelaba y la factura se anulaba con una rectificativa (dos facturas en los libros por cada reserva abandonada). Ahora el contrato entra en vigor con el primer pago y la factura se emite al cobrarlo (devengo del pago anticipado, art. 75.Dos LIVA; arts. 2.1 y 11 del Reglamento de facturación).
+
+**Qué cambia**
+
+- Migración `20270113100000_invoice_issue_on_payment` (`invoices.issue_on_payment` + índice parcial). Se aplica sola con `migrate`.
+- Al firmar por enlace una reserva online (web, área de clientes, WhatsApp o reserva anticipada), la primera factura queda como borrador «Pendiente de pago»: importes fijados, sin número ni registro Veri\*Factu. A 0 € (cupón) se emite y queda pagada como antes. Un contrato del panel enviado a firmar sigue emitiéndola al firmar.
+- Se emite al cobrarse: tarjeta o Bizum (Redsys, Stripe), «Registrar cobro» en el panel (transferencia, efectivo, TPV) o, si el inquilino eligió domiciliar, al firmar el mandato (la remesa necesita el número). Antes de mandar al TPV se comprueba que se podrá emitir. Si la emisión falla después de cobrar, el cobro queda guardado y llega el aviso «Cobro recibido sin factura emitida»: al pulsar «Emitir» queda pagada.
+- Si la reserva caduca sin pagar, el borrador se anula: no gasta número ni hace rectificativa, y no sale en la exportación para la asesoría.
+- El contrato de la reserva online lleva la línea «Entrada en vigor: con el primer pago…» y las Condiciones Generales de Contratación por defecto, dos párrafos nuevos (§4 y §6). **Los tenants con condiciones generales propias deben añadirlos a mano.** Cambiar el texto genera una versión nueva de las condiciones: quien estuviera firmando justo en el despliegue verá «las condiciones han cambiado» y tendrá que recargar.
+- Transferencia: el concepto pasa a ser el número de contrato (la factura aún no tiene número).
+- Quien empezó una reserva y no llegó a firmar: a los 30 días se anonimiza su ficha y se retira el borrador del contrato (tarea diaria de limpieza). El contacto sigue en Leads.
+- Las reservas firmadas antes del despliegue siguen con su factura ya emitida.
+
+**Pendiente de la asesoría** (consultadas el 12-11): conformidad con emitir al cobrar, la fianza retenida por un servicio (limpieza, vaciado) y el depósito de fianzas de trasteros en la comunidad autónoma.

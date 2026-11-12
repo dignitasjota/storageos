@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
@@ -22,6 +23,7 @@ import {
   type PaymentDisputeWonPayload,
   type PaymentFailedPayload,
 } from '../automations/domain-events';
+import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { GoCardlessChargeService } from './gocardless/gocardless-charge.service';
@@ -51,7 +53,45 @@ export class PaymentsService {
     private readonly goCardlessCharge: GoCardlessChargeService,
     private readonly events: EventEmitter2,
     private readonly redsysCharge: RedsysChargeService,
+    // `InvoicesService` se resuelve en tiempo de ejecución: Billing importa
+    // Payments, así que importarlo aquí crearía un ciclo de módulos.
+    private readonly moduleRef: ModuleRef,
   ) {}
+
+  private invoicesService(): InvoicesService {
+    return this.moduleRef.get(InvoicesService, { strict: false });
+  }
+
+  /**
+   * Borrador «pendiente de pago» (primera factura de una reserva online): se
+   * emite al entrar el cobro. Si la emisión falla, el cobro se guarda igual
+   * (el dinero ya entró) y se avisa al equipo: al emitirla queda pagada.
+   */
+  private async issueIfPendingPayment(tenantId: string, invoiceId: string): Promise<void> {
+    try {
+      await this.invoicesService().issueOnPaymentReceived({ tenantId, invoiceId });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `[payments] cobro recibido sin poder emitir la factura ${invoiceId}: ${reason}`,
+      );
+      await this.prisma
+        .withTenant(
+          (tx) =>
+            tx.notification.create({
+              data: {
+                tenantId,
+                type: 'invoice.issue_after_payment_failed',
+                title: 'Cobro recibido sin factura emitida',
+                body: 'Ha entrado el primer pago de una reserva, pero la factura no se pudo emitir. Corrige el problema y emítela: quedará pagada.',
+                link: `/invoices/${invoiceId}`,
+              },
+            }),
+          tenantId,
+        )
+        .catch(() => undefined);
+    }
+  }
 
   async list(
     tenantId: string,
@@ -139,7 +179,9 @@ export class PaymentsService {
     // no están ancladas a un local → permitidas.
     const facilityId = invoice.contract?.unit?.facilityId;
     if (facilityId) assertFacilityAllowed(args.facilityScope, facilityId);
-    if (invoice.status !== 'issued' && invoice.status !== 'overdue') {
+    // Primera factura de una reserva online: borrador que se emite al cobrarse.
+    const pendingDraft = invoice.status === 'draft' && invoice.issueOnPayment;
+    if (invoice.status !== 'issued' && invoice.status !== 'overdue' && !pendingDraft) {
       throw new BadRequestException({
         code: 'invoice_not_payable',
         message: 'La factura no es cobrable en este estado',
@@ -192,6 +234,9 @@ export class PaymentsService {
         : [];
     for (const r of bundled) await this.assertNoPaymentInFlight(args.tenantId, r.id);
     const chargeAmount = bundled.reduce((sum, r) => addAmounts(sum, r.amount), amount);
+    // Se va a emitir al cobrar: si después no se pudiera (faltan datos fiscales,
+    // NIF, certificado…), el dinero quedaría cobrado sin factura. Antes de cobrar.
+    if (pendingDraft) await this.invoicesService().assertCanIssue(args.tenantId, invoice.id);
 
     // Stripe: con qué cuenta se cobra (la del tenant con Connect, o la de la
     // plataforma en instalaciones antiguas). Se mira fuera de la transacción.
@@ -461,6 +506,12 @@ export class PaymentsService {
         status: 'failed',
         failureReason: 'authentication_required',
       };
+    }
+
+    // Cobrado: el borrador de la reserva online se emite ahora (con su número y,
+    // si toca, su registro Veri*Factu) para que el cobro se aplique a la factura.
+    if (pendingDraft && chargeResult.status === 'succeeded') {
+      await this.issueIfPendingPayment(args.tenantId, invoice.id);
     }
 
     // === FASE 3 (finalización, tx corta) ===
@@ -814,6 +865,15 @@ export class PaymentsService {
     let invoicePaidNow = false;
     let transitioned = false;
     let excessCents = 0;
+    // Cobro confirmado de la primera factura de una reserva online (borrador que
+    // se emite al cobrarse): se emite antes de aplicar el cobro.
+    if (
+      args.newStatus === 'succeeded' &&
+      existing.invoiceId &&
+      !terminalStatuses.includes(existing.status)
+    ) {
+      await this.issueIfPendingPayment(args.tenantId, existing.invoiceId);
+    }
     await this.prisma.withTenant(async (tx) => {
       // Transición ATÓMICA: solo cambia si el pago no está ya en ese estado ni en
       // uno terminal. Dos webhooks distintos que llegan a la vez para el mismo

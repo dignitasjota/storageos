@@ -189,11 +189,18 @@ export function InvoicesList({
                 {concept(i, t, locale)}
               </span>
               <span className="block text-xs text-muted-foreground">
-                {i.invoiceNumber} ·{' '}
-                {t('issuedDue', {
-                  issueDate: fmtDate(i.issueDate, locale),
-                  dueDate: fmtDate(i.dueDate, locale),
-                })}
+                {i.status === 'draft' ? (
+                  // Primer pago de una reserva: aún sin número de factura.
+                  t('awaitingIssue')
+                ) : (
+                  <>
+                    {i.invoiceNumber} ·{' '}
+                    {t('issuedDue', {
+                      issueDate: fmtDate(i.issueDate, locale),
+                      dueDate: fmtDate(i.dueDate, locale),
+                    })}
+                  </>
+                )}
               </span>
             </span>
           </button>

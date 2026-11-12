@@ -19,11 +19,17 @@ import type { INestApplication } from '@nestjs/common';
 const DAY = 86_400_000;
 const REDSYS_KEY = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7';
 const iso = (d: Date) => d.toISOString().slice(0, 10);
-/** Hoy menos `days` en la hora de España (la del negocio): así cuenta los días el servicio. */
-const madridDay = (days: number) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
-    new Date(Date.now() - days * DAY),
-  );
+/**
+ * Hoy menos `days` días de calendario en la hora de España (la del negocio):
+ * así cuenta los días el servicio. Restar horas fallaba de noche cuando el
+ * intervalo cruza un cambio de hora.
+ */
+const madridDay = (days: number) => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+};
 
 /**
  * Revisión de Cobros del mes, Deudores y planes de pago: lo cobrado es el de

@@ -2298,6 +2298,8 @@ model Invoice {
   aeatRecordTimestamp String?                   @map("aeat_record_timestamp")
   /// 'invoice' (factura) | 'deposit_receipt' (justificante de fianza: sin IVA, sin Veri*Factu, fuera de informes fiscales).
   kind               String                     @default("invoice")
+  /// Borrador que se emite al cobrarse (primera factura de una reserva online).
+  issueOnPayment     Boolean                    @default(false) @map("issue_on_payment")
   /// Justificante que se cobra junto con esta factura en un solo pago.
   bundledWithInvoiceId String?                  @map("bundled_with_invoice_id") @db.Uuid
   bundledWithInvoice Invoice?                   @relation("InvoiceBundle", fields: [bundledWithInvoiceId], references: [id], onDelete: SetNull)
