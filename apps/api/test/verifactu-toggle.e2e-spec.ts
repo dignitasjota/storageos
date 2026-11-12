@@ -161,6 +161,9 @@ describe('Veri*Factu por negocio (e2e)', () => {
     expect(await waitForAeatStatus(app, owner.accessToken, first.id)).toBe('accepted');
     const second = await issue(owner.accessToken, customerId);
     expect(second.previousHash).toBe(first.hash);
+    // Que no quede ningún envío en marcha: si sale justo al programar la baja,
+    // ya lleva la renuncia y la da por comunicada.
+    expect(await waitForAeatStatus(app, owner.accessToken, second.id)).toBe('accepted');
     const rows = await db.invoice.findMany({
       where: { id: { in: [first.id, second.id] } },
       select: { id: true, chainSeq: true },
