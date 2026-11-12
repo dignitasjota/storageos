@@ -1,14 +1,9 @@
 name: Deploy (Portainer)
 
-# Dispara un redeploy del stack en Portainer en cada push a `main` (es decir, en
-# cada merge de PR — `main` está protegida y solo avanza con los 4 checks en
-# verde, así que el código que llega aquí ya pasó CI + E2E).
-#
-# El webhook de un stack de tipo *Repository* hace `git pull` + redeploy: el
-# `git pull` trae los commits nuevos, lo que invalida la capa `COPY apps/web`
-# del Dockerfile y obliga a reconstruir la imagen del web con el código nuevo
-# (la causa de que antes se vieran versiones viejas era un redeploy SIN pull
-# efectivo → cache hit del COPY → imagen vieja).
+# Avisa a Portainer para que descargue las imágenes nuevas y vuelva a arrancar
+# el stack. Corre cuando «Imágenes Docker (GHCR)» termina bien en `main` (es
+# decir, tras cada PR fusionada y con las tres imágenes ya subidas). El
+# servidor no compila nada: el compose usa `image:` con `pull_policy: always`.
 #
 # Configuración (una sola vez):
 #   1. En Portainer: Stack → Webhooks → "Create stack webhook" → copia la URL.
@@ -17,7 +12,9 @@ name: Deploy (Portainer)
 # Sin el secret, este workflow no falla: registra un aviso y termina (no-op).
 
 on:
-  push:
+  workflow_run:
+    workflows: ['Imágenes Docker (GHCR)']
+    types: [completed]
     branches: [main]
 
 # Un despliegue a la vez; no cancelamos uno en curso (podría dejar el stack a
@@ -29,6 +26,8 @@ concurrency:
 jobs:
   trigger-redeploy:
     name: Disparar redeploy de Portainer
+    # Solo si las imágenes se subieron bien (no en una PR ni si falló).
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - name: POST al webhook de Portainer
@@ -43,7 +42,7 @@ jobs:
           code=$(curl -fsS -o /dev/null -w "%{http_code}" -X POST "$WEBHOOK_URL" || echo "000")
           echo "Respuesta del webhook: HTTP $code"
           case "$code" in
-            2*) echo "✅ Redeploy disparado. Portainer hará git pull + rebuild del stack." ;;
+            2*) echo "✅ Redeploy disparado. Portainer descargará las imágenes nuevas y reiniciará el stack." ;;
             000) echo "::error::No se pudo contactar con el webhook (¿URL/red?)."; exit 1 ;;
             *) echo "::error::El webhook devolvió HTTP $code."; exit 1 ;;
           esac
