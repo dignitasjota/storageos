@@ -10,6 +10,13 @@ import { trackEvent } from '../google-analytics';
 import { bookHref, cityPageHref, landingHref, type PublicWebLocale } from '../i18n/messages';
 import { FacilityMeta, UnitTypeList } from '../templates';
 
+import {
+  facilityFaqs,
+  facilityIntro,
+  mergeFaqs,
+  nameRedundant,
+  type PublicWebT,
+} from './facility-seo';
 import { buildFacilityJsonLd } from './facility-shared';
 
 import type { AreaPageFaq, PublicFacilityLandingDto } from '@storageos/shared';
@@ -43,13 +50,21 @@ function FacilityVideo({ url, title }: { url: string; title: string }) {
   );
 }
 
-function FacilityHeading({ f }: { f: PublicFacilityLandingDto['facility'] }) {
+function FacilityHeading({
+  f,
+  tenantName,
+}: {
+  f: PublicFacilityLandingDto['facility'];
+  tenantName: string;
+}) {
   const t = useTranslations('publicWeb.facility');
   return (
     <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-      {f.city
-        ? t('headingWithCity', { city: f.city, name: f.name })
-        : t('headingDefault', { name: f.name })}
+      {!f.city
+        ? t('headingDefault', { name: f.name })
+        : nameRedundant(f, tenantName)
+          ? t('headingCityOnly', { city: f.city })
+          : t('headingWithCity', { city: f.city, name: f.name })}
     </h1>
   );
 }
@@ -72,11 +87,24 @@ export function FacilityBody({
   asCityPage?: { path: string; faqs: AreaPageFaq[] };
 }) {
   const t = useTranslations('publicWeb');
+  const tt = t as unknown as PublicWebT;
   const f = data.facility;
-  const faqs = asCityPage ? asCityPage.faqs : (data.areaPage?.content?.faqs ?? []);
-  const cityName = data.areaPage?.name ?? f.city ?? f.name;
+  const city = data.areaPage?.name ?? f.city;
+  const cityName = city ?? f.name;
+  // En la página de su ciudad, las preguntas de la ciudad; si no, las propias
+  // del negocio y las de este local con sus datos.
+  const faqs = asCityPage
+    ? asCityPage.faqs
+    : mergeFaqs(data.areaPage?.content?.faqs ?? [], facilityFaqs(tt, f, data.tenantName, locale));
+  const faqPlace =
+    f.city && !nameRedundant(f, data.tenantName) ? `${f.name} (${f.city})` : cityName;
+  // Párrafo con la localidad, salvo que el negocio haya escrito el suyo.
+  const ownIntro = !!data.areaPage?.content?.intro?.trim();
+  const intro = facilityIntro(tt, f, data.tenantName, locale, city);
   const jsonLd = buildFacilityJsonLd(data, slug, asCityPage?.path ?? facilitySlug, locale, {
     faqs,
+    description: intro,
+    featureNames: f.features.map((key) => t(`features.${key}`)),
     ...(asCityPage ? { pageName: t('city.heading', { city: cityName }) } : {}),
   });
 
@@ -106,7 +134,9 @@ export function FacilityBody({
         <span>{asCityPage ? t('city.heading', { city: cityName }) : f.name}</span>
       </nav>
 
-      <FacilityHeading f={f} />
+      <FacilityHeading f={f} tenantName={data.tenantName} />
+
+      {!ownIntro && <p className="mt-3 text-base leading-relaxed text-foreground/90">{intro}</p>}
 
       <FacilityMeta f={f} tenantName={data.tenantName} />
 
@@ -122,7 +152,10 @@ export function FacilityBody({
               <Image
                 src={url}
                 alt={
-                  f.imageAlts?.[index] ?? t('facility.photoAlt', { index: index + 1, name: f.name })
+                  f.imageAlts?.[index] ??
+                  (city
+                    ? t('facility.photoAltCity', { index: index + 1, name: f.name, city })
+                    : t('facility.photoAlt', { index: index + 1, name: f.name }))
                 }
                 fill
                 {...(index === 0 ? { priority: true } : { loading: 'lazy' as const })}
@@ -134,7 +167,12 @@ export function FacilityBody({
         </div>
       )}
 
-      {f.videoUrl && <FacilityVideo url={f.videoUrl} title={t('facility.video')} />}
+      {f.videoUrl && (
+        <FacilityVideo
+          url={f.videoUrl}
+          title={city ? t('facility.videoCity', { name: f.name, city }) : t('facility.video')}
+        />
+      )}
 
       <Link
         href={bookHref(
@@ -150,14 +188,25 @@ export function FacilityBody({
         {t('common.reserveNow')}
       </Link>
 
-      <h2 className="mt-10 text-xl font-semibold">{t('facility.sizesAndPrices')}</h2>
+      <h2 className="mt-10 text-xl font-semibold">
+        {city ? t('facility.sizesAndPricesCity', { city }) : t('facility.sizesAndPrices')}
+      </h2>
       <UnitTypeList
         f={f}
         locale={locale}
         site={{ tenantSlug: data.tenantSlug, customDomain: data.customDomain, facilities: [f] }}
       />
 
-      {faqs.length > 0 && <AreaFaqs title={t('city.faqTitle', { city: cityName })} faqs={faqs} />}
+      {faqs.length > 0 && (
+        <AreaFaqs
+          title={
+            asCityPage
+              ? t('city.faqTitle', { city: cityName })
+              : t('facility.faqTitle', { place: faqPlace })
+          }
+          faqs={faqs}
+        />
+      )}
     </div>
   );
 }

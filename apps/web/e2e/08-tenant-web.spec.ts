@@ -139,6 +139,25 @@ test.describe('Web pública del tenant', () => {
 
       await openOk(page, `/s/${t.slug}/${t.facilitySlug}`);
       await expect(page.getByText('Local Centro').first()).toBeVisible();
+      if (template === 'default') {
+        // SEO local: la localidad en el título, el encabezado, el texto y las preguntas.
+        await expect(page).toHaveTitle(/^Trasteros en Valencia \(Local Centro\)/);
+        await expect(page.locator('h1').first()).toHaveText('Trasteros en Valencia — Local Centro');
+        await expect(
+          page.getByText('Local Centro, nuestro centro de trasteros en Valencia').first(),
+        ).toBeVisible();
+        await expect(
+          page.getByRole('heading', { name: 'Tamaños y precios de los trasteros en Valencia' }),
+        ).toBeVisible();
+        await expect(
+          page.getByText('¿Cuánto cuesta un trastero en Local Centro (Valencia)?'),
+        ).toBeVisible();
+        const ld = (
+          await page.locator('script[type="application/ld+json"]').allTextContents()
+        ).join('');
+        expect(ld).toContain('"FAQPage"');
+        expect(ld).toContain('"addressLocality":"Valencia"');
+      }
 
       await openOk(page, `/s/${t.slug}/l/en`);
       await expect(page.locator(`a[href*="/book/${t.slug}/l/en"]`).first()).toBeAttached();

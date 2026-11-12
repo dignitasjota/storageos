@@ -8,7 +8,7 @@ import { HtmlLang } from './html-lang';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { OnePageTemplate } from './onepage-template';
 import { OnePageMovilTemplate } from './onepagemovil-template';
-import { priceRangeString } from './price-format';
+import { formatPrice, grossPrice, priceRangeString } from './price-format';
 import { ScrollToSection } from './scroll-to-section';
 import { LandingTemplate } from './templates';
 import { TenantWebChrome } from './tenant-web-chrome';
@@ -44,6 +44,20 @@ export async function getLanding(slug: string): Promise<PublicLandingDto | null>
 export function landingCities(data: PublicLandingDto): string {
   const set = [...new Set(data.facilities.map((f) => f.city).filter(Boolean))] as string[];
   return set.join(', ');
+}
+
+const fold = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+/** Desde cuánto (IVA incluido) entre los tamaños que quedan en todos los locales. */
+function landingFromPrice(data: PublicLandingDto, locale: PublicWebLocale): string | null {
+  const types = data.facilities.flatMap((f) => f.unitTypes);
+  const pool = types.filter((t) => t.available > 0);
+  const list = pool.length > 0 ? pool : types;
+  return list.length > 0 ? formatPrice(Math.min(...list.map(grossPrice)), locale) : null;
 }
 
 /** URL pública del sitio (para IDs/URLs absolutas en el JSON-LD). */
@@ -185,21 +199,37 @@ export async function buildLandingMetadata(
   const where = landingCities(data);
   // Los textos SEO propios se escriben en español: en inglés se usan los generados.
   const seo = locale === 'es' ? (data.webSeo ?? {}) : {};
+  const en = locale === 'en';
+  const fromPrice = landingFromPrice(data, locale);
+  // El claim de la portada solo si ya dice dónde: si no, «Trasteros en <localidad>»,
+  // que es lo que se busca (y el precio si cabe).
+  const headlineHasCity =
+    !!data.webHeadline &&
+    data.facilities.some((f) => !!f.city && fold(data.webHeadline!).includes(fold(f.city)));
+  const localTitle = (() => {
+    const head = `${en ? 'Storage units' : 'Trasteros'}${where ? ` ${en ? 'in' : 'en'} ${where}` : ''}`;
+    const withPrice = fromPrice
+      ? `${head} ${en ? 'from' : 'desde'} ${fromPrice}/${en ? 'month' : 'mes'} · ${data.tenantName}`
+      : null;
+    return withPrice && withPrice.length <= 65 ? withPrice : `${head} · ${data.tenantName}`;
+  })();
   const generatedTitle =
-    locale === 'en'
-      ? data.webHeadline
-        ? `${data.webHeadline} · ${data.tenantName}`
-        : `Storage units${where ? ` in ${where}` : ''} · ${data.tenantName}`
-      : data.webHeadline
-        ? `${data.webHeadline} · ${data.tenantName}`
-        : `Trasteros${where ? ` en ${where}` : ''} · ${data.tenantName}`;
+    data.webHeadline && (headlineHasCity || !where)
+      ? `${data.webHeadline} · ${data.tenantName}`
+      : localTitle;
   const title = seo.homeTitle ?? generatedTitle;
+  const pricePart = fromPrice
+    ? en
+      ? ` from ${fromPrice}/month (VAT incl.)`
+      : ` desde ${fromPrice}/mes (IVA incl.)`
+    : '';
+  const describe = (price: string) =>
+    en
+      ? `Storage units${where ? ` in ${where}` : ''}${price}. Rent yours with ${data.tenantName}: check sizes and availability and book online in minutes.`
+      : `Trasteros${where ? ` en ${where}` : ''}${price}. Alquila el tuyo con ${data.tenantName}: consulta tamaños y disponibilidad y reserva online en minutos.`;
+  // Sin el precio si se pasa de los 160 caracteres que enseña Google.
   const generatedDescription =
-    locale === 'en'
-      ? `Rent your storage unit with ${data.tenantName}${where ? ` in ${where}` : ''}. Check availability and pricing and book online in minutes.`
-      : `Alquila tu trastero con ${data.tenantName}${
-          where ? ` en ${where}` : ''
-        }. Consulta disponibilidad y precios y reserva online en minutos.`;
+    describe(pricePart).length <= 160 ? describe(pricePart) : describe('');
   const description = seo.homeDescription ?? generatedDescription;
   const base = data.customDomain ? `https://${data.customDomain}` : `/s/${slug}`;
   if (section) return sectionMetadata(data, base, where, section, locale);
