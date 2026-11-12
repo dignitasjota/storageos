@@ -243,6 +243,8 @@ export class ProductSalesService {
         input: {
           invoiceType: args.input.customerId ? 'F1' : 'F2',
           ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
+          // El local de la venta.
+          facilityId: args.input.facilityId,
           seriesId: resolvedSeriesId,
           items,
           ...(invoiceNotes ? { notes: invoiceNotes } : {}),

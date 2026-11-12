@@ -469,6 +469,8 @@ export class InvoiceToolsService {
         invoiceType: source.invoiceType,
         ...(source.customerId ? { customerId: source.customerId } : {}),
         ...(source.contractId ? { contractId: source.contractId } : {}),
+        // Sin contrato, en el mismo local que la original.
+        ...(!source.contractId && source.facilityId ? { facilityId: source.facilityId } : {}),
         ...(source.invoiceType === 'F2' && justification
           ? { simplifiedJustification: justification as never }
           : {}),

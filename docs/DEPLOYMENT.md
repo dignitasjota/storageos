@@ -2053,3 +2053,12 @@ Migraciones `20270109100000_cash_features`, `20270109110000_returned_receipts_fe
 - **Conciliación**: se puede subir el CSV de movimientos de la banca online además del Norma 43 (las columnas se reconocen por su título o se eligen); cada sugerencia dice por qué (nº de factura, regla, ordenante, importe o varias facturas del mismo inquilino que suman el ingreso); «Recordar» crea una regla para la próxima vez; el abono de una remesa SEPA se concilia de una vez (y la registra si aún no lo estaba); un cargo puede guardarse como gasto. Un CSV sin columna de saldo ya no sale como «fichero que no cuadra»: se enseñan los ingresos y los cargos, sin saldos.
 
 **Antes de usarlo con clientes**: que el abogado revise también el acta del traslado, el borrador de monitorio y la cita de retirada.
+
+## 118. Facturas sin contrato con su local (2026-11-12)
+
+Migración `20270110100000_invoice_facility_backfill` (se aplica sola). Sin variables nuevas. **Qué cambia al redesplegar:**
+
+- Una factura hecha a mano sin contrato (o simplificada) queda en un local: con un solo local, ese; con varios, el que se elige en «Nueva factura» (propone el de arriba o el del inquilino; se puede dejar en «Toda la empresa»). Antes no tenía local y, con un local elegido arriba, la lista de Facturas no la enseñaba.
+- La migración pone su local a las facturas que ya había en los negocios de un solo local (sin tocar ventas ni facturas de suscripción).
+- También llevan su local la señal de una reserva, el pase nocturno, la venta en mostrador, las rectificativas, el recargo por mora y los gastos por recibo devuelto de una factura sin contrato, y una factura duplicada. Si se cobra en efectivo, cuenta en la caja de ese local.
+- Quien solo ve unos locales deja de ver las facturas sin contrato de otros locales (las de toda la empresa las sigue viendo).
