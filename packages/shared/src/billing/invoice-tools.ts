@@ -187,8 +187,12 @@ export interface SendInvoiceEmailResultDto {
 
 /** `GET /invoices/:id/cancel-preview`. */
 export interface InvoiceCancelPreviewDto {
-  /** `cancel_draft`: se borra el borrador; `void`: rectificativa que la deja a cero. */
-  action: 'cancel_draft' | 'void' | 'blocked';
+  /**
+   * `cancel_draft`: se descarta el borrador; `cancel_receipt`: se anula el
+   * justificante de fianza (no es una factura); `void`: rectificativa que la
+   * deja a cero.
+   */
+  action: 'cancel_draft' | 'cancel_receipt' | 'void' | 'blocked';
   /** Por qué no se puede anular (tiene cobros, cobro en curso, en remesa…). */
   blockedReason: string | null;
   /** Importe de la rectificativa (negativo), si se emite una. */

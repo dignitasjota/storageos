@@ -242,7 +242,7 @@ export class ReservationsService {
       if (existing.depositInvoiceId) {
         throw new ConflictException({
           code: 'reservation_has_signal',
-          message: 'La señal ya está facturada a este inquilino: cancela y crea otra reserva',
+          message: 'La señal ya está a nombre de este inquilino: cancela y crea otra reserva',
         });
       }
       if (!input.customerId && Number(existing.depositAmount) > 0) {
@@ -622,9 +622,10 @@ export class ReservationsService {
   }): Promise<ReservationDto> {
     const existing = await this.findOrThrow(args.tenantId, args.reservationId, args.facilityScope);
     if (existing.depositInvoiceId) {
-      // Quedó en borrador por un fallo anterior: se termina de emitir.
+      // Quedó en borrador por un fallo anterior: se termina de emitir. La que
+      // espera al cobro se queda así.
       const invoice = await this.invoices.detail(args.tenantId, existing.depositInvoiceId);
-      if (invoice.status === 'draft') {
+      if (invoice.status === 'draft' && !invoice.issueOnPayment) {
         await this.invoices.issue({
           tenantId: args.tenantId,
           userId: args.userId,
@@ -685,6 +686,9 @@ export class ReservationsService {
         ],
         verifactuMode: 'verifactu',
       },
+      // Se emite (con su número) al cobrarse: si la reserva cae sin pagar, se
+      // anula sin factura ni rectificativa.
+      issueOnPayment: true,
     });
     const claimed = await this.prisma.withTenant(
       (tx) =>
@@ -707,15 +711,11 @@ export class ReservationsService {
         .catch(() => undefined);
       return this.detail(args.tenantId, args.reservationId);
     }
+    // Se emitirá al cobrarse: lo que impediría emitirla (datos fiscales, NIF…)
+    // se avisa ya, no cuando el cliente vaya a pagar.
     try {
-      await this.invoices.issue({
-        tenantId: args.tenantId,
-        userId: args.userId,
-        invoiceId: draft.id,
-        meta: args.meta,
-      });
+      await this.invoices.assertCanIssue(args.tenantId, draft.id);
     } catch (err) {
-      // Sin emitir no es una señal: se suelta para poder intentarlo de nuevo.
       await this.prisma.withTenant(
         (tx) =>
           tx.reservation.updateMany({

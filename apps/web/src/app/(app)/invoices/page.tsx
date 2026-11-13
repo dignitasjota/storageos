@@ -11,7 +11,16 @@ import {
   type InvoiceTypeFilterValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Bookmark, CalendarCheck, Download, Loader2, Plus, Trash2 } from 'lucide-react';
+import {
+  Bookmark,
+  CalendarCheck,
+  Download,
+  Eye,
+  EyeOff,
+  Loader2,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -135,11 +144,34 @@ function collectedOf(i: InvoiceDto): number {
   return Math.max(0, Math.round(value * 100) / 100);
 }
 
+/** Preferencia «Ocultar canceladas» en este navegador. */
+const HIDE_CANCELLED_KEY = 'storageos.invoices.hideCancelled';
+
 export default function InvoicesPage() {
   const ask = useConfirm();
   const [status, setStatus] = useState<InvoiceStatusValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [overdueOnly, setOverdueOnly] = useState(false);
+  // Borradores descartados y justificantes anulados: ocultos de inicio (se
+  // recuerda en el navegador). Con un estado elegido, se ve ese estado.
+  const [hideCancelled, setHideCancelled] = useState(true);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(HIDE_CANCELLED_KEY) === 'false') setHideCancelled(false);
+    } catch {
+      // Sin almacenamiento: se queda el de inicio.
+    }
+  }, []);
+  function toggleHideCancelled(): void {
+    setHideCancelled((v) => {
+      try {
+        window.localStorage.setItem(HIDE_CANCELLED_KEY, String(!v));
+      } catch {
+        // Sin almacenamiento: solo vale para esta visita.
+      }
+      return !v;
+    });
+  }
   const [type, setType] = useState<InvoiceTypeFilterValue | undefined>();
   const [payment, setPayment] = useState<InvoicePaymentFilterValue | undefined>();
   const [sort, setSort] = useState<InvoiceSortValue>('newest');
@@ -171,6 +203,7 @@ export default function InvoicesPage() {
     status,
     customerId,
     overdue: overdueOnly ? 'true' : undefined,
+    hideCancelled: hideCancelled && !status ? 'true' : undefined,
     search: search || undefined,
     type,
     payment,
@@ -198,6 +231,7 @@ export default function InvoicesPage() {
     status,
     customerId,
     overdueOnly,
+    hideCancelled,
     search,
     headerFacilityId,
     type,
@@ -660,6 +694,19 @@ export default function InvoicesPage() {
           onClick={() => setOverdueOnly((v) => !v)}
         >
           Solo vencidas
+        </Button>
+        <Button
+          variant={hideCancelled ? 'default' : 'outline'}
+          onClick={toggleHideCancelled}
+          disabled={!!status}
+          title={
+            status
+              ? 'Con un estado elegido se ve ese estado'
+              : 'Borradores descartados y justificantes de fianza anulados. Las facturas anuladas se siguen viendo.'
+          }
+        >
+          {hideCancelled ? <EyeOff className="mr-1 h-4 w-4" /> : <Eye className="mr-1 h-4 w-4" />}
+          Ocultar canceladas
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

@@ -8,7 +8,7 @@ import {
 } from '../../common/facility-scope';
 import { formatEur, todayInTimezone } from '../../common/format';
 import { CONFIRMED_START_WHERE } from '../../common/pre-opening';
-import { NO_PAYMENT_IN_FLIGHT } from '../../common/sepa-remittance-guard';
+import { NO_PAYMENT_IN_FLIGHT, PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantFeatures } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -305,9 +305,17 @@ export class TodayService {
     };
     const depositToCollectWhere = {
       kind: 'deposit_receipt' as const,
-      status: { in: ['issued' as const, 'overdue' as const] },
-      // También la de quien eligió pagarlo todo en el local.
-      OR: [{ bundledWithInvoiceId: null }, { contract: { is: { offlinePaymentMethod: 'cash' } } }],
+      AND: [
+        // También la que espera al pago de su reserva.
+        PAYABLE_INVOICE_WHERE,
+        // También la de quien eligió pagarlo todo en el local.
+        {
+          OR: [
+            { bundledWithInvoiceId: null },
+            { contract: { is: { offlinePaymentMethod: 'cash' as const } } },
+          ],
+        },
+      ],
       deletedAt: null,
       contract: {
         is: {

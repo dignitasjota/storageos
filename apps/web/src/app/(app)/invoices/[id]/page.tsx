@@ -164,6 +164,15 @@ function addDays(date: string, days: number): string {
 /** Lo que pasará al anular, en frases. */
 function cancelEffects(p: InvoiceCancelPreviewDto): string[] {
   const out: string[] = [];
+  if (p.action === 'cancel_receipt') {
+    out.push(
+      'Un justificante de fianza no es una factura: se anula sin rectificativa y no cuenta en ningún libro.',
+    );
+    out.push(
+      'Si el contrato sigue adelante, su fianza queda pendiente: puedes cobrarla en el local desde la ficha del contrato.',
+    );
+    return out;
+  }
   if (p.action === 'void') {
     out.push(
       `Se emite una factura rectificativa de ${formatEur(p.creditNoteTotal ?? 0)} que la deja a cero. Queda registrada en Veri*Factu y en la contabilidad.`,
@@ -511,24 +520,40 @@ export default function InvoiceDetailPage() {
       });
       return;
     }
+    const receipt = preview.action === 'cancel_receipt';
     const confirmed = await ask({
-      title: isDraft ? '¿Cancelar este borrador?' : '¿Anular la factura?',
+      title: receipt
+        ? '¿Anular el justificante de fianza?'
+        : isDraft
+          ? '¿Cancelar este borrador?'
+          : '¿Anular la factura?',
       description: cancelEffects(preview).map((line) => (
         <span key={line} className="mt-1 block">
           • {line}
         </span>
       )),
-      confirmLabel: isDraft ? 'Cancelar el borrador' : 'Anular la factura',
+      confirmLabel: receipt
+        ? 'Anular el justificante'
+        : isDraft
+          ? 'Cancelar el borrador'
+          : 'Anular la factura',
       destructive: true,
-      ...(isDraft
+      ...(isDraft && !receipt
         ? {}
-        : { input: { label: 'Motivo (opcional)', placeholder: 'Se facturó por error' } }),
+        : {
+            input: {
+              label: 'Motivo (opcional)',
+              placeholder: receipt ? 'No pagó la reserva' : 'Se facturó por error',
+            },
+          }),
     });
     if (!confirmed) return;
-    const reason = confirmed.value || (isDraft ? 'Borrador descartado' : 'Anulación manual');
+    const reason =
+      confirmed.value ||
+      (receipt ? 'Fianza sin cobrar' : isDraft ? 'Borrador descartado' : 'Anulación manual');
     await safe(
       () => cancel.mutateAsync({ id: i.id, body: { reason } }),
-      isDraft ? 'Borrador cancelado.' : 'Factura anulada.',
+      receipt ? 'Justificante anulado.' : isDraft ? 'Borrador cancelado.' : 'Factura anulada.',
     );
   }
 
@@ -707,7 +732,14 @@ export default function InvoiceDetailPage() {
                 informes.
               </p>
             )}
-            {awaitingPayment && (
+            {awaitingPayment && i.kind === 'deposit_receipt' && (
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                Fianza de una reserva online: se cobra en el mismo pago que la primera factura y el
+                justificante queda hecho al entrar ese pago. Si no se paga en plazo, la reserva
+                caduca y se anula sin más.
+              </p>
+            )}
+            {awaitingPayment && i.kind === 'invoice' && (
               <p className="max-w-2xl text-sm text-muted-foreground">
                 {i.amountPaid >= i.total
                   ? 'El cobro ya entró, pero la factura no se pudo emitir. Corrige el problema y pulsa «Emitir»: quedará pagada.'

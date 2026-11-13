@@ -1690,6 +1690,8 @@ export class PortalService {
       userId: null,
       input: { facilityId: contract.unit.facilityId, customerId, items, paymentMethod: 'pending' },
       meta: {},
+      // La factura se emite al cobrarse: si el cobro falla, no queda ninguna.
+      issueOnPayment: true,
     });
 
     // Sin factura (no debería ocurrir: siempre hay customer) no hay nada que
@@ -1713,6 +1715,18 @@ export class PortalService {
     }
     // succeeded / processing (SEPA/GoCardless liquidan en días) → entregado.
     const delivered = payment.status === 'succeeded' || payment.status === 'processing';
+    // Cobro en marcha: la venta se entrega, así que su factura se emite ya.
+    if (payment.status === 'processing') {
+      await this.productSales
+        .issuePendingInvoice(tenantId, sale.id)
+        .catch((err: unknown) =>
+          this.logger.error(
+            `[portal-shop] venta ${sale.id} entregada sin factura emitida: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          ),
+        );
+    }
     if (!delivered) {
       await this.revertSale(tenantId, sale.id, 'Cobro rechazado');
       throw new HttpException(

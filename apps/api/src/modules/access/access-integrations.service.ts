@@ -7,6 +7,7 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { todayInTimezone, zonedDayStart } from '../../common/format';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
+import { PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
 import {
   type ContractPreOpeningStartedPayload,
   ContractUnitChangedPayload,
@@ -291,8 +292,10 @@ export class AccessIntegrationsService {
       (tx) =>
         tx.invoice.count({
           where: {
-            OR: [{ id: rootId }, { bundledWithInvoiceId: rootId }],
-            status: { in: ['issued', 'overdue'] },
+            AND: [
+              { OR: [{ id: rootId }, { bundledWithInvoiceId: rootId }] },
+              PAYABLE_INVOICE_WHERE,
+            ],
             deletedAt: null,
           },
         }),

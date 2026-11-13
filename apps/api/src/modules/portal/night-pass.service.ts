@@ -253,6 +253,18 @@ export class NightPassService {
     }
     // succeeded / processing (SEPA/GoCardless liquidan en días) → entregado.
     const delivered = payment.status === 'succeeded' || payment.status === 'processing';
+    // Cobro en marcha: el pase se entrega, así que su factura se emite ya.
+    if (payment.status === 'processing') {
+      await this.invoices
+        .issueOnPaymentReceived({ tenantId, invoiceId })
+        .catch((err: unknown) =>
+          this.logger.error(
+            `[night-pass] pase entregado sin factura emitida (${invoiceId}): ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          ),
+        );
+    }
     if (!delivered) {
       await this.revertNightPass(tenantId, credential.id, invoiceId);
       throw new HttpException(
@@ -267,7 +279,7 @@ export class NightPassService {
     return credential;
   }
 
-  /** Emite la factura del pase (F1, IVA 21%) y devuelve su id. Lanza si no hay serie. */
+  /** Prepara la factura del pase (F1, IVA 21 %), que se emite al cobrarse. Lanza si no hay serie. */
   private async invoiceNightPass(
     tenantId: string,
     customerId: string,
@@ -304,8 +316,24 @@ export class NightPassService {
         verifactuMode: 'verifactu',
       },
       meta: {},
+      // Se emite al cobrarse: si el cobro falla, se anula sin número.
+      issueOnPayment: true,
     });
-    await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
+    // Lo que impediría emitirla (datos fiscales, NIF…) se ve antes de cobrar.
+    try {
+      await this.invoices.assertCanIssue(tenantId, invoice.id);
+    } catch (err) {
+      await this.invoices
+        .cancel({
+          tenantId,
+          userId: null,
+          invoiceId: invoice.id,
+          input: { reason: 'Pase nocturno sin emitir' },
+          meta: {},
+        })
+        .catch(() => undefined);
+      throw err;
+    }
     return invoice.id;
   }
 

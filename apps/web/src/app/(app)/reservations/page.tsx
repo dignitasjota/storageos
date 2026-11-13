@@ -250,12 +250,15 @@ export default function ReservationsPage() {
                   <DropdownMenuItem
                     onClick={() =>
                       depositInvoice.mutateAsync(r.id).then(
-                        () => toast.success('Factura de la señal emitida.'),
+                        () =>
+                          toast.success(
+                            'Señal lista para cobrar: la factura se emite al cobrarla.',
+                          ),
                         (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
                       )
                     }
                   >
-                    Facturar la señal
+                    Preparar el cobro de la señal
                   </DropdownMenuItem>
                 )}
               {(r.status === 'pending' || r.status === 'confirmed') && (
@@ -605,7 +608,7 @@ function EditReservationDialog({
             />
             {reservation.depositInvoiceId && (
               <p className="mt-1 text-xs text-muted-foreground">
-                La señal ya está facturada: el inquilino no se puede cambiar.
+                La señal ya está a nombre de este inquilino: no se puede cambiar.
               </p>
             )}
           </div>
@@ -740,7 +743,7 @@ function NewReservationDialog({
         confirmImmediately: true,
       });
       if (Number(deposit) > 0 && !created.depositInvoiceId) {
-        toast.warning('Trastero reservado, pero la señal no se ha podido facturar.');
+        toast.warning('Trastero reservado, pero no se ha podido preparar el cobro de la señal.');
       } else {
         toast.success('Trastero reservado.');
       }

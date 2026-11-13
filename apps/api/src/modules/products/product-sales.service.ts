@@ -106,12 +106,27 @@ export class ProductSalesService {
    *     InvoicesService.create, la emite con issue() y enlaza la sale.
    *     Sin customer la sale queda en `pending` sin factura.
    */
+  /**
+   * Factura de una venta del área de clientes que se emite al cobrarse: con
+   * el cobro en marcha (adeudo SEPA), se emite ya, porque la venta se entrega.
+   */
+  async issuePendingInvoice(tenantId: string, saleId: string): Promise<void> {
+    const sale = await this.findOrThrow(tenantId, saleId);
+    if (!sale.invoiceId) return;
+    await this.invoices.issueOnPaymentReceived({ tenantId, invoiceId: sale.invoiceId });
+  }
+
   async create(args: {
     tenantId: string;
     /** null en flujos públicos (compra del inquilino desde el portal). */
     userId: string | null;
     input: CreateProductSaleInput;
     meta: RequestMeta;
+    /**
+     * Uso interno (compra desde el área de clientes, que se cobra en el acto):
+     * la factura se emite al cobrarse; si el cobro falla, se anula sin número.
+     */
+    issueOnPayment?: boolean;
   }): Promise<ProductSaleDto> {
     const paymentMethod = args.input.paymentMethod ?? 'cash';
     if (paymentMethod === 'pending' && !args.input.customerId) {
@@ -251,13 +266,16 @@ export class ProductSalesService {
           verifactuMode: 'verifactu',
         },
         meta: args.meta,
+        ...(args.issueOnPayment ? { issueOnPayment: true } : {}),
       });
-      await this.invoices.issue({
-        tenantId: args.tenantId,
-        userId: args.userId,
-        invoiceId: draft.id,
-        meta: args.meta,
-      });
+      if (!args.issueOnPayment) {
+        await this.invoices.issue({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          invoiceId: draft.id,
+          meta: args.meta,
+        });
+      }
       await this.prisma.withTenant(
         (tx) => tx.productSale.update({ where: { id: saleId }, data: { invoiceId: draft.id } }),
         args.tenantId,

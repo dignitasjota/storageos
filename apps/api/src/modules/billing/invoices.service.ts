@@ -205,6 +205,12 @@ function invoiceFacilityOf(row: {
 
 export interface ListFilters {
   status?: InvoiceStatusValue;
+  /**
+   * Sin los cancelados (borradores descartados y justificantes de fianza
+   * anulados). Las anuladas por error y con rectificativa se siguen viendo:
+   * son documentos fiscales. Solo si no se pide un estado concreto.
+   */
+  hideCancelled?: boolean;
   customerId?: string;
   contractId?: string;
   overdue?: boolean;
@@ -341,6 +347,9 @@ export class InvoicesService {
   ): Promise<Prisma.InvoiceWhereInput | null> {
     const and: Prisma.InvoiceWhereInput[] = [{ deletedAt: null }];
     if (filters.status) and.push({ status: filters.status as InvoiceStatus });
+    else if (filters.hideCancelled) {
+      and.push({ NOT: { status: 'cancelled', voidedAt: null } });
+    }
     if (filters.customerId) and.push({ customerId: filters.customerId });
     if (filters.contractId) and.push({ contractId: filters.contractId });
     // Alcance por local: un usuario restringido solo ve las facturas de contratos
@@ -800,11 +809,16 @@ export class InvoicesService {
       (tx) =>
         tx.invoice.findFirst({
           where: { id: args.invoiceId, deletedAt: null },
-          select: { status: true, issueOnPayment: true },
+          select: { status: true, issueOnPayment: true, kind: true },
         }),
       args.tenantId,
     );
     if (!row || row.status !== 'draft' || !row.issueOnPayment) return;
+    // El justificante de fianza no se emite: pasa a cobrable.
+    if (row.kind === 'deposit_receipt') {
+      await this.releasePendingReceipts(args.tenantId, { id: args.invoiceId });
+      return;
+    }
     try {
       await this.issue({
         tenantId: args.tenantId,
@@ -1183,6 +1197,9 @@ export class InvoicesService {
     if (!fromHolded && updated.hash) {
       await this.verifactuDispatcher.schedule(args.tenantId, existing.ownerId ?? null);
     }
+
+    // La fianza que va con ella (reserva online) pasa a cobrable a la vez.
+    await this.releasePendingReceipts(args.tenantId, { bundledWithInvoiceId: updated.id });
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -2308,14 +2325,23 @@ export class InvoicesService {
       return this.cancelIssued(args);
     }
     this.assertTransition(existing.status as InvoiceStatusValue, 'cancelled');
-    const { count } = await this.prisma.withTenant(
-      (tx) =>
-        tx.invoice.updateMany({
-          where: { id: args.invoiceId, status: 'draft' },
-          data: { status: 'cancelled', cancelledAt: new Date() },
-        }),
-      args.tenantId,
-    );
+    const { count } = await this.prisma.withTenant(async (tx) => {
+      // El borrador de un primer pago puede tener el cobro en marcha (adeudo
+      // SEPA, tarjeta sin respuesta): anularlo dejaría ese cobro sin factura.
+      if (existing.issueOnPayment) {
+        await lockInvoiceRow(tx, args.invoiceId);
+        if (await hasPaymentInFlight(tx, args.invoiceId)) {
+          throw new ConflictException({
+            code: 'payment_in_progress',
+            message: 'Hay un cobro en curso para esta factura: espera a que se resuelva',
+          });
+        }
+      }
+      return tx.invoice.updateMany({
+        where: { id: args.invoiceId, status: 'draft' },
+        data: { status: 'cancelled', cancelledAt: new Date() },
+      });
+    }, args.tenantId);
     if (count === 0) {
       // Se emitió entre la lectura y la anulación: se anula como emitida.
       return this.cancelIssued(args);
@@ -2349,8 +2375,8 @@ export class InvoicesService {
 
   /**
    * Justificante de fianza (no es una factura): se anula sin rectificativa si
-   * no tiene cobros. Si ya se cobró, se devuelve con la liquidación de la
-   * fianza del contrato.
+   * no tiene cobros, también el que aún espera al pago de su reserva. Si ya se
+   * cobró, se devuelve con la liquidación de la fianza del contrato.
    */
   private async cancelDepositReceipt(args: {
     tenantId: string;
@@ -2362,7 +2388,7 @@ export class InvoicesService {
     const updated = await this.prisma.withTenant(async (tx) => {
       await lockInvoiceRow(tx, args.invoiceId);
       const fresh = await tx.invoice.findUniqueOrThrow({ where: { id: args.invoiceId } });
-      if (fresh.status !== 'issued' && fresh.status !== 'overdue') {
+      if (fresh.status !== 'issued' && fresh.status !== 'overdue' && fresh.status !== 'draft') {
         throw new BadRequestException({
           code: 'invoice_not_cancellable',
           message: 'El justificante ya está cobrado o anulado',
@@ -2372,6 +2398,15 @@ export class InvoicesService {
         throw new BadRequestException({
           code: 'invoice_has_payments',
           message: 'La fianza ya se cobró: devuélvela al liquidar la fianza del contrato',
+        });
+      }
+      const inFlight = await tx.payment.count({
+        where: { invoiceId: args.invoiceId, status: { in: ['pending', 'processing'] } },
+      });
+      if (inFlight > 0) {
+        throw new ConflictException({
+          code: 'payment_in_progress',
+          message: 'Hay un cobro en curso para esta fianza: espera a que se resuelva',
         });
       }
       await assertNotInSepaRemittance(tx, args.invoiceId);
@@ -2410,6 +2445,12 @@ export class InvoicesService {
     amount: number;
     dueDate: Date | null;
     bundledWithInvoiceId: string | null;
+    /**
+     * Va con el primer pago de una reserva online, que aún no se ha cobrado:
+     * queda «pendiente de pago» (sin PDF) hasta que entra el cobro. Si la
+     * reserva caduca, se anula sin haberse emitido.
+     */
+    awaitingPayment?: boolean;
   }): Promise<InvoiceDto> {
     const series = await this.series.getDefault(args.tenantId);
     if (!series) {
@@ -2438,9 +2479,10 @@ export class InvoicesService {
           sequenceNumber: 0,
           invoiceNumber: taken === 0 ? base : `${base}-${taken + 1}`,
           kind: 'deposit_receipt',
-          status: 'issued',
+          ...(args.awaitingPayment
+            ? { status: 'draft' as const, issueOnPayment: true }
+            : { status: 'issued' as const, issueDate: new Date() }),
           invoiceType: 'F1',
-          issueDate: new Date(),
           ...(args.dueDate ? { dueDate: args.dueDate } : {}),
           bundledWithInvoiceId: args.bundledWithInvoiceId,
           subtotal: args.amount,
@@ -2477,11 +2519,52 @@ export class InvoicesService {
       ipAddress: null,
       userAgent: null,
     });
-    this.events.emit(INVOICE_PDF_REQUESTED, {
-      tenantId: args.tenantId,
-      invoiceId: created.id,
-    } satisfies InvoicePdfRequestedPayload);
+    // El PDF, cuando es cobrable (el que espera al pago, al entrar el cobro).
+    if (!args.awaitingPayment) {
+      this.events.emit(INVOICE_PDF_REQUESTED, {
+        tenantId: args.tenantId,
+        invoiceId: created.id,
+      } satisfies InvoicePdfRequestedPayload);
+    }
     return this.toDto(created);
+  }
+
+  /**
+   * Justificantes de fianza que esperaban al pago de su reserva: pasan a
+   * cobrables (con su fecha y su PDF) al entrar el cobro o emitirse la factura
+   * con la que van.
+   */
+  private async releasePendingReceipts(
+    tenantId: string,
+    where: Prisma.InvoiceWhereInput,
+  ): Promise<void> {
+    const released = await this.prisma.withTenant(async (tx) => {
+      const pending = await tx.invoice.findMany({
+        where: {
+          ...where,
+          kind: 'deposit_receipt',
+          status: 'draft',
+          issueOnPayment: true,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      const out: string[] = [];
+      for (const r of pending) {
+        const moved = await tx.invoice.updateMany({
+          where: { id: r.id, status: 'draft' },
+          data: { status: 'issued', issueDate: new Date() },
+        });
+        if (moved.count === 1) out.push(r.id);
+      }
+      return out;
+    }, tenantId);
+    for (const invoiceId of released) {
+      this.events.emit(INVOICE_PDF_REQUESTED, {
+        tenantId,
+        invoiceId,
+      } satisfies InvoicePdfRequestedPayload);
+    }
   }
 
   /** Anula una factura emitida con una rectificativa de abono por el total. */

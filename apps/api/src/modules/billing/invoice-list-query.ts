@@ -63,6 +63,7 @@ export function parseInvoiceListQuery(
     ...(q.customerId ? { customerId: q.customerId } : {}),
     ...(q.contractId ? { contractId: q.contractId } : {}),
     ...(q.overdue === 'true' ? { overdue: true } : {}),
+    ...(q.hideCancelled === 'true' ? { hideCancelled: true } : {}),
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
     ...(type ? { type } : {}),

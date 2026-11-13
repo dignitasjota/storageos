@@ -675,11 +675,20 @@ export class SignaturesService {
     });
 
     if (!contract.customer.isTest) {
-      // Reserva online (con plazo de pago): el contrato entra en vigor con el
-      // primer pago, así que la factura se emite al cobrarse. Un contrato del
-      // panel enviado a firmar sigue emitiéndola al firmar.
+      // Firmado por enlace (reserva online o contrato del panel): entra en vigor
+      // con el primer pago, así que la factura se emite al cobrarse. Si no paga
+      // en plazo, el contrato se cancela solo y no queda ninguna factura. El
+      // del panel tiene su plazo desde que firma.
+      if (!contract.firstPaymentDeadline) {
+        await this.admin.contract.updateMany({
+          where: { id: contract.id, firstPaymentDeadline: null },
+          data: {
+            firstPaymentDeadline: new Date(Date.now() + BOOKING_HOLD_HOURS * 3_600_000),
+          },
+        });
+      }
       await this.maybeIssueFirstInvoice(contract.tenantId, contract.id, contract.customerId, {
-        issueOnPayment: contract.firstPaymentDeadline !== null,
+        issueOnPayment: true,
       });
     }
 

@@ -534,12 +534,25 @@ export class InvoiceToolsService {
         creditNoteTotal: null,
         blockedReason: null,
       } satisfies Partial<InvoiceCancelPreviewDto>;
-      if (dto.status === 'draft') return { ...base, action: 'cancel_draft' as const };
       const blocked = (reason: string): InvoiceCancelPreviewDto => ({
         ...base,
         action: 'blocked',
         blockedReason: reason,
       });
+      // Justificante de fianza: no es una factura, se anula sin rectificativa.
+      if (dto.kind === 'deposit_receipt') {
+        if (!['draft', 'issued', 'overdue'].includes(dto.status)) {
+          return blocked('El justificante ya está cobrado o anulado.');
+        }
+        if (dto.amountPaid > 0) {
+          return blocked('La fianza ya se cobró: devuélvela al liquidar la fianza del contrato.');
+        }
+        if (await hasPaymentInFlight(tx, invoiceId)) {
+          return blocked('Tiene un cobro en curso o está en una remesa SEPA sin confirmar.');
+        }
+        return { ...base, action: 'cancel_receipt' as const };
+      }
+      if (dto.status === 'draft') return { ...base, action: 'cancel_draft' as const };
       if (dto.kind !== 'invoice' || !['F1', 'F2'].includes(dto.invoiceType)) {
         return blocked('Esta factura no se anula: rectifícala.');
       }
