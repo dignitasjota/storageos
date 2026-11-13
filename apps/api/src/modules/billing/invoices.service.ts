@@ -205,6 +205,12 @@ function invoiceFacilityOf(row: {
 
 export interface ListFilters {
   status?: InvoiceStatusValue;
+  /**
+   * Sin los cancelados (borradores descartados y justificantes de fianza
+   * anulados). Las anuladas por error y con rectificativa se siguen viendo:
+   * son documentos fiscales. Solo si no se pide un estado concreto.
+   */
+  hideCancelled?: boolean;
   customerId?: string;
   contractId?: string;
   overdue?: boolean;
@@ -341,6 +347,9 @@ export class InvoicesService {
   ): Promise<Prisma.InvoiceWhereInput | null> {
     const and: Prisma.InvoiceWhereInput[] = [{ deletedAt: null }];
     if (filters.status) and.push({ status: filters.status as InvoiceStatus });
+    else if (filters.hideCancelled) {
+      and.push({ NOT: { status: 'cancelled', voidedAt: null } });
+    }
     if (filters.customerId) and.push({ customerId: filters.customerId });
     if (filters.contractId) and.push({ contractId: filters.contractId });
     // Alcance por local: un usuario restringido solo ve las facturas de contratos
@@ -2308,14 +2317,23 @@ export class InvoicesService {
       return this.cancelIssued(args);
     }
     this.assertTransition(existing.status as InvoiceStatusValue, 'cancelled');
-    const { count } = await this.prisma.withTenant(
-      (tx) =>
-        tx.invoice.updateMany({
-          where: { id: args.invoiceId, status: 'draft' },
-          data: { status: 'cancelled', cancelledAt: new Date() },
-        }),
-      args.tenantId,
-    );
+    const { count } = await this.prisma.withTenant(async (tx) => {
+      // El borrador de un primer pago puede tener el cobro en marcha (adeudo
+      // SEPA, tarjeta sin respuesta): anularlo dejaría ese cobro sin factura.
+      if (existing.issueOnPayment) {
+        await lockInvoiceRow(tx, args.invoiceId);
+        if (await hasPaymentInFlight(tx, args.invoiceId)) {
+          throw new ConflictException({
+            code: 'payment_in_progress',
+            message: 'Hay un cobro en curso para esta factura: espera a que se resuelva',
+          });
+        }
+      }
+      return tx.invoice.updateMany({
+        where: { id: args.invoiceId, status: 'draft' },
+        data: { status: 'cancelled', cancelledAt: new Date() },
+      });
+    }, args.tenantId);
     if (count === 0) {
       // Se emitió entre la lectura y la anulación: se anula como emitida.
       return this.cancelIssued(args);
@@ -2349,8 +2367,8 @@ export class InvoicesService {
 
   /**
    * Justificante de fianza (no es una factura): se anula sin rectificativa si
-   * no tiene cobros. Si ya se cobró, se devuelve con la liquidación de la
-   * fianza del contrato.
+   * no tiene cobros, también el que aún espera al pago de su reserva. Si ya se
+   * cobró, se devuelve con la liquidación de la fianza del contrato.
    */
   private async cancelDepositReceipt(args: {
     tenantId: string;
@@ -2362,7 +2380,7 @@ export class InvoicesService {
     const updated = await this.prisma.withTenant(async (tx) => {
       await lockInvoiceRow(tx, args.invoiceId);
       const fresh = await tx.invoice.findUniqueOrThrow({ where: { id: args.invoiceId } });
-      if (fresh.status !== 'issued' && fresh.status !== 'overdue') {
+      if (fresh.status !== 'issued' && fresh.status !== 'overdue' && fresh.status !== 'draft') {
         throw new BadRequestException({
           code: 'invoice_not_cancellable',
           message: 'El justificante ya está cobrado o anulado',
@@ -2372,6 +2390,15 @@ export class InvoicesService {
         throw new BadRequestException({
           code: 'invoice_has_payments',
           message: 'La fianza ya se cobró: devuélvela al liquidar la fianza del contrato',
+        });
+      }
+      const inFlight = await tx.payment.count({
+        where: { invoiceId: args.invoiceId, status: { in: ['pending', 'processing'] } },
+      });
+      if (inFlight > 0) {
+        throw new ConflictException({
+          code: 'payment_in_progress',
+          message: 'Hay un cobro en curso para esta fianza: espera a que se resuelva',
         });
       }
       await assertNotInSepaRemittance(tx, args.invoiceId);

@@ -3345,6 +3345,10 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    // Lo que no llegó a cobrarse ya no tiene sentido: borradores (también la
+    // primera factura que esperaba al pago) y la fianza. Sin número ni
+    // rectificativa; las facturas emitidas no se tocan.
+    await this.cancelUnpaidDocuments(args, args.input.reason?.trim() || 'Contrato cancelado');
     if (wasLive) {
       if (!args.skipPrepaidCredit) {
         await this.creditPrepaidMonths(
@@ -3361,6 +3365,44 @@ export class ContractsService {
     }
     this.emitScheduledUnitFreed(args.tenantId, existing);
     return this.toDto(updated);
+  }
+
+  /** Borradores y justificantes de fianza sin cobrar de un contrato que se cancela. */
+  private async cancelUnpaidDocuments(
+    args: { tenantId: string; userId: string | null; contractId: string; meta: RequestMeta },
+    reason: string,
+  ): Promise<void> {
+    const docs = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findMany({
+          where: {
+            contractId: args.contractId,
+            deletedAt: null,
+            amountPaid: 0,
+            OR: [
+              { status: 'draft' },
+              { kind: 'deposit_receipt', status: { in: ['issued', 'overdue'] } },
+            ],
+          },
+          select: { id: true },
+        }),
+      args.tenantId,
+    );
+    for (const doc of docs) {
+      await this.invoices
+        .cancel({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          invoiceId: doc.id,
+          input: { reason },
+          meta: args.meta,
+        })
+        .catch((err: unknown) =>
+          this.logger.warn(
+            `contrato ${args.contractId}: documento ${doc.id} sin anular: ${(err as Error).message}`,
+          ),
+        );
+    }
   }
 
   async changePrice(args: {
