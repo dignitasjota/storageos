@@ -2175,3 +2175,31 @@ Migración `20270114100000_expenses_fiscal_review` (se aplica sola):
 - Exportación para la asesoría: la factura anulada por error sale con importe 0 y «Anulada por error»; el cobro devuelto por el banco sale en positivo en su fecha y en negativo en la de la devolución; la fianza devuelta por el cobro no se repite al liquidarla y no se devuelve una que no se cobró.
 - Modelo 347 por NIF (dos fichas con el mismo NIF suman juntas).
 - Trimestre del 303 validado (400 `invalid_quarter`). CSV del 303 y avisos de error en las cuatro pestañas.
+
+## 127. Gastos: proveedores, desglose de IVA, justificantes, pago y cuenta de resultados (2026-11-13)
+
+Migración `20270115100000_expenses_features` (se aplica sola). Tablas nuevas con RLS: `expense_suppliers` (proveedores), `expense_categories` (categorías propias) y `expense_budgets` (presupuesto mensual por categoría).
+
+**`expenses`**
+
+- proveedor (`supplier_id`), NIF y número de factura;
+- desglose: base, tipo y cuota de IVA, si el IVA se deduce, retención con su modelo (111 o 115) y total a pagar;
+- justificante (`receipt_*`);
+- pago: estado, fecha, forma, vencimiento y la salida de caja (`cash_movement_id`).
+
+Los gastos que ya había se dan por pagados el día del gasto.
+
+**`recurring_expenses`**
+
+- frecuencia (cada mes, trimestre o año), mes de inicio y fecha de fin;
+- proveedor, desglose y forma de pago.
+
+Las plantillas que ya había empiezan el mes en que se crearon.
+
+**Nada que configurar**
+
+- `amount` sigue siendo lo que cuesta el gasto: la base más el IVA que no se deduce. Sin desglose, el importe. Así no cambian el Resumen, Marketing ni las liquidaciones de propietarios.
+- El justificante va al bucket privado `uploads` (`<tenant>/expenses/…`). Los que se suben y no se guardan se borran a las 24 h en la limpieza diaria.
+- Leer un justificante con IA solo funciona con el asistente IA en el plan y gasta una consulta del mes. Con `AI_PROVIDER=stub`, devuelve un ejemplo.
+- Un gasto pagado en efectivo apunta una salida en la caja del día (tipo `expense_payment`). Si ese día ya está cerrado, avisa y no la apunta. Esa salida no se puede quitar desde la caja: se quita marcando el gasto como pendiente o borrándolo.
+- Los gastos por pagar que vencen esta semana salen en «Hoy» y en el resumen del día por correo.

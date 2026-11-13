@@ -843,6 +843,10 @@ export class BankReconciliationService {
         expenseDate: day,
         facilityId: input.facilityId ?? null,
         notes: 'Desde la conciliación bancaria',
+        // Ya salió del banco: pagado ese día.
+        paymentStatus: 'paid',
+        paidAt: day,
+        paymentMethod: 'bank_transfer',
       });
       expenseId = expense.id;
     } catch (err) {

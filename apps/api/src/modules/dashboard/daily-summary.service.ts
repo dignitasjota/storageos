@@ -92,6 +92,9 @@ export function dailySummaryLines(t: TodayDto): string[] {
   if (t.businessRemindersDue.count > 0) {
     lines.push(`Vencimientos del negocio: ${t.businessRemindersDue.count}`);
   }
+  if ((t.expensesToPay?.count ?? 0) > 0) {
+    lines.push(`Gastos por pagar esta semana: ${t.expensesToPay.count}`);
+  }
   if (t.rgpdRequestsDue.count > 0) {
     lines.push(`Solicitudes de protección de datos: ${t.rgpdRequestsDue.count}`);
   }

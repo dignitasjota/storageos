@@ -717,6 +717,13 @@ export class CashService {
         });
       }
       if (row.facilityId) assertFacilityAllowed(args.facilityScope, row.facilityId);
+      if (row.kind === 'expense_payment') {
+        throw new ConflictException({
+          code: 'movement_from_expense',
+          message:
+            'Esta salida es el pago en efectivo de un gasto: se quita desde Gastos (marcándolo como pendiente o borrándolo).',
+        });
+      }
       await this.assertDayOpen(tx, args.tenantId, row.movementDate, row.facilityId);
       await tx.cashMovement.delete({ where: { id: row.id } });
       return row;

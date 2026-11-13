@@ -65,6 +65,19 @@ export class DataRetentionService {
     const tenants = await this.admin.tenant.findMany({ select: { id: true } });
     let removed = 0;
     for (const { id: tenantId } of tenants) {
+      // Justificantes de gastos subidos (o leídos con la IA) y no guardados.
+      const receipts = await this.files.listOlderThan('uploads', `${tenantId}/expenses/`, before);
+      for (let i = 0; i < receipts.length; i += 500) {
+        const batch = receipts.slice(i, i + 500);
+        const used = await this.admin.expense.findMany({
+          where: { tenantId, receiptKey: { in: batch } },
+          select: { receiptKey: true },
+        });
+        const usedKeys = new Set(used.map((r) => r.receiptKey));
+        const orphans = batch.filter((k) => !usedKeys.has(k));
+        await this.files.deleteObjects('uploads', orphans);
+        removed += orphans.length;
+      }
       const keys = [
         ...(await this.files.listOlderThan('uploads', `${tenantId}/chat/`, before)),
         ...(await this.files.listOlderThan('uploads', `${tenantId}/support/`, before)),

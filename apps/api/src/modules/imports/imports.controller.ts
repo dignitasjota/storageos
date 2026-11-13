@@ -15,6 +15,7 @@ import { RequireFeature } from '../../common/decorators/require-feature.decorato
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ContractsImportService } from './contracts-import.service';
+import { ExpensesImportService } from './expenses-import.service';
 import { resolveImportCsv } from './import-engine';
 import { ImportsService } from './imports.service';
 import { SepaMandatesImportService } from './sepa-mandates-import.service';
@@ -43,6 +44,7 @@ export class ImportsController {
     private readonly unitsImport: UnitsImportService,
     private readonly contractsImport: ContractsImportService,
     private readonly sepaMandatesImport: SepaMandatesImportService,
+    private readonly expensesImport: ExpensesImportService,
   ) {}
 
   // ----------------------------- Inquilinos --------------------------------
@@ -176,6 +178,38 @@ export class ImportsController {
     const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
     return this.sepaMandatesImport.commit({
       tenantId: user.tenantId,
+      csv,
+      onDuplicate: body.onDuplicate,
+    });
+  }
+
+  // ---------------------------- Gastos ------------------------------------
+
+  @Get('expenses/template')
+  expensesTemplate(): { csv: string } {
+    return { csv: this.expensesImport.template() };
+  }
+
+  @RequirePermission('imports:manage', 'expenses:manage')
+  @Post('expenses/preview')
+  async previewExpenses(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ImportPreviewBody,
+  ): Promise<ImportPreviewDto> {
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
+    return this.expensesImport.preview(user.tenantId, csv);
+  }
+
+  @RequirePermission('imports:manage', 'expenses:manage')
+  @Post('expenses/commit')
+  async commitExpenses(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ImportCommitBody,
+  ): Promise<ImportCommitDto> {
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
+    return this.expensesImport.commit({
+      tenantId: user.tenantId,
+      userId: user.sub,
       csv,
       onDuplicate: body.onDuplicate,
     });

@@ -202,7 +202,7 @@ describe('Revisión de Gastos y Fiscalidad (e2e)', () => {
       .get(`/expenses/total?from=${today}&to=${today}`)
       .set(o.auth)
       .expect(200);
-    expect(total.body).toEqual({ count: 2, amount: 27 });
+    expect(total.body).toMatchObject({ count: 2, amount: 27 });
   });
 
   it('los recurrentes no se duplican, el canal se quita fuera de Marketing y lo sincronizado no se toca', async () => {

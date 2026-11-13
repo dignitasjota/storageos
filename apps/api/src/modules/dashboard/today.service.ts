@@ -750,6 +750,27 @@ export class TodayService {
               },
             })
           : [];
+        // Gastos por pagar que vencen esta semana o ya vencieron.
+        const expensesToPay =
+          !me && can('expenses:read')
+            ? await tx.expense.findMany({
+                where: {
+                  paymentStatus: 'pending',
+                  dueDate: { lte: remindersLimit },
+                  ...facOwn,
+                },
+                orderBy: { dueDate: 'asc' },
+                select: {
+                  id: true,
+                  description: true,
+                  vendor: true,
+                  dueDate: true,
+                  amount: true,
+                  totalAmount: true,
+                  facility: { select: { name: true } },
+                },
+              })
+            : [];
         const [stocks, parked, docs, preOpeningFacilities, customerDocs] = await Promise.all([
           tx.productStock.findMany({
             where: {
@@ -890,6 +911,7 @@ export class TodayService {
 
         const n = (p: Permission, value: number) => (can(p) ? value : 0);
         const remindersDue = reminders.filter((r) => r.dueDate <= startOfToday).length;
+        const expensesDue = expensesToPay.filter((e) => e.dueDate! <= startOfToday).length;
         // Solo lo que vence hoy o está atrasado y se puede hacer hoy. Con «Lo mío»,
         // solo lo asignado a esa persona.
         const urgentCount = me
@@ -916,6 +938,7 @@ export class TodayService {
             ) +
             n('facilities:read', docs.filter((d) => d.expiresOn! < startOfToday).length) +
             n('reminders:read', remindersDue) +
+            n('expenses:read', expensesDue) +
             n('facilities:read', preOpeningSoon.filter((x) => x.pastDeadline > 0).length);
         const section = <T extends { count: number; items: TodayItemDto[] }>(
           p: Permission,
@@ -1164,6 +1187,23 @@ export class TodayService {
                     .join(' · ') || null,
                 date: r.dueDate.toISOString(),
                 overdue: r.dueDate < startOfToday,
+              })),
+            },
+            none,
+          ),
+          expensesToPay: section(
+            'expenses:read',
+            {
+              count: expensesToPay.length,
+              items: expensesToPay.slice(0, TAKE).map((e) => ({
+                id: e.id,
+                label: e.description,
+                detail:
+                  [e.vendor, e.facility?.name, formatEur(Number(e.totalAmount ?? e.amount))]
+                    .filter(Boolean)
+                    .join(' · ') || null,
+                date: e.dueDate!.toISOString(),
+                overdue: e.dueDate! < startOfToday,
               })),
             },
             none,

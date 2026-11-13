@@ -1,19 +1,45 @@
 'use client';
 
 import {
-  EXPENSE_CATEGORY_LABELS,
+  EXPENSE_PAYMENT_METHOD_LABELS,
   EXPENSE_SOURCE_LABELS,
-  ExpenseCategoryEnum,
-  type ExpenseCategory,
   type ExpenseDto,
-  type RecurringExpenseDto,
+  type ExpensePaymentMethod,
 } from '@storageos/shared';
-import { Loader2, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import {
+  CheckCircle2,
+  Copy,
+  Download,
+  Loader2,
+  Paperclip,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Undo2,
+  Upload,
+  X,
+} from 'lucide-react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
+import { CategoriesTab } from '@/components/expenses/categories-tab';
+import { ExpenseDialog } from '@/components/expenses/expense-dialog';
+import {
+  ALL,
+  CategorySelect,
+  FacilitySelect,
+  NONE,
+  PaymentMethodSelect,
+  eur,
+} from '@/components/expenses/fields';
+import { PnlTab } from '@/components/expenses/pnl-tab';
+import { RecurringTab } from '@/components/expenses/recurring-tab';
+import { SuppliersTab } from '@/components/expenses/suppliers-tab';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,32 +60,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
-import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
+import { useHasPermission } from '@/lib/auth/hooks';
+import { downloadCsv } from '@/lib/csv';
 import { localDateString, localMonthStart } from '@/lib/dates';
 import {
-  useCreateExpense,
-  useCreateRecurringExpense,
+  fetchExpenseReceiptUrl,
+  fetchExpensesExport,
+  useBulkExpenses,
   useDeleteExpense,
-  useDeleteRecurringExpense,
+  useExpenseSuppliers,
   useExpensesTotal,
-  useProfitLoss,
-  useRecurringExpenses,
-  useRunRecurringExpenses,
-  useUpdateExpense,
-  useUpdateRecurringExpense,
+  useMarkExpensePaid,
+  useMarkExpensePending,
 } from '@/lib/expenses/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
 import { formatDate } from '@/lib/format';
-import { useMarketingChannels } from '@/lib/marketing/hooks';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
-
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const CATEGORIES = ExpenseCategoryEnum.options;
-const ALL = '__all__';
-const NONE = '__none__';
 
 /** El mes en curso entero: un gasto con fecha posterior a hoy de este mes también sale. */
 function monthRange(): { from: string; to: string } {
@@ -69,77 +88,327 @@ function monthRange(): { from: string; to: string } {
   return { from, to };
 }
 
-/** Selector de canal de marketing — solo aporta valor con categoría `marketing`. */
-function MarketingChannelField({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const channels = useMarketingChannels();
-  return (
-    <div className="space-y-1">
-      <Label className="text-xs">Canal de marketing (opcional)</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NONE}>Sin canal</SelectItem>
-          {(channels.data ?? []).map((c) => (
-            <SelectItem key={c.id} value={c.id}>
-              {c.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <p className="text-xs text-muted-foreground">
-        Vincula el gasto a un canal para ver su rendimiento (coste por lead, CAC…) en Marketing →
-        Rendimiento.
-      </p>
-    </div>
-  );
-}
+type PayTarget = { ids: string[]; label: string } | null;
 
 export default function ExpensesPage() {
   const ask = useConfirm();
   const canManage = useHasPermission('expenses:manage');
   const facilities = useFacilities();
+  const facilityOptions = facilities.data ?? [];
+  const suppliers = useExpenseSuppliers(true);
+  const [tab, setTab] = useState('list');
   const [range, setRange] = useState(monthRange);
   const [facilityFilterId, setFacilityFilterId] = useFacilityFilterState();
   const facilityFilter = facilityFilterId ?? ALL;
-  const setFacilityFilter = (v: string) => setFacilityFilterId(v === ALL ? undefined : v);
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL);
-  const [editing, setEditing] = useState<ExpenseDto | null>(null);
-  const [creating, setCreating] = useState(false);
+  const params = useSearchParams();
+  // «Hoy» abre la lista con los pendientes de pago.
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    const status = params.get('status');
+    return status === 'pending' || status === 'overdue' || status === 'paid' ? status : ALL;
+  });
+  const [supplierFilter, setSupplierFilter] = useState<string | null>(null);
   const [searchInput, search, setSearch] = useDebouncedSearch();
+  const [dialog, setDialog] = useState<
+    { mode: 'create' } | { mode: 'edit' | 'duplicate'; expense: ExpenseDto } | null
+  >(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [payTarget, setPayTarget] = useState<PayTarget>(null);
+  const [exporting, setExporting] = useState(false);
 
-  const pnl = useProfitLoss(range.from, range.to);
   const filters = {
     facilityId: facilityFilter !== ALL ? facilityFilter : undefined,
     category: categoryFilter !== ALL ? categoryFilter : undefined,
+    paymentStatus: statusFilter !== ALL ? statusFilter : undefined,
+    supplierId: supplierFilter ?? undefined,
     from: range.from,
     to: range.to,
     search: search || undefined,
   };
   const expenses = usePagedList<ExpenseDto>('expenses', '/expenses', filters);
   const total = useExpensesTotal(filters);
-  const invoicesVisible = pnl.data?.invoicesVisible ?? true;
-  const paymentsVisible = pnl.data?.paymentsVisible ?? true;
   const del = useDeleteExpense();
+  const markPending = useMarkExpensePending();
+  const bulk = useBulkExpenses();
 
-  const facilityOptions = facilities.data ?? [];
+  const editable = (e: ExpenseDto) => e.source !== 'google_ads' && e.source !== 'meta_ads';
+  const selectable = expenses.rows.filter(editable);
+  const allSelected = selectable.length > 0 && selectable.every((e) => selected.has(e.id));
+  const toggle = (id: string) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-  async function remove(id: string) {
-    if (!(await ask({ title: '¿Eliminar este gasto?', destructive: true }))) return;
+  async function remove(e: ExpenseDto) {
+    if (
+      !(await ask({
+        title: '¿Eliminar este gasto?',
+        description: e.cashMovementId ? 'También se quita su salida de la caja.' : undefined,
+        destructive: true,
+      }))
+    )
+      return;
     try {
-      await del.mutateAsync(id);
+      await del.mutateAsync(e.id);
       toast.success('Gasto eliminado.');
-    } catch {
-      toast.error('No se pudo eliminar.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo eliminar.');
     }
   }
+
+  async function undoPay(e: ExpenseDto) {
+    try {
+      await markPending.mutateAsync(e.id);
+      toast.success('Vuelve a estar pendiente de pago.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cambiar.');
+    }
+  }
+
+  async function openReceipt(e: ExpenseDto) {
+    try {
+      const { url } = await fetchExpenseReceiptUrl(e.id);
+      window.open(url, '_blank', 'noopener');
+    } catch {
+      toast.error('No se ha podido abrir el justificante.');
+    }
+  }
+
+  function reportBulk(res: { succeeded: number; failed: { error: string }[] }, done: string) {
+    if (res.failed.length === 0) toast.success(`${res.succeeded} ${done}.`);
+    else
+      toast.warning(`${res.succeeded} ${done}; ${res.failed.length} no: ${res.failed[0]!.error}`);
+    setSelected(new Set());
+  }
+
+  async function bulkCategory(category: string) {
+    try {
+      reportBulk(
+        await bulk.mutateAsync({ action: 'category', ids: [...selected], category }),
+        'cambiados',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cambiar.');
+    }
+  }
+
+  async function bulkFacility(facilityId: string) {
+    try {
+      reportBulk(
+        await bulk.mutateAsync({
+          action: 'facility',
+          ids: [...selected],
+          facilityId: facilityId === NONE ? null : facilityId,
+        }),
+        'cambiados',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cambiar.');
+    }
+  }
+
+  async function bulkDelete() {
+    if (!(await ask({ title: `¿Eliminar ${selected.size} gastos?`, destructive: true }))) return;
+    try {
+      reportBulk(await bulk.mutateAsync({ action: 'delete', ids: [...selected] }), 'eliminados');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo eliminar.');
+    }
+  }
+
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const rows = await fetchExpensesExport(filters);
+      downloadCsv(`gastos-${range.from}_${range.to}.csv`, [
+        [
+          'Fecha',
+          'Concepto',
+          'Categoría',
+          'Local',
+          'Proveedor',
+          'NIF',
+          'Nº factura',
+          'Base',
+          'IVA %',
+          'IVA',
+          'IVA deducible',
+          'Retención %',
+          'Retención',
+          'Modelo',
+          'Coste',
+          'A pagar',
+          'Pago',
+          'Pagado el',
+          'Forma de pago',
+          'Vence el',
+          'Notas',
+        ],
+        ...rows.map((e) => [
+          formatDate(e.expenseDate),
+          e.description,
+          e.categoryLabel,
+          e.facilityName ?? 'General',
+          e.vendor ?? '',
+          e.vendorTaxId ?? '',
+          e.invoiceNumber ?? '',
+          e.baseAmount ?? '',
+          e.vatRate ?? '',
+          e.vatAmount ?? '',
+          e.broken ? (e.vatDeductible ? 'Sí' : 'No') : '',
+          e.withholdingRate ?? '',
+          e.withholdingAmount ?? '',
+          e.withholdingModel ?? '',
+          e.amount,
+          e.totalAmount,
+          e.paymentStatus === 'paid' ? 'Pagado' : 'Pendiente',
+          e.paidAt ? formatDate(e.paidAt) : '',
+          e.paymentMethod ? EXPENSE_PAYMENT_METHOD_LABELS[e.paymentMethod] : '',
+          e.dueDate ? formatDate(e.dueDate) : '',
+          e.notes ?? '',
+        ]),
+      ]);
+      if (rows.length >= 5000) toast.warning('El CSV lleva los 5.000 primeros: acota el periodo.');
+    } catch {
+      toast.error('No se ha podido descargar.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const concept = (e: ExpenseDto) => (
+    <>
+      <span>{e.description}</span>
+      {e.hasReceipt && (
+        <button
+          type="button"
+          className="ml-1 inline-flex align-middle text-muted-foreground hover:text-foreground"
+          aria-label="Ver el justificante"
+          title="Ver el justificante"
+          onClick={() => void openReceipt(e)}
+        >
+          <Paperclip className="size-3.5" />
+        </button>
+      )}
+      {e.source !== 'manual' && (
+        <Badge variant="outline" className="ml-2 text-[10px]">
+          {EXPENSE_SOURCE_LABELS[e.source]}
+        </Badge>
+      )}
+      {(e.vendor || e.invoiceNumber) && (
+        <span className="block text-xs text-muted-foreground">
+          {[e.vendor, e.vendorTaxId, e.invoiceNumber && `fra. ${e.invoiceNumber}`]
+            .filter(Boolean)
+            .join(' · ')}
+        </span>
+      )}
+      {e.notes && e.source !== 'recurring' && (
+        <span className="block text-xs text-muted-foreground">{e.notes}</span>
+      )}
+    </>
+  );
+  const payment = (e: ExpenseDto) =>
+    e.paymentStatus === 'paid' ? (
+      <span className="text-muted-foreground">
+        Pagado
+        {e.paymentMethod && ` · ${EXPENSE_PAYMENT_METHOD_LABELS[e.paymentMethod].toLowerCase()}`}
+      </span>
+    ) : (
+      <Badge
+        variant="outline"
+        className={
+          e.overdue
+            ? 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-400'
+            : 'border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-300'
+        }
+      >
+        {e.overdue ? 'Vencido' : 'Pendiente'}
+        {e.dueDate && ` · ${formatDate(e.dueDate)}`}
+      </Badge>
+    );
+  const amount = (e: ExpenseDto) => (
+    <>
+      <span className="font-medium tabular-nums">{eur(e.amount)}</span>
+      {e.broken && e.totalAmount !== e.amount && (
+        <span className="block text-xs text-muted-foreground tabular-nums">
+          a pagar {eur(e.totalAmount)}
+        </span>
+      )}
+      {!e.broken && <span className="block text-[10px] text-muted-foreground">sin desglosar</span>}
+    </>
+  );
+  const actions = (e: ExpenseDto) =>
+    !editable(e) ? (
+      <span
+        className="block text-right text-xs text-muted-foreground"
+        title="Se actualiza solo con la sincronización del canal de marketing"
+      >
+        Automático
+      </span>
+    ) : (
+      <div className="flex justify-end gap-1">
+        {e.paymentStatus === 'pending' ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label="Marcar pagado"
+            title="Marcar pagado"
+            onClick={() => setPayTarget({ ids: [e.id], label: e.description })}
+          >
+            <CheckCircle2 className="size-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label="Volver a pendiente"
+            title="Volver a pendiente"
+            onClick={() => void undoPay(e)}
+          >
+            <Undo2 className="size-4" />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          aria-label="Editar"
+          title="Editar"
+          onClick={() => setDialog({ mode: 'edit', expense: e })}
+        >
+          <Pencil className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          aria-label="Duplicar"
+          title="Duplicar"
+          onClick={() => setDialog({ mode: 'duplicate', expense: e })}
+        >
+          <Copy className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground hover:text-red-600"
+          aria-label="Eliminar"
+          title="Eliminar"
+          onClick={() => void remove(e)}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </div>
+    );
+
+  const supplierName = supplierFilter
+    ? ((suppliers.data ?? []).find((s) => s.id === supplierFilter)?.name ?? 'Proveedor')
+    : null;
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -147,17 +416,24 @@ export default function ExpensesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Gastos y rentabilidad</h1>
           <p className="text-sm text-muted-foreground">
-            Registra los gastos del negocio y ve la cuenta de resultados por local.
+            Registra los gastos con su factura, controla lo que queda por pagar y ve la cuenta de
+            resultados por local.
           </p>
         </div>
         {canManage && (
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="mr-1 size-4" /> Nuevo gasto
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/expenses/import">
+                <Upload className="mr-1 size-4" /> Importar
+              </Link>
+            </Button>
+            <Button onClick={() => setDialog({ mode: 'create' })}>
+              <Plus className="mr-1 size-4" /> Nuevo gasto
+            </Button>
+          </div>
         )}
       </div>
 
-      {/* Periodo */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Desde</Label>
@@ -177,275 +453,310 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      {/* Cuenta de resultados */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Cuenta de resultados por local</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Facturado sin IVA, igual que en el Resumen (una factura sustituida cuenta solo la
-            diferencia y los abonos restan). Cobrado: el dinero recibido, IVA incluido. Los gastos,
-            por su importe.
-          </p>
-        </CardHeader>
-        <CardContent>
-          {pnl.isLoading ? (
-            <div className="flex h-24 items-center justify-center">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : pnl.isError ? (
-            <SectionError onRetry={() => void pnl.refetch()} />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs text-muted-foreground">
-                  <tr>
-                    <th className="p-2">Local</th>
-                    {invoicesVisible && <th className="p-2 text-right">Facturado (sin IVA)</th>}
-                    {paymentsVisible && <th className="p-2 text-right">Cobrado</th>}
-                    <th className="p-2 text-right">Gastos</th>
-                    {invoicesVisible && <th className="p-2 text-right">Resultado</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(pnl.data?.rows ?? []).map((r) => (
-                    <tr key={r.facilityId ?? 'none'} className="border-t">
-                      <td className="p-2">{r.facilityName}</td>
-                      {invoicesVisible && (
-                        <td className="p-2 text-right tabular-nums">{eur(r.invoiced)}</td>
-                      )}
-                      {paymentsVisible && (
-                        <td className="p-2 text-right tabular-nums text-muted-foreground">
-                          {eur(r.collected)}
-                        </td>
-                      )}
-                      <td className="p-2 text-right tabular-nums text-muted-foreground">
-                        {eur(r.expenses)}
-                      </td>
-                      {invoicesVisible && (
-                        <td
-                          className={`p-2 text-right font-semibold tabular-nums ${
-                            r.net >= 0 ? 'text-emerald-600' : 'text-red-600'
-                          }`}
-                        >
-                          {eur(r.net)}
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                  {(pnl.data?.rows ?? []).length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={2 + (invoicesVisible ? 2 : 0) + (paymentsVisible ? 1 : 0)}
-                        className="p-6 text-center text-muted-foreground"
-                      >
-                        Sin movimientos en este periodo.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-                {pnl.data && pnl.data.rows.length > 0 && (
-                  <tfoot>
-                    <tr className="border-t-2 font-semibold">
-                      <td className="p-2">Total</td>
-                      {invoicesVisible && (
-                        <td className="p-2 text-right tabular-nums">
-                          {eur(pnl.data.totals.invoiced)}
-                        </td>
-                      )}
-                      {paymentsVisible && (
-                        <td className="p-2 text-right tabular-nums">
-                          {eur(pnl.data.totals.collected)}
-                        </td>
-                      )}
-                      <td className="p-2 text-right tabular-nums">
-                        {eur(pnl.data.totals.expenses)}
-                      </td>
-                      {invoicesVisible && (
-                        <td
-                          className={`p-2 text-right tabular-nums ${
-                            pnl.data.totals.net >= 0 ? 'text-emerald-600' : 'text-red-600'
-                          }`}
-                        >
-                          {eur(pnl.data.totals.net)}
-                        </td>
-                      )}
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-              {pnl.data && pnl.data.byCategory.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  {pnl.data.byCategory.map((c) => (
-                    <span key={c.category} className="rounded-md border px-2 py-1">
-                      {EXPENSE_CATEGORY_LABELS[c.category]}: {eur(c.amount)}
-                    </span>
-                  ))}
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
+          <TabsTrigger value="list">Gastos</TabsTrigger>
+          <TabsTrigger value="pnl">Cuenta de resultados</TabsTrigger>
+          <TabsTrigger value="recurring">Recurrentes</TabsTrigger>
+          <TabsTrigger value="suppliers">Proveedores</TabsTrigger>
+          <TabsTrigger value="categories">Categorías y presupuesto</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="list">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-base">Gastos</CardTitle>
+                <div className="flex flex-wrap gap-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" />
+                    <Input
+                      value={searchInput}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Concepto, proveedor, NIF o factura"
+                      className="h-8 w-56 pl-8 text-xs"
+                    />
+                  </div>
+                  <Select
+                    value={facilityFilter}
+                    onValueChange={(v) => setFacilityFilterId(v === ALL ? undefined : v)}
+                  >
+                    <SelectTrigger className="h-8 w-40 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>Todos los locales</SelectItem>
+                      {facilityOptions.map((f) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <CategorySelect
+                    value={categoryFilter}
+                    onChange={setCategoryFilter}
+                    includeAll
+                    className="h-8 w-40 text-xs"
+                  />
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="h-8 w-48 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>Pagados y pendientes</SelectItem>
+                      <SelectItem value="pending">Pendientes de pago</SelectItem>
+                      <SelectItem value="overdue">Vencidos</SelectItem>
+                      <SelectItem value="paid">Pagados</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={exportCsv}
+                    disabled={exporting}
+                  >
+                    {exporting ? (
+                      <Loader2 className="mr-1 size-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-1 size-4" />
+                    )}
+                    CSV
+                  </Button>
+                </div>
+              </div>
+              {supplierName && (
+                <div>
+                  <Badge variant="secondary" className="gap-1">
+                    Proveedor: {supplierName}
+                    <button
+                      type="button"
+                      aria-label="Quitar el filtro de proveedor"
+                      onClick={() => setSupplierFilter(null)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
                 </div>
               )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Gastos recurrentes */}
-      {canManage && <RecurringExpensesCard facilities={facilityOptions} />}
-
-      {/* Lista de gastos */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle className="text-base">Gastos</CardTitle>
-            <div className="flex flex-wrap gap-2">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" />
-                <Input
-                  value={searchInput}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar concepto, proveedor o nota"
-                  className="h-8 w-56 pl-8 text-xs"
-                />
-              </div>
-              <Select value={facilityFilter} onValueChange={setFacilityFilter}>
-                <SelectTrigger className="h-8 w-40 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL}>Todos los locales</SelectItem>
-                  {facilityOptions.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="h-8 w-36 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL}>Todas las categorías</SelectItem>
-                  {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {EXPENSE_CATEGORY_LABELS[c]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {total.data && total.data.count > 0 && (
-            <p className="mb-2 text-xs text-muted-foreground">
-              {total.data.count} {total.data.count === 1 ? 'gasto' : 'gastos'} ·{' '}
-              <span className="font-medium text-foreground">{eur(total.data.amount)}</span>
-            </p>
-          )}
-          {expenses.isLoading ? (
-            <div className="flex h-24 items-center justify-center">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : expenses.isError ? (
-            <SectionError onRetry={() => void expenses.refetch()} />
-          ) : expenses.rows.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              {search ? 'Ningún gasto coincide con la búsqueda.' : 'Sin gastos en este periodo.'}
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs text-muted-foreground">
-                  <tr>
-                    <th className="p-2">Fecha</th>
-                    <th className="p-2">Categoría</th>
-                    <th className="p-2">Local</th>
-                    <th className="p-2">Concepto</th>
-                    <th className="p-2 text-right">Importe</th>
-                    {canManage && <th className="p-2" />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {expenses.rows.map((e) => (
-                    <tr key={e.id} className="border-t">
-                      <td className="p-2 tabular-nums">{formatDate(e.expenseDate)}</td>
-                      <td className="p-2">{EXPENSE_CATEGORY_LABELS[e.category]}</td>
-                      <td className="p-2 text-muted-foreground">{e.facilityName ?? '— General'}</td>
-                      <td className="p-2">
-                        {e.description}
-                        {e.vendor && (
-                          <span className="ml-1 text-xs text-muted-foreground">· {e.vendor}</span>
+            </CardHeader>
+            <CardContent>
+              {total.data && total.data.count > 0 && (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {total.data.count} {total.data.count === 1 ? 'gasto' : 'gastos'} ·{' '}
+                  <span className="font-medium text-foreground">{eur(total.data.amount)}</span>
+                  {total.data.pending > 0 && (
+                    <>
+                      {' '}
+                      · por pagar{' '}
+                      <span className="font-medium text-foreground">{eur(total.data.pending)}</span>
+                    </>
+                  )}
+                </p>
+              )}
+              {canManage && selected.size > 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-2 text-xs">
+                  <span className="font-medium">{selected.size} seleccionados</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    onClick={() =>
+                      setPayTarget({ ids: [...selected], label: `${selected.size} gastos` })
+                    }
+                  >
+                    <CheckCircle2 className="mr-1 size-3.5" /> Marcar pagados
+                  </Button>
+                  <CategorySelect
+                    value=""
+                    onChange={(v) => void bulkCategory(v)}
+                    className="h-7 w-40 text-xs"
+                    placeholder="Cambiar categoría"
+                  />
+                  <FacilitySelect
+                    value=""
+                    onChange={(v) => void bulkFacility(v)}
+                    facilities={facilityOptions}
+                    className="h-7 w-40 text-xs"
+                    placeholder="Cambiar local"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-red-700 dark:text-red-400"
+                    onClick={bulkDelete}
+                  >
+                    <Trash2 className="mr-1 size-3.5" /> Eliminar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7"
+                    onClick={() => setSelected(new Set())}
+                  >
+                    Quitar la selección
+                  </Button>
+                </div>
+              )}
+              {expenses.isLoading ? (
+                <div className="flex h-24 items-center justify-center">
+                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : expenses.isError ? (
+                <SectionError onRetry={() => void expenses.refetch()} />
+              ) : expenses.rows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  {search
+                    ? 'Ningún gasto coincide con la búsqueda.'
+                    : 'Sin gastos en este periodo.'}
+                </p>
+              ) : (
+                <>
+                  {/* En el móvil, tarjetas. */}
+                  <ul className="divide-y sm:hidden">
+                    {expenses.rows.map((e) => (
+                      <li key={e.id} className="flex gap-2 py-3 text-sm">
+                        {canManage && editable(e) && (
+                          <input
+                            type="checkbox"
+                            aria-label="Seleccionar"
+                            className="mt-1"
+                            checked={selected.has(e.id)}
+                            onChange={() => toggle(e.id)}
+                          />
                         )}
-                        {e.source !== 'manual' && (
-                          <Badge variant="outline" className="ml-2 text-[10px]">
-                            {EXPENSE_SOURCE_LABELS[e.source]}
-                          </Badge>
-                        )}
-                        {e.notes && e.source !== 'recurring' && (
-                          <span className="block text-xs text-muted-foreground">{e.notes}</span>
-                        )}
-                      </td>
-                      <td className="p-2 text-right font-medium tabular-nums">{eur(e.amount)}</td>
-                      {canManage && (
-                        <td className="p-2">
-                          {e.source === 'google_ads' || e.source === 'meta_ads' ? (
-                            <span
-                              className="block text-right text-xs text-muted-foreground"
-                              title="Se actualiza solo con la sincronización del canal de marketing"
-                            >
-                              Automático
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex justify-between gap-2">
+                            <div className="min-w-0">{concept(e)}</div>
+                            <div className="shrink-0 text-right">{amount(e)}</div>
+                          </div>
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                            <span>
+                              {formatDate(e.expenseDate)} · {e.categoryLabel} ·{' '}
+                              {e.facilityName ?? 'General'}
                             </span>
-                          ) : (
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-7"
-                                aria-label="Editar"
-                                onClick={() => setEditing(e)}
-                              >
-                                <Pencil className="size-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-7 text-muted-foreground hover:text-red-600"
-                                aria-label="Eliminar"
-                                onClick={() => remove(e.id)}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </div>
+                            <span className="text-xs">{payment(e)}</span>
+                          </div>
+                          {canManage && <div>{actions(e)}</div>}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="hidden overflow-x-auto sm:block">
+                    <table className="w-full text-sm">
+                      <thead className="text-left text-xs text-muted-foreground">
+                        <tr>
+                          {canManage && (
+                            <th className="w-8 p-2">
+                              <input
+                                type="checkbox"
+                                aria-label="Seleccionar todos"
+                                checked={allSelected}
+                                onChange={(e) =>
+                                  setSelected(
+                                    e.target.checked
+                                      ? new Set(selectable.map((x) => x.id))
+                                      : new Set(),
+                                  )
+                                }
+                              />
+                            </th>
                           )}
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {expenses.loadMore.hasMore && (
-            <div className="mt-3 flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={expenses.loadMore.loading}
-                onClick={expenses.loadMore.onLoadMore}
-              >
-                {expenses.loadMore.loading ? 'Cargando…' : 'Cargar más'}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                          <th className="p-2">Fecha</th>
+                          <th className="p-2">Concepto</th>
+                          <th className="p-2">Categoría · local</th>
+                          <th className="p-2">Pago</th>
+                          <th className="p-2 text-right">Importe</th>
+                          {canManage && <th className="p-2" />}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {expenses.rows.map((e) => (
+                          <tr key={e.id} className="border-t align-top">
+                            {canManage && (
+                              <td className="p-2">
+                                {editable(e) && (
+                                  <input
+                                    type="checkbox"
+                                    aria-label="Seleccionar"
+                                    checked={selected.has(e.id)}
+                                    onChange={() => toggle(e.id)}
+                                  />
+                                )}
+                              </td>
+                            )}
+                            <td className="whitespace-nowrap p-2 tabular-nums">
+                              {formatDate(e.expenseDate)}
+                            </td>
+                            <td className="p-2">{concept(e)}</td>
+                            <td className="p-2 text-xs text-muted-foreground">
+                              {e.categoryLabel}
+                              <span className="block">{e.facilityName ?? 'General'}</span>
+                            </td>
+                            <td className="p-2 text-xs">{payment(e)}</td>
+                            <td className="p-2 text-right">{amount(e)}</td>
+                            {canManage && <td className="p-2">{actions(e)}</td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+              {expenses.loadMore.hasMore && (
+                <div className="mt-3 flex justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={expenses.loadMore.loading}
+                    onClick={expenses.loadMore.onLoadMore}
+                  >
+                    {expenses.loadMore.loading ? 'Cargando…' : 'Cargar más'}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      {(creating || editing) && (
+        <TabsContent value="pnl">
+          <PnlTab from={range.from} to={range.to} />
+        </TabsContent>
+
+        <TabsContent value="recurring">
+          <RecurringTab facilities={facilityOptions} canManage={canManage} />
+        </TabsContent>
+
+        <TabsContent value="suppliers">
+          <SuppliersTab
+            canManage={canManage}
+            onShowExpenses={(id) => {
+              setSupplierFilter(id);
+              setTab('list');
+            }}
+          />
+        </TabsContent>
+
+        <TabsContent value="categories">
+          <CategoriesTab canManage={canManage} />
+        </TabsContent>
+      </Tabs>
+
+      {dialog && (
         <ExpenseDialog
-          expense={editing}
+          expense={dialog.mode === 'edit' ? dialog.expense : null}
+          template={dialog.mode === 'duplicate' ? dialog.expense : null}
           facilities={facilityOptions}
-          onClose={() => {
-            setCreating(false);
-            setEditing(null);
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {payTarget && (
+        <PayDialog
+          target={payTarget}
+          onClose={(cleared) => {
+            setPayTarget(null);
+            if (cleared) setSelected(new Set());
           }}
         />
       )}
@@ -453,383 +764,80 @@ export default function ExpensesPage() {
   );
 }
 
-function ExpenseDialog({
-  expense,
-  facilities,
+/** Marcar pagado (uno o varios): fecha y forma de pago. */
+function PayDialog({
+  target,
   onClose,
 }: {
-  expense: ExpenseDto | null;
-  facilities: { id: string; name: string }[];
-  onClose: () => void;
+  target: NonNullable<PayTarget>;
+  onClose: (cleared: boolean) => void;
 }) {
-  const create = useCreateExpense();
-  const update = useUpdateExpense();
-  // Quien solo ve unos locales no apunta gastos de toda la empresa.
-  const companyWide = useCompanyWide();
-  const [facilityId, setFacilityId] = useState(
-    expense?.facilityId ?? (companyWide ? NONE : (facilities[0]?.id ?? NONE)),
-  );
-  const [category, setCategory] = useState<ExpenseCategory>(expense?.category ?? 'other');
-  const [description, setDescription] = useState(expense?.description ?? '');
-  const [amount, setAmount] = useState(String(expense?.amount ?? ''));
-  const [expenseDate, setExpenseDate] = useState(expense?.expenseDate ?? localDateString());
-  const [vendor, setVendor] = useState(expense?.vendor ?? '');
-  const [notes, setNotes] = useState(expense?.notes ?? '');
-  const [marketingChannelId, setMarketingChannelId] = useState(expense?.marketingChannelId ?? NONE);
-  const busy = create.isPending || update.isPending;
-
-  const payload = useMemo(
-    () => ({
-      facilityId: facilityId === NONE ? null : facilityId,
-      category,
-      description: description.trim(),
-      amount: Number(amount) || 0,
-      expenseDate,
-      vendor: vendor.trim(),
-      notes: notes.trim(),
-      // El canal solo cuenta con la categoría Marketing.
-      marketingChannelId:
-        category === 'marketing' && marketingChannelId !== NONE ? marketingChannelId : null,
-    }),
-    [facilityId, category, description, amount, expenseDate, vendor, notes, marketingChannelId],
-  );
+  const markPaid = useMarkExpensePaid();
+  const bulk = useBulkExpenses();
+  const [paidAt, setPaidAt] = useState(localDateString());
+  const [method, setMethod] = useState<ExpensePaymentMethod | null>('bank_transfer');
+  const busy = markPaid.isPending || bulk.isPending;
 
   async function save() {
-    if (!payload.description || payload.amount <= 0) {
-      toast.error('Indica un concepto y un importe.');
+    if (!method) {
+      toast.error('Elige la forma de pago.');
       return;
     }
     try {
-      if (expense) await update.mutateAsync({ id: expense.id, input: payload });
-      else await create.mutateAsync(payload);
-      toast.success('Gasto guardado.');
-      onClose();
+      if (target.ids.length === 1) {
+        const saved = await markPaid.mutateAsync({
+          id: target.ids[0]!,
+          input: { paidAt, paymentMethod: method },
+        });
+        if (saved.cashNotice) toast.warning(saved.cashNotice);
+        else toast.success('Gasto pagado.');
+      } else {
+        const res = await bulk.mutateAsync({
+          action: 'mark_paid',
+          ids: target.ids,
+          paidAt,
+          paymentMethod: method,
+        });
+        if (res.failed.length === 0) toast.success(`${res.succeeded} gastos pagados.`);
+        else
+          toast.warning(
+            `${res.succeeded} pagados; ${res.failed.length} no: ${res.failed[0]!.error}`,
+          );
+      }
+      onClose(true);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo marcar.');
     }
   }
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && onClose(false)}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{expense ? 'Editar gasto' : 'Nuevo gasto'}</DialogTitle>
+          <DialogTitle>Marcar pagado · {target.label}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Fecha</Label>
-              <DateSelect value={expenseDate} onChange={(v) => v && setExpenseDate(v)} around />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Importe (€)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Categoría</Label>
-              <Select value={category} onValueChange={(v) => setCategory(v as ExpenseCategory)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {EXPENSE_CATEGORY_LABELS[c]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Local</Label>
-              <Select value={facilityId} onValueChange={setFacilityId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {companyWide && <SelectItem value={NONE}>General (sin local)</SelectItem>}
-                  {facilities.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label className="text-xs">Pagado el</Label>
+            <DateSelect value={paidAt} onChange={(v) => v && setPaidAt(v)} around />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Concepto</Label>
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Proveedor (opcional)</Label>
-            <Input value={vendor} onChange={(e) => setVendor(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Notas (opcional)</Label>
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
-          {category === 'marketing' && (
-            <MarketingChannelField value={marketingChannelId} onChange={setMarketingChannelId} />
-          )}
-        </div>
-        <DialogFooter>
-          <Button onClick={save} disabled={busy}>
-            {busy && <Loader2 className="mr-1 size-4 animate-spin" />}
-            Guardar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function RecurringExpensesCard({ facilities }: { facilities: { id: string; name: string }[] }) {
-  const ask = useConfirm();
-  const list = useRecurringExpenses();
-  const run = useRunRecurringExpenses();
-  const del = useDeleteRecurringExpense();
-  const [editing, setEditing] = useState<RecurringExpenseDto | null>(null);
-  const [creating, setCreating] = useState(false);
-  const rows = list.data ?? [];
-
-  async function doRun() {
-    try {
-      const res = await run.mutateAsync();
-      toast.success(
-        res.created > 0
-          ? `${res.created} gasto(s) recurrente(s) generado(s).`
-          : 'No había gastos recurrentes pendientes este mes.',
-      );
-    } catch {
-      toast.error('No se pudo generar.');
-    }
-  }
-  async function remove(id: string) {
-    if (!(await ask({ title: '¿Eliminar esta plantilla recurrente?', destructive: true }))) return;
-    try {
-      await del.mutateAsync(id);
-      toast.success('Plantilla eliminada.');
-    } catch {
-      toast.error('No se pudo eliminar.');
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <CardTitle className="text-base">Gastos recurrentes</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Se generan solos cada mes (alquiler, suministros, personal…).
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={doRun} disabled={run.isPending}>
-              <RefreshCw className="mr-1 size-4" /> Generar ahora
-            </Button>
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus className="mr-1 size-4" /> Nuevo
-            </Button>
+            <Label className="text-xs">Forma de pago</Label>
+            <PaymentMethodSelect value={method} onChange={setMethod} />
           </div>
         </div>
-      </CardHeader>
-      <CardContent>
-        {list.isLoading ? (
-          <div className="flex h-16 items-center justify-center">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            Sin gastos recurrentes. Crea el primero (p. ej. el alquiler del local).
+        {method === 'cash' && (
+          <p className="text-xs text-muted-foreground">
+            Se apunta como salida en la caja de ese día.
           </p>
-        ) : (
-          <ul className="divide-y text-sm">
-            {rows.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-2 py-2">
-                <div className={r.active ? '' : 'opacity-50'}>
-                  <span className="font-medium">{r.description}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {EXPENSE_CATEGORY_LABELS[r.category]} · {r.facilityName ?? 'General'} · día{' '}
-                    {r.dayOfMonth}
-                    {!r.active && ' · pausado'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium tabular-nums">{eur(r.amount)}/mes</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    aria-label="Editar"
-                    onClick={() => setEditing(r)}
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-red-600"
-                    aria-label="Eliminar"
-                    onClick={() => remove(r.id)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
         )}
-      </CardContent>
-      {(creating || editing) && (
-        <RecurringDialog
-          recurring={editing}
-          facilities={facilities}
-          onClose={() => {
-            setCreating(false);
-            setEditing(null);
-          }}
-        />
-      )}
-    </Card>
-  );
-}
-
-function RecurringDialog({
-  recurring,
-  facilities,
-  onClose,
-}: {
-  recurring: RecurringExpenseDto | null;
-  facilities: { id: string; name: string }[];
-  onClose: () => void;
-}) {
-  const create = useCreateRecurringExpense();
-  const update = useUpdateRecurringExpense();
-  const companyWide = useCompanyWide();
-  const [facilityId, setFacilityId] = useState(
-    recurring?.facilityId ?? (companyWide ? NONE : (facilities[0]?.id ?? NONE)),
-  );
-  const [category, setCategory] = useState<ExpenseCategory>(recurring?.category ?? 'rent');
-  const [description, setDescription] = useState(recurring?.description ?? '');
-  const [amount, setAmount] = useState(String(recurring?.amount ?? ''));
-  const [dayOfMonth, setDayOfMonth] = useState(String(recurring?.dayOfMonth ?? 1));
-  const [active, setActive] = useState(recurring?.active ?? true);
-  const [marketingChannelId, setMarketingChannelId] = useState(
-    recurring?.marketingChannelId ?? NONE,
-  );
-  const busy = create.isPending || update.isPending;
-
-  async function save() {
-    const payload = {
-      facilityId: facilityId === NONE ? null : facilityId,
-      category,
-      description: description.trim(),
-      amount: Number(amount) || 0,
-      marketingChannelId:
-        category === 'marketing' && marketingChannelId !== NONE ? marketingChannelId : null,
-      dayOfMonth: Math.min(28, Math.max(1, Number(dayOfMonth) || 1)),
-      active,
-    };
-    if (!payload.description || payload.amount <= 0) {
-      toast.error('Indica un concepto y un importe.');
-      return;
-    }
-    try {
-      if (recurring) await update.mutateAsync({ id: recurring.id, input: payload });
-      else await create.mutateAsync(payload);
-      toast.success('Gasto recurrente guardado.');
-      onClose();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{recurring ? 'Editar recurrente' : 'Nuevo gasto recurrente'}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Importe (€/mes)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Día del mes (1-28)</Label>
-              <Input
-                type="number"
-                min={1}
-                max={28}
-                value={dayOfMonth}
-                onChange={(e) => setDayOfMonth(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Categoría</Label>
-              <Select value={category} onValueChange={(v) => setCategory(v as ExpenseCategory)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {EXPENSE_CATEGORY_LABELS[c]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Local</Label>
-              <Select value={facilityId} onValueChange={setFacilityId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {companyWide && <SelectItem value={NONE}>General (sin local)</SelectItem>}
-                  {facilities.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Concepto</Label>
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
-          {category === 'marketing' && (
-            <MarketingChannelField value={marketingChannelId} onChange={setMarketingChannelId} />
-          )}
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-            Activo (se genera cada mes)
-          </label>
-        </div>
         <DialogFooter>
+          <Button variant="outline" onClick={() => onClose(false)}>
+            Cancelar
+          </Button>
           <Button onClick={save} disabled={busy}>
             {busy && <Loader2 className="mr-1 size-4 animate-spin" />}
-            Guardar
+            Marcar pagado
           </Button>
         </DialogFooter>
       </DialogContent>
