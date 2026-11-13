@@ -1012,6 +1012,7 @@ export class ContractsService {
           autoRenew: input.autoRenew,
           cancellationNoticeDays: input.cancellationNoticeDays,
           notes: input.notes?.trim() || null,
+          specificConditions: input.specificConditions?.trim() || null,
           events: {
             create: {
               tenantId,
@@ -1218,13 +1219,15 @@ export class ContractsService {
     const changes: Record<string, unknown> = {};
     // Precio, inicio y fianza solo se tocan antes de la firma: después el
     // precio cambia con «Cambiar precio» (auditado) y lo firmado no se altera.
-    const draftOnly = (['priceMonthly', 'startDate', 'depositAmount'] as const).filter(
-      (k) => args.input[k] !== undefined,
-    );
+    const draftOnly = (
+      ['priceMonthly', 'startDate', 'depositAmount', 'specificConditions'] as const
+    ).filter((k) => args.input[k] !== undefined);
     if (draftOnly.length > 0 && existing.status !== 'draft') {
       throw new BadRequestException({
         code: 'contract_not_draft',
-        message: 'El precio, la fecha de inicio y la fianza solo se cambian antes de la firma',
+        message: draftOnly.includes('specificConditions')
+          ? 'Las condiciones de un contrato firmado no se cambian: añade un anexo'
+          : 'El precio, la fecha de inicio y la fianza solo se cambian antes de la firma',
       });
     }
     if (
@@ -1325,6 +1328,10 @@ export class ContractsService {
     if (args.input.notes !== undefined) {
       data.notes = args.input.notes?.trim() || null;
       changes.notes = data.notes;
+    }
+    if (args.input.specificConditions !== undefined) {
+      data.specificConditions = args.input.specificConditions?.trim() || null;
+      changes.specificConditions = data.specificConditions;
     }
 
     const updated = await this.prisma.withTenant(async (tx) => {
@@ -4534,6 +4541,7 @@ export class ContractsService {
       immediateStartRequestedAt: row.immediateStartRequestedAt?.toISOString() ?? null,
       withdrawnAt: row.withdrawnAt?.toISOString() ?? null,
       notes: row.notes,
+      specificConditions: row.specificConditions,
       preOpening: preOpeningDto(row),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
