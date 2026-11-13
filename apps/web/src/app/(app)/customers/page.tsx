@@ -90,7 +90,7 @@ const PAY_VIA: Record<string, string> = {
 
 const COLUMN_LABELS = [
   ['units', 'Trastero'],
-  ['monthly', 'Cuota/mes'],
+  ['monthly', 'Cuota/mes sin IVA'],
   ['payVia', 'Cobro'],
   ['debt', 'Deuda'],
   ['contract', 'Contrato'],
@@ -448,7 +448,7 @@ export default function CustomersPage() {
       key: 'monthly',
       id: 'monthly',
       accessorFn: (c) => c.monthly,
-      header: 'Cuota/mes',
+      header: 'Cuota/mes sin IVA',
       cell: ({ row }) =>
         row.original.monthly > 0 ? (
           <span className="tabular-nums">{eur(row.original.monthly)}</span>
@@ -679,6 +679,7 @@ export default function CustomersPage() {
   const real = rows.filter((c) => !c.isTest);
   const debtTotal = real.reduce((sum, c) => sum + c.overdue, 0);
   const monthlyTotal = real.reduce((sum, c) => sum + c.monthly, 0);
+  const paidTotal = real.reduce((sum, c) => sum + c.paid12m, 0);
   const moneyVisible = rows.every((c) => c.moneyVisible);
 
   function toggleColumn(k: ColumnKey) {
@@ -711,7 +712,7 @@ export default function CustomersPage() {
         'Teléfono',
         'Trasteros',
         'Etiquetas',
-        ...(money ? ['Cuota/mes', 'Deuda', 'Pagado 12 meses'] : []),
+        ...(money ? ['Cuota/mes sin IVA', 'Deuda', 'Pagado 12 meses'] : []),
         'Alta',
       ],
       ...rows.map((c) => [
@@ -735,7 +736,15 @@ export default function CustomersPage() {
           {moneyVisible && (
             <>
               {' '}
-              · cuotas <span className="font-medium text-foreground">{eur(monthlyTotal)}/mes</span>
+              <span title="Alquiler menos descuento más seguro de los contratos en vigor (activos o con la baja pedida), sin IVA. No incluye borradores, cancelados, terminados ni reservas de locales que aún no han abierto.">
+                · cuotas en vigor{' '}
+                <span className="font-medium text-foreground">{eur(monthlyTotal)}/mes</span> (sin
+                IVA)
+              </span>{' '}
+              <span title="Lo cobrado en los últimos 12 meses, sin las devoluciones.">
+                · cobrado en 12 meses{' '}
+                <span className="font-medium text-foreground">{eur(paidTotal)}</span>
+              </span>
             </>
           )}
           {debtTotal > 0 && (
