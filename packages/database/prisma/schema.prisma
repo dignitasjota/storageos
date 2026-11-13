@@ -6505,6 +6505,9 @@ model PlatformEmailSettings {
   senders         Json     @default("{}")
   /// Texto de `{tipo}` en el nombre del remitente, por correo concreto (solo los cambiados).
   tipoLabels      Json     @default("{}") @map("tipo_labels")
+  /// Último aviso de entrega recibido de cada proveedor (¿está conectado el webhook?).
+  brevoEventsLastAt  DateTime? @map("brevo_events_last_at") @db.Timestamptz(6)
+  resendEventsLastAt DateTime? @map("resend_events_last_at") @db.Timestamptz(6)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

@@ -12,6 +12,7 @@ import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -451,6 +452,10 @@ export default function WaitlistPage() {
                   type="email"
                   value={form.contactEmail}
                   onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))}
+                />
+                <EmailTypoHint
+                  value={form.contactEmail}
+                  onAccept={(contactEmail) => setForm((f) => ({ ...f, contactEmail }))}
                 />
               </div>
               <div className="space-y-1">

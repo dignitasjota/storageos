@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -101,6 +102,11 @@ export function CustomerContactsTab({ customerId }: { customerId: string }) {
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+            <EmailTypoHint
+              value={form.email}
+              onAccept={(email) => setForm({ ...form, email })}
+              className="sm:col-span-2"
             />
             <Input
               placeholder="Teléfono"

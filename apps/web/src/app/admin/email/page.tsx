@@ -43,6 +43,7 @@ import {
   useUpdateEmailSettings,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { formatDateTime } from '@/lib/format';
 
 const DOMAIN_STATUS: Record<string, { label: string; ok: boolean }> = {
   authenticated: { label: 'autenticado', ok: true },
@@ -261,12 +262,14 @@ export default function AdminEmailPage() {
           <WebhookRow
             name="Brevo"
             configured={data.deliveryWebhooks.brevo.configured}
+            lastEventAt={data.deliveryWebhooks.brevo.lastEventAt}
             url={`${data.deliveryWebhooks.brevo.url}?token=<EMAIL_WEBHOOK_TOKEN>`}
-            hint="Transactional → Settings → Webhook. Eventos: Delivered, Hard bounce, Invalid email, Blocked, Error. Variable: EMAIL_WEBHOOK_TOKEN (pon un valor aleatorio largo y úsalo en la URL)."
+            hint="Transactional → Settings → Webhook. Eventos: Delivered, Soft bounce, Hard bounce, Invalid email, Blocked, Error y Spam. Variable: EMAIL_WEBHOOK_TOKEN (pon un valor aleatorio largo y úsalo en la URL)."
           />
           <WebhookRow
             name="Resend"
             configured={data.deliveryWebhooks.resend.configured}
+            lastEventAt={data.deliveryWebhooks.resend.lastEventAt}
             url={data.deliveryWebhooks.resend.url}
             hint="Webhooks → Add endpoint. Eventos: email.delivered, email.bounced, email.failed. Variable: RESEND_WEBHOOK_SECRET con su «Signing secret»."
           />
@@ -556,11 +559,13 @@ function DomainLine({ domain, status }: { domain: string; status: string }) {
 function WebhookRow({
   name,
   configured,
+  lastEventAt,
   url,
   hint,
 }: {
   name: string;
   configured: boolean;
+  lastEventAt: string | null;
   url: string;
   hint: string;
 }) {
@@ -578,6 +583,17 @@ function WebhookRow({
           </Badge>
         )}
       </div>
+      {configured &&
+        (lastEventAt ? (
+          <p className="text-xs text-muted-foreground">
+            Último aviso recibido: {formatDateTime(lastEventAt)}
+          </p>
+        ) : (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            Aún no ha llegado ningún aviso. Si ya se han enviado correos con {name}, revisa que el
+            webhook esté creado en {name} con esta dirección.
+          </p>
+        ))}
       <code className="block break-all rounded bg-muted px-2 py-1 text-xs">{url}</code>
       <p className="text-xs text-muted-foreground">{hint}</p>
     </div>

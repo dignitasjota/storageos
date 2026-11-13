@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { legalHref } from './i18n/messages';
 
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { visitorId } from '@/lib/attribution';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -592,6 +593,7 @@ function ContactForm({
   onSaved: () => void;
   labels: Record<'title' | 'name' | 'email' | 'phone' | 'send' | 'error', string>;
 }) {
+  const locale = useLocale();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -640,6 +642,7 @@ function ContactForm({
         placeholder={labels.email}
         aria-label={labels.email}
       />
+      <EmailTypoHint value={email} locale={locale} onAccept={setEmail} />
       <input
         className={field}
         type="tel"

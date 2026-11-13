@@ -296,6 +296,9 @@ export default function CustomerDetailPage() {
       )}
       {dialog === 'merge' && <MergeCustomerDialog customer={c} onClose={() => setDialog(null)} />}
 
+      {/* Si su correo no le llega, se ve nada más abrir la ficha. */}
+      <EmailStatusCard customerId={c.id} />
+
       <Tabs value={tab} onValueChange={setTab}>
         {/* Móvil: desplegable (9 pestañas no caben cómodas en una tira). */}
         <div className="sm:hidden">
@@ -425,7 +428,6 @@ export default function CustomerDetailPage() {
               </div>
             </CardContent>
           </Card>
-          <EmailStatusCard customerId={c.id} />
           <DepositExemptCard customerId={c.id} exempt={c.depositExempt} />
           <MarketingPreferenceCard customerId={c.id} optOutAt={c.marketingOptOutAt} />
         </TabsContent>

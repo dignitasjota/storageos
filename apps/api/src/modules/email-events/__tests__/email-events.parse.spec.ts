@@ -1,7 +1,7 @@
 import { messageIdVariants, parseBrevoEvents, parseResendEvent } from '../email-events.parse';
 
 describe('parseBrevoEvents', () => {
-  it('traduce entregas, rebotes y errores; ignora aperturas y rebotes temporales', () => {
+  it('traduce entregas, rebotes (también los temporales) y errores; ignora aperturas', () => {
     const events = parseBrevoEvents([
       {
         event: 'delivered',
@@ -22,18 +22,21 @@ describe('parseBrevoEvents', () => {
         reason: 'the sender you used no-reply@trasteros.pro is not valid',
       },
       { event: 'opened', 'message-id': '<d@mailin.fr>' },
-      { event: 'soft_bounce', 'message-id': '<e@mailin.fr>' },
+      { event: 'soft_bounce', 'message-id': '<e@mailin.fr>', reason: 'domain not found' },
       { event: 'delivered' },
     ]);
     expect(events.map((e) => [e.messageId, e.outcome])).toEqual([
       ['<a@mailin.fr>', 'delivered'],
       ['<b@mailin.fr>', 'bounced'],
       ['<c@mailin.fr>', 'failed'],
+      ['<e@mailin.fr>', 'soft_bounced'],
     ]);
+    expect(events[3]!.reason).toBe('Rebote temporal: domain not found');
     expect(events[1]!.reason).toBe('Rebote permanente: mailbox full');
     expect(events[2]!.reason).toContain('is not valid');
     expect(events[0]!.reason).toBeNull();
-    expect(events.map((e) => e.suppressReason)).toEqual([null, 'hard_bounce', null]);
+    // Un rebote temporal no bloquea la dirección.
+    expect(events.map((e) => e.suppressReason)).toEqual([null, 'hard_bounce', null, null]);
   });
 
   it('queja de spam → complained + supresión comercial', () => {
@@ -69,7 +72,8 @@ describe('parseResendEvent', () => {
       type: 'email.bounced',
       data: { email_id: 're_4', bounce: { type: 'Transient', message: 'mailbox full' } },
     });
-    expect(t!.suppressReason).toBeNull();
+    expect(t).toMatchObject({ outcome: 'soft_bounced', suppressReason: null });
+    expect(t!.reason).toBe('Rebote temporal: mailbox full');
     const [c] = parseResendEvent({ type: 'email.complained', data: { email_id: 're_5' } });
     expect(c).toMatchObject({ outcome: 'complained', suppressReason: 'complaint' });
   });

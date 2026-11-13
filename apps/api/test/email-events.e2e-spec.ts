@@ -43,12 +43,10 @@ describe('Avisos de entrega del proveedor de correo (e2e)', () => {
   });
 
   /** Emite una factura (sale el aviso «Nueva factura») y devuelve esa comunicación ya enviada. */
-  async function sentInvoiceEmail(prefix: string) {
+  async function sentInvoiceEmail(prefix: string, email = `${prefix}-${Date.now()}@e2e.local`) {
     const owner = await registerVerifiedUser(app, prefix);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
-    const customerId = await createCustomer(app, owner.accessToken, {
-      email: `${prefix}-${Date.now()}@e2e.local`,
-    });
+    const customerId = await createCustomer(app, owner.accessToken, { email });
     const inv = await createDraftInvoice(app, owner.accessToken, customerId);
     await request(app.getHttpServer()).post(`/invoices/${inv}/issue`).set(auth).expect(200);
     let comm: Comm | undefined;
@@ -140,6 +138,74 @@ describe('Avisos de entrega del proveedor de correo (e2e)', () => {
     const after = await commById(auth, comm.id);
     expect(after.status).toBe('bounced');
     expect(after.errorMessage).toBe('Rebote: No such user');
+  }, 90_000);
+
+  it('rebote temporal: se anota, avisa con el email corregido y pasa a entregado si el reintento llega', async () => {
+    const email = `evsoft-${Date.now()}@gmial.com`;
+    const { auth, customerId, comm } = await sentInvoiceEmail('evsoft', email);
+    const url = `/webhooks/email-events/brevo?token=${BREVO_TOKEN}`;
+    const admin = app.get(PrismaAdminService);
+    await admin.platformEmailSettings.updateMany({ data: { brevoEventsLastAt: null } });
+
+    await request(app.getHttpServer())
+      .post(url)
+      .send({
+        event: 'soft_bounce',
+        'message-id': comm.providerMessageId,
+        email,
+        reason: 'Domain not found',
+      })
+      .expect(200);
+    const after = await commById(auth, comm.id);
+    expect(after.status).toBe('bounced');
+    expect(after.errorMessage).toBe('Rebote temporal: Domain not found');
+
+    // El equipo se entera, con la dirección que seguramente quería escribir.
+    const notifs = await request(app.getHttpServer()).get('/notifications').set(auth);
+    const n = (notifs.body.items as { type: string; title: string; body: string | null }[]).find(
+      (x) => x.type === 'communication.undelivered',
+    );
+    expect(n?.title).toContain('No le está llegando');
+    expect(n?.body).toContain(email.replace('@gmial.com', '@gmail.com'));
+
+    // Y la ficha lo dice: último correo sin entregar y la errata.
+    const status = await request(app.getHttpServer())
+      .get(`/customers/${customerId}/email-status`)
+      .set(auth)
+      .expect(200);
+    expect(status.body.suppressions).toEqual([]);
+    expect(status.body.undelivered).toMatchObject({ temporary: true });
+    expect(status.body.suggestion).toBe(email.replace('@gmial.com', '@gmail.com'));
+
+    // Otro rebote temporal del mismo correo no vuelve a avisar.
+    await request(app.getHttpServer())
+      .post(url)
+      .send({ event: 'soft_bounce', 'message-id': comm.providerMessageId, email })
+      .expect(200);
+    const again = await request(app.getHttpServer()).get('/notifications').set(auth);
+    expect(
+      (again.body.items as { type: string }[]).filter(
+        (x) => x.type === 'communication.undelivered',
+      ),
+    ).toHaveLength(1);
+
+    // El reintento llega: entregado y sin motivo.
+    await request(app.getHttpServer())
+      .post(url)
+      .send({ event: 'delivered', 'message-id': comm.providerMessageId, email })
+      .expect(200);
+    const delivered = await commById(auth, comm.id);
+    expect(delivered.status).toBe('delivered');
+    expect(delivered.errorMessage).toBeNull();
+    const after2 = await request(app.getHttpServer())
+      .get(`/customers/${customerId}/email-status`)
+      .set(auth)
+      .expect(200);
+    expect(after2.body.undelivered).toBeNull();
+
+    // Correo saliente sabe que el webhook de Brevo está conectado.
+    const settings = await admin.platformEmailSettings.findFirst();
+    expect(settings?.brevoEventsLastAt).toBeTruthy();
   }, 90_000);
 
   it('rechazo de un correo que no está en Comunicaciones → aviso al super admin (una vez)', async () => {

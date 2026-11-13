@@ -1,6 +1,13 @@
-/** Resultado de entrega que nos interesa de un aviso del proveedor. */
-/** `complained` = el destinatario lo marcó como spam. */
-export type DeliveryOutcome = 'delivered' | 'bounced' | 'failed' | 'complained';
+/**
+ * Resultado de entrega que nos interesa de un aviso del proveedor.
+ * `soft_bounced` = rechazo temporal (buzón lleno, dominio que no responde,
+ * dominio mal escrito…): el proveedor lo reintenta, pero de momento no llega.
+ * `complained` = el destinatario lo marcó como spam.
+ */
+export type DeliveryOutcome = 'delivered' | 'bounced' | 'soft_bounced' | 'failed' | 'complained';
+
+/** Comienzo del motivo de un rebote temporal (lo reconoce el resto del código). */
+export const SOFT_BOUNCE_PREFIX = 'Rebote temporal';
 
 export interface DeliveryEvent {
   provider: 'brevo' | 'resend';
@@ -21,6 +28,7 @@ export interface DeliveryEvent {
 const BREVO_OUTCOME: Record<string, DeliveryOutcome> = {
   delivered: 'delivered',
   hard_bounce: 'bounced',
+  soft_bounce: 'soft_bounced',
   invalid_email: 'bounced',
   blocked: 'bounced',
   error: 'failed',
@@ -29,6 +37,7 @@ const BREVO_OUTCOME: Record<string, DeliveryOutcome> = {
 
 const BREVO_REASON: Record<string, string> = {
   hard_bounce: 'Rebote permanente',
+  soft_bounce: SOFT_BOUNCE_PREFIX,
   invalid_email: 'Dirección de email no válida',
   blocked: 'Bloqueado por el proveedor',
   error: 'Rechazado por el proveedor',
@@ -45,8 +54,9 @@ const BREVO_SUPPRESS: Record<string, string> = {
 
 /**
  * Webhook transaccional de Brevo: un objeto (o una lista) con `event`,
- * `message-id`, `email`, `reason`, `date`. Los rebotes temporales, aperturas,
- * clics, etc. se ignoran (Brevo reintenta los temporales por su cuenta).
+ * `message-id`, `email`, `reason`, `date`. Aperturas, clics, retrasos, etc. se
+ * ignoran. Un rebote temporal se anota (Brevo lo sigue intentando) pero no
+ * bloquea la dirección.
  */
 export function parseBrevoEvents(body: unknown): DeliveryEvent[] {
   const items = Array.isArray(body) ? body : [body];
@@ -95,7 +105,12 @@ export function parseResendEvent(body: unknown): DeliveryEvent[] {
       failed?: { reason?: unknown };
     };
   };
-  const outcome = typeof e.type === 'string' ? RESEND_OUTCOME[e.type] : undefined;
+  const baseOutcome = typeof e.type === 'string' ? RESEND_OUTCOME[e.type] : undefined;
+  // Resend avisa de los rebotes permanentes; un `Transient` es temporal.
+  const outcome =
+    baseOutcome === 'bounced' && e.data?.bounce?.type === 'Transient'
+      ? 'soft_bounced'
+      : baseOutcome;
   const messageId = typeof e.data?.email_id === 'string' ? e.data.email_id : '';
   if (!outcome || !messageId) return [];
   const detail =
@@ -117,21 +132,18 @@ export function parseResendEvent(body: unknown): DeliveryEvent[] {
           : [
               outcome === 'bounced'
                 ? 'Rebote'
-                : outcome === 'complained'
-                  ? 'Marcado como spam'
-                  : 'Rechazado por el proveedor',
+                : outcome === 'soft_bounced'
+                  ? SOFT_BOUNCE_PREFIX
+                  : outcome === 'complained'
+                    ? 'Marcado como spam'
+                    : 'Rechazado por el proveedor',
               detail,
             ]
               .filter(Boolean)
               .join(': ')
               .slice(0, 500),
       suppressReason:
-        outcome === 'complained'
-          ? 'complaint'
-          : // Resend avisa de los rebotes permanentes; un `Transient` no se suprime.
-            outcome === 'bounced' && e.data?.bounce?.type !== 'Transient'
-            ? 'hard_bounce'
-            : null,
+        outcome === 'complained' ? 'complaint' : outcome === 'bounced' ? 'hard_bounce' : null,
       occurredAt: parseDate(e.created_at),
     },
   ];

@@ -1,12 +1,14 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 import { trackEvent } from '../google-analytics';
 import { legalHref } from '../i18n/messages';
 
 import type { PromoTheme } from './promo-theme';
+
+import { EmailTypoHint } from '@/components/email-typo-hint';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -44,6 +46,8 @@ export function PromoLeadForm({
   disabled: boolean;
 }) {
   const t = useTranslations('publicWeb.promoLanding.form');
+  const locale = useLocale();
+  const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,7 +151,10 @@ export function PromoLeadForm({
           maxLength={200}
           autoComplete="email"
           className={input}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
         />
+        <EmailTypoHint value={email} locale={locale} onAccept={setEmail} className="mt-1" />
       </div>
       {sizes.length > 0 && (
         <div>

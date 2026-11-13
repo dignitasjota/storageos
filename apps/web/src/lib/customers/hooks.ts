@@ -45,7 +45,7 @@ import type {
   CustomerDocumentDto,
   CustomerDocumentUploadDto,
   CustomerDto,
-  EmailSuppressionDto,
+  CustomerEmailStatusDto,
   CustomerInteractionDto,
   MessageAttachmentInput,
   MessageAttachmentUploadDto,
@@ -183,7 +183,7 @@ export function useSetCustomerMarketing() {
 export function useCustomerEmailStatus(id: string) {
   return useQuery({
     queryKey: ['customers', id, 'email-status'] as const,
-    queryFn: () => apiFetch<EmailSuppressionDto[]>(`/customers/${id}/email-status`),
+    queryFn: () => apiFetch<CustomerEmailStatusDto>(`/customers/${id}/email-status`),
   });
 }
 

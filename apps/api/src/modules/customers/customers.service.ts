@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { isValidSpanishTaxId, normalizeTaxId } from '@storageos/shared';
+import { isValidSpanishTaxId, normalizeTaxId, suggestEmailFix } from '@storageos/shared';
 
 import { customerScopeWhere } from '../../common/customer-scope';
 import { subtractAmounts } from '../../common/money';
@@ -24,7 +24,7 @@ import type {
   CreateCustomerInput,
   CustomerDto,
   CustomerDuplicateDto,
-  EmailSuppressionDto,
+  CustomerEmailStatusDto,
   SetKycVerifiedInput,
   UpdateCustomerInput,
 } from '@storageos/shared';
@@ -483,11 +483,47 @@ export class CustomersService {
     }, tenantId);
   }
 
-  /** Bloqueos de correo que afectan al email del inquilino (rebote, spam). */
-  async emailStatus(tenantId: string, customerId: string): Promise<EmailSuppressionDto[]> {
+  /**
+   * Estado del email del inquilino: bloqueos (rebote permanente, spam), si su
+   * último correo no le llegó y la dirección corregida si parece mal escrita.
+   */
+  async emailStatus(tenantId: string, customerId: string): Promise<CustomerEmailStatusDto> {
     const c = await this.findOrThrow(tenantId, customerId);
-    if (!c.email) return [];
-    return this.suppressions.forTenantEmail(tenantId, c.email);
+    if (!c.email) return { email: null, suppressions: [], undelivered: null, suggestion: null };
+    const email = c.email;
+    const [suppressions, last] = await Promise.all([
+      this.suppressions.forTenantEmail(tenantId, email),
+      this.prisma.withTenant(
+        (tx) =>
+          tx.communication.findFirst({
+            where: {
+              customerId,
+              channel: 'email',
+              recipient: { equals: email, mode: 'insensitive' },
+              status: { in: ['sent', 'delivered', 'bounced', 'failed'] },
+            },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            select: {
+              status: true,
+              subject: true,
+              errorMessage: true,
+              failedAt: true,
+              createdAt: true,
+            },
+          }),
+        tenantId,
+      ),
+    ]);
+    const undelivered =
+      last && (last.status === 'bounced' || last.status === 'failed')
+        ? {
+            at: (last.failedAt ?? last.createdAt).toISOString(),
+            subject: last.subject,
+            reason: last.errorMessage,
+            temporary: last.errorMessage?.startsWith('Rebote temporal') ?? false,
+          }
+        : null;
+    return { email, suppressions, undelivered, suggestion: suggestEmailFix(email) };
   }
 
   /**

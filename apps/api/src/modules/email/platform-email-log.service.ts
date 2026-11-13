@@ -92,14 +92,22 @@ export class PlatformEmailLogService {
       select: { id: true },
     });
     if (!row) return false;
+    // Un rebote temporal queda como rebotado con su motivo; si el reintento
+    // llega, pasa a entregado, y si rebota del todo, cambia el motivo.
+    const softBounced = { status: 'bounced', errorMessage: { startsWith: 'Rebote temporal' } };
     if (e.outcome === 'delivered') {
       await this.admin.platformEmailLog.updateMany({
+        where: { id: row.id, OR: [{ status: 'sent' }, softBounced] },
+        data: { status: 'delivered', deliveredAt: e.occurredAt, errorMessage: null },
+      });
+    } else if (e.outcome === 'soft_bounced') {
+      await this.admin.platformEmailLog.updateMany({
         where: { id: row.id, status: 'sent' },
-        data: { status: 'delivered', deliveredAt: e.occurredAt },
+        data: { status: 'bounced', errorMessage: e.reason },
       });
     } else if (e.outcome === 'bounced' || e.outcome === 'failed') {
       await this.admin.platformEmailLog.updateMany({
-        where: { id: row.id, status: { in: ['sent', 'delivered'] } },
+        where: { id: row.id, OR: [{ status: { in: ['sent', 'delivered'] } }, softBounced] },
         data: { status: e.outcome, errorMessage: e.reason },
       });
     }

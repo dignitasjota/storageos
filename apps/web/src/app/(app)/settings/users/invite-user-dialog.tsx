@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -93,6 +94,7 @@ export function InviteUserDialog() {
                   <FormControl>
                     <Input {...field} type="email" autoComplete="email" />
                   </FormControl>
+                  <EmailTypoHint value={field.value} onAccept={field.onChange} />
                   <FormMessage />
                 </FormItem>
               )}

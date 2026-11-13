@@ -16,7 +16,7 @@ import {
 import {
   CreateCustomerSchema,
   type CustomerDto,
-  type EmailSuppressionDto,
+  type CustomerEmailStatusDto,
   SetKycVerifiedSchema,
   SetMarketingPreferenceSchema,
   UpdateCustomerSchema,
@@ -167,13 +167,13 @@ export class CustomersController {
     });
   }
 
-  /** Bloqueos de correo del email del inquilino (rebote permanente, spam). */
+  /** Estado del email del inquilino: bloqueos, último correo sin entregar y errata. */
   @RequirePermission('customers:read')
   @Get(':id/email-status')
   emailStatus(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<EmailSuppressionDto[]> {
+  ): Promise<CustomerEmailStatusDto> {
     return this.customers.emailStatus(user.tenantId, id);
   }
 

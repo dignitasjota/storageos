@@ -8,7 +8,7 @@ import {
 } from '@storageos/shared';
 import { Loader2, MailCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -30,6 +30,7 @@ import {
 } from '@/app/(public)/s/[slug]/i18n/messages';
 import { grossPrice } from '@/app/(public)/s/[slug]/price-format';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -539,6 +540,11 @@ export function BookPageBody({
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   onBlur={() => void captureLead()}
                 />
+                <EmailTypoHint
+                  value={form.email}
+                  locale={locale}
+                  onAccept={(email) => setForm({ ...form, email })}
+                />
                 <FieldError message={err('email')} />
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -639,6 +645,7 @@ export function BookPageBody({
  */
 function WaitlistSection({ slug }: { slug: string }) {
   const t = useTranslations('publicWeb.book');
+  const locale = useLocale();
   const [options, setOptions] = useState<PublicWaitlistOptionsDto | null>(null);
   const [facilityId, setFacilityId] = useState('');
   const [unitTypeId, setUnitTypeId] = useState('');
@@ -806,6 +813,11 @@ function WaitlistSection({ slug }: { slug: string }) {
                   autoComplete="email"
                   value={form.contactEmail}
                   onChange={(e) => setForm({ ...form, contactEmail: e.target.value })}
+                />
+                <EmailTypoHint
+                  value={form.contactEmail}
+                  locale={locale}
+                  onAccept={(contactEmail) => setForm({ ...form, contactEmail })}
                 />
                 <FieldError message={err('email')} />
               </div>

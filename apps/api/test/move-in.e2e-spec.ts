@@ -4,7 +4,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { generalTermsHash } from './helpers/general-terms';
-import { deleteAllMessages } from './helpers/mailpit';
+import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -396,6 +396,11 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     expect(sent[0]!.recipient).toBe('victima.existente@e2e.local');
     expect(sent[0]!.bodyText).toContain('/sign/');
     expect(sent[0]!.bodyText).toContain('Si no has hecho tú esta reserva');
+    // Y el correo sale de verdad.
+    const mail = await waitForEmail('victima.existente@e2e.local', {
+      subjectIncludes: 'Firma tu contrato',
+    });
+    expect(mail.Text).toContain('/sign/');
 
     // Un cliente nuevo sigue en la misma pantalla con su enlace.
     const fresh = await request(app.getHttpServer())

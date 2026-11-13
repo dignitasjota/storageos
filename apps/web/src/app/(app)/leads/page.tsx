@@ -19,6 +19,7 @@ import { LeadConversation } from './lead-conversation';
 import { LeadQuote } from './lead-quote';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -542,6 +543,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
                 onChange={(e) => setEmail(e.target.value)}
                 className="text-base sm:text-sm"
               />
+              <EmailTypoHint value={email} onAccept={setEmail} />
             </div>
             <div className="space-y-1.5">
               <Label>Teléfono</Label>

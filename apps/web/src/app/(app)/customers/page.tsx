@@ -20,6 +20,7 @@ import { useConfirm } from '@/components/confirm-provider';
 import { DuplicateWarning } from '@/components/customers/duplicate-warning';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -1042,6 +1043,7 @@ export default function CustomersPage() {
                             <FormControl>
                               <Input {...field} value={field.value ?? ''} type="email" />
                             </FormControl>
+                            <EmailTypoHint value={field.value} onAccept={field.onChange} />
                             <FormMessage />
                           </FormItem>
                         )}

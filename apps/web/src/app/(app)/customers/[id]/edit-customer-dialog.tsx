@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import type { CustomerDto, UpdateCustomerInput } from '@storageos/shared';
 
 import { DuplicateWarning } from '@/components/customers/duplicate-warning';
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -115,6 +116,7 @@ export function EditCustomerDialog({
         value={form[k]}
         onChange={(e) => set(k, e.target.value)}
       />
+      {type === 'email' && <EmailTypoHint value={form[k]} onAccept={(v) => set(k, v)} />}
     </div>
   );
 

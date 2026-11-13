@@ -87,8 +87,12 @@ describe('Lista de supresión de correo (e2e)', () => {
       .get(`/customers/${customerId}/email-status`)
       .set(auth)
       .expect(200);
-    expect(status.body).toHaveLength(1);
-    expect(status.body[0]).toMatchObject({ scope: 'all', reason: 'hard_bounce', tenantId: null });
+    expect(status.body.suppressions).toHaveLength(1);
+    expect(status.body.suppressions[0]).toMatchObject({
+      scope: 'all',
+      reason: 'hard_bounce',
+      tenantId: null,
+    });
 
     // El siguiente correo no se envía: queda omitido con el motivo.
     const second = await issueAndWait(auth, owner.accessToken, customerId);
@@ -138,7 +142,7 @@ describe('Lista de supresión de correo (e2e)', () => {
       .get(`/customers/${customerId}/email-status`)
       .set(auth)
       .expect(200);
-    expect(status.body[0]).toMatchObject({ scope: 'marketing', reason: 'complaint' });
+    expect(status.body.suppressions[0]).toMatchObject({ scope: 'marketing', reason: 'complaint' });
 
     const second = await issueAndWait(auth, owner.accessToken, customerId);
     expect(second.status).toBe('sent');

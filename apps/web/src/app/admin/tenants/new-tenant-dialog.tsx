@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -123,6 +124,7 @@ export function NewTenantDialog({ open, onClose }: { open: boolean; onClose: () 
                 onChange={(e) => setOwnerEmail(e.target.value)}
                 className="text-base sm:text-sm"
               />
+              <EmailTypoHint value={ownerEmail} onAccept={setOwnerEmail} />
             </div>
             <div className="space-y-1.5">
               <Label>Plan</Label>
