@@ -309,6 +309,16 @@ export class ExpensesController {
     return this.expenses.create(user.tenantId, user.sub, body, user.facilityScope ?? null);
   }
 
+  /** Un gasto (la revisión de Fiscalidad enlaza a cada uno). Tras las rutas fijas. */
+  @RequirePermission('expenses:read')
+  @Get(':id')
+  get(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ExpenseDto> {
+    return this.expenses.get(user.tenantId, id, user.facilityScope ?? null);
+  }
+
   @RequirePermission('expenses:read')
   @Get(':id/receipt')
   receipt(

@@ -13,6 +13,7 @@ import {
 } from '@storageos/shared';
 import Papa from 'papaparse';
 
+import { closedQuarters, isClosed } from '../../common/fiscal-closure';
 import { PrismaService } from '../database/prisma.service';
 import { ExpensesService } from '../expenses/expenses.service';
 
@@ -127,6 +128,8 @@ interface ExpensesCtx {
   suppliers: Map<string, string>;
   /** Huella de los gastos que ya hay: fecha|importe|concepto y nif|factura. */
   existing: Set<string>;
+  /** Trimestres cerrados en Fiscalidad. */
+  closed: Set<string>;
 }
 
 /**
@@ -186,7 +189,7 @@ export class ExpensesImportService {
   }
 
   private async prepare(tenantId: string): Promise<ExpensesCtx> {
-    const [custom, facilities, suppliers, existing] = await this.prisma.withTenant(
+    const [custom, facilities, suppliers, existing, closed] = await this.prisma.withTenant(
       (tx) =>
         Promise.all([
           tx.expenseCategory.findMany({ select: { id: true, name: true } }),
@@ -201,6 +204,7 @@ export class ExpensesImportService {
               invoiceNumber: true,
             },
           }),
+          closedQuarters(tx),
         ]),
       tenantId,
     );
@@ -230,6 +234,7 @@ export class ExpensesImportService {
       facilities: facilitiesByName(facilities),
       suppliers: supplierMap,
       existing: fingerprints,
+      closed,
     };
   }
 
@@ -332,6 +337,9 @@ export class ExpensesImportService {
         ...(get('notes') ? { notes: get('notes') } : {}),
       });
       if (!parsed.success) errors.push(...flattenZodErrors(parsed.error));
+      else if (isClosed(ctx.closed, new Date(`${parsed.data.expenseDate}T00:00:00Z`))) {
+        errors.push('fecha: ese trimestre está cerrado en Fiscalidad');
+      }
       if (errors.length || !parsed.success) return { status: 'error', errors };
 
       const cost = expenseAmounts(parsed.data).amount;

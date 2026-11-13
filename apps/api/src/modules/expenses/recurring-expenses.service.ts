@@ -15,6 +15,7 @@ import {
 } from '@storageos/shared';
 
 import { optionalFacilityWhere, type FacilityScope } from '../../common/facility-scope';
+import { closedQuarters, isClosed } from '../../common/fiscal-closure';
 import { todayInTimezone } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -401,10 +402,12 @@ export class RecurringExpensesService {
         where: { active: true, OR: [{ facilityId: null }, { facility: { deletedAt: null } }] },
         include: RECURRING_INCLUDE,
       });
+      const closed = await closedQuarters(tx);
       let created = 0;
       for (const r of templates) {
         const { current } = recurrencePending(this.rule(r), today, dayString(r.lastGeneratedMonth));
-        if (!current) continue;
+        // Un trimestre cerrado en Fiscalidad no recibe gastos nuevos.
+        if (!current || isClosed(closed, dayDate(current))) continue;
         const month = dayDate(monthStartOf(current));
         // Reserva: solo quien la pasa a esta fecha crea el gasto.
         const claimed = await tx.recurringExpense.updateMany({
@@ -436,9 +439,12 @@ export class RecurringExpensesService {
         today,
         dayString(r.lastGeneratedMonth),
       );
-      const dates = [...missed, ...(current ? [current] : [])];
-      if (dates.length === 0) return { created: 0 };
-      const last = dayDate(monthStartOf(dates[dates.length - 1]!));
+      const closed = await closedQuarters(tx);
+      const all = [...missed, ...(current ? [current] : [])];
+      // Las de un trimestre cerrado en Fiscalidad no se generan.
+      const dates = all.filter((d) => !isClosed(closed, dayDate(d)));
+      if (all.length === 0) return { created: 0 };
+      const last = dayDate(monthStartOf(all[all.length - 1]!));
       const claimed = await tx.recurringExpense.updateMany({
         where: {
           id: r.id,

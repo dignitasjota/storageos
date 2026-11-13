@@ -55,6 +55,16 @@ export function useExpenses(filters: Record<string, string | undefined>) {
   });
 }
 
+/** Un gasto suelto (la revisión de Fiscalidad enlaza a `/expenses?expense=<id>`). */
+export function useExpense(id: string | null) {
+  return useQuery({
+    queryKey: ['expenses', 'one', id] as const,
+    queryFn: () => apiFetch<ExpenseDto>(`/expenses/${id}`),
+    enabled: !!id,
+    retry: false,
+  });
+}
+
 /** Número, importe y pendiente de los gastos con estos filtros. */
 export function useExpensesTotal(filters: Record<string, string | undefined>) {
   return useQuery({

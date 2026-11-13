@@ -2203,3 +2203,37 @@ Las plantillas que ya había empiezan el mes en que se crearon.
 - Leer un justificante con IA solo funciona con el asistente IA en el plan y gasta una consulta del mes. Con `AI_PROVIDER=stub`, devuelve un ejemplo.
 - Un gasto pagado en efectivo apunta una salida en la caja del día (tipo `expense_payment`). Si ese día ya está cerrado, avisa y no la apunta. Esa salida no se puede quitar desde la caja: se quita marcando el gasto como pendiente o borrándolo.
 - Los gastos por pagar que vencen esta semana salen en «Hoy» y en el resumen del día por correo.
+
+## 128. Fiscalidad: libros, 303 completo, 347, retenciones, cierre del trimestre y asesoría (2026-11-13)
+
+Migración `20270116100000_fiscal_features` (se aplica sola):
+
+- tabla `fiscal_period_closures` con RLS: cierre de un trimestre con la foto de sus cifras, quién lo cerró y, si se reabre, quién, cuándo y por qué. Un cierre vigente por trimestre;
+- en `tenants`: `accountant_email`, `accountant_report_frequency` (`off`, `monthly` o `quarterly`; por defecto `off`) y `accountant_report_last_period`.
+
+**Qué cambia**
+
+- **Modelo 303**: resta el IVA deducible de los gastos desglosados y da el resultado. Los gastos sin desglosar no restan, y se avisa.
+- **Modelo 347**: añade los proveedores (sin los gastos con retención, que van al 190 o al 180), lo cobrado en efectivo de cada cliente y quién pasa del umbral sin NIF.
+- **Pestañas nuevas**: libro de facturas recibidas y retenciones del trimestre (111 profesionales, 115 alquiler y las que te practican tus inquilinos empresa).
+- **«Antes de presentar»** avisa de:
+  - facturas completas sin NIF;
+  - saltos de numeración;
+  - borradores del trimestre;
+  - rechazos de la AEAT;
+  - gastos sin desglosar, sin NIF del proveedor o sin justificante.
+- **Cerrar el trimestre** (cuando ya ha terminado): guarda las cifras y, hasta reabrirlo, devuelve 409 `fiscal_period_closed` en estos casos:
+  - crear, editar las cifras o borrar gastos de ese trimestre (las notas y el pago sí se pueden cambiar);
+  - importar gastos con esa fecha;
+  - generar recurrentes con esa fecha;
+  - anular por error sus facturas.
+
+  Solo el propietario lo reabre (`billing:configure`).
+
+- **La exportación para la asesoría** lleva una hoja «Gastos» (también en la de la plataforma, con los gastos del negocio propio).
+- **Envío a la asesoría**: correo con un enlace al Excel que dura 60 días. Se envía a mano o cada mes o trimestre (cron `fiscal.accountant-report` a las 08:00, hora de Madrid, desde el día 5 del mes o del trimestre siguiente).
+  - El Excel va al bucket privado `reports` (`<tenant>/accountant/…`) y se borra a los 61 días en la limpieza diaria.
+  - El enlace va firmado con una clave derivada de `MASTER_ENCRYPTION_KEY`. No necesita variables nuevas.
+- **Anonimizar** un tenant quita el email de la asesoría.
+
+**Nada que configurar.** Las cifras son un borrador para presentar: conviene que la asesoría revise el primer trimestre.

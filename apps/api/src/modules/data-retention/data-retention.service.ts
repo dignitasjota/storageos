@@ -23,6 +23,8 @@ import type { Env } from '../../config/env.schema';
 const SEPA_PRENOTICE_SOURCE = 'customer_email.sepa_prenotification';
 /** Las exportaciones de datos del tenant se borran a los 2 días (el enlace dura 1 h). */
 const EXPORT_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
+/** `<tenant>/accountant/…`: el Excel enviado a la asesoría vive lo que su enlace (60 días) y uno más. */
+const ACCOUNTANT_REPORT_RETENTION_MS = 61 * 24 * 60 * 60 * 1000;
 
 /** Días que se conserva una invitación no aceptada tras caducar o revocarse. */
 const STALE_INVITATION_DAYS = 90;
@@ -116,7 +118,7 @@ export class DataRetentionService {
     return removed;
   }
 
-  async cleanupExpiredFiles(): Promise<{ reports: number; exports: number }> {
+  async cleanupExpiredFiles(): Promise<{ reports: number; exports: number; accountant: number }> {
     const now = new Date();
     const expired = await this.admin.reportRun.findMany({
       where: { expiresAt: { lt: now }, downloadUrl: { not: null } },
@@ -139,12 +141,17 @@ export class DataRetentionService {
       new Date(now.getTime() - EXPORT_RETENTION_MS),
       (key) => key.split('/')[1] === 'exports',
     );
-    if (expired.length + exports > 0) {
+    const accountant = await this.files.deleteOlderThan(
+      'reports',
+      new Date(now.getTime() - ACCOUNTANT_REPORT_RETENTION_MS),
+      (key) => key.split('/')[1] === 'accountant',
+    );
+    if (expired.length + exports + accountant > 0) {
       this.logger.log(
-        `data-retention: ficheros caducados borrados (informes=${expired.length}, exportaciones=${exports})`,
+        `data-retention: ficheros caducados borrados (informes=${expired.length}, exportaciones=${exports}, asesoría=${accountant})`,
       );
     }
-    return { reports: expired.length, exports };
+    return { reports: expired.length, exports, accountant };
   }
 
   /**

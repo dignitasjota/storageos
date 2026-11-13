@@ -30,7 +30,7 @@ describe('Exportación para la asesoría del tenant (e2e)', () => {
     await cleanupTestTenants();
   });
 
-  it('facturas, cobros y fianzas; Excel con tres hojas y CSV de fianzas', async () => {
+  it('facturas, cobros y fianzas; Excel con sus hojas y CSV de fianzas', async () => {
     const owner = await registerVerifiedUser(app, 'tenantacc');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await ensureDefaultSeries(app, owner.accessToken);
@@ -136,7 +136,7 @@ describe('Exportación para la asesoría del tenant (e2e)', () => {
       .expect(200);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(xlsx.body as Buffer);
-    expect(wb.worksheets.map((w) => w.name)).toEqual(['Facturas', 'Cobros', 'Fianzas']);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Facturas', 'Cobros', 'Fianzas', 'Gastos']);
     expect(wb.getWorksheet('Facturas')!.getRow(1).getCell(1).value).toBe('Nº factura');
     expect(wb.getWorksheet('Fianzas')!.rowCount).toBe(4);
 

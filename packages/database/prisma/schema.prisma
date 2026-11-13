@@ -699,6 +699,11 @@ model Tenant {
   expenseSuppliers        ExpenseSupplier[]
   expenseCategories       ExpenseCategory[]
   expenseBudgets          ExpenseBudget[]
+  fiscalPeriodClosures    FiscalPeriodClosure[]
+  /// Envío automático a la asesoría: email, frecuencia (off|monthly|quarterly) y último periodo enviado.
+  accountantEmail            String? @map("accountant_email")
+  accountantReportFrequency  String  @default("off") @map("accountant_report_frequency")
+  accountantReportLastPeriod String? @map("accountant_report_last_period")
   marketingChannels       MarketingChannel[]
   delinquencyCaseEvents   DelinquencyCaseEvent[]
   delinquencyCaseFiles    DelinquencyCaseFile[]
@@ -894,6 +899,8 @@ model User {
   platformNewsOptOutAt DateTime? @map("platform_news_opt_out_at") @db.Timestamptz(6)
   platformNpsResponses PlatformNpsResponse[]
   createdBankMatchRules BankMatchRule[] @relation("BankMatchRuleCreatedBy")
+  fiscalClosuresClosed   FiscalPeriodClosure[] @relation("FiscalClosureAuthor")
+  fiscalClosuresReopened FiscalPeriodClosure[] @relation("FiscalClosureReopener")
 }
 
 /// Permisos por local: a qué facilities está restringido un usuario. Sin filas
@@ -2083,6 +2090,27 @@ model RecurringExpense {
 
   @@index([tenantId, active])
   @@map("recurring_expenses")
+}
+
+/// Cierre de un trimestre fiscal: foto de las cifras y bloqueo de cambios del periodo.
+model FiscalPeriodClosure {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  year             Int
+  quarter          Int
+  closedAt         DateTime  @default(now()) @map("closed_at") @db.Timestamptz(6)
+  closedByUserId   String?   @map("closed_by_user_id") @db.Uuid
+  snapshot         Json
+  reopenedAt       DateTime? @map("reopened_at") @db.Timestamptz(6)
+  reopenedByUserId String?   @map("reopened_by_user_id") @db.Uuid
+  reopenReason     String?   @map("reopen_reason")
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  closedBy   User?  @relation("FiscalClosureAuthor", fields: [closedByUserId], references: [id], onDelete: SetNull)
+  reopenedBy User?  @relation("FiscalClosureReopener", fields: [reopenedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, year, quarter])
+  @@map("fiscal_period_closures")
 }
 
 /// Proveedor de los gastos, con los valores que rellenan el gasto al elegirlo.

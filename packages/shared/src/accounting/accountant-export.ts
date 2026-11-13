@@ -14,7 +14,7 @@ export const AccountantExportQuerySchema = z.object({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   format: z.enum(['json', 'csv', 'xlsx']).default('json'),
   /** Solo para CSV (un fichero por tabla). */
-  kind: z.enum(['invoices', 'payments', 'deposits']).default('invoices'),
+  kind: z.enum(['invoices', 'payments', 'deposits', 'expenses']).default('invoices'),
 });
 export type AccountantExportQuery = z.infer<typeof AccountantExportQuerySchema>;
 
@@ -90,6 +90,27 @@ export const DEPOSIT_MOVEMENT_LABELS: Record<AccountantDepositRow['movement'], s
   retained: 'Fianza retenida',
 };
 
+/** Una factura recibida (gasto) con su desglose. */
+export interface AccountantExpenseRow {
+  /** DD/MM/AAAA. */
+  date: string;
+  vendorNif: string | null;
+  vendorName: string | null;
+  invoiceNumber: string | null;
+  description: string;
+  category: string;
+  facility: string | null;
+  /** null = gasto sin desglosar (solo el importe en «Total»). */
+  base: number | null;
+  taxRate: number | null;
+  vat: number | null;
+  deductible: string;
+  withholding: number | null;
+  withholdingModel: string | null;
+  total: number;
+  payment: string;
+}
+
 export interface AccountantExportWarning {
   invoiceNumber: string;
   source: AccountantSource;
@@ -105,6 +126,8 @@ export interface AccountantExportDto {
   payments: AccountantPaymentRow[];
   /** Fianzas recibidas, devueltas y retenidas (aparte de los cobros: no son ingresos). */
   deposits: AccountantDepositRow[];
+  /** Facturas recibidas (gastos) del periodo. Vacío en la de la plataforma. */
+  expenses: AccountantExpenseRow[];
   /** Facturas a las que les faltan datos obligatorios del destinatario. */
   warnings: AccountantExportWarning[];
 }
@@ -151,6 +174,24 @@ export const ACCOUNTANT_DEPOSIT_COLUMNS: Column<AccountantDepositRow>[] = [
   { header: 'Cliente', value: (r) => r.customerName },
   { header: 'Importe', value: (r) => r.amount },
   { header: 'Detalle', value: (r) => r.detail },
+];
+
+export const ACCOUNTANT_EXPENSE_COLUMNS: Column<AccountantExpenseRow>[] = [
+  { header: 'Fecha', value: (r) => r.date },
+  { header: 'NIF proveedor', value: (r) => r.vendorNif },
+  { header: 'Proveedor', value: (r) => r.vendorName },
+  { header: 'Nº factura', value: (r) => r.invoiceNumber },
+  { header: 'Concepto', value: (r) => r.description },
+  { header: 'Categoría', value: (r) => r.category },
+  { header: 'Local', value: (r) => r.facility },
+  { header: 'Base imponible', value: (r) => r.base },
+  { header: '% IVA', value: (r) => r.taxRate },
+  { header: 'Cuota IVA', value: (r) => r.vat },
+  { header: 'IVA deducible', value: (r) => r.deductible },
+  { header: 'Retención IRPF', value: (r) => r.withholding },
+  { header: 'Modelo', value: (r) => r.withholdingModel },
+  { header: 'Total', value: (r) => r.total },
+  { header: 'Pago', value: (r) => r.payment },
 ];
 
 /** En la exportación de un tenant sobra la columna «Actividad» (solo hay una). */
