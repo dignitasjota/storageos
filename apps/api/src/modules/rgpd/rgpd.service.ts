@@ -134,6 +134,23 @@ export class RgpdService {
                   signedAt: true,
                 },
               },
+              // Anexos (texto, estado y evidencia de la firma).
+              annexes: {
+                select: {
+                  number: true,
+                  title: true,
+                  status: true,
+                  termsText: true,
+                  documentHash: true,
+                  signerName: true,
+                  signatureMethod: true,
+                  ipAddress: true,
+                  userAgent: true,
+                  signedAt: true,
+                  cancelledAt: true,
+                  createdAt: true,
+                },
+              },
               legalDocAcceptances: {
                 select: {
                   channel: true,
@@ -404,6 +421,10 @@ export class RgpdService {
       await tx.contractSignature.updateMany({
         where: { contract: { customerId } },
         data: { ipAddress: null, userAgent: null, signerEmail: null },
+      });
+      await tx.contractAnnex.updateMany({
+        where: { contract: { customerId } },
+        data: { ipAddress: null, userAgent: null, sentTo: null },
       });
       await tx.legalDocAcceptance.updateMany({
         where: { customerId },

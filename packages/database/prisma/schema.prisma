@@ -590,6 +590,7 @@ model Tenant {
   contracts               Contract[]
   contractEvents          ContractEvent[]
   contractSignatures      ContractSignature[]
+  contractAnnexes         ContractAnnex[]
   reservations            Reservation[]
   invoiceSeries           InvoiceSeries[]
   invoices                Invoice[]
@@ -1843,6 +1844,7 @@ model Contract {
   unit               Unit                      @relation(fields: [unitId], references: [id], onDelete: Restrict)
   events             ContractEvent[]
   signatures         ContractSignature[]
+  annexes            ContractAnnex[]
   invoices           Invoice[]
   invoiceItems       InvoiceItem[]
   leadsConverted     Lead[]                    @relation("LeadConvertedContract")
@@ -2215,6 +2217,50 @@ model ContractSignature {
   @@index([tenantId])
   @@index([contractId])
   @@map("contract_signatures")
+}
+
+/// Anexo a un contrato firmado: texto que el inquilino firma aparte (lo
+/// firmado no se cambia). El texto se congela al crearlo y se firma igual que
+/// el contrato, con su huella y la evidencia de quién y cuándo.
+model ContractAnnex {
+  id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  contractId            String    @map("contract_id") @db.Uuid
+  /// 1, 2, 3… dentro de cada contrato.
+  number                Int
+  title                 String
+  body                  String
+  /// pending | signed | cancelled
+  status                String    @default("pending")
+  /// Texto completo que se firma (cabecera, cuerpo y consentimiento).
+  termsText             String    @map("terms_text")
+  documentHash          String    @map("document_hash")
+  createdByUserId       String?   @map("created_by_user_id") @db.Uuid
+  signingTokenHash      String?   @map("signing_token_hash")
+  signingTokenExpiresAt DateTime? @map("signing_token_expires_at") @db.Timestamptz(6)
+  /// Email al que se envió el último enlace.
+  sentTo                String?   @map("sent_to")
+  signedAt              DateTime? @map("signed_at") @db.Timestamptz(6)
+  signerName            String?   @map("signer_name")
+  /// drawn | typed
+  signatureMethod       String?   @map("signature_method")
+  signatureImage        String?   @map("signature_image")
+  typedSignature        String?   @map("typed_signature")
+  ipAddress             String?   @map("ip_address")
+  userAgent             String?   @map("user_agent")
+  /// remote (enlace del correo) | portal (área de clientes)
+  channel               String?
+  pdfKey                String?   @map("pdf_key")
+  cancelledAt           DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@unique([contractId, number])
+  @@index([tenantId])
+  @@map("contract_annexes")
 }
 
 /// Historial inmutable de eventos de un contrato. Se inserta cada vez

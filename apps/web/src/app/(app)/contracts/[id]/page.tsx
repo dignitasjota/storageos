@@ -19,6 +19,7 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { AnnexesCard } from './annexes-card';
 import { ChecklistCard } from './checklist-card';
 import { ConditionsCard } from './conditions-card';
 import { ContractBillingTab } from './contract-billing-tab';
@@ -469,6 +470,12 @@ export default function ContractDetailPage() {
         </TabsList>
         <TabsContent value="signing">
           <SigningCard contractId={c.id} />
+          {(c.status === 'active' || c.status === 'ending' || c.status === 'ended') && (
+            <AnnexesCard
+              contractId={c.id}
+              canAdd={c.status === 'active' || c.status === 'ending'}
+            />
+          )}
         </TabsContent>
         <TabsContent value="billing" className="space-y-4">
           <ConditionsCard contract={c} />

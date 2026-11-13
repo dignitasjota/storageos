@@ -612,10 +612,19 @@
         "purchaseError": "No se pudo completar la compra."
       },
       "linkUsedContinue": "Ese enlace ya no es válido. Sigues dentro como {name}.",
+      "annexes": {
+        "title": "Anexos de tus contratos",
+        "item": "Anexo {number} · {title}",
+        "details": "Contrato {contract} · {unit} · firmado el {date}",
+        "download": "Descargar PDF",
+        "error": "No se ha podido descargar el PDF."
+      },
       "pendingSignature": {
         "title": "Pendiente de firmar",
         "details": "{number} · desde el {start} · {price} €/mes con IVA",
         "holdUntil": "Te guardamos el trastero hasta el {date}.",
+        "annex": "Anexo {number} · {title}",
+        "annexDetails": "Contrato {number} · {unit} · {facility}",
         "sign": "Firmar",
         "error": "No se ha podido abrir la firma. Inténtalo de nuevo."
       },

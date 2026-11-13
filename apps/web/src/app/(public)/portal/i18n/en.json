@@ -612,10 +612,19 @@
         "purchaseError": "Couldn't complete the purchase."
       },
       "linkUsedContinue": "That link is no longer valid. You are still signed in as {name}.",
+      "annexes": {
+        "title": "Annexes to your contracts",
+        "item": "Annex {number} · {title}",
+        "details": "Contract {contract} · {unit} · signed on {date}",
+        "download": "Download PDF",
+        "error": "We couldn't download the PDF."
+      },
       "pendingSignature": {
         "title": "Waiting for your signature",
         "details": "{number} · from {start} · €{price}/month incl. VAT",
         "holdUntil": "We are holding the unit for you until {date}.",
+        "annex": "Annex {number} · {title}",
+        "annexDetails": "Contract {number} · {unit} · {facility}",
         "sign": "Sign",
         "error": "We couldn't open the signing page. Please try again."
       },

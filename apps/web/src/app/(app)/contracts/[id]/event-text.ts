@@ -87,6 +87,17 @@ export function contractEventText(e: ContractEventDto): { title: string; detail:
 
 function noteText(p: Record<string, unknown>): { title: string; detail: string | null } {
   switch (p.event ?? p.kind) {
+    case 'annex_created':
+      return { title: `Anexo ${num(p.number)} enviado a firmar`, detail: str(p.title) || null };
+    case 'annex_signed':
+      return {
+        title: `Anexo ${num(p.number)} firmado`,
+        detail: [str(p.title), str(p.signerName) ? `por ${str(p.signerName)}` : '']
+          .filter(Boolean)
+          .join(' · '),
+      };
+    case 'annex_cancelled':
+      return { title: `Anexo ${num(p.number)} cancelado`, detail: str(p.title) || null };
     case 'auto_renewed':
       return {
         title: 'Prórroga automática',
