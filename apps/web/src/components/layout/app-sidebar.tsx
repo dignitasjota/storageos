@@ -287,6 +287,8 @@ const GROUPS: NavGroup[] = [
         labelKey: 'fiscal',
         icon: FileSpreadsheet,
         permission: 'invoices:manage',
+        // De toda la empresa: no para quien solo ve unos locales.
+        companyWide: true,
       },
       {
         href: 'billing-portfolio',

@@ -16,6 +16,7 @@ import {
   CreateRecurringExpenseSchema,
   UpdateExpenseSchema,
   UpdateRecurringExpenseSchema,
+  roleHasPermission,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -26,7 +27,20 @@ import { parsePageRequest, toPage } from '../../common/pagination';
 import { ExpensesService } from './expenses.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
-import type { ExpenseDto, ProfitLossDto, RecurringExpenseDto, PageDto } from '@storageos/shared';
+import type {
+  ExpenseDto,
+  PageDto,
+  Permission,
+  ProfitLossDto,
+  RecurringExpenseDto,
+} from '@storageos/shared';
+
+/** ¿Tiene el permiso? (los tokens antiguos no traen la lista: se mira el rol). */
+function can(user: AuthenticatedUser, permission: Permission): boolean {
+  return user.permissions
+    ? user.permissions.includes(permission)
+    : roleHasPermission(user.role, permission);
+}
 
 class CreateExpenseDto extends createZodDto(CreateExpenseSchema) {}
 class UpdateExpenseDto extends createZodDto(UpdateExpenseSchema) {}
@@ -81,6 +95,27 @@ export class ExpensesController {
     });
   }
 
+  /** Número e importe de los gastos filtrados (la lista va por páginas). Antes de `:id`. */
+  @RequirePermission('expenses:read')
+  @Get('total')
+  total(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+    @Query('category') category?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+  ): Promise<{ count: number; amount: number }> {
+    return this.expenses.total(user.tenantId, {
+      ...(search ? { search } : {}),
+      ...(facilityId ? { facilityId } : {}),
+      ...(category ? { category } : {}),
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
   /** Cuenta de resultados (P&L) por local en un periodo. */
   @RequirePermission('expenses:read')
   @Get('profit-loss')
@@ -89,7 +124,11 @@ export class ExpensesController {
     @Query('from') from: string,
     @Query('to') to: string,
   ): Promise<ProfitLossDto> {
-    return this.expenses.getProfitLoss(user.tenantId, from, to);
+    return this.expenses.getProfitLoss(user.tenantId, from, to, {
+      facilityScope: user.facilityScope ?? null,
+      invoicesVisible: can(user, 'invoices:read'),
+      paymentsVisible: can(user, 'payments:read'),
+    });
   }
 
   // ---- gastos recurrentes (plantillas) ----
@@ -97,7 +136,7 @@ export class ExpensesController {
   @RequirePermission('expenses:read')
   @Get('recurring')
   listRecurring(@CurrentUser() user: AuthenticatedUser): Promise<RecurringExpenseDto[]> {
-    return this.expenses.listRecurring(user.tenantId);
+    return this.expenses.listRecurring(user.tenantId, user.facilityScope ?? null);
   }
 
   @RequirePermission('expenses:manage')
@@ -106,7 +145,7 @@ export class ExpensesController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateRecurringExpenseDto,
   ): Promise<RecurringExpenseDto> {
-    return this.expenses.createRecurring(user.tenantId, user.sub, body);
+    return this.expenses.createRecurring(user.tenantId, user.sub, body, user.facilityScope ?? null);
   }
 
   /** Genera ya los gastos recurrentes vencidos de este tenant (sin esperar al cron). */
@@ -123,7 +162,7 @@ export class ExpensesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateRecurringExpenseDto,
   ): Promise<RecurringExpenseDto> {
-    return this.expenses.updateRecurring(user.tenantId, id, body);
+    return this.expenses.updateRecurring(user.tenantId, id, body, user.facilityScope ?? null);
   }
 
   @RequirePermission('expenses:manage')
@@ -133,7 +172,7 @@ export class ExpensesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.expenses.removeRecurring(user.tenantId, id);
+    await this.expenses.removeRecurring(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('expenses:manage')
@@ -142,7 +181,7 @@ export class ExpensesController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateExpenseDto,
   ): Promise<ExpenseDto> {
-    return this.expenses.create(user.tenantId, user.sub, body);
+    return this.expenses.create(user.tenantId, user.sub, body, user.facilityScope ?? null);
   }
 
   @RequirePermission('expenses:manage')
@@ -152,7 +191,7 @@ export class ExpensesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateExpenseDto,
   ): Promise<ExpenseDto> {
-    return this.expenses.update(user.tenantId, id, body);
+    return this.expenses.update(user.tenantId, id, body, user.facilityScope ?? null);
   }
 
   @RequirePermission('expenses:manage')
@@ -162,6 +201,6 @@ export class ExpensesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.expenses.remove(user.tenantId, id);
+    await this.expenses.remove(user.tenantId, id, user.facilityScope ?? null);
   }
 }

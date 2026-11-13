@@ -40,6 +40,24 @@ function customerName(
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** NIF sin espacios ni guiones y en mayúsculas (para agrupar el 347). */
+function normalizeNif(nif: string): string {
+  return nif.replace(/[\s.-]/g, '').toUpperCase();
+}
+
+/**
+ * NIF del cliente tal como estaba al emitir; las facturas anteriores a guardarlo
+ * usan el de la ficha.
+ */
+function snapshotNif(inv: {
+  customerTaxIdSnapshot: string | null;
+  customerNameSnapshot: string | null;
+  customer: { documentNumber: string | null } | null;
+}): string | null {
+  if (inv.customerNameSnapshot !== null) return inv.customerTaxIdSnapshot;
+  return inv.customer?.documentNumber ?? null;
+}
+
 const STATUS_LABELS: Record<string, string> = {
   issued: 'Pendiente',
   paid: 'Pagada',
@@ -157,6 +175,8 @@ export class FiscalService {
             subtotal: true,
             taxAmount: true,
             total: true,
+            customerNameSnapshot: true,
+            customerTaxIdSnapshot: true,
             customer: {
               select: {
                 customerType: true,
@@ -207,8 +227,8 @@ export class FiscalService {
         invoiceNumber: inv.invoiceNumber,
         issueDate: inv.issueDate ? inv.issueDate.toISOString().slice(0, 10) : null,
         invoiceType: inv.invoiceType,
-        customerName: customerName(inv.customer),
-        customerNif: inv.customer?.documentNumber ?? null,
+        customerName: inv.customerNameSnapshot ?? customerName(inv.customer),
+        customerNif: snapshotNif(inv),
         base: round2(base),
         vat: round2(vat),
         total: round2(total),
@@ -335,6 +355,8 @@ export class FiscalService {
             issueDate: true,
             correctionMethod: true,
             rectifiesInvoice: { select: { total: true } },
+            customerNameSnapshot: true,
+            customerTaxIdSnapshot: true,
             customer: {
               select: {
                 id: true,
@@ -346,24 +368,29 @@ export class FiscalService {
               },
             },
           },
+          orderBy: [{ issueDate: 'asc' }, { invoiceNumber: 'asc' }],
         }),
       tenantId,
     );
 
-    const byCustomer = new Map<
+    // Por NIF (el declarado es el tercero, no la ficha): dos fichas con el mismo
+    // NIF suman juntas. El nombre, el de su última factura.
+    const byNif = new Map<
       string,
       { name: string; nif: string; total: number; q: [number, number, number, number] }
     >();
     for (const inv of invoices) {
-      const c = inv.customer;
-      if (!c?.documentNumber || !inv.issueDate) continue; // 347 exige NIF
+      const nif = snapshotNif(inv);
+      if (!nif || !inv.issueDate) continue; // 347 exige NIF
+      const key = normalizeNif(nif);
       const q = Math.floor(inv.issueDate.getUTCMonth() / 3); // 0-3
-      const entry = byCustomer.get(c.id) ?? {
-        name: customerName(c),
-        nif: c.documentNumber,
+      const entry = byNif.get(key) ?? {
+        name: '',
+        nif: key,
         total: 0,
         q: [0, 0, 0, 0] as [number, number, number, number],
       };
+      entry.name = inv.customerNameSnapshot ?? customerName(inv.customer);
       const amount =
         Number(inv.total) -
         (inv.correctionMethod === 'by_substitution' && inv.rectifiesInvoice
@@ -371,10 +398,10 @@ export class FiscalService {
           : 0);
       entry.total += amount;
       entry.q[q] = (entry.q[q] ?? 0) + amount;
-      byCustomer.set(c.id, entry);
+      byNif.set(key, entry);
     }
 
-    const rows: Model347Row[] = [...byCustomer.values()]
+    const rows: Model347Row[] = [...byNif.values()]
       .filter((e) => e.total > MODEL_347_THRESHOLD)
       .map((e) => ({
         customerName: e.name,
@@ -420,6 +447,8 @@ export class FiscalService {
             invoiceType: true,
             status: true,
             total: true,
+            customerNameSnapshot: true,
+            customerTaxIdSnapshot: true,
             customer: {
               select: {
                 customerType: true,
@@ -456,8 +485,8 @@ export class FiscalService {
     for (const inv of invoices) {
       const byRate = netByRate(inv);
       const issueDate = inv.issueDate ? ddmmyyyy(inv.issueDate) : null;
-      const name = customerName(inv.customer);
-      const nif = inv.customer?.documentNumber ?? null;
+      const name = inv.customerNameSnapshot ?? customerName(inv.customer);
+      const nif = snapshotNif(inv);
       const sub = substituted(inv);
       const invoiceTotal = round2(Number(inv.total) - (sub ? Number(sub.total) : 0));
       for (const v of sortedGroups(byRate.values())) {
