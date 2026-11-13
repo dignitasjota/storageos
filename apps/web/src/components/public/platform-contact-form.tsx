@@ -9,6 +9,7 @@ import { CheckCircle2, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { platformTrafficFields } from '@/components/public/platform-attribution';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -129,6 +130,7 @@ export function PlatformContactForm({ config }: { config: PublicContactFormDto }
             value={form.email}
             onChange={(e) => set('email', e.target.value)}
           />
+          <EmailTypoHint value={form.email} onAccept={(email) => set('email', email)} />
         </div>
         {config.showPhone && (
           <div className="space-y-1">

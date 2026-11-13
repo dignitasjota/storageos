@@ -2252,3 +2252,18 @@ Sin migración ni variables nuevas. Objetivo: que quien no paga no deje facturas
 - **Lista de facturas**: botón «Ocultar canceladas», marcado de inicio y recordado en el navegador. Esconde los borradores descartados y los justificantes anulados. Las facturas anuladas (por error o con rectificativa) se siguen viendo.
 
 Los documentos que ya estaban emitidos antes de este cambio siguen como estaban.
+
+## 130. Emails mal escritos y rebotes temporales (2026-11-13)
+
+Migración `20270117100000_email_delivery_checks` (se aplica sola). Sin variables nuevas.
+
+- **Al escribir un email** (reserva online, contacto de la web, landings, chat, widget, registro, portal y altas del panel) sale «¿Querías decir …@gmail.com? Corregir» si el dominio parece mal escrito.
+- **Rebote temporal** (Brevo «Soft bounce», Resend `Transient`): el correo queda como rebotado en Comunicaciones con «Rebote temporal: …» y el equipo recibe un aviso (con el email corregido si parece una errata). No bloquea la dirección: si el reintento llega, pasa a entregado.
+- **Ficha del inquilino**: «Problema con su email» va encima de las pestañas, con su último correo sin entregar y «Cambiar el email».
+- **Correo saliente** (panel admin) dice cuándo llegó el último aviso de Brevo y de Resend.
+
+**Pasos a mano para que funcione:**
+
+1. En Portainer, `EMAIL_WEBHOOK_TOKEN` con un valor aleatorio largo (si no está ya).
+2. En Brevo → Transactional → Settings → Webhook: la dirección que enseña Correo saliente (`…/webhooks/email-events/brevo?token=<EMAIL_WEBHOOK_TOKEN>`) con los eventos Delivered, **Soft bounce**, Hard bounce, Invalid email, Blocked, Error y Spam.
+3. Comprobar en Correo saliente que aparece «Último aviso recibido» tras enviar algún correo.

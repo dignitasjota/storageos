@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 
 import type { CustomerDto } from '@storageos/shared';
 
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -83,6 +84,7 @@ export function QuickCustomerDialog({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
+              <EmailTypoHint value={email} onAccept={setEmail} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="qc-phone">Teléfono</Label>

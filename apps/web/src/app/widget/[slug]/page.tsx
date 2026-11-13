@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { use, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -177,6 +178,11 @@ export default function WidgetPage({ params }: PageProps) {
           <div>
             <Label htmlFor="email">Email*</Label>
             <Input id="email" type="email" {...form.register('email')} />
+            <EmailTypoHint
+              value={form.watch('email')}
+              onAccept={(email) => form.setValue('email', email, { shouldValidate: true })}
+              className="mt-1"
+            />
           </div>
           <div>
             <Label htmlFor="phone">Teléfono*</Label>

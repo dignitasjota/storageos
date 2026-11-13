@@ -180,6 +180,25 @@ export interface EmailSuppressionDto {
   createdAt: string;
 }
 
+/**
+ * Estado del email de un inquilino en su ficha: bloqueos, si su último correo
+ * no le llegó y, si el dominio parece mal escrito, la dirección corregida.
+ */
+export interface CustomerEmailStatusDto {
+  email: string | null;
+  suppressions: EmailSuppressionDto[];
+  /** Último correo enviado a su email, si rebotó o falló. */
+  undelivered: {
+    at: string;
+    subject: string | null;
+    reason: string | null;
+    /** Rebote temporal: el proveedor lo sigue intentando unas horas. */
+    temporary: boolean;
+  } | null;
+  /** Su email con el dominio corregido (`@gmial.com` → `@gmail.com`), o null. */
+  suggestion: string | null;
+}
+
 /** Respuesta del staff a un contacto (lead) por email. */
 export const LeadReplySchema = z.object({
   subject: z.string().trim().min(1).max(200),

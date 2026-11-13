@@ -1813,11 +1813,12 @@ export interface PlatformEmailSettingsDto {
   /**
    * Avisos de entrega (entregado / rebote / error): URL que hay que poner en
    * cada proveedor y si su secreto está configurado. La de Brevo se muestra sin
-   * el token (va en `?token=<EMAIL_WEBHOOK_TOKEN>`).
+   * el token (va en `?token=<EMAIL_WEBHOOK_TOKEN>`). `lastEventAt`: último
+   * aviso recibido (null = nunca: el webhook no está conectado).
    */
   deliveryWebhooks: {
-    brevo: { url: string; configured: boolean };
-    resend: { url: string; configured: boolean };
+    brevo: { url: string; configured: boolean; lastEventAt: string | null };
+    resend: { url: string; configured: boolean; lastEventAt: string | null };
   };
 }
 

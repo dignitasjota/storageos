@@ -79,8 +79,16 @@ export class PlatformEmailSettingsService {
   ) {}
 
   async get(): Promise<PlatformEmailSettingsDto> {
-    const stored = await this.stored();
-    return this.toDto(stored);
+    const [stored, events] = await Promise.all([
+      this.stored(),
+      this.admin.platformEmailSettings.findFirst({
+        select: { brevoEventsLastAt: true, resendEventsLastAt: true },
+      }),
+    ]);
+    const dto = this.toDto(stored);
+    dto.deliveryWebhooks.brevo.lastEventAt = events?.brevoEventsLastAt?.toISOString() ?? null;
+    dto.deliveryWebhooks.resend.lastEventAt = events?.resendEventsLastAt?.toISOString() ?? null;
+    return dto;
   }
 
   async update(input: UpdatePlatformEmailSettingsInput): Promise<PlatformEmailSettingsDto> {
@@ -286,10 +294,12 @@ export class PlatformEmailSettingsService {
         brevo: {
           url: `${this.apiBase()}/webhooks/email-events/brevo`,
           configured: Boolean(this.config.get('EMAIL_WEBHOOK_TOKEN', { infer: true })),
+          lastEventAt: null,
         },
         resend: {
           url: `${this.apiBase()}/webhooks/email-events/resend`,
           configured: Boolean(this.config.get('RESEND_WEBHOOK_SECRET', { infer: true })),
+          lastEventAt: null,
         },
       },
     };

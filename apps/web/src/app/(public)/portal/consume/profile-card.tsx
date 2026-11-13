@@ -10,6 +10,7 @@ import { usePortalLocale } from '../i18n/provider';
 
 import type { PortalLocaleValue, PortalProfileDto, PortalSessionDto } from '@storageos/shared';
 
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -213,24 +214,27 @@ export function ProfileCard({
           )}
           <Field label={t('emailLabel')}>
             {changingEmail ? (
-              <div className="flex gap-2">
-                <Input
-                  type="email"
-                  value={newEmail}
-                  autoComplete="email"
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder={t('newEmailPlaceholder')}
-                  className="text-base sm:text-sm"
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={sendingEmail || !newEmail.includes('@')}
-                  onClick={() => void requestEmailChange()}
-                >
-                  {sendingEmail && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                  {t('sendConfirmation')}
-                </Button>
+              <div className="space-y-1">
+                <div className="flex gap-2">
+                  <Input
+                    type="email"
+                    value={newEmail}
+                    autoComplete="email"
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder={t('newEmailPlaceholder')}
+                    className="text-base sm:text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={sendingEmail || !newEmail.includes('@')}
+                    onClick={() => void requestEmailChange()}
+                  >
+                    {sendingEmail && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                    {t('sendConfirmation')}
+                  </Button>
+                </div>
+                <EmailTypoHint value={newEmail} locale={locale} onAccept={setNewEmail} />
               </div>
             ) : (
               <div className="flex gap-2">

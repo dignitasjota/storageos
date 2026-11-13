@@ -1,12 +1,13 @@
 'use client';
 
 import { trafficSourceToUtm } from '@storageos/shared';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 import { trackEvent } from './google-analytics';
 import { legalHref } from './i18n/messages';
 
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { currentTrafficSource } from '@/lib/attribution';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -22,6 +23,8 @@ export function ContactForm({
   customDomain?: string | null;
 }) {
   const t = useTranslations('publicWeb.contact');
+  const locale = useLocale();
+  const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +103,10 @@ export function ContactForm({
             autoComplete="email"
             placeholder={t('emailPlaceholder')}
             className="h-11 w-full rounded-md border bg-background px-3 text-base"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
           />
+          <EmailTypoHint value={email} locale={locale} onAccept={setEmail} />
         </div>
         <div className="space-y-1">
           <label htmlFor="contact-phone" className="text-sm font-medium">

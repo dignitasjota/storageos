@@ -11,6 +11,7 @@ import type { OwnerDto, OwnerSummaryDto } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
+import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -223,6 +224,10 @@ function OwnerDialog({ owner, onClose }: { owner: OwnerDto | null; onClose: () =
           <div className="space-y-1 sm:col-span-2">
             <Label htmlFor="o-email">Email (para enviarle la liquidación)</Label>
             <Input id="o-email" type="email" value={form.email} onChange={set('email')} />
+            <EmailTypoHint
+              value={form.email}
+              onAccept={(email) => setForm((f) => ({ ...f, email }))}
+            />
           </div>
           <div className="space-y-1 sm:col-span-2">
             <Label htmlFor="o-address">Domicilio fiscal</Label>

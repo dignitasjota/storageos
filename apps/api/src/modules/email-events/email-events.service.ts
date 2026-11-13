@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { suggestEmailFix } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { PlatformEmailLogService } from '../email/platform-email-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
-import { messageIdVariants, type DeliveryEvent } from './email-events.parse';
+import { SOFT_BOUNCE_PREFIX, messageIdVariants, type DeliveryEvent } from './email-events.parse';
 
 /** Un aviso igual al super admin, como mucho cada 24 h. */
 const SUPER_ADMIN_DEDUP_MS = 24 * 60 * 60 * 1000;
@@ -16,8 +17,11 @@ const SUPER_ADMIN_DEDUP_MS = 24 * 60 * 60 * 1000;
  * autenticar, buzón inexistente…). Sin esto, la comunicación se quedaba en
  * «enviado» para siempre y nadie se enteraba.
  *
- * - entregado → `delivered`;
+ * - entregado → `delivered` (también tras un rebote temporal: el reintento llegó);
  * - rebote permanente / bloqueado / email inválido → `bounced` + motivo;
+ * - rebote temporal → `bounced` con «Rebote temporal: …» (el proveedor lo sigue
+ *   intentando; no bloquea la dirección) y aviso al equipo, con la dirección
+ *   corregida si parece mal escrita (`@gmial.com`);
  * - error del proveedor → `failed` + motivo;
  *   en ambos casos se avisa al equipo del tenant (notificación in-app).
  * - Rechazos de correos que no están en Comunicaciones (los de la plataforma,
@@ -36,6 +40,29 @@ export class EmailEventsService {
     private readonly suppressions: EmailSuppressionsService,
     private readonly platformLog: PlatformEmailLogService,
   ) {}
+
+  /**
+   * Anota que ha llegado un aviso del proveedor (Correo saliente enseña el
+   * último): así se sabe si el webhook está conectado. Como mucho una
+   * escritura por minuto.
+   */
+  async markReceived(provider: 'brevo' | 'resend'): Promise<void> {
+    const field = provider === 'brevo' ? 'brevoEventsLastAt' : 'resendEventsLastAt';
+    const now = new Date();
+    try {
+      const updated = await this.admin.platformEmailSettings.updateMany({
+        where: {
+          OR: [{ [field]: null }, { [field]: { lt: new Date(now.getTime() - 60_000) } }],
+        },
+        data: { [field]: now },
+      });
+      if (updated.count === 0 && !(await this.admin.platformEmailSettings.findFirst())) {
+        await this.admin.platformEmailSettings.create({ data: { [field]: now } });
+      }
+    } catch (err) {
+      this.logger.warn(`[email-events] no se pudo anotar el aviso: ${(err as Error).message}`);
+    }
+  }
 
   async apply(events: DeliveryEvent[]): Promise<{ matched: number }> {
     let matched = 0;
@@ -85,36 +112,65 @@ export class EmailEventsService {
       // Correo de la plataforma (verificación, facturas de la suscripción…):
       // se actualiza su historial.
       const platform = await this.platformLog.applyDelivery(messageIdVariants(e.messageId), e);
-      if (e.outcome !== 'delivered') await this.notifySuperAdmin(e, platform);
+      // Un rebote temporal se reintenta: el super admin solo se entera de los definitivos.
+      if (e.outcome !== 'delivered' && e.outcome !== 'soft_bounced') {
+        await this.notifySuperAdmin(e, platform);
+      }
       return platform;
     }
 
+    const softBounced = {
+      status: 'bounced' as const,
+      errorMessage: { startsWith: SOFT_BOUNCE_PREFIX },
+    };
     if (e.outcome === 'delivered') {
       await this.admin.communication.updateMany({
-        where: { id: comm.id, status: 'sent' },
-        data: { status: 'delivered', deliveredAt: e.occurredAt },
+        where: { id: comm.id, OR: [{ status: 'sent' }, softBounced] },
+        data: {
+          status: 'delivered',
+          deliveredAt: e.occurredAt,
+          failedAt: null,
+          errorMessage: null,
+        },
       });
       return true;
     }
 
+    const data = {
+      status: e.outcome === 'failed' ? ('failed' as const) : ('bounced' as const),
+      failedAt: e.occurredAt,
+      errorMessage: e.reason,
+    };
     const updated = await this.admin.communication.updateMany({
       where: { id: comm.id, status: { in: ['processing', 'sent', 'delivered'] } },
-      data: {
-        status: e.outcome === 'bounced' ? 'bounced' : 'failed',
-        failedAt: e.occurredAt,
-        errorMessage: e.reason,
-      },
+      data,
     });
-    if (updated.count > 0) {
-      await this.notifications.create(comm.tenantId, {
-        type: 'communication.undelivered',
-        title: `No se pudo entregar un correo a ${comm.recipient}`,
-        ...(e.reason ? { body: e.reason } : {}),
-        link: comm.customerId ? `/customers/${comm.customerId}` : '/communications',
-        contractId: comm.contractId,
-        invoiceId: comm.invoiceId,
-      });
+    if (updated.count === 0) {
+      // Tras un rebote temporal llega el definitivo: se cambia el motivo, sin
+      // volver a avisar.
+      if (e.outcome !== 'soft_bounced') {
+        await this.admin.communication.updateMany({ where: { id: comm.id, ...softBounced }, data });
+      }
+      return true;
     }
+    const suggestion = suggestEmailFix(comm.recipient);
+    const hint = suggestion
+      ? `¿Está bien escrito? Quizá sea ${suggestion}.`
+      : e.outcome === 'soft_bounced'
+        ? 'Se seguirá intentando unas horas; si no llega, comprueba su email.'
+        : null;
+    const body = [e.reason, hint].filter(Boolean).join(' · ');
+    await this.notifications.create(comm.tenantId, {
+      type: 'communication.undelivered',
+      title:
+        e.outcome === 'soft_bounced'
+          ? `No le está llegando un correo a ${comm.recipient}`
+          : `No se pudo entregar un correo a ${comm.recipient}`,
+      ...(body ? { body } : {}),
+      link: comm.customerId ? `/customers/${comm.customerId}` : '/communications',
+      contractId: comm.contractId,
+      invoiceId: comm.invoiceId,
+    });
     return true;
   }
 

@@ -52,6 +52,7 @@ export class EmailEventsController {
       this.logger.warn('Webhook de Brevo con token inválido');
       throw new UnauthorizedException();
     }
+    await this.service.markReceived('brevo');
     return this.service.apply(parseBrevoEvents(body));
   }
 
@@ -83,6 +84,7 @@ export class EmailEventsController {
     } catch {
       throw new BadRequestException('JSON inválido');
     }
+    await this.service.markReceived('resend');
     return this.service.apply(parseResendEvent(parsed));
   }
 }
