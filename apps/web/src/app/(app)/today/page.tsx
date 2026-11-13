@@ -17,6 +17,7 @@ import {
   MessageSquare,
   PiggyBank,
   Radio,
+  Receipt,
   Replace,
   Sparkles,
   UserPlus,
@@ -360,6 +361,7 @@ export default function TodayPage() {
           (data.facilityDocumentsExpiring?.count ?? 0) +
           (data.customerDocumentsExpiring?.count ?? 0) +
           (data.businessRemindersDue?.count ?? 0) +
+          (data.expensesToPay?.count ?? 0) +
           (data.rgpdRequestsDue?.count ?? 0),
         sales:
           // Los contactos sin atender ya están entre los nuevos: no se suman dos veces.
@@ -981,6 +983,17 @@ export default function TodayPage() {
                     items={data.businessRemindersDue.items}
                     href="/reminders"
                     itemHref={(it) => `/reminders?reminder=${it.id}`}
+                    empty=""
+                  />
+                )}
+                {(data.expensesToPay?.count ?? 0) > 0 && (
+                  <SectionCard
+                    title="Gastos por pagar"
+                    icon={Receipt}
+                    count={data.expensesToPay.count}
+                    items={data.expensesToPay.items}
+                    href="/expenses?status=pending"
+                    itemHref={() => '/expenses?status=pending'}
                     empty=""
                   />
                 )}

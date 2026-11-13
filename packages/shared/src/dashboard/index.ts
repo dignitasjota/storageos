@@ -111,6 +111,8 @@ export interface TodayDto {
   customerDocumentsExpiring: { count: number; items: TodayItemDto[] };
   /** Vencimientos del negocio vencidos o en los próximos 7 días. */
   businessRemindersDue: { count: number; items: TodayItemDto[] };
+  /** Gastos pendientes de pagar que vencen esta semana o ya vencieron (`id` = el gasto). */
+  expensesToPay: { count: number; items: TodayItemDto[] };
 }
 
 /** Un paso de la puesta en marcha del operador. */

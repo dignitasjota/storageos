@@ -34,6 +34,30 @@ const AREA_PAGE_DRAFT_STUB: AiCompletion = {
   ],
 };
 
+/** Marca del prompt de lectura de justificantes de gastos (el simulador responde un JSON). */
+export const EXPENSE_RECEIPT_MARKER = 'Lees facturas de proveedores';
+
+const EXPENSE_RECEIPT_STUB: AiCompletion = {
+  stopReason: 'end_turn',
+  content: [
+    {
+      type: 'text',
+      text: JSON.stringify({
+        vendor: 'Suministros Demo SL',
+        vendorTaxId: 'B12345674',
+        invoiceNumber: 'F-2026-0042',
+        expenseDate: '2026-11-02',
+        description: 'Material de limpieza',
+        category: 'supplies',
+        baseAmount: 100,
+        vatRate: 21,
+        withholdingRate: 0,
+        totalAmount: 121,
+      }),
+    },
+  ],
+};
+
 /**
  * Provider de IA simulado (sin API key). Determinista: según el texto del último
  * mensaje del usuario decide si invocar una herramienta, y al recibir el
@@ -53,9 +77,11 @@ export class StubAiProvider extends AiProvider {
     const system = args.system ? systemText(args.system) : '';
     const completion = system.includes(AREA_PAGE_DRAFT_MARKER)
       ? AREA_PAGE_DRAFT_STUB
-      : system.startsWith(WEB_CHAT_PROMPT_MARKER)
-        ? this.webChat(args.messages)
-        : await this.respond(args);
+      : system.includes(EXPENSE_RECEIPT_MARKER)
+        ? EXPENSE_RECEIPT_STUB
+        : system.startsWith(WEB_CHAT_PROMPT_MARKER)
+          ? this.webChat(args.messages)
+          : await this.respond(args);
     const tokens = (text: string) => Math.max(1, Math.ceil(text.length / 4));
     const inputTokens = tokens(JSON.stringify(args.messages));
     const outputTokens = tokens(JSON.stringify(completion.content));

@@ -4,7 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import { claimDailyCronRun } from '../../common/cron-claim';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import { ExpensesService } from './expenses.service';
+import { RecurringExpensesService } from './recurring-expenses.service';
 
 /**
  * Cron diario que genera los gastos de las plantillas recurrentes vencidas de
@@ -17,7 +17,7 @@ export class ExpensesRecurringCron {
   private readonly logger = new Logger(ExpensesRecurringCron.name);
 
   constructor(
-    private readonly expenses: ExpensesService,
+    private readonly recurring: RecurringExpensesService,
     private readonly admin: PrismaAdminService,
   ) {}
 
@@ -25,7 +25,7 @@ export class ExpensesRecurringCron {
   async daily(): Promise<void> {
     try {
       if (!(await claimDailyCronRun(this.admin, 'expenses-recurring.daily'))) return;
-      const res = await this.expenses.generateDueAll();
+      const res = await this.recurring.generateDueAll();
       if (res.created > 0) {
         this.logger.log(`Gastos recurrentes: ${res.created} generados en ${res.tenants} tenant(s)`);
       }

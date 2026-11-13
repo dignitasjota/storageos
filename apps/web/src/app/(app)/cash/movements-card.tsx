@@ -3,8 +3,9 @@
 import {
   CASH_MOVEMENT_LABELS,
   CASH_MOVEMENT_SIGN,
+  CashMovementKindEnum,
   type CashDaySummaryDto,
-  type CashMovementKind,
+  type CashManualMovementKind,
 } from '@storageos/shared';
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
@@ -54,7 +55,7 @@ export function CashMovementsCard({
   const canEdit = useHasPermission('payments:charge');
   const closed = !!summary.closure;
   const hasFloat = summary.movements.some((m) => m.kind === 'opening_float');
-  const [kind, setKind] = useState<CashMovementKind>(
+  const [kind, setKind] = useState<CashManualMovementKind>(
     hasFloat ? 'bank_withdrawal' : 'opening_float',
   );
   const [amount, setAmount] = useState(
@@ -129,7 +130,7 @@ export function CashMovementsCard({
                       {sign < 0 ? '−' : '+'}
                       {formatEur(m.amount)}
                     </span>
-                    {canEdit && !closed && (
+                    {canEdit && !closed && m.kind !== 'expense_payment' && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -158,12 +159,12 @@ export function CashMovementsCard({
               <div className="grid gap-2 sm:grid-cols-[1fr_8rem]">
                 <div className="space-y-1">
                   <Label className="text-xs">Movimiento</Label>
-                  <Select value={kind} onValueChange={(v) => setKind(v as CashMovementKind)}>
+                  <Select value={kind} onValueChange={(v) => setKind(v as CashManualMovementKind)}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {(Object.keys(CASH_MOVEMENT_LABELS) as CashMovementKind[]).map((k) => (
+                      {CashMovementKindEnum.options.map((k) => (
                         <SelectItem key={k} value={k}>
                           {CASH_MOVEMENT_LABELS[k]}
                         </SelectItem>

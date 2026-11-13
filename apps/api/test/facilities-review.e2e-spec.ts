@@ -1,7 +1,7 @@
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
-import { ExpensesService } from '../src/modules/expenses/expenses.service';
+import { RecurringExpensesService } from '../src/modules/expenses/recurring-expenses.service';
 import { FilesService } from '../src/modules/files/files.service';
 import { FacilityDocumentsExpiryCron } from '../src/modules/inventory/facility-documents-expiry.cron';
 import { MaintenanceService } from '../src/modules/maintenance/maintenance.service';
@@ -223,7 +223,7 @@ describe('Revisión de Locales (e2e)', () => {
     await db.accessDevice.update({ where: { id: device.body.id }, data: { isActive: true } });
     await app.get(MaintenanceService).generateDue();
     expect(await db.task.count({ where: { tenantId: s.tenantId } })).toBe(0);
-    const generated = await app.get(ExpensesService).generateForTenant(s.tenantId);
+    const generated = await app.get(RecurringExpensesService).generateForTenant(s.tenantId);
     expect(generated.created).toBe(0);
     await http()
       .post('/access/verify')

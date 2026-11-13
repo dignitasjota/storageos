@@ -362,6 +362,40 @@ export class AiService {
   }
 
   /**
+   * Como `completeText`, pero con un fichero (imagen o PDF) en el mensaje: para
+   * leer el justificante de un gasto. Gasta una consulta del mes.
+   */
+  async completeWithFile(args: {
+    tenantId: string;
+    userId: string | null;
+    feature: string;
+    system: string;
+    user: string;
+    file: { mimeType: string; base64: string };
+  }): Promise<string> {
+    this.assertAvailable();
+    const block = {
+      type: args.file.mimeType === 'application/pdf' ? ('document' as const) : ('image' as const),
+      source: { type: 'base64' as const, media_type: args.file.mimeType, data: args.file.base64 },
+    };
+    const completion = await this.withQuota(
+      { tenantId: args.tenantId, userId: args.userId, feature: args.feature },
+      () =>
+        this.llm.createMessage({
+          system: args.system,
+          messages: [{ role: 'user', content: [block, { type: 'text', text: args.user }] }],
+          tools: [],
+        }),
+    );
+    this.recordUsage(args.tenantId, args.userId, args.feature, completion);
+    return completion.content
+      .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+  }
+
+  /**
    * Respuesta del chat de la web pública (visitante anónimo): modelo barato,
    * respuesta corta, sin herramientas y con la cuota de la web (aparte de la
    * del panel). `limited` si el negocio gastó las del mes y no tiene clave

@@ -2877,3 +2877,52 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 > **2026-11-12 (primera factura al cobrar)** — `InvoiceDto.issueOnPayment`: borrador del primer pago de una reserva online (`status: 'draft'`, `amountPending` > 0, número `DRAFT-…` hasta que se cobra). Se puede cobrar como una emitida: `POST /portal/me/invoices/:id/charge`, `/redsys-redirect` (también en `extraInvoiceIds`; descripción «Primer pago de la reserva»), `/offline-payment` (transferencia con el número de contrato como concepto; domiciliación → se emite al firmar el mandato), `POST /payments/invoices/:id/charge` y `POST /invoices/:id/mark-paid` (la emite y aplica el cobro). Antes de cobrar, 400 con el mismo código que `issue` si no se podría emitir. `GET /portal/me/invoices` la incluye con `status: 'draft'`. `GET /public/move-in/sign/:token` → `termsText` con «Entrada en vigor: con el primer pago…» en la reserva online.
 
 > **2026-11-13 (Gastos y Fiscalidad)** — `GET /expenses/total?facilityId&category&from&to&search` → `{count, amount}`. `ExpenseDto.source` (`manual`|`recurring`|`google_ads`|`meta_ads`) y `recurringExpenseId`. `ProfitLossDto.invoicesVisible`/`paymentsVisible`; `invoiced` y `net` sin IVA. Errores nuevos: 400 `invalid_date`, `invalid_facility_id`, `invalid_category`, `invalid_range` (cuenta de resultados sin periodo), `facility_not_found`, `marketing_channel_not_found`; 403 `facility_required`; 409 `expense_synced`. Fiscalidad: 403 `fiscal_requires_all_facilities` para quien solo ve unos locales; `GET /fiscal/model-303` → 400 `invalid_quarter` con un trimestre que no es 1-4.
+
+> **2026-11-13 (mejoras de Gastos)**
+
+**Gasto**
+
+- `CreateExpenseSchema`:
+  - `amount` (sin desglosar) o `baseAmount` + `vatRate`, `vatDeductible`, `withholdingRate` y `withholdingModel` (111|115; obligatorio con retención: 400 `withholding_model_required`);
+  - `supplierId`, `vendorTaxId` e `invoiceNumber`;
+  - `receiptKey`, `receiptName` y `receiptMime`;
+  - `paymentStatus` (paid|pending), `paidAt`, `paymentMethod` (cash|card|bank_transfer|direct_debit|other) y `dueDate`;
+  - `category`: una de las de siempre o `custom:<id>`.
+- `ExpenseDto` añade `categoryLabel`, `broken`, el desglose, `totalAmount`, `supplierName`, `hasReceipt`, el pago, `overdue`, `cashMovementId` y `cashNotice` (aviso si la caja de ese día estaba cerrada).
+- Filtros de la lista, el total y la exportación: `paymentStatus` (paid|pending|overdue) y `supplierId`. La búsqueda también mira el NIF y el número de factura.
+- `GET /expenses/export` devuelve todo lo filtrado (hasta 5.000).
+- `GET /expenses/total` devuelve `{count, amount, pending}`.
+- `POST /expenses/:id/mark-paid {paidAt, paymentMethod}` y `POST /expenses/:id/mark-pending`.
+- `POST /expenses/bulk` con `action` category|facility|mark_paid|delete → `{succeeded, failed}`.
+
+**Justificante**
+
+- `POST /expenses/receipt-upload-url {mimeType}` (PDF, PNG o JPG, máx. 10 MB).
+- `GET /expenses/:id/receipt`: URL firmada de 5 min.
+- `POST /expenses/receipts/read {key}`: lee el justificante con IA. 403 `feature_not_in_plan` sin el asistente IA; gasta una consulta.
+
+**Cuenta de resultados y presupuesto**
+
+- `GET /expenses/profit-loss?allocation=none|units|area|invoiced` (400 `invalid_allocation`). Las filas añaden `allocatedGeneral` y `margin`; la respuesta, `previous` (el mismo número de días justo antes) y `byCategory[].budget`.
+- `GET /expenses/profit-loss/monthly?from&to&facilityId`: como mucho 24 meses.
+- `GET/PUT /expenses/budgets`.
+
+**Recurrentes**
+
+- `CreateRecurringExpenseSchema` añade `frequency`, `startDate`, `endDate`, `supplierId`, el desglose y `paymentMethod`.
+- `RecurringExpenseDto` añade `nextDate` y `missedDates`.
+- `POST /expenses/recurring/:id/catch-up` genera las fechas que se quedaron sin generar.
+
+**Proveedores y categorías**
+
+- `GET/POST/PATCH/DELETE /expense-suppliers` (`?search&all=1`; 409 `supplier_tax_id_taken`).
+- `GET/POST/PATCH/DELETE /expense-categories` (409 `category_name_taken`; al borrar una, sus gastos pasan a «Otros»).
+
+**Importación y caja**
+
+- `GET /imports/expenses/template` y `POST /imports/expenses/preview|commit` (`imports:manage` + `expenses:manage`).
+- Caja: no se puede borrar un movimiento `expense_payment` (409 `movement_from_expense`).
+
+**«Hoy»**
+
+- `TodayDto.expensesToPay`.

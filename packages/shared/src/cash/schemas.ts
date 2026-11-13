@@ -57,12 +57,16 @@ export type ReopenCashClosureInput = z.infer<typeof ReopenCashClosureSchema>;
  * el cambio que se trae y lo que se lleva al banco.
  */
 export const CashMovementKindEnum = z.enum(['opening_float', 'change_in', 'bank_withdrawal']);
-export type CashMovementKind = z.infer<typeof CashMovementKindEnum>;
+/** Los que se apuntan a mano en la caja. */
+export type CashManualMovementKind = z.infer<typeof CashMovementKindEnum>;
+/** Además, el pago en efectivo de un gasto (se apunta y se quita desde Gastos). */
+export type CashMovementKind = CashManualMovementKind | 'expense_payment';
 
 export const CASH_MOVEMENT_LABELS: Record<CashMovementKind, string> = {
   opening_float: 'Fondo de apertura',
   change_in: 'Entrada de cambio',
   bank_withdrawal: 'Retirada al banco',
+  expense_payment: 'Pago de un gasto',
 };
 
 /** +1 si entra en el cajón, −1 si sale. */
@@ -70,6 +74,7 @@ export const CASH_MOVEMENT_SIGN: Record<CashMovementKind, 1 | -1> = {
   opening_float: 1,
   change_in: 1,
   bank_withdrawal: -1,
+  expense_payment: -1,
 };
 
 export const CreateCashMovementSchema = z.object({

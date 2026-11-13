@@ -23,9 +23,15 @@ export interface AiToolResultBlock {
   content: string;
 }
 
+/** Imagen o PDF que se le pasa al modelo (p. ej. el justificante de un gasto). */
+export interface AiFileBlock {
+  type: 'image' | 'document';
+  source: { type: 'base64'; media_type: string; data: string };
+}
+
 export interface AiMessageParam {
   role: 'user' | 'assistant';
-  content: string | Array<AiContentBlock | AiToolResultBlock>;
+  content: string | Array<AiContentBlock | AiToolResultBlock | AiFileBlock>;
 }
 
 export interface AiToolDef {

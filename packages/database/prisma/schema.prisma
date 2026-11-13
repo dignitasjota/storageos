@@ -696,6 +696,9 @@ model Tenant {
   retentionOffers         RetentionOffer[]
   expenses                Expense[]
   recurringExpenses       RecurringExpense[]
+  expenseSuppliers        ExpenseSupplier[]
+  expenseCategories       ExpenseCategory[]
+  expenseBudgets          ExpenseBudget[]
   marketingChannels       MarketingChannel[]
   delinquencyCaseEvents   DelinquencyCaseEvent[]
   delinquencyCaseFiles    DelinquencyCaseFile[]
@@ -1916,6 +1919,34 @@ model Expense {
   externalRef        String?  @map("external_ref")
   /// Plantilla recurrente que lo generó (null = a mano o sincronizado).
   recurringExpenseId String?  @map("recurring_expense_id") @db.Uuid
+  /// Proveedor (ficha); `vendor` y `vendorTaxId` guardan su nombre y NIF.
+  supplierId         String?  @map("supplier_id") @db.Uuid
+  vendorTaxId        String?  @map("vendor_tax_id")
+  /// Número de la factura del proveedor.
+  invoiceNumber      String?  @map("invoice_number")
+  /// Desglose fiscal (null = gasto sin desglosar: solo `amount`).
+  baseAmount         Decimal? @map("base_amount") @db.Decimal(12, 2)
+  vatRate            Decimal? @map("vat_rate") @db.Decimal(5, 2)
+  vatAmount          Decimal? @map("vat_amount") @db.Decimal(12, 2)
+  /// false = el IVA no se deduce y cuenta como gasto.
+  vatDeductible      Boolean  @default(true) @map("vat_deductible")
+  withholdingRate    Decimal? @map("withholding_rate") @db.Decimal(5, 2)
+  withholdingAmount  Decimal? @map("withholding_amount") @db.Decimal(12, 2)
+  /// 111 (profesionales) | 115 (alquiler del local)
+  withholdingModel   String?  @map("withholding_model")
+  /// Lo que se paga al proveedor: base + IVA − retención.
+  totalAmount        Decimal? @map("total_amount") @db.Decimal(12, 2)
+  receiptKey         String?  @map("receipt_key")
+  receiptName        String?  @map("receipt_name")
+  receiptMime        String?  @map("receipt_mime")
+  /// paid | pending
+  paymentStatus      String   @default("paid") @map("payment_status")
+  paidAt             DateTime? @map("paid_at") @db.Date
+  /// cash | card | bank_transfer | direct_debit | other
+  paymentMethod      String?  @map("payment_method")
+  dueDate            DateTime? @map("due_date") @db.Date
+  /// Salida de caja apuntada al pagarlo en efectivo.
+  cashMovementId     String?  @map("cash_movement_id") @db.Uuid
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1924,6 +1955,8 @@ model Expense {
   createdBy        User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   marketingChannel MarketingChannel? @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
   recurringExpense RecurringExpense? @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
+  supplier         ExpenseSupplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  cashMovement     CashMovement?     @relation(fields: [cashMovementId], references: [id], onDelete: SetNull)
 
   businessReminderCompletions BusinessReminderCompletion[]
   bankTransactions            BankStatementTransaction[]
@@ -2022,6 +2055,22 @@ model RecurringExpense {
   /// Canal de marketing al que se imputa (p. ej. la cuota mensual de un
   /// portal inmobiliario) — se propaga a cada `Expense` generado.
   marketingChannelId String?   @map("marketing_channel_id") @db.Uuid
+  /// monthly | quarterly | yearly
+  frequency          String    @default("monthly")
+  /// Primer mes en que se genera (el trimestre o el año cuentan desde aquí).
+  startDate          DateTime? @map("start_date") @db.Date
+  /// Último día en que se genera (null = sin fin).
+  endDate            DateTime? @map("end_date") @db.Date
+  supplierId         String?   @map("supplier_id") @db.Uuid
+  vendor             String?
+  vendorTaxId        String?   @map("vendor_tax_id")
+  baseAmount         Decimal?  @map("base_amount") @db.Decimal(12, 2)
+  vatRate            Decimal?  @map("vat_rate") @db.Decimal(5, 2)
+  vatDeductible      Boolean   @default(true) @map("vat_deductible")
+  withholdingRate    Decimal?  @map("withholding_rate") @db.Decimal(5, 2)
+  withholdingModel   String?   @map("withholding_model")
+  /// Con domiciliación o tarjeta el gasto nace pagado; si no, pendiente.
+  paymentMethod      String?   @map("payment_method")
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2029,10 +2078,63 @@ model RecurringExpense {
   facility         Facility?         @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   createdBy        User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   marketingChannel MarketingChannel? @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
+  supplier         ExpenseSupplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   expenses         Expense[]
 
   @@index([tenantId, active])
   @@map("recurring_expenses")
+}
+
+/// Proveedor de los gastos, con los valores que rellenan el gasto al elegirlo.
+model ExpenseSupplier {
+  id                      String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                String   @map("tenant_id") @db.Uuid
+  name                    String
+  taxId                   String?  @map("tax_id")
+  email                   String?
+  phone                   String?
+  defaultCategory         String?  @map("default_category")
+  defaultVatRate          Decimal? @map("default_vat_rate") @db.Decimal(5, 2)
+  defaultWithholdingRate  Decimal? @map("default_withholding_rate") @db.Decimal(5, 2)
+  defaultWithholdingModel String?  @map("default_withholding_model")
+  defaultPaymentMethod    String?  @map("default_payment_method")
+  notes                   String?
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  expenses          Expense[]
+  recurringExpenses RecurringExpense[]
+
+  @@index([tenantId, name])
+  @@map("expense_suppliers")
+}
+
+/// Categoría de gasto propia de la empresa (en el gasto: `custom:<id>`).
+model ExpenseCategory {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("expense_categories")
+}
+
+/// Presupuesto mensual por categoría de gasto.
+model ExpenseBudget {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  category      String
+  monthlyAmount Decimal  @map("monthly_amount") @db.Decimal(12, 2)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, category])
+  @@map("expense_budgets")
 }
 
 /// Foto del estado del trastero en una inspección (check-in o check-out) —
@@ -6269,6 +6371,7 @@ model CashMovement {
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   facility  Facility? @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   createdBy User?     @relation("CashMovementAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  expenses  Expense[]
 
   @@index([tenantId, movementDate])
   @@map("cash_movements")
