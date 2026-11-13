@@ -2564,6 +2564,8 @@ export class AdminTenantsService {
           contactEmail: null,
           contactPhone: null,
           transferIban: null,
+          accountantEmail: null,
+          accountantReportFrequency: 'off',
         },
       });
 

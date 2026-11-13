@@ -1,12 +1,27 @@
 'use client';
 
-import { INVOICE_TAX_CATEGORY_LABELS, type InvoiceTaxCategory } from '@storageos/shared';
-import { Download, Loader2 } from 'lucide-react';
+import { MODEL_347_CASH_THRESHOLD } from '@storageos/shared';
+import { AlertTriangle, Download } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { SectionError } from '@/components/dashboard/section-state';
+import { AccountantCard } from '@/components/fiscal/accountant-card';
+import { ReceivedBookTab } from '@/components/fiscal/received-book-tab';
+import { ReviewTab } from '@/components/fiscal/review-tab';
+import {
+  QuarterSelect,
+  QueryState,
+  YEAR,
+  YearSelect,
+  eur,
+  lastEndedQuarter,
+  rateLabel,
+} from '@/components/fiscal/shared';
+import { WithholdingsTab } from '@/components/fiscal/withholdings-tab';
 import { DateSelect } from '@/components/month-year-select';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -40,29 +55,6 @@ import {
 import { formatDate } from '@/lib/format';
 import { useOwners } from '@/lib/owners/hooks';
 
-const eur = (n: number) =>
-  new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
-
-const YEAR = new Date().getFullYear();
-const YEARS = Array.from({ length: 6 }, (_, i) => YEAR - i);
-
-/** Cargando o error de una consulta (antes un fallo se veía como una tabla vacía). */
-function QueryState({
-  query,
-}: {
-  query: { isLoading: boolean; isError: boolean; refetch: () => unknown };
-}) {
-  if (query.isLoading) {
-    return (
-      <div className="flex h-24 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-  if (query.isError) return <SectionError onRetry={() => void query.refetch()} />;
-  return null;
-}
-
 export default function FiscalPage() {
   // Los libros y modelos son de toda la empresa.
   const companyWide = useCompanyWide();
@@ -81,24 +73,37 @@ export default function FiscalPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Fiscalidad</h1>
         <p className="text-sm text-muted-foreground">
-          Libro registro de IVA emitido y resúmenes de los modelos 303 y 347, a partir de tus
-          facturas. El IVA soportado (compras) lo añade tu asesoría.
+          Libros de facturas emitidas y recibidas, los modelos 303, 111, 115 y 347 a partir de tus
+          facturas y tus gastos, la revisión antes de presentar y lo que se envía a la asesoría. Son
+          un borrador para presentar: revísalo con tu asesoría.
         </p>
       </div>
 
       <IssuerPicker />
-      <Tabs defaultValue="vat-book">
-        <TabsList>
-          <TabsTrigger value="vat-book">Libro de IVA</TabsTrigger>
+      <Tabs defaultValue="review">
+        <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
+          <TabsTrigger value="review">Antes de presentar</TabsTrigger>
+          <TabsTrigger value="vat-book">Facturas emitidas</TabsTrigger>
+          <TabsTrigger value="received">Facturas recibidas</TabsTrigger>
           <TabsTrigger value="m303">Modelo 303</TabsTrigger>
+          <TabsTrigger value="withholdings">Retenciones</TabsTrigger>
           <TabsTrigger value="m347">Modelo 347</TabsTrigger>
-          <TabsTrigger value="accounting-export">Exportación para la asesoría</TabsTrigger>
+          <TabsTrigger value="accounting-export">Asesoría</TabsTrigger>
         </TabsList>
+        <TabsContent value="review">
+          <ReviewTab />
+        </TabsContent>
         <TabsContent value="vat-book">
           <VatBookTab />
         </TabsContent>
+        <TabsContent value="received">
+          <ReceivedBookTab />
+        </TabsContent>
         <TabsContent value="m303">
           <Model303Tab />
+        </TabsContent>
+        <TabsContent value="withholdings">
+          <WithholdingsTab />
         </TabsContent>
         <TabsContent value="m347">
           <Model347Tab />
@@ -215,16 +220,21 @@ function VatBookTab() {
 }
 
 function Model303Tab() {
-  const [year, setYear] = useState(YEAR);
-  const [quarter, setQuarter] = useState(Math.floor(new Date().getMonth() / 3) + 1);
+  const initial = lastEndedQuarter();
+  const [year, setYear] = useState(initial.year);
+  const [quarter, setQuarter] = useState(initial.quarter);
   const m303 = useModel303(year, quarter);
+  const d = m303.data;
 
   function exportCsv() {
-    if (!m303.data) return;
+    if (!d) return;
     const rows: (string | number)[][] = [
-      ['Tipo de IVA', 'Base imponible', 'Cuota'],
-      ...m303.data.byRate.map((r) => [rateLabel(r), r.base, r.vat]),
-      [`Total (${m303.data.invoiceCount} facturas)`, m303.data.totalBase, m303.data.totalVat],
+      ['Concepto', 'Base imponible', 'Cuota'],
+      ...d.byRate.map((r) => [`Devengado · ${rateLabel(r)}`, r.base, r.vat]),
+      [`Total devengado (${d.invoiceCount} facturas)`, d.totalBase, d.totalVat],
+      ...d.received.byRate.map((r) => [`Deducible · IVA ${r.rate}%`, r.base, r.vat]),
+      [`Total deducible (${d.received.count} gastos)`, d.received.base, d.received.vat],
+      [d.result >= 0 ? 'Resultado: a ingresar' : 'Resultado: a compensar', '', d.result],
     ];
     downloadCsv(`modelo-303-${year}-T${quarter}.csv`, rows);
   }
@@ -234,82 +244,166 @@ function Model303Tab() {
       <CardHeader>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <CardTitle className="text-base">Modelo 303 — IVA devengado</CardTitle>
+            <CardTitle className="text-base">Modelo 303 — IVA del trimestre</CardTitle>
             <CardDescription>
-              IVA repercutido del trimestre, por tipo. El IVA soportado (deducible) lo aporta tu
-              asesoría.
+              El IVA de tus facturas menos el IVA deducible de tus gastos desglosados.
             </CardDescription>
           </div>
-          <div className="flex items-end gap-2">
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-              className="h-9 rounded-md border bg-background px-2 text-sm"
-            >
-              {YEARS.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-            <select
-              value={quarter}
-              onChange={(e) => setQuarter(Number(e.target.value))}
-              className="h-9 rounded-md border bg-background px-2 text-sm"
-            >
-              {[1, 2, 3, 4].map((q) => (
-                <option key={q} value={q}>
-                  T{q}
-                </option>
-              ))}
-            </select>
-            <Button variant="outline" onClick={exportCsv} disabled={!m303.data}>
+          <div className="flex flex-wrap items-end gap-2">
+            <YearSelect value={year} onChange={setYear} />
+            <QuarterSelect value={quarter} onChange={setQuarter} />
+            <Button variant="outline" onClick={exportCsv} disabled={!d}>
               <Download className="mr-1 h-4 w-4" /> CSV
             </Button>
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <QueryState query={m303} />
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Tipo de IVA</TableHead>
-              <TableHead className="text-right">Base imponible</TableHead>
-              <TableHead className="text-right">Cuota (IVA devengado)</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(m303.data?.byRate ?? []).map((r) => (
-              <TableRow key={`${r.rate}-${r.taxCategory}`}>
-                <TableCell>{rateLabel(r)}</TableCell>
-                <TableCell className="text-right">{eur(r.base)}</TableCell>
-                <TableCell className="text-right">{eur(r.vat)}</TableCell>
-              </TableRow>
-            ))}
-            {m303.data && (
-              <TableRow className="font-semibold">
-                <TableCell>Total ({m303.data.invoiceCount} facturas)</TableCell>
-                <TableCell className="text-right">{eur(m303.data.totalBase)}</TableCell>
-                <TableCell className="text-right">{eur(m303.data.totalVat)}</TableCell>
-              </TableRow>
+        {d && (
+          <>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Figure
+                label="IVA devengado"
+                value={eur(d.totalVat)}
+                hint={`${d.invoiceCount} facturas`}
+              />
+              <Figure
+                label="IVA deducible"
+                value={eur(d.received.vat)}
+                hint={`${d.received.count} gastos`}
+              />
+              <Figure
+                label={d.result >= 0 ? 'A ingresar' : 'A compensar o devolver'}
+                value={eur(Math.abs(d.result))}
+                strong
+              />
+            </div>
+            {d.unbroken.count > 0 && (
+              <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  {d.unbroken.count} {d.unbroken.count === 1 ? 'gasto' : 'gastos'} del trimestre sin
+                  desglosar ({eur(d.unbroken.amount)}) no{' '}
+                  {d.unbroken.count === 1 ? 'resta' : 'restan'} IVA.{' '}
+                  <Link href="/expenses" className="underline">
+                    Desglósalos en Gastos
+                  </Link>{' '}
+                  si tienes la factura.
+                </span>
+              </p>
             )}
-          </TableBody>
-        </Table>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>IVA devengado</TableHead>
+                  <TableHead className="text-right">Base imponible</TableHead>
+                  <TableHead className="text-right">Cuota</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {d.byRate.map((r) => (
+                  <TableRow key={`${r.rate}-${r.taxCategory}`}>
+                    <TableCell>{rateLabel(r)}</TableCell>
+                    <TableCell className="text-right">{eur(r.base)}</TableCell>
+                    <TableCell className="text-right">{eur(r.vat)}</TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="font-semibold">
+                  <TableCell>Total ({d.invoiceCount} facturas)</TableCell>
+                  <TableCell className="text-right">{eur(d.totalBase)}</TableCell>
+                  <TableCell className="text-right">{eur(d.totalVat)}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>IVA deducible (gastos)</TableHead>
+                  <TableHead className="text-right">Base imponible</TableHead>
+                  <TableHead className="text-right">Cuota</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {d.received.byRate.map((r) => (
+                  <TableRow key={r.rate}>
+                    <TableCell>IVA {r.rate}%</TableCell>
+                    <TableCell className="text-right">{eur(r.base)}</TableCell>
+                    <TableCell className="text-right">{eur(r.vat)}</TableCell>
+                  </TableRow>
+                ))}
+                {d.received.byRate.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-sm text-muted-foreground">
+                      Ningún gasto con IVA deducible en el trimestre.
+                    </TableCell>
+                  </TableRow>
+                )}
+                <TableRow className="font-semibold">
+                  <TableCell>Total ({d.received.count} gastos)</TableCell>
+                  <TableCell className="text-right">{eur(d.received.base)}</TableCell>
+                  <TableCell className="text-right">{eur(d.received.vat)}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+function Figure({
+  label,
+  value,
+  hint,
+  strong,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className={`rounded-md border p-3 ${strong ? 'bg-muted' : ''}`}>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xl font-semibold tabular-nums">{value}</div>
+      {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
+    </div>
   );
 }
 
 function Model347Tab() {
   const [year, setYear] = useState(YEAR);
   const m347 = useModel347(year);
+  const d = m347.data;
 
   function exportCsv() {
-    if (!m347.data) return;
+    if (!d) return;
     const rows: (string | number)[][] = [
-      ['Cliente', 'NIF', 'T1', 'T2', 'T3', 'T4', 'Total'],
-      ...m347.data.rows.map((r) => [r.customerName, r.nif, r.q1, r.q2, r.q3, r.q4, r.total]),
+      ['Clave', 'Nombre', 'NIF', 'T1', 'T2', 'T3', 'T4', 'Total', 'Efectivo'],
+      ...d.rows.map((r) => [
+        'B (ventas)',
+        r.customerName,
+        r.nif,
+        r.q1,
+        r.q2,
+        r.q3,
+        r.q4,
+        r.total,
+        r.cash > MODEL_347_CASH_THRESHOLD ? r.cash : '',
+      ]),
+      ...d.suppliers.map((r) => [
+        'A (compras)',
+        r.supplierName,
+        r.nif,
+        r.q1,
+        r.q2,
+        r.q3,
+        r.q4,
+        r.total,
+        '',
+      ]),
     ];
     downloadCsv(`modelo-347-${year}.csv`, rows);
   }
@@ -321,63 +415,135 @@ function Model347Tab() {
           <div>
             <CardTitle className="text-base">Modelo 347 — operaciones &gt; 3.005,06 €</CardTitle>
             <CardDescription>
-              Clientes con operaciones anuales superiores a 3.005,06 € (IVA incluido), con desglose
-              trimestral. Se suman por NIF, aunque estén en fichas distintas.
+              Clientes y proveedores con más de 3.005,06 € en el año (IVA incluido), por trimestre y
+              sumados por NIF. Los gastos con retención no van aquí (van en el 190 o el 180).
             </CardDescription>
           </div>
           <div className="flex items-end gap-2">
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-              className="h-9 rounded-md border bg-background px-2 text-sm"
+            <YearSelect value={year} onChange={setYear} />
+            <Button
+              variant="outline"
+              onClick={exportCsv}
+              disabled={!d || (d.rows.length === 0 && d.suppliers.length === 0)}
             >
-              {YEARS.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-            <Button variant="outline" onClick={exportCsv} disabled={!m347.data?.rows.length}>
               <Download className="mr-1 h-4 w-4" /> CSV
             </Button>
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <QueryState query={m347} />
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Cliente</TableHead>
-              <TableHead>NIF</TableHead>
-              <TableHead className="text-right">T1</TableHead>
-              <TableHead className="text-right">T2</TableHead>
-              <TableHead className="text-right">T3</TableHead>
-              <TableHead className="text-right">T4</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(m347.data?.rows ?? []).map((r) => (
-              <TableRow key={r.nif}>
-                <TableCell className="text-sm">{r.customerName}</TableCell>
-                <TableCell className="text-xs font-mono">{r.nif}</TableCell>
-                <TableCell className="text-right text-xs">{eur(r.q1)}</TableCell>
-                <TableCell className="text-right text-xs">{eur(r.q2)}</TableCell>
-                <TableCell className="text-right text-xs">{eur(r.q3)}</TableCell>
-                <TableCell className="text-right text-xs">{eur(r.q4)}</TableCell>
-                <TableCell className="text-right text-xs font-medium">{eur(r.total)}</TableCell>
-              </TableRow>
-            ))}
-            {m347.data && m347.data.rows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
-                  Ningún cliente supera el umbral en {year}.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+        {d && d.withoutNif.length > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <p className="flex items-center gap-1 font-medium">
+              <AlertTriangle className="size-4" /> Superan el umbral pero no tienen NIF: no se
+              pueden declarar así
+            </p>
+            <ul className="mt-1 list-disc pl-5">
+              {d.withoutNif.map((w) => (
+                <li key={`${w.kind}-${w.name}`}>
+                  {w.name} ({w.kind === 'customer' ? 'cliente' : 'proveedor'}) · {eur(w.total)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div>
+          <h3 className="mb-1 text-sm font-medium">Clientes (ventas)</h3>
+          <div className="overflow-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead className="text-right">T1</TableHead>
+                  <TableHead className="text-right">T2</TableHead>
+                  <TableHead className="text-right">T3</TableHead>
+                  <TableHead className="text-right">T4</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Efectivo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(d?.rows ?? []).map((r) => (
+                  <TableRow key={r.nif}>
+                    <TableCell className="text-sm">
+                      {r.customerName}
+                      <div className="font-mono text-xs text-muted-foreground">{r.nif}</div>
+                    </TableCell>
+                    <TableCell className="text-right text-xs">{eur(r.q1)}</TableCell>
+                    <TableCell className="text-right text-xs">{eur(r.q2)}</TableCell>
+                    <TableCell className="text-right text-xs">{eur(r.q3)}</TableCell>
+                    <TableCell className="text-right text-xs">{eur(r.q4)}</TableCell>
+                    <TableCell className="text-right text-xs font-medium">{eur(r.total)}</TableCell>
+                    <TableCell className="text-right text-xs">
+                      {r.cash > 0 ? eur(r.cash) : '—'}
+                      {r.cash > MODEL_347_CASH_THRESHOLD && (
+                        <Badge variant="outline" className="ml-1 px-1 py-0 text-[10px]">
+                          Se declara
+                        </Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {d && d.rows.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="py-6 text-center text-sm text-muted-foreground"
+                    >
+                      Ningún cliente supera el umbral en {year}.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Lo cobrado en efectivo se informa aparte si pasa de 6.000 € en el año.
+          </p>
+        </div>
+        <div>
+          <h3 className="mb-1 text-sm font-medium">Proveedores (compras)</h3>
+          <div className="overflow-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Proveedor</TableHead>
+                  <TableHead className="text-right">T1</TableHead>
+                  <TableHead className="text-right">T2</TableHead>
+                  <TableHead className="text-right">T3</TableHead>
+                  <TableHead className="text-right">T4</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(d?.suppliers ?? []).map((r) => (
+                  <TableRow key={r.nif}>
+                    <TableCell className="text-sm">
+                      {r.supplierName}
+                      <div className="font-mono text-xs text-muted-foreground">{r.nif}</div>
+                    </TableCell>
+                    <TableCell className="text-right text-xs">{eur(r.q1)}</TableCell>
+                    <TableCell className="text-right text-xs">{eur(r.q2)}</TableCell>
+                    <TableCell className="text-right text-xs">{eur(r.q3)}</TableCell>
+                    <TableCell className="text-right text-xs">{eur(r.q4)}</TableCell>
+                    <TableCell className="text-right text-xs font-medium">{eur(r.total)}</TableCell>
+                  </TableRow>
+                ))}
+                {d && d.suppliers.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="py-6 text-center text-sm text-muted-foreground"
+                    >
+                      Ningún proveedor supera el umbral en {year}.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -390,7 +556,10 @@ function AccountantExportTab() {
   const data = useAccountantExport(from, to);
   const d = data.data;
 
-  async function download(format: 'xlsx' | 'csv', kind?: 'invoices' | 'payments' | 'deposits') {
+  async function download(
+    format: 'xlsx' | 'csv',
+    kind?: 'invoices' | 'payments' | 'deposits' | 'expenses',
+  ) {
     setBusy(kind ?? format);
     try {
       const qs = `from=${from}&to=${to}&format=${format}${kind ? `&kind=${kind}` : ''}${ownerQs(useFiscalOwner.getState().ownerId)}`;
@@ -399,7 +568,7 @@ function AccountantExportTab() {
       const a = document.createElement('a');
       a.href = url;
       const suffix = kind
-        ? `-${{ invoices: 'facturas', payments: 'cobros', deposits: 'fianzas' }[kind]}`
+        ? `-${{ invoices: 'facturas', payments: 'cobros', deposits: 'fianzas', expenses: 'gastos' }[kind]}`
         : '';
       a.download = `asesoria-${from}-a-${to}${suffix}.${format}`;
       a.click();
@@ -416,6 +585,7 @@ function AccountantExportTab() {
   const collected = d?.payments.reduce((s, r) => s + r.amount, 0) ?? 0;
   const depositsHeld =
     d?.deposits.reduce((s, r) => s + (r.movement === 'retained' ? 0 : r.amount), 0) ?? 0;
+  const expensesTotal = d?.expenses.reduce((s, r) => s + r.total, 0) ?? 0;
 
   return (
     <Card>
@@ -424,10 +594,11 @@ function AccountantExportTab() {
           <div>
             <CardTitle className="text-base">Exportación para la asesoría</CardTitle>
             <CardDescription>
-              Facturas emitidas (una fila por factura y tipo de IVA), cobros y fianzas del periodo.
-              El Excel trae tres hojas; en CSV va un fichero por tabla, con «;» y coma decimal.
-              Sirve para A3, Sage o el programa de tu asesor: la primera vez mapea las columnas en
-              su importador y guarda la plantilla. Las fianzas van aparte porque no son ingresos.
+              Facturas emitidas (una fila por factura y tipo de IVA), cobros, fianzas y gastos del
+              periodo. El Excel trae una hoja por tabla; en CSV va un fichero por tabla, con «;» y
+              coma decimal. Sirve para A3, Sage o el programa de tu asesor: la primera vez mapea las
+              columnas en su importador y guarda la plantilla. Las fianzas van aparte porque no son
+              ingresos.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -448,7 +619,7 @@ function AccountantExportTab() {
         ) : data.isError ? (
           <SectionError onRetry={() => void data.refetch()} />
         ) : d ? (
-          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-6">
             <div>
               <div className="text-xs text-muted-foreground">Facturas</div>
               <div className="font-medium">
@@ -470,6 +641,12 @@ function AccountantExportTab() {
             <div>
               <div className="text-xs text-muted-foreground">Fianzas (neto)</div>
               <div className="font-medium">{eur(depositsHeld)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Gastos</div>
+              <div className="font-medium">
+                {d.expenses.length} · {eur(expensesTotal)}
+              </div>
             </div>
           </div>
         ) : null}
@@ -520,7 +697,16 @@ function AccountantExportTab() {
           >
             CSV de fianzas
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => void download('csv', 'expenses')}
+            disabled={busy !== null || !d}
+          >
+            CSV de gastos
+          </Button>
         </div>
+
+        <AccountantCard from={from} to={to} />
 
         <div className="max-h-[60vh] overflow-auto rounded-md border">
           <Table>
@@ -566,11 +752,6 @@ function AccountantExportTab() {
       </CardContent>
     </Card>
   );
-}
-
-/** «IVA 21 %», «Exenta (art. 20 LIVA)», «No sujeta». */
-function rateLabel(r: { rate: number; taxCategory: InvoiceTaxCategory }): string {
-  return r.taxCategory === 'S1' ? `IVA ${r.rate}%` : INVOICE_TAX_CATEGORY_LABELS[r.taxCategory];
 }
 
 /** Plan Administrador: de quién son los informes (tu empresa o un propietario). */

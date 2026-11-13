@@ -26,6 +26,7 @@ import {
 import { assertCashDayOpen, invoiceFacilityId } from '../../common/cash-day';
 import { customerScopeWhere } from '../../common/customer-scope';
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
+import { assertFiscalPeriodOpen } from '../../common/fiscal-closure';
 import {
   emailLocale,
   formatDateLong,
@@ -2707,9 +2708,13 @@ export class InvoicesService {
           amountPaid: true,
           withholdingAmount: true,
           ownerId: true,
+          issueDate: true,
           rectifiedBy: { where: { status: { not: 'cancelled' } }, select: { id: true } },
         },
       });
+      // Anular por error saca la factura del libro: no en un trimestre cerrado
+      // (ahí se corrige con una rectificativa).
+      await assertFiscalPeriodOpen(tx, [fresh.issueDate], 'sus facturas: emite una rectificativa');
       if (fresh.status !== 'issued' && fresh.status !== 'overdue') {
         throw new BadRequestException({
           code: 'invoice_not_voidable',

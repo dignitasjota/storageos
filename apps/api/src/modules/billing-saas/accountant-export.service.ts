@@ -1,23 +1,29 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   ACCOUNTANT_DEPOSIT_COLUMNS,
+  ACCOUNTANT_EXPENSE_COLUMNS,
   ACCOUNTANT_INVOICE_COLUMNS,
   ACCOUNTANT_PAYMENT_COLUMNS,
   defaultTaxCategory,
   withoutActivity,
   type AccountantDepositRow,
+  type AccountantExpenseRow,
   type AccountantExportDto,
   type AccountantExportWarning,
   type AccountantInvoiceRow,
   type AccountantPaymentRow,
   type InvoiceTaxCategory,
+  EXPENSE_PAYMENT_METHOD_LABELS,
   NON_CASH_PAYMENT_METHODS,
+  expenseCategoryLabel,
+  type ExpensePaymentMethod,
 } from '@storageos/shared';
 import ExcelJS from 'exceljs';
 
 import { zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { rectifiedStatusLabel } from '../billing/rectified-status';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { ownerExpenseWhere } from '../fiscal/fiscal.service';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const ddmmyyyy = (d: Date): string =>
@@ -74,6 +80,7 @@ export class AccountantExportService {
     const invoices: AccountantInvoiceRow[] = [];
     const payments: AccountantPaymentRow[] = [];
     const deposits: AccountantDepositRow[] = [];
+    const expenses: AccountantExpenseRow[] = [];
     const warnings: AccountantExportWarning[] = [];
 
     await this.addSubscriptionInvoices(fromT, toT, invoices, warnings);
@@ -82,6 +89,7 @@ export class AccountantExportService {
       await this.addOwnInvoices(own.id, fromD, toD, invoices, warnings);
       await this.addOwnPayments(own.id, fromT, toT, payments);
       await this.addDeposits(own.id, fromT, toT, deposits);
+      await this.addExpenses(own.id, fromD, toD, expenses);
     }
     return this.sorted({
       from,
@@ -90,6 +98,7 @@ export class AccountantExportService {
       invoices,
       payments,
       deposits,
+      expenses,
       warnings,
     });
   }
@@ -126,10 +135,12 @@ export class AccountantExportService {
     const invoices: AccountantInvoiceRow[] = [];
     const payments: AccountantPaymentRow[] = [];
     const deposits: AccountantDepositRow[] = [];
+    const expenses: AccountantExpenseRow[] = [];
     const warnings: AccountantExportWarning[] = [];
     await this.addOwnInvoices(tenantId, fromD, toD, invoices, warnings, ownerId);
     await this.addOwnPayments(tenantId, fromT, toT, payments, ownerId);
     await this.addDeposits(tenantId, fromT, toT, deposits, ownerId);
+    await this.addExpenses(tenantId, fromD, toD, expenses, ownerId);
     return this.sorted({
       from,
       to,
@@ -137,6 +148,7 @@ export class AccountantExportService {
       invoices,
       payments,
       deposits,
+      expenses,
       warnings,
     });
   }
@@ -165,6 +177,7 @@ export class AccountantExportService {
     );
     dto.payments.sort((a, b) => byDate(a.date, b.date));
     dto.deposits.sort((a, b) => byDate(a.date, b.date));
+    dto.expenses.sort((a, b) => byDate(a.date, b.date));
     return dto;
   }
 
@@ -197,6 +210,9 @@ export class AccountantExportService {
     addSheet('Facturas', cols(ACCOUNTANT_INVOICE_COLUMNS), dto.invoices);
     addSheet('Cobros', cols(ACCOUNTANT_PAYMENT_COLUMNS), dto.payments);
     addSheet('Fianzas', cols(ACCOUNTANT_DEPOSIT_COLUMNS), dto.deposits);
+    if (dto.expenses.length > 0 || single) {
+      addSheet('Gastos', ACCOUNTANT_EXPENSE_COLUMNS, dto.expenses);
+    }
     return Buffer.from(await wb.xlsx.writeBuffer());
   }
 
@@ -534,6 +550,72 @@ export class AccountantExportService {
           method: `Devuelto por el banco (${base.method})`,
         });
       }
+    }
+  }
+
+  /** Facturas recibidas (gastos) del periodo, con su desglose si lo tienen. */
+  private async addExpenses(
+    tenantId: string,
+    fromD: Date,
+    toD: Date,
+    out: AccountantExpenseRow[],
+    ownerId: string | null = null,
+  ): Promise<void> {
+    const [rows, custom] = await Promise.all([
+      this.admin.expense.findMany({
+        where: { tenantId, ...ownerExpenseWhere(ownerId), expenseDate: { gte: fromD, lte: toD } },
+        select: {
+          expenseDate: true,
+          description: true,
+          category: true,
+          amount: true,
+          baseAmount: true,
+          vatRate: true,
+          vatAmount: true,
+          vatDeductible: true,
+          withholdingAmount: true,
+          withholdingModel: true,
+          totalAmount: true,
+          vendor: true,
+          vendorTaxId: true,
+          invoiceNumber: true,
+          paidAt: true,
+          paymentMethod: true,
+          facility: { select: { name: true } },
+          supplier: { select: { name: true } },
+        },
+        orderBy: { expenseDate: 'asc' },
+      }),
+      this.admin.expenseCategory.findMany({
+        where: { tenantId },
+        select: { id: true, name: true },
+      }),
+    ]);
+    for (const e of rows) {
+      const broken = e.baseAmount !== null;
+      const method = e.paymentMethod
+        ? (EXPENSE_PAYMENT_METHOD_LABELS[e.paymentMethod as ExpensePaymentMethod] ??
+          e.paymentMethod)
+        : null;
+      out.push({
+        date: ddmmyyyy(e.expenseDate),
+        vendorNif: e.vendorTaxId,
+        vendorName: e.supplier?.name ?? e.vendor,
+        invoiceNumber: e.invoiceNumber,
+        description: e.description,
+        category: expenseCategoryLabel(e.category, custom),
+        facility: e.facility?.name ?? null,
+        base: broken ? round2(Number(e.baseAmount)) : null,
+        taxRate: broken ? Number(e.vatRate ?? 0) : null,
+        vat: broken ? round2(Number(e.vatAmount ?? 0)) : null,
+        deductible: !broken ? 'Sin desglosar' : e.vatDeductible ? 'Sí' : 'No',
+        withholding: e.withholdingAmount !== null ? round2(Number(e.withholdingAmount)) : null,
+        withholdingModel: e.withholdingModel,
+        total: round2(Number(e.totalAmount ?? e.amount)),
+        payment: e.paidAt
+          ? `Pagado el ${ddmmyyyy(e.paidAt)}${method ? ` (${method})` : ''}`
+          : 'Pendiente',
+      });
     }
   }
 

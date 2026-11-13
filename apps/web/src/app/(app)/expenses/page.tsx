@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
@@ -71,6 +71,7 @@ import {
   useBulkExpenses,
   useDeleteExpense,
   useExpenseSuppliers,
+  useExpense,
   useExpensesTotal,
   useMarkExpensePaid,
   useMarkExpensePending,
@@ -113,6 +114,15 @@ export default function ExpensesPage() {
     { mode: 'create' } | { mode: 'edit' | 'duplicate'; expense: ExpenseDto } | null
   >(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Fiscalidad enlaza a un gasto concreto: se abre su ficha una vez cargado.
+  const [linkedId, setLinkedId] = useState<string | null>(() => params.get('expense'));
+  const linked = useExpense(linkedId);
+  useEffect(() => {
+    if (linked.data) {
+      setDialog({ mode: 'edit', expense: linked.data });
+      setLinkedId(null);
+    }
+  }, [linked.data]);
   const [payTarget, setPayTarget] = useState<PayTarget>(null);
   const [exporting, setExporting] = useState(false);
 

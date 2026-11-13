@@ -138,7 +138,7 @@ describe('DataRetentionService.cleanupExpiredFiles', () => {
       files as never,
     );
     const result = await service.cleanupExpiredFiles();
-    expect(result).toEqual({ reports: 1, exports: 2 });
+    expect(result).toEqual({ reports: 1, exports: 2, accountant: 2 });
     expect(files.deleteObjects).toHaveBeenCalledWith('reports', ['t/aging/r1.pdf']);
     expect(admin.reportRun.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ['r1'] } },
@@ -147,6 +147,9 @@ describe('DataRetentionService.cleanupExpiredFiles', () => {
     const filter = files.deleteOlderThan.mock.calls[0]![2] as (k: string) => boolean;
     expect(filter('t/exports/x.xlsx')).toBe(true);
     expect(filter('t/aging/r1.pdf')).toBe(false);
+    const accountant = files.deleteOlderThan.mock.calls[1]![2] as (k: string) => boolean;
+    expect(accountant('t/accountant/asesoria.xlsx')).toBe(true);
+    expect(accountant('t/exports/x.xlsx')).toBe(false);
   });
 });
 

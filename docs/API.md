@@ -2222,12 +2222,21 @@ Páginas propias por promoción en la web del tenant, con el estilo de su planti
 - `GET /ai/conversations` (`ai:use`) + `GET /ai/conversations/:id` + `DELETE /ai/conversations/:id`: scoped por usuario.
 - Provider por `AI_PROVIDER=stub|anthropic` (+ `ANTHROPIC_API_KEY`, `AI_MODEL`). El stub permite dev/test sin coste.
 
-### Fiscalidad — libro de IVA + 303 + 347 (`/fiscal/...`)
+### Fiscalidad — libros, 303, 347, retenciones, cierre y asesoría (`/fiscal/...`)
 
 - `GET /fiscal/vat-book?from=&to=` (`invoices:manage`): libro registro de facturas expedidas (filas por factura + desglose por tipo de IVA + totales).
 - `GET /fiscal/model-303?year=&quarter=` (`invoices:manage`): IVA devengado por tipo del trimestre (parte de IVA repercutido; el soportado lo aporta la asesoría).
 - `GET /fiscal/model-347?year=` (`invoices:manage`): clientes con operaciones anuales > 3.005,06 € con NIF y desglose trimestral.
 - Solo lectura, derivado de las facturas emitidas (estados ≠ draft/cancelled, por `issue_date`).
+- (2026-11-13) `model-303` añade `received` (IVA deducible de los gastos desglosados del trimestre, por tipo), `unbroken` (gastos sin desglosar) y `result` (devengado − deducible). `model-347` añade `cash` por cliente (efectivo cobrado en el año), `suppliers` (proveedores sin los gastos con retención) y `withoutNif`.
+- `GET /fiscal/received-book?from=&to=` → libro registro de facturas recibidas (gastos desglosados), con `byRate`, `totals` y `unbroken`.
+- `GET /fiscal/withholdings?year=&quarter=` → retenciones practicadas por modelo (`111`, `115`) con sus perceptores, y `received` (las de las facturas a tus inquilinos).
+- `GET /fiscal/checks?year=&quarter=` → «Antes de presentar»: `checks[]` (`key`, `severity` error|warning|info, `count`, hasta 20 `items` con enlace), `ended` y el cierre vigente (`closure`).
+- `GET /fiscal/closures`; `POST /fiscal/closures {year, quarter}` (400 `quarter_not_ended`, 409 `quarter_already_closed`); `POST /fiscal/closures/:id/reopen {reason}` (`billing:configure`; 404 `closure_not_found`). Con el trimestre cerrado, 409 `fiscal_period_closed` en gastos de ese periodo (crear, cambiar cifras, borrar), su importación y la anulación por error de sus facturas.
+- `GET/PUT /fiscal/accountant {email, frequency: off|monthly|quarterly}` (400 `accountant_email_required`) y `POST /fiscal/accountant/send {from, to}` → correo con el enlace al Excel (400 `accountant_email_required`/`email_suppressed`).
+- Público: `GET /v1/public/accountant-reports/:token` → 302 al Excel (5 min); 404 `link_expired` pasados 60 días o con un enlace tocado.
+- `accountant-export` (tenant y plataforma): `expenses[]` y hoja «Gastos»; `kind=expenses` en CSV.
+- `GET /expenses/:id` (`expenses:read`): un gasto (la revisión enlaza a `/expenses?expense=<id>`).
 
 ### Conciliación bancaria Norma 43 (`/bank-statements/...`)
 

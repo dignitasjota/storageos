@@ -29,6 +29,7 @@ import {
 } from '@storageos/shared';
 
 import { optionalFacilityWhere, type FacilityScope } from '../../common/facility-scope';
+import { assertFiscalPeriodOpen } from '../../common/fiscal-closure';
 import { todayInTimezone } from '../../common/format';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AiService } from '../ai/ai.service';
@@ -304,6 +305,7 @@ export class ExpensesService {
     const status: ExpensePaymentStatus = input.paymentStatus ?? 'paid';
     const paidAt = status === 'paid' ? (input.paidAt ?? input.expenseDate) : null;
     return this.prisma.withTenant(async (tx) => {
+      await assertFiscalPeriodOpen(tx, [dayDate(input.expenseDate)], 'sus gastos');
       await this.assertRefs(tx, {
         facilityId,
         category: input.category,
@@ -352,6 +354,16 @@ export class ExpensesService {
     }, tenantId);
   }
 
+  async get(tenantId: string, id: string, scope: FacilityScope): Promise<ExpenseDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.expense.findFirst({ where: { id }, include: EXPENSE_INCLUDE });
+      if (!row || (row.facilityId && scope && !scope.includes(row.facilityId))) {
+        throw new NotFoundException({ code: 'expense_not_found', message: 'Gasto no encontrado' });
+      }
+      return this.toDto(row, await customCategories(tx), await this.today(tx));
+    }, tenantId);
+  }
+
   /** Gasto de la empresa, visible para quien lo pide y que se puede tocar a mano. */
   private async editable(
     tx: Prisma.TransactionClient,
@@ -390,6 +402,26 @@ export class ExpensesService {
     let oldReceipt: string | null = null;
     const dto = await this.prisma.withTenant(async (tx) => {
       const existing = await this.editable(tx, id, scope);
+      // Lo que cambia las cifras declaradas no se toca en un trimestre cerrado
+      // (sí el pago, las notas o la categoría).
+      const fiscalChange =
+        input.expenseDate !== undefined ||
+        input.amount !== undefined ||
+        input.baseAmount !== undefined ||
+        input.vatRate !== undefined ||
+        input.vatDeductible !== undefined ||
+        input.withholdingRate !== undefined ||
+        input.withholdingModel !== undefined ||
+        input.vendorTaxId !== undefined ||
+        input.invoiceNumber !== undefined ||
+        input.facilityId !== undefined;
+      if (fiscalChange) {
+        await assertFiscalPeriodOpen(
+          tx,
+          [existing.expenseDate, input.expenseDate ? dayDate(input.expenseDate) : null],
+          'este gasto',
+        );
+      }
       const facilityId =
         input.facilityId !== undefined ? (input.facilityId ?? null) : existing.facilityId;
       if (input.facilityId !== undefined) assertTargetAllowed(scope, facilityId);
@@ -530,6 +562,7 @@ export class ExpensesService {
   async remove(tenantId: string, id: string, scope: FacilityScope = null): Promise<void> {
     const receipt = await this.prisma.withTenant(async (tx) => {
       const existing = await this.editable(tx, id, scope);
+      await assertFiscalPeriodOpen(tx, [existing.expenseDate], 'este gasto');
       if (existing.cashMovementId) {
         await this.removeCashMovement(tx, tenantId, existing.cashMovementId);
       }
