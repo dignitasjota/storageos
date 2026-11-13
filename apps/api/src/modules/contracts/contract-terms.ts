@@ -8,6 +8,8 @@ import {
   rentTax,
 } from '@storageos/shared';
 
+import { BOOKING_HOLD_HOURS } from '../../common/online-booking';
+
 import type { Prisma } from '@storageos/database';
 
 /** Datos de una parte del contrato (arrendador o inquilino). */
@@ -18,6 +20,11 @@ interface PartyInput {
 }
 
 export interface ContractTermsInput {
+  /**
+   * Reserva online (sin local por abrir): el contrato entra en vigor con el
+   * primer pago; sin él, en estas horas queda sin efecto.
+   */
+  paymentHoldHours?: number | null;
   /** Reserva antes de la apertura del local (aún sin empezar). */
   preOpening?: {
     /** Fecha de apertura prevista (`YYYY-MM-DD`), o null si aún no está fijada. */
@@ -200,6 +207,11 @@ export function buildContractTermsText(t: ContractTermsInput): string {
       ? `${delivery}: el día de apertura del local${t.preOpening.openingDate ? ` (prevista aproximadamente para el ${day(t.preOpening.openingDate)})` : ' (fecha aún por confirmar)'}`
       : `${delivery}: ${day(t.startDate)}`,
   );
+  if (t.paymentHoldHours && !t.preOpening) {
+    header.push(
+      `Entrada en vigor: con el primer pago. Si no se recibe en las ${t.paymentHoldHours} horas siguientes a la reserva (o en el plazo ampliado que se comunique), el contrato queda sin efecto, sin coste para el inquilino, y ${housing ? 'la vivienda' : 'el trastero'} vuelve a estar libre`,
+    );
+  }
   if (t.endDate) {
     header.push(`Fin: ${day(t.endDate)}`);
   } else if (t.autoRenew !== undefined) {
@@ -365,6 +377,7 @@ const TERMS_SELECT = {
   preOpening: true,
   preOpeningDateConfirmed: true,
   preOpeningStartedAt: true,
+  firstPaymentDeadline: true,
   startDate: true,
   endDate: true,
   autoRenew: true,
@@ -632,6 +645,8 @@ export async function composeContractTerms(
       : null,
     returnedPaymentFee,
     withdrawalFormTo,
+    // Reserva online: el contrato entra en vigor con el primer pago.
+    paymentHoldHours: c.firstPaymentDeadline ? BOOKING_HOLD_HOURS : null,
     preOpening:
       c.preOpening && !c.preOpeningStartedAt
         ? {

@@ -586,7 +586,14 @@ export class TodayExtrasService {
           customer,
           unit: { select: { code: true } },
           invoices: {
-            where: { deletedAt: null, status: { in: ['issued', 'overdue'] } },
+            // También el primer pago de una reserva (su factura se emite al cobrarse).
+            where: {
+              deletedAt: null,
+              OR: [
+                { status: { in: ['issued', 'overdue'] } },
+                { status: 'draft', issueOnPayment: true },
+              ],
+            },
             select: { kind: true },
           },
         },

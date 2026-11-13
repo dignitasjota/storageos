@@ -10,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { isValidSpanishTaxId, normalizeTaxId, rentTax } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
+import { BOOKING_HOLD_HOURS } from '../../common/online-booking';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { bookingReady, tenantReadiness } from '../../common/tenant-readiness';
 import { noLiveReservationWhere } from '../../common/unit-holds';
@@ -42,7 +43,6 @@ export function maskEmail(email: string): string {
 }
 
 /** Plazo (horas) para firmar+pagar antes de que el hold de la unidad expire. */
-const BOOKING_HOLD_HOURS = 72;
 
 @Injectable()
 export class BookingService {

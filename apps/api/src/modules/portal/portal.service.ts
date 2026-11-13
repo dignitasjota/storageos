@@ -1165,16 +1165,25 @@ export class PortalService {
     if (!customer) {
       throw new NotFoundException({ code: 'customer_not_found', message: 'No encontrado' });
     }
+    // Se puede pagar: emitida o vencida, o el borrador del primer pago.
+    const payableNow = (r: { status: string; issueOnPayment: boolean }) =>
+      ['issued', 'overdue'].includes(r.status) || (r.status === 'draft' && r.issueOnPayment);
     const rows = await this.admin.invoice.findMany({
       where: {
         tenantId,
         customerId,
         deletedAt: null,
-        status: {
-          in: ['issued', 'overdue', 'paid', 'refunded', 'partially_refunded', 'rectified'],
-        },
+        OR: [
+          {
+            status: {
+              in: ['issued', 'overdue', 'paid', 'refunded', 'partially_refunded', 'rectified'],
+            },
+          },
+          // Primer pago de una reserva online: la factura se emite al pagarlo.
+          { status: 'draft', issueOnPayment: true },
+        ],
       },
-      orderBy: { issueDate: 'desc' },
+      orderBy: [{ issueDate: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
       include: {
         contract: { select: { unit: { select: { code: true } } } },
         lateFeeForInvoice: { select: { invoiceNumber: true } },
@@ -1189,7 +1198,7 @@ export class PortalService {
         customerId,
         status: 'failed',
         invoiceId: {
-          in: rows.filter((r) => ['issued', 'overdue'].includes(r.status)).map((r) => r.id),
+          in: rows.filter((r) => payableNow(r)).map((r) => r.id),
         },
       },
       select: { invoiceId: true, failureReason: true, createdAt: true },
@@ -1225,9 +1234,7 @@ export class PortalService {
       ...inRemittance.map((i) => i.invoiceId),
     ]);
     const pendingOf = (r: (typeof rows)[number]) =>
-      ['issued', 'overdue'].includes(r.status)
-        ? Math.max(0, Number(r.total) - Number(r.amountPaid))
-        : 0;
+      payableNow(r) ? Math.max(0, Number(r.total) - Number(r.amountPaid)) : 0;
     const byId = new Map(rows.map((r) => [r.id, r]));
     // Primer pago de un contrato sin las condiciones generales aceptadas.
     const termsPending = new Set(

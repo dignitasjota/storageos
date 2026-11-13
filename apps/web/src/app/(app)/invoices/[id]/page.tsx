@@ -313,6 +313,8 @@ export default function InvoiceDetailPage() {
 
   const i = invoice.data;
   const isDraft = i.status === 'draft';
+  // Primer pago de una reserva online: se emite al registrar su cobro.
+  const awaitingPayment = isDraft && i.issueOnPayment;
   // Una rectificativa que se quedó en borrador cancelado no rectifica nada.
   const rectifiedBy = i.rectifiedBy.filter((r) => r.status !== 'cancelled');
   const isRectification = i.invoiceType.startsWith('R');
@@ -589,7 +591,12 @@ export default function InvoiceDetailPage() {
               <h1 className="font-mono text-2xl font-semibold tracking-tight">
                 {invoiceNumberLabel(i)}
               </h1>
-              <InvoiceStatusBadge status={i.status} total={i.total} voided={!!i.voidedAt} />
+              <InvoiceStatusBadge
+                status={i.status}
+                total={i.total}
+                voided={!!i.voidedAt}
+                awaitingPayment={i.issueOnPayment}
+              />
               <InvoiceCollectionBadges invoice={i} />
               {i.issuedBy === 'holded' && isDraft ? (
                 <Badge
@@ -700,27 +707,39 @@ export default function InvoiceDetailPage() {
                 informes.
               </p>
             )}
+            {awaitingPayment && (
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                {i.amountPaid >= i.total
+                  ? 'El cobro ya entró, pero la factura no se pudo emitir. Corrige el problema y pulsa «Emitir»: quedará pagada.'
+                  : 'Primer pago de una reserva online: el contrato entra en vigor al pagarse. La factura se emite, con su número, al cobrarse (tarjeta, Bizum o «Registrar cobro»). Si no se paga en plazo, la reserva caduca y esto se anula sin factura.'}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
-            {isDraft && canManageInv && i.issuedBy !== 'holded' && (
-              <Button
-                disabled={issue.isPending}
-                onClick={() => safe(() => issue.mutateAsync({ id: i.id }), 'Factura emitida.')}
-              >
-                {issue.isPending ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="mr-1 h-4 w-4" />
-                )}
-                Emitir
-              </Button>
-            )}
-            {isDraft && canWriteInv && i.issuedBy !== 'holded' && (
+            {isDraft &&
+              canManageInv &&
+              i.issuedBy !== 'holded' &&
+              // El primer pago de una reserva se emite al cobrarse (salvo si el
+              // cobro ya entró y la emisión falló: entonces sí, a mano).
+              (!awaitingPayment || i.amountPaid >= i.total) && (
+                <Button
+                  disabled={issue.isPending}
+                  onClick={() => safe(() => issue.mutateAsync({ id: i.id }), 'Factura emitida.')}
+                >
+                  {issue.isPending ? (
+                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="mr-1 h-4 w-4" />
+                  )}
+                  Emitir
+                </Button>
+              )}
+            {isDraft && !awaitingPayment && canWriteInv && i.issuedBy !== 'holded' && (
               <Button variant="outline" onClick={() => setEditOpen(true)}>
                 <Pencil className="mr-1 h-4 w-4" /> Editar
               </Button>
             )}
-            {pendingStatus && i.amountPending > 0 && (
+            {(pendingStatus || awaitingPayment) && i.amountPending > 0 && (
               <>
                 {canCharge && i.customerId && chargeable && (
                   <Button

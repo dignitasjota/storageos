@@ -172,6 +172,8 @@ export class InvoicingModeService {
         tenantId,
         kind: 'invoice',
         status: { not: 'draft' },
+        // Un borrador anulado sin emitir no cuenta como factura emitida.
+        NOT: { invoiceNumber: { startsWith: 'DRAFT-' } },
         issueDate: { gte: new Date(Date.UTC(year, 0, 1)) },
       },
     });

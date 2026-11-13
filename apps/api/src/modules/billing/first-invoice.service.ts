@@ -89,9 +89,23 @@ export class FirstInvoiceService {
     );
   }
 
-  /** Emite la 1ª factura si el contrato aún no tiene ninguna. No lanza. */
-  async issueIfMissing(tenantId: string, contractId: string, customerId: string): Promise<void> {
-    let invoice: { id: string } | null = null;
+  /**
+   * Emite la 1ª factura si el contrato aún no tiene ninguna. No lanza.
+   *
+   * Con `issueOnPayment` (reserva online: el contrato entra en vigor con el
+   * primer pago) la deja como borrador «pendiente de pago», sin número ni
+   * registro Veri*Factu: se emite al cobrarse y, si la reserva caduca, se anula
+   * sin gastar número ni hacer una rectificativa. A 0 € se emite ya (no hay
+   * nada que cobrar).
+   */
+  async issueIfMissing(
+    tenantId: string,
+    contractId: string,
+    customerId: string,
+    opts: { issueOnPayment?: boolean } = {},
+  ): Promise<void> {
+    const onPayment = opts.issueOnPayment === true;
+    let invoice: { id: string; total: number } | null = null;
     try {
       const existing = await this.admin.invoice.findFirst({
         where: { tenantId, contractId, deletedAt: null },
@@ -378,6 +392,7 @@ export class FirstInvoiceService {
           ...(credit && credit.cents > 0
             ? { consumedBenefits: { creditCents: credit.cents, creditReason: credit.reason } }
             : {}),
+          ...(onPayment ? { issueOnPayment: true } : {}),
         })
         .catch(async (err: unknown) => {
           await credit?.restore().catch(() => undefined);
@@ -389,14 +404,26 @@ export class FirstInvoiceService {
           data: { billingStartsOn },
         });
       }
-      // A 0 € la deja saldada `settleIfZero`, después de crear la fianza.
-      const issued = await this.invoices.issue({
-        tenantId,
-        userId: null,
-        invoiceId: invoice.id,
-        meta: {},
-        settleZero: false,
-      });
+      // A 0 € la deja saldada `settleIfZero`, después de crear la fianza. La de
+      // una reserva online espera al cobro (salvo a 0 €, que no se cobra).
+      const zero = toCents(Number(invoice.total)) === 0;
+      const issued =
+        onPayment && !zero
+          ? null
+          : await this.invoices.issue({
+              tenantId,
+              userId: null,
+              invoiceId: invoice.id,
+              meta: {},
+              settleZero: false,
+            });
+      // Vencimiento del justificante de fianza que se cobra con ella: el de la
+      // factura o, si aún no está emitida, el plazo de la reserva.
+      const bundleDue = issued
+        ? issued.dueDate
+          ? new Date(`${issued.dueDate}T00:00:00Z`)
+          : dueDate
+        : (contract.firstPaymentDeadline ?? dueDate);
       if (coupon) {
         await this.admin.couponRedemption.update({
           where: { id: coupon.id },
@@ -417,7 +444,7 @@ export class FirstInvoiceService {
             ? { dueDate: null, bundledWithInvoiceId: null }
             : {
                 // Vence con la factura con la que se paga.
-                dueDate: issued.dueDate ? new Date(`${issued.dueDate}T00:00:00Z`) : dueDate,
+                dueDate: bundleDue,
                 bundledWithInvoiceId: invoice.id,
               }),
         });
@@ -425,7 +452,7 @@ export class FirstInvoiceService {
       // Alquiler a 0 € (cupón del 100 % o que cubre todo el periodo): no hay nada
       // que cobrar, así que queda saldada (después de crear la fianza, para que el
       // acceso espere a que se pague). La fianza se paga sola en el portal.
-      await this.settleIfZero(tenantId, invoice.id);
+      if (issued) await this.settleIfZero(tenantId, invoice.id);
     } catch (err) {
       const reason = errorMessage(err);
       this.logger.error(

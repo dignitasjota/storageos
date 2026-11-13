@@ -27,6 +27,7 @@ function invoice(overrides: Partial<InvoiceDto> = {}): InvoiceDto {
     invoiceType: 'F1',
     kind: 'invoice',
     bundledWithInvoiceId: null,
+    issueOnPayment: false,
     rectifiesInvoiceId: null,
     rectifiesInvoiceNumber: null,
     rectifiesInvoiceDate: null,

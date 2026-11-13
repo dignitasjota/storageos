@@ -103,7 +103,8 @@ describe('Reserva online: correos de la factura y de la caducidad (e2e)', () => 
       where: { contractId, kind: 'invoice' },
       select: { id: true, status: true, total: true },
     });
-    expect(invoice.status).toBe('issued');
+    // Se emite al cobrarse (primer pago de la reserva).
+    expect(invoice.status).toBe('draft');
     // Los avisos salen en segundo plano: se deja margen antes de mirar.
     await pause(1500);
     expect(
@@ -151,14 +152,15 @@ describe('Reserva online: correos de la factura y de la caducidad (e2e)', () => 
     const res = await app.get(SignaturesService, { strict: false }).expireUnpaidBookings();
     expect(res.cancelled).toBeGreaterThanOrEqual(2);
 
-    // Firmada y sin pagar: su factura queda anulada (rectificada) y se le dice.
+    // Firmada y sin pagar: su factura no llegó a emitirse (se emite al cobrar).
     const signedComm = await waitForComm(
       { customerId: signed.customerId },
       'customer_email.booking_expired',
     );
     expect(signedComm.subject).toContain('se ha cancelado');
     expect(signedComm.bodyText).toContain('No hemos recibido el pago de tu reserva');
-    expect(signedComm.bodyText).toContain('la reserva y su factura quedan anuladas');
+    expect(signedComm.bodyText).toContain('No tienes que pagar nada');
+    expect(signedComm.bodyText).not.toContain('su factura');
     expect(signedComm.bodyText).toContain(
       `/book/${owner.slug}?facilityId=${signed.facilityId}&unitTypeId=${signed.unitTypeId}`,
     );
@@ -167,7 +169,7 @@ describe('Reserva online: correos de la factura y de la caducidad (e2e)', () => 
       where: { contractId: signed.contractId, kind: 'invoice', rectifiesInvoiceId: null },
       select: { status: true },
     });
-    expect(voided.status).toBe('rectified');
+    expect(voided.status).toBe('cancelled');
 
     // Sin firmar: no hubo factura.
     const unsignedComm = await waitForComm(

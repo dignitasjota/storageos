@@ -35,6 +35,15 @@ export const NO_PAYMENT_IN_FLIGHT = {
   sepaRemittanceItems: { none: { status: 'pending' } },
 } satisfies Prisma.InvoiceWhereInput;
 
+/**
+ * Factura que se puede pagar ya: emitida o vencida, o el borrador del primer
+ * pago de una reserva online (la factura se emite al cobrarse). Va como `OR`:
+ * si la consulta ya lleva otro, se combina dentro de un `AND`.
+ */
+export const PAYABLE_INVOICE_WHERE = {
+  OR: [{ status: { in: ['issued', 'overdue'] } }, { status: 'draft', issueOnPayment: true }],
+} satisfies Prisma.InvoiceWhereInput;
+
 /** ¿Tiene la factura un cobro en marcha (pasarela en curso o remesa SEPA pendiente)? */
 export async function hasPaymentInFlight(
   db: Pick<Prisma.TransactionClient, 'invoice'>,

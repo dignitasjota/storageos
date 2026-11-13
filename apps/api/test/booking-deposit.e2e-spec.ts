@@ -115,7 +115,10 @@ describe('Reserva online con fianza (e2e)', () => {
       .set(auth)
       .expect(200);
     const numbers = (book.body.rows as { invoiceNumber: string }[]).map((r) => r.invoiceNumber);
-    expect(numbers).toContain(invoice.invoiceNumber);
+    // Ni el justificante ni, hasta que se pague, la factura (se emite al cobrarse).
+    expect(invoice.status).toBe('draft');
+    expect(invoice.issueOnPayment).toBe(true);
+    expect(numbers).not.toContain(invoice.invoiceNumber);
     expect(numbers).not.toContain(receipt.invoiceNumber);
 
     // No lleva recargo, no se rectifica y no se emite.
@@ -184,6 +187,8 @@ describe('Reserva online con fianza (e2e)', () => {
       admin.invoice.findUniqueOrThrow({ where: { id: receipt.id } }),
     ]);
     expect(inv.status).toBe('paid');
+    // Emitida al cobrarse: ya tiene su número.
+    expect(inv.invoiceNumber).not.toMatch(/^DRAFT-/);
     expect(rec.status).toBe('paid');
     expect(Number(rec.amountPaid)).toBe(60);
 

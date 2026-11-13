@@ -313,6 +313,8 @@ La contratación a través de la web se realizará mediante los siguientes pasos
 
 La confirmación indicará el espacio reservado o contratado, los importes abonados y la fecha prevista de inicio del servicio.
 
+En la reserva online, el contrato entra en vigor cuando se recibe el primer pago. El trastero se guarda durante 72 horas desde la reserva (o el plazo ampliado que se comunique) para firmar y pagar; si en ese plazo no se recibe el pago, la reserva y el contrato quedan sin efecto, sin coste para el cliente, y el trastero vuelve a estar disponible.
+
 Cuando la operación constituya una reserva anticipada, esta no supondrá la disponibilidad inmediata del trastero, sino el compromiso de asignación para la fecha indicada, conforme a las condiciones específicas comunicadas durante la reserva.
 
 Los contratos se formalizarán en español y se facilitará al cliente una copia en formato electrónico que pueda conservar.
@@ -344,6 +346,8 @@ En el proceso de contratación se indicarán claramente:
 - La fianza o garantía exigida, cuando proceda.
 - Las posibles promociones o descuentos.
 - El importe total que se abonará en ese momento.
+
+La factura del primer pago de una reserva online se emite cuando se recibe ese pago y se envía al correo del cliente junto con la confirmación. Si se elige domiciliar el pago, se emite al firmar la orden de domiciliación, antes de cargarlo en la cuenta.
 
 Las renovaciones, vencimientos, medios de pago posteriores y consecuencias del impago se regirán por el contrato de alquiler suscrito.
 

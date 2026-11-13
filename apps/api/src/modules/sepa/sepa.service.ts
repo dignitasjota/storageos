@@ -677,7 +677,53 @@ export class SepaService {
         message: 'Este mandato ya está firmado',
       });
     }
+    await this.issuePendingFirstPayments(mandate.tenantId, mandate.customerId);
     return { signed: true };
+  }
+
+  /**
+   * Reserva online que eligió domiciliar: su primera factura (borrador que se
+   * emite al cobrarse) se emite al tener el mandato firmado, porque la remesa
+   * y el preaviso necesitan el número de factura. Sin mandato firmado, nada.
+   * No lanza: si una no se puede emitir, avisa al equipo.
+   */
+  async issuePendingFirstPayments(tenantId: string, customerId: string): Promise<void> {
+    const signed = await this.adminDb.sepaMandate.count({
+      where: {
+        tenantId,
+        customerId,
+        status: 'active',
+        signatureStatus: { in: ['signed', 'external'] },
+      },
+    });
+    if (signed === 0) return;
+    const drafts = await this.adminDb.invoice.findMany({
+      where: {
+        tenantId,
+        customerId,
+        status: 'draft',
+        issueOnPayment: true,
+        deletedAt: null,
+        contract: { offlinePaymentMethod: 'sepa_debit' },
+      },
+      select: { id: true },
+    });
+    for (const d of drafts) {
+      await this.invoices
+        .issueOnPaymentReceived({ tenantId, invoiceId: d.id })
+        .catch((err: unknown) =>
+          this.notifications
+            .create(tenantId, {
+              type: 'invoice.first_invoice_failed',
+              title: 'No se pudo emitir la primera factura',
+              body: `El inquilino firmó la domiciliación, pero la factura no se pudo emitir: ${
+                err instanceof Error ? err.message : String(err)
+              }. Corrígelo y emítela para incluirla en la remesa.`,
+              link: `/invoices/${d.id}`,
+            })
+            .catch(() => undefined),
+        );
+    }
   }
 
   /** PDF del mandato firmado en la app (con su constancia). */

@@ -19,7 +19,13 @@ const ADMIN_URL =
   process.env.DATABASE_ADMIN_URL ??
   'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
 const DAY = 86_400_000;
-const isoDay = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
+/** Día de calendario en Madrid (el servidor cuenta los días en la hora del negocio). */
+const isoDay = (offset: number) => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+};
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
 
 describe('Mejoras de Locales (e2e)', () => {

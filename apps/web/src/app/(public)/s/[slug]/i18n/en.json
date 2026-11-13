@@ -507,6 +507,7 @@
       "paymentPaid": "✓ Payment completed. Your storage unit access will be activated shortly.",
       "paymentProcessing": "Direct debit started: your bank will confirm it in 2-5 business days and your access will be activated then.",
       "firstInvoice": "First invoice: {number} — {amount}",
+      "firstPaymentPending": "First payment: {amount} (the invoice is issued once paid)",
       "payWithCard": "Pay with card",
       "noOnlinePayment": "The business will tell you how to pay this invoice (bank transfer or direct debit). It is also in your customer area.",
       "payAmount": "Pay {amount}",

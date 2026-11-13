@@ -247,11 +247,12 @@ describe('Portal: self-service de contratación de trastero (e2e)', () => {
     const unitUnpaid = await admin.unit.findUnique({ where: { id: uUnpaid.body.id } });
     expect(unitUnpaid!.status).toBe('available');
     const invUnpaid = await admin.invoice.findUnique({ where: { id: bookUnpaid.body.invoiceId } });
-    // Ya emitida: se anula con una rectificativa de abono (no se borra del libro de IVA).
-    expect(invUnpaid!.status).toBe('rectified');
+    // Se emitía al cobrarse: sin pago, el borrador se anula sin número ni rectificativa.
+    expect(invUnpaid!.status).toBe('cancelled');
+    expect(invUnpaid!.invoiceNumber).toMatch(/^DRAFT-/);
     expect(
       await admin.invoice.count({ where: { rectifiesInvoiceId: bookUnpaid.body.invoiceId } }),
-    ).toBe(1);
+    ).toBe(0);
 
     // Pagado → intacto (contrato sigue vivo, deadline limpiado).
     const cPaid = await admin.contract.findUnique({ where: { id: bookPaid.body.contractId } });
