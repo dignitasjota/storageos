@@ -1111,9 +1111,41 @@ export class ContractsService {
           });
         }
       }
-      return { row, redeemed, freedUnitId, requestClosed };
+      return {
+        row,
+        redeemed,
+        freedUnitId,
+        requestClosed,
+        signalInvoiceId: reservation?.depositInvoiceId ?? null,
+      };
     }, tenantId);
     const created = result.row;
+    // Señal sin cobrar de la reserva convertida: el contrato ya cobra con su
+    // primera factura, así que la señal que esperaba al pago se anula (sin
+    // número). Si se estaba pagando en ese momento, se deja.
+    if (result.signalInvoiceId) {
+      const signal = await this.prisma.withTenant(
+        (tx) =>
+          tx.invoice.findFirst({
+            where: { id: result.signalInvoiceId!, status: 'draft', issueOnPayment: true },
+            select: { id: true, amountPaid: true },
+          }),
+        tenantId,
+      );
+      if (signal && Number(signal.amountPaid) === 0) {
+        await this.invoices
+          .cancel({
+            tenantId,
+            userId: args.userId,
+            invoiceId: signal.id,
+            input: { reason: `Reserva convertida en el contrato ${created.contractNumber}` },
+            meta: args.meta,
+          })
+          .catch((err: unknown) =>
+            this.logger.warn(`señal ${signal.id} sin anular: ${(err as Error).message}`),
+          );
+      }
+    }
     if (result.freedUnitId) {
       this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
         tenantId,

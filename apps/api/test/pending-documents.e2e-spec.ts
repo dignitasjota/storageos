@@ -1,15 +1,21 @@
 import request from 'supertest';
 
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+import { SignaturesService } from '../src/modules/move-in/signatures.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
+import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { generalTermsHash } from './helpers/general-terms';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
+
+const madridToday = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
+const DAY = 86_400_000;
 
 /**
  * Documentos que no llegan a cobrarse: el justificante de fianza se anula sin
@@ -169,5 +175,122 @@ describe('Documentos sin cobrar (e2e)', () => {
 
     const totals = await http().get('/invoices/totals?hideCancelled=true').set(auth).expect(200);
     expect(totals.body).toBeTruthy();
+  });
+
+  it('un contrato del panel firmado por enlace espera al pago y, si no paga, se cancela sin facturas', async () => {
+    const owner = await registerVerifiedUser(app, 'pendlink');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const customerId = await createCustomer(app, owner.accessToken, {
+      documentNumber: '12345678Z',
+    });
+    const created = await http()
+      .post('/contracts')
+      .set(auth)
+      .send({
+        customerId,
+        unitId: unitIds[0],
+        startDate: madridToday(),
+        priceMonthly: 50,
+        billingCycle: 'monthly',
+        depositAmount: 40,
+      })
+      .expect(201);
+    const contractId = created.body.id as string;
+    const sig = await http()
+      .post(`/contracts/${contractId}/request-signature`)
+      .set(auth)
+      .expect(201);
+    const url = sig.body.signingUrl as string;
+    const token = url.slice(url.indexOf('/sign/') + '/sign/'.length);
+    await http()
+      .post(`/public/move-in/sign/${token}`)
+      .send({
+        immediateStart: true,
+        signerName: 'Ana García',
+        method: 'typed',
+        typedSignature: 'Ana García',
+        accept: true,
+        generalTermsHash: await generalTermsHash(app, token),
+      })
+      .expect(201);
+
+    // Como la reserva online: plazo para pagar y nada emitido hasta el cobro.
+    const signed = await admin.contract.findUniqueOrThrow({ where: { id: contractId } });
+    expect(signed.status).toBe('active');
+    expect(signed.firstPaymentDeadline).not.toBeNull();
+    const docs = await admin.invoice.findMany({ where: { contractId } });
+    expect(docs.length).toBe(2);
+    expect(docs.every((d) => d.status === 'draft' && d.issueOnPayment)).toBe(true);
+
+    // Vence el plazo sin pagar: el contrato se cancela y no queda nada emitido.
+    await admin.contract.update({
+      where: { id: contractId },
+      data: { firstPaymentDeadline: new Date(Date.now() - 1000) },
+    });
+    await app.get(SignaturesService).expireUnpaidBookings();
+    const after = await admin.contract.findUniqueOrThrow({ where: { id: contractId } });
+    expect(after.status).toBe('cancelled');
+    const left = await admin.invoice.findMany({ where: { contractId } });
+    expect(left.every((d) => d.status === 'cancelled')).toBe(true);
+    expect(left.some((d) => d.invoiceType.startsWith('R'))).toBe(false);
+    expect(
+      left.every((d) => d.invoiceNumber.startsWith('DRAFT-') || d.kind === 'deposit_receipt'),
+    ).toBe(true);
+  });
+
+  it('la señal de una reserva se factura al cobrarse y, sin cobrar, se anula sin rectificativa', async () => {
+    const owner = await registerVerifiedUser(app, 'pendsignal');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 2 });
+    const customerId = await createCustomer(app, owner.accessToken, {
+      documentNumber: '12345678Z',
+    });
+    const reserve = async (unitId: string) => {
+      const r = await http()
+        .post('/reservations')
+        .set(auth)
+        .send({
+          unitId,
+          customerId,
+          validFrom: new Date().toISOString(),
+          validUntil: new Date(Date.now() + 5 * DAY).toISOString(),
+          depositAmount: 30,
+          confirmImmediately: true,
+        })
+        .expect(201);
+      const row = await admin.reservation.findUniqueOrThrow({ where: { id: r.body.id } });
+      expect(row.depositInvoiceId).not.toBeNull();
+      const invoice = await admin.invoice.findUniqueOrThrow({
+        where: { id: row.depositInvoiceId! },
+      });
+      expect(invoice.status).toBe('draft');
+      expect(invoice.issueOnPayment).toBe(true);
+      return { id: r.body.id as string, invoice };
+    };
+
+    // Cancelada sin pagar: la señal se anula sin número ni rectificativa.
+    const first = await reserve(unitIds[0]!);
+    await http()
+      .post(`/reservations/${first.id}/cancel`)
+      .set(auth)
+      .send({ reason: 'No viene' })
+      .expect(200);
+    const dropped = await admin.invoice.findUniqueOrThrow({ where: { id: first.invoice.id } });
+    expect(dropped.status).toBe('cancelled');
+    expect(await admin.invoice.count({ where: { rectifiesInvoiceId: first.invoice.id } })).toBe(0);
+
+    // Cobrada: se emite con su número y queda pagada.
+    const second = await reserve(unitIds[1]!);
+    await http()
+      .post(`/invoices/${second.invoice.id}/mark-paid`)
+      .set(auth)
+      .send({ amount: Number(second.invoice.total), methodType: 'cash' })
+      .expect(200);
+    const paid = await admin.invoice.findUniqueOrThrow({ where: { id: second.invoice.id } });
+    expect(paid.status).toBe('paid');
+    expect(paid.invoiceNumber).not.toMatch(/^DRAFT-/);
   });
 });

@@ -2237,3 +2237,18 @@ Migración `20270116100000_fiscal_features` (se aplica sola):
 - **Anonimizar** un tenant quita el email de la asesoría.
 
 **Nada que configurar.** Las cifras son un borrador para presentar: conviene que la asesoría revise el primer trimestre.
+
+## 129. Facturas y justificantes que no se llegan a cobrar (2026-11-13)
+
+Sin migración ni variables nuevas. Objetivo: que quien no paga no deje facturas ni rectificativas por medio.
+
+- **Justificante de fianza**: «Anular» ya funciona en uno sin cobrar (antes la vista previa lo bloqueaba) y no hace rectificativa, porque no es una factura.
+- **Cancelar un contrato** anula sus borradores (también la primera factura que esperaba al pago) y la fianza sin cobrar. Las facturas emitidas no se tocan.
+- **Se emiten al cobrarse** (sin número ni Veri\*Factu hasta que entra el dinero; si no se paga, se anulan sin rectificativa):
+  - la fianza de una reserva online;
+  - la primera factura de un **contrato del panel firmado por enlace**. Funciona como la reserva online: tiene 72 h desde la firma para pagar y, si no paga, el contrato se cancela solo y el trastero se libera. Antes se emitía al firmar;
+  - la señal de una reserva. Si la reserva se convierte en contrato con la señal sin cobrar, la señal se anula: cobra el contrato;
+  - la tienda y el pase nocturno del área de clientes. Si el cobro queda en curso (adeudo SEPA), se emite al momento, porque la venta se entrega.
+- **Lista de facturas**: botón «Ocultar canceladas», marcado de inicio y recordado en el navegador. Esconde los borradores descartados y los justificantes anulados. Las facturas anuladas (por error o con rectificativa) se siguen viendo.
+
+Los documentos que ya estaban emitidos antes de este cambio siguen como estaban.
