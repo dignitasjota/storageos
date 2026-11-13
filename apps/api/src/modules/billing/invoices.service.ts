@@ -809,11 +809,16 @@ export class InvoicesService {
       (tx) =>
         tx.invoice.findFirst({
           where: { id: args.invoiceId, deletedAt: null },
-          select: { status: true, issueOnPayment: true },
+          select: { status: true, issueOnPayment: true, kind: true },
         }),
       args.tenantId,
     );
     if (!row || row.status !== 'draft' || !row.issueOnPayment) return;
+    // El justificante de fianza no se emite: pasa a cobrable.
+    if (row.kind === 'deposit_receipt') {
+      await this.releasePendingReceipts(args.tenantId, { id: args.invoiceId });
+      return;
+    }
     try {
       await this.issue({
         tenantId: args.tenantId,
@@ -1192,6 +1197,9 @@ export class InvoicesService {
     if (!fromHolded && updated.hash) {
       await this.verifactuDispatcher.schedule(args.tenantId, existing.ownerId ?? null);
     }
+
+    // La fianza que va con ella (reserva online) pasa a cobrable a la vez.
+    await this.releasePendingReceipts(args.tenantId, { bundledWithInvoiceId: updated.id });
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -2437,6 +2445,12 @@ export class InvoicesService {
     amount: number;
     dueDate: Date | null;
     bundledWithInvoiceId: string | null;
+    /**
+     * Va con el primer pago de una reserva online, que aún no se ha cobrado:
+     * queda «pendiente de pago» (sin PDF) hasta que entra el cobro. Si la
+     * reserva caduca, se anula sin haberse emitido.
+     */
+    awaitingPayment?: boolean;
   }): Promise<InvoiceDto> {
     const series = await this.series.getDefault(args.tenantId);
     if (!series) {
@@ -2465,9 +2479,10 @@ export class InvoicesService {
           sequenceNumber: 0,
           invoiceNumber: taken === 0 ? base : `${base}-${taken + 1}`,
           kind: 'deposit_receipt',
-          status: 'issued',
+          ...(args.awaitingPayment
+            ? { status: 'draft' as const, issueOnPayment: true }
+            : { status: 'issued' as const, issueDate: new Date() }),
           invoiceType: 'F1',
-          issueDate: new Date(),
           ...(args.dueDate ? { dueDate: args.dueDate } : {}),
           bundledWithInvoiceId: args.bundledWithInvoiceId,
           subtotal: args.amount,
@@ -2504,11 +2519,52 @@ export class InvoicesService {
       ipAddress: null,
       userAgent: null,
     });
-    this.events.emit(INVOICE_PDF_REQUESTED, {
-      tenantId: args.tenantId,
-      invoiceId: created.id,
-    } satisfies InvoicePdfRequestedPayload);
+    // El PDF, cuando es cobrable (el que espera al pago, al entrar el cobro).
+    if (!args.awaitingPayment) {
+      this.events.emit(INVOICE_PDF_REQUESTED, {
+        tenantId: args.tenantId,
+        invoiceId: created.id,
+      } satisfies InvoicePdfRequestedPayload);
+    }
     return this.toDto(created);
+  }
+
+  /**
+   * Justificantes de fianza que esperaban al pago de su reserva: pasan a
+   * cobrables (con su fecha y su PDF) al entrar el cobro o emitirse la factura
+   * con la que van.
+   */
+  private async releasePendingReceipts(
+    tenantId: string,
+    where: Prisma.InvoiceWhereInput,
+  ): Promise<void> {
+    const released = await this.prisma.withTenant(async (tx) => {
+      const pending = await tx.invoice.findMany({
+        where: {
+          ...where,
+          kind: 'deposit_receipt',
+          status: 'draft',
+          issueOnPayment: true,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      const out: string[] = [];
+      for (const r of pending) {
+        const moved = await tx.invoice.updateMany({
+          where: { id: r.id, status: 'draft' },
+          data: { status: 'issued', issueDate: new Date() },
+        });
+        if (moved.count === 1) out.push(r.id);
+      }
+      return out;
+    }, tenantId);
+    for (const invoiceId of released) {
+      this.events.emit(INVOICE_PDF_REQUESTED, {
+        tenantId,
+        invoiceId,
+      } satisfies InvoicePdfRequestedPayload);
+    }
   }
 
   /** Anula una factura emitida con una rectificativa de abono por el total. */

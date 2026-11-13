@@ -8,7 +8,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { toCents } from '../../../common/money';
-import { assertNotInSepaRemittance } from '../../../common/sepa-remittance-guard';
+import {
+  PAYABLE_INVOICE_WHERE,
+  assertNotInSepaRemittance,
+} from '../../../common/sepa-remittance-guard';
 import { InvoicesService } from '../../billing/invoices.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
@@ -117,7 +120,7 @@ export class RedsysService {
         tenantId,
         bundledWithInvoiceId: invoiceId,
         kind: 'deposit_receipt',
-        status: { in: ['issued', 'overdue'] },
+        ...PAYABLE_INVOICE_WHERE,
         deletedAt: null,
       },
       select: { total: true, amountPaid: true },
@@ -176,7 +179,7 @@ export class RedsysService {
             tenantId,
             bundledWithInvoiceId: x.id,
             kind: 'deposit_receipt',
-            status: { in: ['issued', 'overdue'] },
+            ...PAYABLE_INVOICE_WHERE,
             deletedAt: null,
           },
           select: { total: true, amountPaid: true },

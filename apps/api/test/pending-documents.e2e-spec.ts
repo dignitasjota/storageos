@@ -106,6 +106,22 @@ describe('Documentos sin cobrar (e2e)', () => {
     expect(rectifications).toBe(0);
   });
 
+  it('la fianza espera al pago y, al registrar el cobro de la reserva, queda cobrada', async () => {
+    const { auth, receipt } = await bookAndSign('pendpay');
+    expect(receipt.status).toBe('draft');
+    expect(receipt.issueOnPayment).toBe(true);
+
+    // Cobrar la fianza en el local (efectivo) la deja hecha y pagada.
+    await http()
+      .post(`/contracts/${receipt.contractId}/deposit/collect`)
+      .set(auth)
+      .send({ methodType: 'cash' })
+      .expect(200);
+    const paid = await admin.invoice.findUniqueOrThrow({ where: { id: receipt.id } });
+    expect(paid.status).toBe('paid');
+    expect(paid.issueDate).not.toBeNull();
+  });
+
   it('cancelar el contrato anula lo que no se cobró y ya no se puede pagar', async () => {
     const { auth, contractId, invoice, receipt, portalToken } = await bookAndSign('pendctr');
 

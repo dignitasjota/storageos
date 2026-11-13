@@ -12,7 +12,10 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { pageArgs, type PageRequest } from '../../common/pagination';
-import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
+import {
+  PAYABLE_INVOICE_WHERE,
+  assertNotInSepaRemittance,
+} from '../../common/sepa-remittance-guard';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
@@ -221,7 +224,8 @@ export class PaymentsService {
                   where: {
                     bundledWithInvoiceId: invoice.id,
                     kind: 'deposit_receipt',
-                    status: { in: ['issued', 'overdue'] },
+                    // También el que espera al pago de su reserva.
+                    ...PAYABLE_INVOICE_WHERE,
                     deletedAt: null,
                   },
                   select: { id: true, total: true, amountPaid: true },

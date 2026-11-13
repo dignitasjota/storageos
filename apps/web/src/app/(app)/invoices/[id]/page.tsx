@@ -732,7 +732,14 @@ export default function InvoiceDetailPage() {
                 informes.
               </p>
             )}
-            {awaitingPayment && (
+            {awaitingPayment && i.kind === 'deposit_receipt' && (
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                Fianza de una reserva online: se cobra en el mismo pago que la primera factura y el
+                justificante queda hecho al entrar ese pago. Si no se paga en plazo, la reserva
+                caduca y se anula sin más.
+              </p>
+            )}
+            {awaitingPayment && i.kind === 'invoice' && (
               <p className="max-w-2xl text-sm text-muted-foreground">
                 {i.amountPaid >= i.total
                   ? 'El cobro ya entró, pero la factura no se pudo emitir. Corrige el problema y pulsa «Emitir»: quedará pagada.'

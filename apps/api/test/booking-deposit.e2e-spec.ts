@@ -103,7 +103,10 @@ describe('Reserva online con fianza (e2e)', () => {
     expect(Number(receipt.taxAmount)).toBe(0);
     expect(receipt.hash).toBeNull();
     expect(receipt.aeatStatus).toBeNull();
-    expect(receipt.status).toBe('issued');
+    // Espera al pago de la reserva, como la factura: si no pagan, no queda nada hecho.
+    expect(receipt.status).toBe('draft');
+    expect(receipt.issueOnPayment).toBe(true);
+    expect(receipt.issueDate).toBeNull();
     expect(receipt.bundledWithInvoiceId).toBe(invoice.id);
 
     const dto = await request(app.getHttpServer()).get(`/invoices/${receipt.id}`).set(auth);
@@ -212,6 +215,10 @@ describe('Reserva online con fianza (e2e)', () => {
       .expect(200);
     await new Promise((r) => setTimeout(r, 800));
     expect(await admin.accessCredential.count({ where: { customerId, revokedAt: null } })).toBe(0);
+    // Al emitirse la factura, la fianza pasa a cobrable.
+    const released = await admin.invoice.findUniqueOrThrow({ where: { id: receipt.id } });
+    expect(released.status).toBe('issued');
+    expect(released.issueDate).not.toBeNull();
 
     await request(app.getHttpServer())
       .post(`/invoices/${receipt.id}/mark-paid`)

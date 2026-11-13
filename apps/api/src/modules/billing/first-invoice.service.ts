@@ -443,9 +443,11 @@ export class FirstInvoiceService {
           ...(cashDeposit
             ? { dueDate: null, bundledWithInvoiceId: null }
             : {
-                // Vence con la factura con la que se paga.
+                // Vence con la factura con la que se paga y, si ella espera al
+                // cobro, espera también (no queda nada emitido si no pagan).
                 dueDate: bundleDue,
                 bundledWithInvoiceId: invoice.id,
+                awaitingPayment: !issued,
               }),
         });
       }
