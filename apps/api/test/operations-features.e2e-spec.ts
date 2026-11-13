@@ -201,7 +201,9 @@ describe('Funcionalidades de la Operativa (e2e)', () => {
     const confirmed = await http().post(`/reservations/${r.body.id}/confirm`).set(auth).expect(200);
     expect(confirmed.body.depositInvoiceId).toBeTruthy();
     const inv = await http().get(`/invoices/${confirmed.body.depositInvoiceId}`).set(auth);
-    expect(inv.body.status).toBe('issued');
+    // Se emite al cobrarse: hasta entonces, pendiente de pago y sin número.
+    expect(inv.body.status).toBe('draft');
+    expect(inv.body.issueOnPayment).toBe(true);
     expect(Number(inv.body.total)).toBeCloseTo(24.2, 2);
     // Idempotente.
     const again = await http()
@@ -215,6 +217,9 @@ describe('Funcionalidades de la Operativa (e2e)', () => {
       .set(auth)
       .send({ amount: 24.2, methodType: 'cash' })
       .expect(200);
+    const issued = await http().get(`/invoices/${inv.body.id}`).set(auth);
+    expect(issued.body.status).toBe('paid');
+    expect(issued.body.invoiceNumber).not.toMatch(/^DRAFT-/);
     let paid = false;
     for (let i = 0; i < 20 && !paid; i++) {
       paid = (await db.reservation.findUniqueOrThrow({ where: { id: r.body.id } })).depositPaid;
