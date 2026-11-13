@@ -2267,3 +2267,11 @@ Migración `20270117100000_email_delivery_checks` (se aplica sola). Sin variable
 1. En Portainer, `EMAIL_WEBHOOK_TOKEN` con un valor aleatorio largo (si no está ya).
 2. En Brevo → Transactional → Settings → Webhook: la dirección que enseña Correo saliente (`…/webhooks/email-events/brevo?token=<EMAIL_WEBHOOK_TOKEN>`) con los eventos Delivered, **Soft bounce**, Hard bounce, Invalid email, Blocked, Error y Spam.
 3. Comprobar en Correo saliente que aparece «Último aviso recibido» tras enviar algún correo.
+
+## 131. Contratos pendientes de firmar en el área de clientes (2026-11-13)
+
+Sin migración ni variables nuevas.
+
+- El área de clientes enseña en Inicio y en Contratos la tarjeta **«Pendiente de firmar»**. Recoge los contratos que se le enviaron para firmar, o la reserva online que no llegó a firmar, con el plazo hasta el que se le guarda el trastero.
+- **«Firmar»** abre la firma con un enlace nuevo, aunque el del correo haya caducado o se haya sustituido. El enlace anterior deja de valer.
+- Los borradores que el equipo aún está preparando (sin enviar a firmar) no salen.

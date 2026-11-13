@@ -10,6 +10,27 @@ import type { OpeningException, OpeningHours } from '../facilities/schemas';
 export const PortalLocaleEnum = z.enum(['es', 'en']);
 export type PortalLocaleValue = z.infer<typeof PortalLocaleEnum>;
 
+/**
+ * Contrato del inquilino que espera su firma (se le envió el enlace o reservó
+ * online y no firmó): el área de clientes lo enseña con «Firmar».
+ */
+export interface PortalPendingSignatureDto {
+  id: string;
+  contractNumber: string;
+  unitCode: string;
+  facilityName: string;
+  startDate: string;
+  /** Cuota mensual con IVA (alquiler menos descuento). */
+  priceMonthlyWithVat: number;
+  /** Hasta cuándo se le guarda el trastero (reserva online), o null. */
+  holdUntil: string | null;
+}
+
+/** Enlace de firma nuevo para un contrato pendiente (el anterior deja de valer). */
+export interface PortalSignLinkDto {
+  token: string;
+}
+
 /** Contrato tal como lo ve el inquilino en su portal. */
 export interface PortalContractDto {
   id: string;

@@ -612,6 +612,13 @@
         "purchaseError": "No se pudo completar la compra."
       },
       "linkUsedContinue": "Ese enlace ya no es válido. Sigues dentro como {name}.",
+      "pendingSignature": {
+        "title": "Pendiente de firmar",
+        "details": "{number} · desde el {start} · {price} €/mes con IVA",
+        "holdUntil": "Te guardamos el trastero hasta el {date}.",
+        "sign": "Firmar",
+        "error": "No se ha podido abrir la firma. Inténtalo de nuevo."
+      },
       "offers": {
         "title": "Ofertas para ti",
         "perMonth": "{price}/mes",

@@ -46,6 +46,8 @@ import type {
   ContractSignatureDto,
   ContractSigningRecordDto,
   GeneralTermsToAcceptDto,
+  PortalPendingSignatureDto,
+  PortalSignLinkDto,
   SignPaymentSessionDto,
   PublicSignSubmitInput,
   RequestSignatureResultDto,
@@ -109,6 +111,84 @@ export class SignaturesService {
       data: { signingTokenHash: tokenHash, signingTokenExpiresAt: expiresAt },
     });
     return { token: `${contractId}.${secret}`, expiresAt };
+  }
+
+  /**
+   * Área de clientes: contratos del inquilino que esperan su firma. Solo los
+   * que ya se le enviaron para firmar (enlace o reserva online): un borrador
+   * que el equipo aún prepara no se enseña.
+   */
+  async pendingForCustomer(
+    tenantId: string,
+    customerId: string,
+  ): Promise<PortalPendingSignatureDto[]> {
+    const rows = await this.admin.contract.findMany({
+      where: {
+        tenantId,
+        customerId,
+        deletedAt: null,
+        status: 'draft',
+        signingTokenHash: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        contractNumber: true,
+        startDate: true,
+        priceMonthly: true,
+        discountAmount: true,
+        firstPaymentDeadline: true,
+        unit: {
+          select: {
+            code: true,
+            facility: { select: { name: true } },
+            unitType: { select: { propertyKind: true } },
+          },
+        },
+      },
+    });
+    return rows.map((r) => {
+      const net = Math.max(0, Number(r.priceMonthly) - Number(r.discountAmount ?? 0));
+      const { taxRate } = rentTax(r.unit.unitType?.propertyKind);
+      return {
+        id: r.id,
+        contractNumber: r.contractNumber,
+        unitCode: r.unit.code,
+        facilityName: r.unit.facility.name,
+        startDate: r.startDate.toISOString().slice(0, 10),
+        priceMonthlyWithVat: Math.round(net * (100 + taxRate)) / 100,
+        holdUntil: r.firstPaymentDeadline?.toISOString() ?? null,
+      };
+    });
+  }
+
+  /**
+   * Área de clientes: enlace de firma nuevo para un contrato suyo pendiente (el
+   * del correo puede haber caducado o haberse sustituido por otro).
+   */
+  async signLinkForCustomer(
+    tenantId: string,
+    customerId: string,
+    contractId: string,
+  ): Promise<PortalSignLinkDto> {
+    const contract = await this.admin.contract.findFirst({
+      where: { id: contractId, tenantId, customerId, deletedAt: null },
+      select: { status: true, signingTokenHash: true },
+    });
+    if (!contract || (contract.status === 'draft' && !contract.signingTokenHash)) {
+      throw new NotFoundException({
+        code: 'contract_not_found',
+        message: 'Contrato no encontrado',
+      });
+    }
+    if (contract.status !== 'draft') {
+      throw new ConflictException({
+        code: 'contract_not_signable',
+        message: 'Este contrato ya está firmado o se ha cancelado.',
+      });
+    }
+    const { token } = await this.generateSigningToken(contractId);
+    return { token };
   }
 
   /** Staff: solicita la firma remota de un contrato draft y envía el enlace. */

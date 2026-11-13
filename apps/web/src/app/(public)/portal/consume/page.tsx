@@ -72,6 +72,7 @@ import { NightAccessCard } from './night-access-card';
 import { NoticesCard } from './notices-card';
 import { OffersCard } from './offers-card';
 import { OverviewCard } from './overview-card';
+import { PendingSignatureCard } from './pending-signature-card';
 import { PreOpeningNotice } from './pre-opening-notice';
 import { PreferencesCard } from './preferences-card';
 import { ProfileCard } from './profile-card';
@@ -1160,6 +1161,7 @@ function PortalConsumeContent() {
           className="pb-app-nav min-w-0 flex-1 md:pb-0"
         >
           <TabsContent value="inicio" className="space-y-6">
+            <PendingSignatureCard session={session} />
             <OverviewCard
               customerName={session.customerName}
               invoices={invoices}
@@ -1174,6 +1176,7 @@ function PortalConsumeContent() {
           </TabsContent>
 
           <TabsContent value="contratos" className="space-y-6">
+            <PendingSignatureCard session={session} />
             <ExtrasCard
               session={session}
               contracts={contracts ?? []}

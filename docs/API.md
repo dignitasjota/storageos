@@ -2124,6 +2124,7 @@ Páginas propias por promoción en la web del tenant, con el estilo de su planti
 ### Move-out self-service (portal del inquilino)
 
 - `GET /portal/me/contracts` (`@Public` + sesión de portal): contratos active/ending del inquilino (`PortalContractDto`).
+- `GET /portal/me/contracts/pending-signature` (`@Public` + sesión de portal): contratos en borrador que esperan su firma —se le envió el enlace o reservó online— (`PortalPendingSignatureDto[]`: número, trastero, local, inicio, cuota con IVA y `holdUntil`). Los borradores que el equipo aún prepara no salen. `POST /portal/me/contracts/:id/sign-link` (throttle) → `{token}`: enlace de firma nuevo (el anterior deja de valer); 404 si no es suyo o no se le envió a firmar, 409 `contract_not_signable` si ya no está en borrador.
 - `POST /portal/me/contracts/:id/request-move-out {endDate}` (`@Public` + sesión + throttle): solicita la baja. Valida propiedad (404 si no es suyo) + preaviso (`endDate ≥ hoy + cancellationNoticeDays`, 400 `notice_period_not_met` con `details.minEndDate`, la primera fecha posible) → contrato a `ending`. Con `moveOutEndOfMonth` (por defecto) la fecha se lleva al último día de su mes. Emite `contract_move_out_requested` → notificación al staff + encuesta de salida (NPS). El staff finaliza el contrato en la fecha (no auto-finaliza).
 
 ### Recargo por mora / late fee (`/invoices/:id/late-fee`, `/settings/tenant/billing`)
